@@ -20,6 +20,7 @@ const EXPECTATION_NAME = '0025-bottom-sheet-initial-hidden';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 const CENTER_COORDINATES: [number, number] = [5.746, 51.400];
 const ZOOM_LEVEL = 17;
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
@@ -76,6 +77,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
     consoleWarnings = [];
+
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
 
     page.on('console', (msg) => {
       if (msg.type() === 'error') {

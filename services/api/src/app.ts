@@ -92,6 +92,14 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
         : ['https://huishype.nl', 'https://huishype.com'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    exposedHeaders: [
+      'ETag',
+      'X-Tile-Budget-Ms',
+      'X-Tile-Cache',
+      'X-Tile-Coalesced',
+      'X-Tile-Generation-Time',
+      'X-Tile-Queue-Time',
+    ],
   });
 
   // Register response compression (gzip/deflate).

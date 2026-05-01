@@ -2,7 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@je
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../../config.js';
-import { db, ingestBatches, listings } from '../../db/index.js';
+import {
+  db,
+  ingestBatches,
+  listings,
+  propertyTileSnapshotRefreshState,
+  propertyTileSnapshotWatermarks,
+} from '../../db/index.js';
 import { canonicalListings, mirrorListingWatches, users } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { encodeOpaqueIngestCursor } from '../../services/ingest/index.js';
@@ -11,6 +17,7 @@ import {
   createIntegrationPriceHistory,
   createIntegrationProperty,
 } from './helpers/fixtures.js';
+import { PROPERTY_TILE_SNAPSHOT_KEY } from '../../services/property-tile-snapshots.js';
 
 /**
  * Integration tests for listing routes.
@@ -54,6 +61,25 @@ describe('Listing routes', () => {
         'content-length': String(Buffer.byteLength(html)),
       },
     });
+  }
+
+  async function readPropertyTileSnapshotInvalidationState() {
+    const [watermark] = await db
+      .select()
+      .from(propertyTileSnapshotWatermarks)
+      .where(eq(propertyTileSnapshotWatermarks.key, PROPERTY_TILE_SNAPSHOT_KEY))
+      .limit(1);
+    const [refreshState] = await db
+      .select()
+      .from(propertyTileSnapshotRefreshState)
+      .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
+      .limit(1);
+
+    return {
+      listingWatermark: watermark?.listingWatermark ?? 0n,
+      propertyWatermark: watermark?.propertyWatermark ?? 0n,
+      refreshState: refreshState ?? null,
+    };
   }
 
   beforeAll(async () => {
@@ -281,7 +307,6 @@ describe('Listing routes', () => {
           price: 487500,
           currency: 'EUR',
         }));
-
       const response = await app.inject({
         method: 'POST',
         url: '/listings/preview',
@@ -607,6 +632,7 @@ describe('Listing routes', () => {
       const thumbnailUrl = 'https://cdn.example.com/test-thumbnail.jpg';
       const submittedId = `${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(0, 12);
       const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-contract-test/${submittedId}/`;
+      const snapshotStateBefore = await readPropertyTileSnapshotInvalidationState();
 
       mockFetchFn
         .mockResolvedValueOnce(jsonResponse({
@@ -701,6 +727,15 @@ describe('Listing routes', () => {
         sourceUrl: `https://www.funda.nl/detail/${submittedId}/`,
         sourceName: 'funda',
         sourceListingId: submittedId,
+      });
+
+      const snapshotStateAfter = await readPropertyTileSnapshotInvalidationState();
+      expect(snapshotStateAfter.listingWatermark > snapshotStateBefore.listingWatermark).toBe(true);
+      expect(snapshotStateAfter.propertyWatermark > snapshotStateBefore.propertyWatermark).toBe(true);
+      expect(snapshotStateAfter.refreshState).toMatchObject({
+        requestReason: 'listing-submit',
+        requestedListingWatermark: snapshotStateAfter.listingWatermark,
+        requestedPropertyWatermark: snapshotStateAfter.propertyWatermark,
       });
 
       const [watch] = await db
@@ -968,6 +1003,7 @@ describe('Listing routes', () => {
       expect(submitResponse.statusCode).toBe(201);
       const submitted = JSON.parse(submitResponse.body);
       expect(submitted.watchId).toBeTruthy();
+      const snapshotStateBeforeOutcome = await readPropertyTileSnapshotInvalidationState();
 
       const outcomeResponse = await app.inject({
         method: 'POST',
@@ -1018,6 +1054,17 @@ describe('Listing routes', () => {
         watchState: 'matched',
         reasonCode: null,
         thumbnailUrl: 'https://cdn.example.com/pararius-thumb.jpg',
+      });
+
+      const snapshotStateAfterOutcome = await readPropertyTileSnapshotInvalidationState();
+      expect(snapshotStateAfterOutcome.listingWatermark > snapshotStateBeforeOutcome.listingWatermark)
+        .toBe(true);
+      expect(snapshotStateAfterOutcome.propertyWatermark > snapshotStateBeforeOutcome.propertyWatermark)
+        .toBe(true);
+      expect(snapshotStateAfterOutcome.refreshState).toMatchObject({
+        requestReason: 'listing-validation-outcome',
+        requestedListingWatermark: snapshotStateAfterOutcome.listingWatermark,
+        requestedPropertyWatermark: snapshotStateAfterOutcome.propertyWatermark,
       });
     });
 

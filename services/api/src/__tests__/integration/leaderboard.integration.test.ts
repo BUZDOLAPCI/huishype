@@ -13,9 +13,122 @@ describe('Leaderboard routes', () => {
   let propertyId: string;
   const testUserIds: string[] = [];
   const createdCommentIds: string[] = [];
+  const fixtureStreet = 'Leaderboard Fixture Street';
+  const fixtureCity = 'Leaderboard City';
+  const fixturePostalCode = '9060AA';
+
+  async function deleteLeaderboardFixtureData() {
+    await db.execute(sql`
+      WITH fixture_properties AS (
+        SELECT id
+        FROM properties
+        WHERE street = ${fixtureStreet}
+          AND city = ${fixtureCity}
+          AND postal_code = ${fixturePostalCode}
+      )
+      DELETE FROM reactions r
+      USING fixture_properties fp
+      WHERE r.target_type = 'property'
+        AND r.target_id = fp.id
+    `);
+
+    await db.execute(sql`
+      DELETE FROM properties
+      WHERE street = ${fixtureStreet}
+        AND city = ${fixtureCity}
+        AND postal_code = ${fixturePostalCode}
+    `);
+  }
+
+  async function getMaxFeaturedEngagementScore() {
+    const rows = await db.execute<{ max_score: number | null }>(sql`
+      WITH featured_events AS (
+        SELECT
+          sub.property_id,
+          COUNT(*)::int AS comment_count,
+          0::int AS like_count,
+          0::int AS guess_count,
+          0::int AS view_count,
+          MAX(sub.created_at) AS last_at
+        FROM comments sub
+        GROUP BY sub.property_id
+
+        UNION ALL
+
+        SELECT
+          sub.target_id AS property_id,
+          0::int AS comment_count,
+          COUNT(*)::int AS like_count,
+          0::int AS guess_count,
+          0::int AS view_count,
+          MAX(sub.created_at) AS last_at
+        FROM reactions sub
+        WHERE sub.target_type = 'property'
+          AND sub.reaction_type = 'like'
+        GROUP BY sub.target_id
+
+        UNION ALL
+
+        SELECT
+          sub.property_id,
+          0::int AS comment_count,
+          0::int AS like_count,
+          COUNT(*)::int AS guess_count,
+          0::int AS view_count,
+          MAX(sub.created_at) AS last_at
+        FROM price_guesses sub
+        WHERE sub.is_meme_guess = false
+        GROUP BY sub.property_id
+
+        UNION ALL
+
+        SELECT
+          sub.property_id,
+          0::int AS comment_count,
+          0::int AS like_count,
+          0::int AS guess_count,
+          COUNT(*)::int AS view_count,
+          MAX(sub.viewed_at) AS last_at
+        FROM property_views sub
+        GROUP BY sub.property_id
+      ),
+      featured_scores AS (
+        SELECT
+          property_id,
+          SUM(comment_count)::int AS comment_count,
+          SUM(like_count)::int AS like_count,
+          SUM(guess_count)::int AS guess_count,
+          SUM(view_count)::int AS view_count,
+          MAX(last_at) AS latest_activity_at
+        FROM featured_events
+        GROUP BY property_id
+      )
+      SELECT MAX(
+        (
+          (comment_count * 5)
+          + (guess_count * 4)
+          + (like_count * 2)
+          + (LEAST(view_count, 40) * 0.25)
+          + CASE
+              WHEN latest_activity_at IS NULL THEN 0
+              ELSE GREATEST(
+                0,
+                14 - (EXTRACT(EPOCH FROM (NOW() - latest_activity_at)) / 86400.0)
+              )
+            END
+        )::float8
+      ) AS max_score
+      FROM featured_scores
+    `);
+
+    return Number(Array.from(rows)[0]?.max_score ?? 0);
+  }
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
+    await deleteLeaderboardFixtureData();
+    const maxFeaturedScore = await getMaxFeaturedEngagementScore();
+    const bulkCommentCount = Math.max(1, Math.ceil((maxFeaturedScore + 50) / 5));
 
     const user = await createIntegrationUser(app, {
       label: `leaderboard-${Date.now()}`,
@@ -25,10 +138,10 @@ describe('Leaderboard routes', () => {
     testUserIds.push(userId);
 
     const property = await createIntegrationProperty({
-      street: 'Leaderboard Fixture Street',
+      street: fixtureStreet,
       houseNumber: 1,
-      city: 'Leaderboard City',
-      postalCode: '9060AA',
+      city: fixtureCity,
+      postalCode: fixturePostalCode,
       lon: 5.4706,
       lat: 51.4406,
       officialValuation: 612000,
@@ -55,7 +168,7 @@ describe('Leaderboard routes', () => {
         'Leaderboard featured weighting ' || series::text,
         NOW(),
         NOW()
-      FROM generate_series(1, 800) AS series
+      FROM generate_series(1, ${bulkCommentCount}) AS series
     `);
 
     await app.inject({
@@ -86,13 +199,19 @@ describe('Leaderboard routes', () => {
     for (const uid of testUserIds) {
       try {
         await db.delete(reactions).where(eq(reactions.userId, uid));
-        await db.delete(users).where(eq(users.id, uid));
       } catch {
         // Ignore
       }
     }
     if (propertyId) {
-      await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      await deleteLeaderboardFixtureData();
+    }
+    for (const uid of testUserIds) {
+      try {
+        await db.delete(users).where(eq(users.id, uid));
+      } catch {
+        // Ignore
+      }
     }
     await app.close();
   });

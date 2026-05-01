@@ -14,6 +14,7 @@ import path from 'path';
 const SCREENSHOT_DIR = 'test-results/reference-expectations/swipeable-clustered-nodes';
 const PREVIEWABLE_CLUSTER_ZOOM = 13;
 const PREVIEWABLE_CLUSTER_CENTER: [number, number] = [5.469710826873779, 51.441610133286275];
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
 test.beforeAll(async () => {
   const baseDir = path.resolve(SCREENSHOT_DIR);
@@ -177,6 +178,12 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
   test.describe.configure({ mode: 'serial' });
 
   let ctx: VisualTestContext;
+
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
+  });
 
   test.afterEach(async () => {
     if (ctx) {

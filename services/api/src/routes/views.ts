@@ -3,7 +3,17 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties, propertyViews } from '../db/index.js';
 import { sql, eq } from 'drizzle-orm';
-import { markPropertyRead, resolvePropertyReadViewer } from '../services/property-read-state.js';
+import {
+  getPropertyReadViewerScope,
+  markPropertyRead,
+  resolvePropertyReadViewer,
+} from '../services/property-read-state.js';
+import {
+  advancePropertyTileSnapshotWatermark,
+  getPropertyViewSnapshotRefreshThrottleMs,
+  safeRequestPropertyTileSnapshotRefresh,
+} from '../services/property-tile-snapshots.js';
+import { propertyTileRuntime } from '../services/property-tile-runtime.js';
 
 // Schema definitions
 const propertyParamsSchema = z.object({
@@ -135,14 +145,28 @@ export async function viewRoutes(app: FastifyInstance) {
 
       // Only insert if not deduped
       if (!alreadyViewed) {
-        await db.insert(propertyViews).values({
-          propertyId,
-          userId: userId || null,
-          sessionId,
+        await db.transaction(async (tx) => {
+          await tx.insert(propertyViews).values({
+            propertyId,
+            userId: userId || null,
+            sessionId,
+          });
+          await advancePropertyTileSnapshotWatermark(['social'], tx);
         });
       }
 
       await markPropertyRead(propertyId, viewer);
+      const viewerScope = getPropertyReadViewerScope(viewer);
+      propertyTileRuntime.invalidateMatching((key) =>
+        key.startsWith(`read:`) && key.includes(`:${viewerScope}:`)
+      );
+
+      if (!alreadyViewed) {
+        await safeRequestPropertyTileSnapshotRefresh({
+          reason: 'property-view',
+          throttleMs: getPropertyViewSnapshotRefreshThrottleMs(),
+        }, request.log, { propertyId, viewerScope });
+      }
 
       // Get current counts
       const counts = await db.execute<{ view_count: number; unique_viewers: number }>(sql`

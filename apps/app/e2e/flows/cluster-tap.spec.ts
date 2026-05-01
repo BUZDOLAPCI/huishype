@@ -9,20 +9,45 @@
 
 import { test, expect, Page } from '@playwright/test';
 import { PROPERTY_MAP_LAYERS, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
-import { getPlaywrightApiUrl } from '../helpers/runtime';
+import { getPlaywrightApiUrl, getPlaywrightWebOrigin } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 import type { MapFeature, WindowWithMapInstance } from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
 // Eindhoven center coordinates
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
+const LOW_ZOOM_CLUSTER_TARGETS: Array<{ name: string; center: [number, number] }> = [
+  { name: 'Eindhoven', center: EINDHOVEN_CENTER },
+  { name: 'Amsterdam', center: [4.9041, 52.3676] },
+  { name: 'Rotterdam', center: [4.4777, 51.9244] },
+  { name: 'Utrecht', center: [5.1214, 52.0907] },
+  { name: 'The Hague', center: [4.3007, 52.0705] },
+];
 
 // Known acceptable console errors
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
-// Disable tracing to avoid artifact issues; increase timeout for map-heavy tests
-test.use({ trace: 'off' });
+// Disable tracing to avoid artifact issues; increase timeout for map-heavy tests.
+// These map interaction flows are not first-run welcome-modal coverage.
+test.use({
+  trace: 'off',
+  storageState: {
+    cookies: [],
+    origins: [
+      {
+        origin: getPlaywrightWebOrigin(),
+        localStorage: [
+          {
+            name: WELCOME_MODAL_DISMISSED_KEY,
+            value: '1',
+          },
+        ],
+      },
+    ],
+  },
+});
 test.setTimeout(120000);
 
 /** Wait for the MapLibre GL map instance to be available and loaded */
@@ -78,10 +103,35 @@ async function setMapView(
   await page.waitForTimeout(3000);
 }
 
+async function waitForPropertyTilesSettled(page: Page, timeout = 30000): Promise<void> {
+  await page
+    .waitForFunction(
+      () => {
+        const map = (window as WindowWithMapInstance).__mapInstance;
+        if (!map || !map.isStyleLoaded?.()) {
+          return false;
+        }
+
+        const hasPropertiesSource = !!map.getSource?.('properties-source');
+        if (!hasPropertiesSource) {
+          return false;
+        }
+
+        return map.isSourceLoaded?.('properties-source') ?? false;
+      },
+      { timeout, polling: 500 }
+    )
+    .catch(() => {
+      console.log('Property tile source did not report fully loaded before assertion window');
+    });
+}
+
 type RenderedClusterCandidate = {
   layerId: string;
   pointCount: number;
   propertyIdCount: number;
+  estimatedZoom: number | null;
+  hasBbox: boolean;
   screenX: number;
   screenY: number;
   distanceToCenter: number;
@@ -92,6 +142,8 @@ type RenderedClusterFilters = {
   minPointCount: number;
   maxPointCount?: number;
   requireMultipleProperties?: boolean;
+  requireZoomableBbox?: boolean;
+  currentZoom?: number;
 };
 
 async function closeOpenPreview(page: Page): Promise<void> {
@@ -113,7 +165,14 @@ async function getRenderedClusterCandidates(
   filters: RenderedClusterFilters
 ): Promise<RenderedClusterCandidate[]> {
   return page.evaluate(
-    ({ layerIds, minPointCount, maxPointCount, requireMultipleProperties }) => {
+    ({
+      layerIds,
+      minPointCount,
+      maxPointCount,
+      requireMultipleProperties,
+      requireZoomableBbox,
+      currentZoom,
+    }) => {
       const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) {
         return [];
@@ -163,6 +222,34 @@ async function getRenderedClusterCandidates(
             continue;
           }
 
+          const bboxWest = Number(feature.properties?.bbox_west);
+          const bboxSouth = Number(feature.properties?.bbox_south);
+          const bboxEast = Number(feature.properties?.bbox_east);
+          const bboxNorth = Number(feature.properties?.bbox_north);
+          const hasBbox = [bboxWest, bboxSouth, bboxEast, bboxNorth].every(Number.isFinite);
+          const estimatedZoom = hasBbox
+            ? Math.log2(
+                360 /
+                  Math.max(
+                    Math.abs(bboxEast - bboxWest),
+                    Math.abs(bboxNorth - bboxSouth),
+                    0.0001
+                  )
+              ) - 1
+            : null;
+
+          if (
+            requireZoomableBbox &&
+            (
+              !hasBbox ||
+              estimatedZoom == null ||
+              typeof currentZoom !== 'number' ||
+              estimatedZoom <= currentZoom + 0.5
+            )
+          ) {
+            continue;
+          }
+
           const coordinates = feature.geometry.coordinates;
           if (
             !Array.isArray(coordinates) ||
@@ -198,6 +285,8 @@ async function getRenderedClusterCandidates(
             layerId,
             pointCount,
             propertyIdCount,
+            estimatedZoom,
+            hasBbox,
             screenX: rect.left + point.x,
             screenY: rect.top + point.y,
             distanceToCenter: Math.hypot(point.x - centerX, point.y - centerY),
@@ -217,7 +306,14 @@ async function waitForRenderedClusterCandidate(
   timeout = 25000
 ): Promise<void> {
   await page.waitForFunction(
-    ({ layerIds, minPointCount, maxPointCount, requireMultipleProperties }) => {
+    ({
+      layerIds,
+      minPointCount,
+      maxPointCount,
+      requireMultipleProperties,
+      requireZoomableBbox,
+      currentZoom,
+    }) => {
       const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map || !map.isStyleLoaded?.()) {
         return false;
@@ -262,6 +358,34 @@ async function waitForRenderedClusterCandidate(
               : 0;
 
           if (requireMultipleProperties && propertyIdCount <= 1) {
+            return false;
+          }
+
+          const bboxWest = Number(feature.properties?.bbox_west);
+          const bboxSouth = Number(feature.properties?.bbox_south);
+          const bboxEast = Number(feature.properties?.bbox_east);
+          const bboxNorth = Number(feature.properties?.bbox_north);
+          const hasBbox = [bboxWest, bboxSouth, bboxEast, bboxNorth].every(Number.isFinite);
+          const estimatedZoom = hasBbox
+            ? Math.log2(
+                360 /
+                  Math.max(
+                    Math.abs(bboxEast - bboxWest),
+                    Math.abs(bboxNorth - bboxSouth),
+                    0.0001
+                  )
+              ) - 1
+            : null;
+
+          if (
+            requireZoomableBbox &&
+            (
+              !hasBbox ||
+              estimatedZoom == null ||
+              typeof currentZoom !== 'number' ||
+              estimatedZoom <= currentZoom + 0.5
+            )
+          ) {
             return false;
           }
 
@@ -337,24 +461,53 @@ async function openPreviewableCluster(page: Page): Promise<{
   return { success: false, candidatesTried: candidates.length };
 }
 
-async function getLargestRenderedCluster(page: Page): Promise<
-  | ({ success: true } & RenderedClusterCandidate)
-  | { success: false }
+async function findLargeLowZoomCluster(page: Page): Promise<
+  | ({ success: true; targetName: string } & RenderedClusterCandidate)
+  | { success: false; attempts: string[]; largestPointCount: number }
 > {
-  const filters: RenderedClusterFilters = {
-    layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
-    minPointCount: 2,
-  };
+  const attempts: string[] = [];
+  let largestPointCount = 0;
+  const targetZoom = 10;
 
-  await waitForRenderedClusterCandidate(page, filters);
-  const [candidate] = (await getRenderedClusterCandidates(page, filters)).sort(
-    (a, b) => b.pointCount - a.pointCount || a.distanceToCenter - b.distanceToCenter
-  );
-  if (!candidate) {
-    return { success: false };
+  for (const target of LOW_ZOOM_CLUSTER_TARGETS) {
+    await closeOpenPreview(page);
+    await setMapView(page, target.center, targetZoom, 0);
+    await waitForPropertyTilesSettled(page, 8000);
+
+    const largeClusterFilters: RenderedClusterFilters = {
+      layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
+      minPointCount: PROPERTY_PREVIEW_MEMBER_LIMIT + 1,
+      requireZoomableBbox: true,
+      currentZoom: targetZoom,
+    };
+    const allClusterCandidates = await getRenderedClusterCandidates(page, {
+      layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
+      minPointCount: 2,
+    });
+    const largestCluster = allClusterCandidates.sort(
+      (a, b) => b.pointCount - a.pointCount || a.distanceToCenter - b.distanceToCenter
+    )[0];
+    const largeCandidates = await getRenderedClusterCandidates(page, largeClusterFilters);
+    if (largestCluster) {
+      largestPointCount = Math.max(largestPointCount, largestCluster.pointCount);
+      attempts.push(
+        `${target.name}: largest point_count=${largestCluster.pointCount}; zoomable large candidates=${largeCandidates.length}`
+      );
+    } else {
+      attempts.push(`${target.name}: no rendered clusters`);
+    }
+
+    const [actionableCluster] = largeCandidates;
+    if (actionableCluster) {
+      return {
+        success: true,
+        ...actionableCluster,
+        targetName: target.name,
+      };
+    }
   }
 
-  return { success: true, ...candidate };
+  return { success: false, attempts, largestPointCount };
 }
 
 test.describe('Cluster Tap Flow', () => {
@@ -566,43 +719,58 @@ test.describe('Cluster Tap Flow', () => {
     console.log(`Selected property marker visible: ${hasSelectedProperty}`);
   });
 
-  test('large cluster zoom works at low zoom level', async ({ page }) => {
+  test('large low-zoom cluster tap zooms in instead of opening preview', async ({ page }) => {
     await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
-    // At very low zoom, clusters will likely have >30 properties
-    await setMapView(page, EINDHOVEN_CENTER, 10, 0);
-    await page.waitForTimeout(3000);
+    const largeCluster = await findLargeLowZoomCluster(page);
+    expect(
+      largeCluster.success,
+      largeCluster.success
+        ? undefined
+        : [
+            'Expected a rendered z10 cluster larger than the preview limit.',
+            'Low-zoom property tiles must render deterministically instead of skipping this flow.',
+            `Largest point_count observed: ${largeCluster.largestPointCount}`,
+            `Attempts: ${largeCluster.attempts.join('; ')}`,
+          ].join(' ')
+    ).toBe(true);
 
-    const initialZoom = await getMapZoom(page);
-    console.log(`Initial zoom: ${initialZoom}`);
-
-    const largeCluster = await getLargestRenderedCluster(page);
-    expect(largeCluster.success, 'Expected to find a rendered cluster at z10').toBe(
-      true
-    );
     if (!largeCluster.success) {
       return;
     }
 
-    test.skip(
-      largeCluster.pointCount <= PROPERTY_PREVIEW_MEMBER_LIMIT,
-      `No rendered cluster larger than preview limit at z10. Largest point_count=${largeCluster.pointCount}.`
+    const initialZoom = await getMapZoom(page);
+    console.log(
+      `Initial zoom: ${initialZoom}; target=${largeCluster.targetName}; point_count=${largeCluster.pointCount}`
     );
 
     await page.mouse.move(largeCluster.screenX, largeCluster.screenY);
     await page.mouse.click(largeCluster.screenX, largeCluster.screenY);
 
-    await page.waitForTimeout(2000);
+    await page.waitForFunction(
+      ({ initialZoom }) => {
+        const map = (window as WindowWithMapInstance).__mapInstance;
+        return (map?.getZoom?.() ?? 0) > initialZoom + 0.5;
+      },
+      { initialZoom },
+      { timeout: 10000, polling: 250 }
+    );
 
     const newZoom = await getMapZoom(page);
     const clusterPreview = page.locator('[data-testid="group-preview-card"]');
     const previewVisible = await clusterPreview.isVisible().catch(() => false);
 
-    expect(previewVisible).toBe(false);
-    expect(newZoom).toBeGreaterThan(initialZoom + 0.5);
+    expect(
+      newZoom,
+      `Expected large low-zoom cluster tap to zoom in; zoom ${initialZoom} -> ${newZoom}, point_count=${largeCluster.pointCount}`
+    ).toBeGreaterThan(initialZoom + 0.5);
+    expect(
+      previewVisible,
+      `Expected large low-zoom cluster tap not to open preview; zoom ${initialZoom} -> ${newZoom}, point_count=${largeCluster.pointCount}`
+    ).toBe(false);
     console.log(
-      `Large cluster zoom: ${initialZoom} -> ${newZoom} (point_count=${largeCluster.pointCount})`
+      `Large cluster zoomed in: ${initialZoom} -> ${newZoom}, previewVisible=${previewVisible} (point_count=${largeCluster.pointCount})`
     );
   });
 

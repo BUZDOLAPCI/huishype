@@ -4,6 +4,8 @@ import path from 'node:path';
 export interface IngestJobsModule {
   INGEST_BATCH_QUEUE: string;
   MAINTENANCE_QUEUE: string;
+  PROPERTY_TILE_SNAPSHOT_QUEUE: string;
+  PROPERTY_TILE_SNAPSHOT_REFRESH_JOB: string;
 }
 
 export interface OfficialValuationJobsModule {
@@ -22,6 +24,29 @@ export interface IngestQueueModule {
       | 'worker-sweep';
     batchId?: string;
   }): Promise<void>;
+  enqueuePropertyTileSnapshotRefresh(data: { reason: string }): Promise<unknown>;
+}
+
+export interface PropertyTileSnapshotsModule {
+  executePropertyTileSnapshotRefresh(options?: {
+    reason?: string;
+    leaseOwner?: string;
+  }): Promise<Record<string, unknown>>;
+  requestPropertyTileSnapshotRefresh(input: {
+    reason: string;
+    throttleMs?: number;
+  }): Promise<{
+    enqueued: boolean;
+    throttled: boolean;
+    enqueueStatus?: 'enqueued' | 'retried' | 'coalesced' | 'skipped';
+    skippedReason?: 'throttled' | 'disabled';
+    queueJobId?: string;
+    queueJobState?: string | null;
+  }>;
+  shouldRequestPropertyTileSnapshotRefresh(): Promise<{
+    shouldEnqueue: boolean;
+    reason: string;
+  }>;
 }
 
 export interface OfficialValuationQueueModule {
@@ -181,6 +206,10 @@ export function loadOfficialValuationJobsModule(): Promise<OfficialValuationJobs
 
 export function loadIngestQueueModule(): Promise<IngestQueueModule> {
   return importApiModule<IngestQueueModule>('services/ingest/queue.js');
+}
+
+export function loadPropertyTileSnapshotsModule(): Promise<PropertyTileSnapshotsModule> {
+  return importApiModule<PropertyTileSnapshotsModule>('services/property-tile-snapshots.js');
 }
 
 export function loadOfficialValuationQueueModule(): Promise<OfficialValuationQueueModule> {

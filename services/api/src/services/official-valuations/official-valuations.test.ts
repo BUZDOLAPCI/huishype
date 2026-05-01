@@ -349,6 +349,9 @@ describe('official valuation hydration processor', () => {
     const requestLatestListingsRefreshMock = jest.fn(async () => {
       throw new Error('redis unavailable');
     });
+    const requestPropertyTileSnapshotRefreshMock = jest.fn(async () => {
+      throw new Error('snapshot queue unavailable');
+    });
 
     jest.unstable_mockModule('./store.js', () => ({
       claimOfficialValuationHydrationJob: jest.fn(async () => ({
@@ -391,6 +394,9 @@ describe('official valuation hydration processor', () => {
     jest.unstable_mockModule('../ingest/queue.js', () => ({
       requestLatestListingsRefresh: requestLatestListingsRefreshMock,
     }));
+    jest.unstable_mockModule('../property-tile-snapshots.js', () => ({
+      requestPropertyTileSnapshotRefresh: requestPropertyTileSnapshotRefreshMock,
+    }));
 
     const { processOfficialValuationHydrationJob } = await import('./processor.js');
 
@@ -412,6 +418,16 @@ describe('official valuation hydration processor', () => {
         maintenanceBatchId: 'maintenance-batch-1',
       }),
       'Failed to enqueue latest listings refresh after official valuation hydration',
+    );
+    expect(requestPropertyTileSnapshotRefreshMock).toHaveBeenCalledWith({
+      reason: 'official-valuation',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'hydration-job-1',
+        maintenanceBatchId: 'maintenance-batch-1',
+      }),
+      'Failed to request property tile snapshot refresh after official valuation hydration',
     );
     expect(releaseMock).toHaveBeenCalledWith('woz');
   });

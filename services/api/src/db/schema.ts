@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   pgEnum,
   customType,
+  doublePrecision,
   serial,
   real,
   jsonb,
@@ -120,6 +121,21 @@ const multiPolygonGeometry = customType<{
   },
   fromDriver(value) {
     return typeof value === 'string' ? value : String(value);
+  },
+});
+
+const bytea = customType<{
+  data: Buffer;
+  driverData: Buffer;
+}>({
+  dataType() {
+    return 'bytea';
+  },
+  toDriver(value) {
+    return value;
+  },
+  fromDriver(value) {
+    return Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array);
   },
 });
 
@@ -335,6 +351,9 @@ export const properties = pgTable(
     index('properties_created_at_idx').on(table.createdAt),
     index('properties_country_code_idx').on(table.countryCode),
     index('properties_geometry_gist_idx').using('gist', table.geometry),
+    index('properties_active_geometry_gist_idx')
+      .using('gist', table.geometry)
+      .where(sql`status = 'active' AND geometry IS NOT NULL`),
   ]
 );
 
@@ -392,6 +411,12 @@ export const priceHistory = pgTable(
     index('price_history_property_date_idx').on(table.propertyId, table.priceDate),
     uniqueIndex('price_history_dedup_idx').on(table.propertyId, table.priceDate, table.price, table.eventType),
     index('price_history_listing_idx').on(table.listingId),
+    index('price_history_sold_latest_idx')
+      .on(table.propertyId, sql`price_date DESC`, sql`created_at DESC`, sql`id DESC`)
+      .where(sql`event_type = 'sold'`),
+    index('price_history_rented_latest_idx')
+      .on(table.propertyId, sql`price_date DESC`, sql`created_at DESC`, sql`id DESC`)
+      .where(sql`event_type = 'rented'`),
   ]
 );
 
@@ -633,6 +658,22 @@ export const canonicalListings = pgTable(
     index('canonical_listings_property_id_idx').on(table.propertyId),
     index('canonical_listings_property_status_idx').on(table.propertyId, table.status),
     index('canonical_listings_verification_state_idx').on(table.verificationState),
+    index('canonical_listings_tile_latest_idx')
+      .on(
+        table.propertyId,
+        sql`COALESCE(last_reconciled_at, last_mirror_seen_at, last_user_seen_at, last_seen_at, updated_at, created_at) DESC`,
+        sql`created_at DESC`,
+        sql`id DESC`
+      )
+      .where(sql`verification_state <> 'invalid'`),
+    index('canonical_listings_tile_active_latest_idx')
+      .on(
+        table.propertyId,
+        sql`COALESCE(last_reconciled_at, last_mirror_seen_at, last_user_seen_at, last_seen_at, updated_at, created_at) DESC`,
+        sql`created_at DESC`,
+        sql`id DESC`
+      )
+      .where(sql`verification_state <> 'invalid' AND status = 'active'`),
   ]
 );
 
@@ -823,6 +864,13 @@ export const priceGuesses = pgTable(
     // Unique constraint: one guess per user per property (updates allowed with cooldown)
     uniqueIndex('price_guesses_user_property_idx').on(table.userId, table.propertyId),
     index('idx_price_guesses_property_created').on(table.propertyId, sql`created_at DESC`),
+    index('price_guesses_property_user_effective_at_idx').on(
+      table.propertyId,
+      table.userId,
+      sql`GREATEST(created_at, updated_at) DESC`,
+      sql`created_at DESC`,
+      sql`id DESC`
+    ),
   ]
 );
 
@@ -848,6 +896,12 @@ export const comments = pgTable(
     index('comments_parent_id_idx').on(table.parentId),
     index('comments_created_at_idx').on(table.createdAt),
     index('idx_comments_property_created').on(table.propertyId, sql`created_at DESC`),
+    index('comments_top_level_property_created_idx')
+      .on(table.propertyId, sql`created_at DESC`)
+      .where(sql`parent_id IS NULL`),
+    index('comments_replies_property_created_idx')
+      .on(table.propertyId, sql`created_at DESC`)
+      .where(sql`parent_id IS NOT NULL`),
   ]
 );
 
@@ -870,6 +924,9 @@ export const reactions = pgTable(
     // Unique constraint: one reaction per user per target
     uniqueIndex('reactions_user_target_idx').on(table.userId, table.targetType, table.targetId),
     index('idx_reactions_property_like').on(table.targetId, sql`created_at DESC`).where(sql`target_type = 'property' AND reaction_type = 'like'`),
+    index('reactions_comment_like_target_created_idx')
+      .on(table.targetId, sql`created_at DESC`)
+      .where(sql`target_type = 'comment' AND reaction_type = 'like'`),
   ]
 );
 
@@ -889,12 +946,123 @@ export const propertyViews = pgTable(
     index('property_views_property_user_idx').on(table.propertyId, table.userId),
     index('property_views_property_session_idx').on(table.propertyId, table.sessionId),
     index('property_views_property_viewed_at_idx').on(table.propertyId, table.viewedAt),
+    index('property_views_property_identity_viewed_at_idx').on(
+      table.propertyId,
+      sql`COALESCE(user_id::text, session_id)`,
+      sql`viewed_at DESC`
+    ),
     check(
       'property_views_identity_required_chk',
       sql`${table.userId} IS NOT NULL OR ${table.sessionId} IS NOT NULL`,
     ),
   ]
 );
+
+export const propertyTileSnapshots = pgTable(
+  'property_tile_snapshots',
+  {
+    z: integer('z').notNull(),
+    x: integer('x').notNull(),
+    y: integer('y').notNull(),
+    filterSignature: text('filter_signature').notNull(),
+    coverageId: text('coverage_id').notNull(),
+    payload: bytea('payload'),
+    statusCode: integer('status_code').notNull(),
+    etag: text('etag').notNull(),
+    generatedAt: timestamp('generated_at', { withTimezone: true }).notNull(),
+    sourceListingWatermark: bigint('source_listing_watermark', { mode: 'bigint' }).notNull(),
+    sourceSocialWatermark: bigint('source_social_watermark', { mode: 'bigint' }).notNull(),
+    sourcePropertyWatermark: bigint('source_property_watermark', { mode: 'bigint' }).notNull(),
+    sourceCoverageWatermark: bigint('source_coverage_watermark', { mode: 'bigint' }).notNull(),
+    snapshotConfigHash: text('snapshot_config_hash').notNull(),
+    refreshedAt: timestamp('refreshed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.z, table.x, table.y, table.filterSignature] }),
+    check(
+      'property_tile_snapshots_status_code_check',
+      sql`${table.statusCode} IN (200, 204)`,
+    ),
+    check(
+      'property_tile_snapshots_payload_check',
+      sql`(
+        (${table.statusCode} = 200 AND ${table.payload} IS NOT NULL AND octet_length(${table.payload}) > 0)
+        OR (${table.statusCode} = 204 AND ${table.payload} IS NULL)
+      )`,
+    ),
+    index('property_tile_snapshots_generated_at_idx').on(table.generatedAt),
+    index('property_tile_snapshots_coverage_idx').on(table.coverageId, table.snapshotConfigHash),
+    index('property_tile_snapshots_coverage_filter_config_idx').on(
+      table.coverageId,
+      table.filterSignature,
+      table.snapshotConfigHash
+    ),
+  ],
+);
+
+export const propertyTileSnapshotCoverage = pgTable(
+  'property_tile_snapshot_coverage',
+  {
+    coverageId: text('coverage_id').primaryKey(),
+    boundsSource: text('bounds_source').notNull(),
+    minLon: doublePrecision('min_lon').notNull(),
+    minLat: doublePrecision('min_lat').notNull(),
+    maxLon: doublePrecision('max_lon').notNull(),
+    maxLat: doublePrecision('max_lat').notNull(),
+    countries: text('countries').array().notNull(),
+    dataSources: text('data_sources').array().notNull(),
+    maxZoom: integer('max_zoom').notNull(),
+    filterSignature: text('filter_signature').notNull(),
+    coverageWatermark: bigint('coverage_watermark', { mode: 'bigint' }).notNull().default(0n),
+    snapshotConfigHash: text('snapshot_config_hash').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'property_tile_snapshot_coverage_bounds_check',
+      sql`${table.minLon} < ${table.maxLon} AND ${table.minLat} < ${table.maxLat}`,
+    ),
+    check(
+      'property_tile_snapshot_coverage_zoom_check',
+      sql`${table.maxZoom} >= 0 AND ${table.maxZoom} <= 22`,
+    ),
+  ],
+);
+
+export const propertyTileSnapshotWatermarks = pgTable('property_tile_snapshot_watermarks', {
+  key: text('key').primaryKey(),
+  listingWatermark: bigint('listing_watermark', { mode: 'bigint' }).notNull().default(0n),
+  socialWatermark: bigint('social_watermark', { mode: 'bigint' }).notNull().default(0n),
+  propertyWatermark: bigint('property_watermark', { mode: 'bigint' }).notNull().default(0n),
+  coverageWatermark: bigint('coverage_watermark', { mode: 'bigint' }).notNull().default(0n),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const propertyTileSnapshotRefreshState = pgTable('property_tile_snapshot_refresh_state', {
+  key: text('key').primaryKey(),
+  requestedAt: timestamp('requested_at', { withTimezone: true }),
+  requestReason: text('request_reason'),
+  requestedListingWatermark: bigint('requested_listing_watermark', { mode: 'bigint' }).notNull().default(0n),
+  requestedSocialWatermark: bigint('requested_social_watermark', { mode: 'bigint' }).notNull().default(0n),
+  requestedPropertyWatermark: bigint('requested_property_watermark', { mode: 'bigint' }).notNull().default(0n),
+  requestedCoverageWatermark: bigint('requested_coverage_watermark', { mode: 'bigint' }).notNull().default(0n),
+  leaseOwner: text('lease_owner'),
+  leaseUntil: timestamp('lease_until', { withTimezone: true }),
+  lastStartedAt: timestamp('last_started_at', { withTimezone: true }),
+  lastFinishedAt: timestamp('last_finished_at', { withTimezone: true }),
+  lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  appliedListingWatermark: bigint('applied_listing_watermark', { mode: 'bigint' }).notNull().default(0n),
+  appliedSocialWatermark: bigint('applied_social_watermark', { mode: 'bigint' }).notNull().default(0n),
+  appliedPropertyWatermark: bigint('applied_property_watermark', { mode: 'bigint' }).notNull().default(0n),
+  appliedCoverageWatermark: bigint('applied_coverage_watermark', { mode: 'bigint' }).notNull().default(0n),
+  coverageId: text('coverage_id'),
+  snapshotConfigHash: text('snapshot_config_hash'),
+  expectedTileCount: integer('expected_tile_count'),
+  refreshedTileCount: integer('refreshed_tile_count').notNull().default(0),
+  failedTileCount: integer('failed_tile_count').notNull().default(0),
+  lastWindowRefreshAt: timestamp('last_window_refresh_at', { withTimezone: true }),
+});
 
 // Canonical per-property user-visible change marker.
 // Kept separate from properties so imports do not rewrite the wide address table.
@@ -1397,6 +1565,18 @@ export type NewOfficialValuationSourceState = typeof officialValuationSourceStat
 
 export type PropertyView = typeof propertyViews.$inferSelect;
 export type NewPropertyView = typeof propertyViews.$inferInsert;
+
+export type PropertyTileSnapshot = typeof propertyTileSnapshots.$inferSelect;
+export type NewPropertyTileSnapshot = typeof propertyTileSnapshots.$inferInsert;
+
+export type PropertyTileSnapshotCoverage = typeof propertyTileSnapshotCoverage.$inferSelect;
+export type NewPropertyTileSnapshotCoverage = typeof propertyTileSnapshotCoverage.$inferInsert;
+
+export type PropertyTileSnapshotWatermark = typeof propertyTileSnapshotWatermarks.$inferSelect;
+export type NewPropertyTileSnapshotWatermark = typeof propertyTileSnapshotWatermarks.$inferInsert;
+
+export type PropertyTileSnapshotRefreshState = typeof propertyTileSnapshotRefreshState.$inferSelect;
+export type NewPropertyTileSnapshotRefreshState = typeof propertyTileSnapshotRefreshState.$inferInsert;
 
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;

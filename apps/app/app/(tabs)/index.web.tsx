@@ -60,6 +60,11 @@ import {
   PROPERTY_VECTOR_SOURCE_PROMOTE_ID,
   READ_PROPERTY_VECTOR_SOURCE_ID,
 } from '@/src/lib/mapPropertySource';
+import {
+  PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT,
+  registerPropertyTileRetryProtocol,
+  wrapPropertyTileRetryProtocolUrl,
+} from '@/src/lib/propertyTileRetryProtocol';
 import type { GroupPreviewProperty } from '@/src/components/GroupPreviewCard';
 import {
   appendSearchToPath,
@@ -120,6 +125,7 @@ const AMBIENT_COMMENT_BUBBLE_MIN_ZOOM = 10;
 const ACTIVITY_PULSE_DOM_MIN_ZOOM = 10;
 const CAMERA_EPSILON = 0.000001;
 const ZOOM_EPSILON = 0.001;
+const PROPERTY_TILE_RECOVERY_RELOAD_DELAY_MS = 2_500;
 
 type WebViewStyle = ViewStyle & {
   animation?: string;
@@ -891,7 +897,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const [followingTileAuthToken, setFollowingTileAuthToken] = useState<string | null>(null);
   const { replaceAppliedFilters } = filterController;
   const publicPropertyTileUrl = useMemo(
-    () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
+    () =>
+      wrapPropertyTileRetryProtocolUrl(
+        API_URL,
+        buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
+      ),
     [filterController.appliedFilters],
   );
   const followingTileSource = useFollowingTileSource(
@@ -977,6 +987,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const [followingRenderedFeatureCount, setFollowingRenderedFeatureCount] = useState<number | null>(null);
   const [followingRenderCheckComplete, setFollowingRenderCheckComplete] = useState(false);
   const trackedFollowingEmptyViewRef = useRef(false);
+  const propertyTileRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    registerPropertyTileRetryProtocol(maplibregl, API_URL);
+  }, []);
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -1168,6 +1183,48 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   handleFeaturePressRef.current = handleFeaturePress;
   const handleAuthRequiredRef = useRef(handleAuthRequired);
   handleAuthRequiredRef.current = handleAuthRequired;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const clearRecoveryTimer = () => {
+      if (propertyTileRecoveryTimerRef.current) {
+        clearTimeout(propertyTileRecoveryTimerRef.current);
+        propertyTileRecoveryTimerRef.current = null;
+      }
+    };
+
+    const scheduleRecoveryReload = () => {
+      if (propertyTileRecoveryTimerRef.current) {
+        return;
+      }
+
+      propertyTileRecoveryTimerRef.current = setTimeout(() => {
+        propertyTileRecoveryTimerRef.current = null;
+        const map = mapRef.current;
+        if (!map || socialScopeRef.current === 'following') {
+          return;
+        }
+
+        resetSourceCache(map, PROPERTY_VECTOR_SOURCE_ID);
+      }, PROPERTY_TILE_RECOVERY_RELOAD_DELAY_MS);
+    };
+
+    window.addEventListener(
+      PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT,
+      scheduleRecoveryReload
+    );
+
+    return () => {
+      clearRecoveryTimer();
+      window.removeEventListener(
+        PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT,
+        scheduleRecoveryReload
+      );
+    };
+  }, []);
 
   const clearFollowingRenderedFeatureRefresh = useCallback(() => {
     if (followingRenderedFeatureTimeoutRef.current) {

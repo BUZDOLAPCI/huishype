@@ -13,6 +13,8 @@ import {
   listingPriceObservations,
   priceHistory,
   properties,
+  propertyTileSnapshotRefreshState,
+  propertyTileSnapshotWatermarks,
 } from '../../db/schema.js';
 import {
   acceptIngestBatch,
@@ -25,6 +27,7 @@ import {
   requeueBlockedSourceBatchesAtWatermark,
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
 } from '../../services/ingest/index.js';
+import { PROPERTY_TILE_SNAPSHOT_KEY } from '../../services/property-tile-snapshots.js';
 
 describe('Durable ingest API contract', () => {
   let app: FastifyInstance;
@@ -66,6 +69,25 @@ describe('Durable ingest API contract', () => {
     expect(propertyId).toBeTruthy();
     cleanupPropertyIds.push(propertyId as string);
     return propertyId as string;
+  }
+
+  async function readPropertyTileSnapshotInvalidationState() {
+    const [watermark] = await db
+      .select()
+      .from(propertyTileSnapshotWatermarks)
+      .where(eq(propertyTileSnapshotWatermarks.key, PROPERTY_TILE_SNAPSHOT_KEY))
+      .limit(1);
+    const [refreshState] = await db
+      .select()
+      .from(propertyTileSnapshotRefreshState)
+      .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
+      .limit(1);
+
+    return {
+      listingWatermark: watermark?.listingWatermark ?? 0n,
+      propertyWatermark: watermark?.propertyWatermark ?? 0n,
+      refreshState: refreshState ?? null,
+    };
   }
 
   async function createSkippedCompletedBatch(input: {
@@ -876,6 +898,7 @@ describe('Durable ingest API contract', () => {
       .update(ingestBatches)
       .set({ skippedCount: 0 })
       .where(eq(ingestBatches.id, batchId));
+    const snapshotStateBefore = await readPropertyTileSnapshotInvalidationState();
 
     await db.insert(canonicalListings).values({
       propertyId,
@@ -938,6 +961,15 @@ describe('Durable ingest API contract', () => {
     expect(recoveredBatch?.skippedCount).toBe(0);
     expect(recoveredBatch?.maintenanceRequestedAt).not.toBeNull();
     expect(recoveredBatch?.maintenanceCompletedAt).not.toBeNull();
+
+    const snapshotStateAfter = await readPropertyTileSnapshotInvalidationState();
+    expect(snapshotStateAfter.listingWatermark > snapshotStateBefore.listingWatermark).toBe(true);
+    expect(snapshotStateAfter.propertyWatermark > snapshotStateBefore.propertyWatermark).toBe(true);
+    expect(snapshotStateAfter.refreshState).toMatchObject({
+      requestReason: 'skipped-ingest-recovery',
+      requestedListingWatermark: snapshotStateAfter.listingWatermark,
+      requestedPropertyWatermark: snapshotStateAfter.propertyWatermark,
+    });
 
     const [sourceState] = await db
       .select()

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import {
@@ -47,7 +47,6 @@ import {
 } from '@huishype/shared/config';
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,9 +64,32 @@ import {
   serializeMapFilterQuery,
 } from '../services/map-filters.js';
 import {
-  hasCurrentReadStateForViewer,
+  getPropertyReadViewerScope,
   resolvePropertyReadViewer,
+  type PropertyReadViewer,
 } from '../services/property-read-state.js';
+import {
+  buildPropertyTileEtag,
+  PROPERTY_TILE_CACHE_CONTROL,
+  PROPERTY_TILE_STALE_CACHE_CONTROL,
+  PROPERTY_TILE_TIMEOUT_CACHE_CONTROL,
+  publicPropertyTileCache,
+  type PublicPropertyTileCacheEntry,
+} from '../services/property-tile-cache.js';
+import {
+  getPropertyTileRuntimeConfig,
+  isPropertyTileRecoverableError,
+  PropertyTileBudgetExceededError,
+  PropertyTileBuildAbortedError,
+  propertyTileRuntime,
+  type PropertyTileBuildOptions,
+  type PropertyTilePayloadBuildResult,
+  type PropertyTileRuntimeResult,
+} from '../services/property-tile-runtime.js';
+import {
+  getPropertyTilePrecomputeMaxZoom,
+  lookupCurrentPropertyTileSnapshot,
+} from '../services/property-tile-snapshots.js';
 
 /**
  * Vector Tile Route for Density-Aware Property Grouping
@@ -170,75 +192,12 @@ const tileJsonResponseSchema = z.object({
   bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
 });
 
-const PROPERTY_TILE_CACHE_TTL_SECONDS = 300;
-const PROPERTY_TILE_CACHE_TTL_MS = PROPERTY_TILE_CACHE_TTL_SECONDS * 1_000;
-const PROPERTY_TILE_CACHE_MAX_ENTRIES = 1_024;
-const PROPERTY_TILE_CACHE_CONTROL = `public, max-age=${PROPERTY_TILE_CACHE_TTL_SECONDS}, stale-while-revalidate=300`;
 const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
 
-type PropertyTileCacheEntry = {
-  expiresAt: number;
-  payload: Buffer | null;
-  statusCode: 200 | 204;
-  etag: string;
-};
-
-type PropertyTileBuildResult = {
-  entry: PropertyTileCacheEntry;
-  generationTimeMs: number;
-};
-
-const propertyTileCache = new Map<string, PropertyTileCacheEntry>();
-const pendingPropertyTileBuilds = new Map<string, Promise<PropertyTileBuildResult>>();
-
 export function resetPropertyTileCacheForTests(): void {
-  propertyTileCache.clear();
-  pendingPropertyTileBuilds.clear();
-}
-
-function buildPropertyTileEtag(cacheKey: string, payload: Buffer | null): string {
-  const hash = createHash('sha1');
-  hash.update(cacheKey);
-  if (payload) {
-    hash.update(payload);
-  } else {
-    hash.update('empty');
-  }
-  return `"${hash.digest('hex')}"`;
-}
-
-function prunePropertyTileCache(now = Date.now()): void {
-  for (const [key, entry] of propertyTileCache) {
-    if (entry.expiresAt <= now) {
-      propertyTileCache.delete(key);
-    }
-  }
-}
-
-function touchPropertyTileCache(cacheKey: string, entry: PropertyTileCacheEntry): void {
-  propertyTileCache.delete(cacheKey);
-  propertyTileCache.set(cacheKey, entry);
-}
-
-function setPropertyTileCache(
-  cacheKey: string,
-  entry: PropertyTileCacheEntry,
-  now = Date.now()
-): void {
-  prunePropertyTileCache(now);
-
-  if (propertyTileCache.has(cacheKey)) {
-    propertyTileCache.delete(cacheKey);
-  }
-
-  while (propertyTileCache.size >= PROPERTY_TILE_CACHE_MAX_ENTRIES) {
-    const oldestKey = propertyTileCache.keys().next().value as string | undefined;
-    if (!oldestKey) break;
-    propertyTileCache.delete(oldestKey);
-  }
-
-  propertyTileCache.set(cacheKey, entry);
+  publicPropertyTileCache.clear();
+  propertyTileRuntime.resetForTests();
 }
 
 function buildReadPropertyTileTemplateUrl(
@@ -247,6 +206,296 @@ function buildReadPropertyTileTemplateUrl(
 ): string {
   const query = serializeMapFilterQuery(filters);
   return `${baseUrl}/tiles/properties/read/{z}/{x}/{y}.pbf${query ? `?${query}` : ''}`;
+}
+
+function createRequestAbortSignal(request: FastifyRequest, reply: FastifyReply): AbortSignal {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!reply.raw.writableEnded) {
+      controller.abort();
+    }
+  };
+  request.raw.once('aborted', abort);
+  reply.raw.once('close', abort);
+  controller.signal.addEventListener(
+    'abort',
+    () => {
+      request.raw.off('aborted', abort);
+      reply.raw.off('close', abort);
+    },
+    { once: true }
+  );
+  return controller.signal;
+}
+
+function tileHeaderValue(ms: number): string {
+  return `${Math.max(0, Math.round(ms))}ms`;
+}
+
+function isConditionalMatch(request: FastifyRequest, etag: string): boolean {
+  const header = request.headers['if-none-match'];
+  const rawValidators = Array.isArray(header) ? header : header == null ? [] : [header];
+  const current = normalizeEntityTag(etag);
+
+  for (const rawHeader of rawValidators) {
+    for (const validator of splitEntityTagHeader(rawHeader)) {
+      if (validator === '*') {
+        return true;
+      }
+      if (normalizeEntityTag(validator) === current) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function splitEntityTagHeader(header: string): string[] {
+  return header
+    .split(',')
+    .map((validator) => validator.trim())
+    .filter(Boolean);
+}
+
+function normalizeEntityTag(etag: string): string {
+  const trimmed = etag.trim();
+  return trimmed.replace(/^W\//i, '');
+}
+
+function assertRouteTileBuildCanContinue(options: PropertyTileBuildOptions, stage: string): void {
+  if (options.signal?.aborted) {
+    throw new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`);
+  }
+  if (options.runtimeDeadlineMs != null && Date.now() > options.runtimeDeadlineMs) {
+    throw new PropertyTileBudgetExceededError(
+      `Property tile runtime budget exceeded during ${stage}`
+    );
+  }
+}
+
+function buildPayloadResult(payloadBuffer: Buffer): PropertyTilePayloadBuildResult {
+  const payload = payloadBuffer.length > 0 ? payloadBuffer : null;
+  return {
+    payload,
+    statusCode: payload ? 200 : 204,
+  };
+}
+
+function sendTimeoutEmptyTile(
+  reply: FastifyReply,
+  runtimeResult: Pick<
+    PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+    'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+  >,
+  vary?: string
+) {
+  if (vary) {
+    reply.header('Vary', vary);
+  }
+  return reply
+    .header('Cache-Control', PROPERTY_TILE_TIMEOUT_CACHE_CONTROL)
+    .header('X-Tile-Generation-Time', tileHeaderValue(runtimeResult.generationTimeMs))
+    .header('X-Tile-Cache', 'timeout-empty')
+    .header('X-Tile-Coalesced', String(runtimeResult.coalesced))
+    .header('X-Tile-Queue-Time', tileHeaderValue(runtimeResult.queueTimeMs))
+    .header('X-Tile-Budget-Ms', String(runtimeResult.budgetMs))
+    .status(204)
+    .send();
+}
+
+function sendPublicTileEntry(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  entry: PublicPropertyTileCacheEntry,
+  source: 'hit' | 'miss' | 'stale' | 'precomputed',
+  runtime: Pick<
+    PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+    'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+  >
+) {
+  const cacheControl =
+    source === 'stale' ? PROPERTY_TILE_STALE_CACHE_CONTROL : PROPERTY_TILE_CACHE_CONTROL;
+  const baseReply = reply
+    .header('Cache-Control', cacheControl)
+    .header('ETag', entry.etag)
+    .header('X-Tile-Generation-Time', tileHeaderValue(runtime.generationTimeMs))
+    .header('X-Tile-Cache', source)
+    .header('X-Tile-Coalesced', String(runtime.coalesced))
+    .header('X-Tile-Queue-Time', tileHeaderValue(runtime.queueTimeMs))
+    .header('X-Tile-Budget-Ms', String(runtime.budgetMs));
+
+  if (isConditionalMatch(request, entry.etag)) {
+    return baseReply.status(304).send();
+  }
+
+  if (entry.statusCode === 204) {
+    return baseReply.status(204).send();
+  }
+
+  return baseReply.header('Content-Type', 'application/x-protobuf').send(entry.payload);
+}
+
+function sendPrivateTilePayload(
+  reply: FastifyReply,
+  payloadResult: PropertyTilePayloadBuildResult,
+  runtime: Pick<
+    PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+    'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+  >,
+  vary: string
+) {
+  const baseReply = reply
+    .header('Cache-Control', 'private, no-store')
+    .header('Vary', vary)
+    .header('X-Tile-Generation-Time', tileHeaderValue(runtime.generationTimeMs))
+    .header('X-Tile-Cache', 'miss')
+    .header('X-Tile-Coalesced', String(runtime.coalesced))
+    .header('X-Tile-Queue-Time', tileHeaderValue(runtime.queueTimeMs))
+    .header('X-Tile-Budget-Ms', String(runtime.budgetMs));
+
+  if (payloadResult.statusCode === 204) {
+    return baseReply.status(204).send();
+  }
+
+  return baseReply.header('Content-Type', 'application/x-protobuf').send(payloadResult.payload);
+}
+
+async function lookupCurrentPropertyTileSnapshotWithRuntime(
+  input: {
+    z: number;
+    x: number;
+    y: number;
+    filterSignature: string;
+  },
+  runtimeConfig: ReturnType<typeof getPropertyTileRuntimeConfig>,
+  signal: AbortSignal
+) {
+  return propertyTileRuntime.run<Awaited<ReturnType<typeof lookupCurrentPropertyTileSnapshot>>>({
+    key: `snapshot:public:${input.z}/${input.x}/${input.y}:${input.filterSignature}`,
+    zoom: input.z,
+    budgetMs: runtimeConfig.publicBudgetMs,
+    statementTimeoutMs: runtimeConfig.publicBudgetMs,
+    signal,
+    builder: async (options) => {
+      assertRouteTileBuildCanContinue(options, 'snapshot lookup preparation');
+      options.markUncancellableStage?.(true);
+      const snapshot = await lookupCurrentPropertyTileSnapshot(input).finally(() => {
+        options.markUncancellableStage?.(false);
+      });
+      assertRouteTileBuildCanContinue(options, 'snapshot lookup completion');
+      return snapshot;
+    },
+  });
+}
+
+function readStateIdentityPredicate(viewer: PropertyReadViewer) {
+  if ('userId' in viewer) {
+    return sql`prs.user_id = ${viewer.userId} AND prs.session_id IS NULL`;
+  }
+
+  return sql`prs.session_id = ${viewer.sessionId} AND prs.user_id IS NULL`;
+}
+
+function validateStatementTimeoutMs(timeoutMs: number | undefined): number | null {
+  if (timeoutMs == null) return null;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return null;
+  return Math.floor(timeoutMs);
+}
+
+function assertTileRouteBuildCanContinue(
+  options: PropertyTileBuildOptions | undefined,
+  stage: string
+): void {
+  if (options?.signal?.aborted) {
+    throw new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`);
+  }
+
+  const now = Date.now();
+  if (options?.runtimeDeadlineMs != null && now > options.runtimeDeadlineMs) {
+    throw new PropertyTileBudgetExceededError(
+      `Property tile runtime budget exceeded during ${stage}`
+    );
+  }
+
+  if (options?.runtimeBudgetMs != null && options.runtimeStartedAtMs != null) {
+    if (now - options.runtimeStartedAtMs > options.runtimeBudgetMs) {
+      throw new PropertyTileBudgetExceededError(
+        `Property tile runtime budget exceeded during ${stage}`
+      );
+    }
+  }
+}
+
+async function getReadStateScopeForViewer(
+  viewer: PropertyReadViewer,
+  options?: PropertyTileBuildOptions
+): Promise<{ hasReadState: boolean; scope: string }> {
+  assertTileRouteBuildCanContinue(options, 'read-state scope lookup preparation');
+  const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
+  options?.markUncancellableStage?.(true);
+  const result = await db
+    .transaction(async (tx) => {
+      if (timeoutMs) {
+        await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
+      }
+      return tx.execute<{
+        has_read_state: boolean;
+        read_count: number;
+        max_seen_at: string | null;
+        max_change_version: number | null;
+        scope_digest: string | null;
+      }>(sql`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM property_read_state prs
+          LEFT JOIN property_change_state pcs ON pcs.property_id = prs.property_id
+          WHERE ${readStateIdentityPredicate(viewer)}
+            AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
+          LIMIT 1
+        ) AS has_read_state,
+        COUNT(*)::int AS read_count,
+        MAX(prs.seen_at)::text AS max_seen_at,
+        MAX(COALESCE(pcs.change_version, 0))::bigint AS max_change_version,
+        md5(
+          COALESCE(
+            string_agg(
+              concat_ws(
+                ':',
+                prs.property_id::text,
+                prs.seen_change_version::text,
+                COALESCE(pcs.change_version, 0)::text,
+                EXTRACT(EPOCH FROM prs.seen_at)::text
+              ),
+              '|'
+              ORDER BY prs.property_id::text
+            ),
+            ''
+          )
+        ) AS scope_digest
+      FROM property_read_state prs
+      LEFT JOIN property_change_state pcs ON pcs.property_id = prs.property_id
+      WHERE ${readStateIdentityPredicate(viewer)}
+        AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
+    `);
+    })
+    .finally(() => {
+      options?.markUncancellableStage?.(false);
+    });
+
+  assertTileRouteBuildCanContinue(options, 'read-state scope lookup');
+  const row = Array.from(result)[0];
+  if (!row?.has_read_state) {
+    return { hasReadState: false, scope: 'empty' };
+  }
+
+  return {
+    hasReadState: true,
+    scope: `${row.read_count}:${row.max_seen_at ?? 'none'}:${row.max_change_version ?? 0}:${
+      row.scope_digest ?? 'none'
+    }`,
+  };
 }
 
 // --- Sprite manifest + layer filtering ---
@@ -815,10 +1064,7 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
   const completedAwareNodeRingColor = [
     'case',
     hasActiveListings,
-    buildInterpolateExpression(
-      activeListingCount,
-      MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS
-    ),
+    buildInterpolateExpression(activeListingCount, MAP_NODE_LISTING_RING_SINGLE_COLOR_STOPS),
     hasCompletedListings,
     MAP_NODE_COMPLETED_LISTING_RING_COLOR,
     MAP_NODE_COMPLETED_LISTING_RING_COLOR,
@@ -826,10 +1072,7 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
   const completedAwareNodeRingOpacity = [
     'case',
     hasActiveListings,
-    buildInterpolateExpression(
-      activeListingCount,
-      MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS
-    ),
+    buildInterpolateExpression(activeListingCount, MAP_NODE_LISTING_RING_SINGLE_OPACITY_STOPS),
     hasCompletedListings,
     MAP_NODE_COMPLETED_LISTING_RING_OPACITY,
     0,
@@ -939,12 +1182,7 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'circle-opacity': activeClusterCoreOpacity,
         'circle-stroke-width': ['case', hasListingRing, 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
         'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
-        'circle-stroke-opacity': [
-          'case',
-          hasListingRing,
-          0,
-          MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
-        ],
+        'circle-stroke-opacity': ['case', hasListingRing, 0, MAP_NODE_NON_LISTING_OUTLINE_OPACITY],
       },
     },
     // Active cluster count labels.
@@ -1030,12 +1268,7 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'circle-opacity': activeCoreOpacity,
         'circle-stroke-width': ['case', hasListingRing, 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
         'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
-        'circle-stroke-opacity': [
-          'case',
-          hasListingRing,
-          0,
-          MAP_NODE_NON_LISTING_OUTLINE_OPACITY,
-        ],
+        'circle-stroke-opacity': ['case', hasListingRing, 0, MAP_NODE_NON_LISTING_OUTLINE_OPACITY],
       },
     },
     // Ghost-only clusters appear once ghosts are revealed.
@@ -1602,7 +1835,24 @@ export async function tileRoutes(app: FastifyInstance) {
       const host = request.host;
       const filters = parseMapFiltersQuery(request.query);
       const tileUrl = buildReadPropertyTileTemplateUrl(`${protocol}://${host}`, filters);
-      const tiles = (await hasCurrentReadStateForViewer(viewer)) ? [tileUrl] : [];
+      const runtimeConfig = getPropertyTileRuntimeConfig();
+      let readStateScope: { hasReadState: boolean; scope: string };
+      try {
+        const startedAt = Date.now();
+        readStateScope = await getReadStateScopeForViewer(viewer, {
+          statementTimeoutMs: runtimeConfig.privateBudgetMs,
+          runtimeBudgetMs: runtimeConfig.privateBudgetMs,
+          runtimeStartedAtMs: startedAt,
+          runtimeDeadlineMs: startedAt + runtimeConfig.privateBudgetMs,
+        });
+      } catch (error) {
+        if (isPropertyTileRecoverableError(error)) {
+          readStateScope = { hasReadState: false, scope: 'timeout' };
+        } else {
+          throw error;
+        }
+      }
+      const tiles = readStateScope.hasReadState ? [tileUrl] : [];
 
       return reply
         .header('Cache-Control', 'private, no-store')
@@ -1643,102 +1893,117 @@ export async function tileRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { z, x, y } = request.params;
       const filters = parseMapFiltersQuery(request.query);
-      const cacheKey = `${z}/${x}/${y}:${getMapFilterSignature(filters)}`;
-      const now = Date.now();
-      const cachedTile = propertyTileCache.get(cacheKey);
+      const filterSignature = getMapFilterSignature(filters);
+      const cacheKey = `${z}/${x}/${y}:${filterSignature}`;
+      const runtimeConfig = getPropertyTileRuntimeConfig();
+      const cachedTile = publicPropertyTileCache.get(cacheKey);
 
-      if (cachedTile && cachedTile.expiresAt > now) {
-        touchPropertyTileCache(cacheKey, cachedTile);
-
-        if (request.headers['if-none-match'] === cachedTile.etag) {
-          return reply
-            .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
-            .header('ETag', cachedTile.etag)
-            .header('X-Tile-Generation-Time', '0ms')
-            .header('X-Tile-Cache', 'hit')
-            .status(304)
-            .send();
-        }
-
-        if (cachedTile.statusCode === 204) {
-          return reply
-            .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
-            .header('ETag', cachedTile.etag)
-            .header('X-Tile-Generation-Time', '0ms')
-            .header('X-Tile-Cache', 'hit')
-            .status(204)
-            .send();
-        }
-
-        return reply
-          .header('Content-Type', 'application/x-protobuf')
-          .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
-          .header('ETag', cachedTile.etag)
-          .header('X-Tile-Generation-Time', '0ms')
-          .header('X-Tile-Cache', 'hit')
-          .send(cachedTile.payload);
+      if (cachedTile.state === 'fresh') {
+        return sendPublicTileEntry(request, reply, cachedTile.entry, 'hit', {
+          coalesced: false,
+          queueTimeMs: 0,
+          generationTimeMs: 0,
+          budgetMs: runtimeConfig.publicBudgetMs,
+        });
       }
 
-      if (cachedTile) {
-        propertyTileCache.delete(cacheKey);
+      const signal = createRequestAbortSignal(request, reply);
+
+      if (filterSignature === 'default' && z <= getPropertyTilePrecomputeMaxZoom()) {
+        let snapshot: Awaited<ReturnType<typeof lookupCurrentPropertyTileSnapshot>> = null;
+        try {
+          const snapshotRuntimeResult = await lookupCurrentPropertyTileSnapshotWithRuntime(
+            { z, x, y, filterSignature },
+            runtimeConfig,
+            signal
+          );
+
+          if (snapshotRuntimeResult.state === 'completed') {
+            snapshot = snapshotRuntimeResult.publishable ? snapshotRuntimeResult.result : null;
+          } else if (
+            snapshotRuntimeResult.state === 'error' &&
+            !isPropertyTileRecoverableError(snapshotRuntimeResult.error)
+          ) {
+            throw snapshotRuntimeResult.error;
+          } else if (cachedTile.state === 'stale') {
+            return sendPublicTileEntry(request, reply, cachedTile.entry, 'stale', {
+              coalesced: snapshotRuntimeResult.coalesced,
+              queueTimeMs: snapshotRuntimeResult.queueTimeMs,
+              generationTimeMs: snapshotRuntimeResult.generationTimeMs,
+              budgetMs: snapshotRuntimeResult.budgetMs,
+            });
+          }
+        } catch (error) {
+          if (!isPropertyTileRecoverableError(error)) {
+            throw error;
+          }
+
+          if (cachedTile.state === 'stale') {
+            return sendPublicTileEntry(request, reply, cachedTile.entry, 'stale', {
+              coalesced: false,
+              queueTimeMs: 0,
+              generationTimeMs: 0,
+              budgetMs: runtimeConfig.publicBudgetMs,
+            });
+          }
+        }
+        if (snapshot) {
+          const entry = publicPropertyTileCache.set(cacheKey, {
+            payload: snapshot.payload,
+            statusCode: snapshot.statusCode,
+            etag: snapshot.etag,
+          });
+          return sendPublicTileEntry(request, reply, entry, 'precomputed', {
+            coalesced: false,
+            queueTimeMs: 0,
+            generationTimeMs: 0,
+            budgetMs: runtimeConfig.publicBudgetMs,
+          });
+        }
       }
 
-      const pendingBuild = pendingPropertyTileBuilds.get(cacheKey);
-      const cacheState = pendingBuild ? 'hit' : 'miss';
-      const buildResult = pendingBuild
-        ? await pendingBuild
-        : await (async () => {
-            const buildPromise = (async (): Promise<PropertyTileBuildResult> => {
-              const startTime = Date.now();
-              const mvtBuffer = await buildMvtForTile({ z, x, y }, filters);
-              const queryTime = Date.now() - startTime;
-              const payload = mvtBuffer && mvtBuffer.length > 0 ? mvtBuffer : null;
-              const entry: PropertyTileCacheEntry = {
-                expiresAt: Date.now() + PROPERTY_TILE_CACHE_TTL_MS,
-                payload,
-                statusCode: payload ? 200 : 204,
-                etag: buildPropertyTileEtag(cacheKey, payload),
-              };
+      const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
+        key: `public:${cacheKey}`,
+        zoom: z,
+        budgetMs: runtimeConfig.publicBudgetMs,
+        statementTimeoutMs: runtimeConfig.publicBudgetMs,
+        signal,
+        builder: async (options) =>
+          buildPayloadResult(await buildMvtForTile({ z, x, y }, filters, options)),
+      });
 
-              setPropertyTileCache(cacheKey, entry);
-              return { entry, generationTimeMs: queryTime };
-            })();
+      if (runtimeResult.state !== 'completed') {
+        if (
+          runtimeResult.state !== 'error' ||
+          isPropertyTileRecoverableError(runtimeResult.error)
+        ) {
+          const staleEntry = publicPropertyTileCache.getStale(cacheKey);
+          if (staleEntry) {
+            return sendPublicTileEntry(request, reply, staleEntry, 'stale', runtimeResult);
+          }
 
-            pendingPropertyTileBuilds.set(cacheKey, buildPromise);
-            try {
-              return await buildPromise;
-            } finally {
-              pendingPropertyTileBuilds.delete(cacheKey);
-            }
-          })();
+          return sendTimeoutEmptyTile(reply, runtimeResult);
+        }
 
-      const { entry } = buildResult;
-      const queryTime = cacheState === 'hit' ? 0 : buildResult.generationTimeMs;
+        throw runtimeResult.error;
+      }
+
+      if (!runtimeResult.publishable) {
+        return sendTimeoutEmptyTile(reply, runtimeResult);
+      }
+
+      const entry = publicPropertyTileCache.set(cacheKey, {
+        ...runtimeResult.result,
+        etag: buildPropertyTileEtag(cacheKey, runtimeResult.result.payload),
+      });
+      const queryTime = runtimeResult.generationTimeMs;
 
       // Log slow queries for monitoring
       if (queryTime > 100) {
         app.log.warn({ z, x, y, queryTime }, `Slow tile generation: ${queryTime}ms`);
       }
 
-      // Empty tile
-      if (entry.statusCode === 204) {
-        return reply
-          .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
-          .header('ETag', entry.etag)
-          .header('X-Tile-Generation-Time', `${queryTime}ms`)
-          .header('X-Tile-Cache', cacheState)
-          .status(204)
-          .send();
-      }
-
-      // Set appropriate headers for MVT
-      return reply
-        .header('Content-Type', 'application/x-protobuf')
-        .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
-        .header('ETag', entry.etag)
-        .header('X-Tile-Generation-Time', `${queryTime}ms`)
-        .header('X-Tile-Cache', cacheState)
-        .send(entry.payload!);
+      return sendPublicTileEntry(request, reply, entry, 'miss', runtimeResult);
     }
   );
 
@@ -1770,29 +2035,56 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       const filters = parseMapFiltersQuery(request.query);
-      const startTime = Date.now();
-      const mvtBuffer = await buildReadMvtForTile({ z, x, y }, viewer, filters);
-      const queryTime = Date.now() - startTime;
+      const runtimeConfig = getPropertyTileRuntimeConfig();
+      const viewerScope = getPropertyReadViewerScope(viewer);
+      const filterSignature = getMapFilterSignature(filters);
+      const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
+        key: `read:${z}/${x}/${y}:${filterSignature}:${viewerScope}:live`,
+        zoom: z,
+        budgetMs: runtimeConfig.privateBudgetMs,
+        statementTimeoutMs: runtimeConfig.privateBudgetMs,
+        signal: createRequestAbortSignal(request, reply),
+        builder: async (options) => {
+          const readScope = await getReadStateScopeForViewer(viewer, options);
+          const payloadResult = readScope.hasReadState
+            ? buildPayloadResult(await buildReadMvtForTile({ z, x, y }, viewer, filters, options))
+            : ({ payload: null, statusCode: 204 } satisfies PropertyTilePayloadBuildResult);
+          const latestReadScope = await getReadStateScopeForViewer(viewer, options);
+          if (latestReadScope.scope !== readScope.scope) {
+            throw new PropertyTileBuildAbortedError('Read-state scope changed during tile build');
+          }
+          return payloadResult;
+        },
+      });
 
-      if (queryTime > 100) {
-        app.log.warn({ z, x, y, queryTime }, `Slow read tile generation: ${queryTime}ms`);
+      if (runtimeResult.state !== 'completed') {
+        if (
+          runtimeResult.state !== 'error' ||
+          isPropertyTileRecoverableError(runtimeResult.error)
+        ) {
+          return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization, x-session-id');
+        }
+
+        throw runtimeResult.error;
       }
 
-      if (!mvtBuffer || mvtBuffer.length === 0) {
-        return reply
-          .header('Cache-Control', 'private, no-store')
-          .header('Vary', 'Authorization, x-session-id')
-          .header('X-Tile-Generation-Time', `${queryTime}ms`)
-          .status(204)
-          .send();
+      if (!runtimeResult.publishable) {
+        return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization, x-session-id');
       }
 
-      return reply
-        .header('Content-Type', 'application/x-protobuf')
-        .header('Cache-Control', 'private, no-store')
-        .header('Vary', 'Authorization, x-session-id')
-        .header('X-Tile-Generation-Time', `${queryTime}ms`)
-        .send(mvtBuffer);
+      if (runtimeResult.generationTimeMs > 100) {
+        app.log.warn(
+          { z, x, y, queryTime: runtimeResult.generationTimeMs },
+          `Slow read tile generation: ${runtimeResult.generationTimeMs}ms`
+        );
+      }
+
+      return sendPrivateTilePayload(
+        reply,
+        runtimeResult.result,
+        runtimeResult,
+        'Authorization, x-session-id'
+      );
     }
   );
 
@@ -1812,33 +2104,43 @@ export async function tileRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { z, x, y } = request.params;
       const filters = parseFollowingMapFiltersQuery(request.query);
+      const runtimeConfig = getPropertyTileRuntimeConfig();
+      const filterSignature = getMapFilterSignature(filters);
+      const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
+        key: `following:${z}/${x}/${y}:${filterSignature}:user:${request.userId!}`,
+        zoom: z,
+        budgetMs: runtimeConfig.privateBudgetMs,
+        statementTimeoutMs: runtimeConfig.privateBudgetMs,
+        signal: createRequestAbortSignal(request, reply),
+        builder: async (options) =>
+          buildPayloadResult(
+            await buildFollowingMvtForTile({ z, x, y }, request.userId!, filters, options)
+          ),
+      });
 
-      const startTime = Date.now();
-      const mvtBuffer = await buildFollowingMvtForTile({ z, x, y }, request.userId!, filters);
-      const queryTime = Date.now() - startTime;
+      if (runtimeResult.state !== 'completed') {
+        if (
+          runtimeResult.state !== 'error' ||
+          isPropertyTileRecoverableError(runtimeResult.error)
+        ) {
+          return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization');
+        }
 
-      if (queryTime > 100) {
+        throw runtimeResult.error;
+      }
+
+      if (!runtimeResult.publishable) {
+        return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization');
+      }
+
+      if (runtimeResult.generationTimeMs > 100) {
         app.log.warn(
-          { z, x, y, queryTime, viewerId: request.userId },
-          `Slow following tile generation: ${queryTime}ms`
+          { z, x, y, queryTime: runtimeResult.generationTimeMs, viewerId: request.userId },
+          `Slow following tile generation: ${runtimeResult.generationTimeMs}ms`
         );
       }
 
-      if (!mvtBuffer || mvtBuffer.length === 0) {
-        return reply
-          .header('Cache-Control', 'private, no-store')
-          .header('Vary', 'Authorization')
-          .header('X-Tile-Generation-Time', `${queryTime}ms`)
-          .status(204)
-          .send();
-      }
-
-      return reply
-        .header('Content-Type', 'application/x-protobuf')
-        .header('Cache-Control', 'private, no-store')
-        .header('Vary', 'Authorization')
-        .header('X-Tile-Generation-Time', `${queryTime}ms`)
-        .send(mvtBuffer);
+      return sendPrivateTilePayload(reply, runtimeResult.result, runtimeResult, 'Authorization');
     }
   );
 

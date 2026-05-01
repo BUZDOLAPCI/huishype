@@ -20,6 +20,7 @@ const EXPECTATION_NAME = 'property-bottom-sheet-details';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307];
 const ZOOM_LEVEL = 17;
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 const PREVIEWABLE_PROPERTY_LAYERS = [
   'active-nodes',
   'ghost-nodes',
@@ -443,6 +444,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
     consoleWarnings = [];
+
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
 
     await setupPropertyMocking(page);
 

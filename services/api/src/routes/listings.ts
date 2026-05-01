@@ -19,6 +19,10 @@ import {
 } from '../services/ingest/index.js';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import {
+  advancePropertyTileSnapshotWatermark,
+  safeRequestPropertyTileSnapshotRefresh,
+} from '../services/property-tile-snapshots.js';
+import {
   applyListingValidationOutcome,
   createUserListingSubmission,
   listCanonicalListingsForProperty,
@@ -87,6 +91,46 @@ const priceHistoryResponseSchema = z.object({
   eventType: z.string(),
   source: z.string(),
 });
+
+type RouteRefreshLogger = {
+  warn(bindings: Record<string, unknown>, message: string): void;
+};
+
+async function requestListingWriteRefreshes(input: {
+  requestedBy: 'listing-submit' | 'validation-outcome';
+  maintenanceBatchId: string;
+  propertyTileReason: 'listing-submit' | 'listing-validation-outcome';
+  logger: RouteRefreshLogger;
+  context: Record<string, unknown>;
+}): Promise<void> {
+  const latestListingsRefresh = requestLatestListingsRefresh({
+    requestedBy: input.requestedBy,
+    batchId: input.maintenanceBatchId,
+  }).catch((err) =>
+    input.logger.warn(
+      {
+        err,
+        maintenanceBatchId: input.maintenanceBatchId,
+        ...input.context,
+      },
+      `Failed to enqueue latest listings refresh after ${
+        input.requestedBy === 'listing-submit' ? 'submit' : 'validation outcome'
+      }`,
+    ),
+  );
+
+  await Promise.all([
+    latestListingsRefresh,
+    safeRequestPropertyTileSnapshotRefresh(
+      { reason: input.propertyTileReason },
+      input.logger,
+      {
+        maintenanceBatchId: input.maintenanceBatchId,
+        ...input.context,
+      },
+    ),
+  ]);
+}
 
 // ---------------------------------------------------------------------------
 // 3. POST /listings/preview
@@ -629,43 +673,39 @@ export async function listingRoutes(app: FastifyInstance) {
           });
         }
 
-        const submission = await createUserListingSubmission(db, {
-          userId,
-          plan: enrichedPlan,
-        });
-
-        const maintenanceRequest = await db.transaction(async (tx) => {
+        const { submission, maintenanceRequest } = await db.transaction(async (tx) => {
+          const createdSubmission = await createUserListingSubmission(tx, {
+            userId,
+            plan: enrichedPlan,
+          });
           await advancePropertyChangeVersion(propertyId, tx);
+          await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
 
-          return createMaintenanceRefreshRequest(tx, {
+          const maintenance = await createMaintenanceRefreshRequest(tx, {
             sourceName: enrichedPlan.sourceName,
             requestedBy: 'listing-submit',
-            idempotencyKey: `listing-submit:${submission.canonicalListing.id}`,
+            idempotencyKey: `listing-submit:${createdSubmission.canonicalListing.id}`,
             payload: {
-              canonicalListingId: submission.canonicalListing.id,
-              observationId: submission.observationId,
-              watchId: submission.watchId,
+              canonicalListingId: createdSubmission.canonicalListing.id,
+              observationId: createdSubmission.observationId,
+              watchId: createdSubmission.watchId,
               propertyId,
               sourceUrl: enrichedPlan.canonicalUrl,
               sourceName: enrichedPlan.sourceName,
               sourceListingId: enrichedPlan.sourceListingId,
             },
           });
+
+          return { submission: createdSubmission, maintenanceRequest: maintenance };
         });
 
-        requestLatestListingsRefresh({
+        await requestListingWriteRefreshes({
           requestedBy: 'listing-submit',
-          batchId: maintenanceRequest.batchId,
-        }).catch((err) =>
-          request.log.warn(
-            {
-              err,
-              canonicalListingId: submission.canonicalListing.id,
-              maintenanceBatchId: maintenanceRequest.batchId,
-            },
-            'Failed to enqueue latest listings refresh after submit',
-          ),
-        );
+          maintenanceBatchId: maintenanceRequest.batchId,
+          propertyTileReason: 'listing-submit',
+          logger: request.log,
+          context: { canonicalListingId: submission.canonicalListing.id },
+        });
 
         return reply.status(201).send({
           id: submission.canonicalListing.id,
@@ -809,6 +849,7 @@ export async function listingRoutes(app: FastifyInstance) {
           });
 
           await advancePropertyChangeVersion(applied.canonicalListing.propertyId, tx);
+          await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
           const maintenance = await createMaintenanceRefreshRequest(tx, {
             sourceName: request.body.sourceName,
             requestedBy: 'validation-outcome',
@@ -824,19 +865,13 @@ export async function listingRoutes(app: FastifyInstance) {
           return { outcome: applied, maintenanceRequest: maintenance };
         });
 
-        requestLatestListingsRefresh({
+        await requestListingWriteRefreshes({
           requestedBy: 'validation-outcome',
-          batchId: maintenanceRequest.batchId,
-        }).catch((err) =>
-          request.log.warn(
-            {
-              err,
-              watchId: request.body.watchId,
-              maintenanceBatchId: maintenanceRequest.batchId,
-            },
-            'Failed to enqueue latest listings refresh after validation outcome',
-          ),
-        );
+          maintenanceBatchId: maintenanceRequest.batchId,
+          propertyTileReason: 'listing-validation-outcome',
+          logger: request.log,
+          context: { watchId: request.body.watchId },
+        });
 
         return reply.status(202).send({
           canonicalListingId: outcome.canonicalListing.id,

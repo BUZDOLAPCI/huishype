@@ -4,9 +4,13 @@ import {
   INGEST_BATCH_JOB,
   INGEST_BATCH_QUEUE,
   MAINTENANCE_QUEUE,
+  PROPERTY_TILE_SNAPSHOT_QUEUE,
+  PROPERTY_TILE_SNAPSHOT_REFRESH_JOB,
+  PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID,
   REFRESH_LATEST_LISTINGS_JOB,
   type IngestBatchJobData,
   type MaintenanceRefreshJobData,
+  type PropertyTileSnapshotRefreshJobData,
 } from './jobs.js';
 
 type QueueLike<T> = {
@@ -23,8 +27,25 @@ type ExistingJobLike = {
   ) => Promise<void>;
 };
 
+export type PropertyTileSnapshotRefreshEnqueueResult =
+  | {
+      status: 'enqueued';
+      jobId: string;
+    }
+  | {
+      status: 'retried';
+      jobId: string;
+      previousState: 'failed' | 'completed';
+    }
+  | {
+      status: 'coalesced';
+      jobId: string;
+      existingState: string | null;
+    };
+
 let ingestBatchQueue: QueueLike<IngestBatchJobData> | null = null;
 let maintenanceQueue: QueueLike<MaintenanceRefreshJobData> | null = null;
+let propertyTileSnapshotQueue: QueueLike<PropertyTileSnapshotRefreshJobData> | null = null;
 
 const WORKER_SWEEP_MAINTENANCE_REFRESH_JOB_ID = `${REFRESH_LATEST_LISTINGS_JOB}-worker-sweep`;
 
@@ -81,6 +102,28 @@ async function getMaintenanceQueue(): Promise<QueueLike<MaintenanceRefreshJobDat
   });
 
   return maintenanceQueue;
+}
+
+async function getPropertyTileSnapshotQueue(): Promise<QueueLike<PropertyTileSnapshotRefreshJobData>> {
+  if (propertyTileSnapshotQueue) {
+    return propertyTileSnapshotQueue;
+  }
+
+  const Queue = await loadQueueConstructor<PropertyTileSnapshotRefreshJobData>();
+  propertyTileSnapshotQueue = new Queue(PROPERTY_TILE_SNAPSHOT_QUEUE, {
+    connection: await getRedisConnection(),
+    defaultJobOptions: {
+      attempts: 5,
+      backoff: {
+        type: 'exponential',
+        delay: 30_000,
+      },
+      removeOnComplete: 10,
+      removeOnFail: false,
+    },
+  });
+
+  return propertyTileSnapshotQueue;
 }
 
 export async function enqueueIngestBatch(batchId: string): Promise<void> {
@@ -148,12 +191,57 @@ export async function requestLatestListingsRefresh(data: MaintenanceRefreshJobDa
   );
 }
 
+export async function enqueuePropertyTileSnapshotRefresh(
+  data: PropertyTileSnapshotRefreshJobData,
+): Promise<PropertyTileSnapshotRefreshEnqueueResult> {
+  const queue = await getPropertyTileSnapshotQueue();
+  const existingJob = await queue.getJob(PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID) as ExistingJobLike | null;
+
+  if (existingJob) {
+    const state = await existingJob.getState?.() ?? null;
+    if (state === 'failed' || state === 'completed') {
+      if (!existingJob.retry) {
+        throw new Error(
+          `Existing property tile snapshot refresh job ${PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID} is ${state} but cannot be retried`,
+        );
+      }
+
+      await existingJob.retry(state, {
+        resetAttemptsMade: true,
+        resetAttemptsStarted: true,
+      });
+      return {
+        status: 'retried',
+        jobId: PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID,
+        previousState: state,
+      };
+    }
+    return {
+      status: 'coalesced',
+      jobId: PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID,
+      existingState: state,
+    };
+  }
+
+  await queue.add(
+    PROPERTY_TILE_SNAPSHOT_REFRESH_JOB,
+    data,
+    { jobId: PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID },
+  );
+  return {
+    status: 'enqueued',
+    jobId: PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_ID,
+  };
+}
+
 export async function closeIngestQueues(): Promise<void> {
   await Promise.all([
     ingestBatchQueue?.close(),
     maintenanceQueue?.close(),
+    propertyTileSnapshotQueue?.close(),
   ]);
 
   ingestBatchQueue = null;
   maintenanceQueue = null;
+  propertyTileSnapshotQueue = null;
 }

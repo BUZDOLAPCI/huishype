@@ -28,6 +28,7 @@ import {
   validateListingSource,
 } from './listing-source-resolution.js';
 import { advancePropertyChangeVersion } from './property-read-state.js';
+import { advancePropertyTileSnapshotWatermark } from './property-tile-snapshots.js';
 
 type ReconciliationDb = typeof db | DbTransaction;
 
@@ -826,6 +827,7 @@ async function applyTerminalListingValidationOutcome(
   const applied = await db.transaction(async (tx) => {
     const result = await applyListingValidationOutcome(tx, outcome);
     await advancePropertyChangeVersion(result.canonicalListing.propertyId, tx);
+    await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
     const maintenance = await createMaintenanceRefreshRequest(tx, {
       sourceName: outcome.sourceName,
       requestedBy: 'validation-outcome',
