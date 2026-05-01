@@ -311,6 +311,49 @@ function assertTileBuildCanContinue(
   }
 }
 
+function recordTileStageTiming(
+  options: PropertyTileBuildOptions | undefined,
+  stage: string,
+  startedAtMs: number,
+  itemCount?: number
+): void {
+  if (!options?.onStageTiming) return;
+
+  const finishedAtMs = Date.now();
+  options.onStageTiming({
+    stage,
+    startedAtMs,
+    finishedAtMs,
+    durationMs: Math.max(0, finishedAtMs - startedAtMs),
+    itemCount,
+  });
+}
+
+function countRowsForTiming<TRow>(
+  options: PropertyTileBuildOptions | undefined,
+  rows: Iterable<TRow>
+): number | undefined {
+  if (!options?.onStageTiming) return undefined;
+  return Array.isArray(rows) ? rows.length : undefined;
+}
+
+async function timeTileStage<T>(
+  options: PropertyTileBuildOptions | undefined,
+  stage: string,
+  run: () => Promise<T>,
+  getItemCount?: (result: T) => number | undefined
+): Promise<T> {
+  const startedAtMs = Date.now();
+  try {
+    const result = await run();
+    recordTileStageTiming(options, stage, startedAtMs, getItemCount?.(result));
+    return result;
+  } catch (error) {
+    recordTileStageTiming(options, `${stage}:error`, startedAtMs);
+    throw error;
+  }
+}
+
 function getSharedCanonicalBudgetMs(): number {
   return parsePositiveIntegerEnv(
     'PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS',
@@ -355,6 +398,7 @@ function buildSharedCanonicalOptions(
     runtimeStartedAtMs: now,
     runtimeDeadlineMs,
     signal: sharedBuild.controller.signal,
+    onStageTiming: options.onStageTiming,
     markUncancellableStage: (active) => {
       options.markUncancellableStage?.(active);
       markSharedCanonicalUncancellableStage(sharedBuild, active);
@@ -466,14 +510,21 @@ async function waitForSharedCanonicalBuildOrCallerAbort(
 async function executeWithTileStatementTimeout<TRow>(
   query: SQL,
   options: PropertyTileBuildOptions | undefined,
-  configure?: (tx: DbTransaction) => Promise<void>
+  configure?: (tx: DbTransaction) => Promise<void>,
+  stage = 'tile SQL execution'
 ): Promise<Iterable<TRow>> {
   assertTileBuildCanContinue(options, Date.now(), 'tile SQL preparation');
+  const startedAtMs = Date.now();
   const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
   if (!timeoutMs && !configure) {
     options?.markUncancellableStage?.(true);
     try {
-      return (await db.execute<Record<string, unknown>>(query)) as Iterable<TRow>;
+      const rows = (await db.execute<Record<string, unknown>>(query)) as Iterable<TRow>;
+      recordTileStageTiming(options, stage, startedAtMs, countRowsForTiming(options, rows));
+      return rows;
+    } catch (error) {
+      recordTileStageTiming(options, `${stage}:error`, startedAtMs);
+      throw error;
     } finally {
       options?.markUncancellableStage?.(false);
     }
@@ -481,7 +532,7 @@ async function executeWithTileStatementTimeout<TRow>(
 
   options?.markUncancellableStage?.(true);
   try {
-    return await db.transaction(async (tx) => {
+    const rows = await db.transaction(async (tx) => {
       if (configure) {
         await configure(tx);
       }
@@ -490,6 +541,11 @@ async function executeWithTileStatementTimeout<TRow>(
       }
       return (await tx.execute<Record<string, unknown>>(query)) as Iterable<TRow>;
     });
+    recordTileStageTiming(options, stage, startedAtMs, countRowsForTiming(options, rows));
+    return rows;
+  } catch (error) {
+    recordTileStageTiming(options, `${stage}:error`, startedAtMs);
+    throw error;
   } finally {
     options?.markUncancellableStage?.(false);
   }
@@ -1119,6 +1175,7 @@ export function buildGroupingCandidateScopeCtes(
     sql.raw('activity_at'),
     filters.activity
   );
+  const canIncludeSocialOnlyCandidates = filters.marketState.includes('not-listed');
 
   return includeGhostCandidates
     ? sql`
@@ -1145,11 +1202,18 @@ export function buildGroupingCandidateScopeCtes(
             AND (${bboxFilter})
         ),
         listing_candidate_ids AS MATERIALIZED (
-          SELECT DISTINCT l.property_id
-          FROM v_canonical_listing_facts l
-          INNER JOIN bounded_properties bp ON bp.id = l.property_id
-          WHERE l.status IN ('active', 'sold', 'rented')
-        ),
+          SELECT DISTINCT cl.property_id
+          FROM canonical_listings cl
+          INNER JOIN properties p ON p.id = cl.property_id
+          WHERE cl.verification_state <> 'invalid'
+            AND cl.status IN ('active', 'sold', 'rented')
+            AND p.geometry IS NOT NULL
+            AND p.status = 'active'
+            AND (${bboxFilter})
+        )
+        ${
+          canIncludeSocialOnlyCandidates
+            ? sql`,
         social_activity_candidate_ids AS MATERIALIZED (
           SELECT property_id
           FROM (
@@ -1157,7 +1221,10 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT c.property_id, c.created_at AS activity_at
               FROM comments c
-              INNER JOIN bounded_properties bp ON bp.id = c.property_id
+              INNER JOIN properties p ON p.id = c.property_id
+              WHERE p.geometry IS NOT NULL
+                AND p.status = 'active'
+                AND (${bboxFilter})
             ) c
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1165,8 +1232,12 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT r.target_id AS property_id, r.created_at AS activity_at
               FROM reactions r
-              INNER JOIN bounded_properties bp ON bp.id = r.target_id
+              INNER JOIN properties p ON p.id = r.target_id
               WHERE r.target_type = 'property'
+                AND r.reaction_type = 'like'
+                AND p.geometry IS NOT NULL
+                AND p.status = 'active'
+                AND (${bboxFilter})
             ) r
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1175,8 +1246,12 @@ export function buildGroupingCandidateScopeCtes(
                 SELECT c.property_id, r.created_at AS activity_at
                 FROM reactions r
                 INNER JOIN comments c ON c.id = r.target_id
-                INNER JOIN bounded_properties bp ON bp.id = c.property_id
+                INNER JOIN properties p ON p.id = c.property_id
                 WHERE r.target_type = 'comment'
+                  AND r.reaction_type = 'like'
+                  AND p.geometry IS NOT NULL
+                  AND p.status = 'active'
+                  AND (${bboxFilter})
               ) rc
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1186,7 +1261,10 @@ export function buildGroupingCandidateScopeCtes(
                 pg.property_id,
                 GREATEST(pg.created_at, pg.updated_at) AS activity_at
               FROM price_guesses pg
-              INNER JOIN bounded_properties bp ON bp.id = pg.property_id
+              INNER JOIN properties p ON p.id = pg.property_id
+              WHERE p.geometry IS NOT NULL
+                AND p.status = 'active'
+                AND (${bboxFilter})
             ) pg
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1196,7 +1274,10 @@ export function buildGroupingCandidateScopeCtes(
                 pv.property_id,
                 MAX(pv.viewed_at) AS activity_at
               FROM property_views pv
-              INNER JOIN bounded_properties bp ON bp.id = pv.property_id
+              INNER JOIN properties p ON p.id = pv.property_id
+              WHERE p.geometry IS NOT NULL
+                AND p.status = 'active'
+                AND (${bboxFilter})
               GROUP BY pv.property_id
               HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
             ) pv
@@ -1212,13 +1293,19 @@ export function buildGroupingCandidateScopeCtes(
             SELECT property_id
             FROM social_activity_candidate_ids
           ) candidate_ids
-        ),
+        )`
+            : sql``
+        },
         candidate_properties AS MATERIALIZED (
           SELECT
             bp.id,
             bp.geometry,
             bp.official_valuation
-          FROM candidate_property_ids cpi
+          FROM ${
+            canIncludeSocialOnlyCandidates
+              ? sql`candidate_property_ids cpi`
+              : sql`listing_candidate_ids cpi`
+          }
           INNER JOIN bounded_properties bp ON bp.id = cpi.property_id
         )
       `;
@@ -1656,7 +1743,8 @@ async function fetchGroupingCandidatesInBBoxes(
     options,
     async (tx) => {
       await tx.execute(sql`SET LOCAL jit = off`);
-    }
+    },
+    'candidate SQL'
   );
 
   return Array.from(rows).map((row, index) => {
@@ -1725,7 +1813,8 @@ async function fetchFollowingGroupingCandidatesInBBoxes(
     options,
     async (tx) => {
       await tx.execute(sql`SET LOCAL jit = off`);
-    }
+    },
+    'following candidate SQL'
   );
 
   return Array.from(rows).map((row, index) => {
@@ -1801,8 +1890,10 @@ async function hasCurrentReadStateInTileBounds(
         )
       LIMIT 1
     ) AS has_read_state
-  `,
-    options
+    `,
+    options,
+    undefined,
+    'read-state scope SQL'
   );
 
   return Array.from(rows)[0]?.has_read_state === true;
@@ -1891,7 +1982,9 @@ async function fetchSinglePropertyDetails(
     LEFT JOIN latest_listing ON latest_listing.property_id = tp.id
     LEFT JOIN listing_thumbnail ON listing_thumbnail.property_id = tp.id
   `,
-    options
+    options,
+    undefined,
+    'single-property hydration SQL'
   );
 
   return new Map(
@@ -2087,8 +2180,18 @@ async function buildUnhydratedCanonicalGroupsForTile(
   filters: MapFilters,
   options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
-  const candidates = await fetchGroupingCandidates(tile, filters, options);
-  return groupCandidatesForTile(tile, candidates, options);
+  const candidates = await timeTileStage(
+    options,
+    'candidate fetch',
+    () => fetchGroupingCandidates(tile, filters, options),
+    (result) => result.length
+  );
+  return timeTileStage(
+    options,
+    'candidate grouping',
+    async () => groupCandidatesForTile(tile, candidates, options),
+    (result) => result.length
+  );
 }
 
 async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
@@ -2163,9 +2266,16 @@ export async function buildCanonicalGroupsForTile(
   }
 
   const sharedBuild = createSharedCanonicalBuild(options, async (sharedOptions) => {
-    const groups = await hydrateSinglePropertyDetails(
-      await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, sharedOptions),
+    const unhydratedGroups = await buildUnhydratedCanonicalGroupsForTileWithCoalescing(
+      tile,
+      filters,
       sharedOptions
+    );
+    const groups = await timeTileStage(
+      sharedOptions,
+      'single-property hydration',
+      () => hydrateSinglePropertyDetails(unhydratedGroups, sharedOptions),
+      (result) => result.length
     );
     assertTileBuildCanContinue(sharedOptions, Date.now(), 'shared canonical cache publish');
     setCachedCanonicalGroups(tile, filters, groups);
@@ -2365,7 +2475,78 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
   };
 }
 
-async function buildMvtForGroups(
+function buildMvtFeatureRowsCte(features: TileTransportFeature[]): SQL {
+  const rows = sql.join(
+    features.map(
+      (feature) => sql`(
+        ${feature.lon}::double precision,
+        ${feature.lat}::double precision,
+        ${feature.node_class}::text,
+        ${feature.group_kind}::text,
+        ${feature.primary_property_id}::text,
+        ${feature.point_count}::integer,
+        ${feature.property_ids}::text,
+        ${feature.preview_property_ids}::text,
+        ${feature.bbox_west}::double precision,
+        ${feature.bbox_south}::double precision,
+        ${feature.bbox_east}::double precision,
+        ${feature.bbox_north}::double precision,
+        ${feature.activeListingCount}::integer,
+        ${feature.completedListingCount}::integer,
+        ${feature.socialCount}::integer,
+        ${feature.recentSocialCount}::integer,
+        ${feature.socialScoreTotal}::double precision,
+        ${feature.socialScoreMax}::double precision,
+        ${feature.recentSocialScoreTotal}::double precision,
+        ${feature.commentCount}::integer,
+        ${feature.address}::text,
+        ${feature.city}::text,
+        ${feature.askingPrice}::bigint,
+        ${feature.thumbnailUrl}::text,
+        ${feature.hasActiveListing}::boolean,
+        ${feature.marketState}::text,
+        ${feature.id}::text
+      )`
+    ),
+    sql`, `
+  );
+
+  return sql`
+    feature_rows (
+      lon,
+      lat,
+      node_class,
+      group_kind,
+      primary_property_id,
+      point_count,
+      property_ids,
+      preview_property_ids,
+      bbox_west,
+      bbox_south,
+      bbox_east,
+      bbox_north,
+      "activeListingCount",
+      "completedListingCount",
+      "socialCount",
+      "recentSocialCount",
+      "socialScoreTotal",
+      "socialScoreMax",
+      "recentSocialScoreTotal",
+      "commentCount",
+      address,
+      city,
+      "askingPrice",
+      "thumbnailUrl",
+      "hasActiveListing",
+      "marketState",
+      id
+    ) AS (
+      VALUES ${rows}
+    )
+  `;
+}
+
+export async function buildMvtForGroups(
   tile: TileId,
   groups: CanonicalPropertyGroup[],
   options?: PropertyTileBuildOptions
@@ -2382,51 +2563,21 @@ async function buildMvtForGroups(
     }
     return serializeGroupForTile(group);
   });
-  assertTileBuildCanContinue(options, startedAt, 'MVT JSON serialization');
-  const features = JSON.stringify(serializedFeatures);
+  recordTileStageTiming(options, 'MVT feature construction', startedAt, serializedFeatures.length);
   assertTileBuildCanContinue(options, startedAt, 'MVT SQL preparation');
+  const bounds = tileToBBox(tile);
   const result = await executeWithTileStatementTimeout<{ mvt: Buffer }>(
     sql`
-    WITH feature_rows AS (
-      SELECT
-        (feature->>'lon')::double precision AS lon,
-        (feature->>'lat')::double precision AS lat,
-        feature->>'node_class' AS node_class,
-        feature->>'group_kind' AS group_kind,
-        feature->>'primary_property_id' AS primary_property_id,
-        (feature->>'point_count')::integer AS point_count,
-        feature->>'property_ids' AS property_ids,
-        feature->>'preview_property_ids' AS preview_property_ids,
-        NULLIF(feature->>'bbox_west', 'null')::double precision AS bbox_west,
-        NULLIF(feature->>'bbox_south', 'null')::double precision AS bbox_south,
-        NULLIF(feature->>'bbox_east', 'null')::double precision AS bbox_east,
-        NULLIF(feature->>'bbox_north', 'null')::double precision AS bbox_north,
-        (feature->>'activeListingCount')::integer AS "activeListingCount",
-        (feature->>'completedListingCount')::integer AS "completedListingCount",
-        (feature->>'socialCount')::integer AS "socialCount",
-        (feature->>'recentSocialCount')::integer AS "recentSocialCount",
-        (feature->>'socialScoreTotal')::double precision AS "socialScoreTotal",
-        (feature->>'socialScoreMax')::double precision AS "socialScoreMax",
-        (feature->>'recentSocialScoreTotal')::double precision AS "recentSocialScoreTotal",
-        (feature->>'commentCount')::integer AS "commentCount",
-        NULLIF(feature->>'address', 'null') AS address,
-        NULLIF(feature->>'city', 'null') AS city,
-        NULLIF(feature->>'askingPrice', 'null')::bigint AS "askingPrice",
-        NULLIF(feature->>'thumbnailUrl', 'null') AS "thumbnailUrl",
-        NULLIF(feature->>'hasActiveListing', 'null')::boolean AS "hasActiveListing",
-        NULLIF(feature->>'marketState', 'null') AS "marketState",
-        NULLIF(feature->>'id', 'null') AS id
-      FROM jsonb_array_elements(${features}::jsonb) AS feature
-    ),
+    WITH ${buildMvtFeatureRowsCte(serializedFeatures)},
     mvt_data AS (
       SELECT
         ST_AsMVTGeom(
           ST_SetSRID(ST_MakePoint(lon, lat), 4326),
           ST_MakeEnvelope(
-            ${tileToBBox(tile).minLon},
-            ${tileToBBox(tile).minLat},
-            ${tileToBBox(tile).maxLon},
-            ${tileToBBox(tile).maxLat},
+            ${bounds.minLon},
+            ${bounds.minLat},
+            ${bounds.maxLon},
+            ${bounds.maxLat},
             4326
           ),
           ${PROPERTY_TILE_EXTENT},
@@ -2464,7 +2615,9 @@ async function buildMvtForGroups(
     FROM mvt_data
     WHERE geom IS NOT NULL
   `,
-    options
+    options,
+    undefined,
+    'MVT SQL encoding'
   );
 
   const row = Array.from(result)[0];
@@ -2480,10 +2633,17 @@ export async function buildMvtForTile(
   filters: MapFilters = createDefaultMapFilters(),
   options?: PropertyTileBuildOptions
 ): Promise<Buffer> {
-  return buildMvtForGroups(
-    tile,
-    await buildCanonicalGroupsForTile(tile, filters, options),
-    options
+  const groups = await timeTileStage(
+    options,
+    'canonical groups',
+    () => buildCanonicalGroupsForTile(tile, filters, options),
+    (result) => result.length
+  );
+  return timeTileStage(
+    options,
+    'MVT encoding',
+    () => buildMvtForGroups(tile, groups, options),
+    (result) => result.length
   );
 }
 
@@ -2493,10 +2653,17 @@ export async function buildReadMvtForTile(
   filters: MapFilters = createDefaultMapFilters(),
   options?: PropertyTileBuildOptions
 ): Promise<Buffer> {
-  return buildMvtForGroups(
-    tile,
-    await buildReadCanonicalGroupsForTile(tile, viewer, filters, options),
-    options
+  const groups = await timeTileStage(
+    options,
+    'read canonical groups',
+    () => buildReadCanonicalGroupsForTile(tile, viewer, filters, options),
+    (result) => result.length
+  );
+  return timeTileStage(
+    options,
+    'MVT encoding',
+    () => buildMvtForGroups(tile, groups, options),
+    (result) => result.length
   );
 }
 
@@ -2506,9 +2673,16 @@ export async function buildFollowingMvtForTile(
   filters: MapFilters = createDefaultMapFilters(),
   options?: PropertyTileBuildOptions
 ): Promise<Buffer> {
-  return buildMvtForGroups(
-    tile,
-    await buildFollowingCanonicalGroupsForTile(tile, viewerId, filters, options),
-    options
+  const groups = await timeTileStage(
+    options,
+    'following canonical groups',
+    () => buildFollowingCanonicalGroupsForTile(tile, viewerId, filters, options),
+    (result) => result.length
+  );
+  return timeTileStage(
+    options,
+    'MVT encoding',
+    () => buildMvtForGroups(tile, groups, options),
+    (result) => result.length
   );
 }

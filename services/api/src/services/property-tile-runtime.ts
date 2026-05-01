@@ -5,6 +5,15 @@ export type PropertyTileBuildOptions = {
   runtimeDeadlineMs?: number;
   signal?: AbortSignal;
   markUncancellableStage?: (active: boolean) => void;
+  onStageTiming?: (timing: PropertyTileStageTiming) => void;
+};
+
+export type PropertyTileStageTiming = {
+  stage: string;
+  startedAtMs: number;
+  finishedAtMs: number;
+  durationMs: number;
+  itemCount?: number;
 };
 
 export type PropertyTilePayloadBuildResult = {

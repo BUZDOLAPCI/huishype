@@ -8,6 +8,7 @@ import {
   GHOST_NODE_REVEAL_ZOOM,
   PROPERTY_TILE_EXTENT,
   buildGroupingCandidateScopeCtes,
+  buildMvtForGroups,
   getActiveClusterRadiusPx,
   getActiveSingleRadiusPx,
   getGroupingBufferUnits,
@@ -21,6 +22,7 @@ import {
   type GroupingCandidate,
   resetCanonicalGroupCacheForTests,
   resolveNearbyGroupedFeature,
+  type CanonicalPropertyGroup,
 } from './property-grouping.js';
 import { createDefaultMapFilters, normalizeMapFilters } from './map-filters.js';
 import { PublicPropertyTileCache } from './property-tile-cache.js';
@@ -107,6 +109,42 @@ function makeCandidateAtWorld(
   return makeCandidate(id, lon, lat, zoom, overrides);
 }
 
+function makeCanonicalGroup(
+  index: number,
+  overrides: Partial<CanonicalPropertyGroup> = {}
+): CanonicalPropertyGroup {
+  const suffix = index.toString(16).padStart(12, '0');
+  const id = `00000000-0000-4000-a000-${suffix}`;
+  return {
+    nodeClass: 'active',
+    groupKind: 'single',
+    primaryPropertyId: id,
+    pointCount: 1,
+    propertyIds: [id],
+    previewPropertyIds: [id],
+    coordinate: [5.47 + index * 0.00001, 51.44 + index * 0.00001],
+    bbox: null,
+    activeListingCount: 1,
+    completedListingCount: 0,
+    socialCount: 1,
+    recentSocialCount: 1,
+    socialScoreTotal: 3,
+    socialScoreMax: 3,
+    recentSocialScoreTotal: 1,
+    commentCount: 2,
+    address: `Mockstraat ${index}`,
+    city: 'Eindhoven',
+    askingPrice: 359000 + index,
+    thumbnailUrl: `https://cdn.example.com/mock-thumb-${index}.jpg`,
+    hasActiveListing: true,
+    marketState: 'for-sale',
+    ownerTile: { z: 17, x: 67478, y: 43551 },
+    anchorWorldX: 0,
+    anchorWorldY: 0,
+    ...overrides,
+  };
+}
+
 describe('property-grouping', () => {
   afterEach(() => {
     resetCanonicalGroupCacheForTests();
@@ -132,14 +170,16 @@ describe('property-grouping', () => {
     );
     expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
     expect(text).toContain(
-      'SELECT DISTINCT l.property_id FROM v_canonical_listing_facts l INNER JOIN bounded_properties bp ON bp.id = l.property_id'
+      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
     );
-    expect(text).toContain("WHERE l.status IN ('active', 'sold', 'rented')");
-    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = c.property_id');
-    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = r.target_id');
-    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = c.property_id');
-    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = pg.property_id');
-    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = pv.property_id');
+    expect(text).toContain("WHERE cl.verification_state <> 'invalid' AND cl.status IN ('active', 'sold', 'rented')");
+    expect(text).toContain('INNER JOIN properties p ON p.id = c.property_id');
+    expect(text).toContain('INNER JOIN properties p ON p.id = r.target_id');
+    expect(text).toContain("WHERE r.target_type = 'property' AND r.reaction_type = 'like'");
+    expect(text).toContain('INNER JOIN properties p ON p.id = c.property_id');
+    expect(text).toContain("WHERE r.target_type = 'comment' AND r.reaction_type = 'like'");
+    expect(text).toContain('INNER JOIN properties p ON p.id = pg.property_id');
+    expect(text).toContain('INNER JOIN properties p ON p.id = pv.property_id');
     expect(text).not.toContain('active_listing_candidate_ids');
     expect(text).not.toContain('completed_listing_candidate_ids');
     expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
@@ -153,7 +193,27 @@ describe('property-grouping', () => {
     expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
     expect(text).toContain('p.geometry && ST_MakeEnvelope');
     expect(text).toContain(
-      'FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id GROUP BY pv.property_id HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8'
+      'FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id WHERE p.geometry IS NOT NULL AND p.status = \'active\' AND (p.geometry && ST_MakeEnvelope'
+    );
+    expect(text).toContain(
+      'GROUP BY pv.property_id HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8'
+    );
+  });
+
+  it('skips social-only candidate discovery when market filters can only return listed states', () => {
+    const query = buildGroupingCandidateScopeCtes(
+      [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
+      false,
+      normalizeMapFilters({ marketState: ['for-sale', 'for-rent', 'sold', 'rented'] })
+    );
+    const text = renderSql(query).replace(/\s+/g, ' ').trim();
+
+    expect(text).toContain('bounded_properties AS MATERIALIZED');
+    expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(text).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
+    expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
+    expect(text).toContain(
+      'FROM listing_candidate_ids cpi INNER JOIN bounded_properties bp ON bp.id = cpi.property_id'
     );
   });
 
@@ -1347,6 +1407,40 @@ describe('property-grouping', () => {
     expect(feature).not.toHaveProperty('officialValuation');
     expect(feature).not.toHaveProperty('yearBuilt');
     expect(feature).not.toHaveProperty('floorAreaM2');
+  });
+
+  it('encodes dense MVT feature sets through typed SQL values without JSONB expansion', async () => {
+    const groups = Array.from({ length: 192 }, (_, index) => makeCanonicalGroup(index));
+    const timings: Array<{ stage: string; itemCount?: number }> = [];
+    let renderedMvtSql = '';
+    const executeSpy = jest.spyOn(db, 'execute').mockImplementation((async (query: unknown) => {
+      renderedMvtSql = renderSql(query as SQL).replace(/\s+/g, ' ').trim();
+      return [{ mvt: Buffer.from('dense-mvt') }] as never;
+    }) as never);
+
+    const result = await buildMvtForGroups(
+      { z: 17, x: 67478, y: 43551 },
+      groups,
+      {
+        onStageTiming: (timing) => {
+          timings.push({ stage: timing.stage, itemCount: timing.itemCount });
+        },
+      }
+    );
+
+    expect(result.toString()).toBe('dense-mvt');
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(renderedMvtSql).toContain('feature_rows ( lon, lat, node_class');
+    expect(renderedMvtSql).toContain(') AS ( VALUES');
+    expect(renderedMvtSql).not.toContain('jsonb_array_elements');
+    expect(renderedMvtSql).not.toContain('feature->>');
+    expect(renderedMvtSql).not.toContain('::jsonb');
+    expect(timings).toEqual(
+      expect.arrayContaining([
+        { stage: 'MVT feature construction', itemCount: groups.length },
+        { stage: 'MVT SQL encoding', itemCount: 1 },
+      ])
+    );
   });
 
   it('applies map filters before grouping clustered active sale candidates', async () => {
