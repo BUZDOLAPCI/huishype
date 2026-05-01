@@ -1133,20 +1133,9 @@ export function buildGroupingCandidateScopeCtes(
         )
       `
     : sql`
-        bounded_properties AS MATERIALIZED (
-          SELECT
-            p.id,
-            p.geometry,
-            p.official_valuation
-          FROM properties p
-          WHERE p.geometry IS NOT NULL
-            AND p.status = 'active'
-            AND (${bboxFilter})
-        ),
         listing_candidate_ids AS MATERIALIZED (
-          SELECT l.property_id
+          SELECT DISTINCT l.property_id
           FROM v_canonical_listing_facts l
-          INNER JOIN bounded_properties bp ON bp.id = l.property_id
           WHERE l.status IN ('active', 'sold', 'rented')
         ),
         social_activity_candidate_ids AS MATERIALIZED (
@@ -1157,7 +1146,6 @@ export function buildGroupingCandidateScopeCtes(
               SELECT c.property_id, c.created_at AS activity_at
               FROM comments c
             ) c
-            INNER JOIN bounded_properties bp ON bp.id = c.property_id
             WHERE ${activityCandidateFilter}
             UNION ALL
             SELECT r.property_id
@@ -1166,7 +1154,6 @@ export function buildGroupingCandidateScopeCtes(
               FROM reactions r
               WHERE r.target_type = 'property'
             ) r
-            INNER JOIN bounded_properties bp ON bp.id = r.property_id
             WHERE ${activityCandidateFilter}
             UNION ALL
             SELECT rc.property_id
@@ -1176,7 +1163,6 @@ export function buildGroupingCandidateScopeCtes(
               INNER JOIN comments c ON c.id = r.target_id
               WHERE r.target_type = 'comment'
             ) rc
-            INNER JOIN bounded_properties bp ON bp.id = rc.property_id
             WHERE ${activityCandidateFilter}
             UNION ALL
             SELECT pg.property_id
@@ -1186,7 +1172,6 @@ export function buildGroupingCandidateScopeCtes(
                 GREATEST(pg.created_at, pg.updated_at) AS activity_at
               FROM price_guesses pg
             ) pg
-            INNER JOIN bounded_properties bp ON bp.id = pg.property_id
             WHERE ${activityCandidateFilter}
             UNION ALL
             SELECT pv.property_id
@@ -1195,7 +1180,6 @@ export function buildGroupingCandidateScopeCtes(
                 pv.property_id,
                 MAX(pv.viewed_at) AS activity_at
               FROM property_views pv
-              INNER JOIN bounded_properties bp ON bp.id = pv.property_id
               GROUP BY pv.property_id
               HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
             ) pv
@@ -1214,11 +1198,14 @@ export function buildGroupingCandidateScopeCtes(
         ),
         candidate_properties AS MATERIALIZED (
           SELECT
-            bp.id,
-            bp.geometry,
-            bp.official_valuation
-          FROM bounded_properties bp
-          INNER JOIN candidate_property_ids cpi ON cpi.property_id = bp.id
+            p.id,
+            p.geometry,
+            p.official_valuation
+          FROM candidate_property_ids cpi
+          INNER JOIN properties p ON p.id = cpi.property_id
+          WHERE p.geometry IS NOT NULL
+            AND p.status = 'active'
+            AND (${bboxFilter})
         )
       `;
 }

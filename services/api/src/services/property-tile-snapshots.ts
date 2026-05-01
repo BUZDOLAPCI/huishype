@@ -28,6 +28,7 @@ import { ACTIVE_SOCIAL_SCORE_THRESHOLD } from './property-queries.js';
 export const PROPERTY_TILE_SNAPSHOT_KEY = 'public_default_low_zoom';
 export const PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_REASON = 'snapshot-refresh';
 export const DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID = 'public_default_low_zoom_v1';
+export const PROPERTY_TILE_SNAPSHOT_PIPELINE_VERSION = 1;
 
 const DEFAULT_MAX_ZOOM = 10;
 const DEFAULT_MAX_TILES_PER_RUN = 1_000;
@@ -38,6 +39,19 @@ const DEFAULT_LEASE_SECONDS = 15 * 60;
 const DEFAULT_ROLLING_MAX_AGE_SECONDS = 60 * 60;
 const DEFAULT_PROPERTY_VIEW_REFRESH_THROTTLE_MS = 5 * 60_000;
 const SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS = 7;
+const DENSE_PREWARM_MIN_ZOOM = 8;
+const DENSE_PREWARM_MAX_ZOOM = 9;
+const DENSE_PREWARM_FOLLOWUP_ZOOM = 10;
+const DENSE_PREWARM_SAMPLE_STRIDE_BY_ZOOM = new Map<number, number>([
+  [8, 4],
+  [9, 8],
+  [10, 16],
+]);
+const DENSE_PREWARM_CITY_CENTERS = [
+  { lon: 4.9041, lat: 52.3676 }, // Amsterdam
+  { lon: 5.1214, lat: 52.0907 }, // Utrecht
+  { lon: 4.4777, lat: 51.9244 }, // Rotterdam
+];
 
 type SnapshotDb = typeof db | DbTransaction;
 type SnapshotWatermarks = {
@@ -237,6 +251,7 @@ export function computePropertyTileSnapshotConfigHash(input: {
   };
   countries: readonly string[];
   dataSources: readonly string[];
+  propertyTilePipelineVersion?: number;
 }): string {
   const socialScoringConfig = {
     activeSocialScoreThreshold: ACTIVE_SOCIAL_SCORE_THRESHOLD,
@@ -275,6 +290,8 @@ export function computePropertyTileSnapshotConfigHash(input: {
       bounds: input.bounds,
       countries: [...input.countries].sort(),
       dataSources: [...input.dataSources].sort(),
+      propertyTilePipelineVersion:
+        input.propertyTilePipelineVersion ?? PROPERTY_TILE_SNAPSHOT_PIPELINE_VERSION,
       groupingConstants,
     }))
     .digest('hex');
@@ -414,6 +431,120 @@ function clampTileCoordinate(value: number, zoom: number): number {
   return Math.max(0, Math.min(max, value));
 }
 
+type TileRange = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+};
+
+function computeCoverageTileRange(
+  coverage: Pick<PropertyTileSnapshotCoverageDefinition, 'minLon' | 'minLat' | 'maxLon' | 'maxLat'>,
+  zoom: number,
+): TileRange {
+  return {
+    minX: clampTileCoordinate(lonToTileX(coverage.minLon, zoom), zoom),
+    maxX: clampTileCoordinate(lonToTileX(coverage.maxLon, zoom), zoom),
+    minY: clampTileCoordinate(latToTileY(coverage.maxLat, zoom), zoom),
+    maxY: clampTileCoordinate(latToTileY(coverage.minLat, zoom), zoom),
+  };
+}
+
+function buildCoverageTileRanges(
+  coverage: Pick<PropertyTileSnapshotCoverageDefinition, 'minLon' | 'minLat' | 'maxLon' | 'maxLat' | 'maxZoom'>,
+): Map<number, TileRange> {
+  const ranges = new Map<number, TileRange>();
+  for (let z = 0; z <= coverage.maxZoom; z += 1) {
+    ranges.set(z, computeCoverageTileRange(coverage, z));
+  }
+  return ranges;
+}
+
+function compareCanonicalTileCoordinates(
+  a: PropertyTileCoordinate,
+  b: PropertyTileCoordinate,
+): number {
+  return a.z - b.z || a.x - b.x || a.y - b.y;
+}
+
+function isCoverageLocalSampleTile(
+  tile: PropertyTileCoordinate,
+  rangesByZoom: ReadonlyMap<number, TileRange>,
+): boolean {
+  const stride = DENSE_PREWARM_SAMPLE_STRIDE_BY_ZOOM.get(tile.z);
+  if (!stride) {
+    return false;
+  }
+
+  const range = rangesByZoom.get(tile.z);
+  if (!range) {
+    return false;
+  }
+
+  return (tile.x - range.minX) % stride === 0 && (tile.y - range.minY) % stride === 0;
+}
+
+function isTileInRange(tile: PropertyTileCoordinate, range: TileRange): boolean {
+  return tile.x >= range.minX && tile.x <= range.maxX && tile.y >= range.minY && tile.y <= range.maxY;
+}
+
+function isDensePrewarmCityTile(
+  tile: PropertyTileCoordinate,
+  rangesByZoom: ReadonlyMap<number, TileRange>,
+): boolean {
+  if (tile.z < DENSE_PREWARM_MIN_ZOOM || tile.z > DENSE_PREWARM_FOLLOWUP_ZOOM) {
+    return false;
+  }
+
+  const range = rangesByZoom.get(tile.z);
+  if (!range || !isTileInRange(tile, range)) {
+    return false;
+  }
+
+  return DENSE_PREWARM_CITY_CENTERS.some((city) => (
+    lonToTileX(city.lon, tile.z) === tile.x && latToTileY(city.lat, tile.z) === tile.y
+  ));
+}
+
+function getPropertyTileSnapshotCoordinatePriorityBand(
+  tile: PropertyTileCoordinate,
+  rangesByZoom: ReadonlyMap<number, TileRange>,
+): number {
+  if (tile.z < DENSE_PREWARM_MIN_ZOOM) {
+    return 0;
+  }
+
+  if (
+    tile.z >= DENSE_PREWARM_MIN_ZOOM &&
+    tile.z <= DENSE_PREWARM_MAX_ZOOM &&
+    (isDensePrewarmCityTile(tile, rangesByZoom) || isCoverageLocalSampleTile(tile, rangesByZoom))
+  ) {
+    return 1;
+  }
+
+  if (
+    tile.z === DENSE_PREWARM_FOLLOWUP_ZOOM &&
+    (isDensePrewarmCityTile(tile, rangesByZoom) || isCoverageLocalSampleTile(tile, rangesByZoom))
+  ) {
+    return 2;
+  }
+
+  if (tile.z >= DENSE_PREWARM_MIN_ZOOM && tile.z <= DENSE_PREWARM_MAX_ZOOM) {
+    return 3;
+  }
+
+  return 4;
+}
+
+function comparePropertyTileSnapshotCoordinatePriority(
+  a: PropertyTileCoordinate,
+  b: PropertyTileCoordinate,
+  rangesByZoom: ReadonlyMap<number, TileRange>,
+): number {
+  return getPropertyTileSnapshotCoordinatePriorityBand(a, rangesByZoom) -
+    getPropertyTileSnapshotCoordinatePriorityBand(b, rangesByZoom);
+}
+
 export function computePropertyTileSnapshotCoordinatesFromCoverage(
   coverage: Pick<PropertyTileSnapshotCoverageDefinition, 'minLon' | 'minLat' | 'maxLon' | 'maxLat' | 'maxZoom'>,
 ): PropertyTileCoordinate[] {
@@ -422,20 +553,24 @@ export function computePropertyTileSnapshotCoordinatesFromCoverage(
   }
 
   const coordinates: PropertyTileCoordinate[] = [];
+  const rangesByZoom = buildCoverageTileRanges(coverage);
   for (let z = 0; z <= coverage.maxZoom; z += 1) {
-    const minX = clampTileCoordinate(lonToTileX(coverage.minLon, z), z);
-    const maxX = clampTileCoordinate(lonToTileX(coverage.maxLon, z), z);
-    const minY = clampTileCoordinate(latToTileY(coverage.maxLat, z), z);
-    const maxY = clampTileCoordinate(latToTileY(coverage.minLat, z), z);
+    const range = rangesByZoom.get(z);
+    if (!range) {
+      continue;
+    }
 
-    for (let x = minX; x <= maxX; x += 1) {
-      for (let y = minY; y <= maxY; y += 1) {
+    for (let x = range.minX; x <= range.maxX; x += 1) {
+      for (let y = range.minY; y <= range.maxY; y += 1) {
         coordinates.push({ z, x, y });
       }
     }
   }
 
-  return coordinates.sort((a, b) => a.z - b.z || a.x - b.x || a.y - b.y);
+  return coordinates.sort((a, b) =>
+    comparePropertyTileSnapshotCoordinatePriority(a, b, rangesByZoom) ||
+      compareCanonicalTileCoordinates(a, b),
+  );
 }
 
 export async function getPropertyTileSnapshotCoordinates(
@@ -1103,6 +1238,7 @@ async function selectDueSnapshotTiles(
   const existingByKey = new Map(
     existing.map((row) => [`${row.z}/${row.x}/${row.y}`, row]),
   );
+  const rangesByZoom = buildCoverageTileRanges(coverage);
   const rollingMaxAgeMs = getPropertyTileSnapshotRollingMaxAgeSeconds() * 1000;
   const now = new Date();
 
@@ -1125,7 +1261,11 @@ async function selectDueSnapshotTiles(
     .sort((a, b) => {
       const aGeneratedAt = existingByKey.get(`${a.z}/${a.x}/${a.y}`)?.generatedAt.getTime() ?? 0;
       const bGeneratedAt = existingByKey.get(`${b.z}/${b.x}/${b.y}`)?.generatedAt.getTime() ?? 0;
-      return aGeneratedAt - bGeneratedAt || a.z - b.z || a.x - b.x || a.y - b.y;
+      return (
+        comparePropertyTileSnapshotCoordinatePriority(a, b, rangesByZoom) ||
+        aGeneratedAt - bGeneratedAt ||
+        compareCanonicalTileCoordinates(a, b)
+      );
     });
 }
 

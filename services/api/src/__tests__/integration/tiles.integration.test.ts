@@ -690,9 +690,10 @@ describe('Tile routes', () => {
       );
       expect(response.headers.etag).toBeDefined();
       expect(response.headers['x-tile-cache']).toBe('miss');
+      expect(response.headers['x-tile-snapshot']).toBe('miss');
     });
 
-    it('does not create snapshot coverage rows from the public GET fast path', async () => {
+    it('dynamically builds missing default low-zoom snapshots without creating coverage rows', async () => {
       await db.execute(sql`
         DELETE FROM property_tile_snapshots
         WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
@@ -702,13 +703,24 @@ describe('Tile routes', () => {
         WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
       `);
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/tiles/properties/0/0/0.pbf',
-      });
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
 
-      expect([200, 204]).toContain(response.statusCode);
-      expect(response.headers['x-tile-cache']).not.toBe('precomputed');
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/10/0/0.pbf',
+        });
+
+        expect([200, 204]).toContain(response.statusCode);
+        expect(response.headers['cache-control']).toBe(
+          'public, max-age=300, stale-while-revalidate=300'
+        );
+        expect(response.headers['x-tile-cache']).toBe('miss');
+        expect(response.headers['x-tile-snapshot']).toBe('miss');
+        expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        runtimeRunSpy.mockRestore();
+      }
 
       const rows = await db.execute<{ coverage_count: number }>(sql`
         SELECT count(*)::int AS coverage_count
@@ -752,8 +764,9 @@ describe('Tile routes', () => {
           'public, max-age=300, stale-while-revalidate=300'
         );
         expect(response.headers['x-tile-cache']).toBe('precomputed');
+        expect(response.headers['x-tile-snapshot']).toBe('hit');
         expect(response.headers['x-tile-coalesced']).toBe('false');
-        expect(response.headers['x-tile-generation-time']).toBe('0ms');
+        expect(response.headers['x-tile-generation-time']).toMatch(/^\d+ms$/);
         expect(response.headers['x-tile-queue-time']).toBe('0ms');
         expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
         expect(response.headers.etag).toBeDefined();
@@ -772,16 +785,13 @@ describe('Tile routes', () => {
       }
     });
 
-    it('serves stale public tiles when snapshot lookup cannot enter the runtime', async () => {
+    it('serves current low-zoom snapshots while PropertyTileRuntime is saturated', async () => {
       process.env.PROPERTY_TILE_MAX_CONCURRENCY = '1';
       process.env.PROPERTY_TILE_QUEUE_WAIT_MS = '5';
       const tile = { z: 0, x: 0, y: 0 };
-      const cacheKey = '0/0/0:default';
       const snapshotPayload = Buffer.from([
         0x1a, 0x08, 0x73, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74,
       ]);
-      const stalePayload = Buffer.from([0x1a, 0x05, 0x73, 0x74, 0x61, 0x6c, 0x65]);
-      const staleNow = Date.now() - (PROPERTY_TILE_CACHE_TTL_SECONDS * 1000 + 1_000);
       const releaseBlocker: { current: (() => void) | null } = { current: null };
       let coverage: Awaited<ReturnType<typeof ensureDefaultPropertyTileSnapshotCoverage>> | null =
         null;
@@ -789,6 +799,7 @@ describe('Tile routes', () => {
       const blockerStarted = new Promise<void>((resolve) => {
         markBlockerStarted = resolve;
       });
+      let runtimeRunSpy: jest.SpiedFunction<typeof propertyTileRuntime.run> | null = null;
       const blocker = propertyTileRuntime.run({
         key: `public:test-blocker:${crypto.randomUUID()}`,
         zoom: 22,
@@ -817,26 +828,21 @@ describe('Tile routes', () => {
           },
           generatedAt: new Date(),
         });
-        publicPropertyTileCache.set(
-          cacheKey,
-          {
-            payload: stalePayload,
-            statusCode: 200,
-            etag: buildPropertyTileEtag(cacheKey, stalePayload),
-          },
-          staleNow
-        );
 
         await blockerStarted;
+        runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
         const response = await app.inject({
           method: 'GET',
           url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
         });
 
         expect(response.statusCode).toBe(200);
-        expect(response.rawPayload).toEqual(stalePayload);
-        expect(response.headers['x-tile-cache']).toBe('stale');
+        expect(response.rawPayload).toEqual(snapshotPayload);
+        expect(response.headers['x-tile-cache']).toBe('precomputed');
+        expect(response.headers['x-tile-snapshot']).toBe('hit');
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
       } finally {
+        runtimeRunSpy?.mockRestore();
         releaseBlocker.current?.();
         await blocker;
         propertyTileRuntime.resetForTests();
@@ -856,9 +862,7 @@ describe('Tile routes', () => {
       }
     });
 
-    it('serves stale public tiles when runtime queue budget is exhausted', async () => {
-      process.env.PROPERTY_TILE_MAX_CONCURRENCY = '1';
-      process.env.PROPERTY_TILE_QUEUE_WAIT_MS = '5';
+    it('falls back to stale cache when a missing default low-zoom snapshot dynamic build times out', async () => {
       const tileUrl = '/tiles/properties/10/0/0.pbf';
       const cacheKey = '10/0/0:default';
       const payload = Buffer.from([0x1a, 0x05, 0x73, 0x74, 0x61, 0x6c, 0x65]);
@@ -872,25 +876,21 @@ describe('Tile routes', () => {
         },
         staleNow
       );
-      let releaseBlocker!: () => void;
-      let markBlockerStarted!: () => void;
-      const blockerStarted = new Promise<void>((resolve) => {
-        markBlockerStarted = resolve;
+      await db.execute(sql`
+        DELETE FROM property_tile_snapshots
+        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+      `);
+      await db.execute(sql`
+        DELETE FROM property_tile_snapshot_coverage
+        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+      `);
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run').mockResolvedValue({
+        state: 'timeout',
+        coalesced: false,
+        queueTimeMs: 7,
+        generationTimeMs: 8_000,
+        budgetMs: 8_000,
       });
-      const blocker = propertyTileRuntime.run({
-        key: `public:test-blocker:${crypto.randomUUID()}`,
-        zoom: 22,
-        budgetMs: 5_000,
-        builder: async () => {
-          markBlockerStarted();
-          await new Promise<void>((resolve) => {
-            releaseBlocker = resolve;
-          });
-          return { payload: null, statusCode: 204 as const };
-        },
-      });
-
-      await blockerStarted;
 
       try {
         const response = await app.inject({
@@ -902,13 +902,38 @@ describe('Tile routes', () => {
         expect(response.rawPayload).toEqual(payload);
         expect(response.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
         expect(response.headers['x-tile-cache']).toBe('stale');
-        expect(response.headers['x-tile-generation-time']).toBe('0ms');
-        expect(response.headers['x-tile-queue-time']).toMatch(/^\d+ms$/);
+        expect(response.headers['x-tile-snapshot']).toBe('miss');
+        expect(response.headers['x-tile-generation-time']).toMatch(/^\d+ms$/);
+        expect(response.headers['x-tile-queue-time']).toBe('7ms');
         expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
+        expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
       } finally {
-        releaseBlocker();
-        await blocker;
-        propertyTileRuntime.resetForTests();
+        runtimeRunSpy.mockRestore();
+      }
+    });
+
+    it('keeps dynamic generation for non-default filters and zooms above the precompute max', async () => {
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+
+      try {
+        const filteredResponse = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/10/0/0.pbf?marketState=for-rent',
+        });
+        const abovePrecomputeResponse = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/11/0/0.pbf',
+        });
+
+        expect([200, 204]).toContain(filteredResponse.statusCode);
+        expect([200, 204]).toContain(abovePrecomputeResponse.statusCode);
+        expect(runtimeRunSpy).toHaveBeenCalledTimes(2);
+        expect(runtimeRunSpy.mock.calls.map(([options]) => options.key)).toEqual([
+          'public:10/0/0:marketState=for-rent',
+          'public:11/0/0:default',
+        ]);
+      } finally {
+        runtimeRunSpy.mockRestore();
       }
     });
 
@@ -1055,7 +1080,7 @@ describe('Tile routes', () => {
     });
 
     it('returns 304 when a cached public property tile ETag matches', async () => {
-      const tileUrl = '/tiles/properties/10/0/0.pbf';
+      const tileUrl = '/tiles/properties/11/0/0.pbf';
       const firstResponse = await app.inject({ method: 'GET', url: tileUrl });
       const etag = firstResponse.headers.etag;
 

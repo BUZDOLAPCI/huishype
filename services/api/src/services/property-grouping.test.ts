@@ -118,7 +118,7 @@ describe('property-grouping', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
   });
 
-  it('builds tile candidate discovery with bounded views and one final distinct pass', () => {
+  it('builds non-ghost tile candidate discovery from source tables before bbox scoping', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
@@ -126,8 +126,11 @@ describe('property-grouping', () => {
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
+    expect(text).not.toContain('bounded_properties AS MATERIALIZED');
     expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(text).toContain('SELECT DISTINCT l.property_id FROM v_canonical_listing_facts l');
     expect(text).toContain("WHERE l.status IN ('active', 'sold', 'rented')");
+    expect(text).not.toContain('INNER JOIN bounded_properties');
     expect(text).not.toContain('active_listing_candidate_ids');
     expect(text).not.toContain('completed_listing_candidate_ids');
     expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
@@ -136,9 +139,29 @@ describe('property-grouping', () => {
       'candidate_property_ids AS MATERIALIZED ( SELECT DISTINCT property_id FROM ('
     );
     expect(text).toContain(
-      'FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id GROUP BY pv.property_id'
+      'FROM candidate_property_ids cpi INNER JOIN properties p ON p.id = cpi.property_id'
     );
-    expect(text).not.toContain(') pv INNER JOIN bounded_properties');
+    expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
+    expect(text).toContain('p.geometry && ST_MakeEnvelope');
+    expect(text).toContain(
+      'FROM property_views pv GROUP BY pv.property_id HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8'
+    );
+  });
+
+  it('keeps ghost candidate scope as all active bbox properties', () => {
+    const query = buildGroupingCandidateScopeCtes(
+      [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
+      true,
+      createDefaultMapFilters()
+    );
+    const text = renderSql(query).replace(/\s+/g, ' ').trim();
+
+    expect(text).toContain('candidate_properties AS MATERIALIZED');
+    expect(text).toContain('FROM properties p');
+    expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
+    expect(text).toContain('p.geometry && ST_MakeEnvelope');
+    expect(text).not.toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
   });
 
   it('classifies only statement-timeout 57014 errors as tile statement timeouts', () => {

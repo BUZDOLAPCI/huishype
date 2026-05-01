@@ -263,17 +263,6 @@ function normalizeEntityTag(etag: string): string {
   return trimmed.replace(/^W\//i, '');
 }
 
-function assertRouteTileBuildCanContinue(options: PropertyTileBuildOptions, stage: string): void {
-  if (options.signal?.aborted) {
-    throw new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`);
-  }
-  if (options.runtimeDeadlineMs != null && Date.now() > options.runtimeDeadlineMs) {
-    throw new PropertyTileBudgetExceededError(
-      `Property tile runtime budget exceeded during ${stage}`
-    );
-  }
-}
-
 function buildPayloadResult(payloadBuffer: Buffer): PropertyTilePayloadBuildResult {
   const payload = payloadBuffer.length > 0 ? payloadBuffer : null;
   return {
@@ -359,34 +348,6 @@ function sendPrivateTilePayload(
   }
 
   return baseReply.header('Content-Type', 'application/x-protobuf').send(payloadResult.payload);
-}
-
-async function lookupCurrentPropertyTileSnapshotWithRuntime(
-  input: {
-    z: number;
-    x: number;
-    y: number;
-    filterSignature: string;
-  },
-  runtimeConfig: ReturnType<typeof getPropertyTileRuntimeConfig>,
-  signal: AbortSignal
-) {
-  return propertyTileRuntime.run<Awaited<ReturnType<typeof lookupCurrentPropertyTileSnapshot>>>({
-    key: `snapshot:public:${input.z}/${input.x}/${input.y}:${input.filterSignature}`,
-    zoom: input.z,
-    budgetMs: runtimeConfig.publicBudgetMs,
-    statementTimeoutMs: runtimeConfig.publicBudgetMs,
-    signal,
-    builder: async (options) => {
-      assertRouteTileBuildCanContinue(options, 'snapshot lookup preparation');
-      options.markUncancellableStage?.(true);
-      const snapshot = await lookupCurrentPropertyTileSnapshot(input).finally(() => {
-        options.markUncancellableStage?.(false);
-      });
-      assertRouteTileBuildCanContinue(options, 'snapshot lookup completion');
-      return snapshot;
-    },
-  });
 }
 
 function readStateIdentityPredicate(viewer: PropertyReadViewer) {
@@ -1910,42 +1871,35 @@ export async function tileRoutes(app: FastifyInstance) {
       const signal = createRequestAbortSignal(request, reply);
 
       if (filterSignature === 'default' && z <= getPropertyTilePrecomputeMaxZoom()) {
+        const snapshotStartedAt = Date.now();
+        const snapshotRuntime = {
+          coalesced: false,
+          queueTimeMs: 0,
+          generationTimeMs: 0,
+          budgetMs: runtimeConfig.publicBudgetMs,
+        };
         let snapshot: Awaited<ReturnType<typeof lookupCurrentPropertyTileSnapshot>> = null;
         try {
-          const snapshotRuntimeResult = await lookupCurrentPropertyTileSnapshotWithRuntime(
-            { z, x, y, filterSignature },
-            runtimeConfig,
-            signal
-          );
-
-          if (snapshotRuntimeResult.state === 'completed') {
-            snapshot = snapshotRuntimeResult.publishable ? snapshotRuntimeResult.result : null;
-          } else if (
-            snapshotRuntimeResult.state === 'error' &&
-            !isPropertyTileRecoverableError(snapshotRuntimeResult.error)
-          ) {
-            throw snapshotRuntimeResult.error;
-          } else if (cachedTile.state === 'stale') {
-            return sendPublicTileEntry(request, reply, cachedTile.entry, 'stale', {
-              coalesced: snapshotRuntimeResult.coalesced,
-              queueTimeMs: snapshotRuntimeResult.queueTimeMs,
-              generationTimeMs: snapshotRuntimeResult.generationTimeMs,
-              budgetMs: snapshotRuntimeResult.budgetMs,
-            });
+          if (signal.aborted) {
+            throw new PropertyTileBuildAbortedError('Property tile snapshot lookup aborted');
           }
+          snapshot = await lookupCurrentPropertyTileSnapshot({ z, x, y, filterSignature });
+          snapshotRuntime.generationTimeMs = Date.now() - snapshotStartedAt;
         } catch (error) {
           if (!isPropertyTileRecoverableError(error)) {
             throw error;
           }
 
+          snapshotRuntime.generationTimeMs = Date.now() - snapshotStartedAt;
           if (cachedTile.state === 'stale') {
+            reply.header('X-Tile-Snapshot', 'error');
             return sendPublicTileEntry(request, reply, cachedTile.entry, 'stale', {
-              coalesced: false,
-              queueTimeMs: 0,
-              generationTimeMs: 0,
-              budgetMs: runtimeConfig.publicBudgetMs,
+              ...snapshotRuntime,
             });
           }
+
+          reply.header('X-Tile-Snapshot', 'error');
+          return sendTimeoutEmptyTile(reply, snapshotRuntime);
         }
         if (snapshot) {
           const entry = publicPropertyTileCache.set(cacheKey, {
@@ -1953,13 +1907,13 @@ export async function tileRoutes(app: FastifyInstance) {
             statusCode: snapshot.statusCode,
             etag: snapshot.etag,
           });
+          reply.header('X-Tile-Snapshot', 'hit');
           return sendPublicTileEntry(request, reply, entry, 'precomputed', {
-            coalesced: false,
-            queueTimeMs: 0,
-            generationTimeMs: 0,
-            budgetMs: runtimeConfig.publicBudgetMs,
+            ...snapshotRuntime,
           });
         }
+
+        reply.header('X-Tile-Snapshot', 'miss');
       }
 
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({

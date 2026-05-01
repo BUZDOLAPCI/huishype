@@ -9,9 +9,56 @@ import {
   isPropertyViewSnapshotRecoveryThrottled,
   isSnapshotRefreshRequestThrottled,
   isSnapshotTileDueForRollingWindow,
+  PROPERTY_TILE_SNAPSHOT_PIPELINE_VERSION,
   safeRequestPropertyTileSnapshotRefresh,
   summarizePropertyTileSnapshotRefreshRun,
 } from './property-tile-snapshots.js';
+
+type TestCoverage = Parameters<typeof computePropertyTileSnapshotCoordinatesFromCoverage>[0];
+
+function lonToTileX(lon: number, zoom: number): number {
+  const n = 2 ** zoom;
+  return Math.floor(((lon + 180) / 360) * n);
+}
+
+function latToTileY(lat: number, zoom: number): number {
+  const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
+  const rad = (clampedLat * Math.PI) / 180;
+  const n = 2 ** zoom;
+  return Math.floor(((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n);
+}
+
+function clampTileCoordinate(value: number, zoom: number): number {
+  const max = 2 ** zoom - 1;
+  return Math.max(0, Math.min(max, value));
+}
+
+function expectedCoordinateCount(coverage: TestCoverage): number {
+  let count = 0;
+  for (let z = 0; z <= coverage.maxZoom; z += 1) {
+    const minX = clampTileCoordinate(lonToTileX(coverage.minLon, z), z);
+    const maxX = clampTileCoordinate(lonToTileX(coverage.maxLon, z), z);
+    const minY = clampTileCoordinate(latToTileY(coverage.maxLat, z), z);
+    const maxY = clampTileCoordinate(latToTileY(coverage.minLat, z), z);
+    count += (maxX - minX + 1) * (maxY - minY + 1);
+  }
+  return count;
+}
+
+function tileKey(tile: { z: number; x: number; y: number }): string {
+  return `${tile.z}/${tile.x}/${tile.y}`;
+}
+
+function cityTileKeys(
+  city: { lon: number; lat: number },
+  zooms: readonly number[],
+): string[] {
+  return zooms.map((z) => tileKey({
+    z,
+    x: lonToTileX(city.lon, z),
+    y: latToTileY(city.lat, z),
+  }));
+}
 
 describe('property tile snapshots', () => {
   it('computes a stable config hash independent of country and source ordering', () => {
@@ -51,6 +98,26 @@ describe('property tile snapshots', () => {
       .not.toBe(first);
   });
 
+  it('includes the explicit property tile pipeline version in the config hash', () => {
+    const base = {
+      maxZoom: 10,
+      filterSignature: 'default',
+      bounds: { minLon: -1, minLat: 50, maxLon: 8, maxLat: 54 },
+      countries: ['NL'],
+      dataSources: ['funda'],
+    };
+
+    const current = computePropertyTileSnapshotConfigHash(base);
+    expect(computePropertyTileSnapshotConfigHash({
+      ...base,
+      propertyTilePipelineVersion: PROPERTY_TILE_SNAPSHOT_PIPELINE_VERSION,
+    })).toBe(current);
+    expect(computePropertyTileSnapshotConfigHash({
+      ...base,
+      propertyTilePipelineVersion: PROPERTY_TILE_SNAPSHOT_PIPELINE_VERSION + 1,
+    })).not.toBe(current);
+  });
+
   it('aligns the config hash with the 7-day tile social scoring window', () => {
     const base = {
       maxZoom: 10,
@@ -61,7 +128,7 @@ describe('property tile snapshots', () => {
     };
 
     expect(computePropertyTileSnapshotConfigHash(base)).toBe(
-      '170969679567944f8eff54fbcce9251bb98bb0761ce5b85cb66f3dc7d8746951',
+      '6a5cb3d98414cf91afb708335c611892e1f71bfe28be43fdf94d7fe3edc686eb',
     );
   });
 
@@ -234,6 +301,61 @@ describe('property tile snapshots', () => {
     expect(coordinates.length).toBeGreaterThan(0);
     expect(coordinates.every((tile) => tile.z >= 0 && tile.z <= 2)).toBe(true);
     expect(coordinates[0]).toEqual({ z: 0, x: 0, y: 0 });
+  });
+
+  it('prioritizes representative z8 and z9 tiles before z10 coverage can exhaust quota', () => {
+    const coordinates = computePropertyTileSnapshotCoordinatesFromCoverage({
+      minLon: -11.5,
+      minLat: 34.5,
+      maxLon: 32.5,
+      maxLat: 71.5,
+      maxZoom: 10,
+    });
+    const firstQuota = coordinates.slice(0, 1_000);
+    const firstZ8 = firstQuota.findIndex((tile) => tile.z === 8);
+    const firstZ9 = firstQuota.findIndex((tile) => tile.z === 9);
+    const firstZ10 = firstQuota.findIndex((tile) => tile.z === 10);
+
+    expect(firstZ8).toBeGreaterThanOrEqual(0);
+    expect(firstZ9).toBeGreaterThanOrEqual(0);
+    expect(firstZ9).toBeLessThan(firstZ10);
+  });
+
+  it('places profiled Amsterdam, Utrecht, and Rotterdam z8-z9 tiles in the first quota window', () => {
+    const coordinates = computePropertyTileSnapshotCoordinatesFromCoverage({
+      minLon: -11.5,
+      minLat: 34.5,
+      maxLon: 32.5,
+      maxLat: 71.5,
+      maxZoom: 10,
+    });
+    const firstQuotaKeys = new Set(coordinates.slice(0, 1_000).map(tileKey));
+    const expectedKeys = [
+      ...cityTileKeys({ lon: 4.9041, lat: 52.3676 }, [8, 9]),
+      ...cityTileKeys({ lon: 5.1214, lat: 52.0907 }, [8, 9]),
+      ...cityTileKeys({ lon: 4.4777, lat: 51.9244 }, [8, 9]),
+    ];
+
+    for (const expectedKey of expectedKeys) {
+      expect(firstQuotaKeys.has(expectedKey)).toBe(true);
+    }
+  });
+
+  it('keeps priority-aware coordinate ordering complete and duplicate-free', () => {
+    const coverage = {
+      minLon: -11.5,
+      minLat: 34.5,
+      maxLon: 32.5,
+      maxLat: 71.5,
+      maxZoom: 10,
+    };
+
+    const coordinates = computePropertyTileSnapshotCoordinatesFromCoverage(coverage);
+    const coordinateKeys = new Set(coordinates.map((tile) => `${tile.z}/${tile.x}/${tile.y}`));
+
+    expect(coordinates.length).toBe(expectedCoordinateCount(coverage));
+    expect(coordinateKeys.size).toBe(coordinates.length);
+    expect(coordinates.some((tile) => tile.z === 10)).toBe(true);
   });
 
   it('refuses invalid coverage instead of falling back to world coordinates', () => {
