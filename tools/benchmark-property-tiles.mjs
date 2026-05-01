@@ -26,9 +26,23 @@ const CITY_CENTERS = [
   { city: 'rotterdam', latitude: 51.9244, longitude: 4.4777 },
 ];
 
+const DENSE_DYNAMIC_Z13_TILES = [
+  { label: 'amsterdam-z13', z: 13, x: 4206, y: 2692 },
+  { label: 'utrecht-z13', z: 13, x: 4212, y: 2702 },
+  { label: 'rotterdam-z13', z: 13, x: 4197, y: 2708 },
+];
+
 const TILE_SETS = {
+  'dense-dynamic-z13': buildDenseDynamicZ13TileSet(),
   'heavy-low-zoom': buildHeavyLowZoomTileSet(),
 };
+
+function buildDenseDynamicZ13TileSet() {
+  return DENSE_DYNAMIC_Z13_TILES.map((tile) => ({
+    label: tile.label,
+    path: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+  }));
+}
 
 function buildHeavyLowZoomTileSet() {
   return CITY_CENTERS.flatMap((city) =>
@@ -178,7 +192,7 @@ function parseArgs(argv) {
   }
 
   if (options.paths.length === 0 && !options.tileSet) {
-    options.tileSet = 'heavy-low-zoom';
+    options.tileSet = 'dense-dynamic-z13';
   }
 
   if (options.coldRuns === 0 && options.warmRuns === 0) {
@@ -226,8 +240,13 @@ function printHelp() {
     --runs 3
 
 Options:
+  --tile-set dense-dynamic-z13
+                             Fixed z13 Amsterdam/Utrecht/Rotterdam property tiles.
+                             This avoids default low-zoom snapshots and profiles
+                             dynamic cold/warm generation in dense cities.
   --tile-set heavy-low-zoom  Fixed z8-z9 Amsterdam/Utrecht/Rotterdam property tiles.
-                             Defaults to this set when no --path is provided.
+                             These may exercise low-zoom snapshot behavior.
+                             Defaults to dense-dynamic-z13 when no --path is provided.
   --include-read-tiles       Also benchmark /tiles/properties/read/... for each fixed tile.
   --cold-runs N              First-request phase count per target. Default: 1.
   --warm-runs N              Repeated-request phase count per target. Default: 2.

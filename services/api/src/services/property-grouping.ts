@@ -13,6 +13,7 @@ import {
   canonicalListingFactOrderExpression,
   buildPropertyFollowingSocialFactsJoin,
   buildPropertyListingFactsJoin,
+  listingThumbnailOrderExpression,
 } from './property-queries.js';
 import {
   areMapFiltersDefault,
@@ -1133,9 +1134,20 @@ export function buildGroupingCandidateScopeCtes(
         )
       `
     : sql`
+        bounded_properties AS MATERIALIZED (
+          SELECT
+            p.id,
+            p.geometry,
+            p.official_valuation
+          FROM properties p
+          WHERE p.geometry IS NOT NULL
+            AND p.status = 'active'
+            AND (${bboxFilter})
+        ),
         listing_candidate_ids AS MATERIALIZED (
           SELECT DISTINCT l.property_id
           FROM v_canonical_listing_facts l
+          INNER JOIN bounded_properties bp ON bp.id = l.property_id
           WHERE l.status IN ('active', 'sold', 'rented')
         ),
         social_activity_candidate_ids AS MATERIALIZED (
@@ -1145,6 +1157,7 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT c.property_id, c.created_at AS activity_at
               FROM comments c
+              INNER JOIN bounded_properties bp ON bp.id = c.property_id
             ) c
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1152,17 +1165,19 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT r.target_id AS property_id, r.created_at AS activity_at
               FROM reactions r
+              INNER JOIN bounded_properties bp ON bp.id = r.target_id
               WHERE r.target_type = 'property'
             ) r
             WHERE ${activityCandidateFilter}
             UNION ALL
             SELECT rc.property_id
             FROM (
-              SELECT c.property_id, r.created_at AS activity_at
-              FROM reactions r
-              INNER JOIN comments c ON c.id = r.target_id
-              WHERE r.target_type = 'comment'
-            ) rc
+                SELECT c.property_id, r.created_at AS activity_at
+                FROM reactions r
+                INNER JOIN comments c ON c.id = r.target_id
+                INNER JOIN bounded_properties bp ON bp.id = c.property_id
+                WHERE r.target_type = 'comment'
+              ) rc
             WHERE ${activityCandidateFilter}
             UNION ALL
             SELECT pg.property_id
@@ -1171,6 +1186,7 @@ export function buildGroupingCandidateScopeCtes(
                 pg.property_id,
                 GREATEST(pg.created_at, pg.updated_at) AS activity_at
               FROM price_guesses pg
+              INNER JOIN bounded_properties bp ON bp.id = pg.property_id
             ) pg
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1180,6 +1196,7 @@ export function buildGroupingCandidateScopeCtes(
                 pv.property_id,
                 MAX(pv.viewed_at) AS activity_at
               FROM property_views pv
+              INNER JOIN bounded_properties bp ON bp.id = pv.property_id
               GROUP BY pv.property_id
               HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
             ) pv
@@ -1198,14 +1215,11 @@ export function buildGroupingCandidateScopeCtes(
         ),
         candidate_properties AS MATERIALIZED (
           SELECT
-            p.id,
-            p.geometry,
-            p.official_valuation
+            bp.id,
+            bp.geometry,
+            bp.official_valuation
           FROM candidate_property_ids cpi
-          INNER JOIN properties p ON p.id = cpi.property_id
-          WHERE p.geometry IS NOT NULL
-            AND p.status = 'active'
-            AND (${bboxFilter})
+          INNER JOIN bounded_properties bp ON bp.id = cpi.property_id
         )
       `;
 }
@@ -1811,21 +1825,71 @@ async function fetchSinglePropertyDetails(
   );
   const rows = await executeWithTileStatementTimeout<SinglePropertyDetailRow>(
     sql`
+    WITH target_properties AS MATERIALIZED (
+      SELECT
+        p.id,
+        p.country_code,
+        p.street,
+        p.house_number,
+        p.house_number_addition,
+        p.city,
+        p.postal_code
+      FROM properties p
+      WHERE p.id IN (${idList})
+    ),
+    active_listing AS MATERIALIZED (
+      SELECT DISTINCT ON (l.property_id)
+        l.property_id,
+        l.asking_price,
+        l.normalized_price_type AS price_type
+      FROM v_canonical_listing_facts l
+      INNER JOIN target_properties tp ON tp.id = l.property_id
+      WHERE l.status = 'active'
+      ORDER BY l.property_id, ${buildListingOrderExpression('l')}
+    ),
+    latest_listing AS MATERIALIZED (
+      SELECT DISTINCT ON (l.property_id)
+        l.property_id,
+        l.status
+      FROM v_canonical_listing_facts l
+      INNER JOIN target_properties tp ON tp.id = l.property_id
+      ORDER BY l.property_id, ${buildListingOrderExpression('l')}
+    ),
+    listing_thumbnail AS MATERIALIZED (
+      SELECT DISTINCT ON (l.property_id)
+        l.property_id,
+        l.thumbnail_url
+      FROM v_canonical_listing_facts l
+      INNER JOIN target_properties tp ON tp.id = l.property_id
+      WHERE l.thumbnail_url IS NOT NULL
+      ORDER BY l.property_id, ${listingThumbnailOrderExpression('l')}
+    )
     SELECT
-      p.id,
-      p.country_code,
-      p.street,
-      p.house_number,
-      p.house_number_addition,
-      p.city,
-      p.postal_code,
-      lf.asking_price,
-      lf.thumbnail_url,
-      lf.has_active_listing,
-      lf.market_state
-    FROM properties p
-    ${buildPropertyListingFactsJoin('p', 'lf')}
-    WHERE p.id IN (${idList})
+      tp.id,
+      tp.country_code,
+      tp.street,
+      tp.house_number,
+      tp.house_number_addition,
+      tp.city,
+      tp.postal_code,
+      active_listing.asking_price,
+      listing_thumbnail.thumbnail_url,
+      active_listing.property_id IS NOT NULL AS has_active_listing,
+      CASE
+        WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+          THEN 'for-rent'
+        WHEN active_listing.property_id IS NOT NULL
+          THEN 'for-sale'
+        WHEN latest_listing.status = 'sold'
+          THEN 'sold'
+        WHEN latest_listing.status = 'rented'
+          THEN 'rented'
+        ELSE 'not-listed'
+      END AS market_state
+    FROM target_properties tp
+    LEFT JOIN active_listing ON active_listing.property_id = tp.id
+    LEFT JOIN latest_listing ON latest_listing.property_id = tp.id
+    LEFT JOIN listing_thumbnail ON listing_thumbnail.property_id = tp.id
   `,
     options
   );

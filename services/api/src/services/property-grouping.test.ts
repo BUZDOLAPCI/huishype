@@ -118,7 +118,7 @@ describe('property-grouping', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
   });
 
-  it('builds non-ghost tile candidate discovery from source tables before bbox scoping', () => {
+  it('scopes non-ghost tile candidate discovery to bounded active properties before source scans', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
@@ -126,11 +126,20 @@ describe('property-grouping', () => {
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
-    expect(text).not.toContain('bounded_properties AS MATERIALIZED');
+    expect(text).toContain('bounded_properties AS MATERIALIZED');
+    expect(text.indexOf('bounded_properties AS MATERIALIZED')).toBeLessThan(
+      text.indexOf('listing_candidate_ids AS MATERIALIZED')
+    );
     expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
-    expect(text).toContain('SELECT DISTINCT l.property_id FROM v_canonical_listing_facts l');
+    expect(text).toContain(
+      'SELECT DISTINCT l.property_id FROM v_canonical_listing_facts l INNER JOIN bounded_properties bp ON bp.id = l.property_id'
+    );
     expect(text).toContain("WHERE l.status IN ('active', 'sold', 'rented')");
-    expect(text).not.toContain('INNER JOIN bounded_properties');
+    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = c.property_id');
+    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = r.target_id');
+    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = c.property_id');
+    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = pg.property_id');
+    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = pv.property_id');
     expect(text).not.toContain('active_listing_candidate_ids');
     expect(text).not.toContain('completed_listing_candidate_ids');
     expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
@@ -139,13 +148,92 @@ describe('property-grouping', () => {
       'candidate_property_ids AS MATERIALIZED ( SELECT DISTINCT property_id FROM ('
     );
     expect(text).toContain(
-      'FROM candidate_property_ids cpi INNER JOIN properties p ON p.id = cpi.property_id'
+      'FROM candidate_property_ids cpi INNER JOIN bounded_properties bp ON bp.id = cpi.property_id'
     );
     expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
     expect(text).toContain('p.geometry && ST_MakeEnvelope');
     expect(text).toContain(
-      'FROM property_views pv GROUP BY pv.property_id HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8'
+      'FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id GROUP BY pv.property_id HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8'
     );
+  });
+
+  it('hydrates single-property tile details with a set-based listing fact batch query', async () => {
+    const propertyId = '00000000-0000-0000-0000-00000000a101';
+    const lon = 5.4697;
+    const lat = 51.4416;
+    const tile = tileForCoordinate(lon, lat, 18);
+    const renderedQueries: string[] = [];
+    const txExecuteMock = jest.fn(async (query: SQL) => {
+      const rendered = renderSql(query).replace(/\s+/g, ' ').trim();
+      renderedQueries.push(rendered);
+
+      if (rendered.includes('FROM target_properties tp')) {
+        return [
+          {
+            id: propertyId,
+            country_code: 'NL',
+            street: 'Set Based Tile Street',
+            house_number: 12,
+            house_number_addition: null,
+            city: 'Batchstad',
+            postal_code: '1234AB',
+            asking_price: 625000,
+            thumbnail_url: 'https://cdn.example.com/set-based.jpg',
+            has_active_listing: true,
+            market_state: 'for-sale',
+          },
+        ] as never;
+      }
+
+      if (rendered.includes('FROM candidate_properties cp')) {
+        return [
+          {
+            id: propertyId,
+            has_active_listing: true,
+            has_completed_listing: false,
+            social_score: 1,
+            recent_social_score: 1,
+            comment_count: 0,
+            market_state: 'for-sale',
+            lon,
+            lat,
+          },
+        ] as never;
+      }
+
+      return [] as never;
+    });
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+    const startedAt = Date.now();
+
+    const groups = await buildCanonicalGroupsForTile(tile, createDefaultMapFilters(), {
+      runtimeBudgetMs: 5_000,
+      runtimeStartedAtMs: startedAt,
+      runtimeDeadlineMs: startedAt + 5_000,
+      statementTimeoutMs: 5_000,
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].primaryPropertyId).toBe(propertyId);
+    expect(groups[0].address).toContain('Set Based Tile Street');
+    expect(groups[0].askingPrice).toBe(625000);
+    expect(groups[0].thumbnailUrl).toBe('https://cdn.example.com/set-based.jpg');
+    expect(groups[0].hasActiveListing).toBe(true);
+    expect(groups[0].marketState).toBe('for-sale');
+    const hydrationQuery = renderedQueries.find((text) =>
+      text.includes('target_properties AS MATERIALIZED')
+    );
+    expect(hydrationQuery).toBeDefined();
+    expect(hydrationQuery).toContain('active_listing AS MATERIALIZED');
+    expect(hydrationQuery).toContain('latest_listing AS MATERIALIZED');
+    expect(hydrationQuery).toContain('listing_thumbnail AS MATERIALIZED');
+    expect(hydrationQuery).toContain(
+      'FROM v_canonical_listing_facts l INNER JOIN target_properties tp ON tp.id = l.property_id'
+    );
+    expect(hydrationQuery).not.toContain('LEFT JOIN LATERAL');
+    expect(transactionSpy).toHaveBeenCalledTimes(2);
   });
 
   it('keeps ghost candidate scope as all active bbox properties', () => {
@@ -861,6 +949,97 @@ describe('property-grouping', () => {
     expect(groups[0].completedListingCount).toBe(1);
     expect(groups[0].socialCount).toBe(1);
     expect(groups[0].recentSocialCount).toBe(1);
+  });
+
+  it('preserves listing-only, social-only, and ghost semantics after candidate scoping', () => {
+    const hiddenZoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const revealedZoom = GHOST_NODE_REVEAL_ZOOM;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const ghostLon = baseLon + 0.002;
+    const hiddenTile = tileForCoordinate(baseLon, baseLat, hiddenZoom);
+    const revealedTile = tileForCoordinate(ghostLon, baseLat, revealedZoom);
+    const listingOnly = makeCandidate(
+      '00000000-0000-0000-0000-000000000071',
+      baseLon,
+      baseLat,
+      hiddenZoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: true,
+        socialScore: 0,
+        recentSocialScore: 0,
+        marketState: 'sold',
+      }
+    );
+    const socialOnly = makeCandidate(
+      '00000000-0000-0000-0000-000000000072',
+      baseLon + 0.001,
+      baseLat,
+      hiddenZoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: false,
+        socialScore: 0.8,
+        recentSocialScore: 0.8,
+        marketState: 'not-listed',
+      }
+    );
+    const hiddenGhost = makeCandidate(
+      '00000000-0000-0000-0000-000000000073',
+      ghostLon,
+      baseLat,
+      hiddenZoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: false,
+        socialScore: 0.1,
+        recentSocialScore: 0.1,
+        marketState: 'not-listed',
+      }
+    );
+    const revealedGhost = makeCandidate(
+      hiddenGhost.id,
+      ghostLon,
+      baseLat,
+      revealedZoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: false,
+        socialScore: 0.1,
+        recentSocialScore: 0.1,
+        marketState: 'not-listed',
+      }
+    );
+
+    const hiddenGroups = groupCandidatesForTile(hiddenTile, [listingOnly, socialOnly, hiddenGhost]);
+    const revealedGroups = groupCandidatesForTile(revealedTile, [revealedGhost]);
+
+    expect(hiddenGroups).toHaveLength(2);
+    expect(hiddenGroups.find((group) => group.primaryPropertyId === listingOnly.id)).toMatchObject({
+      nodeClass: 'active',
+      groupKind: 'single',
+      completedListingCount: 1,
+      socialCount: 0,
+      marketState: 'sold',
+    });
+    expect(hiddenGroups.find((group) => group.primaryPropertyId === socialOnly.id)).toMatchObject({
+      nodeClass: 'active',
+      groupKind: 'single',
+      activeListingCount: 0,
+      completedListingCount: 0,
+      socialCount: 1,
+      marketState: 'not-listed',
+    });
+    expect(hiddenGroups.find((group) => group.primaryPropertyId === hiddenGhost.id)).toBeUndefined();
+    expect(revealedGroups).toHaveLength(1);
+    expect(revealedGroups[0]).toMatchObject({
+      nodeClass: 'ghost',
+      groupKind: 'single',
+      primaryPropertyId: hiddenGhost.id,
+      socialCount: 0,
+      marketState: 'not-listed',
+    });
   });
 
   it('keeps a single unique view below active-node semantics', () => {
