@@ -25,6 +25,7 @@ test('loadWorkerConfig uses defaults when env vars are missing', () => {
   assert.equal(config.ingestConcurrency, 4);
   assert.equal(config.maintenanceConcurrency, 1);
   assert.equal(config.officialValuationHydrationConcurrency, 1);
+  assert.equal(config.propertyTileSnapshotConcurrency, 1);
   assert.equal(config.recoveryBatchLimit, 100);
   assert.equal(config.skippedBatchRecoveryLimit, 1);
   assert.equal(config.recoverySweepIntervalMs, 30_000);
@@ -41,6 +42,7 @@ test('loadWorkerConfig parses explicit overrides', () => {
     WORKER_INGEST_CONCURRENCY: '8',
     WORKER_MAINTENANCE_CONCURRENCY: '2',
     WORKER_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY: '1',
+    WORKER_PROPERTY_TILE_SNAPSHOT_CONCURRENCY: '1',
     WORKER_RECOVERY_BATCH_LIMIT: '50',
     WORKER_SKIPPED_BATCH_RECOVERY_LIMIT: '3',
     WORKER_RECOVERY_SWEEP_INTERVAL_MS: '15000',
@@ -55,6 +57,7 @@ test('loadWorkerConfig parses explicit overrides', () => {
   assert.equal(config.ingestConcurrency, 8);
   assert.equal(config.maintenanceConcurrency, 2);
   assert.equal(config.officialValuationHydrationConcurrency, 1);
+  assert.equal(config.propertyTileSnapshotConcurrency, 1);
   assert.equal(config.recoveryBatchLimit, 50);
   assert.equal(config.skippedBatchRecoveryLimit, 3);
   assert.equal(config.recoverySweepIntervalMs, 15_000);
@@ -79,6 +82,10 @@ test('resolveApiModuleUrl uses src artifacts when running from worker source', (
   assert.equal(
     resolveApiModuleUrl('services/ingest/jobs.js', moduleUrl),
     'file:///home/caslan/dev/git_repos/hh/huishype/services/api/src/services/ingest/jobs.js',
+  );
+  assert.equal(
+    resolveApiModuleUrl('services/property-tile-snapshots.js', moduleUrl),
+    'file:///home/caslan/dev/git_repos/hh/huishype/services/api/src/services/property-tile-snapshots.js',
   );
 });
 

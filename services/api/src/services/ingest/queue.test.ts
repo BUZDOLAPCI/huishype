@@ -248,4 +248,60 @@ describe('ingest queue', () => {
       { jobId: 'refresh-latest-active-listings-batch-1' },
     );
   });
+
+  it('uses a singleton BullMQ job id for property tile snapshot refreshes', async () => {
+    const { enqueuePropertyTileSnapshotRefresh } = await import('./queue.js');
+
+    await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
+
+    expect(getJobMock).toHaveBeenCalledWith('property-tile-snapshot-refresh-public-default-low-zoom');
+    expect(addMock).toHaveBeenCalledWith(
+      'refresh-property-tile-snapshots',
+      { reason: 'unit-test' },
+      { jobId: 'property-tile-snapshot-refresh-public-default-low-zoom' },
+    );
+  });
+
+  it.each(['active', 'waiting', 'delayed'] as const)(
+    'does not add another property tile snapshot refresh when singleton job is %s',
+    async (state) => {
+      const getStateMock = jest.fn(async () => state);
+      const retryMock = jest.fn(async () => undefined);
+      getJobMock.mockResolvedValueOnce({
+        id: 'property-tile-snapshot-refresh-public-default-low-zoom',
+        getState: getStateMock,
+        retry: retryMock,
+      });
+      const { enqueuePropertyTileSnapshotRefresh } = await import('./queue.js');
+
+      await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
+
+      expect(getStateMock).toHaveBeenCalled();
+      expect(retryMock).not.toHaveBeenCalled();
+      expect(addMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['completed', 'failed'] as const)(
+    'retries an existing %s property tile snapshot singleton job',
+    async (state) => {
+      const getStateMock = jest.fn(async () => state);
+      const retryMock = jest.fn(async () => undefined);
+      getJobMock.mockResolvedValueOnce({
+        id: 'property-tile-snapshot-refresh-public-default-low-zoom',
+        getState: getStateMock,
+        retry: retryMock,
+      });
+      const { enqueuePropertyTileSnapshotRefresh } = await import('./queue.js');
+
+      await enqueuePropertyTileSnapshotRefresh({ reason: 'unit-test' });
+
+      expect(getStateMock).toHaveBeenCalled();
+      expect(retryMock).toHaveBeenCalledWith(state, {
+        resetAttemptsMade: true,
+        resetAttemptsStarted: true,
+      });
+      expect(addMock).not.toHaveBeenCalled();
+    },
+  );
 });

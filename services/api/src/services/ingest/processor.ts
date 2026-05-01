@@ -26,6 +26,10 @@ import {
 } from './store.js';
 import { advancePropertyChangeVersion } from '../property-read-state.js';
 import {
+  advancePropertyTileSnapshotWatermark,
+  requestPropertyTileSnapshotRefresh,
+} from '../property-tile-snapshots.js';
+import {
   persistMirrorObservationForIngest,
   type ListingSourceStatus,
   type ListingWriteResult,
@@ -1163,6 +1167,9 @@ export async function processIngestBatch(
           .map((row) => row.propertyId),
         tx,
       );
+      if (listingWrites.some((row) => row.inserted || row.changed)) {
+        await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
+      }
 
       const ingestedCount = listingWrites.filter((row) => row.inserted).length;
       const updatedCount = listingWrites.length - ingestedCount;
@@ -1206,6 +1213,18 @@ export async function processIngestBatch(
             error: serializeError(error),
           },
           'Maintenance refresh enqueue failed after ingest batch commit',
+        );
+      }
+      try {
+        await requestPropertyTileSnapshotRefresh({ reason: 'ingest-batch' });
+      } catch (error) {
+        logger.warn(
+          {
+            batchId: claimed.id,
+            sourceName: claimed.sourceName,
+            error: serializeError(error),
+          },
+          'Property tile snapshot refresh enqueue failed after ingest batch commit',
         );
       }
     }

@@ -4,6 +4,10 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, comments, properties, reactions, users } from '../db/index.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
+import {
+  advancePropertyTileSnapshotWatermark,
+  safeRequestPropertyTileSnapshotRefresh,
+} from '../services/property-tile-snapshots.js';
 
 // Type for comment rows from raw SQL
 type CommentRow = {
@@ -414,10 +418,16 @@ export async function commentRoutes(app: FastifyInstance) {
           .returning();
 
         await advancePropertyChangeVersion(propertyId, tx);
+        await advancePropertyTileSnapshotWatermark(['social'], tx);
         return inserted;
       });
 
       const created = newComment[0];
+      await safeRequestPropertyTileSnapshotRefresh(
+        { reason: 'comment-create' },
+        request.log,
+        { propertyId, commentId: created.id },
+      );
 
       return reply.status(201).send({
         id: created.id,

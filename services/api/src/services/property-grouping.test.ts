@@ -21,6 +21,8 @@ import {
   resolveNearbyGroupedFeature,
 } from './property-grouping.js';
 import { normalizeMapFilters } from './map-filters.js';
+import { PublicPropertyTileCache } from './property-tile-cache.js';
+import { isPropertyTileStatementTimeoutError } from './property-tile-runtime.js';
 
 function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
   const scale = Math.pow(2, zoom) * PROPERTY_TILE_EXTENT;
@@ -46,7 +48,7 @@ function makeCandidate(
   lon: number,
   lat: number,
   zoom: number,
-  overrides: Partial<GroupingCandidate> = {},
+  overrides: Partial<GroupingCandidate> = {}
 ): GroupingCandidate {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   const hasActiveListing = overrides.hasActiveListing ?? true;
@@ -77,7 +79,7 @@ function makeCandidateAtWorld(
   worldX: number,
   worldY: number,
   zoom: number,
-  overrides: Partial<GroupingCandidate> = {},
+  overrides: Partial<GroupingCandidate> = {}
 ): GroupingCandidate {
   const [lon, lat] = worldUnitsToLngLat(worldX, worldY, zoom);
   return makeCandidate(id, lon, lat, zoom, overrides);
@@ -94,6 +96,44 @@ describe('property-grouping', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
   });
 
+  it('classifies only statement-timeout 57014 errors as tile statement timeouts', () => {
+    expect(
+      isPropertyTileStatementTimeoutError({
+        code: '57014',
+        message: 'canceling statement due to statement timeout',
+      })
+    ).toBe(true);
+    expect(
+      isPropertyTileStatementTimeoutError({
+        code: '57014',
+        message: 'canceling statement due to user request',
+      })
+    ).toBe(false);
+    expect(isPropertyTileStatementTimeoutError({ code: '40001', message: 'serialization' })).toBe(
+      false
+    );
+  });
+
+  it('keeps public property tile cache entries stale after the fresh TTL expires', () => {
+    const cache = new PublicPropertyTileCache();
+    cache.set(
+      '13/4208/2686:default',
+      {
+        payload: Buffer.from('tile'),
+        statusCode: 200,
+        etag: '"tile"',
+      },
+      1_000
+    );
+
+    expect(cache.get('13/4208/2686:default', 1_000 + 299_000).state).toBe('fresh');
+    const staleLookup = cache.get('13/4208/2686:default', 1_000 + 301_000);
+    expect(staleLookup.state).toBe('stale');
+    expect(staleLookup.state === 'stale' ? staleLookup.entry.payload?.toString() : null).toBe(
+      'tile'
+    );
+  });
+
   it('keeps active grouping available at high zoom when points are still visually dense', () => {
     const zoom = 18;
     const baseLon = 5.4697;
@@ -108,7 +148,7 @@ describe('property-grouping', () => {
       baseLon + 0.00002,
       baseLat + 0.00001,
       zoom,
-      { socialScore: 20 },
+      { socialScore: 20 }
     );
 
     const groups = groupCandidatesForTile(tile, [denseA, denseB]);
@@ -131,20 +171,14 @@ describe('property-grouping', () => {
     const [leftLon, leftLat] = worldUnitsToLngLat(worldXLeft, worldY, zoom);
     const [rightLon, rightLat] = worldUnitsToLngLat(worldXRight, worldY, zoom);
 
-    const left = makeCandidate(
-      '00000000-0000-0000-0000-000000000031',
-      leftLon,
-      leftLat,
-      zoom,
-      { socialScore: 90, commentCount: 2 },
-    );
-    const right = makeCandidate(
-      '00000000-0000-0000-0000-000000000032',
-      rightLon,
-      rightLat,
-      zoom,
-      { socialScore: 65, commentCount: 1 },
-    );
+    const left = makeCandidate('00000000-0000-0000-0000-000000000031', leftLon, leftLat, zoom, {
+      socialScore: 90,
+      commentCount: 2,
+    });
+    const right = makeCandidate('00000000-0000-0000-0000-000000000032', rightLon, rightLat, zoom, {
+      socialScore: 65,
+      commentCount: 1,
+    });
 
     const groups = groupCandidatesForTile(tile, [left, right]);
 
@@ -152,7 +186,7 @@ describe('property-grouping', () => {
     expect(groups.map((group) => group.groupKind)).toEqual(['single', 'single']);
     expect(groups.map((group) => group.nodeClass)).toEqual(['active', 'active']);
     expect(groups.map((group) => group.primaryPropertyId).sort()).toEqual(
-      [left.id, right.id].sort(),
+      [left.id, right.id].sort()
     );
   });
 
@@ -172,42 +206,42 @@ describe('property-grouping', () => {
       rightEdgeX - 1,
       centerY,
       zoom,
-      { socialScore: 10, commentCount: 4 },
+      { socialScore: 10, commentCount: 4 }
     );
     const leftB = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000032',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { socialScore: 9, commentCount: 3 },
+      { socialScore: 9, commentCount: 3 }
     );
     const leftC = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000033',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { socialScore: 8, commentCount: 2 },
+      { socialScore: 8, commentCount: 2 }
     );
     const leftD = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000034',
       rightEdgeX - 1,
       centerY,
       zoom,
-      { socialScore: 7, commentCount: 1 },
+      { socialScore: 7, commentCount: 1 }
     );
     const seed = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000035',
       rightEdgeX + 33,
       centerY,
       zoom,
-      { socialScore: 100 },
+      { socialScore: 100 }
     );
     const extra = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000036',
       rightEdgeX + 66,
       centerY,
       zoom,
-      { socialScore: 1 },
+      { socialScore: 1 }
     );
 
     const candidates = [leftA, leftB, leftC, leftD, seed, extra];
@@ -219,7 +253,14 @@ describe('property-grouping', () => {
     expect(groups[0].groupKind).toBe('cluster');
     expect(groups[0].pointCount).toBe(6);
     expect(groups[0].ownerTile).toEqual(tile);
-    expect(groups[0].propertyIds).toEqual([seed.id, leftA.id, leftB.id, leftC.id, leftD.id, extra.id]);
+    expect(groups[0].propertyIds).toEqual([
+      seed.id,
+      leftA.id,
+      leftB.id,
+      leftC.id,
+      leftD.id,
+      extra.id,
+    ]);
   });
 
   it('keeps the grouping buffer large enough for ghost suppression by large active clusters', () => {
@@ -246,27 +287,21 @@ describe('property-grouping', () => {
     const [betaLon, betaLat] = worldUnitsToLngLat(originX + stepUnits, originY, zoom);
     const [gammaLon, gammaLat] = worldUnitsToLngLat(originX + stepUnits * 2, originY, zoom);
 
-    const alpha = makeCandidate(
-      '00000000-0000-0000-0000-000000000051',
-      alphaLon,
-      alphaLat,
-      zoom,
-      { socialScore: 10, hasActiveListing: true, commentCount: 3 },
-    );
-    const beta = makeCandidate(
-      '00000000-0000-0000-0000-000000000052',
-      betaLon,
-      betaLat,
-      zoom,
-      { socialScore: 10, hasActiveListing: true, commentCount: 2 },
-    );
-    const gamma = makeCandidate(
-      '00000000-0000-0000-0000-000000000053',
-      gammaLon,
-      gammaLat,
-      zoom,
-      { socialScore: 10, hasActiveListing: true, commentCount: 1 },
-    );
+    const alpha = makeCandidate('00000000-0000-0000-0000-000000000051', alphaLon, alphaLat, zoom, {
+      socialScore: 10,
+      hasActiveListing: true,
+      commentCount: 3,
+    });
+    const beta = makeCandidate('00000000-0000-0000-0000-000000000052', betaLon, betaLat, zoom, {
+      socialScore: 10,
+      hasActiveListing: true,
+      commentCount: 2,
+    });
+    const gamma = makeCandidate('00000000-0000-0000-0000-000000000053', gammaLon, gammaLat, zoom, {
+      socialScore: 10,
+      hasActiveListing: true,
+      commentCount: 1,
+    });
 
     const groups = groupCandidatesForTile(tile, [alpha, beta, gamma]);
 
@@ -295,7 +330,7 @@ describe('property-grouping', () => {
       {
         hasActiveListing: false,
         socialScore: 0,
-      },
+      }
     );
 
     const groups = groupCandidatesForTile(tile, [active, suppressedGhost]);
@@ -309,18 +344,12 @@ describe('property-grouping', () => {
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
-    const listed = makeCandidate(
-      '00000000-0000-0000-0000-000000000013',
-      baseLon,
-      baseLat,
-      zoom,
-      {
-        hasActiveListing: true,
-        socialScore: 0,
-        recentSocialScore: 0,
-        marketState: 'for-sale',
-      },
-    );
+    const listed = makeCandidate('00000000-0000-0000-0000-000000000013', baseLon, baseLat, zoom, {
+      hasActiveListing: true,
+      socialScore: 0,
+      recentSocialScore: 0,
+      marketState: 'for-sale',
+    });
     const hiddenGhost = makeCandidate(
       '00000000-0000-0000-0000-000000000014',
       baseLon + 0.001,
@@ -331,7 +360,7 @@ describe('property-grouping', () => {
         socialScore: 0,
         recentSocialScore: 0,
         marketState: 'not-listed',
-      },
+      }
     );
 
     const groups = groupCandidatesForTile(tile, [listed, hiddenGhost]);
@@ -352,19 +381,13 @@ describe('property-grouping', () => {
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
-    const sold = makeCandidate(
-      '00000000-0000-0000-0000-000000000018',
-      baseLon,
-      baseLat,
-      zoom,
-      {
-        hasActiveListing: false,
-        hasCompletedListing: true,
-        socialScore: 0,
-        recentSocialScore: 0,
-        marketState: 'sold',
-      },
-    );
+    const sold = makeCandidate('00000000-0000-0000-0000-000000000018', baseLon, baseLat, zoom, {
+      hasActiveListing: false,
+      hasCompletedListing: true,
+      socialScore: 0,
+      recentSocialScore: 0,
+      marketState: 'sold',
+    });
 
     const groups = groupCandidatesForTile(tile, [sold]);
 
@@ -394,7 +417,7 @@ describe('property-grouping', () => {
         socialScore: 0,
         recentSocialScore: 0,
         marketState: 'sold',
-      },
+      }
     );
     const rented = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000020',
@@ -407,7 +430,7 @@ describe('property-grouping', () => {
         socialScore: 0,
         recentSocialScore: 0,
         marketState: 'rented',
-      },
+      }
     );
 
     const groups = groupCandidatesForTile(tile, [sold, rented]);
@@ -436,7 +459,7 @@ describe('property-grouping', () => {
         socialScore: 0,
         recentSocialScore: 0,
         marketState: 'sold',
-      },
+      }
     );
     const activeListing = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000024',
@@ -449,7 +472,7 @@ describe('property-grouping', () => {
         socialScore: 0,
         recentSocialScore: 0,
         marketState: 'for-sale',
-      },
+      }
     );
     const social = makeCandidateAtWorld(
       '00000000-0000-0000-0000-000000000025',
@@ -462,7 +485,7 @@ describe('property-grouping', () => {
         socialScore: 4,
         recentSocialScore: 4,
         marketState: 'not-listed',
-      },
+      }
     );
 
     const groups = groupCandidatesForTile(tile, [completed, activeListing, social]);
@@ -480,18 +503,12 @@ describe('property-grouping', () => {
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
-    const viewed = makeCandidate(
-      '00000000-0000-0000-0000-000000000015',
-      baseLon,
-      baseLat,
-      zoom,
-      {
-        hasActiveListing: false,
-        socialScore: 0.1,
-        recentSocialScore: 0.1,
-        marketState: 'not-listed',
-      },
-    );
+    const viewed = makeCandidate('00000000-0000-0000-0000-000000000015', baseLon, baseLat, zoom, {
+      hasActiveListing: false,
+      socialScore: 0.1,
+      recentSocialScore: 0.1,
+      marketState: 'not-listed',
+    });
 
     const groups = groupCandidatesForTile(tile, [viewed]);
 
@@ -503,18 +520,12 @@ describe('property-grouping', () => {
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
-    const viewed = makeCandidate(
-      '00000000-0000-0000-0000-000000000016',
-      baseLon,
-      baseLat,
-      zoom,
-      {
-        hasActiveListing: false,
-        socialScore: 0.8,
-        recentSocialScore: 0.8,
-        marketState: 'not-listed',
-      },
-    );
+    const viewed = makeCandidate('00000000-0000-0000-0000-000000000016', baseLon, baseLat, zoom, {
+      hasActiveListing: false,
+      socialScore: 0.8,
+      recentSocialScore: 0.8,
+      marketState: 'not-listed',
+    });
 
     const groups = groupCandidatesForTile(tile, [viewed]);
 
@@ -534,18 +545,12 @@ describe('property-grouping', () => {
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
-    const viewed = makeCandidate(
-      '00000000-0000-0000-0000-000000000017',
-      baseLon,
-      baseLat,
-      zoom,
-      {
-        hasActiveListing: false,
-        socialScore: 0.1,
-        recentSocialScore: 0.1,
-        marketState: 'not-listed',
-      },
-    );
+    const viewed = makeCandidate('00000000-0000-0000-0000-000000000017', baseLon, baseLat, zoom, {
+      hasActiveListing: false,
+      socialScore: 0.1,
+      recentSocialScore: 0.1,
+      marketState: 'not-listed',
+    });
 
     const groups = groupCandidatesForTile(tile, [viewed]);
 
@@ -571,21 +576,21 @@ describe('property-grouping', () => {
       ghostLonA,
       ghostLatA,
       zoom,
-      { hasActiveListing: false, socialScore: 0 },
+      { hasActiveListing: false, socialScore: 0 }
     );
     const ghostB = makeCandidate(
       '00000000-0000-0000-0000-000000000042',
       ghostLonB,
       ghostLatB,
       zoom,
-      { hasActiveListing: false, socialScore: 0 },
+      { hasActiveListing: false, socialScore: 0 }
     );
     const active = makeCandidate(
       '00000000-0000-0000-0000-000000000043',
       activeLon,
       activeLat,
       zoom,
-      { hasActiveListing: true, socialScore: 18, commentCount: 4 },
+      { hasActiveListing: true, socialScore: 18, commentCount: 4 }
     );
 
     const groups = groupCandidatesForTile(tile, [ghostA, ghostB, active]);
@@ -611,30 +616,26 @@ describe('property-grouping', () => {
     const originX = tile.x * PROPERTY_TILE_EXTENT + 2048;
     const originY = tile.y * PROPERTY_TILE_EXTENT + 2048;
 
-    const specs = Array.from(
-      { length: PROPERTY_PREVIEW_MEMBER_LIMIT + 5 },
-      (_, index) => ({
-        id: `00000000-0000-0000-0000-${String(index + 100).padStart(12, '0')}`,
-        socialScore:
-          index === 0 ? 80 :
-          index === 1 ? 80 :
-          index === 2 ? 80 :
-          index === 3 ? 65 :
-          64 - index,
-        hasActiveListing: index !== 2,
-        commentCount:
-          index === 0 ? 2 :
-          index === 1 ? 5 :
-          index === 2 ? 99 :
-          PROPERTY_PREVIEW_MEMBER_LIMIT + 5 - index,
-      }),
-    );
+    const specs = Array.from({ length: PROPERTY_PREVIEW_MEMBER_LIMIT + 5 }, (_, index) => ({
+      id: `00000000-0000-0000-0000-${String(index + 100).padStart(12, '0')}`,
+      socialScore:
+        index === 0 ? 80 : index === 1 ? 80 : index === 2 ? 80 : index === 3 ? 65 : 64 - index,
+      hasActiveListing: index !== 2,
+      commentCount:
+        index === 0
+          ? 2
+          : index === 1
+            ? 5
+            : index === 2
+              ? 99
+              : PROPERTY_PREVIEW_MEMBER_LIMIT + 5 - index,
+    }));
 
     const candidates = specs.map((spec, index) => {
       const [lon, lat] = worldUnitsToLngLat(
         originX + (index % 6) * 12,
         originY + Math.floor(index / 6) * 12,
-        zoom,
+        zoom
       );
       return makeCandidate(spec.id, lon, lat, zoom, {
         socialScore: spec.socialScore,
@@ -649,7 +650,7 @@ describe('property-grouping', () => {
           b.socialScore - a.socialScore ||
           Number(b.hasActiveListing) - Number(a.hasActiveListing) ||
           b.commentCount - a.commentCount ||
-          a.id.localeCompare(b.id),
+          a.id.localeCompare(b.id)
       )
       .map((candidate) => candidate.id);
 
@@ -658,12 +659,10 @@ describe('property-grouping', () => {
     expect(group.groupKind).toBe('cluster');
     expect(group.pointCount).toBe(candidates.length);
     expect(group.propertyIds).toEqual(expectedOrder);
-    expect(group.previewPropertyIds).toEqual(
-      expectedOrder.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
-    );
+    expect(group.previewPropertyIds).toEqual(expectedOrder.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT));
     expect(group.previewPropertyIds).toHaveLength(PROPERTY_PREVIEW_MEMBER_LIMIT);
     expect(group.previewPropertyIds).toEqual(
-      group.propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+      group.propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)
     );
   });
 
@@ -681,9 +680,15 @@ describe('property-grouping', () => {
       socialScore: 70,
       commentCount: 2,
     });
-    const right = makeCandidate('00000000-0000-0000-0000-000000000022', neighborLon, neighborLat, zoom, {
-      socialScore: 10,
-    });
+    const right = makeCandidate(
+      '00000000-0000-0000-0000-000000000022',
+      neighborLon,
+      neighborLat,
+      zoom,
+      {
+        socialScore: 10,
+      }
+    );
 
     const ownerGroups = groupCandidatesForTile(ownerTile, [left, right]);
     const neighborGroups = groupCandidatesForTile(neighborTile, [left, right]);
@@ -702,41 +707,37 @@ describe('property-grouping', () => {
     const txExecuteMock = jest
       .fn()
       .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce(
-        [
-          {
-            id: propertyId,
-            has_active_listing: true,
-            social_score: 8,
-            recent_social_score: 8,
-            comment_count: 2,
-            market_state: 'for-sale',
-            lon,
-            lat,
-          },
-        ] as never,
-      );
+      .mockResolvedValueOnce([
+        {
+          id: propertyId,
+          has_active_listing: true,
+          social_score: 8,
+          recent_social_score: 8,
+          comment_count: 2,
+          market_state: 'for-sale',
+          lon,
+          lat,
+        },
+      ] as never);
     const transactionSpy = jest
       .spyOn(db, 'transaction')
       .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
 
     const executeSpy = jest
       .spyOn(db, 'execute')
-      .mockResolvedValueOnce(
-        [
-          {
-            id: propertyId,
-            country_code: 'NL',
-            street: 'Mockstraat',
-            house_number: 12,
-            house_number_addition: 'A',
-            city: 'Eindhoven',
-            postal_code: '5611 AA',
-            asking_price: 359000,
-            thumbnail_url: 'https://cdn.example.com/mock-thumb.jpg',
-          },
-        ] as never,
-      )
+      .mockResolvedValueOnce([
+        {
+          id: propertyId,
+          country_code: 'NL',
+          street: 'Mockstraat',
+          house_number: 12,
+          house_number_addition: 'A',
+          city: 'Eindhoven',
+          postal_code: '5611 AA',
+          asking_price: 359000,
+          thumbnail_url: 'https://cdn.example.com/mock-thumb.jpg',
+        },
+      ] as never)
       .mockImplementation(() => {
         throw new Error('resolveNearbyGroupedFeature should only execute one shared detail query');
       });
@@ -907,26 +908,30 @@ describe('property-grouping', () => {
       const unfilteredGroups = await buildCanonicalGroupsForTile(tile);
       const filteredGroups = await buildCanonicalGroupsForTile(
         tile,
-        normalizeMapFilters({ salePriceFrom: 600000 }),
+        normalizeMapFilters({ salePriceFrom: 600000 })
       );
 
       const unfilteredCluster = unfilteredGroups.find((group) =>
-        propertyIds.every((propertyId) => group.propertyIds.includes(propertyId)),
+        propertyIds.every((propertyId) => group.propertyIds.includes(propertyId))
       );
       expect(unfilteredCluster).toBeDefined();
       expect(unfilteredCluster?.groupKind).toBe('cluster');
       expect(unfilteredCluster?.pointCount).toBe(2);
 
       const filteredGroup = filteredGroups.find((group) =>
-        group.propertyIds.includes(propertyIds[1]),
+        group.propertyIds.includes(propertyIds[1])
       );
       expect(filteredGroup).toBeDefined();
       expect(filteredGroup?.groupKind).toBe('single');
       expect(filteredGroup?.pointCount).toBe(1);
       expect(filteredGroup?.propertyIds).toEqual([propertyIds[1]]);
-      expect(filteredGroups.some((group) => group.propertyIds.includes(propertyIds[0]))).toBe(false);
+      expect(filteredGroups.some((group) => group.propertyIds.includes(propertyIds[0]))).toBe(
+        false
+      );
     } finally {
-      await db.execute(sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`);
+      await db.execute(
+        sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`
+      );
     }
   }, 30000);
 });

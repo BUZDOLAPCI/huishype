@@ -35,6 +35,10 @@ export function resolvePropertyReadViewer(
   return normalizedSessionId ? { sessionId: normalizedSessionId } : null;
 }
 
+export function getPropertyReadViewerScope(viewer: PropertyReadViewer): string {
+  return 'userId' in viewer ? `user:${viewer.userId}` : `session:${viewer.sessionId}`;
+}
+
 function dedupePropertyIds(propertyIds: readonly string[]): string[] {
   return [...new Set(propertyIds.filter((propertyId) => propertyId.length > 0))];
 }

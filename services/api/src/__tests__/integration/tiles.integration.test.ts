@@ -12,6 +12,7 @@ import {
   resetCanonicalGroupCacheForTests,
   type CanonicalPropertyGroup,
 } from '../../services/property-grouping.js';
+import { DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID } from '../../services/property-tile-snapshots.js';
 import { createDefaultMapFilters, type MapFilters } from '../../services/map-filters.js';
 import {
   createIntegrationFollow,
@@ -679,6 +680,32 @@ describe('Tile routes', () => {
       expect(response.headers['x-tile-cache']).toBe('miss');
     });
 
+    it('does not create snapshot coverage rows from the public GET fast path', async () => {
+      await db.execute(sql`
+        DELETE FROM property_tile_snapshots
+        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+      `);
+      await db.execute(sql`
+        DELETE FROM property_tile_snapshot_coverage
+        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+      `);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/properties/0/0/0.pbf',
+      });
+
+      expect([200, 204]).toContain(response.statusCode);
+      expect(response.headers['x-tile-cache']).not.toBe('precomputed');
+
+      const rows = await db.execute<{ coverage_count: number }>(sql`
+        SELECT count(*)::int AS coverage_count
+        FROM property_tile_snapshot_coverage
+        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+      `);
+      expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(0);
+    });
+
     it('should return MVT data for Eindhoven area at zoom 10 (clustered)', async () => {
       // At zoom 10, x=527, y=340 covers Eindhoven area
       const response = await app.inject({
@@ -748,6 +775,9 @@ describe('Tile routes', () => {
       expect([200, 204]).toContain(firstResponse.statusCode);
       expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
       expect(secondResponse.headers['x-tile-cache']).toBe('hit');
+      expect(secondResponse.headers['x-tile-coalesced']).toBe('false');
+      expect(secondResponse.headers['x-tile-queue-time']).toMatch(/^\d+ms$/);
+      expect(secondResponse.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
       expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
     });
 
@@ -764,7 +794,11 @@ describe('Tile routes', () => {
       expect([
         firstResponse.headers['x-tile-cache'],
         secondResponse.headers['x-tile-cache'],
-      ]).toContain('hit');
+      ]).toEqual(['miss', 'miss']);
+      expect([
+        firstResponse.headers['x-tile-coalesced'],
+        secondResponse.headers['x-tile-coalesced'],
+      ]).toContain('true');
     });
 
     it('returns 304 when a cached public property tile ETag matches', async () => {
@@ -1144,6 +1178,9 @@ describe('Tile routes', () => {
 
         expect(unreadResponse.statusCode).toBe(204);
         expect(unreadResponse.headers['cache-control']).toBe('private, no-store');
+        expect(unreadResponse.headers['x-tile-cache']).toBe('miss');
+        expect(unreadResponse.headers['x-tile-coalesced']).toBe('false');
+        expect(unreadResponse.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
         expect(unreadResponse.headers.vary).toContain('Authorization');
         expect(unreadResponse.headers.vary).toContain('x-session-id');
 
@@ -1163,6 +1200,8 @@ describe('Tile routes', () => {
         expect(readResponse.statusCode).toBe(200);
         expect(readResponse.headers['content-type']).toBe('application/x-protobuf');
         expect(readResponse.headers['cache-control']).toBe('private, no-store');
+        expect(readResponse.headers['x-tile-cache']).toBe('miss');
+        expect(readResponse.headers['x-tile-coalesced']).toBe('false');
         expect(readResponse.rawPayload.length).toBeGreaterThan(0);
       } finally {
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
@@ -1352,6 +1391,9 @@ describe('Tile routes', () => {
         expect(response.statusCode).toBe(200);
         expect(response.headers['content-type']).toBe('application/x-protobuf');
         expect(response.headers['cache-control']).toBe('private, no-store');
+        expect(response.headers['x-tile-cache']).toBe('miss');
+        expect(response.headers['x-tile-coalesced']).toBe('false');
+        expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
         expect(response.headers.vary).toContain('Authorization');
         expect(response.rawPayload.length).toBeGreaterThan(0);
       } finally {

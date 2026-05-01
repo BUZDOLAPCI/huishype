@@ -5,7 +5,7 @@ import {
   PROPERTY_GHOST_REVEAL_ZOOM,
   PROPERTY_PREVIEW_MEMBER_LIMIT,
 } from '@huishype/shared/config';
-import { db } from '../db/index.js';
+import { db, type DbTransaction } from '../db/index.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import {
   ACTIVE_SOCIAL_SCORE_THRESHOLD,
@@ -24,6 +24,11 @@ import {
   type MapMarketState,
 } from './map-filters.js';
 import { filterReadCanonicalGroups, type PropertyReadViewer } from './property-read-state.js';
+import {
+  PropertyTileBudgetExceededError,
+  PropertyTileBuildAbortedError,
+  type PropertyTileBuildOptions,
+} from './property-tile-runtime.js';
 
 export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
@@ -157,7 +162,8 @@ type NearbyResolution = CanonicalPropertyGroup & {
 type GroupingCandidateFetcher = (
   boundsList: TileBBox[],
   zoom: number,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
 ) => Promise<GroupingCandidate[]>;
 
 type RadiusStop = readonly [threshold: number, radiusPx: number];
@@ -171,10 +177,12 @@ const CANONICAL_GROUP_CACHE_TTL_MS = 30_000;
 const CANONICAL_GROUP_CACHE_MAX_ENTRIES = 1_024;
 const canonicalGroupCache = new Map<string, CanonicalGroupCacheEntry>();
 const pendingCanonicalGroupBuilds = new Map<string, Promise<CanonicalPropertyGroup[]>>();
+const pendingUnhydratedCanonicalGroupBuilds = new Map<string, Promise<CanonicalPropertyGroup[]>>();
 
 export function resetCanonicalGroupCacheForTests(): void {
   canonicalGroupCache.clear();
   pendingCanonicalGroupBuilds.clear();
+  pendingUnhydratedCanonicalGroupBuilds.clear();
 }
 
 export type TileTransportFeature = {
@@ -248,6 +256,59 @@ function getGhostGroupingRadiusPx(): number {
 
 function pxToTileUnits(px: number): number {
   return px * TILE_UNITS_PER_PX;
+}
+
+function validateStatementTimeoutMs(timeoutMs: number | undefined): number | null {
+  if (timeoutMs == null) return null;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return null;
+  return Math.floor(timeoutMs);
+}
+
+function assertTileBuildCanContinue(
+  options: PropertyTileBuildOptions | undefined,
+  startedAt: number,
+  stage: string
+): void {
+  if (options?.signal?.aborted) {
+    throw new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`);
+  }
+
+  if (options?.runtimeBudgetMs != null && Date.now() - startedAt > options.runtimeBudgetMs) {
+    throw new PropertyTileBudgetExceededError(
+      `Property tile runtime budget exceeded during ${stage}`
+    );
+  }
+}
+
+async function executeWithTileStatementTimeout<TRow>(
+  query: SQL,
+  options: PropertyTileBuildOptions | undefined,
+  configure?: (tx: DbTransaction) => Promise<void>
+): Promise<Iterable<TRow>> {
+  const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
+  if (!timeoutMs && !configure) {
+    options?.markUncancellableStage?.(true);
+    try {
+      return (await db.execute<Record<string, unknown>>(query)) as Iterable<TRow>;
+    } finally {
+      options?.markUncancellableStage?.(false);
+    }
+  }
+
+  options?.markUncancellableStage?.(true);
+  try {
+    return await db.transaction(async (tx) => {
+      if (configure) {
+        await configure(tx);
+      }
+      if (timeoutMs) {
+        await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
+      }
+      return (await tx.execute<Record<string, unknown>>(query)) as Iterable<TRow>;
+    });
+  } finally {
+    options?.markUncancellableStage?.(false);
+  }
 }
 
 function lonToNormalizedX(lon: number): number {
@@ -394,10 +455,15 @@ function getCellKey(x: number, y: number, cellSize: number): string {
 function buildSpatialHash(
   candidates: GroupingCandidate[],
   cellSize: number,
-  getRadiusUnits: (candidate: GroupingCandidate) => number
+  getRadiusUnits: (candidate: GroupingCandidate) => number,
+  options?: PropertyTileBuildOptions,
+  startedAt = Date.now()
 ): Map<string, SpatialHashEntry[]> {
   const index = new Map<string, SpatialHashEntry[]>();
-  for (const candidate of candidates) {
+  candidates.forEach((candidate, indexInLoop) => {
+    if (indexInLoop % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'spatial hash build');
+    }
     const key = getCellKey(candidate.worldX, candidate.worldY, cellSize);
     const bucket = index.get(key);
     const entry = { candidate, radiusUnits: getRadiusUnits(candidate) };
@@ -406,23 +472,36 @@ function buildSpatialHash(
     } else {
       index.set(key, [entry]);
     }
-  }
+  });
   return index;
 }
 
 function clusterCandidates(
   candidates: GroupingCandidate[],
-  config: ClusterBuilderConfig
+  config: ClusterBuilderConfig,
+  options?: PropertyTileBuildOptions,
+  startedAt = Date.now()
 ): GroupingCandidate[][] {
   if (candidates.length === 0) return [];
 
+  assertTileBuildCanContinue(options, startedAt, 'candidate clustering');
   const orderedSeeds = [...candidates].sort(compareCandidatePriority);
   const cellSize = config.maxRadiusUnits * 2 + config.gapUnits;
-  const spatialHash = buildSpatialHash(candidates, cellSize, config.getRadiusUnits);
+  const spatialHash = buildSpatialHash(
+    candidates,
+    cellSize,
+    config.getRadiusUnits,
+    options,
+    startedAt
+  );
   const assigned = new Set<string>();
   const groups: GroupingCandidate[][] = [];
 
-  for (const seed of orderedSeeds) {
+  for (let seedIndex = 0; seedIndex < orderedSeeds.length; seedIndex += 1) {
+    const seed = orderedSeeds[seedIndex];
+    if (seedIndex % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'candidate clustering');
+    }
     if (assigned.has(seed.id)) continue;
 
     assigned.add(seed.id);
@@ -694,8 +773,10 @@ async function fetchNearbyEmittedGroups(
   lat: number,
   zoom: number,
   filters: MapFilters,
-  fetchCandidates: GroupingCandidateFetcher
+  fetchCandidates: GroupingCandidateFetcher,
+  options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
+  const startedAt = Date.now();
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   const tapTile = worldToOwnerTile(worldX, worldY, zoom);
   const tiles = getTileNeighborhood(tapTile);
@@ -707,14 +788,18 @@ async function fetchNearbyEmittedGroups(
   const candidates = await fetchCandidates(
     tiles.map((tile) => getBufferedTileBBox(tile, bufferUnits)),
     zoom,
-    filters
+    filters,
+    options
   );
   const candidatesByTile = new Map<string, GroupingCandidate[]>();
   for (const { tile } of tileBounds) {
     candidatesByTile.set(tileKey(tile), []);
   }
 
-  for (const candidate of candidates) {
+  candidates.forEach((candidate, candidateIndex) => {
+    if (candidateIndex % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'nearby emitted group bucketing');
+    }
     for (const { tile, worldBounds } of tileBounds) {
       if (
         candidate.worldX < worldBounds.minWorldX ||
@@ -727,13 +812,13 @@ async function fetchNearbyEmittedGroups(
 
       candidatesByTile.get(tileKey(tile))!.push(candidate);
     }
-  }
+  });
 
   const tileGroups = tileBounds.flatMap(({ tile }) =>
-    groupCandidatesForTile(tile, candidatesByTile.get(tileKey(tile)) ?? [])
+    groupCandidatesForTile(tile, candidatesByTile.get(tileKey(tile)) ?? [], options)
   );
 
-  return hydrateSinglePropertyDetails(tileGroups);
+  return hydrateSinglePropertyDetails(tileGroups, options);
 }
 
 function buildCanonicalGroup(
@@ -839,17 +924,21 @@ async function fetchGroupingCandidatesInBBox(
   bounds: TileBBox,
   zoom: number,
   includeGhostCandidates: boolean,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
 ): Promise<GroupingCandidate[]> {
-  return fetchGroupingCandidatesInBBoxes([bounds], zoom, includeGhostCandidates, filters);
+  return fetchGroupingCandidatesInBBoxes([bounds], zoom, includeGhostCandidates, filters, options);
 }
 
 async function fetchGroupingCandidatesInBBoxes(
   boundsList: TileBBox[],
   zoom: number,
   includeGhostCandidates: boolean,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
 ): Promise<GroupingCandidate[]> {
+  const startedAt = Date.now();
+  assertTileBuildCanContinue(options, startedAt, 'candidate fetch preparation');
   const activityFilterPredicate = buildActivityFilterPredicate(filters.activity, 'sf');
   const bboxFilter = buildBoundsFilter(boundsList, sql.raw('p.geometry'));
   const candidateVisibilityFilter = includeGhostCandidates
@@ -1196,10 +1285,8 @@ async function fetchGroupingCandidatesInBBoxes(
         )
       `;
 
-  const rows = await db.transaction(async (tx) => {
-    await tx.execute(sql`SET LOCAL jit = off`);
-
-    return tx.execute<GroupingCandidateRow>(sql`
+  const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
+    sql`
       WITH ${candidateScopeCtes},
       latest_public_guesses AS MATERIALIZED (
         SELECT DISTINCT ON (pg.property_id, pg.user_id)
@@ -1369,18 +1456,30 @@ async function fetchGroupingCandidatesInBBoxes(
         AND ${priceFilterPredicate}
         AND ${activityFilterPredicate}
         AND ${candidateVisibilityFilter}
-    `);
-  });
+    `,
+    options,
+    async (tx) => {
+      await tx.execute(sql`SET LOCAL jit = off`);
+    }
+  );
 
-  return Array.from(rows).map((row) => toCandidate(row, zoom));
+  return Array.from(rows).map((row, index) => {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'candidate fetch mapping');
+    }
+    return toCandidate(row, zoom);
+  });
 }
 
 async function fetchFollowingGroupingCandidatesInBBoxes(
   viewerId: string,
   boundsList: TileBBox[],
   zoom: number,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
 ): Promise<GroupingCandidate[]> {
+  const startedAt = Date.now();
+  assertTileBuildCanContinue(options, startedAt, 'following candidate fetch preparation');
   const marketFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
   const followingActivity = filters.activity === 'all' ? 'all-time' : filters.activity;
   const activityFilterPredicate = buildActivityFilterPredicate(followingActivity, 'fsf');
@@ -1400,10 +1499,8 @@ async function fetchFollowingGroupingCandidatesInBBoxes(
     sql` OR `
   );
 
-  const rows = await db.transaction(async (tx) => {
-    await tx.execute(sql`SET LOCAL jit = off`);
-
-    return tx.execute<GroupingCandidateRow>(sql`
+  const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
+    sql`
       SELECT
         p.id,
         ST_X(p.geometry) AS lon,
@@ -1428,32 +1525,50 @@ async function fetchFollowingGroupingCandidatesInBBoxes(
         AND (${bboxFilter})
         AND ${marketFilterQuery.predicate}
         AND ${activityFilterPredicate}
-    `);
-  });
+    `,
+    options,
+    async (tx) => {
+      await tx.execute(sql`SET LOCAL jit = off`);
+    }
+  );
 
-  return Array.from(rows).map((row) => toCandidate(row, zoom));
+  return Array.from(rows).map((row, index) => {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'following candidate fetch mapping');
+    }
+    return toCandidate(row, zoom);
+  });
 }
 
 async function fetchGroupingCandidates(
   tile: TileId,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
 ): Promise<GroupingCandidate[]> {
   const bufferedBounds = getBufferedTileBBox(tile, getGroupingBufferUnits());
   return fetchGroupingCandidatesInBBox(
     bufferedBounds,
     tile.z,
     shouldFetchGhostCandidates(tile.z),
-    filters
+    filters,
+    options
   );
 }
 
 async function fetchFollowingGroupingCandidates(
   tile: TileId,
   viewerId: string,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
 ): Promise<GroupingCandidate[]> {
   const bufferedBounds = getBufferedTileBBox(tile, getGroupingBufferUnits());
-  return fetchFollowingGroupingCandidatesInBBoxes(viewerId, [bufferedBounds], tile.z, filters);
+  return fetchFollowingGroupingCandidatesInBBoxes(
+    viewerId,
+    [bufferedBounds],
+    tile.z,
+    filters,
+    options
+  );
 }
 
 function readStateIdentityPredicate(viewer: PropertyReadViewer): SQL {
@@ -1466,10 +1581,12 @@ function readStateIdentityPredicate(viewer: PropertyReadViewer): SQL {
 
 async function hasCurrentReadStateInTileBounds(
   tile: TileId,
-  viewer: PropertyReadViewer
+  viewer: PropertyReadViewer,
+  options?: PropertyTileBuildOptions
 ): Promise<boolean> {
   const bounds = getBufferedTileBBox(tile, getGroupingBufferUnits());
-  const rows = await db.execute<{ has_read_state: boolean }>(sql`
+  const rows = await executeWithTileStatementTimeout<{ has_read_state: boolean }>(
+    sql`
     SELECT EXISTS (
       SELECT 1
       FROM property_read_state prs
@@ -1488,24 +1605,30 @@ async function hasCurrentReadStateInTileBounds(
         )
       LIMIT 1
     ) AS has_read_state
-  `);
+  `,
+    options
+  );
 
   return Array.from(rows)[0]?.has_read_state === true;
 }
 
 async function fetchSinglePropertyDetails(
-  propertyIds: string[]
+  propertyIds: string[],
+  options?: PropertyTileBuildOptions
 ): Promise<Map<string, SinglePropertyDetail>> {
   if (propertyIds.length === 0) {
     return new Map();
   }
 
+  const startedAt = Date.now();
+  assertTileBuildCanContinue(options, startedAt, 'single-property hydration preparation');
   const ids = [...new Set(propertyIds)];
   const idList = sql.join(
     ids.map((id) => sql`${id}::uuid`),
     sql`, `
   );
-  const rows = await db.execute<SinglePropertyDetailRow>(sql`
+  const rows = await executeWithTileStatementTimeout<SinglePropertyDetailRow>(
+    sql`
     SELECT
       p.id,
       p.country_code,
@@ -1521,10 +1644,15 @@ async function fetchSinglePropertyDetails(
     FROM properties p
     ${buildPropertyListingFactsJoin('p', 'lf')}
     WHERE p.id IN (${idList})
-  `);
+  `,
+    options
+  );
 
   return new Map(
-    Array.from(rows).map((row) => {
+    Array.from(rows).map((row, index) => {
+      if (index % 128 === 0) {
+        assertTileBuildCanContinue(options, startedAt, 'single-property hydration mapping');
+      }
       const countryCode = row.country_code;
       return [
         row.id,
@@ -1551,8 +1679,11 @@ async function fetchSinglePropertyDetails(
 }
 
 async function hydrateSinglePropertyDetails(
-  groups: CanonicalPropertyGroup[]
+  groups: CanonicalPropertyGroup[],
+  options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
+  const startedAt = Date.now();
+  assertTileBuildCanContinue(options, startedAt, 'single-property detail hydration');
   const singleIds = groups
     .filter((group) => group.groupKind === 'single')
     .map((group) => group.primaryPropertyId);
@@ -1561,9 +1692,12 @@ async function hydrateSinglePropertyDetails(
     return groups;
   }
 
-  const detailsById = await fetchSinglePropertyDetails(singleIds);
+  const detailsById = await fetchSinglePropertyDetails(singleIds, options);
 
-  return groups.map((group) => {
+  return groups.map((group, index) => {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'single-property detail mapping');
+    }
     if (group.groupKind !== 'single') {
       return group;
     }
@@ -1585,18 +1719,48 @@ async function hydrateSinglePropertyDetails(
   });
 }
 
+async function filterReadGroupsWithTileOptions<TGroup extends { propertyIds: string[] }>(
+  groups: readonly TGroup[],
+  viewer: PropertyReadViewer,
+  options?: PropertyTileBuildOptions
+): Promise<TGroup[]> {
+  const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
+  if (!timeoutMs) {
+    return filterReadCanonicalGroups(groups, viewer);
+  }
+
+  options?.markUncancellableStage?.(true);
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
+      return filterReadCanonicalGroups(groups, viewer, tx);
+    });
+  } finally {
+    options?.markUncancellableStage?.(false);
+  }
+}
+
 function buildCanonicalGroupsFromCandidates(
   zoom: number,
-  candidates: GroupingCandidate[]
+  candidates: GroupingCandidate[],
+  options?: PropertyTileBuildOptions
 ): CanonicalPropertyGroup[] {
+  const startedAt = Date.now();
+  assertTileBuildCanContinue(options, startedAt, 'canonical grouping preparation');
   const activeCandidates = candidates.filter((candidate) => !isGhostCandidate(candidate));
   const ghostCandidates = candidates.filter(isGhostCandidate);
 
-  const activeGroups = clusterCandidates(activeCandidates, {
-    maxRadiusUnits: pxToTileUnits(getActiveGroupingRadiusPx(100)),
-    gapUnits: pxToTileUnits(ACTIVE_GROUPING_GAP_PX),
-    getRadiusUnits: (candidate) => pxToTileUnits(getActiveGroupingRadiusPx(candidate.socialScore)),
-  }).map((members) => buildCanonicalGroup(members, 'active', zoom));
+  const activeGroups = clusterCandidates(
+    activeCandidates,
+    {
+      maxRadiusUnits: pxToTileUnits(getActiveGroupingRadiusPx(100)),
+      gapUnits: pxToTileUnits(ACTIVE_GROUPING_GAP_PX),
+      getRadiusUnits: (candidate) =>
+        pxToTileUnits(getActiveGroupingRadiusPx(candidate.socialScore)),
+    },
+    options,
+    startedAt
+  ).map((members) => buildCanonicalGroup(members, 'active', zoom));
 
   const activeOccupancies = activeGroups.map((group) => ({
     x: group.anchorWorldX,
@@ -1607,6 +1771,7 @@ function buildCanonicalGroupsFromCandidates(
   const visibleGhostCandidates =
     zoom >= GHOST_NODE_REVEAL_ZOOM
       ? ghostCandidates.filter((candidate) => {
+          assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
           const ghostRadiusUnits = pxToTileUnits(getGhostGroupingRadiusPx());
           return !activeOccupancies.some((occupancy) => {
             const dx = candidate.worldX - occupancy.x;
@@ -1617,35 +1782,67 @@ function buildCanonicalGroupsFromCandidates(
         })
       : [];
 
-  const ghostGroups = clusterCandidates(visibleGhostCandidates, {
-    maxRadiusUnits: pxToTileUnits(getGhostGroupingRadiusPx()),
-    gapUnits: pxToTileUnits(GHOST_GROUPING_GAP_PX),
-    getRadiusUnits: () => pxToTileUnits(getGhostGroupingRadiusPx()),
-  }).map((members) => buildCanonicalGroup(members, 'ghost', zoom));
+  const ghostGroups = clusterCandidates(
+    visibleGhostCandidates,
+    {
+      maxRadiusUnits: pxToTileUnits(getGhostGroupingRadiusPx()),
+      gapUnits: pxToTileUnits(GHOST_GROUPING_GAP_PX),
+      getRadiusUnits: () => pxToTileUnits(getGhostGroupingRadiusPx()),
+    },
+    options,
+    startedAt
+  ).map((members) => buildCanonicalGroup(members, 'ghost', zoom));
 
   return [...activeGroups, ...ghostGroups];
 }
 
 export function groupCandidatesForTile(
   tile: TileId,
-  candidates: GroupingCandidate[]
+  candidates: GroupingCandidate[],
+  options?: PropertyTileBuildOptions
 ): CanonicalPropertyGroup[] {
-  return buildCanonicalGroupsFromCandidates(tile.z, candidates).filter(
-    (group) => group.ownerTile.x === tile.x && group.ownerTile.y === tile.y
-  );
+  const startedAt = Date.now();
+  return buildCanonicalGroupsFromCandidates(tile.z, candidates, options).filter((group, index) => {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'owner tile filtering');
+    }
+    return group.ownerTile.x === tile.x && group.ownerTile.y === tile.y;
+  });
 }
 
 async function buildUnhydratedCanonicalGroupsForTile(
   tile: TileId,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
-  const candidates = await fetchGroupingCandidates(tile, filters);
-  return groupCandidatesForTile(tile, candidates);
+  const candidates = await fetchGroupingCandidates(tile, filters, options);
+  return groupCandidatesForTile(tile, candidates, options);
+}
+
+async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
+  tile: TileId,
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
+): Promise<CanonicalPropertyGroup[]> {
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const pendingBuild = pendingUnhydratedCanonicalGroupBuilds.get(cacheKey);
+  if (pendingBuild) {
+    return pendingBuild;
+  }
+
+  const buildPromise = buildUnhydratedCanonicalGroupsForTile(tile, filters, options);
+  pendingUnhydratedCanonicalGroupBuilds.set(cacheKey, buildPromise);
+  try {
+    return await buildPromise;
+  } finally {
+    pendingUnhydratedCanonicalGroupBuilds.delete(cacheKey);
+  }
 }
 
 export async function buildCanonicalGroupsForTile(
   tile: TileId,
-  filters: MapFilters = createDefaultMapFilters()
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
   const cachedGroups = getCachedCanonicalGroups(tile, filters);
   if (cachedGroups) {
@@ -1660,7 +1857,8 @@ export async function buildCanonicalGroupsForTile(
 
   const buildPromise = (async () => {
     const groups = await hydrateSinglePropertyDetails(
-      await buildUnhydratedCanonicalGroupsForTile(tile, filters)
+      await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, options),
+      options
     );
     setCachedCanonicalGroups(tile, filters, groups);
     return groups;
@@ -1677,37 +1875,40 @@ export async function buildCanonicalGroupsForTile(
 export async function buildFollowingCanonicalGroupsForTile(
   tile: TileId,
   viewerId: string,
-  filters: MapFilters = createDefaultMapFilters()
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
-  const candidates = await fetchFollowingGroupingCandidates(tile, viewerId, filters);
-  const groups = groupCandidatesForTile(tile, candidates);
-  return hydrateSinglePropertyDetails(groups);
+  const candidates = await fetchFollowingGroupingCandidates(tile, viewerId, filters, options);
+  const groups = groupCandidatesForTile(tile, candidates, options);
+  return hydrateSinglePropertyDetails(groups, options);
 }
 
 export async function buildReadCanonicalGroupsForTile(
   tile: TileId,
   viewer: PropertyReadViewer,
-  filters: MapFilters = createDefaultMapFilters()
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
-  if (!(await hasCurrentReadStateInTileBounds(tile, viewer))) {
+  if (!(await hasCurrentReadStateInTileBounds(tile, viewer, options))) {
     return [];
   }
 
   const cachedGroups = getCachedCanonicalGroups(tile, filters);
   if (cachedGroups) {
-    return filterReadCanonicalGroups(cachedGroups, viewer);
+    return filterReadGroupsWithTileOptions(cachedGroups, viewer, options);
   }
 
-  const readGroups = await filterReadCanonicalGroups(
-    await buildUnhydratedCanonicalGroupsForTile(tile, filters),
-    viewer
+  const readGroups = await filterReadGroupsWithTileOptions(
+    await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, options),
+    viewer,
+    options
   );
 
   if (readGroups.length === 0) {
     return [];
   }
 
-  return hydrateSinglePropertyDetails(readGroups);
+  return hydrateSinglePropertyDetails(readGroups, options);
 }
 
 function haversineMeters(a: [number, number], b: [number, number]): number {
@@ -1726,8 +1927,10 @@ export async function resolveNearbyGroupedFeature(
   lon: number,
   lat: number,
   zoom: number,
-  filters: MapFilters = createDefaultMapFilters()
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
 ): Promise<NearbyResolution | null> {
+  const startedAt = Date.now();
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   const emittedGroups = await fetchNearbyEmittedGroups(
     lon,
@@ -1739,15 +1942,21 @@ export async function resolveNearbyGroupedFeature(
         boundsList,
         candidateZoom,
         shouldFetchGhostCandidates(candidateZoom),
-        candidateFilters
-      )
+        candidateFilters,
+        options
+      ),
+    options
   );
 
   const tapCoordinate: [number, number] = [lon, lat];
   let bestMatch: NearbyResolution | null = null;
   let bestDistanceUnits = Number.POSITIVE_INFINITY;
 
-  for (const group of emittedGroups) {
+  for (let index = 0; index < emittedGroups.length; index += 1) {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'nearby feature resolution');
+    }
+    const group = emittedGroups[index];
     const dx = group.anchorWorldX - worldX;
     const dy = group.anchorWorldY - worldY;
     const distanceUnits = Math.hypot(dx, dy);
@@ -1769,8 +1978,10 @@ export async function resolveNearbyFollowingGroupedFeature(
   lat: number,
   zoom: number,
   viewerId: string,
-  filters: MapFilters = createDefaultMapFilters()
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
 ): Promise<NearbyResolution | null> {
+  const startedAt = Date.now();
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   const emittedGroups = await fetchNearbyEmittedGroups(
     lon,
@@ -1782,15 +1993,21 @@ export async function resolveNearbyFollowingGroupedFeature(
         viewerId,
         boundsList,
         candidateZoom,
-        candidateFilters
-      )
+        candidateFilters,
+        options
+      ),
+    options
   );
 
   const tapCoordinate: [number, number] = [lon, lat];
   let bestMatch: NearbyResolution | null = null;
   let bestDistanceUnits = Number.POSITIVE_INFINITY;
 
-  for (const group of emittedGroups) {
+  for (let index = 0; index < emittedGroups.length; index += 1) {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'nearby following feature resolution');
+    }
+    const group = emittedGroups[index];
     const dx = group.anchorWorldX - worldX;
     const dy = group.anchorWorldY - worldY;
     const distanceUnits = Math.hypot(dx, dy);
@@ -1840,13 +2057,28 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
   };
 }
 
-async function buildMvtForGroups(tile: TileId, groups: CanonicalPropertyGroup[]): Promise<Buffer> {
+async function buildMvtForGroups(
+  tile: TileId,
+  groups: CanonicalPropertyGroup[],
+  options?: PropertyTileBuildOptions
+): Promise<Buffer> {
+  const startedAt = Date.now();
+  assertTileBuildCanContinue(options, startedAt, 'MVT feature preparation');
   if (groups.length === 0) {
     return Buffer.alloc(0);
   }
 
-  const features = JSON.stringify(groups.map(serializeGroupForTile));
-  const result = await db.execute<{ mvt: Buffer }>(sql`
+  const serializedFeatures = groups.map((group, index) => {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'MVT feature construction');
+    }
+    return serializeGroupForTile(group);
+  });
+  assertTileBuildCanContinue(options, startedAt, 'MVT JSON serialization');
+  const features = JSON.stringify(serializedFeatures);
+  assertTileBuildCanContinue(options, startedAt, 'MVT SQL preparation');
+  const result = await executeWithTileStatementTimeout<{ mvt: Buffer }>(
+    sql`
     WITH feature_rows AS (
       SELECT
         (feature->>'lon')::double precision AS lon,
@@ -1923,7 +2155,9 @@ async function buildMvtForGroups(tile: TileId, groups: CanonicalPropertyGroup[])
     SELECT ST_AsMVT(mvt_data, 'properties', ${PROPERTY_TILE_EXTENT}, 'geom') AS mvt
     FROM mvt_data
     WHERE geom IS NOT NULL
-  `);
+  `,
+    options
+  );
 
   const row = Array.from(result)[0];
   if (!row?.mvt) {
@@ -1935,26 +2169,38 @@ async function buildMvtForGroups(tile: TileId, groups: CanonicalPropertyGroup[])
 
 export async function buildMvtForTile(
   tile: TileId,
-  filters: MapFilters = createDefaultMapFilters()
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
 ): Promise<Buffer> {
-  return buildMvtForGroups(tile, await buildCanonicalGroupsForTile(tile, filters));
+  return buildMvtForGroups(
+    tile,
+    await buildCanonicalGroupsForTile(tile, filters, options),
+    options
+  );
 }
 
 export async function buildReadMvtForTile(
   tile: TileId,
   viewer: PropertyReadViewer,
-  filters: MapFilters = createDefaultMapFilters()
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
 ): Promise<Buffer> {
-  return buildMvtForGroups(tile, await buildReadCanonicalGroupsForTile(tile, viewer, filters));
+  return buildMvtForGroups(
+    tile,
+    await buildReadCanonicalGroupsForTile(tile, viewer, filters, options),
+    options
+  );
 }
 
 export async function buildFollowingMvtForTile(
   tile: TileId,
   viewerId: string,
-  filters: MapFilters = createDefaultMapFilters()
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
 ): Promise<Buffer> {
   return buildMvtForGroups(
     tile,
-    await buildFollowingCanonicalGroupsForTile(tile, viewerId, filters)
+    await buildFollowingCanonicalGroupsForTile(tile, viewerId, filters, options),
+    options
   );
 }

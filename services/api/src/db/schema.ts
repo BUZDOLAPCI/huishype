@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   pgEnum,
   customType,
+  doublePrecision,
   serial,
   real,
   jsonb,
@@ -120,6 +121,21 @@ const multiPolygonGeometry = customType<{
   },
   fromDriver(value) {
     return typeof value === 'string' ? value : String(value);
+  },
+});
+
+const bytea = customType<{
+  data: Buffer;
+  driverData: Buffer;
+}>({
+  dataType() {
+    return 'bytea';
+  },
+  toDriver(value) {
+    return value;
+  },
+  fromDriver(value) {
+    return Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array);
   },
 });
 
@@ -896,6 +912,107 @@ export const propertyViews = pgTable(
   ]
 );
 
+export const propertyTileSnapshots = pgTable(
+  'property_tile_snapshots',
+  {
+    z: integer('z').notNull(),
+    x: integer('x').notNull(),
+    y: integer('y').notNull(),
+    filterSignature: text('filter_signature').notNull(),
+    coverageId: text('coverage_id').notNull(),
+    payload: bytea('payload'),
+    statusCode: integer('status_code').notNull(),
+    etag: text('etag').notNull(),
+    generatedAt: timestamp('generated_at', { withTimezone: true }).notNull(),
+    sourceListingWatermark: bigint('source_listing_watermark', { mode: 'number' }).notNull(),
+    sourceSocialWatermark: bigint('source_social_watermark', { mode: 'number' }).notNull(),
+    sourcePropertyWatermark: bigint('source_property_watermark', { mode: 'number' }).notNull(),
+    sourceCoverageWatermark: bigint('source_coverage_watermark', { mode: 'number' }).notNull(),
+    snapshotConfigHash: text('snapshot_config_hash').notNull(),
+    refreshedAt: timestamp('refreshed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.z, table.x, table.y, table.filterSignature] }),
+    check(
+      'property_tile_snapshots_status_code_check',
+      sql`${table.statusCode} IN (200, 204)`,
+    ),
+    check(
+      'property_tile_snapshots_payload_check',
+      sql`(
+        (${table.statusCode} = 200 AND ${table.payload} IS NOT NULL AND octet_length(${table.payload}) > 0)
+        OR (${table.statusCode} = 204 AND ${table.payload} IS NULL)
+      )`,
+    ),
+    index('property_tile_snapshots_generated_at_idx').on(table.generatedAt),
+    index('property_tile_snapshots_coverage_idx').on(table.coverageId, table.snapshotConfigHash),
+  ],
+);
+
+export const propertyTileSnapshotCoverage = pgTable(
+  'property_tile_snapshot_coverage',
+  {
+    coverageId: text('coverage_id').primaryKey(),
+    boundsSource: text('bounds_source').notNull(),
+    minLon: doublePrecision('min_lon').notNull(),
+    minLat: doublePrecision('min_lat').notNull(),
+    maxLon: doublePrecision('max_lon').notNull(),
+    maxLat: doublePrecision('max_lat').notNull(),
+    countries: text('countries').array().notNull(),
+    dataSources: text('data_sources').array().notNull(),
+    maxZoom: integer('max_zoom').notNull(),
+    filterSignature: text('filter_signature').notNull(),
+    coverageWatermark: bigint('coverage_watermark', { mode: 'number' }).notNull().default(0),
+    snapshotConfigHash: text('snapshot_config_hash').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'property_tile_snapshot_coverage_bounds_check',
+      sql`${table.minLon} < ${table.maxLon} AND ${table.minLat} < ${table.maxLat}`,
+    ),
+    check(
+      'property_tile_snapshot_coverage_zoom_check',
+      sql`${table.maxZoom} >= 0 AND ${table.maxZoom} <= 22`,
+    ),
+  ],
+);
+
+export const propertyTileSnapshotWatermarks = pgTable('property_tile_snapshot_watermarks', {
+  key: text('key').primaryKey(),
+  listingWatermark: bigint('listing_watermark', { mode: 'number' }).notNull().default(0),
+  socialWatermark: bigint('social_watermark', { mode: 'number' }).notNull().default(0),
+  propertyWatermark: bigint('property_watermark', { mode: 'number' }).notNull().default(0),
+  coverageWatermark: bigint('coverage_watermark', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const propertyTileSnapshotRefreshState = pgTable('property_tile_snapshot_refresh_state', {
+  key: text('key').primaryKey(),
+  requestedAt: timestamp('requested_at', { withTimezone: true }),
+  requestReason: text('request_reason'),
+  requestedListingWatermark: bigint('requested_listing_watermark', { mode: 'number' }).notNull().default(0),
+  requestedSocialWatermark: bigint('requested_social_watermark', { mode: 'number' }).notNull().default(0),
+  requestedPropertyWatermark: bigint('requested_property_watermark', { mode: 'number' }).notNull().default(0),
+  requestedCoverageWatermark: bigint('requested_coverage_watermark', { mode: 'number' }).notNull().default(0),
+  leaseOwner: text('lease_owner'),
+  leaseUntil: timestamp('lease_until', { withTimezone: true }),
+  lastStartedAt: timestamp('last_started_at', { withTimezone: true }),
+  lastFinishedAt: timestamp('last_finished_at', { withTimezone: true }),
+  lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  appliedListingWatermark: bigint('applied_listing_watermark', { mode: 'number' }).notNull().default(0),
+  appliedSocialWatermark: bigint('applied_social_watermark', { mode: 'number' }).notNull().default(0),
+  appliedPropertyWatermark: bigint('applied_property_watermark', { mode: 'number' }).notNull().default(0),
+  appliedCoverageWatermark: bigint('applied_coverage_watermark', { mode: 'number' }).notNull().default(0),
+  coverageId: text('coverage_id'),
+  snapshotConfigHash: text('snapshot_config_hash'),
+  expectedTileCount: integer('expected_tile_count'),
+  refreshedTileCount: integer('refreshed_tile_count').notNull().default(0),
+  failedTileCount: integer('failed_tile_count').notNull().default(0),
+  lastWindowRefreshAt: timestamp('last_window_refresh_at', { withTimezone: true }),
+});
+
 // Canonical per-property user-visible change marker.
 // Kept separate from properties so imports do not rewrite the wide address table.
 export const propertyChangeState = pgTable(
@@ -1397,6 +1514,18 @@ export type NewOfficialValuationSourceState = typeof officialValuationSourceStat
 
 export type PropertyView = typeof propertyViews.$inferSelect;
 export type NewPropertyView = typeof propertyViews.$inferInsert;
+
+export type PropertyTileSnapshot = typeof propertyTileSnapshots.$inferSelect;
+export type NewPropertyTileSnapshot = typeof propertyTileSnapshots.$inferInsert;
+
+export type PropertyTileSnapshotCoverage = typeof propertyTileSnapshotCoverage.$inferSelect;
+export type NewPropertyTileSnapshotCoverage = typeof propertyTileSnapshotCoverage.$inferInsert;
+
+export type PropertyTileSnapshotWatermark = typeof propertyTileSnapshotWatermarks.$inferSelect;
+export type NewPropertyTileSnapshotWatermark = typeof propertyTileSnapshotWatermarks.$inferInsert;
+
+export type PropertyTileSnapshotRefreshState = typeof propertyTileSnapshotRefreshState.$inferSelect;
+export type NewPropertyTileSnapshotRefreshState = typeof propertyTileSnapshotRefreshState.$inferInsert;
 
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;

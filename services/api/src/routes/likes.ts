@@ -1,8 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { db, reactions, properties } from '../db/index.js';
+import { db, reactions, properties, comments } from '../db/index.js';
 import { eq, and, sql } from 'drizzle-orm';
+import {
+  advancePropertyTileSnapshotWatermark,
+  safeRequestPropertyTileSnapshotRefresh,
+} from '../services/property-tile-snapshots.js';
 
 // Schema definitions
 const commentParamsSchema = z.object({
@@ -104,6 +108,7 @@ export async function likeRoutes(app: FastifyInstance) {
         response: {
           201: likeCreatedResponseSchema,
           401: errorResponseSchema,
+          404: errorResponseSchema,
           409: errorResponseSchema,
         },
       },
@@ -112,34 +117,63 @@ export async function likeRoutes(app: FastifyInstance) {
       const { id: commentId } = request.params;
       const userId = request.userId!;
 
-      // Check if already liked
-      const existingReaction = await db
-        .select({ id: reactions.id })
-        .from(reactions)
-        .where(
-          and(
-            eq(reactions.targetType, 'comment'),
-            eq(reactions.targetId, commentId),
-            eq(reactions.userId, userId),
-            eq(reactions.reactionType, 'like')
-          )
-        )
-        .limit(1);
+      const outcome = await db.transaction(async (tx) => {
+        const commentRows = await tx
+          .select({ propertyId: comments.propertyId })
+          .from(comments)
+          .where(eq(comments.id, commentId))
+          .limit(1);
 
-      if (existingReaction.length > 0) {
+        if (!commentRows[0]) {
+          return { status: 'not_found' as const };
+        }
+
+        const existingReaction = await tx
+          .select({ id: reactions.id })
+          .from(reactions)
+          .where(
+            and(
+              eq(reactions.targetType, 'comment'),
+              eq(reactions.targetId, commentId),
+              eq(reactions.userId, userId),
+              eq(reactions.reactionType, 'like')
+            )
+          )
+          .limit(1);
+
+        if (existingReaction.length > 0) {
+          return { status: 'already_liked' as const };
+        }
+
+        await tx.insert(reactions).values({
+          targetType: 'comment',
+          targetId: commentId,
+          userId,
+          reactionType: 'like',
+        });
+        await advancePropertyTileSnapshotWatermark(['social'], tx);
+        return { status: 'created' as const };
+      });
+
+      if (outcome.status === 'not_found') {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'Comment not found.',
+        });
+      }
+
+      if (outcome.status === 'already_liked') {
         return reply.status(409).send({
           error: 'ALREADY_LIKED',
           message: 'You have already liked this comment.',
         });
       }
 
-      // Create the like reaction
-      await db.insert(reactions).values({
-        targetType: 'comment',
-        targetId: commentId,
-        userId,
-        reactionType: 'like',
-      });
+      await safeRequestPropertyTileSnapshotRefresh(
+        { reason: 'comment-like' },
+        request.log,
+        { commentId },
+      );
 
       // Get updated like count
       const countResult = await db
@@ -183,31 +217,60 @@ export async function likeRoutes(app: FastifyInstance) {
       const { id: commentId } = request.params;
       const userId = request.userId!;
 
-      // Find the existing reaction
-      const existingReaction = await db
-        .select({ id: reactions.id })
-        .from(reactions)
-        .where(
-          and(
-            eq(reactions.targetType, 'comment'),
-            eq(reactions.targetId, commentId),
-            eq(reactions.userId, userId),
-            eq(reactions.reactionType, 'like')
-          )
-        )
-        .limit(1);
+      const outcome = await db.transaction(async (tx) => {
+        const commentRows = await tx
+          .select({ propertyId: comments.propertyId })
+          .from(comments)
+          .where(eq(comments.id, commentId))
+          .limit(1);
 
-      if (existingReaction.length === 0) {
+        if (!commentRows[0]) {
+          return { status: 'not_found' as const };
+        }
+
+        const existingReaction = await tx
+          .select({ id: reactions.id })
+          .from(reactions)
+          .where(
+            and(
+              eq(reactions.targetType, 'comment'),
+              eq(reactions.targetId, commentId),
+              eq(reactions.userId, userId),
+              eq(reactions.reactionType, 'like')
+            )
+          )
+          .limit(1);
+
+        if (existingReaction.length === 0) {
+          return { status: 'not_liked' as const };
+        }
+
+        await tx
+          .delete(reactions)
+          .where(eq(reactions.id, existingReaction[0].id));
+        await advancePropertyTileSnapshotWatermark(['social'], tx);
+        return { status: 'deleted' as const };
+      });
+
+      if (outcome.status === 'not_found') {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'Comment not found.',
+        });
+      }
+
+      if (outcome.status === 'not_liked') {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: 'You have not liked this comment.',
         });
       }
 
-      // Delete the reaction
-      await db
-        .delete(reactions)
-        .where(eq(reactions.id, existingReaction[0].id));
+      await safeRequestPropertyTileSnapshotRefresh(
+        { reason: 'comment-unlike' },
+        request.log,
+        { commentId },
+      );
 
       // Get updated like count
       const countResult = await db
@@ -292,17 +355,20 @@ export async function likeRoutes(app: FastifyInstance) {
       // the newly inserted row. We add 1 to account for the inserted row.
       let likeCount: number;
       try {
-        const result = await db.execute<{ like_count: number }>(sql`
-          WITH inserted AS (
-            INSERT INTO reactions (target_type, target_id, user_id, reaction_type)
-            VALUES ('property', ${propertyId}, ${userId}, 'like')
-            RETURNING id
-          )
-          SELECT (count(*)::int + (SELECT count(*)::int FROM inserted)) AS like_count
-          FROM reactions
-          WHERE target_type = 'property' AND target_id = ${propertyId} AND reaction_type = 'like'
-        `);
-        likeCount = Array.from(result)[0]?.like_count ?? 0;
+        likeCount = await db.transaction(async (tx) => {
+          const result = await tx.execute<{ like_count: number }>(sql`
+            WITH inserted AS (
+              INSERT INTO reactions (target_type, target_id, user_id, reaction_type)
+              VALUES ('property', ${propertyId}, ${userId}, 'like')
+              RETURNING id
+            )
+            SELECT (count(*)::int + (SELECT count(*)::int FROM inserted)) AS like_count
+            FROM reactions
+            WHERE target_type = 'property' AND target_id = ${propertyId} AND reaction_type = 'like'
+          `);
+          await advancePropertyTileSnapshotWatermark(['social'], tx);
+          return Array.from(result)[0]?.like_count ?? 0;
+        });
       } catch (err: unknown) {
         const pgErr = err as { code?: string };
         if (pgErr.code === '23505') {
@@ -313,6 +379,12 @@ export async function likeRoutes(app: FastifyInstance) {
         }
         throw err;
       }
+
+      await safeRequestPropertyTileSnapshotRefresh(
+        { reason: 'property-like' },
+        request.log,
+        { propertyId },
+      );
 
       return reply.status(201).send({
         liked: true,
@@ -345,18 +417,25 @@ export async function likeRoutes(app: FastifyInstance) {
       // Atomic DELETE + COUNT using CTE — returns deleted_count and remaining like_count
       // Note: The main SELECT still sees the rows in the same snapshot, so we subtract
       // the deleted count to get the accurate remaining count.
-      const result = await db.execute<{ deleted_count: number; like_count: number }>(sql`
-        WITH deleted AS (
-          DELETE FROM reactions
-          WHERE target_type = 'property' AND target_id = ${propertyId} AND user_id = ${userId} AND reaction_type = 'like'
-          RETURNING id
-        )
-        SELECT
-          (SELECT count(*)::int FROM deleted) AS deleted_count,
-          (count(*)::int - (SELECT count(*)::int FROM deleted)) AS like_count
-        FROM reactions
-        WHERE target_type = 'property' AND target_id = ${propertyId} AND reaction_type = 'like'
-      `);
+      const result = await db.transaction(async (tx) => {
+        const rows = await tx.execute<{ deleted_count: number; like_count: number }>(sql`
+          WITH deleted AS (
+            DELETE FROM reactions
+            WHERE target_type = 'property' AND target_id = ${propertyId} AND user_id = ${userId} AND reaction_type = 'like'
+            RETURNING id
+          )
+          SELECT
+            (SELECT count(*)::int FROM deleted) AS deleted_count,
+            (count(*)::int - (SELECT count(*)::int FROM deleted)) AS like_count
+          FROM reactions
+          WHERE target_type = 'property' AND target_id = ${propertyId} AND reaction_type = 'like'
+        `);
+        const deletedCount = Array.from(rows)[0]?.deleted_count ?? 0;
+        if (deletedCount > 0) {
+          await advancePropertyTileSnapshotWatermark(['social'], tx);
+        }
+        return rows;
+      });
       const row = Array.from(result)[0];
       const deletedCount = row?.deleted_count ?? 0;
       const likeCount = row?.like_count ?? 0;
@@ -367,6 +446,12 @@ export async function likeRoutes(app: FastifyInstance) {
           message: 'You have not liked this property.',
         });
       }
+
+      await safeRequestPropertyTileSnapshotRefresh(
+        { reason: 'property-unlike' },
+        request.log,
+        { propertyId },
+      );
 
       return reply.send({
         liked: false,

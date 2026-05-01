@@ -7,6 +7,10 @@ import { checkMemeGuess, getKarmaRank } from '../services/karma.js';
 import { calculateFmvForProperty } from '../services/fmv.js';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import { getPriceGuessStartForProperty } from '../services/price-guess-start.js';
+import {
+  advancePropertyTileSnapshotWatermark,
+  safeRequestPropertyTileSnapshotRefresh,
+} from '../services/property-tile-snapshots.js';
 
 // Schema definitions
 const priceGuessSchema = z.object({
@@ -291,10 +295,16 @@ export async function guessRoutes(app: FastifyInstance) {
             .returning();
 
           await advancePropertyChangeVersion(propertyId, tx);
+          await advancePropertyTileSnapshotWatermark(['social'], tx);
           return rows;
         });
 
         const updatedGuess = updated[0];
+        await safeRequestPropertyTileSnapshotRefresh(
+          { reason: 'price-guess-update' },
+          request.log,
+          { propertyId, guessId: updatedGuess.id },
+        );
         return reply.status(200).send({
           id: updatedGuess.id,
           propertyId: updatedGuess.propertyId,
@@ -318,10 +328,16 @@ export async function guessRoutes(app: FastifyInstance) {
           .returning();
 
         await advancePropertyChangeVersion(propertyId, tx);
+        await advancePropertyTileSnapshotWatermark(['social'], tx);
         return rows;
       });
 
       const created = newGuess[0];
+      await safeRequestPropertyTileSnapshotRefresh(
+        { reason: 'price-guess-create' },
+        request.log,
+        { propertyId, guessId: created.id },
+      );
       return reply.status(201).send({
         id: created.id,
         propertyId: created.propertyId,

@@ -19,6 +19,10 @@ import {
 } from '../services/ingest/index.js';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import {
+  advancePropertyTileSnapshotWatermark,
+  safeRequestPropertyTileSnapshotRefresh,
+} from '../services/property-tile-snapshots.js';
+import {
   applyListingValidationOutcome,
   createUserListingSubmission,
   listCanonicalListingsForProperty,
@@ -629,28 +633,30 @@ export async function listingRoutes(app: FastifyInstance) {
           });
         }
 
-        const submission = await createUserListingSubmission(db, {
-          userId,
-          plan: enrichedPlan,
-        });
-
-        const maintenanceRequest = await db.transaction(async (tx) => {
+        const { submission, maintenanceRequest } = await db.transaction(async (tx) => {
+          const createdSubmission = await createUserListingSubmission(tx, {
+            userId,
+            plan: enrichedPlan,
+          });
           await advancePropertyChangeVersion(propertyId, tx);
+          await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
 
-          return createMaintenanceRefreshRequest(tx, {
+          const maintenance = await createMaintenanceRefreshRequest(tx, {
             sourceName: enrichedPlan.sourceName,
             requestedBy: 'listing-submit',
-            idempotencyKey: `listing-submit:${submission.canonicalListing.id}`,
+            idempotencyKey: `listing-submit:${createdSubmission.canonicalListing.id}`,
             payload: {
-              canonicalListingId: submission.canonicalListing.id,
-              observationId: submission.observationId,
-              watchId: submission.watchId,
+              canonicalListingId: createdSubmission.canonicalListing.id,
+              observationId: createdSubmission.observationId,
+              watchId: createdSubmission.watchId,
               propertyId,
               sourceUrl: enrichedPlan.canonicalUrl,
               sourceName: enrichedPlan.sourceName,
               sourceListingId: enrichedPlan.sourceListingId,
             },
           });
+
+          return { submission: createdSubmission, maintenanceRequest: maintenance };
         });
 
         requestLatestListingsRefresh({
@@ -665,6 +671,11 @@ export async function listingRoutes(app: FastifyInstance) {
             },
             'Failed to enqueue latest listings refresh after submit',
           ),
+        );
+        void safeRequestPropertyTileSnapshotRefresh(
+          { reason: 'listing-submit' },
+          request.log,
+          { canonicalListingId: submission.canonicalListing.id },
         );
 
         return reply.status(201).send({
@@ -809,6 +820,7 @@ export async function listingRoutes(app: FastifyInstance) {
           });
 
           await advancePropertyChangeVersion(applied.canonicalListing.propertyId, tx);
+          await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
           const maintenance = await createMaintenanceRefreshRequest(tx, {
             sourceName: request.body.sourceName,
             requestedBy: 'validation-outcome',
@@ -836,6 +848,11 @@ export async function listingRoutes(app: FastifyInstance) {
             },
             'Failed to enqueue latest listings refresh after validation outcome',
           ),
+        );
+        void safeRequestPropertyTileSnapshotRefresh(
+          { reason: 'listing-validation-outcome' },
+          request.log,
+          { watchId: request.body.watchId },
         );
 
         return reply.status(202).send({

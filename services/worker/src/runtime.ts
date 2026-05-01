@@ -13,6 +13,7 @@ import {
   loadOfficialValuationProcessorModule,
   loadOfficialValuationQueueModule,
   loadOfficialValuationStoreModule,
+  loadPropertyTileSnapshotsModule,
   type RedisConnectionLike,
 } from './api-runtime.js';
 import { createWorkerLogger, serializeError, type WorkerLogger } from './logger.js';
@@ -37,6 +38,8 @@ interface RecoverySweepSummary {
   listingWatchRetryableCount: number;
   listingWatchMaintenanceBatchIds: string[];
   officialValuationHydrationJobIds: string[];
+  propertyTileSnapshotRefreshRequested: boolean;
+  propertyTileSnapshotRefreshReason: string | null;
 }
 
 function toIngestLogger(logger: WorkerLogger) {
@@ -100,16 +103,20 @@ export class WorkerRuntime {
   private ingestWorker: Worker<{ batchId: string }> | null = null;
   private maintenanceWorker: Worker<{ requestedBy: string; batchId?: string }> | null = null;
   private officialValuationWorker: Worker<OfficialValuationHydrationJobData> | null = null;
+  private propertyTileSnapshotWorker: Worker<{ reason: string }> | null = null;
   private ingestQueue: Queue<{ batchId: string }> | null = null;
   private maintenanceQueue: Queue<{ requestedBy: string; batchId?: string }> | null = null;
   private officialValuationQueue: Queue<OfficialValuationHydrationJobData> | null = null;
+  private propertyTileSnapshotQueue: Queue<{ reason: string }> | null = null;
 
   private ingestWorkerConnection: RedisConnectionLike | null = null;
   private maintenanceWorkerConnection: RedisConnectionLike | null = null;
   private officialValuationWorkerConnection: RedisConnectionLike | null = null;
+  private propertyTileSnapshotWorkerConnection: RedisConnectionLike | null = null;
   private ingestQueueConnection: RedisConnectionLike | null = null;
   private maintenanceQueueConnection: RedisConnectionLike | null = null;
   private officialValuationQueueConnection: RedisConnectionLike | null = null;
+  private propertyTileSnapshotQueueConnection: RedisConnectionLike | null = null;
 
   private recoveryInterval: TimerHandle | null = null;
   private healthInterval: TimerHandle | null = null;
@@ -133,10 +140,14 @@ export class WorkerRuntime {
       this.ingestWorkerConnection,
       this.maintenanceWorkerConnection,
       this.officialValuationWorkerConnection,
+      this.propertyTileSnapshotWorkerConnection,
       this.ingestQueueConnection,
       this.maintenanceQueueConnection,
       this.officialValuationQueueConnection,
+      this.propertyTileSnapshotQueueConnection,
     ] = await Promise.all([
+      apiRedis.createRedisConnection(),
+      apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
@@ -172,6 +183,15 @@ export class WorkerRuntime {
       },
     );
 
+    this.propertyTileSnapshotWorker = new Worker(
+      jobs.PROPERTY_TILE_SNAPSHOT_QUEUE,
+      (job) => this.processPropertyTileSnapshotRefreshJob(job, jobs.PROPERTY_TILE_SNAPSHOT_REFRESH_JOB),
+      {
+        connection: this.propertyTileSnapshotWorkerConnection as never,
+        concurrency: this.config.propertyTileSnapshotConcurrency,
+      },
+    );
+
     this.ingestQueue = new Queue(jobs.INGEST_BATCH_QUEUE, {
       connection: this.ingestQueueConnection as never,
     });
@@ -184,24 +204,31 @@ export class WorkerRuntime {
         connection: this.officialValuationQueueConnection as never,
       },
     );
+    this.propertyTileSnapshotQueue = new Queue(jobs.PROPERTY_TILE_SNAPSHOT_QUEUE, {
+      connection: this.propertyTileSnapshotQueueConnection as never,
+    });
 
     this.attachWorkerLogging('ingest', this.ingestWorker);
     this.attachWorkerLogging('maintenance', this.maintenanceWorker);
     this.attachWorkerLogging('official-valuation-hydration', this.officialValuationWorker);
+    this.attachWorkerLogging('property-tile-snapshot', this.propertyTileSnapshotWorker);
 
     await Promise.all([
       this.ingestWorker.waitUntilReady(),
       this.maintenanceWorker.waitUntilReady(),
       this.officialValuationWorker.waitUntilReady(),
+      this.propertyTileSnapshotWorker.waitUntilReady(),
       this.ingestQueue.waitUntilReady(),
       this.maintenanceQueue.waitUntilReady(),
       this.officialValuationQueue.waitUntilReady(),
+      this.propertyTileSnapshotQueue.waitUntilReady(),
     ]);
 
     this.logger.info('Worker runtime started', {
       ingestConcurrency: this.config.ingestConcurrency,
       maintenanceConcurrency: this.config.maintenanceConcurrency,
       officialValuationHydrationConcurrency: this.config.officialValuationHydrationConcurrency,
+      propertyTileSnapshotConcurrency: this.config.propertyTileSnapshotConcurrency,
       skippedBatchRecoveryLimit: this.config.skippedBatchRecoveryLimit,
       recoverySweepIntervalMs: this.config.recoverySweepIntervalMs,
       staleProcessingAfterMs: this.config.staleProcessingAfterMs,
@@ -324,6 +351,27 @@ export class WorkerRuntime {
     });
   }
 
+  private async processPropertyTileSnapshotRefreshJob(
+    job: Job<{ reason: string }>,
+    expectedJobName: string,
+  ): Promise<Record<string, unknown>> {
+    if (job.name !== expectedJobName) {
+      throw new Error(`Unsupported property tile snapshot job: ${job.name}`);
+    }
+
+    const snapshots = await loadPropertyTileSnapshotsModule();
+    this.logger.info('Refreshing property tile snapshots', {
+      jobId: job.id,
+      reason: job.data.reason,
+      attempt: job.attemptsStarted,
+    });
+
+    return snapshots.executePropertyTileSnapshotRefresh({
+      reason: job.data.reason,
+      leaseOwner: `worker:${process.pid}:${job.id ?? 'unknown'}`,
+    });
+  }
+
   private attachWorkerLogging(name: string, worker: Worker): void {
     worker.on('active', (job) => {
       this.logger.info('Job started', {
@@ -374,13 +422,21 @@ export class WorkerRuntime {
   }
 
   private async performRecoverySweep(trigger: string): Promise<RecoverySweepSummary> {
-    const [store, queue, reconciliation, officialValuationStore, officialValuationQueue] =
+    const [
+      store,
+      queue,
+      reconciliation,
+      officialValuationStore,
+      officialValuationQueue,
+      propertyTileSnapshots,
+    ] =
       await Promise.all([
         loadIngestStoreModule(),
         loadIngestQueueModule(),
         loadListingReconciliationModule(),
         loadOfficialValuationStoreModule(),
         loadOfficialValuationQueueModule(),
+        loadPropertyTileSnapshotsModule(),
       ]);
 
     const staleProcessingBefore = new Date(Date.now() - this.config.staleProcessingAfterMs);
@@ -456,6 +512,19 @@ export class WorkerRuntime {
             error: serializeError(error),
           });
         }
+        try {
+          await propertyTileSnapshots.requestPropertyTileSnapshotRefresh({
+            reason: 'validation-outcome',
+          });
+        } catch (error) {
+          this.logger.error('Recovery sweep failed to request validation property tile refresh', {
+            trigger,
+            watchId: result.watchId,
+            state: result.state,
+            maintenanceBatchId: result.maintenanceBatchId,
+            error: serializeError(error),
+          });
+        }
       }
     } catch (error) {
       this.logger.error('Recovery sweep failed to process listing validation watches', {
@@ -486,6 +555,29 @@ export class WorkerRuntime {
       });
     }
 
+    let propertyTileSnapshotRefreshRequested = false;
+    let propertyTileSnapshotRefreshReason: string | null = null;
+    try {
+      const snapshotCheck = await propertyTileSnapshots.shouldRequestPropertyTileSnapshotRefresh();
+      propertyTileSnapshotRefreshReason = snapshotCheck.reason;
+      if (snapshotCheck.shouldEnqueue) {
+        await propertyTileSnapshots.requestPropertyTileSnapshotRefresh({
+          reason: `worker-recovery:${snapshotCheck.reason}`,
+        });
+        propertyTileSnapshotRefreshRequested = true;
+      }
+      this.logger.info('Property tile snapshot recovery check completed', {
+        trigger,
+        shouldEnqueue: snapshotCheck.shouldEnqueue,
+        reason: snapshotCheck.reason,
+      });
+    } catch (error) {
+      this.logger.error('Recovery sweep failed to check property tile snapshots', {
+        trigger,
+        error: serializeError(error),
+      });
+    }
+
     const summary: RecoverySweepSummary = {
       trigger,
       staleProcessingBatchIds: dispatchWork.staleProcessingBatchIds,
@@ -498,6 +590,8 @@ export class WorkerRuntime {
       listingWatchRetryableCount,
       listingWatchMaintenanceBatchIds,
       officialValuationHydrationJobIds,
+      propertyTileSnapshotRefreshRequested,
+      propertyTileSnapshotRefreshReason,
     };
 
     this.logger.info('Recovery sweep completed', {
@@ -512,21 +606,40 @@ export class WorkerRuntime {
       listingWatchRetryableCount,
       listingWatchMaintenanceRequestedCount: listingWatchMaintenanceBatchIds.length,
       officialValuationHydrationDispatchedCount: officialValuationHydrationJobIds.length,
+      propertyTileSnapshotRefreshRequested,
+      propertyTileSnapshotRefreshReason,
     });
 
     return summary;
   }
 
   private async logHealthSnapshot(trigger: string): Promise<void> {
-    if (!this.ingestQueue || !this.maintenanceQueue || !this.officialValuationQueue) {
+    if (
+      !this.ingestQueue ||
+      !this.maintenanceQueue ||
+      !this.officialValuationQueue ||
+      !this.propertyTileSnapshotQueue
+    ) {
       return;
     }
 
     try {
-      const [ingestCounts, maintenanceCounts, officialValuationCounts] = await Promise.all([
+      const [
+        ingestCounts,
+        maintenanceCounts,
+        officialValuationCounts,
+        propertyTileSnapshotCounts,
+      ] = await Promise.all([
         this.ingestQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
         this.maintenanceQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
         this.officialValuationQueue.getJobCounts(
+          'waiting',
+          'active',
+          'delayed',
+          'failed',
+          'completed',
+        ),
+        this.propertyTileSnapshotQueue.getJobCounts(
           'waiting',
           'active',
           'delayed',
@@ -544,6 +657,7 @@ export class WorkerRuntime {
         ingestQueue: ingestCounts,
         maintenanceQueue: maintenanceCounts,
         officialValuationHydrationQueue: officialValuationCounts,
+        propertyTileSnapshotQueue: propertyTileSnapshotCounts,
       });
     } catch (error) {
       this.logger.warn('Worker health snapshot failed', {
@@ -598,6 +712,20 @@ export class WorkerRuntime {
       );
     }
 
+    if (this.propertyTileSnapshotWorker) {
+      const worker = this.propertyTileSnapshotWorker;
+      this.propertyTileSnapshotWorker = null;
+      closers.push(
+        withTimeout(
+          'property tile snapshot worker close',
+          worker.close().catch(async () => {
+            await worker.close(true);
+          }),
+          this.config.shutdownTimeoutMs,
+        ),
+      );
+    }
+
     if (this.ingestQueue) {
       const queue = this.ingestQueue;
       this.ingestQueue = null;
@@ -622,15 +750,29 @@ export class WorkerRuntime {
       );
     }
 
+    if (this.propertyTileSnapshotQueue) {
+      const queue = this.propertyTileSnapshotQueue;
+      this.propertyTileSnapshotQueue = null;
+      closers.push(
+        withTimeout(
+          'property tile snapshot queue close',
+          queue.close(),
+          this.config.shutdownTimeoutMs,
+        ),
+      );
+    }
+
     await Promise.allSettled(closers);
 
     await Promise.allSettled([
       this.quitRedisConnection('ingestWorkerConnection'),
       this.quitRedisConnection('maintenanceWorkerConnection'),
       this.quitRedisConnection('officialValuationWorkerConnection'),
+      this.quitRedisConnection('propertyTileSnapshotWorkerConnection'),
       this.quitRedisConnection('ingestQueueConnection'),
       this.quitRedisConnection('maintenanceQueueConnection'),
       this.quitRedisConnection('officialValuationQueueConnection'),
+      this.quitRedisConnection('propertyTileSnapshotQueueConnection'),
     ]);
   }
 
@@ -655,9 +797,11 @@ export class WorkerRuntime {
       | 'ingestWorkerConnection'
       | 'maintenanceWorkerConnection'
       | 'officialValuationWorkerConnection'
+      | 'propertyTileSnapshotWorkerConnection'
       | 'ingestQueueConnection'
       | 'maintenanceQueueConnection'
-      | 'officialValuationQueueConnection',
+      | 'officialValuationQueueConnection'
+      | 'propertyTileSnapshotQueueConnection',
   ): Promise<void> {
     const connection = this[key];
     this[key] = null;
