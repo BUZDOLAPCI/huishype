@@ -351,6 +351,9 @@ export const properties = pgTable(
     index('properties_created_at_idx').on(table.createdAt),
     index('properties_country_code_idx').on(table.countryCode),
     index('properties_geometry_gist_idx').using('gist', table.geometry),
+    index('properties_active_geometry_gist_idx')
+      .using('gist', table.geometry)
+      .where(sql`status = 'active' AND geometry IS NOT NULL`),
   ]
 );
 
@@ -408,6 +411,12 @@ export const priceHistory = pgTable(
     index('price_history_property_date_idx').on(table.propertyId, table.priceDate),
     uniqueIndex('price_history_dedup_idx').on(table.propertyId, table.priceDate, table.price, table.eventType),
     index('price_history_listing_idx').on(table.listingId),
+    index('price_history_sold_latest_idx')
+      .on(table.propertyId, sql`price_date DESC`, sql`created_at DESC`, sql`id DESC`)
+      .where(sql`event_type = 'sold'`),
+    index('price_history_rented_latest_idx')
+      .on(table.propertyId, sql`price_date DESC`, sql`created_at DESC`, sql`id DESC`)
+      .where(sql`event_type = 'rented'`),
   ]
 );
 
@@ -649,6 +658,22 @@ export const canonicalListings = pgTable(
     index('canonical_listings_property_id_idx').on(table.propertyId),
     index('canonical_listings_property_status_idx').on(table.propertyId, table.status),
     index('canonical_listings_verification_state_idx').on(table.verificationState),
+    index('canonical_listings_tile_latest_idx')
+      .on(
+        table.propertyId,
+        sql`COALESCE(last_reconciled_at, last_mirror_seen_at, last_user_seen_at, last_seen_at, updated_at, created_at) DESC`,
+        sql`created_at DESC`,
+        sql`id DESC`
+      )
+      .where(sql`verification_state <> 'invalid'`),
+    index('canonical_listings_tile_active_latest_idx')
+      .on(
+        table.propertyId,
+        sql`COALESCE(last_reconciled_at, last_mirror_seen_at, last_user_seen_at, last_seen_at, updated_at, created_at) DESC`,
+        sql`created_at DESC`,
+        sql`id DESC`
+      )
+      .where(sql`verification_state <> 'invalid' AND status = 'active'`),
   ]
 );
 
@@ -839,6 +864,13 @@ export const priceGuesses = pgTable(
     // Unique constraint: one guess per user per property (updates allowed with cooldown)
     uniqueIndex('price_guesses_user_property_idx').on(table.userId, table.propertyId),
     index('idx_price_guesses_property_created').on(table.propertyId, sql`created_at DESC`),
+    index('price_guesses_property_user_effective_at_idx').on(
+      table.propertyId,
+      table.userId,
+      sql`GREATEST(created_at, updated_at) DESC`,
+      sql`created_at DESC`,
+      sql`id DESC`
+    ),
   ]
 );
 
@@ -864,6 +896,12 @@ export const comments = pgTable(
     index('comments_parent_id_idx').on(table.parentId),
     index('comments_created_at_idx').on(table.createdAt),
     index('idx_comments_property_created').on(table.propertyId, sql`created_at DESC`),
+    index('comments_top_level_property_created_idx')
+      .on(table.propertyId, sql`created_at DESC`)
+      .where(sql`parent_id IS NULL`),
+    index('comments_replies_property_created_idx')
+      .on(table.propertyId, sql`created_at DESC`)
+      .where(sql`parent_id IS NOT NULL`),
   ]
 );
 
@@ -886,6 +924,9 @@ export const reactions = pgTable(
     // Unique constraint: one reaction per user per target
     uniqueIndex('reactions_user_target_idx').on(table.userId, table.targetType, table.targetId),
     index('idx_reactions_property_like').on(table.targetId, sql`created_at DESC`).where(sql`target_type = 'property' AND reaction_type = 'like'`),
+    index('reactions_comment_like_target_created_idx')
+      .on(table.targetId, sql`created_at DESC`)
+      .where(sql`target_type = 'comment' AND reaction_type = 'like'`),
   ]
 );
 
@@ -905,6 +946,11 @@ export const propertyViews = pgTable(
     index('property_views_property_user_idx').on(table.propertyId, table.userId),
     index('property_views_property_session_idx').on(table.propertyId, table.sessionId),
     index('property_views_property_viewed_at_idx').on(table.propertyId, table.viewedAt),
+    index('property_views_property_identity_viewed_at_idx').on(
+      table.propertyId,
+      sql`COALESCE(user_id::text, session_id)`,
+      sql`viewed_at DESC`
+    ),
     check(
       'property_views_identity_required_chk',
       sql`${table.userId} IS NOT NULL OR ${table.sessionId} IS NOT NULL`,
@@ -946,6 +992,11 @@ export const propertyTileSnapshots = pgTable(
     ),
     index('property_tile_snapshots_generated_at_idx').on(table.generatedAt),
     index('property_tile_snapshots_coverage_idx').on(table.coverageId, table.snapshotConfigHash),
+    index('property_tile_snapshots_coverage_filter_config_idx').on(
+      table.coverageId,
+      table.filterSignature,
+      table.snapshotConfigHash
+    ),
   ],
 );
 

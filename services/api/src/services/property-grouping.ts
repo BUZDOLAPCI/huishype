@@ -53,7 +53,7 @@ type TileId = {
   y: number;
 };
 
-type TileBBox = {
+export type TileBBox = {
   minLon: number;
   minLat: number;
   maxLon: number;
@@ -1108,45 +1108,18 @@ function buildListingOrderExpression(alias: string): SQL {
   return canonicalListingFactOrderExpression(alias);
 }
 
-async function fetchGroupingCandidatesInBBox(
-  bounds: TileBBox,
-  zoom: number,
-  includeGhostCandidates: boolean,
-  filters: MapFilters,
-  options?: PropertyTileBuildOptions
-): Promise<GroupingCandidate[]> {
-  return fetchGroupingCandidatesInBBoxes([bounds], zoom, includeGhostCandidates, filters, options);
-}
-
-async function fetchGroupingCandidatesInBBoxes(
+export function buildGroupingCandidateScopeCtes(
   boundsList: TileBBox[],
-  zoom: number,
   includeGhostCandidates: boolean,
-  filters: MapFilters,
-  options?: PropertyTileBuildOptions
-): Promise<GroupingCandidate[]> {
-  const startedAt = Date.now();
-  assertTileBuildCanContinue(options, startedAt, 'candidate fetch preparation');
-  const activityFilterPredicate = buildActivityFilterPredicate(filters.activity, 'sf');
+  filters: MapFilters
+): SQL {
   const bboxFilter = buildBoundsFilter(boundsList, sql.raw('p.geometry'));
-  const candidateVisibilityFilter = includeGhostCandidates
-    ? sql`TRUE`
-    : sql`(
-        COALESCE(lf.has_active_listing, FALSE)
-        OR COALESCE(lf.has_completed_listing, FALSE)
-        OR COALESCE(sf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
-      )`;
-  const marketStatePredicate = buildBulkMarketStatePredicate(filters, 'lf');
-  const includeEffectivePrices = hasPriceFilters(filters);
-  const requiresMarketStateFacts = filters.marketState.length !== MAP_MARKET_STATES.length;
-  const priceFilterPredicate = includeEffectivePrices
-    ? buildPriceFilterPredicate(filters, 'lf')
-    : sql`TRUE`;
   const activityCandidateFilter = buildActivityWindowPredicate(
     sql.raw('activity_at'),
     filters.activity
   );
-  const candidateScopeCtes = includeGhostCandidates
+
+  return includeGhostCandidates
     ? sql`
         candidate_properties AS MATERIALIZED (
           SELECT
@@ -1170,17 +1143,11 @@ async function fetchGroupingCandidatesInBBoxes(
             AND p.status = 'active'
             AND (${bboxFilter})
         ),
-        active_listing_candidate_ids AS MATERIALIZED (
-          SELECT DISTINCT l.property_id
+        listing_candidate_ids AS MATERIALIZED (
+          SELECT l.property_id
           FROM v_canonical_listing_facts l
           INNER JOIN bounded_properties bp ON bp.id = l.property_id
-          WHERE l.status = 'active'
-        ),
-        completed_listing_candidate_ids AS MATERIALIZED (
-          SELECT DISTINCT l.property_id
-          FROM v_canonical_listing_facts l
-          INNER JOIN bounded_properties bp ON bp.id = l.property_id
-          WHERE l.status IN ('sold', 'rented')
+          WHERE l.status IN ('active', 'sold', 'rented')
         ),
         social_activity_candidate_ids AS MATERIALIZED (
           SELECT property_id
@@ -1192,7 +1159,7 @@ async function fetchGroupingCandidatesInBBoxes(
             ) c
             INNER JOIN bounded_properties bp ON bp.id = c.property_id
             WHERE ${activityCandidateFilter}
-            UNION
+            UNION ALL
             SELECT r.property_id
             FROM (
               SELECT r.target_id AS property_id, r.created_at AS activity_at
@@ -1201,7 +1168,7 @@ async function fetchGroupingCandidatesInBBoxes(
             ) r
             INNER JOIN bounded_properties bp ON bp.id = r.property_id
             WHERE ${activityCandidateFilter}
-            UNION
+            UNION ALL
             SELECT rc.property_id
             FROM (
               SELECT c.property_id, r.created_at AS activity_at
@@ -1211,7 +1178,7 @@ async function fetchGroupingCandidatesInBBoxes(
             ) rc
             INNER JOIN bounded_properties bp ON bp.id = rc.property_id
             WHERE ${activityCandidateFilter}
-            UNION
+            UNION ALL
             SELECT pg.property_id
             FROM (
               SELECT
@@ -1221,29 +1188,29 @@ async function fetchGroupingCandidatesInBBoxes(
             ) pg
             INNER JOIN bounded_properties bp ON bp.id = pg.property_id
             WHERE ${activityCandidateFilter}
-            UNION
+            UNION ALL
             SELECT pv.property_id
             FROM (
               SELECT
                 pv.property_id,
                 MAX(pv.viewed_at) AS activity_at
               FROM property_views pv
+              INNER JOIN bounded_properties bp ON bp.id = pv.property_id
               GROUP BY pv.property_id
               HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
             ) pv
-            INNER JOIN bounded_properties bp ON bp.id = pv.property_id
             WHERE ${activityCandidateFilter}
           ) social_candidates
         ),
         candidate_property_ids AS MATERIALIZED (
-          SELECT property_id
-          FROM active_listing_candidate_ids
-          UNION
-          SELECT property_id
-          FROM completed_listing_candidate_ids
-          UNION
-          SELECT property_id
-          FROM social_activity_candidate_ids
+          SELECT DISTINCT property_id
+          FROM (
+            SELECT property_id
+            FROM listing_candidate_ids
+            UNION ALL
+            SELECT property_id
+            FROM social_activity_candidate_ids
+          ) candidate_ids
         ),
         candidate_properties AS MATERIALIZED (
           SELECT
@@ -1254,6 +1221,46 @@ async function fetchGroupingCandidatesInBBoxes(
           INNER JOIN candidate_property_ids cpi ON cpi.property_id = bp.id
         )
       `;
+}
+
+async function fetchGroupingCandidatesInBBox(
+  bounds: TileBBox,
+  zoom: number,
+  includeGhostCandidates: boolean,
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
+): Promise<GroupingCandidate[]> {
+  return fetchGroupingCandidatesInBBoxes([bounds], zoom, includeGhostCandidates, filters, options);
+}
+
+async function fetchGroupingCandidatesInBBoxes(
+  boundsList: TileBBox[],
+  zoom: number,
+  includeGhostCandidates: boolean,
+  filters: MapFilters,
+  options?: PropertyTileBuildOptions
+): Promise<GroupingCandidate[]> {
+  const startedAt = Date.now();
+  assertTileBuildCanContinue(options, startedAt, 'candidate fetch preparation');
+  const activityFilterPredicate = buildActivityFilterPredicate(filters.activity, 'sf');
+  const candidateVisibilityFilter = includeGhostCandidates
+    ? sql`TRUE`
+    : sql`(
+        COALESCE(lf.has_active_listing, FALSE)
+        OR COALESCE(lf.has_completed_listing, FALSE)
+        OR COALESCE(sf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
+      )`;
+  const marketStatePredicate = buildBulkMarketStatePredicate(filters, 'lf');
+  const includeEffectivePrices = hasPriceFilters(filters);
+  const requiresMarketStateFacts = filters.marketState.length !== MAP_MARKET_STATES.length;
+  const priceFilterPredicate = includeEffectivePrices
+    ? buildPriceFilterPredicate(filters, 'lf')
+    : sql`TRUE`;
+  const candidateScopeCtes = buildGroupingCandidateScopeCtes(
+    boundsList,
+    includeGhostCandidates,
+    filters
+  );
   const listingFactsCtes = includeEffectivePrices
     ? sql`
         latest_listing AS MATERIALIZED (

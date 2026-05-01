@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { PROPERTY_MAP_FOOTPRINTS, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import { db } from '../db/index.js';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import crypto from 'node:crypto';
 import {
   GHOST_NODE_REVEAL_ZOOM,
   PROPERTY_TILE_EXTENT,
+  buildGroupingCandidateScopeCtes,
   getActiveClusterRadiusPx,
   getActiveSingleRadiusPx,
   getGroupingBufferUnits,
@@ -27,6 +29,12 @@ import {
   PropertyTileBudgetExceededError,
   PropertyTileBuildAbortedError,
 } from './property-tile-runtime.js';
+
+const dialect = new PgDialect();
+
+function renderSql(query: SQL) {
+  return dialect.sqlToQuery(query).sql;
+}
 
 function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
   const scale = Math.pow(2, zoom) * PROPERTY_TILE_EXTENT;
@@ -108,6 +116,29 @@ describe('property-grouping', () => {
   it('skips ghost candidate fetches below the ghost reveal zoom and enables them at reveal zoom', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM - 1)).toBe(false);
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
+  });
+
+  it('builds tile candidate discovery with bounded views and one final distinct pass', () => {
+    const query = buildGroupingCandidateScopeCtes(
+      [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
+      false,
+      createDefaultMapFilters()
+    );
+    const text = renderSql(query).replace(/\s+/g, ' ').trim();
+
+    expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(text).toContain("WHERE l.status IN ('active', 'sold', 'rented')");
+    expect(text).not.toContain('active_listing_candidate_ids');
+    expect(text).not.toContain('completed_listing_candidate_ids');
+    expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
+    expect(text).not.toMatch(/\bUNION\b(?!\s+ALL)/);
+    expect(text).toContain(
+      'candidate_property_ids AS MATERIALIZED ( SELECT DISTINCT property_id FROM ('
+    );
+    expect(text).toContain(
+      'FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id GROUP BY pv.property_id'
+    );
+    expect(text).not.toContain(') pv INNER JOIN bounded_properties');
   });
 
   it('classifies only statement-timeout 57014 errors as tile statement timeouts', () => {
