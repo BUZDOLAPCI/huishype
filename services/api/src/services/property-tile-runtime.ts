@@ -87,7 +87,7 @@ export type PropertyTileRuntimeRunOptions<TResult> = {
 const DEFAULT_MAX_CONCURRENCY = 3;
 const DEFAULT_QUEUE_LIMIT = 96;
 const DEFAULT_QUEUE_WAIT_MS = 750;
-export const DEFAULT_PUBLIC_PROPERTY_TILE_BUDGET_MS = 3_000;
+export const DEFAULT_PUBLIC_PROPERTY_TILE_BUDGET_MS = 8_000;
 export const DEFAULT_PRIVATE_PROPERTY_TILE_BUDGET_MS = 2_000;
 
 export class PropertyTileBudgetExceededError extends Error {
@@ -130,24 +130,50 @@ export function getPropertyTileRuntimeConfig() {
   };
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'object' && error && 'message' in error) {
-    return String((error as { message?: unknown }).message ?? '');
+function errorMessages(error: unknown, seen = new Set<unknown>()): string[] {
+  if (!error || seen.has(error)) return [];
+  seen.add(error);
+
+  const messages: string[] = [];
+  if (error instanceof Error) {
+    messages.push(error.message);
+  } else if (typeof error === 'object' && 'message' in error) {
+    messages.push(String((error as { message?: unknown }).message ?? ''));
+  } else {
+    messages.push(String(error));
   }
-  return String(error ?? '');
+
+  if (typeof error === 'object' && error && 'cause' in error) {
+    messages.push(...errorMessages((error as { cause?: unknown }).cause, seen));
+  }
+
+  return messages;
 }
 
-function errorCode(error: unknown): string | null {
+function errorCode(error: unknown, seen = new Set<unknown>()): string | null {
+  if (!error || seen.has(error)) {
+    return null;
+  }
+  seen.add(error);
+
   if (typeof error === 'object' && error && 'code' in error) {
     const code = (error as { code?: unknown }).code;
-    return typeof code === 'string' ? code : null;
+    if (typeof code === 'string') {
+      return code;
+    }
   }
+
+  if (typeof error === 'object' && error && 'cause' in error) {
+    return errorCode((error as { cause?: unknown }).cause, seen);
+  }
+
   return null;
 }
 
 export function isPropertyTileStatementTimeoutError(error: unknown): boolean {
-  return errorCode(error) === '57014' && /statement timeout/i.test(errorMessage(error));
+  return errorCode(error) === '57014' && errorMessages(error).some((message) =>
+    /statement timeout/i.test(message)
+  );
 }
 
 export function isPropertyTileRecoverableError(error: unknown): boolean {

@@ -2042,11 +2042,15 @@ async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
   const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
   const pendingBuild = pendingUnhydratedCanonicalGroupBuilds.get(cacheKey);
   if (pendingBuild) {
-    return waitForSharedCanonicalBuild(
-      pendingBuild,
-      options,
-      'shared unhydrated canonical grouping'
-    );
+    if (pendingBuild.controller.signal.aborted) {
+      pendingUnhydratedCanonicalGroupBuilds.delete(cacheKey);
+    } else {
+      return waitForSharedCanonicalBuild(
+        pendingBuild,
+        options,
+        'shared unhydrated canonical grouping'
+      );
+    }
   }
 
   const sharedBuild = createSharedCanonicalBuild(options, (sharedOptions) =>
@@ -2058,6 +2062,29 @@ async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
     () => pendingUnhydratedCanonicalGroupBuilds.delete(cacheKey)
   );
   return waitForSharedCanonicalBuild(sharedBuild, options, 'shared unhydrated canonical grouping');
+}
+
+function getViablePendingCanonicalBuild(
+  cacheKey: string
+): SharedCanonicalBuild | null {
+  const pendingBuild = pendingCanonicalGroupBuilds.get(cacheKey);
+  if (!pendingBuild) {
+    return null;
+  }
+
+  if (pendingBuild.controller.signal.aborted) {
+    pendingCanonicalGroupBuilds.delete(cacheKey);
+    return null;
+  }
+
+  return pendingBuild;
+}
+
+async function waitForPendingCanonicalBuild(
+  pendingBuild: SharedCanonicalBuild,
+  options: PropertyTileBuildOptions | undefined
+): Promise<CanonicalPropertyGroup[]> {
+  return waitForSharedCanonicalBuild(pendingBuild, options, 'shared canonical grouping');
 }
 
 export async function buildCanonicalGroupsForTile(
@@ -2072,9 +2099,9 @@ export async function buildCanonicalGroupsForTile(
   }
 
   const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
-  const pendingBuild = pendingCanonicalGroupBuilds.get(cacheKey);
+  const pendingBuild = getViablePendingCanonicalBuild(cacheKey);
   if (pendingBuild) {
-    return waitForSharedCanonicalBuild(pendingBuild, options, 'shared canonical grouping');
+    return waitForPendingCanonicalBuild(pendingBuild, options);
   }
 
   const sharedBuild = createSharedCanonicalBuild(options, async (sharedOptions) => {

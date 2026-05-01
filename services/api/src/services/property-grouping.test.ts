@@ -128,6 +128,19 @@ describe('property-grouping', () => {
     );
   });
 
+  it('classifies wrapped statement-timeout 57014 errors as tile statement timeouts', () => {
+    expect(
+      isPropertyTileStatementTimeoutError(
+        new Error('Failed query', {
+          cause: {
+            code: '57014',
+            message: 'canceling statement due to statement timeout',
+          },
+        })
+      )
+    ).toBe(true);
+  });
+
   it('checks CPU runtime budgets against the whole tile build deadline', () => {
     const zoom = 18;
     const tile = { z: zoom, x: 100000, y: 70000 };
