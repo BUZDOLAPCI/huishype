@@ -20,7 +20,7 @@ import {
   resetCanonicalGroupCacheForTests,
   resolveNearbyGroupedFeature,
 } from './property-grouping.js';
-import { normalizeMapFilters } from './map-filters.js';
+import { createDefaultMapFilters, normalizeMapFilters } from './map-filters.js';
 import { PublicPropertyTileCache } from './property-tile-cache.js';
 import {
   isPropertyTileStatementTimeoutError,
@@ -45,6 +45,16 @@ function tileForCoordinate(lon: number, lat: number, zoom: number) {
 }
 
 const TILE_UNITS_PER_PX = PROPERTY_TILE_EXTENT / 512;
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
 
 function makeCandidate(
   id: string,
@@ -153,6 +163,84 @@ describe('property-grouping', () => {
     expect(staleLookup.state === 'stale' ? staleLookup.entry.payload?.toString() : null).toBe(
       'tile'
     );
+  });
+
+  it('does not return stale empty entries for public stale fallback', () => {
+    const cache = new PublicPropertyTileCache();
+    cache.set(
+      '13/4208/2686:default',
+      {
+        payload: null,
+        statusCode: 204,
+        etag: '"empty"',
+      },
+      1_000
+    );
+
+    expect(cache.get('13/4208/2686:default', 1_000 + 301_000).state).toBe('stale');
+    expect(cache.getStale('13/4208/2686:default', 1_000 + 301_000)).toBeNull();
+  });
+
+  it('keeps shared canonical builds pending for caller budget misses and uses a shared budget', async () => {
+    const originalSharedBudget = process.env.PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS;
+    process.env.PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS = '5000';
+
+    try {
+      const rows = deferred<Iterable<never>>();
+      let executeCalls = 0;
+      const txExecuteMock = jest.fn(async () => {
+        executeCalls += 1;
+        if (executeCalls < 3) {
+          return [] as never;
+        }
+        return rows.promise as Promise<never>;
+      });
+      const transactionSpy = jest
+        .spyOn(db, 'transaction')
+        .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+      const tile = { z: 18, x: 100000, y: 70000 };
+      const filters = createDefaultMapFilters();
+      let firstOutcome: unknown = null;
+      const startedAt = Date.now();
+      const first = buildCanonicalGroupsForTile(tile, filters, {
+        runtimeBudgetMs: 1,
+        runtimeStartedAtMs: startedAt,
+        runtimeDeadlineMs: startedAt + 1,
+        statementTimeoutMs: 1,
+      }).then(
+        (result) => {
+          firstOutcome = result;
+          return result;
+        },
+        (error) => {
+          firstOutcome = error;
+          return error;
+        }
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(firstOutcome).toBeNull();
+
+      const secondStartedAt = Date.now();
+      const second = buildCanonicalGroupsForTile(tile, filters, {
+        runtimeBudgetMs: 5_000,
+        runtimeStartedAtMs: secondStartedAt,
+        runtimeDeadlineMs: secondStartedAt + 5_000,
+        statementTimeoutMs: 5_000,
+      });
+
+      rows.resolve([] as never);
+
+      await expect(first).resolves.toBeInstanceOf(PropertyTileBudgetExceededError);
+      await expect(second).resolves.toEqual([]);
+      expect(transactionSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalSharedBudget == null) {
+        delete process.env.PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS;
+      } else {
+        process.env.PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS = originalSharedBudget;
+      }
+    }
   });
 
   it('keeps active grouping available at high zoom when points are still visually dense', () => {

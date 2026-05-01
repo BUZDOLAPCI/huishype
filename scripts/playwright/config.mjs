@@ -21,14 +21,14 @@ export function createPlaywrightConfig() {
     ...devices['Desktop Chrome'],
     viewport: { width: 1280, height: 720 },
     screenshot: 'on',
-    storageState: createDismissedWelcomeModalStorageState(runtime.webUrl),
   };
   const sharedAppUse = {
     ...devices['Desktop Chrome'],
-    storageState: {
-      ...createDismissedWelcomeModalStorageState(runtime.webUrl),
-    },
   };
+  const sharedDismissedWelcomeUse = withDismissedWelcomeModalStorageState(
+    sharedAppUse,
+    runtime.webUrl,
+  );
   /** @type {PlaywrightTestConfig['reporter']} */
   const reporter = [
     ['html', { open: 'never', outputFolder: runtime.htmlReportDir }],
@@ -49,12 +49,12 @@ export function createPlaywrightConfig() {
     {
       name: 'integration',
       testDir: PLAYWRIGHT_INTEGRATION_TEST_DIR,
-      use: sharedAppUse,
+      use: sharedDismissedWelcomeUse,
     },
     {
       name: 'flows',
       testDir: PLAYWRIGHT_FLOW_TEST_DIR,
-      use: sharedAppUse,
+      use: sharedDismissedWelcomeUse,
     },
     {
       name: 'benchmark',
@@ -111,5 +111,12 @@ function createDismissedWelcomeModalStorageState(origin) {
         ],
       },
     ],
+  };
+}
+
+function withDismissedWelcomeModalStorageState(use, origin) {
+  return {
+    ...use,
+    storageState: createDismissedWelcomeModalStorageState(origin),
   };
 }

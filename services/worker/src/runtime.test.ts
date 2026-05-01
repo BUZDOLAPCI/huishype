@@ -146,6 +146,32 @@ test('recovery sweep requests property tile snapshot refresh when snapshots are 
   });
 });
 
+test('recovery sweep respects snapshot refresh throttle decisions', async () => {
+  const requestRefreshCalls: unknown[] = [];
+  const requestRefresh = async (input: { reason: string; throttleMs?: number }) => {
+    requestRefreshCalls.push(input);
+    return { enqueued: true, throttled: false };
+  };
+  const runtime = createRuntime(
+    createModuleLoaders({
+      loadPropertyTileSnapshotsModule: async () => ({
+        executePropertyTileSnapshotRefresh: async () => ({}),
+        requestPropertyTileSnapshotRefresh: requestRefresh,
+        shouldRequestPropertyTileSnapshotRefresh: async () => ({
+          shouldEnqueue: false,
+          reason: 'property_view_throttled',
+        }),
+      }),
+    }),
+  ) as unknown as RuntimeInternals;
+
+  const summary = await runtime.performRecoverySweep('unit');
+
+  assert.equal(summary.propertyTileSnapshotRefreshRequested, false);
+  assert.equal(summary.propertyTileSnapshotRefreshReason, 'property_view_throttled');
+  assert.deepEqual(requestRefreshCalls, []);
+});
+
 test('recovery sweep requests property tile refresh after terminal listing validation outcomes', async () => {
   const requestRefreshCalls: unknown[] = [];
   const requestLatestListingsRefreshCalls: unknown[] = [];

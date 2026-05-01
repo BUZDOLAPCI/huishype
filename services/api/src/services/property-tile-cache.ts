@@ -86,7 +86,11 @@ export class PublicPropertyTileCache {
 
   getStale(cacheKey: string, now = Date.now()): PublicPropertyTileCacheEntry | null {
     const lookup = this.get(cacheKey, now);
-    return lookup.state === 'stale' ? lookup.entry : null;
+    if (lookup.state !== 'stale') {
+      return null;
+    }
+
+    return lookup.entry.statusCode === 200 && lookup.entry.payload ? lookup.entry : null;
   }
 
   set(

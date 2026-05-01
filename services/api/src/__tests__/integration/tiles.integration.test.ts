@@ -732,9 +732,9 @@ describe('Tile routes', () => {
           coverage,
           payload,
           watermarks: {
-            listingWatermark: 0,
-            socialWatermark: 0,
-            propertyWatermark: 0,
+            listingWatermark: 0n,
+            socialWatermark: 0n,
+            propertyWatermark: 0n,
             coverageWatermark: coverage.coverageWatermark,
           },
           generatedAt: new Date(),

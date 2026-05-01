@@ -25,6 +25,7 @@ import {
 } from './map-filters.js';
 import { filterReadCanonicalGroups, type PropertyReadViewer } from './property-read-state.js';
 import {
+  getPropertyTileRuntimeConfig,
   PropertyTileBudgetExceededError,
   PropertyTileBuildAbortedError,
   type PropertyTileBuildOptions,
@@ -41,6 +42,7 @@ const ACTIVE_GROUPING_GAP_PX = ACTIVE_FOOTPRINT.groupingGapPx;
 const GHOST_GROUPING_GAP_PX = GHOST_FOOTPRINT.groupingGapPx;
 const GHOST_SUPPRESSION_PADDING_PX = GHOST_FOOTPRINT.suppressionPaddingPx;
 const NEARBY_TAP_TOLERANCE_PX = PROPERTY_MAP_FOOTPRINTS.nearbyTapTolerancePx;
+const DEFAULT_SHARED_CANONICAL_BUDGET_MS = 3_000;
 
 type NodeClass = 'active' | 'ghost';
 type GroupKind = 'single' | 'cluster';
@@ -264,6 +266,13 @@ function validateStatementTimeoutMs(timeoutMs: number | undefined): number | nul
   return Math.floor(timeoutMs);
 }
 
+function parsePositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function assertTileBuildCanContinue(
   options: PropertyTileBuildOptions | undefined,
   startedAt: number,
@@ -288,28 +297,24 @@ function assertTileBuildCanContinue(
   }
 }
 
-function getRemainingRuntimeBudgetMs(options: PropertyTileBuildOptions | undefined): number | null {
-  if (options?.runtimeDeadlineMs != null) {
-    return Math.max(0, options.runtimeDeadlineMs - Date.now());
-  }
-
-  if (options?.runtimeBudgetMs != null) {
-    const startedAt = options.runtimeStartedAtMs ?? Date.now();
-    return Math.max(0, options.runtimeBudgetMs - (Date.now() - startedAt));
-  }
-
-  return null;
+function getSharedCanonicalBudgetMs(): number {
+  return parsePositiveIntegerEnv(
+    'PROPERTY_TILE_SHARED_CANONICAL_BUDGET_MS',
+    getPropertyTileRuntimeConfig().publicBudgetMs || DEFAULT_SHARED_CANONICAL_BUDGET_MS
+  );
 }
 
 function buildSharedCanonicalOptions(
   options: PropertyTileBuildOptions | undefined
 ): PropertyTileBuildOptions | undefined {
   if (!options) return undefined;
+  const runtimeBudgetMs = getSharedCanonicalBudgetMs();
+  const runtimeStartedAtMs = Date.now();
   return {
-    statementTimeoutMs: options.statementTimeoutMs,
-    runtimeBudgetMs: options.runtimeBudgetMs,
-    runtimeStartedAtMs: options.runtimeStartedAtMs,
-    runtimeDeadlineMs: options.runtimeDeadlineMs,
+    statementTimeoutMs: runtimeBudgetMs,
+    runtimeBudgetMs,
+    runtimeStartedAtMs,
+    runtimeDeadlineMs: runtimeStartedAtMs + runtimeBudgetMs,
     markUncancellableStage: options.markUncancellableStage,
   };
 }
@@ -319,62 +324,9 @@ async function waitForSharedCanonicalBuild(
   options: PropertyTileBuildOptions | undefined,
   stage: string
 ): Promise<CanonicalPropertyGroup[]> {
+  const groups = await buildPromise;
   assertTileBuildCanContinue(options, Date.now(), stage);
-
-  const signal = options?.signal;
-  const abortPromise =
-    signal &&
-    new Promise<never>((_, reject) => {
-      if (signal.aborted) {
-        reject(new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`));
-        return;
-      }
-
-      const onAbort = () => {
-        reject(new PropertyTileBuildAbortedError(`Property tile build aborted during ${stage}`));
-      };
-      signal.addEventListener('abort', onAbort, { once: true });
-      buildPromise.then(
-        () => {
-          signal.removeEventListener('abort', onAbort);
-        },
-        () => {
-          signal.removeEventListener('abort', onAbort);
-        }
-      );
-    });
-
-  const remainingBudgetMs = getRemainingRuntimeBudgetMs(options);
-  let budgetTimer: NodeJS.Timeout | null = null;
-  const budgetPromise =
-    remainingBudgetMs != null &&
-    new Promise<never>((_, reject) => {
-      budgetTimer = setTimeout(() => {
-        reject(
-          new PropertyTileBudgetExceededError(
-            `Property tile runtime budget exceeded during ${stage}`
-          )
-        );
-      }, remainingBudgetMs);
-    });
-
-  const racePromises: Promise<CanonicalPropertyGroup[]>[] = [buildPromise];
-  if (abortPromise) {
-    racePromises.push(abortPromise);
-  }
-  if (budgetPromise) {
-    racePromises.push(budgetPromise);
-  }
-
-  try {
-    const groups = await Promise.race(racePromises);
-    assertTileBuildCanContinue(options, Date.now(), stage);
-    return groups;
-  } finally {
-    if (budgetTimer) {
-      clearTimeout(budgetTimer);
-    }
-  }
+  return groups;
 }
 
 async function executeWithTileStatementTimeout<TRow>(
@@ -382,6 +334,7 @@ async function executeWithTileStatementTimeout<TRow>(
   options: PropertyTileBuildOptions | undefined,
   configure?: (tx: DbTransaction) => Promise<void>
 ): Promise<Iterable<TRow>> {
+  assertTileBuildCanContinue(options, Date.now(), 'tile SQL preparation');
   const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
   if (!timeoutMs && !configure) {
     options?.markUncancellableStage?.(true);
@@ -607,12 +560,17 @@ function clusterCandidates(
     const cellY = Math.floor(seed.worldY / cellSize);
     const group: GroupingCandidate[] = [seed];
 
+    let nearbyCandidateChecks = 0;
     for (let dx = -1; dx <= 1; dx += 1) {
       for (let dy = -1; dy <= 1; dy += 1) {
         const bucket = spatialHash.get(`${cellX + dx}:${cellY + dy}`);
         if (!bucket) continue;
 
         for (const entry of bucket) {
+          nearbyCandidateChecks += 1;
+          if (nearbyCandidateChecks % 512 === 0) {
+            assertTileBuildCanContinue(options, startedAt, 'candidate clustering');
+          }
           if (assigned.has(entry.candidate.id)) continue;
           const dxWorld = seed.worldX - entry.candidate.worldX;
           const dyWorld = seed.worldY - entry.candidate.worldY;
@@ -1821,17 +1779,23 @@ async function filterReadGroupsWithTileOptions<TGroup extends { propertyIds: str
   viewer: PropertyReadViewer,
   options?: PropertyTileBuildOptions
 ): Promise<TGroup[]> {
+  const startedAt = Date.now();
+  assertTileBuildCanContinue(options, startedAt, 'read filtering preparation');
   const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
   if (!timeoutMs) {
-    return filterReadCanonicalGroups(groups, viewer);
+    const filteredGroups = await filterReadCanonicalGroups(groups, viewer);
+    assertTileBuildCanContinue(options, startedAt, 'read filtering');
+    return filteredGroups;
   }
 
   options?.markUncancellableStage?.(true);
   try {
-    return await db.transaction(async (tx) => {
+    const filteredGroups = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
       return filterReadCanonicalGroups(groups, viewer, tx);
     });
+    assertTileBuildCanContinue(options, startedAt, 'read filtering');
+    return filteredGroups;
   } finally {
     options?.markUncancellableStage?.(false);
   }
@@ -1844,8 +1808,18 @@ function buildCanonicalGroupsFromCandidates(
 ): CanonicalPropertyGroup[] {
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'canonical grouping preparation');
-  const activeCandidates = candidates.filter((candidate) => !isGhostCandidate(candidate));
-  const ghostCandidates = candidates.filter(isGhostCandidate);
+  const activeCandidates: GroupingCandidate[] = [];
+  const ghostCandidates: GroupingCandidate[] = [];
+  candidates.forEach((candidate, index) => {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'candidate partitioning');
+    }
+    if (isGhostCandidate(candidate)) {
+      ghostCandidates.push(candidate);
+    } else {
+      activeCandidates.push(candidate);
+    }
+  });
 
   const activeGroups = clusterCandidates(
     activeCandidates,
@@ -1859,18 +1833,28 @@ function buildCanonicalGroupsFromCandidates(
     startedAt
   ).map((members) => buildCanonicalGroup(members, 'active', zoom));
 
-  const activeOccupancies = activeGroups.map((group) => ({
-    x: group.anchorWorldX,
-    y: group.anchorWorldY,
-    radiusUnits: getActiveOccupancyRadiusUnits(group),
-  }));
+  const activeOccupancies = activeGroups.map((group, index) => {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'active occupancy preparation');
+    }
+    return {
+      x: group.anchorWorldX,
+      y: group.anchorWorldY,
+      radiusUnits: getActiveOccupancyRadiusUnits(group),
+    };
+  });
 
   const visibleGhostCandidates =
     zoom >= GHOST_NODE_REVEAL_ZOOM
-      ? ghostCandidates.filter((candidate) => {
-          assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
+      ? ghostCandidates.filter((candidate, candidateIndex) => {
+          if (candidateIndex % 128 === 0) {
+            assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
+          }
           const ghostRadiusUnits = pxToTileUnits(getGhostGroupingRadiusPx());
-          return !activeOccupancies.some((occupancy) => {
+          return !activeOccupancies.some((occupancy, occupancyIndex) => {
+            if (occupancyIndex % 512 === 0) {
+              assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
+            }
             const dx = candidate.worldX - occupancy.x;
             const dy = candidate.worldY - occupancy.y;
             const threshold = occupancy.radiusUnits + ghostRadiusUnits;

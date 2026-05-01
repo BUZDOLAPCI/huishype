@@ -4,6 +4,9 @@ import {
   computePropertyTileSnapshotCoordinatesFromCoverage,
   getExpectedDefaultPropertyTileSnapshotCoverageDefinition,
   getPropertyTilePrecomputeMaxZoom,
+  isPropertyViewSnapshotRecoveryThrottled,
+  isSnapshotRefreshRequestThrottled,
+  isSnapshotTileDueForRollingWindow,
   safeRequestPropertyTileSnapshotRefresh,
   summarizePropertyTileSnapshotRefreshRun,
 } from './property-tile-snapshots.js';
@@ -46,6 +49,20 @@ describe('property tile snapshots', () => {
       .not.toBe(first);
   });
 
+  it('aligns the config hash with the 7-day tile social scoring window', () => {
+    const base = {
+      maxZoom: 10,
+      filterSignature: 'default',
+      bounds: { minLon: -1, minLat: 50, maxLon: 8, maxLat: 54 },
+      countries: ['NL'],
+      dataSources: ['funda'],
+    };
+
+    expect(computePropertyTileSnapshotConfigHash(base)).toBe(
+      '170969679567944f8eff54fbcce9251bb98bb0761ce5b85cb66f3dc7d8746951',
+    );
+  });
+
   it('allows max zoom zero for z0-only precompute coverage', () => {
     const previous = process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM;
     process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM = '0';
@@ -75,6 +92,71 @@ describe('property tile snapshots', () => {
       status: 'quota_exhausted',
       error: null,
     });
+  });
+
+  it('keeps throttled refresh requests anchored to the previous request time', () => {
+    const requestedAt = new Date('2026-05-01T10:00:00.000Z');
+    const now = new Date('2026-05-01T10:02:00.000Z');
+
+    expect(isSnapshotRefreshRequestThrottled({
+      requestedAt,
+      lastError: null,
+      now,
+      throttleMs: 5 * 60_000,
+    })).toBe(true);
+    expect(isSnapshotRefreshRequestThrottled({
+      requestedAt,
+      lastError: 'previous failed',
+      now,
+      throttleMs: 5 * 60_000,
+    })).toBe(false);
+  });
+
+  it('throttles worker recovery only for property-view social lag inside the view interval', () => {
+    const requestedAt = new Date('2026-05-01T10:00:00.000Z');
+    const now = new Date('2026-05-01T10:02:00.000Z');
+
+    expect(isPropertyViewSnapshotRecoveryThrottled({
+      requestReason: 'property-view',
+      requestedAt,
+      lastError: null,
+      now,
+      throttleMs: 5 * 60_000,
+    })).toBe(true);
+    expect(isPropertyViewSnapshotRecoveryThrottled({
+      requestReason: 'price-guess',
+      requestedAt,
+      lastError: null,
+      now,
+      throttleMs: 5 * 60_000,
+    })).toBe(false);
+  });
+
+  it('marks rolling-window tiles due when the last rolling refresh is missing', () => {
+    expect(isSnapshotTileDueForRollingWindow({
+      refreshedAt: new Date('2026-05-01T10:00:00.000Z'),
+      lastWindowRefreshAt: null,
+      now: new Date('2026-05-01T10:05:00.000Z'),
+      maxAgeMs: 60 * 60_000,
+    })).toBe(true);
+  });
+
+  it('only rebuilds rows at or before a stale rolling-window cutoff', () => {
+    const lastWindowRefreshAt = new Date('2026-05-01T10:00:00.000Z');
+    const now = new Date('2026-05-01T12:00:00.000Z');
+
+    expect(isSnapshotTileDueForRollingWindow({
+      refreshedAt: new Date('2026-05-01T09:59:00.000Z'),
+      lastWindowRefreshAt,
+      now,
+      maxAgeMs: 60 * 60_000,
+    })).toBe(true);
+    expect(isSnapshotTileDueForRollingWindow({
+      refreshedAt: new Date('2026-05-01T10:01:00.000Z'),
+      lastWindowRefreshAt,
+      now,
+      maxAgeMs: 60 * 60_000,
+    })).toBe(false);
   });
 
   it('reports tile build failures separately from quota spillover', () => {

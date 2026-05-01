@@ -33,8 +33,15 @@ const DEFAULT_PRECOMPUTE_CONCURRENCY = 1;
 const DEFAULT_LEASE_SECONDS = 15 * 60;
 const DEFAULT_ROLLING_MAX_AGE_SECONDS = 60 * 60;
 const DEFAULT_PROPERTY_VIEW_REFRESH_THROTTLE_MS = 5 * 60_000;
+const SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS = 7;
 
 type SnapshotDb = typeof db | DbTransaction;
+type SnapshotWatermarks = {
+  listingWatermark: bigint;
+  socialWatermark: bigint;
+  propertyWatermark: bigint;
+  coverageWatermark: bigint;
+};
 
 export type PropertyTileSnapshotWatermarkDimension =
   | 'listing'
@@ -53,7 +60,7 @@ export interface PropertyTileSnapshotCoverageDefinition {
   dataSources: string[];
   maxZoom: number;
   filterSignature: string;
-  coverageWatermark: number;
+  coverageWatermark: bigint;
   snapshotConfigHash: string;
   updatedAt: Date;
 }
@@ -192,11 +199,12 @@ export function computePropertyTileSnapshotConfigHash(input: {
       uniqueViewer: 0.1,
     },
     rollingWindows: {
-      comments: '30 days',
-      propertyLikes: '30 days',
-      commentLikes: '30 days',
-      guesses: '30 days',
-      propertyViews: '7 days',
+      comments: `${SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS} days`,
+      replies: `${SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS} days`,
+      propertyLikes: `${SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS} days`,
+      commentLikes: `${SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS} days`,
+      guesses: `${SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS} days`,
+      propertyViews: `${SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS} days`,
     },
   };
   const groupingConstants = {
@@ -311,7 +319,7 @@ export async function ensureDefaultPropertyTileSnapshotCoverage(
         maxZoom: definition.maxZoom,
         filterSignature: definition.filterSignature,
         snapshotConfigHash: definition.snapshotConfigHash,
-        coverageWatermark: sql<number>`
+        coverageWatermark: sql<bigint>`
           CASE
             WHEN property_tile_snapshot_coverage.snapshot_config_hash <> ${definition.snapshotConfigHash}
               THEN property_tile_snapshot_coverage.coverage_watermark + 1
@@ -529,10 +537,10 @@ export async function advancePropertyTileSnapshotWatermark(
     return;
   }
 
-  const listingIncrement = unique.has('listing') ? 1 : 0;
-  const socialIncrement = unique.has('social') ? 1 : 0;
-  const propertyIncrement = unique.has('property') ? 1 : 0;
-  const coverageIncrement = unique.has('coverage') ? 1 : 0;
+  const listingIncrement = unique.has('listing') ? 1n : 0n;
+  const socialIncrement = unique.has('social') ? 1n : 0n;
+  const propertyIncrement = unique.has('property') ? 1n : 0n;
+  const coverageIncrement = unique.has('coverage') ? 1n : 0n;
   const database = targetDb(executor);
 
   await database.execute(sql`
@@ -561,6 +569,33 @@ export async function advancePropertyTileSnapshotWatermark(
   `);
 }
 
+export function isSnapshotRefreshRequestThrottled(input: {
+  requestedAt: Date | null | undefined;
+  lastError: string | null | undefined;
+  now: Date;
+  throttleMs?: number;
+}): boolean {
+  return (
+    input.throttleMs != null &&
+    input.requestedAt != null &&
+    input.lastError == null &&
+    input.now.getTime() - input.requestedAt.getTime() < input.throttleMs
+  );
+}
+
+export function isPropertyViewSnapshotRecoveryThrottled(input: {
+  requestReason: string | null | undefined;
+  requestedAt: Date | null | undefined;
+  lastError: string | null | undefined;
+  now: Date;
+  throttleMs?: number;
+}): boolean {
+  return (
+    input.requestReason === 'property-view' &&
+    isSnapshotRefreshRequestThrottled(input)
+  );
+}
+
 export async function requestPropertyTileSnapshotRefresh(input: {
   reason: string;
   throttleMs?: number;
@@ -577,12 +612,19 @@ export async function requestPropertyTileSnapshotRefresh(input: {
   const previous = previousRows[0] ?? null;
   const watermarks = await readSnapshotWatermarks();
   const now = new Date();
+  const throttled = isSnapshotRefreshRequestThrottled({
+    requestedAt: previous?.requestedAt,
+    lastError: previous?.lastError,
+    now,
+    throttleMs: input.throttleMs,
+  });
+  const requestedAt = throttled && previous?.requestedAt ? previous.requestedAt : now;
 
   await db
     .insert(propertyTileSnapshotRefreshState)
     .values({
       key: PROPERTY_TILE_SNAPSHOT_KEY,
-      requestedAt: now,
+      requestedAt,
       requestReason: input.reason,
       requestedListingWatermark: watermarks.listingWatermark,
       requestedSocialWatermark: watermarks.socialWatermark,
@@ -592,7 +634,7 @@ export async function requestPropertyTileSnapshotRefresh(input: {
     .onConflictDoUpdate({
       target: propertyTileSnapshotRefreshState.key,
       set: {
-        requestedAt: now,
+        requestedAt,
         requestReason: input.reason,
         requestedListingWatermark: watermarks.listingWatermark,
         requestedSocialWatermark: watermarks.socialWatermark,
@@ -600,12 +642,6 @@ export async function requestPropertyTileSnapshotRefresh(input: {
         requestedCoverageWatermark: watermarks.coverageWatermark,
       },
     });
-
-  const throttled =
-    input.throttleMs != null &&
-    previous?.requestedAt != null &&
-    previous.lastError == null &&
-    now.getTime() - previous.requestedAt.getTime() < input.throttleMs;
 
   if (throttled || input.enqueue === false) {
     return { enqueued: false, throttled };
@@ -633,12 +669,7 @@ export async function upsertPropertyTileSnapshotRow(input: {
   filterSignature: string;
   coverage: PropertyTileSnapshotCoverageDefinition;
   payload: Buffer;
-  watermarks: {
-    listingWatermark: number;
-    socialWatermark: number;
-    propertyWatermark: number;
-    coverageWatermark: number;
-  };
+  watermarks: SnapshotWatermarks;
   generatedAt?: Date;
 }): Promise<void> {
   const statusCode = input.payload.byteLength > 0 ? 200 : 204;
@@ -714,6 +745,26 @@ async function readSnapshotRefreshState() {
   return rows[0] ?? null;
 }
 
+function getBehindWatermarkDimensions(
+  watermarks: SnapshotWatermarks,
+  state: NonNullable<Awaited<ReturnType<typeof readSnapshotRefreshState>>>,
+) {
+  return {
+    listing: watermarks.listingWatermark > state.appliedListingWatermark,
+    social: watermarks.socialWatermark > state.appliedSocialWatermark,
+    property: watermarks.propertyWatermark > state.appliedPropertyWatermark,
+    coverage: watermarks.coverageWatermark > state.appliedCoverageWatermark,
+  };
+}
+
+function hasAnyBehindWatermark(dimensions: ReturnType<typeof getBehindWatermarkDimensions>): boolean {
+  return dimensions.listing || dimensions.social || dimensions.property || dimensions.coverage;
+}
+
+function hasOnlySocialBehindWatermark(dimensions: ReturnType<typeof getBehindWatermarkDimensions>): boolean {
+  return dimensions.social && !dimensions.listing && !dimensions.property && !dimensions.coverage;
+}
+
 export async function shouldRequestPropertyTileSnapshotRefresh(): Promise<PropertyTileSnapshotRefreshCheck> {
   const coverage = await getDefaultPropertyTileSnapshotCoverage();
   const coordinates = computePropertyTileSnapshotCoordinatesFromCoverage(coverage);
@@ -732,13 +783,23 @@ export async function shouldRequestPropertyTileSnapshotRefresh(): Promise<Proper
   if (state?.lastError) {
     return { shouldEnqueue: true, reason: 'last_refresh_failed' };
   }
-  if (
-    !state ||
-    watermarks.listingWatermark > state.appliedListingWatermark ||
-    watermarks.socialWatermark > state.appliedSocialWatermark ||
-    watermarks.propertyWatermark > state.appliedPropertyWatermark ||
-    watermarks.coverageWatermark > state.appliedCoverageWatermark
-  ) {
+  if (!state) {
+    return { shouldEnqueue: true, reason: 'behind_watermarks' };
+  }
+  const behindWatermarks = getBehindWatermarkDimensions(watermarks, state);
+  if (hasAnyBehindWatermark(behindWatermarks)) {
+    if (
+      hasOnlySocialBehindWatermark(behindWatermarks) &&
+      isPropertyViewSnapshotRecoveryThrottled({
+        requestReason: state.requestReason,
+        requestedAt: state.requestedAt,
+        lastError: state.lastError,
+        now: new Date(),
+        throttleMs: getPropertyViewSnapshotRefreshThrottleMs(),
+      })
+    ) {
+      return { shouldEnqueue: false, reason: 'property_view_throttled' };
+    }
     return { shouldEnqueue: true, reason: 'behind_watermarks' };
   }
   if (state.coverageId !== coverage.coverageId || state.snapshotConfigHash !== coverage.snapshotConfigHash) {
@@ -827,15 +888,15 @@ type ExistingSnapshotRefreshRow = {
   y: number;
   generatedAt: Date;
   refreshedAt: Date;
-  sourceListingWatermark: number;
-  sourceSocialWatermark: number;
-  sourcePropertyWatermark: number;
-  sourceCoverageWatermark: number;
+  sourceListingWatermark: bigint;
+  sourceSocialWatermark: bigint;
+  sourcePropertyWatermark: bigint;
+  sourceCoverageWatermark: bigint;
 };
 
 function isSnapshotRowBehindWatermarks(
   row: ExistingSnapshotRefreshRow,
-  watermarks: Awaited<ReturnType<typeof readSnapshotWatermarks>>,
+  watermarks: SnapshotWatermarks,
 ): boolean {
   return (
     row.sourceListingWatermark < watermarks.listingWatermark ||
@@ -845,10 +906,27 @@ function isSnapshotRowBehindWatermarks(
   );
 }
 
+export function isSnapshotTileDueForRollingWindow(input: {
+  refreshedAt: Date;
+  lastWindowRefreshAt: Date | null | undefined;
+  now: Date;
+  maxAgeMs: number;
+}): boolean {
+  if (!input.lastWindowRefreshAt) {
+    return true;
+  }
+
+  if (input.now.getTime() - input.lastWindowRefreshAt.getTime() <= input.maxAgeMs) {
+    return false;
+  }
+
+  return input.refreshedAt <= input.lastWindowRefreshAt;
+}
+
 async function selectDueSnapshotTiles(
   tiles: PropertyTileCoordinate[],
   coverage: PropertyTileSnapshotCoverageDefinition,
-  watermarks: Awaited<ReturnType<typeof readSnapshotWatermarks>>,
+  watermarks: SnapshotWatermarks,
 ): Promise<PropertyTileCoordinate[]> {
   const [existing, state] = await Promise.all([
     db
@@ -877,11 +955,8 @@ async function selectDueSnapshotTiles(
   const existingByKey = new Map(
     existing.map((row) => [`${row.z}/${row.x}/${row.y}`, row]),
   );
-  const rollingWindowStale =
-    state?.lastWindowRefreshAt != null &&
-    Date.now() - state.lastWindowRefreshAt.getTime() >
-      getPropertyTileSnapshotRollingMaxAgeSeconds() * 1000;
-  const rollingRefreshCutoff = rollingWindowStale ? state.lastWindowRefreshAt : null;
+  const rollingMaxAgeMs = getPropertyTileSnapshotRollingMaxAgeSeconds() * 1000;
+  const now = new Date();
 
   return tiles
     .filter((tile) => {
@@ -892,7 +967,12 @@ async function selectDueSnapshotTiles(
       if (isSnapshotRowBehindWatermarks(row, watermarks)) {
         return true;
       }
-      return rollingRefreshCutoff != null && row.refreshedAt <= rollingRefreshCutoff;
+      return isSnapshotTileDueForRollingWindow({
+        refreshedAt: row.refreshedAt,
+        lastWindowRefreshAt: state?.lastWindowRefreshAt,
+        now,
+        maxAgeMs: rollingMaxAgeMs,
+      });
     })
     .sort((a, b) => {
       const aGeneratedAt = existingByKey.get(`${a.z}/${a.x}/${a.y}`)?.generatedAt.getTime() ?? 0;
