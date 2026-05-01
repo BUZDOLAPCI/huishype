@@ -170,16 +170,21 @@ describe('property-grouping', () => {
     );
     expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
     expect(text).toContain(
-      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
+      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN bounded_properties bp ON bp.id = cl.property_id'
     );
     expect(text).toContain("WHERE cl.verification_state <> 'invalid' AND cl.status IN ('active', 'sold', 'rented')");
-    expect(text).toContain('INNER JOIN properties p ON p.id = c.property_id');
-    expect(text).toContain('INNER JOIN properties p ON p.id = r.target_id');
+    expect(text).toContain('FROM comments c INNER JOIN bounded_properties bp ON bp.id = c.property_id');
+    expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = r.target_id');
     expect(text).toContain("WHERE r.target_type = 'property' AND r.reaction_type = 'like'");
-    expect(text).toContain('INNER JOIN properties p ON p.id = c.property_id');
+    expect(text).toContain('INNER JOIN comments c ON c.id = r.target_id INNER JOIN bounded_properties bp ON bp.id = c.property_id');
     expect(text).toContain("WHERE r.target_type = 'comment' AND r.reaction_type = 'like'");
-    expect(text).toContain('INNER JOIN properties p ON p.id = pg.property_id');
-    expect(text).toContain('INNER JOIN properties p ON p.id = pv.property_id');
+    expect(text).toContain('FROM price_guesses pg INNER JOIN bounded_properties bp ON bp.id = pg.property_id');
+    expect(text).toContain('FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id');
+    expect(text).not.toContain('INNER JOIN properties p ON p.id = cl.property_id');
+    expect(text).not.toContain('INNER JOIN properties p ON p.id = c.property_id');
+    expect(text).not.toContain('INNER JOIN properties p ON p.id = r.target_id');
+    expect(text).not.toContain('INNER JOIN properties p ON p.id = pg.property_id');
+    expect(text).not.toContain('INNER JOIN properties p ON p.id = pv.property_id');
     expect(text).not.toContain('active_listing_candidate_ids');
     expect(text).not.toContain('completed_listing_candidate_ids');
     expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
@@ -192,8 +197,9 @@ describe('property-grouping', () => {
     );
     expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
     expect(text).toContain('p.geometry && ST_MakeEnvelope');
+    expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(1);
     expect(text).toContain(
-      'FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id WHERE p.geometry IS NOT NULL AND p.status = \'active\' AND (p.geometry && ST_MakeEnvelope'
+      'FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id GROUP BY pv.property_id'
     );
     expect(text).toContain(
       'GROUP BY pv.property_id HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8'
@@ -210,6 +216,10 @@ describe('property-grouping', () => {
 
     expect(text).toContain('bounded_properties AS MATERIALIZED');
     expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(text).toContain(
+      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN bounded_properties bp ON bp.id = cl.property_id'
+    );
+    expect(text).not.toContain('INNER JOIN properties p ON p.id = cl.property_id');
     expect(text).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
     expect(text).toContain(

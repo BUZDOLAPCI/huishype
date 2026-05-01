@@ -1204,12 +1204,9 @@ export function buildGroupingCandidateScopeCtes(
         listing_candidate_ids AS MATERIALIZED (
           SELECT DISTINCT cl.property_id
           FROM canonical_listings cl
-          INNER JOIN properties p ON p.id = cl.property_id
+          INNER JOIN bounded_properties bp ON bp.id = cl.property_id
           WHERE cl.verification_state <> 'invalid'
             AND cl.status IN ('active', 'sold', 'rented')
-            AND p.geometry IS NOT NULL
-            AND p.status = 'active'
-            AND (${bboxFilter})
         )
         ${
           canIncludeSocialOnlyCandidates
@@ -1221,10 +1218,7 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT c.property_id, c.created_at AS activity_at
               FROM comments c
-              INNER JOIN properties p ON p.id = c.property_id
-              WHERE p.geometry IS NOT NULL
-                AND p.status = 'active'
-                AND (${bboxFilter})
+              INNER JOIN bounded_properties bp ON bp.id = c.property_id
             ) c
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1232,12 +1226,9 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT r.target_id AS property_id, r.created_at AS activity_at
               FROM reactions r
-              INNER JOIN properties p ON p.id = r.target_id
+              INNER JOIN bounded_properties bp ON bp.id = r.target_id
               WHERE r.target_type = 'property'
                 AND r.reaction_type = 'like'
-                AND p.geometry IS NOT NULL
-                AND p.status = 'active'
-                AND (${bboxFilter})
             ) r
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1246,12 +1237,9 @@ export function buildGroupingCandidateScopeCtes(
                 SELECT c.property_id, r.created_at AS activity_at
                 FROM reactions r
                 INNER JOIN comments c ON c.id = r.target_id
-                INNER JOIN properties p ON p.id = c.property_id
+                INNER JOIN bounded_properties bp ON bp.id = c.property_id
                 WHERE r.target_type = 'comment'
                   AND r.reaction_type = 'like'
-                  AND p.geometry IS NOT NULL
-                  AND p.status = 'active'
-                  AND (${bboxFilter})
               ) rc
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1261,10 +1249,7 @@ export function buildGroupingCandidateScopeCtes(
                 pg.property_id,
                 GREATEST(pg.created_at, pg.updated_at) AS activity_at
               FROM price_guesses pg
-              INNER JOIN properties p ON p.id = pg.property_id
-              WHERE p.geometry IS NOT NULL
-                AND p.status = 'active'
-                AND (${bboxFilter})
+              INNER JOIN bounded_properties bp ON bp.id = pg.property_id
             ) pg
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1274,10 +1259,7 @@ export function buildGroupingCandidateScopeCtes(
                 pv.property_id,
                 MAX(pv.viewed_at) AS activity_at
               FROM property_views pv
-              INNER JOIN properties p ON p.id = pv.property_id
-              WHERE p.geometry IS NOT NULL
-                AND p.status = 'active'
-                AND (${bboxFilter})
+              INNER JOIN bounded_properties bp ON bp.id = pv.property_id
               GROUP BY pv.property_id
               HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
             ) pv
