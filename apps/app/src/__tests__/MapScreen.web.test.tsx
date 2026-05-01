@@ -2,6 +2,7 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
+import { PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT } from '@/src/lib/propertyTileRetryProtocol';
 
 type MockMapEventHandler = (...args: unknown[]) => void;
 
@@ -732,6 +733,33 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     expect(map.propertySource.setTiles).toHaveBeenCalledWith(['https://tiles.test/tile-b']);
+  });
+
+  it('reloads the public property source after exhausted timeout-empty tile retries', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    jest.useFakeTimers();
+    act(() => {
+      window.dispatchEvent(new CustomEvent(PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT));
+    });
+
+    expect(map.style._clearSource).not.toHaveBeenCalled();
+
+    act(() => {
+      jest.advanceTimersByTime(2500);
+    });
+
+    expect(map.style._clearSource).toHaveBeenCalledWith('properties-source');
+    expect(map.style._reloadSource).toHaveBeenCalledWith('properties-source');
   });
 
   it('swaps to grouped Following tiles and applies auth headers only in Following mode', async () => {

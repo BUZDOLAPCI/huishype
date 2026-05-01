@@ -939,9 +939,13 @@ describe('Tile routes', () => {
         const response = await app.inject({
           method: 'GET',
           url: '/tiles/properties/11/0/0.pbf',
+          headers: {
+            origin: 'http://localhost:8081',
+          },
         });
 
         expect(response.statusCode).toBe(204);
+        expect(response.headers['access-control-expose-headers']).toContain('X-Tile-Cache');
         expect(response.headers['cache-control']).toBe('no-store, max-age=0');
         expect(response.headers['x-tile-cache']).toBe('timeout-empty');
         expect(response.headers['x-tile-generation-time']).toBe('0ms');
