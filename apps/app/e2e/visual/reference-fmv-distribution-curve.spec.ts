@@ -27,6 +27,7 @@ import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../he
 // Configuration
 const EXPECTATION_NAME = 'fmv-distribution-curve';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
@@ -51,6 +52,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Reset console collections
     consoleErrors = [];
     consoleWarnings = [];
+
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
 
     // Collect console messages
     page.on('console', (msg) => {

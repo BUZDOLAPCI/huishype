@@ -76,8 +76,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     await expect(page.getByTestId('welcome-modal-card')).toBeVisible();
     await expect(page.getByText('Welcome to HuisHype')).toBeVisible();
-    await expect(page.getByText('Browse homes as a map')).toBeVisible();
-    await expect(page.getByText('Guess the fair price')).toBeVisible();
+    await expect(page.getByText('Browse the map')).toBeVisible();
+    await expect(page.getByText("Guess what it's worth")).toBeVisible();
     await expect(page.getByText('See what people notice')).toBeVisible();
 
     await page.screenshot({

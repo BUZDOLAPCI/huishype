@@ -4,6 +4,7 @@ import { waitForMapReady } from '../integration/helpers';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
 test.describe('Map Filtering Visual', () => {
   let consoleErrors: string[] = [];
@@ -37,6 +38,9 @@ test.describe('Map Filtering Visual', () => {
   test('renders the filter rail and committed sale-price panel state', async ({
     page,
   }, testInfo) => {
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page, 60_000);
 
@@ -59,6 +63,9 @@ test.describe('Map Filtering Visual', () => {
   test('renders the optioned Activity and Following filter controls', async ({
     page,
   }, testInfo) => {
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await waitForMapReady(page, 60_000);
 
