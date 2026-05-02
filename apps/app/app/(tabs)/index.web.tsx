@@ -88,7 +88,7 @@ import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
-import type { ResolvedAddress } from '@/src/services/address-resolver';
+import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
 import {
   MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
@@ -1397,7 +1397,18 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, []);
 
   // Dynamic city name for the map header
-  const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
+  const { cityName, countryCode: viewportCountryCode, setSearchCity, onViewportCenterChanged } = useMapCityName();
+  const [searchBiasCenter, setSearchBiasCenter] = useState<Pick<AddressSearchBias, 'lon' | 'lat'>>({
+    lon: initialMapCamera.center[0],
+    lat: initialMapCamera.center[1],
+  });
+  const searchBias = useMemo<AddressSearchBias>(
+    () => ({
+      ...searchBiasCenter,
+      ...(viewportCountryCode ? { countryCode: viewportCountryCode } : {}),
+    }),
+    [searchBiasCenter, viewportCountryCode],
+  );
   // Ref bridge so the map init effect (which runs once) can call the latest onViewportCenterChanged
   const onViewportCenterChangedRef = useRef(onViewportCenterChanged);
   onViewportCenterChangedRef.current = onViewportCenterChanged;
@@ -2116,6 +2127,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           zoom,
         });
         lastCameraPathRef.current = nextCameraPath;
+        setSearchBiasCenter({ lon: center.lng, lat: center.lat });
         onViewportCenterChangedRef.current(center.lng, center.lat, zoom);
         const passiveSyncResult = syncPassiveCameraPathOnMoveEnd({
           browserPathname: browserPathRef.current,
@@ -2916,6 +2928,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           onPropertyResolved={handlePropertyResolved}
           onLocationResolved={handleLocationResolved}
           transientResetKey={searchResetToken}
+          searchBias={searchBias}
         />
 
         <MapFilterBar

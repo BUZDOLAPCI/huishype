@@ -174,6 +174,157 @@ describe('GET /geocode/search', () => {
     expect(calledUrl).toContain('lat=51.4416');
   });
 
+  it('forwards lon and lat proximity bias to Photon', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ type: 'FeatureCollection', features: [] }),
+    } as unknown as Response);
+
+    await app.inject({
+      method: 'GET',
+      url: '/geocode/search?q=test&lon=4.8952&lat=52.3702',
+    });
+
+    expect(mockFetchFn).toHaveBeenCalledTimes(1);
+    const calledUrl = new URL((mockFetchFn.mock.calls[0] as unknown[])[0] as string);
+    expect(calledUrl.searchParams.get('lon')).toBe('4.8952');
+    expect(calledUrl.searchParams.get('lat')).toBe('52.3702');
+    expect(calledUrl.searchParams.get('countrycode')).toBeNull();
+  });
+
+  it('uses explicit lon and lat instead of the default country center for strict country searches', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ type: 'FeatureCollection', features: [] }),
+    } as unknown as Response);
+
+    await app.inject({
+      method: 'GET',
+      url: '/geocode/search?q=test&countrycode=NL&lon=4.8952&lat=52.3702',
+    });
+
+    const calledUrl = new URL((mockFetchFn.mock.calls[0] as unknown[])[0] as string);
+    expect(calledUrl.searchParams.get('countrycode')).toBe('nl');
+    expect(calledUrl.searchParams.get('lon')).toBe('4.8952');
+    expect(calledUrl.searchParams.get('lat')).toBe('52.3702');
+  });
+
+  it('returns soft country-mode preferred-country results first', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              ...MOCK_PHOTON_RESPONSE.features[0],
+              properties: {
+                ...MOCK_PHOTON_RESPONSE.features[0].properties,
+                osm_id: 9001,
+                countrycode: 'nl',
+              },
+            },
+            {
+              ...MOCK_PHOTON_RESPONSE.features[1],
+              properties: {
+                ...MOCK_PHOTON_RESPONSE.features[1].properties,
+                osm_id: 9002,
+                countrycode: 'de',
+              },
+            },
+            {
+              ...MOCK_PHOTON_RESPONSE.features[1],
+              properties: {
+                ...MOCK_PHOTON_RESPONSE.features[1].properties,
+                osm_id: 9003,
+                countrycode: 'nl',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/geocode/search?q=test&limit=2&countrycode=NL&countrymode=soft&lon=4.8952&lat=52.3702',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).map((item: { id: string }) => item.id)).toEqual([
+      'W_9001',
+      'W_9003',
+    ]);
+    expect(mockFetchFn).toHaveBeenCalledTimes(1);
+    const calledUrl = new URL((mockFetchFn.mock.calls[0] as unknown[])[0] as string);
+    expect(calledUrl.searchParams.get('countrycode')).toBe('nl');
+    expect(calledUrl.searchParams.get('lon')).toBe('4.8952');
+    expect(calledUrl.searchParams.get('lat')).toBe('52.3702');
+  });
+
+  it('falls back globally and dedupes when soft country-mode results are below limit', async () => {
+    mockFetchFn
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            type: 'FeatureCollection',
+            features: [
+              {
+                ...MOCK_PHOTON_RESPONSE.features[0],
+                properties: {
+                  ...MOCK_PHOTON_RESPONSE.features[0].properties,
+                  osm_id: 9101,
+                  countrycode: 'nl',
+                },
+              },
+            ],
+          }),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            type: 'FeatureCollection',
+            features: [
+              {
+                ...MOCK_PHOTON_RESPONSE.features[0],
+                properties: {
+                  ...MOCK_PHOTON_RESPONSE.features[0].properties,
+                  osm_id: 9101,
+                  countrycode: 'nl',
+                },
+              },
+              {
+                ...MOCK_PHOTON_RESPONSE.features[1],
+                properties: {
+                  ...MOCK_PHOTON_RESPONSE.features[1].properties,
+                  osm_id: 9102,
+                  countrycode: 'be',
+                },
+              },
+            ],
+          }),
+      } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/geocode/search?q=test&limit=3&countrycode=NL&countrymode=soft&lon=4.8952&lat=52.3702',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).map((item: { id: string }) => item.id)).toEqual([
+      'W_9101',
+      'W_9102',
+    ]);
+    expect(mockFetchFn).toHaveBeenCalledTimes(2);
+    const preferredUrl = new URL((mockFetchFn.mock.calls[0] as unknown[])[0] as string);
+    const fallbackUrl = new URL((mockFetchFn.mock.calls[1] as unknown[])[0] as string);
+    expect(preferredUrl.searchParams.get('countrycode')).toBe('nl');
+    expect(fallbackUrl.searchParams.get('countrycode')).toBeNull();
+    expect(fallbackUrl.searchParams.get('lon')).toBe('4.8952');
+    expect(fallbackUrl.searchParams.get('lat')).toBe('52.3702');
+  });
+
   it('expands the Photon fetch limit when country filtering is requested', async () => {
     mockFetchFn.mockResolvedValueOnce({
       ok: true,

@@ -83,6 +83,7 @@ let mockWelcomeVisible = false;
 const mockReplaceAppliedFilters = jest.fn();
 const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
+let mockViewportCountryCode: string | null = 'NL';
 const mockReplacePassiveBrowserPath = jest.fn((pathname: string) => !!pathname);
 let mockResolvedMapRouteState: {
   isLoading: boolean;
@@ -106,6 +107,13 @@ let capturedMapFilterBarProps: {
   onPanelOpenChange?: (open: boolean) => void;
   onToggleFollowing?: () => void;
   onFollowingActivityChange?: (activity: 'today' | '10d' | '30d' | 'all-time') => void;
+} | null = null;
+let capturedSearchBarProps: {
+  searchBias?: {
+    lon?: number;
+    lat?: number;
+    countryCode?: string | null;
+  };
 } | null = null;
 
 const mockAmbientCommentBubbles = {
@@ -203,7 +211,10 @@ jest.mock('@/src/components', () => {
     AuthModal: () => null,
     WelcomeModal: ({ visible }: { visible: boolean }) =>
       visible ? ReactModule.createElement('div', { 'data-testid': 'welcome-modal' }) : null,
-    SearchBar: () => null,
+    SearchBar: (props: typeof capturedSearchBarProps) => {
+      capturedSearchBarProps = props;
+      return null;
+    },
     PropertyBottomSheet: ReactModule.forwardRef(() => null),
   };
 });
@@ -328,6 +339,7 @@ jest.mock('@/src/hooks/usePropertyView', () => ({
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
     cityName: null,
+    countryCode: mockViewportCountryCode,
     setSearchCity: mockSetSearchCity,
     onViewportCenterChanged: mockOnViewportCenterChanged,
   })),
@@ -576,6 +588,7 @@ describe('MapScreen web grouped Following mode', () => {
     mockReadHeaderName = 'x-session-id';
     mockReadHeaderValue = 'session-123';
     mockWelcomeVisible = false;
+    mockViewportCountryCode = 'NL';
     mockResolvedMapRouteState = {
       isLoading: true,
       pathname: '/',
@@ -583,6 +596,7 @@ describe('MapScreen web grouped Following mode', () => {
     };
     mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
+    capturedSearchBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
     Object.assign(mockInteraction, {
       previewGroup: null,
@@ -688,6 +702,34 @@ describe('MapScreen web grouped Following mode', () => {
       52.3626765,
       6.29,
     );
+    expect(capturedSearchBarProps?.searchBias).toEqual({
+      lon: 5.3574841,
+      lat: 52.3626765,
+      countryCode: 'NL',
+    });
+  });
+
+  it('passes moveend-derived viewport search bias to the web SearchBar', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getCenter.mockReturnValue({ lng: 2.3522, lat: 48.8566 });
+    map.getZoom.mockReturnValue(13);
+
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(capturedSearchBarProps?.searchBias).toEqual({
+      lon: 2.3522,
+      lat: 48.8566,
+      countryCode: 'NL',
+    });
+    expect(mockOnViewportCenterChanged).toHaveBeenCalledWith(2.3522, 48.8566, 13);
   });
 
   it('auto-locates once after the root web map reaches idle', async () => {

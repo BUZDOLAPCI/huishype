@@ -77,7 +77,29 @@ describe('address-resolver', () => {
       mockSearch.mockResolvedValueOnce([]);
 
       await searchAddresses('test', 5, { countryCode: 'NL' });
-      expect(mockSearch).toHaveBeenCalledWith('test', { limit: 5, countryCode: 'NL' });
+      expect(mockSearch).toHaveBeenCalledWith('test', {
+        limit: 5,
+        countryCode: 'NL',
+        countryMode: 'soft',
+      });
+    });
+
+    it('passes viewport bias options to geocoder', async () => {
+      mockSearch.mockResolvedValueOnce([]);
+
+      await searchAddresses('test', 5, {
+        lon: 4.8952,
+        lat: 52.3702,
+        countryCode: 'NL',
+      });
+
+      expect(mockSearch).toHaveBeenCalledWith('test', {
+        limit: 5,
+        lon: 4.8952,
+        lat: 52.3702,
+        countryCode: 'NL',
+        countryMode: 'soft',
+      });
     });
 
     it('handles geocoder errors gracefully', async () => {

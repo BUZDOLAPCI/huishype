@@ -123,7 +123,7 @@ describe('SearchBar', () => {
 
     // Before debounce timer fires, query should still be empty
     // The useAddressSearch hook is called with empty string initially
-    expect(mockUseAddressSearch).toHaveBeenCalledWith('', 5);
+    expect(mockUseAddressSearch).toHaveBeenCalledWith('', 5, undefined);
   });
 
   it('calls useAddressSearch with debounced query after delay', () => {
@@ -143,7 +143,32 @@ describe('SearchBar', () => {
     });
 
     // Now hook should be called with the debounced query
-    expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat', 5);
+    expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat', 5, undefined);
+  });
+
+  it('passes searchBias into useAddressSearch', () => {
+    const searchBias = {
+      lon: 4.8952,
+      lat: 52.3702,
+      countryCode: 'NL',
+    };
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        searchBias={searchBias}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Damrak');
+
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(mockUseAddressSearch).toHaveBeenCalledWith('Damrak', 5, { searchBias });
   });
 
   it('shows results after typing and debounce', () => {
@@ -219,7 +244,7 @@ describe('SearchBar', () => {
 
     // Wait for debounce
     await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5);
+      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
     }, { timeout: 1000 });
 
     // Find and tap result
@@ -265,7 +290,7 @@ describe('SearchBar', () => {
     fireEvent.changeText(input, 'Teststraat 42');
 
     await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5);
+      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
     }, { timeout: 1000 });
 
     const resultItems = screen.queryAllByTestId('search-result-item');
@@ -315,7 +340,7 @@ describe('SearchBar', () => {
     fireEvent.changeText(input, 'Teststraat 42');
 
     await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5);
+      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
     }, { timeout: 1000 });
 
     const resultItems = screen.queryAllByTestId('search-result-item');
@@ -326,7 +351,7 @@ describe('SearchBar', () => {
     });
 
     await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenLastCalledWith('', 5);
+      expect(mockUseAddressSearch).toHaveBeenLastCalledWith('', 5, undefined);
     }, { timeout: 1000 });
 
     fireEvent.press(screen.getByTestId('search-bar-focus-target'));
@@ -369,7 +394,7 @@ describe('SearchBar', () => {
     fireEvent.changeText(input, 'Teststraat 42');
 
     await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5);
+      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
     }, { timeout: 1000 });
 
     const resultItems = screen.queryAllByTestId('search-result-item');

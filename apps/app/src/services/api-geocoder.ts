@@ -7,7 +7,7 @@
  */
 
 import { API_URL } from '../utils/api';
-import type { IGeocoder, GeocodeSuggestion } from './geocoder';
+import type { IGeocoder, GeocodeSearchOptions, GeocodeSuggestion } from './geocoder';
 
 /** Reverse geocode result — city/town name for the map header. */
 export interface ReverseGeocodeResult {
@@ -23,13 +23,16 @@ export interface ReverseGeocodeResult {
 export class ApiGeocoder implements IGeocoder {
   async search(
     query: string,
-    options?: { limit?: number; countryCode?: string },
+    options?: GeocodeSearchOptions,
   ): Promise<GeocodeSuggestion[]> {
     if (!query || query.length < 2) return [];
 
     const params = new URLSearchParams({ q: query });
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.countryCode) params.set('countrycode', options.countryCode);
+    if (options?.countryMode) params.set('countrymode', options.countryMode);
+    if (options?.lon !== undefined) params.set('lon', String(options.lon));
+    if (options?.lat !== undefined) params.set('lat', String(options.lat));
 
     try {
       const response = await fetch(

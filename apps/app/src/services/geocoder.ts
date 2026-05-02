@@ -9,6 +9,14 @@ import type { GeocodeSuggestion } from '@huishype/shared';
 
 export type { GeocodeSuggestion };
 
+export interface GeocodeSearchOptions {
+  limit?: number;
+  countryCode?: string;
+  countryMode?: 'soft';
+  lon?: number;
+  lat?: number;
+}
+
 export interface IGeocoder {
-  search(query: string, options?: { limit?: number; countryCode?: string }): Promise<GeocodeSuggestion[]>;
+  search(query: string, options?: GeocodeSearchOptions): Promise<GeocodeSuggestion[]>;
 }

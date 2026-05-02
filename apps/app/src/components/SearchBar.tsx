@@ -6,7 +6,7 @@ import { Icon } from './ui/Icon';
 import { BlurContainer } from './ui/BlurContainer';
 import { resolveProperty, type PropertyResolveResult } from '@/src/utils/api';
 import { SearchResults } from './SearchResults';
-import type { ResolvedAddress } from '@/src/services/address-resolver';
+import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 
 /**
@@ -58,6 +58,8 @@ export interface SearchBarProps {
   ) => void;
   /** Incremented by the parent screen when it loses focus to clear transient search UI. */
   transientResetKey?: number;
+  /** Settled viewport bias for local-first address autocomplete ranking. */
+  searchBias?: AddressSearchBias;
 }
 
 const DEBOUNCE_MS = 300;
@@ -68,7 +70,12 @@ const DEBOUNCE_MS = 300;
  * the backend /properties/resolve endpoint to map addresses
  * to local properties.
  */
-export function SearchBar({ onPropertyResolved, onLocationResolved, transientResetKey = 0 }: SearchBarProps) {
+export function SearchBar({
+  onPropertyResolved,
+  onLocationResolved,
+  transientResetKey = 0,
+  searchBias,
+}: SearchBarProps) {
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
@@ -118,7 +125,11 @@ export function SearchBar({ onPropertyResolved, onLocationResolved, transientRes
   }, [inputValue]);
 
   // Geocoder address search using existing hook
-  const { data: results = [], isLoading } = useAddressSearch(debouncedQuery, 5);
+  const { data: results = [], isLoading } = useAddressSearch(
+    debouncedQuery,
+    5,
+    searchBias ? { searchBias } : undefined,
+  );
 
   // Handle result tap: resolve to local property
   const handleResultPress = useCallback(

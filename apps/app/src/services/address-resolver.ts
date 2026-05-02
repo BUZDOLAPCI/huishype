@@ -6,11 +6,17 @@
  */
 
 import { apiGeocoder } from './api-geocoder';
-import type { GeocodeSuggestion } from './geocoder';
+import type { GeocodeSearchOptions, GeocodeSuggestion } from './geocoder';
 
 export interface HouseNumberParts {
   houseNumber: string | null;
   houseNumberAddition: string | null;
+}
+
+export interface AddressSearchBias {
+  lon?: number;
+  lat?: number;
+  countryCode?: string | null;
 }
 
 /**
@@ -95,17 +101,24 @@ function toResolvedAddress(suggestion: GeocodeSuggestion): ResolvedAddress {
 export async function searchAddresses(
   query: string,
   limit: number = 5,
-  options?: { countryCode?: string },
+  options?: AddressSearchBias,
 ): Promise<ResolvedAddress[]> {
   if (!query || query.length < 2) {
     return [];
   }
 
   try {
-    const results = await apiGeocoder.search(query, {
+    const searchOptions: GeocodeSearchOptions = {
       limit,
-      countryCode: options?.countryCode,
-    });
+    };
+    if (options?.countryCode) {
+      searchOptions.countryCode = options.countryCode;
+      searchOptions.countryMode = 'soft';
+    }
+    if (options?.lon !== undefined) searchOptions.lon = options.lon;
+    if (options?.lat !== undefined) searchOptions.lat = options.lat;
+
+    const results = await apiGeocoder.search(query, searchOptions);
 
     const deduped = new Map<string, GeocodeSuggestion>();
     for (const result of results) {

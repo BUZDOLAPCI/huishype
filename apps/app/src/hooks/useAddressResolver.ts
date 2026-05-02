@@ -5,14 +5,31 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { searchAddresses } from '@/src/services/address-resolver';
+import {
+  searchAddresses,
+  type AddressSearchBias,
+} from '@/src/services/address-resolver';
+
+type UseAddressSearchOptions = {
+  enabled?: boolean;
+  debounceMs?: number;
+  searchBias?: AddressSearchBias;
+};
 
 /**
  * Query key factory for address queries
  */
 export const addressKeys = {
   all: ['addresses'] as const,
-  search: (query: string) => [...addressKeys.all, 'search', query] as const,
+  search: (query: string, limit: number, searchBias?: AddressSearchBias) => [
+    ...addressKeys.all,
+    'search',
+    query,
+    limit,
+    searchBias?.lon ?? null,
+    searchBias?.lat ?? null,
+    searchBias?.countryCode ?? null,
+  ] as const,
 };
 
 /**
@@ -26,14 +43,11 @@ export const addressKeys = {
 export function useAddressSearch(
   query: string,
   limit: number = 5,
-  options?: {
-    enabled?: boolean;
-    debounceMs?: number;
-  }
+  options?: UseAddressSearchOptions
 ) {
   return useQuery({
-    queryKey: addressKeys.search(query),
-    queryFn: () => searchAddresses(query, limit),
+    queryKey: addressKeys.search(query, limit, options?.searchBias),
+    queryFn: () => searchAddresses(query, limit, options?.searchBias),
     enabled: options?.enabled !== false && query.length >= 2,
     staleTime: 30 * 1000, // 30 seconds
     retry: 1,

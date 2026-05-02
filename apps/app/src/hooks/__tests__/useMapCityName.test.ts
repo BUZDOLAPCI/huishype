@@ -136,6 +136,7 @@ describe('useMapCityName', () => {
     });
 
     expect(result.current.cityName).toBe('Amsterdam');
+    expect(result.current.countryCode).toBe('NL');
 
     act(() => {
       result.current.onViewportCenterChanged(4.89521, 52.37021, 5);

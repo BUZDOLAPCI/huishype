@@ -116,6 +116,8 @@ export function getMapHeaderLocationLabel(
 export interface UseMapCityNameReturn {
   /** The current zoom-aware location label to display, or null if unknown. */
   cityName: string | null;
+  /** The country code from the latest reverse-geocoded viewport center, if known. */
+  countryCode: string | null;
   /** Call when the user searches and navigates to a location. */
   setSearchCity: (city: string, coordinate: [number, number]) => void;
   /** Call when the map viewport center or zoom changes. */
@@ -225,6 +227,7 @@ export function useMapCityName(): UseMapCityNameReturn {
 
   return {
     cityName,
+    countryCode: reverseLocation?.countryCode ?? null,
     setSearchCity,
     onViewportCenterChanged,
   };

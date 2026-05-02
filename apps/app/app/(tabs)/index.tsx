@@ -79,7 +79,7 @@ import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton'
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
-import type { ResolvedAddress } from '@/src/services/address-resolver';
+import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
 
 // Semantic color constants for inline styles (warm palette)
@@ -511,7 +511,18 @@ export default function MapScreen() {
   ]);
 
   // Dynamic city name for the map header
-  const { cityName, setSearchCity, onViewportCenterChanged } = useMapCityName();
+  const { cityName, countryCode: viewportCountryCode, setSearchCity, onViewportCenterChanged } = useMapCityName();
+  const [searchBiasCenter, setSearchBiasCenter] = useState<Pick<AddressSearchBias, 'lon' | 'lat'>>({
+    lon: DEFAULT_CENTER[0],
+    lat: DEFAULT_CENTER[1],
+  });
+  const searchBias = useMemo<AddressSearchBias>(
+    () => ({
+      ...searchBiasCenter,
+      ...(viewportCountryCode ? { countryCode: viewportCountryCode } : {}),
+    }),
+    [searchBiasCenter, viewportCountryCode],
+  );
   const currentPreviewProperty = useMemo(
     () => interaction.previewGroup?.properties[interaction.currentPreviewIndex] ?? null,
     [interaction.currentPreviewIndex, interaction.previewGroup],
@@ -853,6 +864,7 @@ export default function MapScreen() {
       }
       // Update city name via reverse geocoding of the viewport center
       if (center) {
+        setSearchBiasCenter({ lon: center[0], lat: center[1] });
         onViewportCenterChanged(center[0], center[1], zoom);
       }
       void refreshNativePreviewPoint();
@@ -1435,6 +1447,7 @@ export default function MapScreen() {
           onPropertyResolved={handlePropertyResolved}
           onLocationResolved={handleLocationResolved}
           transientResetKey={searchResetToken}
+          searchBias={searchBias}
         />
 
         <MapFilterBar

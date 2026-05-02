@@ -39,6 +39,9 @@ const mockWelcomeOpen = jest.fn();
 const mockWelcomeDismiss = jest.fn();
 let mockWelcomeVisible = false;
 let mockIsFocused = true;
+let mockViewportCountryCode: string | null = 'NL';
+const mockSetSearchCity = jest.fn();
+const mockOnViewportCenterChanged = jest.fn();
 const mockCameraFlyTo = jest.fn();
 const mockCameraFitBounds = jest.fn();
 
@@ -47,6 +50,13 @@ let capturedMapFilterBarProps: {
   followingActivity?: 'today' | '10d' | '30d' | 'all-time';
   onToggleFollowing?: () => void;
   onFollowingActivityChange?: (activity: 'today' | '10d' | '30d' | 'all-time') => void;
+} | null = null;
+let capturedSearchBarProps: {
+  searchBias?: {
+    lon?: number;
+    lat?: number;
+    countryCode?: string | null;
+  };
 } | null = null;
 
 const mockAmbientCommentBubbles = {
@@ -129,7 +139,10 @@ jest.mock('@/src/components', () => {
     AuthModal: () => null,
     WelcomeModal: ({ visible }: { visible: boolean }) =>
       visible ? ReactModule.createElement(View, { testID: 'welcome-modal' }) : null,
-    SearchBar: () => null,
+    SearchBar: (props: typeof capturedSearchBarProps) => {
+      capturedSearchBarProps = props;
+      return null;
+    },
     BottomSheetErrorBoundary: ({ children }: { children: React.ReactNode }) =>
       ReactModule.createElement(ReactModule.Fragment, null, children),
     GroupPreviewCard: () => ReactModule.createElement(View, null),
@@ -262,8 +275,9 @@ jest.mock('@/src/hooks/usePropertyView', () => ({
 jest.mock('@/src/hooks/useMapCityName', () => ({
   useMapCityName: jest.fn(() => ({
     cityName: null,
-    setSearchCity: jest.fn(),
-    onViewportCenterChanged: jest.fn(),
+    countryCode: mockViewportCountryCode,
+    setSearchCity: mockSetSearchCity,
+    onViewportCenterChanged: mockOnViewportCenterChanged,
   })),
   extractCityFromAddress: jest.fn(() => null),
 }));
@@ -308,6 +322,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
     onDidFinishLoadingMap?: () => void;
     onDidFinishRenderingMapFully?: () => void;
     onPress?: (event: unknown) => void;
+    onRegionDidChange?: (event: unknown) => void;
   };
 
   const Map = ReactModule.forwardRef<unknown, MockMapProps>((props, ref) => {
@@ -326,6 +341,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
       testID: 'native-map',
       onDidFinishRenderingMapFully: props.onDidFinishRenderingMapFully,
       onPress: props.onPress,
+      onRegionDidChange: props.onRegionDidChange,
     } as unknown as React.ComponentProps<typeof Pressable>;
 
     return ReactModule.createElement(Pressable, pressableProps, props.children);
@@ -387,8 +403,12 @@ describe('MapScreen native grouped Following mode', () => {
     mockReadHeaderName = 'x-session-id';
     mockReadHeaderValue = 'session-123';
     mockWelcomeVisible = false;
+    mockViewportCountryCode = 'NL';
+    mockSetSearchCity.mockReset();
+    mockOnViewportCenterChanged.mockReset();
     mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
+    capturedSearchBarProps = null;
     mockAmbientCommentBubbles.bubbles = [];
     Object.assign(mockInteraction, {
       previewGroup: null,
@@ -568,6 +588,32 @@ describe('MapScreen native grouped Following mode', () => {
     fireEvent.press(screen.getByTestId('map-welcome-info-button'));
 
     expect(mockWelcomeOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes settled viewport search bias to the native SearchBar', async () => {
+    const screen = await renderMapScreen();
+
+    expect(capturedSearchBarProps?.searchBias).toEqual({
+      lon: 5.3574841,
+      lat: 52.3626765,
+      countryCode: 'NL',
+    });
+
+    fireEvent(screen.getByTestId('native-map'), 'regionDidChange', {
+      nativeEvent: {
+        center: [4.8952, 52.3702],
+        zoom: 14,
+      },
+    });
+
+    await waitFor(() => {
+      expect(capturedSearchBarProps?.searchBias).toEqual({
+        lon: 4.8952,
+        lat: 52.3702,
+        countryCode: 'NL',
+      });
+    });
+    expect(mockOnViewportCenterChanged).toHaveBeenCalledWith(4.8952, 52.3702, 14);
   });
 
   it('shows the welcome modal when first-run state is visible', async () => {

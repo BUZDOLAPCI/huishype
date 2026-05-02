@@ -1971,6 +1971,18 @@ export interface paths {
                     };
                 };
                 /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -3188,7 +3200,7 @@ export interface paths {
                             acceptedAt: string;
                             idempotencyKey: string;
                             /** @enum {string} */
-                            status: "accepted" | "queued" | "processing" | "completed" | "retryable" | "failed";
+                            status: "accepted" | "queued" | "processing" | "completed" | "retryable" | "superseded" | "failed";
                             duplicate: boolean;
                         };
                     };
@@ -4213,6 +4225,9 @@ export interface paths {
                     limit?: number;
                     lang?: string;
                     countrycode?: string;
+                    countrymode?: "soft";
+                    lon?: number;
+                    lat?: number;
                 };
                 header?: never;
                 path?: never;

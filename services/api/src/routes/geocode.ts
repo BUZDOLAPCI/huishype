@@ -50,6 +50,9 @@ const searchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).default(5),
   lang: z.string().optional(),
   countrycode: z.string().optional(),
+  countrymode: z.enum(['soft']).optional(),
+  lon: z.coerce.number().min(-180).max(180).optional(),
+  lat: z.coerce.number().min(-90).max(90).optional(),
 });
 
 const reverseQuerySchema = z.object({
@@ -202,6 +205,83 @@ function matchesCountryCode(
   return feature.properties.countrycode?.trim().toUpperCase() === requestedCountryCode;
 }
 
+type PhotonSearchOptions = {
+  q: string;
+  limit: number;
+  lang?: string;
+  countryCode?: CountryCode;
+  proximity?: { lon: number; lat: number };
+};
+
+function getSearchProximity(
+  lon: number | undefined,
+  lat: number | undefined
+): { lon: number; lat: number } | undefined {
+  return lon !== undefined && lat !== undefined ? { lon, lat } : undefined;
+}
+
+function buildPhotonSearchParams({
+  q,
+  limit,
+  lang,
+  countryCode,
+  proximity,
+}: PhotonSearchOptions): URLSearchParams {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  if (lang) params.set('lang', lang);
+  if (countryCode) params.set('countrycode', countryCode.toLowerCase());
+
+  if (proximity) {
+    params.set('lon', String(proximity.lon));
+    params.set('lat', String(proximity.lat));
+  } else if (countryCode) {
+    const [lon, lat] = getCountryConfig(countryCode).defaultCenter;
+    params.set('lon', String(lon));
+    params.set('lat', String(lat));
+  }
+
+  return params;
+}
+
+async function fetchPhotonFeatures(
+  app: FastifyInstance,
+  options: PhotonSearchOptions
+): Promise<PhotonFeature[]> {
+  const photonParams = buildPhotonSearchParams(options);
+  const photonUrl = `${config.photon.url}/api?${photonParams.toString()}`;
+  const response = await fetch(photonUrl, {
+    signal: AbortSignal.timeout(5000),
+  });
+
+  if (!response.ok) {
+    app.log.warn(`Photon returned ${response.status}: ${response.statusText}`);
+    return [];
+  }
+
+  const data = (await response.json()) as PhotonResponse;
+  return data.features;
+}
+
+function mergeDedupedSuggestions(
+  preferredFeatures: PhotonFeature[],
+  fallbackFeatures: PhotonFeature[],
+  limit: number
+): GeocodeSuggestion[] {
+  const deduped = new Map<string, GeocodeSuggestion>();
+
+  for (const feature of [...preferredFeatures, ...fallbackFeatures]) {
+    const suggestion = transformFeature(feature);
+    if (!deduped.has(suggestion.id)) {
+      deduped.set(suggestion.id, suggestion);
+    }
+    if (deduped.size >= limit) {
+      break;
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
 export async function geocodeRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -223,8 +303,9 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { q, limit, lang, countrycode } = request.query;
+      const { q, limit, lang, countrycode, countrymode, lon, lat } = request.query;
       const requestedCountryCode = normalizeCountryCode(countrycode);
+      const proximity = getSearchProximity(lon, lat);
       const photonLimit = requestedCountryCode
         ? Math.min(
             Math.max(limit * PHOTON_COUNTRY_FILTER_MULTIPLIER, limit),
@@ -232,29 +313,42 @@ export async function geocodeRoutes(fastify: FastifyInstance) {
           )
         : limit;
 
-      // Build Photon query parameters
-      const photonParams = new URLSearchParams({ q, limit: String(photonLimit) });
-      if (lang) photonParams.set('lang', lang);
-      if (requestedCountryCode) {
-        photonParams.set('countrycode', requestedCountryCode.toLowerCase());
-        const [lon, lat] = getCountryConfig(requestedCountryCode).defaultCenter;
-        photonParams.set('lon', String(lon));
-        photonParams.set('lat', String(lat));
-      }
-
       try {
-        const photonUrl = `${config.photon.url}/api?${photonParams.toString()}`;
-        const response = await fetch(photonUrl, {
-          signal: AbortSignal.timeout(5000),
-        });
+        if (countrymode === 'soft' && requestedCountryCode) {
+          const preferredFeatures = (
+            await fetchPhotonFeatures(app, {
+              q,
+              limit: photonLimit,
+              lang,
+              countryCode: requestedCountryCode,
+              proximity,
+            })
+          )
+            .filter((feature) => matchesCountryCode(feature, requestedCountryCode))
+            .slice(0, limit);
 
-        if (!response.ok) {
-          app.log.warn(`Photon returned ${response.status}: ${response.statusText}`);
-          return reply.send([]);
+          if (preferredFeatures.length >= limit) {
+            return reply.send(preferredFeatures.map(transformFeature));
+          }
+
+          const fallbackFeatures = await fetchPhotonFeatures(app, {
+            q,
+            limit,
+            lang,
+            proximity,
+          });
+
+          return reply.send(mergeDedupedSuggestions(preferredFeatures, fallbackFeatures, limit));
         }
 
-        const data = (await response.json()) as PhotonResponse;
-        const suggestions = data.features
+        const features = await fetchPhotonFeatures(app, {
+          q,
+          limit: photonLimit,
+          lang,
+          countryCode: requestedCountryCode,
+          proximity,
+        });
+        const suggestions = features
           .filter((feature) => matchesCountryCode(feature, requestedCountryCode))
           .slice(0, limit)
           .map(transformFeature);
