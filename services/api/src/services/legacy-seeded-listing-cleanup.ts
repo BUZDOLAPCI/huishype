@@ -71,8 +71,12 @@ export type LegacySeededListingCleanupSummary = {
   execute: boolean;
   source: LegacySeededListingCleanupSource;
   limit: number;
+  delayMs: number;
+  maxConsecutiveTemporaryErrors: number | null;
   candidateCounts: Record<ListingSourceName, number>;
   candidates: LegacySeededListingCleanupCandidate[];
+  processedCandidateCount: number;
+  unprocessedCandidateCount: number;
   validatedCount: number;
   appliedCount: number;
   changedCount: number;
@@ -81,6 +85,7 @@ export type LegacySeededListingCleanupSummary = {
   temporaryErrorCount: number;
   maintenanceRefreshRequestCount: number;
   maintenanceBatchIds: string[];
+  stoppedEarlyReason: string | null;
   results: LegacySeededListingCleanupResult[];
 };
 
@@ -240,6 +245,13 @@ export async function listLegacySeededListingCleanupCandidates(
 
 function rawUrlForCandidate(candidate: LegacySeededListingCleanupCandidate): string {
   return candidate.canonicalUrl ?? candidate.displayUrl ?? candidate.primarySourceListingId ?? '';
+}
+
+async function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return;
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function validationOutcomeInput(
@@ -444,16 +456,44 @@ export async function cleanupLegacySeededListings(options: {
   source: LegacySeededListingCleanupSource;
   limit: number;
   execute: boolean;
+  delayMs?: number;
+  maxConsecutiveTemporaryErrors?: number | null;
 }): Promise<LegacySeededListingCleanupSummary> {
+  const delayMs = Math.max(0, Math.trunc(options.delayMs ?? 0));
+  const maxConsecutiveTemporaryErrors = options.maxConsecutiveTemporaryErrors == null
+    ? null
+    : Math.max(0, Math.trunc(options.maxConsecutiveTemporaryErrors));
   const candidateCounts = await countLegacySeededListingCleanupCandidates({ source: options.source });
   const candidates = await listLegacySeededListingCleanupCandidates({
     source: options.source,
     limit: options.limit,
   });
   const results: LegacySeededListingCleanupResult[] = [];
+  let consecutiveTemporaryErrors = 0;
+  let stoppedEarlyReason: string | null = null;
 
-  for (const candidate of candidates) {
-    results.push(await validateLegacySeededListingCleanupCandidate(candidate, { execute: options.execute }));
+  for (let index = 0; index < candidates.length; index += 1) {
+    if (index > 0) {
+      await sleep(delayMs);
+    }
+
+    const result = await validateLegacySeededListingCleanupCandidate(candidates[index], { execute: options.execute });
+    results.push(result);
+
+    if (result.error !== null) {
+      consecutiveTemporaryErrors += 1;
+    } else {
+      consecutiveTemporaryErrors = 0;
+    }
+
+    if (
+      maxConsecutiveTemporaryErrors !== null
+      && maxConsecutiveTemporaryErrors > 0
+      && consecutiveTemporaryErrors >= maxConsecutiveTemporaryErrors
+    ) {
+      stoppedEarlyReason = `max_consecutive_temporary_errors:${maxConsecutiveTemporaryErrors}`;
+      break;
+    }
   }
 
   const maintenanceBatchIds = results
@@ -464,8 +504,12 @@ export async function cleanupLegacySeededListings(options: {
     execute: options.execute,
     source: options.source,
     limit: options.limit,
+    delayMs,
+    maxConsecutiveTemporaryErrors,
     candidateCounts,
     candidates,
+    processedCandidateCount: results.length,
+    unprocessedCandidateCount: candidates.length - results.length,
     validatedCount: results.filter((result) => result.validation !== null).length,
     appliedCount: results.filter((result) => result.applied).length,
     changedCount: results.filter((result) => result.changed).length,
@@ -474,6 +518,7 @@ export async function cleanupLegacySeededListings(options: {
     temporaryErrorCount: results.filter((result) => result.error !== null).length,
     maintenanceRefreshRequestCount: maintenanceBatchIds.length,
     maintenanceBatchIds,
+    stoppedEarlyReason,
     results,
   };
 }
