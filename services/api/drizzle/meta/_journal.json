@@ -127,6 +127,13 @@
       "when": 1777593600002,
       "tag": "0017_property_tile_measured_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777708800000,
+      "tag": "0018_property_tile_listing_candidates",
+      "breakpoints": true
     }
   ]
 }

@@ -689,6 +689,21 @@ export const canonicalListings = pgTable(
   ]
 );
 
+export const propertyTileListingCandidates = pgTable(
+  'property_tile_listing_candidates',
+  {
+    propertyId: uuid('property_id')
+      .primaryKey()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    geometry: geometry('geometry').notNull(),
+    officialValuation: bigint('official_valuation', { mode: 'number' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('property_tile_listing_candidates_geometry_gist_idx').using('gist', table.geometry),
+  ]
+);
+
 export const mirrorListingWatches = pgTable(
   'mirror_listing_watches',
   {

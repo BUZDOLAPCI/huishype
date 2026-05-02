@@ -156,7 +156,7 @@ describe('property-grouping', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
   });
 
-  it('discovers z13 non-ghost tile candidates source-first and validates each source through bounded active properties', () => {
+  it('discovers z13 non-ghost listing candidates from the maintained tile projection', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
@@ -171,11 +171,10 @@ describe('property-grouping', () => {
       text.indexOf('candidate_properties AS MATERIALIZED')
     );
     expect(text).toContain(
-      'SELECT DISTINCT ON (p.id) p.id, p.geometry, p.official_valuation FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
+      'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
     );
-    expect(text).toContain(
-      "AND cl.verification_state <> 'invalid' AND cl.status IN ('active', 'sold', 'rented')"
-    );
+    expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
+    expect(text).not.toContain('FROM canonical_listings cl INNER JOIN properties p');
     expect(text).toContain('FROM comments c INNER JOIN properties p ON p.id = c.property_id');
     expect(text).toContain('INNER JOIN properties p ON p.id = r.target_id');
     expect(text).toContain("AND r.target_type = 'property' AND r.reaction_type = 'like'");
@@ -200,9 +199,9 @@ describe('property-grouping', () => {
     );
     expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
     expect(text).toContain('p.geometry && ST_MakeEnvelope');
-    expect(text.match(/INNER JOIN properties p ON p\.id/g)?.length).toBe(7);
-    expect(text.match(/p\.status = 'active'/g)?.length).toBe(7);
-    expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(7);
+    expect(text.match(/INNER JOIN properties p ON p\.id/g)?.length).toBe(6);
+    expect(text.match(/p\.status = 'active'/g)?.length).toBe(6);
+    expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(6);
     expect(text).toContain('SELECT lcp.id, lcp.geometry, lcp.official_valuation');
     expect(text).toContain('SELECT p.id, p.geometry, p.official_valuation');
     expect(text).toContain(
@@ -287,15 +286,16 @@ describe('property-grouping', () => {
     expect(text).not.toContain('bounded_properties AS MATERIALIZED');
     expect(text).toContain('listing_candidate_properties AS MATERIALIZED');
     expect(text).toContain(
-      'SELECT DISTINCT ON (p.id) p.id, p.geometry, p.official_valuation FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
+      'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
     );
+    expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
     expect(text).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
     expect(text).toContain('FROM listing_candidate_properties lcp');
     expect(text).not.toContain('INNER JOIN properties p ON p.id = cpi.property_id');
-    expect(text.match(/INNER JOIN properties p ON p\.id/g)?.length).toBe(1);
-    expect(text.match(/p\.status = 'active'/g)?.length).toBe(1);
-    expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(1);
+    expect(text.match(/INNER JOIN properties p ON p\.id/g) ?? []).toHaveLength(0);
+    expect(text.match(/p\.status = 'active'/g) ?? []).toHaveLength(0);
+    expect(text.match(/p\.geometry && ST_MakeEnvelope/g) ?? []).toHaveLength(0);
   });
 
   it('scopes price-filter listing, history, and guess work through candidate properties', async () => {

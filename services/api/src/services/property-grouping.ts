@@ -1372,6 +1372,7 @@ export function buildGroupingCandidateScopeCtes(
   zoom: number
 ): SQL {
   const bboxFilter = buildBoundsFilter(boundsList, sql.raw('p.geometry'));
+  const listingCandidateBboxFilter = buildBoundsFilter(boundsList, sql.raw('lpc.geometry'));
   const activityCandidateFilter = buildActivityWindowPredicate(
     sql.raw('activity_at'),
     filters.activity
@@ -1504,15 +1505,12 @@ export function buildGroupingCandidateScopeCtes(
 
   return sql`
         listing_candidate_properties AS MATERIALIZED (
-          SELECT DISTINCT ON (p.id)
-            p.id,
-            p.geometry,
-            p.official_valuation
-          FROM canonical_listings cl
-          INNER JOIN properties p ON p.id = cl.property_id
-          WHERE ${activeBoundedPropertyFilter}
-            AND cl.verification_state <> 'invalid'
-            AND cl.status IN ('active', 'sold', 'rented')
+          SELECT
+            lpc.property_id AS id,
+            lpc.geometry,
+            lpc.official_valuation
+          FROM property_tile_listing_candidates lpc
+          WHERE ${listingCandidateBboxFilter}
         )
         ${
           canIncludeSocialOnlyCandidates
