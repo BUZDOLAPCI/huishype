@@ -1393,8 +1393,11 @@ export function buildGroupingCandidateScopeCtes(
   }
 
   return sql`
-        listing_candidate_ids AS MATERIALIZED (
-          SELECT DISTINCT cl.property_id
+        listing_candidate_properties AS MATERIALIZED (
+          SELECT DISTINCT ON (p.id)
+            p.id,
+            p.geometry,
+            p.official_valuation
           FROM canonical_listings cl
           INNER JOIN properties p ON p.id = cl.property_id
           WHERE ${activeBoundedPropertyFilter}
@@ -1464,30 +1467,41 @@ export function buildGroupingCandidateScopeCtes(
             WHERE ${activityCandidateFilter}
           ) social_candidates
         ),
-        candidate_property_ids AS MATERIALIZED (
-          SELECT DISTINCT property_id
-          FROM (
-            SELECT property_id
-            FROM listing_candidate_ids
-            UNION ALL
-            SELECT property_id
-            FROM social_activity_candidate_ids
-          ) candidate_ids
+        social_only_candidate_ids AS MATERIALIZED (
+          SELECT DISTINCT social_activity_candidate_ids.property_id
+          FROM social_activity_candidate_ids
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM listing_candidate_properties lcp
+            WHERE lcp.id = social_activity_candidate_ids.property_id
+          )
         )`
             : sql``
         },
         candidate_properties AS MATERIALIZED (
+          ${
+            canIncludeSocialOnlyCandidates
+              ? sql`
+          SELECT
+            lcp.id,
+            lcp.geometry,
+            lcp.official_valuation
+          FROM listing_candidate_properties lcp
+          UNION ALL
           SELECT
             p.id,
             p.geometry,
             p.official_valuation
-          FROM ${
-            canIncludeSocialOnlyCandidates
-              ? sql`candidate_property_ids cpi`
-              : sql`listing_candidate_ids cpi`
+          FROM social_only_candidate_ids soci
+          INNER JOIN properties p ON p.id = soci.property_id
+          WHERE ${activeBoundedPropertyFilter}`
+              : sql`
+          SELECT
+            lcp.id,
+            lcp.geometry,
+            lcp.official_valuation
+          FROM listing_candidate_properties lcp`
           }
-          INNER JOIN properties p ON p.id = cpi.property_id
-          WHERE ${activeBoundedPropertyFilter}
         )
       `;
 }

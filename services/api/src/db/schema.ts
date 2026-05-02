@@ -674,6 +674,18 @@ export const canonicalListings = pgTable(
         sql`id DESC`
       )
       .where(sql`verification_state <> 'invalid' AND status = 'active'`),
+    index('canonical_listings_tile_candidate_status_property_idx')
+      .on(table.status, table.propertyId)
+      .where(sql`verification_state <> 'invalid' AND status IN ('active', 'sold', 'rented')`),
+    index('canonical_listings_tile_thumbnail_idx')
+      .on(
+        table.propertyId,
+        sql`(status = 'active') DESC`,
+        sql`COALESCE(last_reconciled_at, last_mirror_seen_at, last_user_seen_at, last_seen_at, updated_at, created_at) DESC`,
+        sql`created_at DESC`,
+        sql`id DESC`
+      )
+      .where(sql`verification_state <> 'invalid' AND thumbnail_url IS NOT NULL`),
   ]
 );
 
@@ -993,6 +1005,11 @@ export const propertyTileSnapshots = pgTable(
     index('property_tile_snapshots_generated_at_idx').on(table.generatedAt),
     index('property_tile_snapshots_coverage_idx').on(table.coverageId, table.snapshotConfigHash),
     index('property_tile_snapshots_coverage_filter_config_idx').on(
+      table.coverageId,
+      table.filterSignature,
+      table.snapshotConfigHash
+    ),
+    index('property_tile_snapshots_coverage_filter_config_due_idx').on(
       table.coverageId,
       table.filterSignature,
       table.snapshotConfigHash

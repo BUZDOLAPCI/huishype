@@ -120,6 +120,13 @@
       "when": 1777593600001,
       "tag": "0016_property_tile_performance_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777593600002,
+      "tag": "0017_property_tile_measured_indexes",
+      "breakpoints": true
     }
   ]
 }

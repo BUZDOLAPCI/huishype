@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks';
+import { writeFile } from 'node:fs/promises';
 
 type Phase = 'cold' | 'warm';
 
@@ -13,6 +14,8 @@ type BenchmarkOptions = {
   baseUrl: string;
   warmPasses: number;
   timeoutMs: number;
+  jsonOut?: string;
+  failColdGenOverMs?: number;
 };
 
 type BenchmarkRow = TileRequest & {
@@ -25,6 +28,40 @@ type BenchmarkRow = TileRequest & {
   xTileQueueTime: string;
   xTileCoalesced: string;
   xTileBudgetMs: string;
+};
+
+type PhaseSummary = {
+  phase: Phase;
+  requests: number;
+  okStatuses: number;
+  unexpectedStatuses: number;
+  errors: number;
+  avgClientMs: number;
+  p50ClientMs: number;
+  p95ClientMs: number;
+  maxClientMs: number;
+  avgBytes: number;
+  generationTimeMs: {
+    count: number;
+    avg: number;
+    p50: number;
+    p95: number;
+    max: number;
+  };
+};
+
+type BenchmarkSummary = {
+  generatedAt: string;
+  baseUrl: string;
+  tiles: number;
+  passes: {
+    cold: number;
+    warm: number;
+  };
+  rows: BenchmarkRow[];
+  byPhase: PhaseSummary[];
+  unexpectedStatuses: BenchmarkRow[];
+  failures: string[];
 };
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3100';
@@ -72,6 +109,10 @@ Options:
   --warm-passes <count>  Number of repeated warm passes after the first pass.
                          Defaults to ${DEFAULT_WARM_PASSES}.
   --timeout-ms <ms>      Per-request timeout. Defaults to ${DEFAULT_TIMEOUT_MS}.
+  --json-out <path>      Write rows and summary metrics to a JSON file.
+  --fail-cold-gen-over-ms <ms>
+                         Exit non-zero when any cold x-tile-generation-time
+                         exceeds this threshold.
   --help                 Show this help.
 
 Notes:
@@ -90,6 +131,14 @@ function parsePositiveInteger(value: string, flag: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(`${flag} must be a positive integer, got "${value}"`);
+  }
+  return parsed;
+}
+
+function parseNonNegativeNumber(value: string, flag: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${flag} must be a non-negative number, got "${value}"`);
   }
   return parsed;
 }
@@ -154,11 +203,43 @@ function parseArgs(argv: string[]): BenchmarkOptions {
       continue;
     }
 
+    if (arg === '--json-out') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--json-out requires a value');
+      options.jsonOut = value;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--json-out=')) {
+      options.jsonOut = arg.slice('--json-out='.length);
+      continue;
+    }
+
+    if (arg === '--fail-cold-gen-over-ms') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--fail-cold-gen-over-ms requires a value');
+      options.failColdGenOverMs = parseNonNegativeNumber(value, '--fail-cold-gen-over-ms');
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--fail-cold-gen-over-ms=')) {
+      options.failColdGenOverMs = parseNonNegativeNumber(
+        arg.slice('--fail-cold-gen-over-ms='.length),
+        '--fail-cold-gen-over-ms'
+      );
+      continue;
+    }
+
     throw new Error(`Unknown argument: ${arg}`);
   }
 
   options.baseUrl = options.baseUrl.replace(/\/+$/, '');
   new URL(options.baseUrl);
+  if (options.jsonOut === '') {
+    throw new Error('--json-out requires a non-empty path');
+  }
   return options;
 }
 
@@ -255,17 +336,149 @@ function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function printSummary(rows: BenchmarkRow[]): void {
+function percentile(values: number[], percentileValue: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1)
+  );
+  return sorted[index];
+}
+
+function max(values: number[]): number {
+  if (values.length === 0) return 0;
+  return Math.max(...values);
+}
+
+function parseDurationMs(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*(?:ms)?$/i);
+  if (!match) return null;
+  return Number(match[1]);
+}
+
+function isExpectedStatus(row: BenchmarkRow): boolean {
+  return row.status === 200 || row.status === 204;
+}
+
+function buildPhaseSummary(rows: BenchmarkRow[], phase: Phase): PhaseSummary {
+  const phaseRows = rows.filter((row) => row.phase === phase);
+  const expectedRows = phaseRows.filter(isExpectedStatus);
+  const clientTimes = expectedRows.map((row) => row.elapsedClientMs);
+  const generationTimes = expectedRows
+    .map((row) => parseDurationMs(row.xTileGenerationTime))
+    .filter((value): value is number => value !== null);
+
+  return {
+    phase,
+    requests: phaseRows.length,
+    okStatuses: expectedRows.length,
+    unexpectedStatuses: phaseRows.filter(
+      (row) => typeof row.status === 'number' && !isExpectedStatus(row)
+    ).length,
+    errors: phaseRows.filter((row) => row.status === 'error').length,
+    avgClientMs: average(clientTimes),
+    p50ClientMs: percentile(clientTimes, 50),
+    p95ClientMs: percentile(clientTimes, 95),
+    maxClientMs: max(clientTimes),
+    avgBytes: Math.round(average(expectedRows.map((row) => row.bytes))),
+    generationTimeMs: {
+      count: generationTimes.length,
+      avg: average(generationTimes),
+      p50: percentile(generationTimes, 50),
+      p95: percentile(generationTimes, 95),
+      max: max(generationTimes),
+    },
+  };
+}
+
+function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): BenchmarkSummary {
+  const byPhase = (['cold', 'warm'] as const).map((phase) => buildPhaseSummary(rows, phase));
+  const unexpectedStatuses = rows.filter((row) => !isExpectedStatus(row));
+  const failures = unexpectedStatuses.map(
+    (row) => `${row.city} ${row.z}/${row.x}/${row.y} ${row.phase} returned status ${row.status}`
+  );
+
+  const failColdGenOverMs = options.failColdGenOverMs;
+  if (failColdGenOverMs !== undefined) {
+    const coldGenerationFailures = rows
+      .filter((row) => row.phase === 'cold' && isExpectedStatus(row))
+      .map((row) => ({
+        row,
+        generationMs: parseDurationMs(row.xTileGenerationTime),
+      }))
+      .filter(
+        (entry): entry is { row: BenchmarkRow; generationMs: number } =>
+          entry.generationMs !== null && entry.generationMs > failColdGenOverMs
+      );
+
+    for (const { row, generationMs } of coldGenerationFailures) {
+      failures.push(
+        `${row.city} ${row.z}/${row.x}/${row.y} cold generation ${generationMs.toFixed(
+          1
+        )}ms exceeded ${failColdGenOverMs.toFixed(1)}ms`
+      );
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    baseUrl: options.baseUrl,
+    tiles: buildTileRequests().length,
+    passes: {
+      cold: 1,
+      warm: options.warmPasses,
+    },
+    rows,
+    byPhase,
+    unexpectedStatuses,
+    failures,
+  };
+}
+
+function formatMs(value: number): string {
+  return value.toFixed(1);
+}
+
+function printSummary(summary: BenchmarkSummary): void {
   console.error('');
   console.error('Summary');
-  for (const phase of ['cold', 'warm'] as const) {
-    const phaseRows = rows.filter((row) => row.phase === phase);
-    const successfulRows = phaseRows.filter((row) => typeof row.status === 'number');
+  for (const phaseSummary of summary.byPhase) {
     console.error(
-      `${phase}: requests=${phaseRows.length}, avg_client_ms=${average(
-        successfulRows.map((row) => row.elapsedClientMs)
-      ).toFixed(1)}, avg_bytes=${Math.round(average(successfulRows.map((row) => row.bytes)))}`
+      `${phaseSummary.phase}: requests=${phaseSummary.requests}, ok_statuses=${
+        phaseSummary.okStatuses
+      }, unexpected_statuses=${phaseSummary.unexpectedStatuses}, errors=${
+        phaseSummary.errors
+      }, avg_client_ms=${formatMs(phaseSummary.avgClientMs)}, p50_client_ms=${formatMs(
+        phaseSummary.p50ClientMs
+      )}, p95_client_ms=${formatMs(phaseSummary.p95ClientMs)}, max_client_ms=${formatMs(
+        phaseSummary.maxClientMs
+      )}, avg_bytes=${phaseSummary.avgBytes}, gen_count=${
+        phaseSummary.generationTimeMs.count
+      }, p50_gen_ms=${formatMs(phaseSummary.generationTimeMs.p50)}, p95_gen_ms=${formatMs(
+        phaseSummary.generationTimeMs.p95
+      )}, max_gen_ms=${formatMs(phaseSummary.generationTimeMs.max)}`
     );
+  }
+
+  if (summary.unexpectedStatuses.length > 0) {
+    console.error('');
+    console.error('Unexpected statuses');
+    for (const row of summary.unexpectedStatuses) {
+      console.error(
+        `${row.phase} ${row.city} ${row.z}/${row.x}/${row.y}: status=${row.status}, cache=${row.xTileCache}`
+      );
+    }
+  }
+
+  if (summary.failures.length > 0) {
+    console.error('');
+    console.error('Failures');
+    for (const failure of summary.failures) {
+      console.error(`- ${failure}`);
+    }
   }
 }
 
@@ -296,9 +509,15 @@ async function main(): Promise<void> {
     }
   }
 
-  printSummary(rows);
+  const summary = buildSummary(rows, options);
+  printSummary(summary);
 
-  if (rows.some((row) => row.status === 'error')) {
+  if (options.jsonOut) {
+    await writeFile(options.jsonOut, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+    console.error(`JSON summary written to ${options.jsonOut}`);
+  }
+
+  if (summary.failures.length > 0) {
     process.exitCode = 1;
   }
 }

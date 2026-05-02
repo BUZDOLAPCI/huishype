@@ -166,12 +166,12 @@ describe('property-grouping', () => {
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
     expect(text).not.toContain('bounded_properties AS MATERIALIZED');
-    expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
-    expect(text.indexOf('listing_candidate_ids AS MATERIALIZED')).toBeLessThan(
+    expect(text).toContain('listing_candidate_properties AS MATERIALIZED');
+    expect(text.indexOf('listing_candidate_properties AS MATERIALIZED')).toBeLessThan(
       text.indexOf('candidate_properties AS MATERIALIZED')
     );
     expect(text).toContain(
-      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
+      'SELECT DISTINCT ON (p.id) p.id, p.geometry, p.official_valuation FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
     );
     expect(text).toContain(
       "AND cl.verification_state <> 'invalid' AND cl.status IN ('active', 'sold', 'rented')"
@@ -189,17 +189,21 @@ describe('property-grouping', () => {
     expect(text).not.toContain('completed_listing_candidate_ids');
     expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
     expect(text).not.toMatch(/\bUNION\b(?!\s+ALL)/);
+    expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
     expect(text).toContain(
-      'candidate_property_ids AS MATERIALIZED ( SELECT DISTINCT property_id FROM ('
+      'social_only_candidate_ids AS MATERIALIZED ( SELECT DISTINCT social_activity_candidate_ids.property_id'
     );
+    expect(text).toContain('FROM listing_candidate_properties lcp');
+    expect(text).toContain('WHERE lcp.id = social_activity_candidate_ids.property_id');
     expect(text).toContain(
-      'FROM candidate_property_ids cpi INNER JOIN properties p ON p.id = cpi.property_id'
+      'FROM social_only_candidate_ids soci INNER JOIN properties p ON p.id = soci.property_id'
     );
     expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
     expect(text).toContain('p.geometry && ST_MakeEnvelope');
     expect(text.match(/INNER JOIN properties p ON p\.id/g)?.length).toBe(7);
     expect(text.match(/p\.status = 'active'/g)?.length).toBe(7);
     expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(7);
+    expect(text).toContain('SELECT lcp.id, lcp.geometry, lcp.official_valuation');
     expect(text).toContain('SELECT p.id, p.geometry, p.official_valuation');
     expect(text).toContain(
       'FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id WHERE p.geometry IS NOT NULL'
@@ -281,15 +285,17 @@ describe('property-grouping', () => {
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
     expect(text).not.toContain('bounded_properties AS MATERIALIZED');
-    expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(text).toContain('listing_candidate_properties AS MATERIALIZED');
     expect(text).toContain(
-      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
+      'SELECT DISTINCT ON (p.id) p.id, p.geometry, p.official_valuation FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
     );
     expect(text).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
-    expect(text).toContain(
-      'FROM listing_candidate_ids cpi INNER JOIN properties p ON p.id = cpi.property_id'
-    );
+    expect(text).toContain('FROM listing_candidate_properties lcp');
+    expect(text).not.toContain('INNER JOIN properties p ON p.id = cpi.property_id');
+    expect(text.match(/INNER JOIN properties p ON p\.id/g)?.length).toBe(1);
+    expect(text.match(/p\.status = 'active'/g)?.length).toBe(1);
+    expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(1);
   });
 
   it('scopes price-filter listing, history, and guess work through candidate properties', async () => {
