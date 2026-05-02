@@ -182,6 +182,19 @@ if (typeof document !== 'undefined') {
 const FLICK_VELOCITY = 0.3;
 /** Minimum distance (px) to register as a drag rather than a tap */
 const TAP_THRESHOLD = 10;
+const INTERACTIVE_BODY_PRESS_SELECTOR = [
+  'a',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  '[contenteditable="true"]',
+  '[data-testid^="quick-action-"]',
+  '[data-testid^="price-guess-slider"]',
+  '[data-testid^="share-property-"]',
+  '[data-testid="web-panel-close"]',
+  '[data-testid="web-panel-handle"]',
+].join(',');
 export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBottomSheetProps>(
   function PropertyBottomSheet(
     {
@@ -210,6 +223,10 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     // Section position refs for scroll-to
     const guessSectionY = useRef(0);
     const commentsSectionY = useRef(0);
+
+    // Refs for gesture/body-press state, avoiding listener churn on state changes.
+    const sheetStateRef = useRef(sheetState);
+    sheetStateRef.current = sheetState;
 
     const isOpen = sheetState !== 'closed';
 
@@ -292,6 +309,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       }, delay);
     }, [isLandscape, sheetState, updateState]);
 
+    const handleHalfExpandedBodyPress = useCallback(() => {
+      if (isLandscape || sheetStateRef.current !== 'partial') return;
+      updateState('full');
+    }, [isLandscape, updateState]);
+
     // Expose ref methods matching native @gorhom/bottom-sheet behavior
     useImperativeHandle(ref, () => ({
       expand: () => updateState('full'),
@@ -334,10 +356,6 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     }, [handleDismiss]);
 
     // --- Drag gesture (handle + content area, portrait only) ---
-    // Refs for drag state — avoids re-attaching DOM listeners on state changes
-    const sheetStateRef = useRef(sheetState);
-    sheetStateRef.current = sheetState;
-
     const scrollTopRef = useRef(0);
 
     const dragStartY = useRef<number | null>(null);
@@ -498,6 +516,26 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       };
     }, [isLandscape, snapFromDrag]);
 
+    useEffect(() => {
+      if (isLandscape) return;
+      const panel = panelRef.current;
+      if (!panel) return;
+
+      const onPassiveBodyClick = (event: MouseEvent) => {
+        if (sheetStateRef.current !== 'partial') return;
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        if (!target || !panel.contains(target)) return;
+        if (target.closest('.web-property-panel-header')) return;
+        if (target.closest(INTERACTIVE_BODY_PRESS_SELECTOR)) return;
+        updateState('full');
+      };
+
+      document.addEventListener('click', onPassiveBodyClick, true);
+      return () => {
+        document.removeEventListener('click', onPassiveBodyClick, true);
+      };
+    }, [isLandscape, updateState]);
+
     // Determine panel class based on orientation and state
     const panelClassName = isLandscape
       ? `web-property-panel--landscape ${isOpen ? 'open' : ''}`
@@ -570,6 +608,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onAuthRequired={onAuthRequired}
               onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
               onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
+              onHalfExpandedBodyPress={handleHalfExpandedBodyPress}
               isVisible={sheetState !== 'closed'}
             />
           </ScrollView>

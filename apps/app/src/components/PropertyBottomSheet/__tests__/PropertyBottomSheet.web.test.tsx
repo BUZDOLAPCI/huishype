@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { PropertyBottomSheet } from '../PropertyBottomSheet.web';
 import type { PropertyBottomSheetRef, PropertyContentProps } from '../index';
@@ -9,8 +9,26 @@ const mockPropertyContent = jest.fn<void, [PropertyContentProps]>();
 
 jest.mock('../PropertyContent', () => ({
   PropertyContent: (props: PropertyContentProps) => {
+    const React = require('react');
+    const { Pressable, Text, View } = require('react-native');
+
     mockPropertyContent(props);
-    return null;
+    return (
+      <View>
+        <Pressable
+          testID="mock-passive-body"
+          onPress={props.onHalfExpandedBodyPress}
+        >
+          <Text>Passive body</Text>
+        </Pressable>
+        <Pressable
+          testID="mock-interactive-save"
+          onPress={() => props.onSave?.('web-property-1')}
+        >
+          <Text>Mock Save</Text>
+        </Pressable>
+      </View>
+    );
   },
 }));
 
@@ -51,6 +69,11 @@ const setWindowSize = (width: number, height: number) => {
   });
   window.dispatchEvent(new Event('resize'));
 };
+
+type HostTestNode = { props: Record<string, unknown> };
+
+const getHostNodesByType = (type: string): HostTestNode[] =>
+  (screen.UNSAFE_getAllByType as unknown as (hostType: string) => HostTestNode[])(type);
 
 describe('PropertyBottomSheet.web', () => {
   beforeEach(() => {
@@ -130,5 +153,93 @@ describe('PropertyBottomSheet.web', () => {
     );
 
     expect(ref.current?.openFromPreview).toEqual(expect.any(Function));
+  });
+
+  it('expands a portrait partial sheet when a passive body area is pressed', async () => {
+    setWindowSize(390, 844);
+    const ref = React.createRef<PropertyBottomSheetRef>();
+    const onSheetChange = jest.fn();
+
+    render(
+      <PropertyBottomSheet
+        ref={ref}
+        property={property}
+        isPreviewCardVisible
+        onSheetChange={onSheetChange}
+      />
+    );
+
+    act(() => {
+      ref.current?.snapToIndex(1);
+    });
+
+    await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(1));
+
+    fireEvent.press(screen.getByTestId('mock-passive-body'));
+
+    await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(2));
+    expect(onSheetChange).toHaveBeenLastCalledWith(2);
+  });
+
+  it('keeps web interactive controls from using the passive body path', async () => {
+    setWindowSize(390, 844);
+    const ref = React.createRef<PropertyBottomSheetRef>();
+    const onSave = jest.fn();
+
+    render(
+      <PropertyBottomSheet
+        ref={ref}
+        property={property}
+        isPreviewCardVisible
+        onSave={onSave}
+      />
+    );
+
+    act(() => {
+      ref.current?.snapToIndex(1);
+    });
+
+    await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(1));
+
+    fireEvent.press(screen.getByTestId('mock-interactive-save'));
+
+    expect(onSave).toHaveBeenCalledWith('web-property-1');
+    expect(ref.current?.getCurrentIndex()).toBe(1);
+  });
+
+  it('keeps close and backdrop dismissal behavior in portrait partial state', async () => {
+    setWindowSize(390, 844);
+    const ref = React.createRef<PropertyBottomSheetRef>();
+
+    render(
+      <PropertyBottomSheet
+        ref={ref}
+        property={property}
+        isPreviewCardVisible
+      />
+    );
+
+    act(() => {
+      ref.current?.snapToIndex(1);
+    });
+
+    await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(1));
+
+    const closeButton = getHostNodesByType('button')
+      .find((node) => node.props['aria-label'] === 'Close panel');
+    expect(closeButton).toBeTruthy();
+    fireEvent(closeButton as Parameters<typeof fireEvent>[0], 'click');
+    await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(0));
+
+    act(() => {
+      ref.current?.snapToIndex(1);
+    });
+    await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(1));
+
+    const backdrop = getHostNodesByType('div')
+      .find((node) => node.props['data-testid'] === 'web-panel-backdrop');
+    expect(backdrop).toBeTruthy();
+    fireEvent(backdrop as Parameters<typeof fireEvent>[0], 'click');
+    await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(0));
   });
 });

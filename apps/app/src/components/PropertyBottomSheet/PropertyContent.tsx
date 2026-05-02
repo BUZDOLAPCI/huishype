@@ -11,8 +11,14 @@
  * and lets PropertyContent manage like/save internally.
  */
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import { View, StyleSheet, type LayoutChangeEvent } from 'react-native';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from 'react';
+import { Pressable, View, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { useProperty } from '../../hooks/useProperties';
@@ -67,6 +73,10 @@ export interface PropertyContentProps {
   onGuessSectionLayout?: (y: number) => void;
   onCommentsSectionLayout?: (y: number) => void;
 
+  // Internal sheet-only affordance: passive content taps can expand a
+  // half-open sheet without changing buttons, links, or drag behavior.
+  onHalfExpandedBodyPress?: () => void;
+
   // Visibility flag for view recording.
   // Native sheet: omit (component unmounts when invisible).
   // Web panel: pass sheetState !== 'closed' (component stays mounted).
@@ -95,6 +105,7 @@ interface PropertyContentSectionsProps {
   onViewAllComments?: (id: string) => void;
   onGuessSectionLayout?: (y: number) => void;
   onCommentsSectionLayout?: (y: number) => void;
+  onHalfExpandedBodyPress?: () => void;
 }
 
 function PropertyContentSections({
@@ -111,6 +122,7 @@ function PropertyContentSections({
   onViewAllComments,
   onGuessSectionLayout,
   onCommentsSectionLayout,
+  onHalfExpandedBodyPress,
 }: PropertyContentSectionsProps) {
   const queryClient = useQueryClient();
   const [showSubmission, setShowSubmission] = useState(false);
@@ -157,14 +169,24 @@ function PropertyContentSections({
   return (
     <>
       <View style={styles.contentShell}>
-        <PropertyHeader property={property} containerWidth={contentWidth} />
+        <PropertyHeader
+          property={property}
+          containerWidth={contentWidth}
+          onHalfExpandedBodyPress={onHalfExpandedBodyPress}
+        />
 
         <View
           style={styles.sectionStack}
           onLayout={handleSectionStackLayout}
           testID="property-content-section-stack"
         >
-          <PriceSection property={property} />
+          <Pressable
+            onPress={onHalfExpandedBodyPress}
+            pointerEvents="box-only"
+            testID="property-content-passive-price"
+          >
+            <PriceSection property={property} />
+          </Pressable>
 
           <QuickActions
             property={property}
@@ -196,7 +218,13 @@ function PropertyContentSections({
             />
           </View>
 
-          <PropertyDetails property={property} />
+          <Pressable
+            onPress={onHalfExpandedBodyPress}
+            pointerEvents="box-only"
+            testID="property-content-passive-details"
+          >
+            <PropertyDetails property={property} />
+          </Pressable>
         </View>
       </View>
 
@@ -272,6 +300,7 @@ export function PropertyContent({
   onViewAllComments,
   onGuessSectionLayout,
   onCommentsSectionLayout,
+  onHalfExpandedBodyPress,
   isVisible = true,
 }: PropertyContentProps) {
   const shouldFetchDetails = !!property && !hasPropertyDetails(property);
@@ -321,6 +350,7 @@ export function PropertyContent({
         onViewAllComments={onViewAllComments}
         onGuessSectionLayout={onGuessSectionLayout}
         onCommentsSectionLayout={onCommentsSectionLayout}
+        onHalfExpandedBodyPress={onHalfExpandedBodyPress}
       />
     );
   };

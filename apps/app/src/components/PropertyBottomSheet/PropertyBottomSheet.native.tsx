@@ -113,6 +113,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       [animatedIndex, onSheetChange]
     );
 
+    const handleHalfExpandedBodyPress = useCallback(() => {
+      if (animatedIndex.value !== 1) return;
+      bottomSheetRef.current?.snapToIndex(2);
+    }, [animatedIndex]);
+
     const contentAnimatedStyle = useAnimatedStyle(() => {
       const opacity = interpolate(
         animatedIndex.value,
@@ -160,6 +165,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onAuthRequired={onAuthRequired}
               onGuessSectionLayout={handleGuessSectionLayout}
               onCommentsSectionLayout={handleCommentsSectionLayout}
+              onHalfExpandedBodyPress={handleHalfExpandedBodyPress}
             />
           </Animated.View>
         </BottomSheetScrollView>

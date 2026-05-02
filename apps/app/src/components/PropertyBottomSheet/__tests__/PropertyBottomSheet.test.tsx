@@ -35,6 +35,7 @@ const mockBottomSheetHandle: BottomSheetHandle = {
   snapToIndex: jest.fn(),
 };
 const mockBottomSheetScrollTo = jest.fn();
+let mockBottomSheetOnChange: ((index: number) => void) | undefined;
 
 // Create a test query client
 const createTestQueryClient = () =>
@@ -65,8 +66,9 @@ jest.mock('@gorhom/bottom-sheet', () => {
   const React = require('react') as typeof import('react');
 
   const MockBottomSheet = React.forwardRef(
-    ({ children, index }: BottomSheetMockProps, ref: React.ForwardedRef<BottomSheetHandle>) => {
+    ({ children, index, onChange }: BottomSheetMockProps, ref: React.ForwardedRef<BottomSheetHandle>) => {
       React.useImperativeHandle(ref, () => mockBottomSheetHandle);
+      mockBottomSheetOnChange = onChange;
 
       // Only render if index >= 0 or explicitly set
       if ((index ?? -1) < 0) return null;
@@ -265,6 +267,7 @@ beforeEach(() => {
   mockBottomSheetHandle.close.mockReset();
   mockBottomSheetHandle.snapToIndex.mockReset();
   mockBottomSheetScrollTo.mockReset();
+  mockBottomSheetOnChange = undefined;
   mockUseProperty.mockImplementation((id: string | null) => ({
     data: id === mockProperty.id ? mockPropertyDetails : null,
     isLoading: false,
@@ -356,6 +359,30 @@ describe('PropertyBottomSheet', () => {
     fireEvent.press(screen.getByText('Save'));
 
     expect(onSave).toHaveBeenCalledWith('test-property-123');
+  });
+
+  it('expands from half-open when a passive body area is pressed', () => {
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
+
+    expect(mockBottomSheetOnChange).toEqual(expect.any(Function));
+    mockBottomSheetOnChange?.(1);
+
+    fireEvent.press(screen.getByTestId('property-header-carousel'));
+
+    expect(mockBottomSheetHandle.snapToIndex).toHaveBeenCalledWith(2);
+  });
+
+  it('keeps interactive controls on their own handler in half-open state', () => {
+    const onSave = jest.fn();
+    renderWithProviders(
+      <PropertyBottomSheet property={mockProperty} isPreviewCardVisible onSave={onSave} />
+    );
+
+    mockBottomSheetOnChange?.(1);
+    fireEvent.press(screen.getByText('Save'));
+
+    expect(onSave).toHaveBeenCalledWith('test-property-123');
+    expect(mockBottomSheetHandle.snapToIndex).not.toHaveBeenCalledWith(2);
   });
 
   it('calls onLike when Like button is pressed', () => {

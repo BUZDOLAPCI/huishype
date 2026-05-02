@@ -79,6 +79,7 @@ const ACTIVITY_CONFIG = {
 interface PropertyHeaderProps {
   property: PropertyDetailsData;
   containerWidth?: number;
+  onHalfExpandedBodyPress?: () => void;
 }
 
 function normalizePropertyText(value: string | null | undefined): string {
@@ -141,6 +142,7 @@ function getPropertyAddressTitle(property: PropertyDetailsData): string {
 export function PropertyHeader({
   property,
   containerWidth: _containerWidth,
+  onHalfExpandedBodyPress,
 }: PropertyHeaderProps) {
   const activity = ACTIVITY_CONFIG[property.activityLevel];
   const city = normalizePropertyText(property.city);
@@ -160,45 +162,56 @@ export function PropertyHeader({
 
   return (
     <View style={styles.root}>
-      <View style={styles.carouselContainer} testID="property-header-carousel">
+      <Pressable
+        onPress={onHalfExpandedBodyPress}
+        pointerEvents="box-only"
+        style={styles.carouselContainer}
+        testID="property-header-carousel"
+      >
         <View style={styles.singleImageSlide}>
           <PropertyHeroImage property={property} />
         </View>
-      </View>
+      </Pressable>
 
       <Card shadow="card" style={styles.summaryCard}>
-        <View style={styles.copyRow}>
-          <View style={styles.addressColumn}>
-            <Text style={styles.kicker}>Property Detail</Text>
-            <Text style={styles.address} numberOfLines={2}>
-              {addressTitle}
-            </Text>
-            {hasSecondaryLocation && (
-              <Text style={styles.location}>{secondaryLocation}</Text>
-            )}
-          </View>
-
-          <View style={styles.activityColumn}>
-            <View style={[styles.activityBadge, { backgroundColor: activity.bg }]}>
-              <View style={[styles.activityDot, { backgroundColor: activity.dot }]} />
-              <Text style={[styles.activityLabel, { color: activity.textColor }]}>
-                {activity.label}
+        <Pressable
+          onPress={onHalfExpandedBodyPress}
+          pointerEvents="box-only"
+          testID="property-header-passive-summary"
+        >
+          <View style={styles.copyRow}>
+            <View style={styles.addressColumn}>
+              <Text style={styles.kicker}>Property Detail</Text>
+              <Text style={styles.address} numberOfLines={2}>
+                {addressTitle}
               </Text>
+              {hasSecondaryLocation && (
+                <Text style={styles.location}>{secondaryLocation}</Text>
+              )}
             </View>
-            <Text style={styles.activityDescription}>{activity.desc}</Text>
-          </View>
-        </View>
 
-        <View style={styles.metricWrap}>
-          <MetricPills
-            info={{
-              yearBuilt: property.yearBuilt,
-              floorAreaM2: property.floorAreaM2,
-              viewCount: property.viewCount,
-            }}
-            variant="info"
-          />
-        </View>
+            <View style={styles.activityColumn}>
+              <View style={[styles.activityBadge, { backgroundColor: activity.bg }]}>
+                <View style={[styles.activityDot, { backgroundColor: activity.dot }]} />
+                <Text style={[styles.activityLabel, { color: activity.textColor }]}>
+                  {activity.label}
+                </Text>
+              </View>
+              <Text style={styles.activityDescription}>{activity.desc}</Text>
+            </View>
+          </View>
+
+          <View style={styles.metricWrap}>
+            <MetricPills
+              info={{
+                yearBuilt: property.yearBuilt,
+                floorAreaM2: property.floorAreaM2,
+                viewCount: property.viewCount,
+              }}
+              variant="info"
+            />
+          </View>
+        </Pressable>
 
         <View style={styles.mapLinkRow}>
           <Pressable
