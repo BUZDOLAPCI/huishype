@@ -156,12 +156,12 @@ describe('property-grouping', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
   });
 
-  it('discovers low-zoom non-ghost tile candidates source-first and validates each source through bounded active properties', () => {
+  it('discovers z13 non-ghost tile candidates source-first and validates each source through bounded active properties', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       createDefaultMapFilters(),
-      10
+      13
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -213,12 +213,12 @@ describe('property-grouping', () => {
     );
   });
 
-  it('scopes mid-zoom non-ghost tile candidate discovery to bounded active properties before source scans', () => {
+  it('scopes z14 non-ghost tile candidate discovery to bounded active properties before source scans', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       createDefaultMapFilters(),
-      13
+      14
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
