@@ -88,6 +88,9 @@ let mockResolvedMapRouteState: {
   isLoading: boolean;
   pathname: string;
   resolvedRoute: null | {
+    kind: 'root';
+    canonicalPath: '/';
+  } | {
     kind: 'camera';
     canonicalPath: string;
     camera: { lat: number; lng: number; zoom: number };
@@ -540,6 +543,9 @@ import MapScreen from '@/app/(tabs)/index.web';
 const { Map: mockMapConstructor } = jest.requireMock('maplibre-gl') as {
   Map: jest.Mock;
 };
+const { getCurrentLocation: mockGetCurrentLocation } = jest.requireMock('@/src/lib/currentLocation') as {
+  getCurrentLocation: jest.Mock;
+};
 
 async function flushMicrotasks() {
   await act(async () => {
@@ -586,6 +592,11 @@ describe('MapScreen web grouped Following mode', () => {
     });
     mockInteraction.handleFeaturePress.mockReset();
     mockInteraction.handleFeaturePress.mockResolvedValue(false);
+    mockGetCurrentLocation.mockReset();
+    mockGetCurrentLocation.mockResolvedValue({
+      longitude: 4.9041,
+      latitude: 52.3676,
+    });
     (global as { __DEV__?: boolean }).__DEV__ = false;
     (
       globalThis as typeof globalThis & {
@@ -659,6 +670,112 @@ describe('MapScreen web grouped Following mode', () => {
       51.4416,
       13,
     );
+  });
+
+  it('constructs the root web map at the Netherlands overview', async () => {
+    mockBrowserPathname = '/';
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    expect(map.options.center).toEqual([5.3574841, 52.3626765]);
+    expect(map.options.zoom).toBe(6.29);
+    expect(mockOnViewportCenterChanged).toHaveBeenCalledWith(
+      5.3574841,
+      52.3626765,
+      6.29,
+    );
+  });
+
+  it('auto-locates once after the root web map reaches idle', async () => {
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+    mockGetCurrentLocation.mockResolvedValue({
+      longitude: 4.9041,
+      latitude: 52.3676,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('idle');
+    });
+    await flushMicrotasks();
+
+    expect(mockGetCurrentLocation).toHaveBeenCalledTimes(1);
+    expect(map.flyTo).toHaveBeenCalledWith({
+      center: [4.9041, 52.3676],
+      zoom: 16,
+      duration: 800,
+      essential: true,
+    });
+  });
+
+  it('does not auto-locate on an explicit camera route', async () => {
+    mockBrowserPathname = '/@52.3626765,5.3574841,6.29z';
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/@52.3626765,5.3574841,6.29z',
+      resolvedRoute: {
+        kind: 'camera',
+        canonicalPath: '/@52.3626765,5.3574841,6.29z',
+        camera: { lat: 52.3626765, lng: 5.3574841, zoom: 6.29 },
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('idle');
+    });
+    await flushMicrotasks();
+
+    expect(mockGetCurrentLocation).not.toHaveBeenCalled();
+    expect(map.flyTo).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-locate when only the web map load timeout fires', async () => {
+    jest.useFakeTimers();
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    await act(async () => {
+      jest.advanceTimersByTime(15000);
+      await Promise.resolve();
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    expect(mockGetCurrentLocation).not.toHaveBeenCalled();
+    expect(map.flyTo).not.toHaveBeenCalled();
   });
 
   it('does not jump again when the resolved camera route matches the initial camera', async () => {

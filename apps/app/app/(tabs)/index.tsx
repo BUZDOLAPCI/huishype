@@ -13,7 +13,7 @@ import {
   type ViewStateChangeEvent,
   type PressEvent,
 } from '@maplibre/maplibre-react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
@@ -224,6 +224,7 @@ const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const welcomeModal = useWelcomeModal();
   const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
   const [hasLayout, setHasLayout] = useState(false);
@@ -233,6 +234,7 @@ export default function MapScreen() {
   const [followingActivity, setFollowingActivity] =
     useState<MapActivityTimeFilter>('all-time');
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapFullyRendered, setMapFullyRendered] = useState(false);
   const publicPropertyTileUrl = useMemo(
     () => buildPropertyTileTemplateUrl(API_URL, filterController.appliedFilters),
     [filterController.appliedFilters],
@@ -284,6 +286,7 @@ export default function MapScreen() {
   const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followingRenderRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trackedFollowingEmptyViewRef = useRef(false);
+  const rootAutoLocationRequestedRef = useRef(false);
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
@@ -1134,7 +1137,7 @@ export default function MapScreen() {
     }
   }, [currentZoom]);
 
-  const handleCurrentLocationPress = useCallback(async () => {
+  const flyToCurrentLocation = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
       setShowUserLocation(true);
@@ -1151,6 +1154,25 @@ export default function MapScreen() {
       Alert.alert('Location unavailable', message);
     }
   }, [currentZoom]);
+
+  const handleCurrentLocationPress = useCallback(() => {
+    void flyToCurrentLocation();
+  }, [flyToCurrentLocation]);
+
+  useEffect(() => {
+    if (
+      DEBUG_CAMERA ||
+      rootAutoLocationRequestedRef.current ||
+      !isFocused ||
+      !mapFullyRendered ||
+      !cameraRef.current
+    ) {
+      return;
+    }
+
+    rootAutoLocationRequestedRef.current = true;
+    void flyToCurrentLocation();
+  }, [flyToCurrentLocation, isFocused, mapFullyRendered]);
 
   const [copiedFlash, setCopiedFlash] = useState(false);
   const handleCopyCamera = useCallback(async () => {
@@ -1211,6 +1233,7 @@ export default function MapScreen() {
           onRegionIsChanging={handleRegionIsChanging}
           onRegionDidChange={handleRegionDidChange}
           onDidFinishLoadingMap={() => setMapLoaded(true)}
+          onDidFinishRenderingMapFully={() => setMapFullyRendered(true)}
           onDidFailLoadingMap={() => {
             console.error('Map failed to load');
             setMapLoaded(true); // Dismiss overlay so user can still see error state

@@ -893,6 +893,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const [followingActivity, setFollowingActivity] =
     useState<MapActivityTimeFilter>('all-time');
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapFirstFullRenderReady, setMapFirstFullRenderReady] = useState(false);
   const [mapInteractionsSuspended, setMapInteractionsSuspended] = useState(false);
   const [followingTileAuthToken, setFollowingTileAuthToken] = useState<string | null>(null);
   const { replaceAppliedFilters } = filterController;
@@ -988,6 +989,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const [followingRenderCheckComplete, setFollowingRenderCheckComplete] = useState(false);
   const trackedFollowingEmptyViewRef = useRef(false);
   const propertyTileRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rootAutoLocationRequestedRef = useRef(false);
 
   useEffect(() => {
     registerPropertyTileRetryProtocol(maplibregl, API_URL);
@@ -1472,7 +1474,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     },
   }), []);
 
-  const handleCurrentLocationPress = useCallback(async () => {
+  const flyToCurrentLocation = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
       const targetZoom = Math.max(currentZoomRef.current, 16);
@@ -1488,6 +1490,33 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       Alert.alert('Location unavailable', message);
     }
   }, []);
+
+  const handleCurrentLocationPress = useCallback(() => {
+    void flyToCurrentLocation();
+  }, [flyToCurrentLocation]);
+
+  useEffect(() => {
+    if (
+      DEBUG_CAMERA ||
+      rootAutoLocationRequestedRef.current ||
+      !isMapTabActive ||
+      !mapRef.current ||
+      !mapFirstFullRenderReady ||
+      routeState.isLoading ||
+      routeState.resolvedRoute?.kind !== 'root'
+    ) {
+      return;
+    }
+
+    rootAutoLocationRequestedRef.current = true;
+    void flyToCurrentLocation();
+  }, [
+    flyToCurrentLocation,
+    isMapTabActive,
+    mapFirstFullRenderReady,
+    routeState.isLoading,
+    routeState.resolvedRoute,
+  ]);
 
   const clearAmbientBubbleRefreshTimeout = useCallback(() => {
     if (ambientBubbleRefreshTimeoutRef.current) {
@@ -2027,6 +2056,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       }, 15000);
 
       map.on('load', () => {
+        setMapFirstFullRenderReady(true);
         markMapLoaded();
 
         // Enhance base map colors (imperative overrides on top of server-provided style)
@@ -2046,6 +2076,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       // first complete render has happened and the loading overlay can go away.
       map.on('idle', () => {
         if (!cancelled) {
+          setMapFirstFullRenderReady(true);
           markMapLoaded();
           scheduleFollowingRenderedFeatureRefreshRef.current();
           scheduleActivityPulseUpdate();

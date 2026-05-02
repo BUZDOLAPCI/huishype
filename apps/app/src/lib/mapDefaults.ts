@@ -5,7 +5,9 @@ const IS_DEV = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 // Debug camera: set to true to start zoomed into Beeldbuisring 41 for shader/building debugging
 export const DEBUG_CAMERA = IS_DEV && false;
 
-// Default production camera values (from country config)
+// Root map startup overview. Country-specific defaults still come from config helpers below.
+export const ROOT_MAP_OVERVIEW_CENTER: [number, number] = [5.3574841, 52.3626765];
+export const ROOT_MAP_OVERVIEW_ZOOM = 6.29;
 const PRODUCTION_PITCH = 50;
 const PRODUCTION_BEARING = 0;
 
@@ -56,7 +58,7 @@ export function getDefaultZoom(countryCode?: string): number {
 }
 
 // Backward-compatible constants (default to NL)
-export const DEFAULT_CENTER: [number, number] = DEBUG_CAMERA ? DEBUG_CENTER : getCountryConfig('NL').defaultCenter;
-export const DEFAULT_ZOOM = DEBUG_CAMERA ? DEBUG_ZOOM : getCountryConfig('NL').defaultZoom;
+export const DEFAULT_CENTER: [number, number] = DEBUG_CAMERA ? DEBUG_CENTER : ROOT_MAP_OVERVIEW_CENTER;
+export const DEFAULT_ZOOM = DEBUG_CAMERA ? DEBUG_ZOOM : ROOT_MAP_OVERVIEW_ZOOM;
 export const DEFAULT_PITCH = PRODUCTION_PITCH;
 export const DEFAULT_BEARING = PRODUCTION_BEARING;

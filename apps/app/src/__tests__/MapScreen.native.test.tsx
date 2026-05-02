@@ -38,6 +38,9 @@ const mockFetchFollowingNearbyGroup = jest.fn();
 const mockWelcomeOpen = jest.fn();
 const mockWelcomeDismiss = jest.fn();
 let mockWelcomeVisible = false;
+let mockIsFocused = true;
+const mockCameraFlyTo = jest.fn();
+const mockCameraFitBounds = jest.fn();
 
 let capturedMapFilterBarProps: {
   socialScope?: 'all' | 'following';
@@ -102,6 +105,7 @@ jest.mock('@react-navigation/native', () => ({
     const ReactModule = require('react') as typeof import('react');
     ReactModule.useEffect(() => effect(), [effect]);
   }),
+  useIsFocused: jest.fn(() => mockIsFocused),
 }));
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -302,6 +306,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
   type MockMapProps = {
     children?: React.ReactNode;
     onDidFinishLoadingMap?: () => void;
+    onDidFinishRenderingMapFully?: () => void;
     onPress?: (event: unknown) => void;
   };
 
@@ -317,14 +322,22 @@ jest.mock('@maplibre/maplibre-react-native', () => {
       props.onDidFinishLoadingMap?.();
     }, [props]);
 
-    return ReactModule.createElement(
-      Pressable,
-      { testID: 'native-map', onPress: props.onPress },
-      props.children
-    );
+    const pressableProps = {
+      testID: 'native-map',
+      onDidFinishRenderingMapFully: props.onDidFinishRenderingMapFully,
+      onPress: props.onPress,
+    } as unknown as React.ComponentProps<typeof Pressable>;
+
+    return ReactModule.createElement(Pressable, pressableProps, props.children);
   });
 
-  const Camera = ReactModule.forwardRef(() => null);
+  const Camera = ReactModule.forwardRef((_, ref) => {
+    ReactModule.useImperativeHandle(ref, () => ({
+      flyTo: mockCameraFlyTo,
+      fitBounds: mockCameraFitBounds,
+    }));
+    return null;
+  });
   const Marker = ({ children }: { children?: React.ReactNode }) =>
     ReactModule.createElement(View, null, children);
 
@@ -343,6 +356,9 @@ jest.mock('@maplibre/maplibre-react-native', () => {
 
 const MapScreen = require('@/app/(tabs)/index')
   .default as typeof import('@/app/(tabs)/index').default;
+const { getCurrentLocation: mockGetCurrentLocation } = jest.requireMock('@/src/lib/currentLocation') as {
+  getCurrentLocation: jest.Mock;
+};
 
 describe('MapScreen native grouped Following mode', () => {
   async function renderMapScreen() {
@@ -363,6 +379,7 @@ describe('MapScreen native grouped Following mode', () => {
     jest.clearAllMocks();
     jest.useRealTimers();
     mockIsAuthenticated = true;
+    mockIsFocused = true;
     mockFollowingTileSourceIsError = false;
     mockFollowingTileUrl = 'https://tiles.test/following/{z}/{x}/{y}.pbf';
     mockReadTileUrl = 'https://tiles.test/properties/read/{z}/{x}/{y}.pbf';
@@ -389,6 +406,13 @@ describe('MapScreen native grouped Following mode', () => {
     mockFetchFollowingNearbyGroup.mockReset();
     mockInteraction.handleFeaturePress.mockReset();
     mockInteraction.handleFeaturePress.mockResolvedValue(false);
+    mockCameraFlyTo.mockReset();
+    mockCameraFitBounds.mockReset();
+    mockGetCurrentLocation.mockReset();
+    mockGetCurrentLocation.mockResolvedValue({
+      longitude: 4.9041,
+      latitude: 52.3676,
+    });
 
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
@@ -552,6 +576,40 @@ describe('MapScreen native grouped Following mode', () => {
     const screen = await renderMapScreen();
 
     expect(screen.getByTestId('welcome-modal')).toBeTruthy();
+  });
+
+  it('auto-locates after the native map finishes rendering fully', async () => {
+    const screen = await renderMapScreen();
+
+    fireEvent(screen.getByTestId('native-map'), 'didFinishRenderingMapFully');
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockGetCurrentLocation).toHaveBeenCalledTimes(1);
+    expect(mockCameraFlyTo).toHaveBeenCalledWith({
+      center: [4.9041, 52.3676],
+      zoom: 16,
+      pitch: expect.any(Number),
+      duration: 800,
+    });
+  });
+
+  it('auto-locates only once on repeated native full-render events', async () => {
+    const screen = await renderMapScreen();
+
+    fireEvent(screen.getByTestId('native-map'), 'didFinishRenderingMapFully');
+    fireEvent(screen.getByTestId('native-map'), 'didFinishRenderingMapFully');
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockGetCurrentLocation).toHaveBeenCalledTimes(1);
+    expect(mockCameraFlyTo).toHaveBeenCalledTimes(1);
   });
 
   it('does not record ghost preview properties as read', async () => {
