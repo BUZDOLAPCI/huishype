@@ -156,11 +156,65 @@ describe('property-grouping', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
   });
 
-  it('scopes non-ghost tile candidate discovery to bounded active properties before source scans', () => {
+  it('discovers low-zoom non-ghost tile candidates source-first and validates each source through bounded active properties', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
-      createDefaultMapFilters()
+      createDefaultMapFilters(),
+      10
+    );
+    const text = renderSql(query).replace(/\s+/g, ' ').trim();
+
+    expect(text).not.toContain('bounded_properties AS MATERIALIZED');
+    expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(text.indexOf('listing_candidate_ids AS MATERIALIZED')).toBeLessThan(
+      text.indexOf('candidate_properties AS MATERIALIZED')
+    );
+    expect(text).toContain(
+      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
+    );
+    expect(text).toContain(
+      "AND cl.verification_state <> 'invalid' AND cl.status IN ('active', 'sold', 'rented')"
+    );
+    expect(text).toContain('FROM comments c INNER JOIN properties p ON p.id = c.property_id');
+    expect(text).toContain('INNER JOIN properties p ON p.id = r.target_id');
+    expect(text).toContain("AND r.target_type = 'property' AND r.reaction_type = 'like'");
+    expect(text).toContain(
+      'INNER JOIN comments c ON c.id = r.target_id INNER JOIN properties p ON p.id = c.property_id'
+    );
+    expect(text).toContain("AND r.target_type = 'comment' AND r.reaction_type = 'like'");
+    expect(text).toContain('FROM price_guesses pg INNER JOIN properties p ON p.id = pg.property_id');
+    expect(text).toContain('FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id');
+    expect(text).not.toContain('active_listing_candidate_ids');
+    expect(text).not.toContain('completed_listing_candidate_ids');
+    expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
+    expect(text).not.toMatch(/\bUNION\b(?!\s+ALL)/);
+    expect(text).toContain(
+      'candidate_property_ids AS MATERIALIZED ( SELECT DISTINCT property_id FROM ('
+    );
+    expect(text).toContain(
+      'FROM candidate_property_ids cpi INNER JOIN properties p ON p.id = cpi.property_id'
+    );
+    expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
+    expect(text).toContain('p.geometry && ST_MakeEnvelope');
+    expect(text.match(/INNER JOIN properties p ON p\.id/g)?.length).toBe(7);
+    expect(text.match(/p\.status = 'active'/g)?.length).toBe(7);
+    expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(7);
+    expect(text).toContain('SELECT p.id, p.geometry, p.official_valuation');
+    expect(text).toContain(
+      'FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id WHERE p.geometry IS NOT NULL'
+    );
+    expect(text).toContain(
+      'GROUP BY pv.property_id HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8'
+    );
+  });
+
+  it('scopes mid-zoom non-ghost tile candidate discovery to bounded active properties before source scans', () => {
+    const query = buildGroupingCandidateScopeCtes(
+      [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
+      false,
+      createDefaultMapFilters(),
+      13
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -172,14 +226,24 @@ describe('property-grouping', () => {
     expect(text).toContain(
       'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN bounded_properties bp ON bp.id = cl.property_id'
     );
-    expect(text).toContain("WHERE cl.verification_state <> 'invalid' AND cl.status IN ('active', 'sold', 'rented')");
-    expect(text).toContain('FROM comments c INNER JOIN bounded_properties bp ON bp.id = c.property_id');
+    expect(text).toContain(
+      "WHERE cl.verification_state <> 'invalid' AND cl.status IN ('active', 'sold', 'rented')"
+    );
+    expect(text).toContain(
+      'FROM comments c INNER JOIN bounded_properties bp ON bp.id = c.property_id'
+    );
     expect(text).toContain('INNER JOIN bounded_properties bp ON bp.id = r.target_id');
     expect(text).toContain("WHERE r.target_type = 'property' AND r.reaction_type = 'like'");
-    expect(text).toContain('INNER JOIN comments c ON c.id = r.target_id INNER JOIN bounded_properties bp ON bp.id = c.property_id');
+    expect(text).toContain(
+      'INNER JOIN comments c ON c.id = r.target_id INNER JOIN bounded_properties bp ON bp.id = c.property_id'
+    );
     expect(text).toContain("WHERE r.target_type = 'comment' AND r.reaction_type = 'like'");
-    expect(text).toContain('FROM price_guesses pg INNER JOIN bounded_properties bp ON bp.id = pg.property_id');
-    expect(text).toContain('FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id');
+    expect(text).toContain(
+      'FROM price_guesses pg INNER JOIN bounded_properties bp ON bp.id = pg.property_id'
+    );
+    expect(text).toContain(
+      'FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id'
+    );
     expect(text).not.toContain('INNER JOIN properties p ON p.id = cl.property_id');
     expect(text).not.toContain('INNER JOIN properties p ON p.id = c.property_id');
     expect(text).not.toContain('INNER JOIN properties p ON p.id = r.target_id');
@@ -198,6 +262,7 @@ describe('property-grouping', () => {
     expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
     expect(text).toContain('p.geometry && ST_MakeEnvelope');
     expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(1);
+    expect(text).toContain('SELECT bp.id, bp.geometry, bp.official_valuation');
     expect(text).toContain(
       'FROM property_views pv INNER JOIN bounded_properties bp ON bp.id = pv.property_id GROUP BY pv.property_id'
     );
@@ -206,25 +271,69 @@ describe('property-grouping', () => {
     );
   });
 
-  it('skips social-only candidate discovery when market filters can only return listed states', () => {
+  it('skips low-zoom social-only candidate discovery when market filters can only return listed states', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
-      normalizeMapFilters({ marketState: ['for-sale', 'for-rent', 'sold', 'rented'] })
+      normalizeMapFilters({ marketState: ['for-sale', 'for-rent', 'sold', 'rented'] }),
+      10
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
-    expect(text).toContain('bounded_properties AS MATERIALIZED');
+    expect(text).not.toContain('bounded_properties AS MATERIALIZED');
     expect(text).toContain('listing_candidate_ids AS MATERIALIZED');
     expect(text).toContain(
-      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN bounded_properties bp ON bp.id = cl.property_id'
+      'SELECT DISTINCT cl.property_id FROM canonical_listings cl INNER JOIN properties p ON p.id = cl.property_id'
     );
-    expect(text).not.toContain('INNER JOIN properties p ON p.id = cl.property_id');
     expect(text).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
     expect(text).toContain(
-      'FROM listing_candidate_ids cpi INNER JOIN bounded_properties bp ON bp.id = cpi.property_id'
+      'FROM listing_candidate_ids cpi INNER JOIN properties p ON p.id = cpi.property_id'
     );
+  });
+
+  it('scopes price-filter listing, history, and guess work through candidate properties', async () => {
+    const renderedQueries: string[] = [];
+    const txExecuteMock = jest.fn(async (query: SQL) => {
+      renderedQueries.push(renderSql(query).replace(/\s+/g, ' ').trim());
+      return [] as never;
+    });
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+
+    await expect(
+      buildCanonicalGroupsForTile(
+        { z: 18, x: 100000, y: 70000 },
+        normalizeMapFilters({ salePriceFrom: 300000, salePriceTo: 700000, rentPriceTo: 2500 })
+      )
+    ).resolves.toEqual([]);
+
+    const candidateQuery = renderedQueries.find((text) =>
+      text.includes('latest_public_guesses AS MATERIALIZED')
+    );
+    expect(candidateQuery).toBeDefined();
+    expect(candidateQuery).toContain('candidate_properties AS MATERIALIZED');
+    expect(
+      candidateQuery?.match(
+        /FROM v_canonical_listing_facts l INNER JOIN candidate_properties cp ON cp.id = l.property_id/g
+      )?.length
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      candidateQuery?.match(
+        /FROM price_history ph INNER JOIN candidate_properties cp ON cp.id = ph.property_id/g
+      )?.length
+    ).toBe(2);
+    expect(candidateQuery).toContain(
+      'FROM price_guesses pg INNER JOIN candidate_properties cp ON cp.id = pg.property_id'
+    );
+    expect(candidateQuery).toContain(
+      'FROM latest_public_guesses lpg INNER JOIN users u ON u.id = lpg.user_id INNER JOIN candidate_properties cp ON cp.id = lpg.property_id'
+    );
+    expect(candidateQuery).toContain('FROM candidate_properties cp LEFT JOIN latest_listing');
+    expect(candidateQuery).toContain('lf.sale_effective_price');
+    expect(candidateQuery).toContain('lf.rent_effective_price');
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 
   it('hydrates single-property tile details with a set-based listing fact batch query', async () => {
@@ -310,7 +419,8 @@ describe('property-grouping', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       true,
-      createDefaultMapFilters()
+      createDefaultMapFilters(),
+      13
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -837,29 +947,73 @@ describe('property-grouping', () => {
     expect(groups[1].propertyIds).toEqual([gamma.id]);
   });
 
-  it('suppresses ghosts that fall inside active occupancy once ghosts are revealed', () => {
+  it('suppresses ghosts inside active occupancy and keeps far ghosts once ghosts are revealed', () => {
     const zoom = GHOST_NODE_REVEAL_ZOOM;
-    const baseLon = 5.4697;
-    const baseLat = 51.4416;
-    const tile = tileForCoordinate(baseLon, baseLat, zoom);
-    const active = makeCandidate('00000000-0000-0000-0000-000000000011', baseLon, baseLat, zoom, {
-      socialScore: 95,
-    });
+    const tile = { z: zoom, x: 100000, y: 70000 };
+    const originX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const originY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const [activeLon, activeLat] = worldUnitsToLngLat(originX, originY, zoom);
+    const active = makeCandidate(
+      '00000000-0000-0000-0000-000000000011',
+      activeLon,
+      activeLat,
+      zoom,
+      {
+        socialScore: 95,
+        worldX: originX,
+        worldY: originY,
+      }
+    );
+    const activeOccupancyRadiusUnits =
+      (getActiveSingleRadiusPx(active.socialScore) +
+        PROPERTY_MAP_FOOTPRINTS.ghost.suppressionPaddingPx) *
+      TILE_UNITS_PER_PX;
+    const ghostRadiusUnits =
+      Math.max(getGhostSingleRadiusPx(), getGhostClusterRadiusPx(2)) * TILE_UNITS_PER_PX;
+    const suppressionThresholdUnits = activeOccupancyRadiusUnits + ghostRadiusUnits;
+    const [suppressedLon, suppressedLat] = worldUnitsToLngLat(
+      originX + suppressionThresholdUnits,
+      originY,
+      zoom
+    );
     const suppressedGhost = makeCandidate(
       '00000000-0000-0000-0000-000000000012',
-      baseLon + 0.00001,
-      baseLat + 0.00001,
+      suppressedLon,
+      suppressedLat,
       zoom,
       {
         hasActiveListing: false,
         socialScore: 0,
+        worldX: originX + suppressionThresholdUnits,
+        worldY: originY,
+      }
+    );
+    const [farLon, farLat] = worldUnitsToLngLat(
+      originX + suppressionThresholdUnits + TILE_UNITS_PER_PX,
+      originY,
+      zoom
+    );
+    const farGhost = makeCandidate(
+      '00000000-0000-0000-0000-000000000013',
+      farLon,
+      farLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        socialScore: 0,
+        worldX: originX + suppressionThresholdUnits + TILE_UNITS_PER_PX,
+        worldY: originY,
       }
     );
 
-    const groups = groupCandidatesForTile(tile, [active, suppressedGhost]);
-    expect(groups).toHaveLength(1);
-    expect(groups[0].nodeClass).toBe('active');
-    expect(groups[0].primaryPropertyId).toBe(active.id);
+    const groups = groupCandidatesForTile(tile, [active, suppressedGhost, farGhost]);
+    const activeGroup = groups.find((group) => group.nodeClass === 'active');
+    const ghostGroup = groups.find((group) => group.nodeClass === 'ghost');
+
+    expect(groups).toHaveLength(2);
+    expect(activeGroup?.primaryPropertyId).toBe(active.id);
+    expect(ghostGroup?.primaryPropertyId).toBe(farGhost.id);
+    expect(groups.find((group) => group.primaryPropertyId === suppressedGhost.id)).toBeUndefined();
   });
 
   it('keeps listing-backed zero-social candidates active below ghost reveal zoom while hiding true ghosts', () => {

@@ -32,16 +32,42 @@ const DENSE_DYNAMIC_Z13_TILES = [
   { label: 'rotterdam-z13', z: 13, x: 4197, y: 2708 },
 ];
 
+const REPRESENTATIVE_HEAVY_PUBLIC_LOW_ZOOM_TILES = [
+  { label: 'randstad-country-z8', z: 8, x: 131, y: 84 },
+  { label: 'amsterdam-low-z9', z: 9, x: 262, y: 168 },
+  { label: 'utrecht-low-z9', z: 9, x: 263, y: 168 },
+  { label: 'rotterdam-low-z9', z: 9, x: 262, y: 169 },
+];
+
+const REPRESENTATIVE_HEAVY_PUBLIC_GHOST_REVEAL_TILES = [
+  { label: 'amsterdam-ghost-reveal-z17', z: 17, x: 67321, y: 43076 },
+  { label: 'utrecht-ghost-reveal-z17', z: 17, x: 67400, y: 43241 },
+  { label: 'rotterdam-ghost-reveal-z17', z: 17, x: 67166, y: 43339 },
+];
+
 const TILE_SETS = {
   'dense-dynamic-z13': buildDenseDynamicZ13TileSet(),
   'heavy-low-zoom': buildHeavyLowZoomTileSet(),
+  'representative-heavy-public': buildRepresentativeHeavyPublicTileSet(),
 };
 
 function buildDenseDynamicZ13TileSet() {
-  return DENSE_DYNAMIC_Z13_TILES.map((tile) => ({
+  return buildFixedTileSet(DENSE_DYNAMIC_Z13_TILES);
+}
+
+function buildFixedTileSet(tiles) {
+  return tiles.map((tile) => ({
     label: tile.label,
     path: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
   }));
+}
+
+function buildRepresentativeHeavyPublicTileSet() {
+  return buildFixedTileSet([
+    ...DENSE_DYNAMIC_Z13_TILES,
+    ...REPRESENTATIVE_HEAVY_PUBLIC_LOW_ZOOM_TILES,
+    ...REPRESENTATIVE_HEAVY_PUBLIC_GHOST_REVEAL_TILES,
+  ]);
 }
 
 function buildHeavyLowZoomTileSet() {
@@ -246,6 +272,10 @@ Options:
                              dynamic cold/warm generation in dense cities.
   --tile-set heavy-low-zoom  Fixed z8-z9 Amsterdam/Utrecht/Rotterdam property tiles.
                              These may exercise low-zoom snapshot behavior.
+  --tile-set representative-heavy-public
+                             Representative heavy public regression set:
+                             dense z13 city tiles, low-zoom Randstad/city tiles,
+                             and z17 ghost-reveal city tiles.
                              Defaults to dense-dynamic-z13 when no --path is provided.
   --include-read-tiles       Also benchmark /tiles/properties/read/... for each fixed tile.
   --cold-runs N              First-request phase count per target. Default: 1.

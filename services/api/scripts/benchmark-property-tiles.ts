@@ -2,12 +2,6 @@ import { performance } from 'node:perf_hooks';
 
 type Phase = 'cold' | 'warm';
 
-type City = {
-  name: string;
-  lat: number;
-  lon: number;
-};
-
 type TileRequest = {
   city: string;
   z: number;
@@ -36,17 +30,18 @@ type BenchmarkRow = TileRequest & {
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3100';
 const DEFAULT_WARM_PASSES = 2;
 const DEFAULT_TIMEOUT_MS = 60_000;
-const ZOOMS = [13, 14, 15, 16] as const;
 
-const CITIES: City[] = [
-  { name: 'Amsterdam', lat: 52.3676, lon: 4.9041 },
-  { name: 'Utrecht', lat: 52.0907, lon: 5.1214 },
-  { name: 'Rotterdam', lat: 51.9244, lon: 4.4777 },
-];
-
-const HISTORICAL_HEAVY_TILES: TileRequest[] = [
-  { city: 'Amsterdam historical z13', z: 13, x: 4206, y: 2692 },
-  { city: 'Eindhoven historical z13', z: 13, x: 4220, y: 2726 },
+const REPRESENTATIVE_HEAVY_PUBLIC_TILES: TileRequest[] = [
+  { city: 'Amsterdam dense z13', z: 13, x: 4206, y: 2692 },
+  { city: 'Utrecht dense z13', z: 13, x: 4212, y: 2702 },
+  { city: 'Rotterdam dense z13', z: 13, x: 4197, y: 2708 },
+  { city: 'Randstad country z8', z: 8, x: 131, y: 84 },
+  { city: 'Amsterdam low z9', z: 9, x: 262, y: 168 },
+  { city: 'Utrecht low z9', z: 9, x: 263, y: 168 },
+  { city: 'Rotterdam low z9', z: 9, x: 262, y: 169 },
+  { city: 'Amsterdam ghost reveal z17', z: 17, x: 67321, y: 43076 },
+  { city: 'Utrecht ghost reveal z17', z: 17, x: 67400, y: 43241 },
+  { city: 'Rotterdam ghost reveal z17', z: 17, x: 67166, y: 43339 },
 ];
 
 const CSV_COLUMNS = [
@@ -80,6 +75,10 @@ Options:
   --help                 Show this help.
 
 Notes:
+  The benchmark uses representative heavy public tiles: dense z13
+  Amsterdam/Utrecht/Rotterdam, low-zoom Randstad/city tiles, and z17
+  ghost-reveal city tiles.
+
   The benchmark uses /tiles/properties/:z/:x/:y.pbf with no cache-busting query
   parameter. To approximate a cold server memory cache, restart the API before
   running this script. The server cache key is tile plus normalized filter
@@ -163,38 +162,14 @@ function parseArgs(argv: string[]): BenchmarkOptions {
   return options;
 }
 
-function lonLatToTile(lon: number, lat: number, z: number): { x: number; y: number } {
-  const latRadians = (lat * Math.PI) / 180;
-  const n = 2 ** z;
-  const x = Math.floor(((lon + 180) / 360) * n);
-  const y = Math.floor(
-    ((1 - Math.log(Math.tan(latRadians) + 1 / Math.cos(latRadians)) / Math.PI) / 2) * n
-  );
-  return { x, y };
-}
-
 function buildTileRequests(): TileRequest[] {
-  const cityCenterTiles = CITIES.flatMap((city) =>
-    ZOOMS.map((z) => {
-      const tile = lonLatToTile(city.lon, city.lat, z);
-      return {
-        city: city.name,
-        z,
-        x: tile.x,
-        y: tile.y,
-      };
-    })
-  );
-
-  const seen = new Set(cityCenterTiles.map((tile) => `${tile.z}/${tile.x}/${tile.y}`));
-  const extraHeavyTiles = HISTORICAL_HEAVY_TILES.filter((tile) => {
+  const seen = new Set<string>();
+  return REPRESENTATIVE_HEAVY_PUBLIC_TILES.filter((tile) => {
     const key = `${tile.z}/${tile.x}/${tile.y}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-
-  return [...cityCenterTiles, ...extraHeavyTiles];
 }
 
 function csvEscape(value: string | number): string {
@@ -300,11 +275,7 @@ async function main(): Promise<void> {
   const rows: BenchmarkRow[] = [];
 
   console.error(`Base URL: ${options.baseUrl}`);
-  console.error(
-    `Tiles: ${requests.length} (${CITIES.map((city) => city.name).join(', ')}, z${ZOOMS[0]}-z${
-      ZOOMS[ZOOMS.length - 1]
-    })`
-  );
+  console.error(`Tiles: ${requests.length} (representative heavy public)`);
   console.error(`Passes: 1 cold + ${options.warmPasses} warm`);
   console.error(
     'Cold-cache method: restart the API before running; this script does not clear caches or add cache-busting query params.'

@@ -36,6 +36,7 @@ export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
 const TILE_UNITS_PER_PX = PROPERTY_TILE_EXTENT / TILE_SIZE_PX;
 export const GHOST_NODE_REVEAL_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
+const SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM = 10;
 
 const ACTIVE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active;
 const GHOST_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost;
@@ -150,6 +151,17 @@ type SinglePropertyDetail = {
 type SpatialHashEntry = {
   candidate: GroupingCandidate;
   radiusUnits: number;
+};
+
+type ActiveOccupancy = {
+  x: number;
+  y: number;
+  radiusUnits: number;
+};
+
+type ActiveOccupancySpatialIndex = {
+  cellSize: number;
+  cells: Map<string, ActiveOccupancy[]>;
 };
 
 type ClusterBuilderConfig = {
@@ -716,6 +728,84 @@ function buildSpatialHash(
   return index;
 }
 
+function buildActiveOccupancySpatialIndex(
+  activeOccupancies: ActiveOccupancy[],
+  ghostRadiusUnits: number,
+  options?: PropertyTileBuildOptions,
+  startedAt = Date.now()
+): ActiveOccupancySpatialIndex | null {
+  if (activeOccupancies.length === 0) {
+    return null;
+  }
+
+  let maxSuppressionRadiusUnits = ghostRadiusUnits;
+  for (let index = 0; index < activeOccupancies.length; index += 1) {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'active occupancy spatial index');
+    }
+    maxSuppressionRadiusUnits = Math.max(
+      maxSuppressionRadiusUnits,
+      activeOccupancies[index].radiusUnits + ghostRadiusUnits
+    );
+  }
+
+  const cells = new Map<string, ActiveOccupancy[]>();
+  const cellSize = Math.max(maxSuppressionRadiusUnits, 1);
+  for (let index = 0; index < activeOccupancies.length; index += 1) {
+    if (index % 128 === 0) {
+      assertTileBuildCanContinue(options, startedAt, 'active occupancy spatial index');
+    }
+    const occupancy = activeOccupancies[index];
+    const key = getCellKey(occupancy.x, occupancy.y, cellSize);
+    const bucket = cells.get(key);
+    if (bucket) {
+      bucket.push(occupancy);
+    } else {
+      cells.set(key, [occupancy]);
+    }
+  }
+
+  return { cellSize, cells };
+}
+
+function isSuppressedByActiveOccupancy(
+  candidate: GroupingCandidate,
+  ghostRadiusUnits: number,
+  index: ActiveOccupancySpatialIndex | null,
+  options?: PropertyTileBuildOptions,
+  startedAt = Date.now()
+): boolean {
+  if (!index) {
+    return false;
+  }
+
+  const cellX = Math.floor(candidate.worldX / index.cellSize);
+  const cellY = Math.floor(candidate.worldY / index.cellSize);
+  let occupancyChecks = 0;
+
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      const bucket = index.cells.get(`${cellX + dx}:${cellY + dy}`);
+      if (!bucket) continue;
+
+      for (const occupancy of bucket) {
+        occupancyChecks += 1;
+        if (occupancyChecks % 512 === 0) {
+          assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
+        }
+        const dxWorld = candidate.worldX - occupancy.x;
+        const dyWorld = candidate.worldY - occupancy.y;
+        const threshold = occupancy.radiusUnits + ghostRadiusUnits;
+        if (dxWorld * dxWorld + dyWorld * dyWorld <= threshold * threshold) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 function clusterCandidates(
   candidates: GroupingCandidate[],
   config: ClusterBuilderConfig,
@@ -1168,17 +1258,23 @@ function buildListingOrderExpression(alias: string): SQL {
 export function buildGroupingCandidateScopeCtes(
   boundsList: TileBBox[],
   includeGhostCandidates: boolean,
-  filters: MapFilters
+  filters: MapFilters,
+  zoom: number
 ): SQL {
   const bboxFilter = buildBoundsFilter(boundsList, sql.raw('p.geometry'));
   const activityCandidateFilter = buildActivityWindowPredicate(
     sql.raw('activity_at'),
     filters.activity
   );
+  const activeBoundedPropertyFilter = sql`p.geometry IS NOT NULL
+            AND p.status = 'active'
+            AND (${bboxFilter})`;
   const canIncludeSocialOnlyCandidates = filters.marketState.includes('not-listed');
+  const useSourceFirstCandidateScope =
+    !includeGhostCandidates && zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
 
-  return includeGhostCandidates
-    ? sql`
+  if (includeGhostCandidates) {
+    return sql`
         candidate_properties AS MATERIALIZED (
           SELECT
             p.id,
@@ -1189,8 +1285,11 @@ export function buildGroupingCandidateScopeCtes(
             AND p.status = 'active'
             AND (${bboxFilter})
         )
-      `
-    : sql`
+      `;
+  }
+
+  if (!useSourceFirstCandidateScope) {
+    return sql`
         bounded_properties AS MATERIALIZED (
           SELECT
             p.id,
@@ -1291,6 +1390,106 @@ export function buildGroupingCandidateScopeCtes(
           INNER JOIN bounded_properties bp ON bp.id = cpi.property_id
         )
       `;
+  }
+
+  return sql`
+        listing_candidate_ids AS MATERIALIZED (
+          SELECT DISTINCT cl.property_id
+          FROM canonical_listings cl
+          INNER JOIN properties p ON p.id = cl.property_id
+          WHERE ${activeBoundedPropertyFilter}
+            AND cl.verification_state <> 'invalid'
+            AND cl.status IN ('active', 'sold', 'rented')
+        )
+        ${
+          canIncludeSocialOnlyCandidates
+            ? sql`,
+        social_activity_candidate_ids AS MATERIALIZED (
+          SELECT property_id
+          FROM (
+            SELECT c.property_id
+            FROM (
+              SELECT c.property_id, c.created_at AS activity_at
+              FROM comments c
+              INNER JOIN properties p ON p.id = c.property_id
+              WHERE ${activeBoundedPropertyFilter}
+            ) c
+            WHERE ${activityCandidateFilter}
+            UNION ALL
+            SELECT r.property_id
+            FROM (
+              SELECT r.target_id AS property_id, r.created_at AS activity_at
+              FROM reactions r
+              INNER JOIN properties p ON p.id = r.target_id
+              WHERE ${activeBoundedPropertyFilter}
+                AND r.target_type = 'property'
+                AND r.reaction_type = 'like'
+            ) r
+            WHERE ${activityCandidateFilter}
+            UNION ALL
+            SELECT rc.property_id
+            FROM (
+                SELECT c.property_id, r.created_at AS activity_at
+                FROM reactions r
+                INNER JOIN comments c ON c.id = r.target_id
+                INNER JOIN properties p ON p.id = c.property_id
+                WHERE ${activeBoundedPropertyFilter}
+                  AND r.target_type = 'comment'
+                  AND r.reaction_type = 'like'
+              ) rc
+            WHERE ${activityCandidateFilter}
+            UNION ALL
+            SELECT pg.property_id
+            FROM (
+              SELECT
+                pg.property_id,
+                GREATEST(pg.created_at, pg.updated_at) AS activity_at
+              FROM price_guesses pg
+              INNER JOIN properties p ON p.id = pg.property_id
+              WHERE ${activeBoundedPropertyFilter}
+            ) pg
+            WHERE ${activityCandidateFilter}
+            UNION ALL
+            SELECT pv.property_id
+            FROM (
+              SELECT
+                pv.property_id,
+                MAX(pv.viewed_at) AS activity_at
+              FROM property_views pv
+              INNER JOIN properties p ON p.id = pv.property_id
+              WHERE ${activeBoundedPropertyFilter}
+              GROUP BY pv.property_id
+              HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
+            ) pv
+            WHERE ${activityCandidateFilter}
+          ) social_candidates
+        ),
+        candidate_property_ids AS MATERIALIZED (
+          SELECT DISTINCT property_id
+          FROM (
+            SELECT property_id
+            FROM listing_candidate_ids
+            UNION ALL
+            SELECT property_id
+            FROM social_activity_candidate_ids
+          ) candidate_ids
+        )`
+            : sql``
+        },
+        candidate_properties AS MATERIALIZED (
+          SELECT
+            p.id,
+            p.geometry,
+            p.official_valuation
+          FROM ${
+            canIncludeSocialOnlyCandidates
+              ? sql`candidate_property_ids cpi`
+              : sql`listing_candidate_ids cpi`
+          }
+          INNER JOIN properties p ON p.id = cpi.property_id
+          WHERE ${activeBoundedPropertyFilter}
+        )
+      `;
 }
 
 async function fetchGroupingCandidatesInBBox(
@@ -1329,7 +1528,8 @@ async function fetchGroupingCandidatesInBBoxes(
   const candidateScopeCtes = buildGroupingCandidateScopeCtes(
     boundsList,
     includeGhostCandidates,
-    filters
+    filters,
+    zoom
   );
   const listingFactsCtes = includeEffectivePrices
     ? sql`
@@ -2109,6 +2309,11 @@ function buildCanonicalGroupsFromCandidates(
       radiusUnits: getActiveOccupancyRadiusUnits(group),
     };
   });
+  const ghostRadiusUnits = pxToTileUnits(getGhostGroupingRadiusPx());
+  const activeOccupancyIndex =
+    zoom >= GHOST_NODE_REVEAL_ZOOM && ghostCandidates.length > 0
+      ? buildActiveOccupancySpatialIndex(activeOccupancies, ghostRadiusUnits, options, startedAt)
+      : null;
 
   const visibleGhostCandidates =
     zoom >= GHOST_NODE_REVEAL_ZOOM
@@ -2116,16 +2321,13 @@ function buildCanonicalGroupsFromCandidates(
           if (candidateIndex % 128 === 0) {
             assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
           }
-          const ghostRadiusUnits = pxToTileUnits(getGhostGroupingRadiusPx());
-          return !activeOccupancies.some((occupancy, occupancyIndex) => {
-            if (occupancyIndex % 512 === 0) {
-              assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
-            }
-            const dx = candidate.worldX - occupancy.x;
-            const dy = candidate.worldY - occupancy.y;
-            const threshold = occupancy.radiusUnits + ghostRadiusUnits;
-            return dx * dx + dy * dy <= threshold * threshold;
-          });
+          return !isSuppressedByActiveOccupancy(
+            candidate,
+            ghostRadiusUnits,
+            activeOccupancyIndex,
+            options,
+            startedAt
+          );
         })
       : [];
 
