@@ -1270,6 +1270,21 @@ function buildTileListingPriceTypeExpression(listingAlias: string): SQL {
   `;
 }
 
+function buildCanonicalListingRowOrderExpression(listingAlias: string): SQL {
+  return sql`
+    COALESCE(
+      ${sql.raw(`${listingAlias}.last_reconciled_at`)},
+      ${sql.raw(`${listingAlias}.last_mirror_seen_at`)},
+      ${sql.raw(`${listingAlias}.last_user_seen_at`)},
+      ${sql.raw(`${listingAlias}.last_seen_at`)},
+      ${sql.raw(`${listingAlias}.updated_at`)},
+      ${sql.raw(`${listingAlias}.created_at`)}
+    ) DESC,
+    ${sql.raw(`${listingAlias}.created_at`)} DESC,
+    ${sql.raw(`${listingAlias}.id`)} DESC
+  `;
+}
+
 function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target_properties'): SQL {
   return sql`
     tile_listing_facts AS MATERIALIZED (
@@ -1298,6 +1313,54 @@ function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target
       FROM canonical_listings cl
       INNER JOIN ${sql.raw(scopeCteName)} sp ON sp.id = cl.property_id
       WHERE cl.verification_state <> 'invalid'
+    )
+  `;
+}
+
+function buildTileListingFactsLateralCte(): SQL {
+  return sql`
+    listing_facts AS MATERIALIZED (
+      SELECT
+        cp.id AS property_id,
+        active_listing.property_id IS NOT NULL AS has_active_listing,
+        (
+          active_listing.property_id IS NULL
+          AND latest_listing.status IN ('sold', 'rented')
+        ) AS has_completed_listing,
+        CASE
+          WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+            THEN 'for-rent'
+          WHEN active_listing.property_id IS NOT NULL
+            THEN 'for-sale'
+          WHEN latest_listing.status = 'sold'
+            THEN 'sold'
+          WHEN latest_listing.status = 'rented'
+            THEN 'rented'
+          ELSE 'not-listed'
+        END AS market_state,
+        NULL::bigint AS sale_effective_price,
+        NULL::bigint AS rent_effective_price
+      FROM candidate_properties cp
+      LEFT JOIN LATERAL (
+        SELECT
+          cl.status::text AS status
+        FROM canonical_listings cl
+        WHERE cl.property_id = cp.id
+          AND cl.verification_state <> 'invalid'
+        ORDER BY ${buildCanonicalListingRowOrderExpression('cl')}
+        LIMIT 1
+      ) latest_listing ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          cl.property_id,
+          ${buildTileListingPriceTypeExpression('cl')} AS price_type
+        FROM canonical_listings cl
+        WHERE cl.property_id = cp.id
+          AND cl.verification_state <> 'invalid'
+          AND cl.status = 'active'
+        ORDER BY ${buildCanonicalListingRowOrderExpression('cl')}
+        LIMIT 1
+      ) active_listing ON TRUE
     )
   `;
 }
@@ -1582,7 +1645,6 @@ async function fetchGroupingCandidatesInBBoxes(
       )`;
   const marketStatePredicate = buildBulkMarketStatePredicate(filters, 'lf');
   const includeEffectivePrices = hasPriceFilters(filters);
-  const requiresMarketStateFacts = filters.marketState.length !== MAP_MARKET_STATES.length;
   const priceFilterPredicate = includeEffectivePrices
     ? buildPriceFilterPredicate(filters, 'lf')
     : sql`TRUE`;
@@ -1720,93 +1782,7 @@ async function fetchGroupingCandidatesInBBoxes(
           LEFT JOIN guess_facts ON guess_facts.property_id = cp.id
         )
       `
-    : requiresMarketStateFacts
-      ? sql`
-          ${buildTileListingFactsCte('candidate_properties')},
-          latest_listing AS MATERIALIZED (
-            SELECT DISTINCT ON (l.property_id)
-              l.property_id,
-              l.status
-            FROM tile_listing_facts l
-            ORDER BY l.property_id, ${buildListingOrderExpression('l')}
-          ),
-          active_listing AS MATERIALIZED (
-            SELECT DISTINCT ON (l.property_id)
-              l.property_id,
-              l.normalized_price_type AS price_type
-            FROM tile_listing_facts l
-            WHERE l.status = 'active'
-            ORDER BY l.property_id, ${buildListingOrderExpression('l')}
-          ),
-          listing_facts AS MATERIALIZED (
-            SELECT
-              cp.id AS property_id,
-              active_listing.property_id IS NOT NULL AS has_active_listing,
-              (
-                active_listing.property_id IS NULL
-                AND latest_listing.status IN ('sold', 'rented')
-              ) AS has_completed_listing,
-              CASE
-                WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
-                  THEN 'for-rent'
-                WHEN active_listing.property_id IS NOT NULL
-                  THEN 'for-sale'
-                WHEN latest_listing.status = 'sold'
-                  THEN 'sold'
-                WHEN latest_listing.status = 'rented'
-                  THEN 'rented'
-                ELSE 'not-listed'
-              END AS market_state,
-              NULL::bigint AS sale_effective_price,
-              NULL::bigint AS rent_effective_price
-            FROM candidate_properties cp
-            LEFT JOIN latest_listing ON latest_listing.property_id = cp.id
-            LEFT JOIN active_listing ON active_listing.property_id = cp.id
-          )
-        `
-      : sql`
-        ${buildTileListingFactsCte('candidate_properties')},
-        latest_listing AS MATERIALIZED (
-          SELECT DISTINCT ON (l.property_id)
-            l.property_id,
-            l.status
-          FROM tile_listing_facts l
-          ORDER BY l.property_id, ${buildListingOrderExpression('l')}
-        ),
-        active_listing AS MATERIALIZED (
-          SELECT DISTINCT ON (l.property_id)
-            l.property_id,
-            l.normalized_price_type AS price_type
-          FROM tile_listing_facts l
-          WHERE l.status = 'active'
-          ORDER BY l.property_id, ${buildListingOrderExpression('l')}
-        ),
-        listing_facts AS MATERIALIZED (
-          SELECT
-            cp.id AS property_id,
-            active_listing.property_id IS NOT NULL AS has_active_listing,
-            (
-              active_listing.property_id IS NULL
-              AND latest_listing.status IN ('sold', 'rented')
-            ) AS has_completed_listing,
-            CASE
-              WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
-                THEN 'for-rent'
-              WHEN active_listing.property_id IS NOT NULL
-                THEN 'for-sale'
-              WHEN latest_listing.status = 'sold'
-                THEN 'sold'
-              WHEN latest_listing.status = 'rented'
-                THEN 'rented'
-              ELSE 'not-listed'
-            END AS market_state,
-            NULL::bigint AS sale_effective_price,
-            NULL::bigint AS rent_effective_price
-          FROM candidate_properties cp
-          LEFT JOIN latest_listing ON latest_listing.property_id = cp.id
-          LEFT JOIN active_listing ON active_listing.property_id = cp.id
-        )
-      `;
+    : buildTileListingFactsLateralCte();
 
   const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
     sql`

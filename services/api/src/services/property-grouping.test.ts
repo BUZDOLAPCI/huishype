@@ -351,6 +351,38 @@ describe('property-grouping', () => {
     expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('uses indexed lateral listing facts for default unpriced candidate queries', async () => {
+    const renderedQueries: string[] = [];
+    const txExecuteMock = jest.fn(async (query: SQL) => {
+      renderedQueries.push(renderSql(query).replace(/\s+/g, ' ').trim());
+      return [] as never;
+    });
+    const transactionSpy = jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+
+    await expect(
+      buildCanonicalGroupsForTile({ z: 13, x: 4206, y: 2692 }, createDefaultMapFilters())
+    ).resolves.toEqual([]);
+
+    const candidateQuery = renderedQueries.find((text) =>
+      text.includes('latest_public_guesses AS MATERIALIZED')
+    );
+    expect(candidateQuery).toBeDefined();
+    expect(candidateQuery).toContain('listing_facts AS MATERIALIZED');
+    expect(candidateQuery).toContain('LEFT JOIN LATERAL');
+    expect(candidateQuery).toContain('FROM canonical_listings cl WHERE cl.property_id = cp.id');
+    expect(candidateQuery).toContain(
+      "AND cl.verification_state <> 'invalid' ORDER BY COALESCE( cl.last_reconciled_at, cl.last_mirror_seen_at, cl.last_user_seen_at, cl.last_seen_at, cl.updated_at, cl.created_at ) DESC"
+    );
+    expect(candidateQuery).toContain(
+      "AND cl.verification_state <> 'invalid' AND cl.status = 'active'"
+    );
+    expect(candidateQuery).not.toContain('tile_listing_facts AS MATERIALIZED');
+    expect(candidateQuery).not.toContain('FROM tile_listing_facts l');
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('hydrates single-property tile details with a set-based listing fact batch query', async () => {
     const propertyId = '00000000-0000-0000-0000-00000000a101';
     const lon = 5.4697;
