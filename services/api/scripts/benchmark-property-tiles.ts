@@ -16,6 +16,7 @@ type BenchmarkOptions = {
   timeoutMs: number;
   jsonOut?: string;
   failColdGenOverMs?: number;
+  failColdP95GenOverMs?: number;
 };
 
 type BenchmarkRow = TileRequest & {
@@ -113,6 +114,10 @@ Options:
   --fail-cold-gen-over-ms <ms>
                          Exit non-zero when any cold x-tile-generation-time
                          exceeds this threshold.
+  --fail-cold-p95-gen-over-ms <ms>
+                         Exit non-zero when p95 cold x-tile-generation-time
+                         across the representative tile set exceeds this
+                         threshold.
   --help                 Show this help.
 
 Notes:
@@ -228,6 +233,25 @@ function parseArgs(argv: string[]): BenchmarkOptions {
       options.failColdGenOverMs = parseNonNegativeNumber(
         arg.slice('--fail-cold-gen-over-ms='.length),
         '--fail-cold-gen-over-ms'
+      );
+      continue;
+    }
+
+    if (arg === '--fail-cold-p95-gen-over-ms') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--fail-cold-p95-gen-over-ms requires a value');
+      options.failColdP95GenOverMs = parseNonNegativeNumber(
+        value,
+        '--fail-cold-p95-gen-over-ms'
+      );
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--fail-cold-p95-gen-over-ms=')) {
+      options.failColdP95GenOverMs = parseNonNegativeNumber(
+        arg.slice('--fail-cold-p95-gen-over-ms='.length),
+        '--fail-cold-p95-gen-over-ms'
       );
       continue;
     }
@@ -419,6 +443,22 @@ function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): Benchmar
         `${row.city} ${row.z}/${row.x}/${row.y} cold generation ${generationMs.toFixed(
           1
         )}ms exceeded ${failColdGenOverMs.toFixed(1)}ms`
+      );
+    }
+  }
+
+  const failColdP95GenOverMs = options.failColdP95GenOverMs;
+  if (failColdP95GenOverMs !== undefined) {
+    const coldSummary = byPhase.find((summary) => summary.phase === 'cold');
+    const coldP95 = coldSummary?.generationTimeMs.p95 ?? 0;
+    const coldGenerationCount = coldSummary?.generationTimeMs.count ?? 0;
+    if (coldGenerationCount === 0) {
+      failures.push('No cold x-tile-generation-time values were available for p95 budget check');
+    } else if (coldP95 > failColdP95GenOverMs) {
+      failures.push(
+        `cold p95 generation ${coldP95.toFixed(1)}ms exceeded ${failColdP95GenOverMs.toFixed(
+          1
+        )}ms across representative heavy tiles`
       );
     }
   }

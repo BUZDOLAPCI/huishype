@@ -1255,6 +1255,53 @@ function buildListingOrderExpression(alias: string): SQL {
   return canonicalListingFactOrderExpression(alias);
 }
 
+function buildTileListingPriceTypeExpression(listingAlias: string): SQL {
+  return sql`
+    CASE
+      WHEN lower(${sql.raw(`${listingAlias}.source_name`)}) = 'funda'
+        AND lower(btrim(${sql.raw(`${listingAlias}.price_type`)})) = 'buy'
+        THEN 'sale'
+      WHEN lower(btrim(${sql.raw(`${listingAlias}.price_type`)})) IN ('sale', 'rent')
+        THEN lower(btrim(${sql.raw(`${listingAlias}.price_type`)}))
+      WHEN lower(${sql.raw(`${listingAlias}.source_name`)}) = 'pararius'
+        THEN 'rent'
+      ELSE 'sale'
+    END
+  `;
+}
+
+function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target_properties'): SQL {
+  return sql`
+    tile_listing_facts AS MATERIALIZED (
+      SELECT
+        cl.id AS listing_id,
+        cl.property_id,
+        cl.source_name,
+        cl.status::text AS status,
+        ${buildTileListingPriceTypeExpression('cl')} AS normalized_price_type,
+        cl.asking_price,
+        cl.first_seen_at AS listed_at,
+        cl.living_area_m2,
+        cl.thumbnail_url,
+        cl.verification_state,
+        cl.origin_summary,
+        cl.submitted_by,
+        COALESCE(
+          cl.last_reconciled_at,
+          cl.last_mirror_seen_at,
+          cl.last_user_seen_at,
+          cl.last_seen_at,
+          cl.updated_at,
+          cl.created_at
+        ) AS sort_at,
+        cl.created_at AS listing_created_at
+      FROM canonical_listings cl
+      INNER JOIN ${sql.raw(scopeCteName)} sp ON sp.id = cl.property_id
+      WHERE cl.verification_state <> 'invalid'
+    )
+  `;
+}
+
 export function buildGroupingCandidateScopeCtes(
   boundsList: TileBBox[],
   includeGhostCandidates: boolean,
@@ -1547,12 +1594,12 @@ async function fetchGroupingCandidatesInBBoxes(
   );
   const listingFactsCtes = includeEffectivePrices
     ? sql`
+        ${buildTileListingFactsCte('candidate_properties')},
         latest_listing AS MATERIALIZED (
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
             l.status
-          FROM v_canonical_listing_facts l
-          INNER JOIN candidate_properties cp ON cp.id = l.property_id
+          FROM tile_listing_facts l
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
         ),
         active_listing AS MATERIALIZED (
@@ -1560,8 +1607,7 @@ async function fetchGroupingCandidatesInBBoxes(
             l.property_id,
             l.asking_price,
             l.normalized_price_type AS price_type
-          FROM v_canonical_listing_facts l
-          INNER JOIN candidate_properties cp ON cp.id = l.property_id
+          FROM tile_listing_facts l
           WHERE l.status = 'active'
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
         ),
@@ -1676,20 +1722,19 @@ async function fetchGroupingCandidatesInBBoxes(
       `
     : requiresMarketStateFacts
       ? sql`
+          ${buildTileListingFactsCte('candidate_properties')},
           latest_listing AS MATERIALIZED (
             SELECT DISTINCT ON (l.property_id)
               l.property_id,
               l.status
-            FROM v_canonical_listing_facts l
-            INNER JOIN candidate_properties cp ON cp.id = l.property_id
+            FROM tile_listing_facts l
             ORDER BY l.property_id, ${buildListingOrderExpression('l')}
           ),
           active_listing AS MATERIALIZED (
             SELECT DISTINCT ON (l.property_id)
               l.property_id,
               l.normalized_price_type AS price_type
-            FROM v_canonical_listing_facts l
-            INNER JOIN candidate_properties cp ON cp.id = l.property_id
+            FROM tile_listing_facts l
             WHERE l.status = 'active'
             ORDER BY l.property_id, ${buildListingOrderExpression('l')}
           ),
@@ -1720,20 +1765,19 @@ async function fetchGroupingCandidatesInBBoxes(
           )
         `
       : sql`
+        ${buildTileListingFactsCte('candidate_properties')},
         latest_listing AS MATERIALIZED (
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
             l.status
-          FROM v_canonical_listing_facts l
-          INNER JOIN candidate_properties cp ON cp.id = l.property_id
+          FROM tile_listing_facts l
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
         ),
         active_listing AS MATERIALIZED (
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
             l.normalized_price_type AS price_type
-          FROM v_canonical_listing_facts l
-          INNER JOIN candidate_properties cp ON cp.id = l.property_id
+          FROM tile_listing_facts l
           WHERE l.status = 'active'
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
         ),
@@ -2124,13 +2168,13 @@ async function fetchSinglePropertyDetails(
       FROM properties p
       WHERE p.id IN (${idList})
     ),
+    ${buildTileListingFactsCte('target_properties')},
     active_listing AS MATERIALIZED (
       SELECT DISTINCT ON (l.property_id)
         l.property_id,
         l.asking_price,
         l.normalized_price_type AS price_type
-      FROM v_canonical_listing_facts l
-      INNER JOIN target_properties tp ON tp.id = l.property_id
+      FROM tile_listing_facts l
       WHERE l.status = 'active'
       ORDER BY l.property_id, ${buildListingOrderExpression('l')}
     ),
@@ -2138,16 +2182,14 @@ async function fetchSinglePropertyDetails(
       SELECT DISTINCT ON (l.property_id)
         l.property_id,
         l.status
-      FROM v_canonical_listing_facts l
-      INNER JOIN target_properties tp ON tp.id = l.property_id
+      FROM tile_listing_facts l
       ORDER BY l.property_id, ${buildListingOrderExpression('l')}
     ),
     listing_thumbnail AS MATERIALIZED (
       SELECT DISTINCT ON (l.property_id)
         l.property_id,
         l.thumbnail_url
-      FROM v_canonical_listing_facts l
-      INNER JOIN target_properties tp ON tp.id = l.property_id
+      FROM tile_listing_facts l
       WHERE l.thumbnail_url IS NOT NULL
       ORDER BY l.property_id, ${listingThumbnailOrderExpression('l')}
     )

@@ -320,11 +320,20 @@ describe('property-grouping', () => {
     );
     expect(candidateQuery).toBeDefined();
     expect(candidateQuery).toContain('candidate_properties AS MATERIALIZED');
-    expect(
-      candidateQuery?.match(
-        /FROM v_canonical_listing_facts l INNER JOIN candidate_properties cp ON cp.id = l.property_id/g
-      )?.length
-    ).toBeGreaterThanOrEqual(2);
+    expect(candidateQuery).toContain('tile_listing_facts AS MATERIALIZED');
+    expect(candidateQuery).toContain(
+      'FROM canonical_listings cl INNER JOIN candidate_properties sp ON sp.id = cl.property_id'
+    );
+    expect(candidateQuery).toContain("WHERE cl.verification_state <> 'invalid'");
+    expect(candidateQuery).toContain(
+      "WHEN lower(cl.source_name) = 'funda' AND lower(btrim(cl.price_type)) = 'buy' THEN 'sale'"
+    );
+    expect(candidateQuery).toContain(
+      "WHEN lower(btrim(cl.price_type)) IN ('sale', 'rent') THEN lower(btrim(cl.price_type))"
+    );
+    expect(candidateQuery).toContain("WHEN lower(cl.source_name) = 'pararius' THEN 'rent'");
+    expect(candidateQuery).not.toContain('v_canonical_listing_facts');
+    expect(candidateQuery?.match(/FROM tile_listing_facts l/g)?.length).toBeGreaterThanOrEqual(2);
     expect(
       candidateQuery?.match(
         /FROM price_history ph INNER JOIN candidate_properties cp ON cp.id = ph.property_id/g
@@ -415,8 +424,14 @@ describe('property-grouping', () => {
     expect(hydrationQuery).toContain('latest_listing AS MATERIALIZED');
     expect(hydrationQuery).toContain('listing_thumbnail AS MATERIALIZED');
     expect(hydrationQuery).toContain(
-      'FROM v_canonical_listing_facts l INNER JOIN target_properties tp ON tp.id = l.property_id'
+      'FROM canonical_listings cl INNER JOIN target_properties sp ON sp.id = cl.property_id'
     );
+    expect(hydrationQuery).toContain('tile_listing_facts AS MATERIALIZED');
+    expect(hydrationQuery).toContain("WHERE cl.verification_state <> 'invalid'");
+    expect(hydrationQuery).toContain(
+      "ORDER BY l.property_id, (l.status = 'active') DESC, l.sort_at DESC, l.listing_created_at DESC, l.listing_id DESC"
+    );
+    expect(hydrationQuery).not.toContain('v_canonical_listing_facts');
     expect(hydrationQuery).not.toContain('LEFT JOIN LATERAL');
     expect(transactionSpy).toHaveBeenCalledTimes(2);
   });
@@ -1740,6 +1755,144 @@ describe('property-grouping', () => {
       await db.execute(
         sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`
       );
+    }
+  }, 30000);
+
+  it('preserves tile-local listing market state, price, invalid exclusion, and thumbnail ordering', async () => {
+    const propertyId = crypto.randomUUID();
+    const listingIds = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const baseLon = -41.25;
+    const baseLat = -33.5;
+    const tile = tileForCoordinate(baseLon, baseLat, 20);
+
+    await db.execute(sql`
+      INSERT INTO properties (
+        id,
+        country_code,
+        street,
+        house_number,
+        city,
+        postal_code,
+        status,
+        geometry
+      )
+      VALUES (
+        ${propertyId},
+        'NL',
+        'Tile Facts Street',
+        7,
+        'Factstad',
+        '9998AA',
+        'active',
+        ST_SetSRID(ST_MakePoint(${baseLon}, ${baseLat}), 4326)
+      )
+    `);
+
+    await db.execute(sql`
+      INSERT INTO canonical_listings (
+        id,
+        property_id,
+        source_name,
+        canonical_url,
+        display_url,
+        status,
+        verification_state,
+        origin_summary,
+        asking_price,
+        price_type,
+        thumbnail_url,
+        first_seen_at,
+        last_seen_at,
+        last_reconciled_at,
+        created_at,
+        updated_at
+      )
+      VALUES
+        (
+          ${listingIds[0]},
+          ${propertyId},
+          'pararius',
+          ${`https://example.com/tile-facts-${listingIds[0]}`},
+          ${`https://example.com/tile-facts-${listingIds[0]}`},
+          'active',
+          'provisional',
+          'user',
+          2100,
+          NULL,
+          'https://cdn.example.com/active-rent.jpg',
+          NOW() - INTERVAL '3 days',
+          NOW() - INTERVAL '3 days',
+          NOW() - INTERVAL '3 days',
+          NOW() - INTERVAL '3 days',
+          NOW() - INTERVAL '3 days'
+        ),
+        (
+          ${listingIds[1]},
+          ${propertyId},
+          'funda',
+          ${`https://example.com/tile-facts-${listingIds[1]}`},
+          ${`https://example.com/tile-facts-${listingIds[1]}`},
+          'sold',
+          'provisional',
+          'user',
+          475000,
+          'buy',
+          'https://cdn.example.com/newer-sold.jpg',
+          NOW() - INTERVAL '1 day',
+          NOW() - INTERVAL '1 day',
+          NOW() - INTERVAL '1 day',
+          NOW() - INTERVAL '1 day',
+          NOW() - INTERVAL '1 day'
+        ),
+        (
+          ${listingIds[2]},
+          ${propertyId},
+          'funda',
+          ${`https://example.com/tile-facts-${listingIds[2]}`},
+          ${`https://example.com/tile-facts-${listingIds[2]}`},
+          'active',
+          'invalid',
+          'user',
+          999999,
+          'sale',
+          'https://cdn.example.com/invalid-active.jpg',
+          NOW(),
+          NOW(),
+          NOW(),
+          NOW(),
+          NOW()
+        )
+    `);
+
+    try {
+      const groups = await buildCanonicalGroupsForTile(tile);
+      const group = groups.find((candidate) => candidate.primaryPropertyId === propertyId);
+
+      expect(group).toBeDefined();
+      expect(group?.groupKind).toBe('single');
+      expect(group?.hasActiveListing).toBe(true);
+      expect(group?.marketState).toBe('for-rent');
+      expect(group?.askingPrice).toBe(2100);
+      expect(group?.thumbnailUrl).toBe('https://cdn.example.com/active-rent.jpg');
+      expect(group?.address).toBe('Tile Facts Street 7, 9998AA Factstad');
+
+      const rentFilteredGroups = await buildCanonicalGroupsForTile(
+        tile,
+        normalizeMapFilters({ rentPriceFrom: 2000, rentPriceTo: 2200 })
+      );
+      expect(rentFilteredGroups.some((candidate) => candidate.primaryPropertyId === propertyId)).toBe(
+        true
+      );
+
+      const saleFilteredGroups = await buildCanonicalGroupsForTile(
+        tile,
+        normalizeMapFilters({ marketState: ['for-sale'], salePriceFrom: 900000 })
+      );
+      expect(saleFilteredGroups.some((candidate) => candidate.primaryPropertyId === propertyId)).toBe(
+        false
+      );
+    } finally {
+      await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     }
   }, 30000);
 });

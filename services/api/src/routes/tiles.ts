@@ -89,6 +89,7 @@ import {
 import {
   getPropertyTilePrecomputeMaxZoom,
   lookupCurrentPropertyTileSnapshot,
+  safeRequestPropertyTileSnapshotRefresh,
 } from '../services/property-tile-snapshots.js';
 
 /**
@@ -194,6 +195,7 @@ const tileJsonResponseSchema = z.object({
 
 const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
+const PROPERTY_TILE_SNAPSHOT_LOOKUP_REFRESH_THROTTLE_MS = 60_000;
 
 export function resetPropertyTileCacheForTests(): void {
   publicPropertyTileCache.clear();
@@ -226,6 +228,30 @@ function createRequestAbortSignal(request: FastifyRequest, reply: FastifyReply):
     { once: true }
   );
   return controller.signal;
+}
+
+function requestDefaultPropertyTileSnapshotRefreshAfterLookupFallback(input: {
+  request: FastifyRequest;
+  z: number;
+  x: number;
+  y: number;
+  reason: 'snapshot-lookup-miss' | 'snapshot-lookup-error';
+}): void {
+  const scheduled = setImmediate(() => {
+    void safeRequestPropertyTileSnapshotRefresh(
+      {
+        reason: input.reason,
+        throttleMs: PROPERTY_TILE_SNAPSHOT_LOOKUP_REFRESH_THROTTLE_MS,
+      },
+      input.request.log,
+      {
+        z: input.z,
+        x: input.x,
+        y: input.y,
+      },
+    );
+  });
+  scheduled.unref?.();
 }
 
 function tileHeaderValue(ms: number): string {
@@ -1890,6 +1916,13 @@ export async function tileRoutes(app: FastifyInstance) {
             throw error;
           }
 
+          requestDefaultPropertyTileSnapshotRefreshAfterLookupFallback({
+            request,
+            z,
+            x,
+            y,
+            reason: 'snapshot-lookup-error',
+          });
           snapshotRuntime.generationTimeMs = Date.now() - snapshotStartedAt;
           if (cachedTile.state === 'stale') {
             reply.header('X-Tile-Snapshot', 'error');
@@ -1913,6 +1946,13 @@ export async function tileRoutes(app: FastifyInstance) {
           });
         }
 
+        requestDefaultPropertyTileSnapshotRefreshAfterLookupFallback({
+          request,
+          z,
+          x,
+          y,
+          reason: 'snapshot-lookup-miss',
+        });
         reply.header('X-Tile-Snapshot', 'miss');
       }
 

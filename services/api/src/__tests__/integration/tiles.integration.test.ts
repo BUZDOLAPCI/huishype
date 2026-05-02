@@ -14,6 +14,7 @@ import {
 } from '../../services/property-grouping.js';
 import {
   DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID,
+  PROPERTY_TILE_SNAPSHOT_KEY,
   ensureDefaultPropertyTileSnapshotCoverage,
   upsertPropertyTileSnapshotRow,
 } from '../../services/property-tile-snapshots.js';
@@ -132,6 +133,76 @@ function expectCompletedActiveSingleGroup(
   expect(group.completedListingCount).toBe(1);
   expect(group.hasActiveListing).toBe(false);
   expect(group.marketState).toBe(marketState);
+}
+
+type PropertyTileSnapshotRefreshStateRow = {
+  request_reason: string | null;
+  requested_at: Date | string | null;
+};
+
+function timestampMs(value: Date | string | null): number | null {
+  if (value == null) {
+    return null;
+  }
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
+
+async function seedRecentPropertyTileSnapshotRefreshRequest(
+  reason: string,
+): Promise<Date> {
+  const requestedAt = new Date(Date.now() - 1_000);
+  await db.execute(sql`
+    INSERT INTO property_tile_snapshot_refresh_state (
+      key,
+      requested_at,
+      request_reason,
+      last_error
+    )
+    VALUES (
+      ${PROPERTY_TILE_SNAPSHOT_KEY},
+      ${requestedAt.toISOString()}::timestamptz,
+      ${reason},
+      NULL
+    )
+    ON CONFLICT (key) DO UPDATE SET
+      requested_at = EXCLUDED.requested_at,
+      request_reason = EXCLUDED.request_reason,
+      last_error = NULL
+  `);
+  return requestedAt;
+}
+
+async function readPropertyTileSnapshotRefreshState(): Promise<
+  PropertyTileSnapshotRefreshStateRow | null
+> {
+  const rows = await db.execute<PropertyTileSnapshotRefreshStateRow>(sql`
+    SELECT request_reason, requested_at
+    FROM property_tile_snapshot_refresh_state
+    WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+    LIMIT 1
+  `);
+  return Array.from(rows)[0] ?? null;
+}
+
+async function waitForPropertyTileSnapshotRefreshReason(
+  reason: string,
+): Promise<PropertyTileSnapshotRefreshStateRow> {
+  const deadline = Date.now() + 1_000;
+  let lastState: PropertyTileSnapshotRefreshStateRow | null = null;
+
+  while (Date.now() < deadline) {
+    lastState = await readPropertyTileSnapshotRefreshState();
+    if (lastState?.request_reason === reason) {
+      return lastState;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(
+    `Timed out waiting for property tile snapshot refresh reason ${reason}; last state: ${
+      JSON.stringify(lastState)
+    }`,
+  );
 }
 
 /**
@@ -702,6 +773,9 @@ describe('Tile routes', () => {
         DELETE FROM property_tile_snapshot_coverage
         WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
       `);
+      const previousRefreshRequestedAt = await seedRecentPropertyTileSnapshotRefreshRequest(
+        'test-recent-refresh',
+      );
 
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
 
@@ -718,16 +792,25 @@ describe('Tile routes', () => {
         expect(response.headers['x-tile-cache']).toBe('miss');
         expect(response.headers['x-tile-snapshot']).toBe('miss');
         expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
+
+        const refreshState = await waitForPropertyTileSnapshotRefreshReason(
+          'snapshot-lookup-miss',
+        );
+        expect(timestampMs(refreshState.requested_at)).toBe(previousRefreshRequestedAt.getTime());
+
+        const rows = await db.execute<{ coverage_count: number }>(sql`
+          SELECT count(*)::int AS coverage_count
+          FROM property_tile_snapshot_coverage
+          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+        `);
+        expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(0);
       } finally {
         runtimeRunSpy.mockRestore();
+        await db.execute(sql`
+          DELETE FROM property_tile_snapshot_refresh_state
+          WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+        `);
       }
-
-      const rows = await db.execute<{ coverage_count: number }>(sql`
-        SELECT count(*)::int AS coverage_count
-        FROM property_tile_snapshot_coverage
-        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-      `);
-      expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(0);
     });
 
     it('serves current public default low-zoom tiles from precomputed snapshots with public headers', async () => {
