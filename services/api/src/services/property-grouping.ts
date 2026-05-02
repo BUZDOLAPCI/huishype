@@ -1270,21 +1270,6 @@ function buildTileListingPriceTypeExpression(listingAlias: string): SQL {
   `;
 }
 
-function buildCanonicalListingRowOrderExpression(listingAlias: string): SQL {
-  return sql`
-    COALESCE(
-      ${sql.raw(`${listingAlias}.last_reconciled_at`)},
-      ${sql.raw(`${listingAlias}.last_mirror_seen_at`)},
-      ${sql.raw(`${listingAlias}.last_user_seen_at`)},
-      ${sql.raw(`${listingAlias}.last_seen_at`)},
-      ${sql.raw(`${listingAlias}.updated_at`)},
-      ${sql.raw(`${listingAlias}.created_at`)}
-    ) DESC,
-    ${sql.raw(`${listingAlias}.created_at`)} DESC,
-    ${sql.raw(`${listingAlias}.id`)} DESC
-  `;
-}
-
 function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target_properties'): SQL {
   return sql`
     tile_listing_facts AS MATERIALIZED (
@@ -1317,50 +1302,18 @@ function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target
   `;
 }
 
-function buildTileListingFactsLateralCte(): SQL {
+function buildTileListingFactsProjectionCte(): SQL {
   return sql`
     listing_facts AS MATERIALIZED (
       SELECT
         cp.id AS property_id,
-        active_listing.property_id IS NOT NULL AS has_active_listing,
-        (
-          active_listing.property_id IS NULL
-          AND latest_listing.status IN ('sold', 'rented')
-        ) AS has_completed_listing,
-        CASE
-          WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
-            THEN 'for-rent'
-          WHEN active_listing.property_id IS NOT NULL
-            THEN 'for-sale'
-          WHEN latest_listing.status = 'sold'
-            THEN 'sold'
-          WHEN latest_listing.status = 'rented'
-            THEN 'rented'
-          ELSE 'not-listed'
-        END AS market_state,
+        COALESCE(ptlf.has_active_listing, FALSE) AS has_active_listing,
+        COALESCE(ptlf.has_completed_listing, FALSE) AS has_completed_listing,
+        COALESCE(ptlf.market_state, 'not-listed') AS market_state,
         NULL::bigint AS sale_effective_price,
         NULL::bigint AS rent_effective_price
       FROM candidate_properties cp
-      LEFT JOIN LATERAL (
-        SELECT
-          cl.status::text AS status
-        FROM canonical_listings cl
-        WHERE cl.property_id = cp.id
-          AND cl.verification_state <> 'invalid'
-        ORDER BY ${buildCanonicalListingRowOrderExpression('cl')}
-        LIMIT 1
-      ) latest_listing ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT
-          cl.property_id,
-          ${buildTileListingPriceTypeExpression('cl')} AS price_type
-        FROM canonical_listings cl
-        WHERE cl.property_id = cp.id
-          AND cl.verification_state <> 'invalid'
-          AND cl.status = 'active'
-        ORDER BY ${buildCanonicalListingRowOrderExpression('cl')}
-        LIMIT 1
-      ) active_listing ON TRUE
+      LEFT JOIN property_tile_listing_facts ptlf ON ptlf.property_id = cp.id
     )
   `;
 }
@@ -1780,7 +1733,7 @@ async function fetchGroupingCandidatesInBBoxes(
           LEFT JOIN guess_facts ON guess_facts.property_id = cp.id
         )
       `
-    : buildTileListingFactsLateralCte();
+    : buildTileListingFactsProjectionCte();
 
   const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
     sql`

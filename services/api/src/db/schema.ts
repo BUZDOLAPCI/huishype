@@ -704,6 +704,25 @@ export const propertyTileListingCandidates = pgTable(
   ]
 );
 
+export const propertyTileListingFacts = pgTable(
+  'property_tile_listing_facts',
+  {
+    propertyId: uuid('property_id')
+      .primaryKey()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    hasActiveListing: boolean('has_active_listing').notNull(),
+    hasCompletedListing: boolean('has_completed_listing').notNull(),
+    marketState: varchar('market_state', { length: 20 }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'property_tile_listing_facts_market_state_check',
+      sql`${table.marketState} IN ('for-sale', 'for-rent', 'sold', 'rented', 'not-listed')`,
+    ),
+  ]
+);
+
 export const mirrorListingWatches = pgTable(
   'mirror_listing_watches',
   {

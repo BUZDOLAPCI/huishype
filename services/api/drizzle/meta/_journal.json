@@ -134,6 +134,13 @@
       "when": 1777708800000,
       "tag": "0018_property_tile_listing_candidates",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777708800001,
+      "tag": "0019_property_tile_listing_facts",
+      "breakpoints": true
     }
   ]
 }

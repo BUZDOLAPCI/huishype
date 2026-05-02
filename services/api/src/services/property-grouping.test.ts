@@ -351,7 +351,7 @@ describe('property-grouping', () => {
     expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('uses indexed lateral listing facts for default unpriced candidate queries', async () => {
+  it('uses projected listing facts for default unpriced candidate queries', async () => {
     const renderedQueries: string[] = [];
     const txExecuteMock = jest.fn(async (query: SQL) => {
       renderedQueries.push(renderSql(query).replace(/\s+/g, ' ').trim());
@@ -370,14 +370,14 @@ describe('property-grouping', () => {
     );
     expect(candidateQuery).toBeDefined();
     expect(candidateQuery).toContain('listing_facts AS MATERIALIZED');
-    expect(candidateQuery).toContain('LEFT JOIN LATERAL');
-    expect(candidateQuery).toContain('FROM canonical_listings cl WHERE cl.property_id = cp.id');
     expect(candidateQuery).toContain(
-      "AND cl.verification_state <> 'invalid' ORDER BY COALESCE( cl.last_reconciled_at, cl.last_mirror_seen_at, cl.last_user_seen_at, cl.last_seen_at, cl.updated_at, cl.created_at ) DESC"
+      'FROM candidate_properties cp LEFT JOIN property_tile_listing_facts ptlf ON ptlf.property_id = cp.id'
     );
-    expect(candidateQuery).toContain(
-      "AND cl.verification_state <> 'invalid' AND cl.status = 'active'"
-    );
+    expect(candidateQuery).toContain('COALESCE(ptlf.has_active_listing, FALSE)');
+    expect(candidateQuery).toContain('COALESCE(ptlf.has_completed_listing, FALSE)');
+    expect(candidateQuery).toContain("COALESCE(ptlf.market_state, 'not-listed')");
+    expect(candidateQuery).not.toContain('LEFT JOIN LATERAL');
+    expect(candidateQuery).not.toContain('FROM canonical_listings cl WHERE cl.property_id = cp.id');
     expect(candidateQuery).not.toContain('tile_listing_facts AS MATERIALIZED');
     expect(candidateQuery).not.toContain('FROM tile_listing_facts l');
     expect(transactionSpy).toHaveBeenCalledTimes(1);
