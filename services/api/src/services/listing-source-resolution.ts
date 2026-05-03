@@ -114,7 +114,7 @@ const validationAddressSchema = z.object({
   countryCode: z.string().optional(),
   street: z.string().optional(),
   postalCode: z.string().optional(),
-  houseNumber: z.union([z.string(), z.number()]).nullable().optional(),
+  houseNumber: z.union([z.string(), z.number()]).optional(),
   houseNumberAddition: z.string().nullable().optional(),
   city: z.string().optional(),
   latitude: z.number().nullable().optional(),

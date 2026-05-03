@@ -192,67 +192,6 @@ describe('buildListingPreviewPlan', () => {
     expectSourceServiceAuthHeader(0, 'test-pararius-source-service-key');
   });
 
-  it('accepts source-service validation addresses with a null house number', async () => {
-    mockFetchFn
-      .mockResolvedValueOnce(jsonResponse({
-        supported: true,
-        sourceName: 'pararius',
-        rawUrl: 'https://www.pararius.com/apartment-for-rent/eindhoven/87a48057/kathodelaan',
-        canonicalUrl: 'https://www.pararius.com/apartment-for-rent/eindhoven/87a48057/kathodelaan',
-        sourceListingId: '/apartment-for-rent/eindhoven/87a48057/kathodelaan',
-        sourceListingIdKind: 'canonical_path',
-        aliases: [
-          { kind: 'url_path', value: '/apartment-for-rent/eindhoven/87a48057/kathodelaan' },
-        ],
-        listingPath: '/apartment-for-rent/eindhoven/87a48057/kathodelaan',
-        reasonCode: null,
-      }))
-      .mockResolvedValueOnce(jsonResponse({
-        state: 'invalid',
-        reasonCode: 'address_mismatch',
-        sourceName: 'pararius',
-        rawUrl: 'https://www.pararius.com/apartment-for-rent/eindhoven/87a48057/kathodelaan',
-        canonicalUrl: 'https://www.pararius.com/apartment-for-rent/eindhoven/87a48057/kathodelaan',
-        sourceListingId: '/apartment-for-rent/eindhoven/87a48057/kathodelaan',
-        sourceListingIdKind: 'canonical_path',
-        aliases: [
-          { kind: 'url_path', value: '/apartment-for-rent/eindhoven/87a48057/kathodelaan' },
-        ],
-        sourceStatus: 'invalid',
-        address: {
-          countryCode: 'NL',
-          street: 'Kathodelaan',
-          postalCode: '5651GW',
-          houseNumber: null,
-          houseNumberAddition: null,
-          city: 'Eindhoven',
-          latitude: null,
-          longitude: null,
-        },
-        matchedPropertyEvidence: {
-          propertyId: null,
-          matchKind: 'source_mismatch',
-        },
-      }));
-
-    const plan = await buildListingPreviewPlan({
-      rawUrl: 'https://www.pararius.com/apartment-for-rent/eindhoven/87a48057/kathodelaan',
-      property,
-    });
-
-    expect(plan).toMatchObject({
-      validationState: 'invalid',
-      matchState: 'mismatch',
-      reasonCode: 'address_mismatch',
-      propertyMatchKind: 'source_mismatch',
-      sourceStatus: 'invalid',
-      address: {
-        street: 'Kathodelaan',
-        houseNumber: null,
-      },
-    });
-  });
-
   it('returns a provisional plan with a watch when validation fails temporarily', async () => {
     mockFetchFn
       .mockResolvedValueOnce(jsonResponse({
