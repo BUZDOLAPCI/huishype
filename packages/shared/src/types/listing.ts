@@ -224,7 +224,6 @@ export interface ListingReadItem {
   displayUrl: string | null;
   sourceName: ListingSource;
   sourceListingId: string | null;
-  sourceListingIdKind: string | null;
   askingPrice: number | null;
   priceType: ListingPriceType | string | null;
   currency: string | null;
@@ -234,11 +233,8 @@ export interface ListingReadItem {
   numRooms: number | null;
   energyLabel: string | null;
   status: ListingStatus;
-  validationState: ListingValidationState | null;
-  matchState: ListingMatchState | null;
   candidateHandoffState: ListingCandidateHandoffState | null;
   verificationState: ListingVerificationState;
-  originSummary: ListingOriginSummary;
   reasonCode: ListingReasonCode | string | null;
   createdAt: string;
 }

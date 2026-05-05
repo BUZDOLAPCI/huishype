@@ -162,14 +162,17 @@ describe('property tile snapshot persistence', () => {
     expect(row?.coverage_count).toBe(1);
   });
 
-  it('refuses refresh execution when configured coverage has not been explicitly initialized', async () => {
-    await expect(
-      executePropertyTileSnapshotRefresh({
-        reason: 'missing-coverage',
-        leaseOwner: 'missing-coverage-owner',
-        builder: async () => Buffer.from('unused'),
-      }),
-    ).rejects.toThrow(/snapshot coverage .* is not persisted/);
+  it('bootstraps default coverage when a fresh DB runs snapshot refresh', async () => {
+    const result = await executePropertyTileSnapshotRefresh({
+      reason: 'missing-coverage',
+      leaseOwner: 'missing-coverage-owner',
+      builder: async () => Buffer.from('bootstrapped-coverage'),
+    });
+    const row = await readSnapshotRow();
+
+    expect(result.status).toBe('completed');
+    expect(row?.payload).toEqual(Buffer.from('bootstrapped-coverage'));
+    expect(row?.coverage_count).toBe(1);
   });
 
   it('can explicitly initialize default coverage before recording a fresh-DB refresh request', async () => {
@@ -237,6 +240,35 @@ describe('property tile snapshot persistence', () => {
     });
     expect(row?.request_reason).toBe('snapshot-lookup-miss');
     expect(new Date(row?.requested_at ?? 0).getTime()).toBe(requestedAt.getTime());
+  });
+
+  it('uses configured per-tile runtime and statement budgets for refresh builds', async () => {
+    process.env.PROPERTY_TILE_PRECOMPUTE_TILE_BUDGET_MS = '3456';
+    process.env.PROPERTY_TILE_PRECOMPUTE_STATEMENT_TIMEOUT_MS = '2345';
+    const builderOptions: unknown[] = [];
+
+    const result = await executePropertyTileSnapshotRefresh({
+      reason: 'integration-refresh-budget',
+      leaseOwner: 'integration-refresh-budget-owner',
+      builder: async (_tile, _filters, options) => {
+        builderOptions.push(options);
+        return Buffer.from('budget-payload');
+      },
+    });
+
+    expect(result.status).toBe('completed');
+    expect(builderOptions[0]).toEqual(
+      expect.objectContaining({
+        statementTimeoutMs: 2345,
+        runtimeBudgetMs: 3456,
+        runtimeStartedAtMs: expect.any(Number),
+        runtimeDeadlineMs: expect.any(Number),
+      }),
+    );
+    expect(
+      (builderOptions[0] as { runtimeDeadlineMs: number }).runtimeDeadlineMs -
+        (builderOptions[0] as { runtimeStartedAtMs: number }).runtimeStartedAtMs,
+    ).toBe(3456);
   });
 
   it('returns bounded structured details for per-tile snapshot refresh failures', async () => {

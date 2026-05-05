@@ -599,6 +599,38 @@ async function getReadStateScopeForViewer(
   };
 }
 
+type ReadStateScopeLookupResult = Awaited<ReturnType<typeof getReadStateScopeForViewer>>;
+
+function readStateScopeRuntimeKey(viewerScope: string): string {
+  return `read-scope:${viewerScope}`;
+}
+
+function isRecoverableRuntimeResult<TResult>(
+  runtimeResult: PropertyTileRuntimeResult<TResult>
+): boolean {
+  return (
+    runtimeResult.state !== 'error' ||
+    isPropertyTileRecoverableError(runtimeResult.error)
+  );
+}
+
+async function runReadStateScopeLookup(input: {
+  viewer: PropertyReadViewer;
+  viewerScope: string;
+  zoom: number;
+  signal?: AbortSignal;
+}): Promise<PropertyTileRuntimeResult<ReadStateScopeLookupResult>> {
+  const runtimeConfig = getPropertyTileRuntimeConfig();
+  return propertyTileRuntime.run<ReadStateScopeLookupResult>({
+    key: readStateScopeRuntimeKey(input.viewerScope),
+    zoom: input.zoom,
+    budgetMs: runtimeConfig.privateBudgetMs,
+    statementTimeoutMs: runtimeConfig.privateBudgetMs,
+    signal: input.signal,
+    builder: (options) => getReadStateScopeForViewer(input.viewer, options),
+  });
+}
+
 // --- Sprite manifest + layer filtering ---
 
 // Cached sprite manifest (loaded once from local file)
@@ -1936,22 +1968,22 @@ export async function tileRoutes(app: FastifyInstance) {
       const host = request.host;
       const filters = parseMapFiltersQuery(request.query);
       const tileUrl = buildReadPropertyTileTemplateUrl(`${protocol}://${host}`, filters);
-      const runtimeConfig = getPropertyTileRuntimeConfig();
+      const viewerScope = getPropertyReadViewerScope(viewer);
       let readStateScope: { hasReadState: boolean; scope: string };
-      try {
-        const startedAt = Date.now();
-        readStateScope = await getReadStateScopeForViewer(viewer, {
-          statementTimeoutMs: runtimeConfig.privateBudgetMs,
-          runtimeBudgetMs: runtimeConfig.privateBudgetMs,
-          runtimeStartedAtMs: startedAt,
-          runtimeDeadlineMs: startedAt + runtimeConfig.privateBudgetMs,
-        });
-      } catch (error) {
-        if (isPropertyTileRecoverableError(error)) {
-          readStateScope = { hasReadState: false, scope: 'timeout' };
-        } else {
-          throw error;
-        }
+      const readScopeRuntime = await runReadStateScopeLookup({
+        viewer,
+        viewerScope,
+        zoom: 22,
+        signal: createRequestAbortSignal(request, reply),
+      });
+      if (readScopeRuntime.state === 'completed' && readScopeRuntime.publishable) {
+        readStateScope = readScopeRuntime.result;
+      } else if (isRecoverableRuntimeResult(readScopeRuntime)) {
+        readStateScope = { hasReadState: false, scope: 'timeout' };
+      } else {
+        throw readScopeRuntime.state === 'error'
+          ? readScopeRuntime.error
+          : new PropertyTileBudgetExceededError('Read-state scope lookup did not complete');
       }
       const tiles = readStateScope.hasReadState ? [tileUrl] : [];
 
@@ -2272,23 +2304,21 @@ export async function tileRoutes(app: FastifyInstance) {
       const filterSignature = getMapFilterSignature(filters);
       const stageTimings: PropertyTileStageTiming[] = [];
       let initialReadScope: { hasReadState: boolean; scope: string };
-      const readScopeStartedAt = Date.now();
-      try {
-        initialReadScope = await getReadStateScopeForViewer(viewer, {
-          statementTimeoutMs: runtimeConfig.privateBudgetMs,
-          runtimeBudgetMs: runtimeConfig.privateBudgetMs,
-          runtimeStartedAtMs: readScopeStartedAt,
-          runtimeDeadlineMs: readScopeStartedAt + runtimeConfig.privateBudgetMs,
-        });
-      } catch (error) {
-        if (!isPropertyTileRecoverableError(error)) {
-          throw error;
-        }
+      const signal = createRequestAbortSignal(request, reply);
+      const readScopeRuntime = await runReadStateScopeLookup({
+        viewer,
+        viewerScope,
+        zoom: z,
+        signal,
+      });
+      if (readScopeRuntime.state === 'completed' && readScopeRuntime.publishable) {
+        initialReadScope = readScopeRuntime.result;
+      } else if (isRecoverableRuntimeResult(readScopeRuntime)) {
         const timeoutRuntime = {
-          coalesced: false,
-          queueTimeMs: 0,
-          generationTimeMs: Date.now() - readScopeStartedAt,
-          budgetMs: runtimeConfig.privateBudgetMs,
+          coalesced: readScopeRuntime.coalesced,
+          queueTimeMs: readScopeRuntime.queueTimeMs,
+          generationTimeMs: readScopeRuntime.generationTimeMs,
+          budgetMs: readScopeRuntime.budgetMs,
         };
         logTileOutcome({
           request,
@@ -2305,13 +2335,17 @@ export async function tileRoutes(app: FastifyInstance) {
           stageTimings,
         });
         return sendTimeoutEmptyTile(reply, timeoutRuntime, 'Authorization, x-session-id');
+      } else {
+        throw readScopeRuntime.state === 'error'
+          ? readScopeRuntime.error
+          : new PropertyTileBudgetExceededError('Read-state scope lookup did not complete');
       }
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
         key: `read:${z}/${x}/${y}:${filterSignature}:${viewerScope}:${initialReadScope.scope}`,
         zoom: z,
         budgetMs: runtimeConfig.privateBudgetMs,
         statementTimeoutMs: runtimeConfig.privateBudgetMs,
-        signal: createRequestAbortSignal(request, reply),
+        signal,
         builder: async (options) => {
           const payloadResult = initialReadScope.hasReadState
             ? buildPayloadResult(

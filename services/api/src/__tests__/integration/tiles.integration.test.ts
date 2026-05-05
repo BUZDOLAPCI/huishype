@@ -623,19 +623,34 @@ describe('Tile routes', () => {
     });
 
     it('returns private TileJSON metadata without tile templates before anything is read', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/tiles/properties/read.json?marketState=not-listed,for-sale',
-        headers: { 'x-session-id': `read-tilejson-empty-${Date.now()}` },
-      });
+      const sessionId = `read-tilejson-empty-${Date.now()}`;
+      const sessionScope = crypto.createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
 
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('tilejson', '2.1.0');
-      expect(body.tiles).toEqual([]);
-      expect(response.headers['cache-control']).toBe('private, no-store');
-      expect(response.headers.vary).toContain('Authorization');
-      expect(response.headers.vary).toContain('x-session-id');
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/read.json?marketState=not-listed,for-sale',
+          headers: { 'x-session-id': sessionId },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toHaveProperty('tilejson', '2.1.0');
+        expect(body.tiles).toEqual([]);
+        expect(response.headers['cache-control']).toBe('private, no-store');
+        expect(response.headers.vary).toContain('Authorization');
+        expect(response.headers.vary).toContain('x-session-id');
+        expect(runtimeRunSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            key: `read-scope:session-hash:${sessionScope}`,
+            budgetMs: expect.any(Number),
+            statementTimeoutMs: expect.any(Number),
+          }),
+        );
+      } finally {
+        runtimeRunSpy.mockRestore();
+      }
     });
 
     it('returns private TileJSON metadata with filter params after a property is read', async () => {
@@ -750,7 +765,7 @@ describe('Tile routes', () => {
       expect(response.headers['x-tile-snapshot']).toBe('miss');
     });
 
-    it('dynamically builds missing default low-zoom snapshots without creating coverage rows', async () => {
+    it('dynamically builds missing default low-zoom snapshots and bootstraps coverage for refresh', async () => {
       await db.execute(sql`
         DELETE FROM property_tile_snapshots
         WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
@@ -790,12 +805,16 @@ describe('Tile routes', () => {
           FROM property_tile_snapshot_coverage
           WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
         `);
-        expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(0);
+        expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(1);
       } finally {
         runtimeRunSpy.mockRestore();
         await db.execute(sql`
           DELETE FROM property_tile_snapshot_refresh_state
           WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+        `);
+        await db.execute(sql`
+          DELETE FROM property_tile_snapshot_coverage
+          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
         `);
       }
     });

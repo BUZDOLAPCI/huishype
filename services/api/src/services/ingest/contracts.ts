@@ -47,9 +47,16 @@ const legacyListingSourceStatusSchema = z.enum([
   'unknown',
 ]);
 
+const listingTypeSchema = z.enum(['sale', 'rent', 'unknown']);
+const mirrorListingTypeSchema = z.enum(['sale', 'rent']);
+const optionalNullableCoordinateSchema = z.preprocess(
+  (value) => (value === '' ? null : value),
+  z.coerce.number().nullable(),
+).optional();
+
 const scopeCompletionSchema = z.object({
   scopeKey: z.string().trim().min(1).max(255),
-  listingType: z.enum(['sale', 'rent', 'unknown']).optional(),
+  listingType: listingTypeSchema.optional(),
   normalizedFilters: z.record(z.string(), z.unknown()).optional(),
   sourceRunId: z.string().trim().min(1).max(255).optional(),
   sourceRunStartedAt: z.string().datetime().nullable().optional(),
@@ -58,6 +65,17 @@ const scopeCompletionSchema = z.object({
   observedListingCount: z.number().int().nonnegative().optional(),
   sourceHighWatermark: z.string().datetime(),
   diagnostics: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
+const ingestListingAddressSchema = z.object({
+  countryCode: z.string().trim().length(2).transform((value) => value.toUpperCase()).optional(),
+  street: z.string().trim().optional(),
+  postalCode: z.string().optional(),
+  houseNumber: z.union([z.string(), z.number()]).optional(),
+  houseNumberAddition: z.string().nullable().optional(),
+  city: z.string().optional(),
+  latitude: optionalNullableCoordinateSchema,
+  longitude: optionalNullableCoordinateSchema,
 });
 
 export const ingestListingSchema = z.object({
@@ -71,7 +89,8 @@ export const ingestListingSchema = z.object({
   sourceListingAliases: z.array(z.object({ kind: z.string().min(1), value: z.string().min(1) })).optional(),
   canonicalUrl: z.string().url().optional(),
   askingPrice: z.number().nullable(),
-  priceType: z.enum(['sale', 'rent']),
+  priceType: listingTypeSchema.optional(),
+  listingType: listingTypeSchema.optional(),
   currency: z.string().trim().length(3).optional(),
   livingAreaM2: z.number().nullable().optional(),
   numRooms: z.number().nullable().optional(),
@@ -89,22 +108,50 @@ export const ingestListingSchema = z.object({
   observedAt: z.string().datetime().optional(),
   sourceRunId: z.string().trim().min(1).max(255).optional(),
   sourceHighWatermark: z.string().datetime().optional(),
-  address: z.object({
-    countryCode: z.string().trim().length(2).transform((value) => value.toUpperCase()),
-    street: z.string().trim().min(1),
-    postalCode: z.string().min(1),
-    houseNumber: z.union([z.string(), z.number()]),
-    houseNumberAddition: z.string().nullable().optional(),
-    city: z.string().optional(),
-    latitude: z.number().nullable().optional(),
-    longitude: z.number().nullable().optional(),
-  }).optional(),
+  address: ingestListingAddressSchema.optional(),
   priceHistory: z.array(z.object({
     price: z.number(),
     priceDate: ingestPriceDateSchema,
     eventType: z.string(),
   })).optional(),
-});
+}).transform((value) => ({
+  ...value,
+  priceType: value.priceType ?? value.listingType ?? 'unknown',
+}));
+
+function hasDiagnosticStatus(listing: z.infer<typeof ingestListingSchema>): boolean {
+  return Boolean(
+    listing.diagnosticStatus
+      || [
+        'blocked',
+        'parser_error',
+        'retryable_error',
+        'unsupported',
+        'invalid',
+        'unknown',
+        'mirror_unavailable',
+      ].includes(listing.sourceStatus ?? ''),
+  );
+}
+
+function isCandidateScopedBatch(value: {
+  scopeKey?: string;
+  listings?: Array<{ scopeKey?: string; sourceCandidateId?: string }>;
+}): boolean {
+  return value.scopeKey === 'candidate'
+    || (value.listings ?? []).some((listing) => listing.scopeKey === 'candidate' || Boolean(listing.sourceCandidateId));
+}
+
+function hasCompleteAddress(listing: z.infer<typeof ingestListingSchema>): boolean {
+  const address = listing.address;
+  return Boolean(
+    address?.countryCode
+      && address.street
+      && address.postalCode
+      && address.houseNumber !== undefined
+      && address.houseNumber !== null,
+  );
+}
 
 export const ingestBatchRequestSchema = z.object({
   sourceName: z.string().refine(
@@ -116,6 +163,7 @@ export const ingestBatchRequestSchema = z.object({
   cursorStart: ingestCursorSchema.nullable().optional().default(null),
   cursorEnd: ingestCursorSchema,
   upstreamRunKey: z.string().trim().min(1).max(255).optional(),
+  runId: z.string().trim().min(1).max(255).optional(),
   batchKind: z.enum(['observations', 'completion', 'observations_and_completion']).optional(),
   scopeKey: z.string().trim().min(1).max(255).optional(),
   sourceHighWatermark: z.string().datetime().optional(),
@@ -138,7 +186,33 @@ export const ingestBatchRequestSchema = z.object({
       message: 'repairReason is required when repairMode is true',
     });
   }
-});
+
+  const isCandidateBatch = isCandidateScopedBatch(value);
+  for (let index = 0; index < (value.listings ?? []).length; index += 1) {
+    const listing = value.listings?.[index];
+    if (!listing) continue;
+    const isDiagnostic = hasDiagnosticStatus(listing);
+
+    if (!isCandidateBatch && !isDiagnostic && !mirrorListingTypeSchema.safeParse(listing.priceType).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['listings', index, 'priceType'],
+        message: 'priceType must be sale or rent for mirrored listing observations',
+      });
+    }
+
+    if (!isCandidateBatch && !isDiagnostic && !hasCompleteAddress(listing)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['listings', index, 'address'],
+        message: 'Complete address is required for mirrored listing observations',
+      });
+    }
+  }
+}).transform(({ runId, ...value }) => ({
+  ...value,
+  upstreamRunKey: value.upstreamRunKey ?? runId,
+}));
 
 export const ingestAcceptedResponseSchema = z.object({
   batchId: z.string().uuid(),

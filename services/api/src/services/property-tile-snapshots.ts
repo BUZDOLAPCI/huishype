@@ -41,6 +41,8 @@ const DEFAULT_MAX_ZOOM = 10;
 const DEFAULT_MAX_TILES_PER_RUN = 1_000;
 const DEFAULT_MAX_SECONDS_PER_RUN = 60;
 const DEFAULT_PRECOMPUTE_CONCURRENCY = 1;
+const DEFAULT_PRECOMPUTE_TILE_BUDGET_MS = 2_000;
+const DEFAULT_PRECOMPUTE_TILE_STATEMENT_TIMEOUT_MS = 1_500;
 const MAX_PRECOMPUTE_CONCURRENCY = 16;
 const DEFAULT_LEASE_SECONDS = 15 * 60;
 const MIN_LEASE_RENEWAL_INTERVAL_MS = 1_000;
@@ -328,6 +330,23 @@ export function getPropertyTilePrecomputeConcurrency(): number {
     parsePositiveIntegerEnv(
       'PROPERTY_TILE_PRECOMPUTE_CONCURRENCY',
       DEFAULT_PRECOMPUTE_CONCURRENCY,
+    ),
+  );
+}
+
+export function getPropertyTilePrecomputeTileBudgetMs(): number {
+  return parsePositiveIntegerEnv(
+    'PROPERTY_TILE_PRECOMPUTE_TILE_BUDGET_MS',
+    DEFAULT_PRECOMPUTE_TILE_BUDGET_MS,
+  );
+}
+
+export function getPropertyTilePrecomputeStatementTimeoutMs(): number {
+  return parsePositiveIntegerEnv(
+    'PROPERTY_TILE_PRECOMPUTE_TILE_STATEMENT_TIMEOUT_MS',
+    parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PRECOMPUTE_STATEMENT_TIMEOUT_MS',
+      DEFAULT_PRECOMPUTE_TILE_STATEMENT_TIMEOUT_MS,
     ),
   );
 }
@@ -936,7 +955,7 @@ export async function requestPropertyTileSnapshotRefresh(input: {
   enqueue?: boolean;
   initializeDefaultCoverage?: boolean;
 }): Promise<PropertyTileSnapshotRefreshRequestResult> {
-  if (input.initializeDefaultCoverage) {
+  if (input.initializeDefaultCoverage !== false) {
     await ensureDefaultPropertyTileSnapshotCoverage();
   }
 
@@ -1155,7 +1174,7 @@ function hasOnlySocialBehindWatermark(dimensions: ReturnType<typeof getBehindWat
 }
 
 export async function shouldRequestPropertyTileSnapshotRefresh(): Promise<PropertyTileSnapshotRefreshCheck> {
-  const coverage = await getDefaultPropertyTileSnapshotCoverage();
+  const coverage = await ensureDefaultPropertyTileSnapshotCoverage();
   const coordinates = computePropertyTileSnapshotCoordinatesFromCoverage(coverage);
   const [snapshotCount, watermarks] = await Promise.all([
     countCurrentSnapshots(coverage),
@@ -1500,7 +1519,7 @@ export async function executePropertyTileSnapshotRefresh(input: {
   const owner = input.leaseOwner ?? `${process.pid}:${randomUUID()}`;
   const startedAt = Date.now();
   const leaseSeconds = getPropertyTileSnapshotLeaseSeconds();
-  const coverage = await getDefaultPropertyTileSnapshotCoverage();
+  const coverage = await ensureDefaultPropertyTileSnapshotCoverage();
   const leaseClaimed = await claimRefreshLease(owner, leaseSeconds);
   if (!leaseClaimed) {
     return { status: 'skipped_locked', reason };
@@ -1534,6 +1553,8 @@ export async function executePropertyTileSnapshotRefresh(input: {
   const maxTiles = getPropertyTilePrecomputeMaxTilesPerRun();
   const maxRunMs = getPropertyTilePrecomputeMaxSecondsPerRun() * 1000;
   const concurrency = getPropertyTilePrecomputeConcurrency();
+  const tileRuntimeBudgetMs = getPropertyTilePrecomputeTileBudgetMs();
+  const tileStatementTimeoutMs = getPropertyTilePrecomputeStatementTimeoutMs();
   const dueTiles = await selectDueSnapshotTiles(allTiles, coverage, watermarks);
   const builder = input.builder ?? buildMvtForTile;
   let refreshedTileCount = 0;
@@ -1569,9 +1590,8 @@ export async function executePropertyTileSnapshotRefresh(input: {
       try {
         const tileStartedAt = new Date();
         const tileRuntimeStartedAtMs = Date.now();
-        const tileRuntimeBudgetMs = 2_000;
         const payload = await builder(tile, createDefaultMapFilters(), {
-          statementTimeoutMs: 1_500,
+          statementTimeoutMs: tileStatementTimeoutMs,
           runtimeBudgetMs: tileRuntimeBudgetMs,
           runtimeStartedAtMs: tileRuntimeStartedAtMs,
           runtimeDeadlineMs: tileRuntimeStartedAtMs + tileRuntimeBudgetMs,

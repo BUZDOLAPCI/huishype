@@ -13,6 +13,7 @@
 
 import dotenv from 'dotenv';
 import postgres from 'postgres';
+import { pathToFileURL } from 'node:url';
 import type { IngestListing } from '../src/services/ingest/contracts.js';
 import {
   acceptIngestBatch,
@@ -22,6 +23,11 @@ import {
 } from '../src/services/ingest/index.js';
 import { closeConnection } from '../src/db/index.js';
 import type { ListingSourceAlias } from '../src/services/listing-source-resolution.js';
+import {
+  buildListingReplayThresholds,
+  collectListingReplayThresholdViolations,
+  computePlannedListingReplayBatchCount,
+} from '../src/scripts/seed-listings-safety.js';
 
 dotenv.config();
 
@@ -336,26 +342,6 @@ function toIngestListing(row: MirrorListing, source: SourceName, scopeKey: strin
   };
 }
 
-function buildThresholds(summary: Pick<SourceSummary, 'mirrorListingCount' | 'skippedBeforeIngestCount'>, options: CliOptions) {
-  const skipRatio = summary.mirrorListingCount === 0
-    ? 0
-    : summary.skippedBeforeIngestCount / summary.mirrorListingCount;
-  const violations: string[] = [];
-  if (summary.skippedBeforeIngestCount > options.maxSkipped) {
-    violations.push('max_skipped');
-  }
-  if (skipRatio > options.maxSkipRatio) {
-    violations.push('max_skip_ratio');
-  }
-
-  return {
-    maxSkipped: options.maxSkipped,
-    maxSkipRatio: options.maxSkipRatio,
-    skipRatio,
-    violations,
-  };
-}
-
 async function getMirrorHighWatermark(mirrorDb: postgres.Sql, source: SourceName, scope: string | null): Promise<{ count: number; highWatermark: string }> {
   const scopeValue = normalizeScope(scope);
   const rows = await mirrorDb<[{ count: string; high_watermark: Date | null }]>`
@@ -445,7 +431,7 @@ function buildCompletion(input: {
   };
 }
 
-async function processSource(source: SourceName, mirrorDb: postgres.Sql, options: CliOptions): Promise<SourceSummary> {
+async function planSource(source: SourceName, mirrorDb: postgres.Sql, options: CliOptions): Promise<SourceSummary> {
   const scopeKey = options.scope?.trim().toLowerCase() || 'full-mirror';
   const watermark = await getIngestWatermark(source);
   const mirrorState = await getMirrorHighWatermark(mirrorDb, source, options.scope);
@@ -488,72 +474,6 @@ async function processSource(source: SourceName, mirrorDb: postgres.Sql, options
     },
   };
 
-  const listingsBuffer: IngestListing[] = [];
-  let cursorStart = watermark.cursor;
-  let batchSequence = 0;
-
-  async function flushBatch(finalBatch: boolean): Promise<void> {
-    if (listingsBuffer.length === 0 && !finalBatch) return;
-
-    const cursorEnd = encodeOpaqueIngestCursor({
-      changedAt: summary.sourceHighWatermark,
-      listingKey: `${source}:${scopeKey}:${batchSequence}:${summary.preparedListingCount}`,
-    });
-    const completions = finalBatch
-      ? [buildCompletion({
-          source,
-          scopeKey,
-          sourceRunId,
-          sourceHighWatermark: summary.sourceHighWatermark,
-          observedListingCount: summary.preparedListingCount,
-          reason: options.reason,
-        })]
-      : [];
-    const payload = {
-      sourceName: source,
-      idempotencyKey: `${sourceRunId}:batch:${batchSequence}`,
-      batchSequence,
-      cursorStart,
-      cursorEnd,
-      upstreamRunKey: sourceRunId,
-      batchKind: finalBatch
-        ? (listingsBuffer.length > 0 ? 'observations_and_completion' : 'completion')
-        : 'observations',
-      scopeKey,
-      sourceHighWatermark: summary.sourceHighWatermark,
-      repairMode: options.repair,
-      repairReason: options.reason ?? undefined,
-      listings: listingsBuffer.splice(0, listingsBuffer.length),
-      completions,
-    } as const;
-
-    summary.batchCount += 1;
-    if (options.dryRun) {
-      cursorStart = cursorEnd;
-      batchSequence += 1;
-      return;
-    }
-
-    const accepted = await acceptIngestBatch(payload);
-    const result = await processIngestBatch({
-      batchId: accepted.batchId,
-      logger: {
-        info: () => {},
-        warn: (payload, message) => console.warn(JSON.stringify({ level: 'warn', message, payload })),
-        error: (payload, message) => console.error(JSON.stringify({ level: 'error', message, payload })),
-        debug: () => {},
-      },
-      enqueueMaintenanceRefresh: async () => {},
-    });
-
-    summary.processedBatchCount += result.status === 'completed' ? 1 : 0;
-    summary.ingestedCount += result.ingested;
-    summary.updatedCount += result.updated;
-    summary.skippedByProcessorCount += result.skipped;
-    cursorStart = cursorEnd;
-    batchSequence += 1;
-  }
-
   for (let offset = 0; offset < mirrorState.count; offset += options.fetchSize) {
     const rows = await fetchMirrorListings(mirrorDb, source, options.scope, options.fetchSize, offset);
     for (const row of rows) {
@@ -584,6 +504,116 @@ async function processSource(source: SourceName, mirrorDb: postgres.Sql, options
       }
 
       summary.preparedListingCount += 1;
+    }
+  }
+
+  summary.thresholds = buildListingReplayThresholds(summary, options);
+  summary.batchCount = computePlannedListingReplayBatchCount(summary, options);
+  summary.staleForProjection = Boolean(
+    watermark.lastCommittedChangedAt
+      && new Date(watermark.lastCommittedChangedAt).getTime() > new Date(summary.sourceHighWatermark).getTime(),
+  );
+
+  return summary;
+}
+
+async function executeSource(
+  source: SourceName,
+  mirrorDb: postgres.Sql,
+  options: CliOptions,
+  summary: SourceSummary,
+): Promise<SourceSummary> {
+  const mirrorState = await getMirrorHighWatermark(mirrorDb, source, options.scope);
+  if (
+    mirrorState.count !== summary.mirrorListingCount
+    || mirrorState.highWatermark !== summary.sourceHighWatermark
+  ) {
+    throw new Error(
+      `Mirror changed after safety plan for ${source}; rerun db:seed-listings to recompute thresholds`,
+    );
+  }
+
+  const resultSummary: SourceSummary = {
+    ...summary,
+    batchCount: 0,
+    processedBatchCount: 0,
+    ingestedCount: 0,
+    updatedCount: 0,
+    skippedByProcessorCount: 0,
+  };
+
+  const listingsBuffer: IngestListing[] = [];
+  let cursorStart = summary.existingCursor;
+  let batchSequence = 0;
+  let executedPreparedListingCount = 0;
+
+  async function flushBatch(finalBatch: boolean): Promise<void> {
+    if (listingsBuffer.length === 0 && !finalBatch) return;
+
+    const cursorEnd = encodeOpaqueIngestCursor({
+      changedAt: summary.sourceHighWatermark,
+      listingKey: `${source}:${summary.scopeKey}:${batchSequence}:${executedPreparedListingCount}`,
+    });
+    const completions = finalBatch
+      ? [buildCompletion({
+          source,
+          scopeKey: summary.scopeKey,
+          sourceRunId: summary.sourceRunId,
+          sourceHighWatermark: summary.sourceHighWatermark,
+          observedListingCount: summary.preparedListingCount,
+          reason: options.reason,
+        })]
+      : [];
+    const payload = {
+      sourceName: source,
+      idempotencyKey: `${summary.sourceRunId}:batch:${batchSequence}`,
+      batchSequence,
+      cursorStart,
+      cursorEnd,
+      upstreamRunKey: summary.sourceRunId,
+      batchKind: finalBatch
+        ? (listingsBuffer.length > 0 ? 'observations_and_completion' : 'completion')
+        : 'observations',
+      scopeKey: summary.scopeKey,
+      sourceHighWatermark: summary.sourceHighWatermark,
+      repairMode: options.repair,
+      repairReason: options.reason ?? undefined,
+      listings: listingsBuffer.splice(0, listingsBuffer.length),
+      completions,
+    } as const;
+
+    resultSummary.batchCount += 1;
+
+    const normalizedPayload = JSON.parse(JSON.stringify(payload)) as typeof payload;
+    const accepted = await acceptIngestBatch(normalizedPayload);
+    const result = await processIngestBatch({
+      batchId: accepted.batchId,
+      logger: {
+        info: () => {},
+        warn: (payload, message) => console.warn(JSON.stringify({ level: 'warn', message, payload })),
+        error: (payload, message) => console.error(JSON.stringify({ level: 'error', message, payload })),
+        debug: () => {},
+      },
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    resultSummary.processedBatchCount += result.status === 'completed' ? 1 : 0;
+    resultSummary.ingestedCount += result.ingested;
+    resultSummary.updatedCount += result.updated;
+    resultSummary.skippedByProcessorCount += result.skipped;
+    cursorStart = cursorEnd;
+    batchSequence += 1;
+  }
+
+  for (let offset = 0; offset < summary.mirrorListingCount; offset += options.fetchSize) {
+    const rows = await fetchMirrorListings(mirrorDb, source, options.scope, options.fetchSize, offset);
+    for (const row of rows) {
+      const listing = toIngestListing(row, source, summary.scopeKey, summary.sourceHighWatermark);
+      if (!listing) {
+        continue;
+      }
+
+      executedPreparedListingCount += 1;
       listingsBuffer.push(listing);
       if (listingsBuffer.length >= options.batchSize) {
         await flushBatch(false);
@@ -591,18 +621,14 @@ async function processSource(source: SourceName, mirrorDb: postgres.Sql, options
     }
   }
 
-  summary.thresholds = buildThresholds(summary, options);
-  if (!options.dryRun && summary.thresholds.violations.length > 0) {
-    throw new Error(`Replay threshold violation for ${source}: ${summary.thresholds.violations.join(', ')}`);
+  if (executedPreparedListingCount !== summary.preparedListingCount) {
+    throw new Error(
+      `Prepared listing count changed during replay for ${source}; expected ${summary.preparedListingCount}, got ${executedPreparedListingCount}`,
+    );
   }
 
   await flushBatch(true);
-  summary.staleForProjection = Boolean(
-    watermark.lastCommittedChangedAt
-      && new Date(watermark.lastCommittedChangedAt).getTime() > new Date(summary.sourceHighWatermark).getTime(),
-  );
-
-  return summary;
+  return resultSummary;
 }
 
 async function main(): Promise<void> {
@@ -616,8 +642,30 @@ async function main(): Promise<void> {
 
   try {
     await mainDb`SELECT 1`;
-    for (const source of selectedSources(options.source)) {
-      summaries.push(await processSource(source, mirrorDbs[source], options));
+    const sources = selectedSources(options.source);
+    for (const source of sources) {
+      summaries.push(await planSource(source, mirrorDbs[source], options));
+    }
+
+    const violations = collectListingReplayThresholdViolations(summaries);
+    if (!options.dryRun && violations.length > 0) {
+      console.log(JSON.stringify({
+        dryRun: options.dryRun,
+        source: options.source,
+        scope: options.scope,
+        repair: options.repair,
+        summaries,
+      }, null, 2));
+      throw new Error(`Replay threshold violation: ${violations.join(', ')}`);
+    }
+
+    if (!options.dryRun) {
+      for (let index = 0; index < sources.length; index += 1) {
+        const source = sources[index];
+        const summary = summaries[index];
+        if (!source || !summary) continue;
+        summaries[index] = await executeSource(source, mirrorDbs[source], options, summary);
+      }
     }
   } finally {
     await Promise.all([mainDb.end(), mirrorDbs.funda.end(), mirrorDbs.pararius.end(), closeConnection()]);
@@ -632,10 +680,13 @@ async function main(): Promise<void> {
   }, null, 2));
 }
 
-main().catch((error) => {
-  console.error(JSON.stringify({
-    error: 'SEED_LISTINGS_FAILED',
-    message: error instanceof Error ? error.message : String(error),
-  }));
-  process.exit(1);
-});
+const directRunUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
+if (import.meta.url === directRunUrl) {
+  main().catch((error) => {
+    console.error(JSON.stringify({
+      error: 'SEED_LISTINGS_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+    }));
+    process.exit(1);
+  });
+}

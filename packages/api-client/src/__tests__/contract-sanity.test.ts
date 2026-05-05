@@ -134,7 +134,9 @@ type CanonicalSubmitListingError = {
 };
 type CanonicalPropertyListingReadItem = {
   id: string;
+  propertyId: string;
   sourceUrl: string;
+  displayUrl: string | null;
   sourceName: string;
   canonicalUrl: string | null;
   sourceListingId: string | null;

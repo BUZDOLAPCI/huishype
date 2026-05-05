@@ -1028,7 +1028,7 @@ export async function createUserListingSubmission(
   const canonicalListing = await reconcileListingObservation(observation.id, executor);
   if (!canonicalListing) throw new Error('Preview submission did not project a canonical listing');
 
-  const [existingActiveHandoff] = await executor
+  const [existingHandoff] = await executor
     .select()
     .from(listingCandidateHandoffs)
     .where(
@@ -1036,23 +1036,33 @@ export async function createUserListingSubmission(
         eq(listingCandidateHandoffs.sourceName, input.preview.sourceName),
         eq(listingCandidateHandoffs.propertyId, input.preview.propertyId),
         eq(listingCandidateHandoffs.sourceUrlCanonical, input.preview.sourceUrlCanonical),
-        sql`${listingCandidateHandoffs.state} IN ('pending', 'queued', 'retryable_error')`,
+        sql`${listingCandidateHandoffs.state} IN ('pending', 'queued', 'retryable_error', 'delivered')`,
       ),
     )
-    .orderBy(desc(listingCandidateHandoffs.updatedAt), desc(listingCandidateHandoffs.createdAt))
+    .orderBy(
+      sql`CASE ${listingCandidateHandoffs.state}
+        WHEN 'pending' THEN 0
+        WHEN 'queued' THEN 1
+        WHEN 'retryable_error' THEN 2
+        WHEN 'delivered' THEN 3
+        ELSE 4
+      END`,
+      desc(listingCandidateHandoffs.updatedAt),
+      desc(listingCandidateHandoffs.createdAt),
+    )
     .limit(1);
 
-  if (existingActiveHandoff) {
+  if (existingHandoff) {
     await executor
       .update(listingObservations)
-      .set({ candidateHandoffId: existingActiveHandoff.id })
+      .set({ candidateHandoffId: existingHandoff.id })
       .where(eq(listingObservations.id, observation.id));
 
     return {
       canonicalListing,
       observationId: observation.id,
-      candidateId: existingActiveHandoff.id,
-      candidateHandoffState: existingActiveHandoff.state,
+      candidateId: existingHandoff.id,
+      candidateHandoffState: existingHandoff.state,
       reasonCode: input.preview.reasonCode,
     };
   }

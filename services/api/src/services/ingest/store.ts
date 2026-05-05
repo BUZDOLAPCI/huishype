@@ -79,6 +79,19 @@ interface SupersededBatchRow {
   source_name: string;
 }
 
+function sourceCursorBoundBatchPredicate(): ReturnType<typeof sql> {
+  return sql`
+    NOT (b.payload_json ? 'requestedBy')
+    AND COALESCE(b.payload_json->>'scopeKey', '') <> 'candidate'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(COALESCE(b.payload_json->'listings', '[]'::jsonb)) AS listing(value)
+      WHERE listing.value->>'scopeKey' = 'candidate'
+        OR listing.value ? 'sourceCandidateId'
+    )
+  `;
+}
+
 interface SkippedBatchRecoveryCandidateRow {
   [key: string]: unknown;
   id: string;
@@ -446,6 +459,7 @@ async function markSupersededBatchesAfterWatermark(limit: number): Promise<Super
         OR (b.status = 'processing' AND b.started_at IS NULL)
       )
       AND s.last_committed_cursor IS NOT NULL
+      AND ${sourceCursorBoundBatchPredicate()}
     ORDER BY b.received_at, b.batch_sequence, b.id
     LIMIT ${limit}
   `);

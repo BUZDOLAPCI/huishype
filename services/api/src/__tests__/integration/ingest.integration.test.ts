@@ -334,6 +334,223 @@ describe('Durable ingest API contract', () => {
     });
   });
 
+  it('processes candidate callback batches independently from the source cursor', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = 'Candidate Cursorlaan';
+    await resetIngestSourceState(sourceName);
+    const propertyId = await seedProperty({
+      street,
+      houseNumber: 41,
+      postalCode: '5611AA',
+      city: 'Eindhoven',
+    });
+    const firstCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T13:00:00.000Z',
+      listingKey: `idealista-mirror-${stamp}`,
+    });
+    const candidateCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T13:05:00.000Z',
+      listingKey: `idealista-candidate-${stamp}`,
+    });
+
+    const mirrorAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-mirror-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: firstCursor,
+      upstreamRunKey: `idealista-mirror-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/en/koop/eindhoven/huis-${stamp}/`,
+          mirrorListingId: `idealista-mirror-${stamp}`,
+          askingPrice: 515000,
+          priceType: 'sale' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '5611 AA',
+            houseNumber: 41,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: mirrorAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [sourceAfterMirror] = await db
+      .select()
+      .from(ingestSources)
+      .where(eq(ingestSources.sourceName, sourceName))
+      .limit(1);
+
+    expect(sourceAfterMirror?.lastCommittedCursor).toBe(firstCursor);
+    expect(sourceAfterMirror?.lastBatchId).toBe(mirrorAccepted.batchId);
+
+    const scraperRunId = `idealista-candidate-run-${stamp}`;
+    const candidatePayload = {
+      sourceName,
+      idempotencyKey: `idealista-candidate-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: candidateCursor,
+      runId: scraperRunId,
+      batchKind: 'observations' as const,
+      scopeKey: 'candidate',
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/en/koop/eindhoven/diagnostic-partial-${stamp}/`,
+          mirrorListingId: `idealista-candidate-partial-${stamp}`,
+          sourceCandidateId: 'candidate-partial',
+          askingPrice: null,
+          listingType: 'unknown' as const,
+          diagnosticStatus: 'unknown' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            city: 'Eindhoven',
+          },
+        },
+        {
+          sourceUrl: `https://www.idealista.com/en/koop/eindhoven/diagnostic-omitted-${stamp}/`,
+          mirrorListingId: `idealista-candidate-omitted-${stamp}`,
+          sourceCandidateId: 'candidate-omitted',
+          askingPrice: null,
+          priceType: 'unknown' as const,
+          diagnosticStatus: 'parser_error' as const,
+          status: 'active' as const,
+        },
+      ],
+    };
+
+    const candidateResponse = await app.inject({
+      method: 'POST',
+      url: '/api/ingest/listings',
+      headers: {
+        'x-api-key': 'test-ingest-api-key',
+      },
+      payload: candidatePayload,
+    });
+
+    expect(candidateResponse.statusCode).toBe(202);
+    const candidateAccepted = JSON.parse(candidateResponse.body);
+    expect(candidateAccepted.runId).toBeTruthy();
+
+    await expect(
+      processIngestBatch({
+        batchId: candidateAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 2,
+      skipped: 0,
+    });
+
+    const [candidateBatch] = await db
+      .select()
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, candidateAccepted.batchId))
+      .limit(1);
+
+    expect(candidateBatch?.payloadJson).toMatchObject({
+      sourceName,
+      upstreamRunKey: scraperRunId,
+      scopeKey: 'candidate',
+      listings: [
+        expect.objectContaining({
+          mirrorListingId: `idealista-candidate-partial-${stamp}`,
+          priceType: 'unknown',
+        }),
+        expect.objectContaining({
+          mirrorListingId: `idealista-candidate-omitted-${stamp}`,
+          priceType: 'unknown',
+        }),
+      ],
+    });
+
+    const [runState] = await db
+      .select()
+      .from(ingestRuns)
+      .where(eq(ingestRuns.id, candidateAccepted.runId as string))
+      .limit(1);
+
+    expect(runState?.upstreamRunKey).toBe(scraperRunId);
+    expect(runState?.status).toBe('completed');
+
+    const observations = await db
+      .select({
+        sourceListingId: listingObservations.sourceListingId,
+        propertyId: listingObservations.propertyId,
+        diagnosticStatus: listingObservations.diagnosticStatus,
+        addressNormalized: listingObservations.addressNormalized,
+        payload: listingObservations.payload,
+      })
+      .from(listingObservations)
+      .where(eq(listingObservations.ingestBatchId, candidateAccepted.batchId));
+
+    expect(observations).toHaveLength(2);
+    expect(observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceListingId: `idealista-candidate-partial-${stamp}`,
+        propertyId: null,
+        diagnosticStatus: 'unknown',
+        addressNormalized: expect.objectContaining({
+          countryCode: 'NL',
+          city: 'Eindhoven',
+        }),
+        payload: expect.objectContaining({
+          scopeKey: 'candidate',
+          priceType: 'unknown',
+          diagnosticOnly: true,
+        }),
+      }),
+      expect.objectContaining({
+        sourceListingId: `idealista-candidate-omitted-${stamp}`,
+        propertyId: null,
+        diagnosticStatus: 'parser_error',
+        addressNormalized: null,
+        payload: expect.objectContaining({
+          scopeKey: 'candidate',
+          priceType: 'unknown',
+          diagnosticOnly: true,
+        }),
+      }),
+    ]));
+
+    const [sourceAfterCandidate] = await db
+      .select()
+      .from(ingestSources)
+      .where(eq(ingestSources.sourceName, sourceName))
+      .limit(1);
+
+    expect(sourceAfterCandidate?.lastCommittedCursor).toBe(firstCursor);
+    expect(sourceAfterCandidate?.lastCommittedListingKey).toBe(`idealista-mirror-${stamp}`);
+    expect(sourceAfterCandidate?.lastBatchId).toBe(mirrorAccepted.batchId);
+
+    const canonicalRows = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.propertyId, propertyId));
+
+    expect(canonicalRows).toHaveLength(1);
+    expect(canonicalRows[0]?.primarySourceListingId).toBe(`idealista-mirror-${stamp}`);
+  });
+
   it('processes zero-row scoped completion batches and advances scope watermarks', async () => {
     const sourceName = 'idealista';
     const cursorEnd = encodeOpaqueIngestCursor({

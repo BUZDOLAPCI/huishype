@@ -89,6 +89,27 @@ interface ClaimedBatch {
   attemptCount: number;
 }
 
+function isSourceCursorBoundBatch(payload: IngestBatchRequest): boolean {
+  return !(
+    payload.scopeKey === 'candidate'
+    || (payload.listings ?? []).some((listing) => listing.scopeKey === 'candidate' || Boolean(listing.sourceCandidateId))
+    || Object.prototype.hasOwnProperty.call(payload as Record<string, unknown>, 'requestedBy')
+  );
+}
+
+function sourceCursorBoundBatchPredicate(): ReturnType<typeof sql> {
+  return sql`
+    NOT (${ingestBatches.payloadJson} ? 'requestedBy')
+    AND COALESCE(${ingestBatches.payloadJson}->>'scopeKey', '') <> 'candidate'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(COALESCE(${ingestBatches.payloadJson}->'listings', '[]'::jsonb)) AS listing(value)
+      WHERE listing.value->>'scopeKey' = 'candidate'
+        OR listing.value ? 'sourceCandidateId'
+    )
+  `;
+}
+
 export interface IngestProcessResult {
   status: 'completed' | 'noop';
   ingested: number;
@@ -209,7 +230,7 @@ function getSpatialCandidate(item: IngestListing): CanonicalizedListing['spatial
     return null;
   }
 
-  const countryCode = item.address.countryCode.trim().toUpperCase();
+  const countryCode = item.address.countryCode?.trim().toUpperCase() ?? '';
   if (countryCode.length !== 2) {
     return null;
   }
@@ -233,7 +254,7 @@ function canUseSpatialOnlyForCanonicalizationFailure(
   return (
     failureReason === 'invalid_house_number'
     && hasBlankHouseNumber(item)
-    && (item.address?.street.trim().length ?? 0) > 0
+    && (item.address?.street?.trim().length ?? 0) > 0
     && spatialCandidate !== null
   );
 }
@@ -246,10 +267,10 @@ function toSkipDiagnostic(item: IngestListing, reason: IngestSkipReason): Ingest
     sourceUrl: item.sourceUrl,
     canonicalUrl: item.canonicalUrl ?? null,
     address: item.address ? {
-      countryCode: item.address.countryCode,
-      street: item.address.street,
-      postalCode: item.address.postalCode,
-      houseNumber: item.address.houseNumber,
+      countryCode: item.address.countryCode ?? '',
+      street: item.address.street ?? '',
+      postalCode: item.address.postalCode ?? '',
+      houseNumber: item.address.houseNumber ?? '',
       houseNumberAddition: item.address.houseNumberAddition ?? null,
       city: item.address.city ?? null,
       hasCoordinates: isValidCoordinate(item.address.latitude, item.address.longitude),
@@ -325,6 +346,7 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
         id: ingestBatches.id,
         sourceName: ingestBatches.sourceName,
         cursorStart: ingestBatches.cursorStart,
+        payloadJson: ingestBatches.payloadJson,
       })
       .from(ingestBatches)
       .where(
@@ -340,6 +362,8 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
       return null;
     }
 
+    const payload = ingestBatchRequestSchema.parse(candidate.payloadJson);
+
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${candidate.sourceName}))`);
 
     const sourceRows = await tx
@@ -350,8 +374,9 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
 
     const lastCommittedCursor = sourceRows[0]?.lastCommittedCursor ?? null;
     const isNextBatch =
-      (candidate.cursorStart == null && lastCommittedCursor == null) ||
-      candidate.cursorStart === lastCommittedCursor;
+      !isSourceCursorBoundBatch(payload)
+      || (candidate.cursorStart == null && lastCommittedCursor == null)
+      || candidate.cursorStart === lastCommittedCursor;
 
     if (!isNextBatch) {
       return null;
@@ -383,7 +408,7 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
       sourceName: claimed.sourceName,
       runId: claimed.runId,
       cursorEnd: claimed.cursorEnd,
-      payload: ingestBatchRequestSchema.parse(claimed.payloadJson),
+      payload,
       attemptCount: claimed.attemptCount,
     };
   });
@@ -410,10 +435,10 @@ function canonicalizeListings(listings: IngestListing[]): {
     }
 
     const canonicalResult = canonicalizeAddressWithDiagnostics({
-      countryCode: item.address.countryCode as CountryCode,
+      countryCode: item.address.countryCode as CountryCode | undefined,
       street: item.address.street,
-      postalCode: item.address.postalCode,
-      houseNumber: item.address.houseNumber,
+      postalCode: item.address.postalCode ?? '',
+      houseNumber: item.address.houseNumber ?? '',
       houseNumberAddition: item.address.houseNumberAddition ?? null,
       city: item.address.city,
     });
@@ -450,7 +475,7 @@ function canonicalizeListings(listings: IngestListing[]): {
       canonical:
         canonical && canonical.street.length > 0
           ? {
-              countryCode: item.address.countryCode,
+              countryCode: item.address.countryCode ?? '',
               street: canonical.street,
               streetNorm: normalizeStreetForMatch(canonical.street),
               postalCode: normalizePostalCodeForMatch(canonical.postalCode),
@@ -1580,7 +1605,7 @@ async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: strin
         and(
           eq(ingestBatches.sourceName, sourceName),
           eq(ingestBatches.status, 'completed'),
-          sql`NOT (${ingestBatches.payloadJson} ? 'requestedBy')`,
+          sourceCursorBoundBatchPredicate(),
           cursorCondition,
         ),
       )

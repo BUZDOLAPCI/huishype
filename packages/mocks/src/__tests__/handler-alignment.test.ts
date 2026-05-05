@@ -432,16 +432,13 @@ describe('Mock handler runtime parity', () => {
     expect(Array.isArray(body.data)).toBe(true);
     if (body.data.length > 0) {
       expect(body.data[0]).toHaveProperty('thumbnailUrl');
+      expect(body.data[0]).toHaveProperty('propertyId');
       expect(body.data[0]).toHaveProperty('sourceUrl');
       expect(body.data[0]).toHaveProperty('canonicalUrl');
       expect(body.data[0]).toHaveProperty('displayUrl');
       expect(body.data[0]).toHaveProperty('sourceListingId');
-      expect(body.data[0]).toHaveProperty('sourceListingIdKind');
-      expect(body.data[0]).toHaveProperty('validationState');
-      expect(body.data[0]).toHaveProperty('matchState');
       expect(body.data[0]).toHaveProperty('candidateHandoffState');
       expect(body.data[0]).toHaveProperty('verificationState');
-      expect(body.data[0]).toHaveProperty('originSummary');
       expect(body.data[0]).toHaveProperty('reasonCode');
       expect(body.data[0]).toHaveProperty('createdAt');
     }

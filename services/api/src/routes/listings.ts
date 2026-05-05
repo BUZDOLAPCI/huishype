@@ -57,7 +57,9 @@ const errorResponseSchema = z.object({
 
 const listingResponseSchema = z.object({
   id: z.string().uuid(),
+  propertyId: z.string().uuid(),
   sourceUrl: z.string(),
+  displayUrl: z.string().nullable(),
   sourceName: z.string(),
   canonicalUrl: z.string().nullable(),
   sourceListingId: z.string().nullable(),
@@ -387,7 +389,9 @@ export async function listingRoutes(app: FastifyInstance) {
       return reply.send({
         data: canonicalListings.map((l) => ({
           id: l.id,
+          propertyId: l.propertyId,
           sourceUrl: l.displayUrl,
+          displayUrl: l.displayUrl,
           sourceName: l.sourceName,
           canonicalUrl: l.canonicalUrl,
           sourceListingId: l.primarySourceListingId,

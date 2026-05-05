@@ -322,7 +322,9 @@ describe('Listing routes', () => {
       if (body.data.length > 0) {
         const listing = body.data[0];
         expect(listing).toHaveProperty('id');
+        expect(listing).toHaveProperty('propertyId', testPropertyId);
         expect(listing).toHaveProperty('sourceUrl');
+        expect(listing).toHaveProperty('displayUrl');
         expect(listing).toHaveProperty('sourceName');
         expect(listing).toHaveProperty('status');
         expect(listing).toHaveProperty('createdAt');
@@ -1073,11 +1075,12 @@ describe('Listing routes', () => {
         changedAt: '2026-04-07T10:00:00.000Z',
         listingKey: `funda-promotion-${submittedId}`,
       });
+      const watermark = await getIngestWatermark('funda');
       const acceptedMirror = await acceptIngestBatch({
         sourceName: 'funda',
         idempotencyKey: `funda-promotion-${submittedId}`,
         batchSequence: 0,
-        cursorStart: null,
+        cursorStart: watermark.cursor,
         cursorEnd: mirrorCursor,
         upstreamRunKey: `funda-promotion-run-${submittedId}`,
         listings: [
@@ -1525,6 +1528,112 @@ describe('Listing routes', () => {
       expect(visibleRows).toHaveLength(1);
       expect(visibleRows[0]).toMatchObject({
         candidateHandoffState: 'queued',
+      });
+    });
+
+    it('keeps repeated user submissions idempotent after a candidate handoff is delivered', async () => {
+      const fixture = await createMatchedSubmissionFixture('repeat-submit-delivered');
+
+      mockFetchFn.mockResolvedValueOnce(jsonResponse({ state: 'queued', created: true }, 202));
+      await expect(processCandidateHandoffJob({ handoffId: fixture.candidateId })).resolves.toMatchObject({
+        status: 'delivered',
+        handoffId: fixture.candidateId,
+      });
+
+      mockFetchFn.mockReset();
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl: fixture.rawUrl,
+          canonicalUrl: fixture.canonicalUrl,
+          sourceListingId: fixture.sourceListingId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [
+            { kind: 'tiny_id', value: fixture.sourceListingId },
+            { kind: 'detail_id', value: fixture.sourceListingId },
+          ],
+          listingPath: `/detail/${fixture.sourceListingId}/`,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'matched',
+          sourceName: 'funda',
+          rawUrl: fixture.rawUrl,
+          canonicalUrl: fixture.canonicalUrl,
+          sourceListingId: fixture.sourceListingId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [
+            { kind: 'tiny_id', value: fixture.sourceListingId },
+            { kind: 'detail_id', value: fixture.sourceListingId },
+          ],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: testPropertyId,
+            matchKind: 'source_exact',
+          },
+          thumbnailUrl: fixture.thumbnailUrl,
+          title: fixture.title,
+          price: 525000,
+          currency: 'EUR',
+        }));
+
+      const previewResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: fixture.rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = JSON.parse(previewResponse.body) as { previewToken: string };
+
+      mockFetchFn.mockReset();
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          previewToken: preview.previewToken,
+        },
+      });
+
+      expect(submitResponse.statusCode).toBe(201);
+      expect(mockFetchFn).not.toHaveBeenCalled();
+      const repeatedSubmission = JSON.parse(submitResponse.body) as {
+        id: string;
+        candidateId: string;
+        candidateHandoffState: string;
+      };
+      expect(repeatedSubmission).toMatchObject({
+        id: fixture.canonicalListingId,
+        candidateId: fixture.candidateId,
+        candidateHandoffState: 'delivered',
+      });
+
+      const handoffs = await db
+        .select()
+        .from(listingCandidateHandoffs)
+        .where(eq(listingCandidateHandoffs.sourceUrlCanonical, fixture.canonicalUrl));
+      expect(handoffs).toHaveLength(1);
+      expect(handoffs[0]).toMatchObject({
+        id: fixture.candidateId,
+        state: 'delivered',
+      });
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const visibleRows = listingsBody.data.filter((item: { id: string }) => item.id === fixture.canonicalListingId);
+      expect(visibleRows).toHaveLength(1);
+      expect(visibleRows[0]).toMatchObject({
+        candidateHandoffState: 'delivered',
       });
     });
 
