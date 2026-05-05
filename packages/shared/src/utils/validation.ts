@@ -142,10 +142,7 @@ export const previewListingSchema = z.object({
 });
 
 export const submitListingSchema = z.object({
-  url: listingUrlSchema,
-  propertyId: listingPropertyIdSchema,
-  ogTitle: z.string().optional(),
-  thumbnailUrl: z.string().optional(),
+  previewToken: z.string().min(32),
 });
 
 export const getListingsSchema = z.object({

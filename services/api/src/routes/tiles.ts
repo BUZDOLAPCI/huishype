@@ -196,6 +196,19 @@ const tileJsonResponseSchema = z.object({
 const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
 const PROPERTY_TILE_SNAPSHOT_LOOKUP_REFRESH_THROTTLE_MS = 60_000;
+const pendingDefaultPropertyTileSnapshotRefreshes = new Set<Promise<unknown>>();
+
+export async function waitForPendingDefaultPropertyTileSnapshotRefreshesForTests(): Promise<void> {
+  if (process.env.NODE_ENV !== 'test') {
+    return;
+  }
+
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  while (pendingDefaultPropertyTileSnapshotRefreshes.size > 0) {
+    await Promise.allSettled(Array.from(pendingDefaultPropertyTileSnapshotRefreshes));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
 
 export function resetPropertyTileCacheForTests(): void {
   publicPropertyTileCache.clear();
@@ -238,7 +251,7 @@ function requestDefaultPropertyTileSnapshotRefreshAfterLookupFallback(input: {
   reason: 'snapshot-lookup-miss' | 'snapshot-lookup-error';
 }): void {
   const scheduled = setImmediate(() => {
-    void safeRequestPropertyTileSnapshotRefresh(
+    const refresh = safeRequestPropertyTileSnapshotRefresh(
       {
         reason: input.reason,
         throttleMs: PROPERTY_TILE_SNAPSHOT_LOOKUP_REFRESH_THROTTLE_MS,
@@ -249,7 +262,10 @@ function requestDefaultPropertyTileSnapshotRefreshAfterLookupFallback(input: {
         x: input.x,
         y: input.y,
       },
-    );
+    ).finally(() => {
+      pendingDefaultPropertyTileSnapshotRefreshes.delete(refresh);
+    });
+    pendingDefaultPropertyTileSnapshotRefreshes.add(refresh);
   });
   scheduled.unref?.();
 }

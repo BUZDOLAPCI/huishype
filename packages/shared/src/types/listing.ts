@@ -17,19 +17,14 @@ export type ListingValidationState = 'valid' | 'invalid' | 'provisional';
 
 export type ListingMatchState = 'matched' | 'mismatch' | 'unverified' | 'unsupported';
 
-export type ListingPreviewWatchState = 'not_required' | 'will_enqueue' | 'unsupported';
+export type ListingPreviewHandoffState = 'will_create' | 'unsupported';
 
-export type ListingWatchState =
-  | ListingPreviewWatchState
+export type ListingCandidateHandoffState =
   | 'pending'
   | 'queued'
-  | 'fetching'
-  | 'matched'
-  | 'not_found'
-  | 'blocked'
-  | 'invalid'
-  | 'parser_error'
-  | 'retryable_error';
+  | 'delivered'
+  | 'retryable_error'
+  | 'dead_letter';
 
 export type ListingVerificationState =
   | 'provisional'
@@ -89,8 +84,8 @@ export interface Listing {
   validationState?: ListingValidationState | null;
   /** Property match state reported by source validation */
   matchState?: ListingMatchState | null;
-  /** Durable mirror watch state, if a user submission is pending validation */
-  watchState?: ListingWatchState | null;
+  /** Durable candidate handoff state, if a user submission is pending source ingestion */
+  candidateHandoffState?: ListingCandidateHandoffState | null;
   /** Canonical verification state used by read surfaces */
   verificationState?: ListingVerificationState | null;
   /** Provenance summary for the canonical listing */
@@ -154,14 +149,8 @@ export interface ListingSummary {
  * User-submitted listing request
  */
 export interface SubmitListingRequest {
-  /** URL to the listing (funda, pararius, etc.) */
-  url: string;
-  /** Local property this listing belongs to */
-  propertyId: string;
-  /** Extracted Open Graph title, if available */
-  ogTitle?: string;
-  /** Extracted Open Graph thumbnail URL, if available */
-  thumbnailUrl?: string;
+  /** Signed/durable preview token returned by POST /listings/preview */
+  previewToken: string;
 }
 
 /**
@@ -203,7 +192,7 @@ export interface ListingPreviewResponse {
   sourceListingIdKind: string | null;
   validationState: ListingValidationState;
   matchState: ListingMatchState;
-  watchState: ListingPreviewWatchState;
+  handoffState: ListingPreviewHandoffState;
   reasonCode: ListingReasonCode | string;
   title: string | null;
   description: string | null;
@@ -214,6 +203,8 @@ export interface ListingPreviewResponse {
   address: string | ListingPreviewAddress | null;
   submittedPropertyId: string;
   matchedPropertyId: string | null;
+  previewToken: string;
+  previewId: string;
 }
 
 export interface ListingSubmitResult extends SubmitListingResponse {
@@ -224,7 +215,8 @@ export interface ListingSubmitResult extends SubmitListingResponse {
   sourceListingIdKind: string | null;
   validationState: ListingValidationState;
   matchState: ListingMatchState;
-  watchState: ListingWatchState | null;
+  candidateHandoffState: ListingCandidateHandoffState;
+  candidateId: string;
   verificationState: ListingVerificationState;
   reasonCode: ListingReasonCode | string;
 }
@@ -249,7 +241,7 @@ export interface ListingReadItem {
   status: ListingStatus;
   validationState: ListingValidationState | null;
   matchState: ListingMatchState | null;
-  watchState: ListingWatchState | null;
+  candidateHandoffState: ListingCandidateHandoffState | null;
   verificationState: ListingVerificationState;
   originSummary: ListingOriginSummary;
   reasonCode: ListingReasonCode | string | null;

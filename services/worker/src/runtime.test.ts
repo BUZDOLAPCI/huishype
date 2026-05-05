@@ -6,7 +6,6 @@ import { loadWorkerConfig } from './config.js';
 type RecoverySweepResult = {
   propertyTileSnapshotRefreshRequested: boolean;
   propertyTileSnapshotRefreshReason: string | null;
-  listingWatchMaintenanceBatchIds: string[];
 };
 
 type RuntimeInternals = {
@@ -75,14 +74,6 @@ function createModuleLoaders(
         maintenancePending: false,
       }),
       markBatchQueued: async () => undefined,
-    }),
-    loadListingReconciliationModule: async () => ({
-      processDueListingValidationWatches: async () => ({
-        claimedCount: 0,
-        terminalCount: 0,
-        retryableCount: 0,
-        results: [],
-      }),
     }),
     loadListingsViewModule: async () => ({
       refreshLatestListingsView: async () => undefined,
@@ -170,71 +161,6 @@ test('recovery sweep respects snapshot refresh throttle decisions', async () => 
   assert.equal(summary.propertyTileSnapshotRefreshRequested, false);
   assert.equal(summary.propertyTileSnapshotRefreshReason, 'property_view_throttled');
   assert.deepEqual(requestRefreshCalls, []);
-});
-
-test('recovery sweep requests property tile refresh after terminal listing validation outcomes', async () => {
-  const requestRefreshCalls: unknown[] = [];
-  const requestLatestListingsRefreshCalls: unknown[] = [];
-  const requestRefresh = async (input: { reason: string; throttleMs?: number }) => {
-    requestRefreshCalls.push(input);
-    return { enqueued: true, throttled: false };
-  };
-  const requestLatestListingsRefresh = async (input: {
-    requestedBy:
-      | 'ingest-batch'
-      | 'listing-submit'
-      | 'validation-outcome'
-      | 'official-valuation'
-      | 'worker-sweep';
-    batchId?: string;
-  }) => {
-    requestLatestListingsRefreshCalls.push(input);
-  };
-  const runtime = createRuntime(
-    createModuleLoaders({
-      loadIngestQueueModule: async () => ({
-        closeIngestQueues: async () => undefined,
-        enqueueIngestBatch: async () => undefined,
-        requestLatestListingsRefresh,
-        enqueuePropertyTileSnapshotRefresh: async () => undefined,
-      }),
-      loadListingReconciliationModule: async () => ({
-        processDueListingValidationWatches: async () => ({
-          claimedCount: 1,
-          terminalCount: 1,
-          retryableCount: 0,
-          results: [
-            {
-              outcome: 'terminal' as const,
-              watchId: 'watch-1',
-              state: 'confirmed_removed',
-              maintenanceBatchId: 'maintenance-batch-1',
-            },
-          ],
-        }),
-      }),
-      loadPropertyTileSnapshotsModule: async () => ({
-        executePropertyTileSnapshotRefresh: async () => ({}),
-        requestPropertyTileSnapshotRefresh: requestRefresh,
-        shouldRequestPropertyTileSnapshotRefresh: async () => ({
-          shouldEnqueue: false,
-          reason: 'current',
-        }),
-      }),
-    }),
-  ) as unknown as RuntimeInternals;
-
-  const summary = await runtime.performRecoverySweep('unit');
-
-  assert.deepEqual(summary.listingWatchMaintenanceBatchIds, ['maintenance-batch-1']);
-  assert.deepEqual(requestLatestListingsRefreshCalls[0], {
-    requestedBy: 'validation-outcome',
-    batchId: 'maintenance-batch-1',
-  });
-  assert.deepEqual(requestRefreshCalls[0], {
-    reason: 'validation-outcome',
-  });
-  assert.equal(summary.propertyTileSnapshotRefreshRequested, false);
 });
 
 test('property tile snapshot worker job delegates to snapshot refresh with a durable lease owner', async () => {

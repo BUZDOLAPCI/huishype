@@ -14,7 +14,6 @@ export interface MaintenanceRefreshJobData {
   requestedBy:
     | 'ingest-batch'
     | 'listing-submit'
-    | 'validation-outcome'
     | 'official-valuation'
     | 'worker-sweep';
   batchId?: string;

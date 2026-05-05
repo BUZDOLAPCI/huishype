@@ -8,9 +8,6 @@ const DEFAULT_RECOVERY_SWEEP_INTERVAL_MS = 30_000;
 const DEFAULT_HEALTH_LOG_INTERVAL_MS = 60_000;
 const DEFAULT_STALE_PROCESSING_AFTER_MS = 10 * 60_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15_000;
-const DEFAULT_LISTING_WATCH_SWEEP_LIMIT = 25;
-const DEFAULT_LISTING_WATCH_RETRY_BASE_DELAY_MS = 5 * 60_000;
-const DEFAULT_LISTING_WATCH_RETRY_MAX_DELAY_MS = 6 * 60 * 60_000;
 
 export interface WorkerConfig {
   ingestConcurrency: number;
@@ -23,9 +20,6 @@ export interface WorkerConfig {
   healthLogIntervalMs: number;
   staleProcessingAfterMs: number;
   shutdownTimeoutMs: number;
-  listingWatchSweepLimit: number;
-  listingWatchRetryBaseDelayMs: number;
-  listingWatchRetryMaxDelayMs: number;
 }
 
 export function ensureWorkerRuntimeEnv(env: NodeJS.ProcessEnv = process.env): void {
@@ -102,21 +96,6 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
       env.WORKER_SHUTDOWN_TIMEOUT_MS,
       DEFAULT_SHUTDOWN_TIMEOUT_MS,
       'WORKER_SHUTDOWN_TIMEOUT_MS',
-    ),
-    listingWatchSweepLimit: parsePositiveInt(
-      env.WORKER_LISTING_WATCH_SWEEP_LIMIT,
-      DEFAULT_LISTING_WATCH_SWEEP_LIMIT,
-      'WORKER_LISTING_WATCH_SWEEP_LIMIT',
-    ),
-    listingWatchRetryBaseDelayMs: parsePositiveInt(
-      env.WORKER_LISTING_WATCH_RETRY_BASE_DELAY_MS,
-      DEFAULT_LISTING_WATCH_RETRY_BASE_DELAY_MS,
-      'WORKER_LISTING_WATCH_RETRY_BASE_DELAY_MS',
-    ),
-    listingWatchRetryMaxDelayMs: parsePositiveInt(
-      env.WORKER_LISTING_WATCH_RETRY_MAX_DELAY_MS,
-      DEFAULT_LISTING_WATCH_RETRY_MAX_DELAY_MS,
-      'WORKER_LISTING_WATCH_RETRY_MAX_DELAY_MS',
     ),
   };
 }

@@ -199,10 +199,15 @@ export const listingSourceStatusEnum = pgEnum('listing_source_status', [
   'rented',
   'withdrawn',
   'not_found',
+]);
+export const listingDiagnosticStatusEnum = pgEnum('listing_diagnostic_status', [
   'blocked',
-  'invalid',
   'parser_error',
+  'retryable_error',
+  'unsupported',
+  'invalid',
   'unknown',
+  'mirror_unavailable',
 ]);
 export const listingSourceAliasKindEnum = pgEnum('listing_source_alias_kind', [
   'tiny_id',
@@ -217,11 +222,6 @@ export const canonicalListingStatusEnum = pgEnum('canonical_listing_status', [
   'sold',
   'rented',
   'withdrawn',
-  'not_found',
-  'blocked',
-  'invalid',
-  'parser_error',
-  'unknown',
 ]);
 export const canonicalListingStatusSourceEnum = pgEnum('canonical_listing_status_source', [
   'mirror',
@@ -248,17 +248,12 @@ export const listingObservationLinkReasonEnum = pgEnum('listing_observation_link
   'user_provisional',
   'manual_repair',
 ]);
-export const mirrorListingWatchStateEnum = pgEnum('mirror_listing_watch_state', [
+export const listingCandidateHandoffStateEnum = pgEnum('listing_candidate_handoff_state', [
   'pending',
   'queued',
-  'fetching',
-  'matched',
-  'not_found',
-  'blocked',
-  'invalid',
-  'parser_error',
-  'unsupported',
+  'delivered',
   'retryable_error',
+  'dead_letter',
 ]);
 export const listingPriceObservationEventTypeEnum = pgEnum('listing_price_observation_event_type', [
   'initial',
@@ -594,6 +589,56 @@ export const ingestSources = pgTable(
   ]
 );
 
+export const listingScopeCompletions = pgTable(
+  'listing_scope_completions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    scopeKey: varchar('scope_key', { length: 255 }).notNull(),
+    listingType: varchar('listing_type', { length: 20 }).notNull().default('unknown'),
+    normalizedFilters: jsonb('normalized_filters').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    sourceRunId: varchar('source_run_id', { length: 255 }),
+    sourceRunStartedAt: timestamp('source_run_started_at', { withTimezone: true }),
+    sourceRunCompletedAt: timestamp('source_run_completed_at', { withTimezone: true }).notNull(),
+    coverageStatus: varchar('coverage_status', { length: 30 }).notNull().default('complete'),
+    observedListingCount: integer('observed_listing_count').notNull().default(0),
+    sourceHighWatermark: timestamp('source_high_watermark', { withTimezone: true }).notNull(),
+    staleForProjection: boolean('stale_for_projection').notNull().default(false),
+    repairMode: boolean('repair_mode').notNull().default(false),
+    repairReason: text('repair_reason'),
+    ingestBatchId: uuid('ingest_batch_id').references(() => ingestBatches.id, { onDelete: 'set null' }),
+    diagnostics: jsonb('diagnostics').$type<Record<string, unknown> | null>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('listing_scope_completions_idempotency_idx').on(
+      table.sourceName,
+      table.scopeKey,
+      table.listingType,
+      sql`COALESCE(${table.sourceRunId}, '')`,
+      table.sourceHighWatermark
+    ),
+    index('listing_scope_completions_source_scope_idx').on(table.sourceName, table.scopeKey, table.listingType),
+    index('listing_scope_completions_batch_idx').on(table.ingestBatchId),
+  ]
+);
+
+export const listingSourceScopeWatermarks = pgTable(
+  'listing_source_scope_watermarks',
+  {
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    scopeKey: varchar('scope_key', { length: 255 }).notNull(),
+    listingType: varchar('listing_type', { length: 20 }).notNull().default('unknown'),
+    sourceHighWatermark: timestamp('source_high_watermark', { withTimezone: true }).notNull(),
+    ingestBatchId: uuid('ingest_batch_id').references(() => ingestBatches.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceName, table.scopeKey, table.listingType] }),
+    index('listing_source_scope_watermarks_batch_idx').on(table.ingestBatchId),
+  ]
+);
+
 export const listingSourceAliases = pgTable(
   'listing_source_aliases',
   {
@@ -723,10 +768,57 @@ export const propertyTileListingFacts = pgTable(
   ]
 );
 
-export const mirrorListingWatches = pgTable(
-  'mirror_listing_watches',
+export const listingPreviewResults = pgTable(
+  'listing_preview_results',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    sourceName: varchar('source_name', { length: 50 }).notNull(),
+    propertyId: uuid('property_id')
+      .notNull()
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    sourceUrlRaw: text('source_url_raw').notNull(),
+    sourceUrlCanonical: text('source_url_canonical').notNull(),
+    sourceListingId: varchar('source_listing_id', { length: 255 }),
+    sourceListingIdKind: listingSourceIdKindEnum('source_listing_id_kind'),
+    sourceListingAliases: jsonb('source_listing_aliases')
+      .$type<Array<{ kind: string; value: string }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    validationState: varchar('validation_state', { length: 30 }).notNull(),
+    matchState: varchar('match_state', { length: 30 }).notNull(),
+    reasonCode: varchar('reason_code', { length: 100 }).notNull(),
+    propertyMatchKind: listingPropertyMatchKindEnum('property_match_kind').notNull().default('user_selected'),
+    lifecycleStatus: listingSourceStatusEnum('lifecycle_status'),
+    diagnosticStatus: listingDiagnosticStatusEnum('diagnostic_status'),
+    askingPrice: bigint('asking_price', { mode: 'number' }),
+    priceCurrency: varchar('price_currency', { length: 3 }),
+    listingType: varchar('listing_type', { length: 20 }).notNull().default('unknown'),
+    title: text('title'),
+    description: text('description'),
+    imageUrl: text('image_url'),
+    addressNormalized: jsonb('address_normalized').$type<Record<string, unknown> | null>(),
+    tokenHash: varchar('token_hash', { length: 128 }).notNull().unique(),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('listing_preview_results_idempotency_idx').on(table.idempotencyKey),
+    index('listing_preview_results_property_idx').on(table.propertyId),
+    index('listing_preview_results_source_url_idx').on(table.sourceName, table.sourceUrlCanonical),
+  ]
+);
+
+export const listingCandidateHandoffs = pgTable(
+  'listing_candidate_handoffs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    previewResultId: uuid('preview_result_id').references(() => listingPreviewResults.id, { onDelete: 'set null' }),
+    canonicalListingId: uuid('canonical_listing_id').references(() => canonicalListings.id, { onDelete: 'cascade' }),
+    observationId: uuid('observation_id'),
     sourceName: varchar('source_name', { length: 50 }).notNull(),
     propertyId: uuid('property_id')
       .notNull()
@@ -735,23 +827,23 @@ export const mirrorListingWatches = pgTable(
     sourceUrlRaw: text('source_url_raw').notNull(),
     sourceUrlCanonical: text('source_url_canonical').notNull(),
     sourceListingId: varchar('source_listing_id', { length: 255 }),
-    canonicalListingId: uuid('canonical_listing_id').references(() => canonicalListings.id, { onDelete: 'set null' }),
-    state: mirrorListingWatchStateEnum('state').notNull().default('pending'),
-    stateReason: varchar('state_reason', { length: 100 }),
+    previewFacts: jsonb('preview_facts').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    matchEvidence: jsonb('match_evidence').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    state: listingCandidateHandoffStateEnum('state').notNull().default('queued'),
     attemptCount: integer('attempt_count').notNull().default(0),
     lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
     nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
     lastError: text('last_error'),
-    lastValidationObservationId: uuid('last_validation_observation_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('mirror_listing_watches_active_url_idx')
+    uniqueIndex('listing_candidate_handoffs_active_url_idx')
       .on(table.sourceName, table.propertyId, table.sourceUrlCanonical)
-      .where(sql`state IN ('pending', 'queued', 'fetching', 'retryable_error')`),
-    index('mirror_listing_watches_state_next_attempt_idx').on(table.state, table.nextAttemptAt),
-    index('mirror_listing_watches_canonical_listing_idx').on(table.canonicalListingId),
+      .where(sql`state IN ('pending', 'queued', 'retryable_error')`),
+    index('listing_candidate_handoffs_state_next_attempt_idx').on(table.state, table.nextAttemptAt),
+    index('listing_candidate_handoffs_canonical_listing_idx').on(table.canonicalListingId),
+    index('listing_candidate_handoffs_observation_idx').on(table.observationId),
   ]
 );
 
@@ -772,7 +864,8 @@ export const listingObservations = pgTable(
     origin: listingObservationOriginEnum('origin').notNull(),
     propertyId: uuid('property_id').references(() => properties.id, { onDelete: 'set null' }),
     propertyMatchKind: listingPropertyMatchKindEnum('property_match_kind').notNull().default('source_unmatched'),
-    sourceStatus: listingSourceStatusEnum('source_status').notNull().default('unknown'),
+    sourceStatus: listingSourceStatusEnum('source_status'),
+    diagnosticStatus: listingDiagnosticStatusEnum('diagnostic_status'),
     askingPrice: bigint('asking_price', { mode: 'number' }),
     priceCurrency: varchar('price_currency', { length: 3 }),
     addressRaw: text('address_raw'),
@@ -786,7 +879,12 @@ export const listingObservations = pgTable(
     sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
     observedAt: timestamp('observed_at', { withTimezone: true }).notNull().defaultNow(),
     ingestBatchId: uuid('ingest_batch_id').references(() => ingestBatches.id, { onDelete: 'set null' }),
-    validationWatchId: uuid('validation_watch_id'),
+    scopeCompletionId: uuid('scope_completion_id').references(() => listingScopeCompletions.id, { onDelete: 'set null' }),
+    sourceRunId: varchar('source_run_id', { length: 255 }),
+    sourceHighWatermark: timestamp('source_high_watermark', { withTimezone: true }),
+    staleForProjection: boolean('stale_for_projection').notNull().default(false),
+    previewResultId: uuid('preview_result_id').references(() => listingPreviewResults.id, { onDelete: 'set null' }),
+    candidateHandoffId: uuid('candidate_handoff_id'),
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -798,7 +896,10 @@ export const listingObservations = pgTable(
     index('listing_observations_source_url_idx').on(table.sourceName, table.sourceUrlCanonical),
     index('listing_observations_property_id_idx').on(table.propertyId),
     index('listing_observations_ingest_batch_idx').on(table.ingestBatchId),
-    index('listing_observations_validation_watch_idx').on(table.validationWatchId),
+    index('listing_observations_completion_idx').on(table.scopeCompletionId),
+    index('listing_observations_stale_projection_idx').on(table.staleForProjection),
+    index('listing_observations_preview_idx').on(table.previewResultId),
+    index('listing_observations_candidate_handoff_idx').on(table.candidateHandoffId),
   ]
 );
 
@@ -867,7 +968,9 @@ export const listingReplayStaging = pgTable(
       .default(sql`'[]'::jsonb`),
     sourceUrlRaw: text('source_url_raw'),
     sourceUrlCanonical: text('source_url_canonical'),
-    sourceStatus: listingSourceStatusEnum('source_status').notNull().default('unknown'),
+    sourceStatus: listingSourceStatusEnum('source_status'),
+    diagnosticStatus: listingDiagnosticStatusEnum('diagnostic_status'),
+    staleForProjection: boolean('stale_for_projection').notNull().default(false),
     propertyId: uuid('property_id').references(() => properties.id, { onDelete: 'set null' }),
     propertyMatchKind: listingPropertyMatchKindEnum('property_match_kind').notNull().default('source_unmatched'),
     askingPrice: bigint('asking_price', { mode: 'number' }),
@@ -1318,7 +1421,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   listings: many(listings),
   canonicalListings: many(canonicalListings),
   listingObservations: many(listingObservations),
-  mirrorListingWatches: many(mirrorListingWatches),
+  listingPreviewResults: many(listingPreviewResults),
+  listingCandidateHandoffs: many(listingCandidateHandoffs),
   propertyViews: many(propertyViews),
   notifications: many(notifications, { relationName: 'recipientNotifications' }),
   pushTokens: many(pushTokens),
@@ -1332,7 +1436,8 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   listings: many(listings),
   canonicalListings: many(canonicalListings),
   listingObservations: many(listingObservations),
-  mirrorListingWatches: many(mirrorListingWatches),
+  listingPreviewResults: many(listingPreviewResults),
+  listingCandidateHandoffs: many(listingCandidateHandoffs),
   listingPriceObservations: many(listingPriceObservations),
   priceGuesses: many(priceGuesses),
   comments: many(comments),
@@ -1399,21 +1504,36 @@ export const canonicalListingsRelations = relations(canonicalListings, ({ one, m
   }),
   observationLinks: many(listingObservationLinks),
   priceObservations: many(listingPriceObservations),
-  mirrorWatches: many(mirrorListingWatches),
+  candidateHandoffs: many(listingCandidateHandoffs),
 }));
 
-export const mirrorListingWatchesRelations = relations(mirrorListingWatches, ({ one }) => ({
+export const listingPreviewResultsRelations = relations(listingPreviewResults, ({ one }) => ({
   property: one(properties, {
-    fields: [mirrorListingWatches.propertyId],
+    fields: [listingPreviewResults.propertyId],
+    references: [properties.id],
+  }),
+  user: one(users, {
+    fields: [listingPreviewResults.userId],
+    references: [users.id],
+  }),
+}));
+
+export const listingCandidateHandoffsRelations = relations(listingCandidateHandoffs, ({ one }) => ({
+  property: one(properties, {
+    fields: [listingCandidateHandoffs.propertyId],
     references: [properties.id],
   }),
   submittedByUser: one(users, {
-    fields: [mirrorListingWatches.submittedBy],
+    fields: [listingCandidateHandoffs.submittedBy],
     references: [users.id],
   }),
   canonicalListing: one(canonicalListings, {
-    fields: [mirrorListingWatches.canonicalListingId],
+    fields: [listingCandidateHandoffs.canonicalListingId],
     references: [canonicalListings.id],
+  }),
+  previewResult: one(listingPreviewResults, {
+    fields: [listingCandidateHandoffs.previewResultId],
+    references: [listingPreviewResults.id],
   }),
 }));
 
@@ -1429,6 +1549,14 @@ export const listingObservationsRelations = relations(listingObservations, ({ on
   ingestBatch: one(ingestBatches, {
     fields: [listingObservations.ingestBatchId],
     references: [ingestBatches.id],
+  }),
+  scopeCompletion: one(listingScopeCompletions, {
+    fields: [listingObservations.scopeCompletionId],
+    references: [listingScopeCompletions.id],
+  }),
+  previewResult: one(listingPreviewResults, {
+    fields: [listingObservations.previewResultId],
+    references: [listingPreviewResults.id],
   }),
   observationLink: one(listingObservationLinks),
   priceObservations: many(listingPriceObservations),
@@ -1477,11 +1605,27 @@ export const ingestBatchesRelations = relations(ingestBatches, ({ one, many }) =
     references: [ingestRuns.id],
   }),
   listingObservations: many(listingObservations),
+  scopeCompletions: many(listingScopeCompletions),
 }));
 
 export const ingestSourcesRelations = relations(ingestSources, ({ one }) => ({
   lastBatch: one(ingestBatches, {
     fields: [ingestSources.lastBatchId],
+    references: [ingestBatches.id],
+  }),
+}));
+
+export const listingScopeCompletionsRelations = relations(listingScopeCompletions, ({ one, many }) => ({
+  ingestBatch: one(ingestBatches, {
+    fields: [listingScopeCompletions.ingestBatchId],
+    references: [ingestBatches.id],
+  }),
+  observations: many(listingObservations),
+}));
+
+export const listingSourceScopeWatermarksRelations = relations(listingSourceScopeWatermarks, ({ one }) => ({
+  ingestBatch: one(ingestBatches, {
+    fields: [listingSourceScopeWatermarks.ingestBatchId],
     references: [ingestBatches.id],
   }),
 }));
@@ -1561,8 +1705,14 @@ export type NewListingSourceAlias = typeof listingSourceAliases.$inferInsert;
 export type CanonicalListing = typeof canonicalListings.$inferSelect;
 export type NewCanonicalListing = typeof canonicalListings.$inferInsert;
 
-export type MirrorListingWatch = typeof mirrorListingWatches.$inferSelect;
-export type NewMirrorListingWatch = typeof mirrorListingWatches.$inferInsert;
+export type ListingScopeCompletion = typeof listingScopeCompletions.$inferSelect;
+export type NewListingScopeCompletion = typeof listingScopeCompletions.$inferInsert;
+
+export type ListingPreviewResult = typeof listingPreviewResults.$inferSelect;
+export type NewListingPreviewResult = typeof listingPreviewResults.$inferInsert;
+
+export type ListingCandidateHandoff = typeof listingCandidateHandoffs.$inferSelect;
+export type NewListingCandidateHandoff = typeof listingCandidateHandoffs.$inferInsert;
 
 export type ListingObservation = typeof listingObservations.$inferSelect;
 export type NewListingObservation = typeof listingObservations.$inferInsert;

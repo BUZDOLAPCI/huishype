@@ -1,7 +1,7 @@
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatPropertyPrice } from '@huishype/shared';
-import type { ListingVerificationState, ListingWatchState } from '@huishype/shared';
+import type { ListingCandidateHandoffState, ListingVerificationState } from '@huishype/shared';
 import type { ListingData } from '../../hooks/useListings';
 import { SectionCard } from './SectionCard';
 
@@ -58,7 +58,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
 
   const getVerificationBadge = (
     verificationState: ListingVerificationState | null | undefined,
-    watchState: ListingWatchState | null | undefined
+    candidateHandoffState: ListingCandidateHandoffState | null | undefined
   ) => {
     if (verificationState === 'validated') {
       return { text: 'Validated', color: '#16A34A' };
@@ -66,25 +66,20 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
     if (verificationState === 'invalid') {
       return { text: 'Invalid', color: '#EF4444' };
     }
-    if (verificationState === 'validation_blocked' || watchState === 'blocked') {
+    if (verificationState === 'validation_blocked') {
       return { text: 'Blocked', color: '#9C958A' };
     }
-    if (
-      verificationState === 'validation_failed' ||
-      watchState === 'parser_error' ||
-      watchState === 'retryable_error'
-    ) {
-      return { text: 'Check failed', color: '#D97706' };
+    if (candidateHandoffState === 'retryable_error' || candidateHandoffState === 'dead_letter') {
+      return { text: 'Handoff failed', color: '#D97706' };
     }
-    if (
-      verificationState === 'provisional' ||
-      verificationState === 'validation_pending' ||
-      watchState === 'will_enqueue' ||
-      watchState === 'pending' ||
-      watchState === 'queued' ||
-      watchState === 'fetching'
-    ) {
-      return { text: 'Pending check', color: '#F59E0B' };
+    if (verificationState === 'validation_failed') {
+      return { text: 'Validation failed', color: '#D97706' };
+    }
+    if (candidateHandoffState === 'pending' || candidateHandoffState === 'queued') {
+      return { text: 'Handoff pending', color: '#F59E0B' };
+    }
+    if (verificationState === 'provisional' || verificationState === 'validation_pending') {
+      return { text: 'Validation pending', color: '#F59E0B' };
     }
     return null;
   };
@@ -103,7 +98,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
             const statusBadge = getStatusBadge(listing.status);
             const verificationBadge = getVerificationBadge(
               listing.verificationState,
-              listing.watchState
+              listing.candidateHandoffState
             );
             const sourceUrl = listing.displayUrl ?? listing.canonicalUrl ?? listing.sourceUrl;
 

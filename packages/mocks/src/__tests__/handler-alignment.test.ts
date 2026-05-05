@@ -317,7 +317,7 @@ describe('Mock handler runtime parity', () => {
     expect(previewBody).toHaveProperty('sourceListingIdKind');
     expect(previewBody).toHaveProperty('validationState', 'valid');
     expect(previewBody).toHaveProperty('matchState', 'matched');
-    expect(previewBody).toHaveProperty('watchState', 'not_required');
+    expect(previewBody).toHaveProperty('handoffState', 'will_create');
     expect(previewBody).toHaveProperty('reasonCode');
     expect(previewBody).toHaveProperty('title');
     expect(previewBody).toHaveProperty('description');
@@ -327,6 +327,8 @@ describe('Mock handler runtime parity', () => {
     expect(previewBody).toHaveProperty('currency');
     expect(previewBody).toHaveProperty('submittedPropertyId', listingPropertyId);
     expect(previewBody).toHaveProperty('matchedPropertyId', listingPropertyId);
+    expect(previewBody).toHaveProperty('previewToken');
+    expect(previewBody).toHaveProperty('previewId');
 
     const previewInvalidUrlResponse = await fetch('http://localhost/listings/preview', {
       method: 'POST',
@@ -346,10 +348,7 @@ describe('Mock handler runtime parity', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-        propertyId: listingPropertyId,
-        ogTitle: previewBody.title,
-        thumbnailUrl: previewBody.imageUrl,
+        previewToken: previewBody.previewToken,
       }),
     });
     const unauthSubmitBody = await unauthSubmit.json();
@@ -375,17 +374,11 @@ describe('Mock handler runtime parity', () => {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        url: 'https://evil-site.com/listing',
-        propertyId: listingPropertyId,
-        ogTitle: previewBody.title,
-        thumbnailUrl: previewBody.imageUrl,
+        previewToken: 'invalid-preview-token-for-handler-alignment',
       }),
     });
     expect(invalidSubmitResponse.status).toBe(400);
-    expect(await invalidSubmitResponse.json()).toEqual({
-      error: 'INVALID_URL',
-      message: 'URL must be from a recognized listing platform.',
-    });
+    expect(await invalidSubmitResponse.json()).toMatchObject({ error: 'INVALID_PREVIEW_TOKEN' });
 
     const submitResponse = await fetch('http://localhost/listings/submit', {
       method: 'POST',
@@ -394,10 +387,7 @@ describe('Mock handler runtime parity', () => {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-        propertyId: listingPropertyId,
-        ogTitle: previewBody.title,
-        thumbnailUrl: previewBody.imageUrl,
+        previewToken: previewBody.previewToken,
       }),
     });
     const submitBody = await submitResponse.json();
@@ -416,7 +406,8 @@ describe('Mock handler runtime parity', () => {
     expect(submitBody).toHaveProperty('sourceListingIdKind');
     expect(submitBody).toHaveProperty('validationState', 'valid');
     expect(submitBody).toHaveProperty('matchState', 'matched');
-    expect(submitBody).toHaveProperty('watchState', 'not_required');
+    expect(submitBody).toHaveProperty('candidateHandoffState', 'queued');
+    expect(submitBody).toHaveProperty('candidateId');
     expect(submitBody).toHaveProperty('verificationState', 'validated');
     expect(submitBody).toHaveProperty('reasonCode');
 
@@ -440,8 +431,7 @@ describe('Mock handler runtime parity', () => {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        url: 'https://www.funda.nl/detail/mismatch-12345',
-        propertyId: listingPropertyId,
+        previewToken: mismatchPreviewBody.previewToken,
       }),
     });
     expect(mismatchSubmitResponse.status).toBe(422);
@@ -468,7 +458,7 @@ describe('Mock handler runtime parity', () => {
       expect(body.data[0]).toHaveProperty('sourceListingIdKind');
       expect(body.data[0]).toHaveProperty('validationState');
       expect(body.data[0]).toHaveProperty('matchState');
-      expect(body.data[0]).toHaveProperty('watchState');
+      expect(body.data[0]).toHaveProperty('candidateHandoffState');
       expect(body.data[0]).toHaveProperty('verificationState');
       expect(body.data[0]).toHaveProperty('originSummary');
       expect(body.data[0]).toHaveProperty('reasonCode');

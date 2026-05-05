@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties, priceHistory } from '../db/index.js';
+import { config } from '../config.js';
 import { desc, eq, sql } from 'drizzle-orm';
 import rateLimit from '@fastify/rate-limit';
 import { getAllListingDomains, getAllListingSourceNames } from '@huishype/shared/config';
@@ -23,9 +24,10 @@ import {
   safeRequestPropertyTileSnapshotRefresh,
 } from '../services/property-tile-snapshots.js';
 import {
-  applyListingValidationOutcome,
+  consumeListingPreviewResult,
   createUserListingSubmission,
   listCanonicalListingsForProperty,
+  storeListingPreviewResult,
 } from '../services/listing-reconciliation.js';
 import {
   buildListingPreviewPlan,
@@ -76,7 +78,13 @@ const listingResponseSchema = z.object({
     'validation_blocked',
     'validation_failed',
   ]),
-  watchState: z.string().nullable(),
+  candidateHandoffState: z.enum([
+    'pending',
+    'queued',
+    'delivered',
+    'retryable_error',
+    'dead_letter',
+  ]).nullable(),
   reasonCode: z.string().nullable(),
   createdAt: z.string().datetime(),
 });
@@ -97,9 +105,9 @@ type RouteRefreshLogger = {
 };
 
 async function requestListingWriteRefreshes(input: {
-  requestedBy: 'listing-submit' | 'validation-outcome';
+  requestedBy: 'listing-submit';
   maintenanceBatchId: string;
-  propertyTileReason: 'listing-submit' | 'listing-validation-outcome';
+  propertyTileReason: 'listing-submit';
   logger: RouteRefreshLogger;
   context: Record<string, unknown>;
 }): Promise<void> {
@@ -113,9 +121,7 @@ async function requestListingWriteRefreshes(input: {
         maintenanceBatchId: input.maintenanceBatchId,
         ...input.context,
       },
-      `Failed to enqueue latest listings refresh after ${
-        input.requestedBy === 'listing-submit' ? 'submit' : 'validation outcome'
-      }`,
+      'Failed to enqueue latest listings refresh after submit',
     ),
   );
 
@@ -155,7 +161,7 @@ const previewResponseSchema = z.object({
   sourceListingIdKind: z.string().nullable(),
   validationState: z.enum(['valid', 'invalid', 'provisional']),
   matchState: z.enum(['matched', 'mismatch', 'unverified', 'unsupported']),
-  watchState: z.enum(['not_required', 'will_enqueue', 'unsupported']),
+  handoffState: z.enum(['will_create', 'unsupported']),
   reasonCode: z.enum([
     'source_identity_match',
     'address_match',
@@ -176,6 +182,8 @@ const previewResponseSchema = z.object({
   address: z.unknown().nullable(),
   submittedPropertyId: z.string().uuid(),
   matchedPropertyId: z.string().uuid().nullable(),
+  previewToken: z.string(),
+  previewId: z.string().uuid(),
 });
 
 // ---------------------------------------------------------------------------
@@ -183,16 +191,7 @@ const previewResponseSchema = z.object({
 // ---------------------------------------------------------------------------
 
 const submitRequestSchema = z.object({
-  url: z.string().url(),
-  propertyId: z.string().uuid(),
-  ogTitle: z.string().optional(),
-  thumbnailUrl: z.string().optional(),
-  title: z.string().trim().min(1).optional(),
-  description: z.string().trim().min(1).optional(),
-  imageUrl: z.string().url().optional(),
-  askingPrice: z.number().int().positive().optional(),
-  priceType: z.enum(['sale', 'rent', 'unknown']).optional(),
-  currency: z.string().trim().min(3).max(3).optional(),
+  previewToken: z.string().min(32),
 });
 
 const submitResponseSchema = z.object({
@@ -211,8 +210,8 @@ const submitResponseSchema = z.object({
     'validation_blocked',
     'validation_failed',
   ]),
-  watchState: z.enum(['not_required', 'will_enqueue', 'unsupported']),
-  watchId: z.string().uuid().nullable(),
+  candidateHandoffState: z.enum(['pending', 'queued', 'delivered', 'retryable_error', 'dead_letter']),
+  candidateId: z.string().uuid(),
   reasonCode: z.string(),
   createdAt: z.string().datetime(),
 });
@@ -229,72 +228,6 @@ const watermarkQuerySchema = z.object({
     (val) => ALL_SOURCE_NAMES.includes(val),
     { message: `Must be one of: ${getAllListingSourceNames().join(', ')}` },
   ),
-});
-
-const validationOutcomeSchema = z.object({
-  watchId: z.string().uuid(),
-  state: z.enum([
-    'matched',
-    'not_found',
-    'blocked',
-    'invalid',
-    'parser_error',
-    'unsupported',
-    'retryable_error',
-  ]),
-  sourceName: z.string(),
-  rawUrl: z.string().url(),
-  canonicalUrl: z.string().url(),
-  sourceListingId: z.string().nullable().optional(),
-  sourceListingIdKind: z.string().nullable().optional(),
-  aliases: z.array(z.object({ kind: z.string(), value: z.string() })).optional(),
-  sourceStatus: z.enum([
-    'available',
-    'sold',
-    'rented',
-    'withdrawn',
-    'not_found',
-    'blocked',
-    'invalid',
-    'parser_error',
-    'unknown',
-  ]).optional(),
-  address: z.object({
-    countryCode: z.string().optional(),
-    street: z.string().optional(),
-    postalCode: z.string().optional(),
-    houseNumber: z.union([z.string(), z.number()]).optional(),
-    houseNumberAddition: z.string().nullable().optional(),
-    city: z.string().optional(),
-    latitude: z.number().nullable().optional(),
-    longitude: z.number().nullable().optional(),
-  }).nullable().optional(),
-  matchedPropertyEvidence: z.object({
-    propertyId: z.string().uuid().nullable().optional(),
-    matchKind: z.enum([
-      'user_selected',
-      'source_exact',
-      'source_spatial',
-      'source_unmatched',
-      'source_mismatch',
-    ]).optional(),
-  }).nullable().optional(),
-  price: z.number().int().positive().nullable().optional(),
-  currency: z.string().trim().min(3).max(3).nullable().optional(),
-  thumbnailUrl: z.string().url().nullable().optional(),
-  title: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
-  firstSeenAt: z.string().datetime().nullable().optional(),
-  lastSeenAt: z.string().datetime().nullable().optional(),
-  sourceUpdatedAt: z.string().datetime().nullable().optional(),
-  payload: z.record(z.string(), z.unknown()).optional(),
-});
-
-const validationOutcomeResponseSchema = z.object({
-  canonicalListingId: z.string().uuid(),
-  observationId: z.string().uuid(),
-  watchId: z.string().uuid(),
-  state: z.string(),
 });
 
 // ---------------------------------------------------------------------------
@@ -415,7 +348,7 @@ export async function listingRoutes(app: FastifyInstance) {
 
   // Register rate limiting plugin (scoped to this route plugin)
   await app.register(rateLimit, {
-    max: 10,
+    max: config.isTest ? 1_000 : 10,
     timeWindow: '1 minute',
     // Only apply to specific routes via route-level config
     global: false,
@@ -475,7 +408,13 @@ export async function listingRoutes(app: FastifyInstance) {
           energyLabel: null,
           status: toPublicListingStatus(l.status),
           verificationState: l.verificationState,
-          watchState: l.watchState,
+          candidateHandoffState: l.candidateHandoffState as
+            | 'pending'
+            | 'queued'
+            | 'delivered'
+            | 'retryable_error'
+            | 'dead_letter'
+            | null,
           reasonCode: l.reasonCode,
           createdAt: l.createdAt,
         })),
@@ -553,7 +492,7 @@ export async function listingRoutes(app: FastifyInstance) {
       },
       config: {
         rateLimit: {
-          max: 10,
+          max: config.isTest ? 1_000 : 10,
           timeWindow: '1 minute',
         },
       },
@@ -593,7 +532,23 @@ export async function listingRoutes(app: FastifyInstance) {
       });
       const enrichedPlan = await enrichListingPreviewDisplay(plan);
 
-      return reply.send(toPublicListingPreviewResponse(enrichedPlan));
+      if (
+        enrichedPlan.validationState !== 'valid'
+        || enrichedPlan.matchState !== 'matched'
+      ) {
+        return reply.status(400).send({
+          error: 'LISTING_VALIDATION_FAILED',
+          message: `Listing validation failed: ${enrichedPlan.reasonCode}`,
+        });
+      }
+
+      const stored = await storeListingPreviewResult(enrichedPlan);
+
+      return reply.send({
+        ...toPublicListingPreviewResponse(enrichedPlan),
+        previewToken: stored.previewToken,
+        previewId: stored.preview.id,
+      });
     },
   );
 
@@ -607,7 +562,7 @@ export async function listingRoutes(app: FastifyInstance) {
       schema: {
         tags: ['listings'],
         summary: 'Submit a listing',
-        description: 'Creates a listing from a user-submitted URL. Requires authentication.',
+        description: 'Creates a listing from a validated preview token. Requires authentication.',
         body: submitRequestSchema,
         response: {
           201: submitResponseSchema,
@@ -619,51 +574,6 @@ export async function listingRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const { url, propertyId } = request.body;
-
-      // SSRF protection: only allow whitelisted domains
-      if (!isAllowedListingUrl(url)) {
-        return reply.status(400).send({
-          error: 'INVALID_URL',
-          message: 'URL must be from a recognized listing platform.',
-        });
-      }
-
-      // Check property exists
-      const propertyContext = await getPropertyValidationContext(propertyId);
-
-      if (!propertyContext) {
-        return reply.status(404).send({
-          error: 'NOT_FOUND',
-          message: `Property with ID ${propertyId} not found`,
-        });
-      }
-
-      const plan = await buildListingPreviewPlan({
-        rawUrl: url,
-        property: propertyContext,
-        display: {
-          title: request.body.title ?? request.body.ogTitle,
-          description: request.body.description,
-          imageUrl: request.body.imageUrl ?? request.body.thumbnailUrl,
-          askingPrice: request.body.askingPrice,
-          priceType: request.body.priceType,
-          currency: request.body.currency,
-        },
-      });
-      const enrichedPlan = await enrichListingPreviewDisplay(plan);
-
-      if (
-        enrichedPlan.validationState === 'invalid' ||
-        enrichedPlan.matchState === 'mismatch' ||
-        enrichedPlan.matchState === 'unsupported'
-      ) {
-        return reply.status(400).send({
-          error: 'LISTING_VALIDATION_FAILED',
-          message: `Listing validation failed: ${enrichedPlan.reasonCode}`,
-        });
-      }
-
       try {
         const userId = request.userId;
         if (!userId) {
@@ -674,25 +584,26 @@ export async function listingRoutes(app: FastifyInstance) {
         }
 
         const { submission, maintenanceRequest } = await db.transaction(async (tx) => {
+          const preview = await consumeListingPreviewResult(request.body.previewToken, userId, tx);
           const createdSubmission = await createUserListingSubmission(tx, {
             userId,
-            plan: enrichedPlan,
+            preview,
           });
-          await advancePropertyChangeVersion(propertyId, tx);
+          await advancePropertyChangeVersion(createdSubmission.canonicalListing.propertyId, tx);
           await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
 
           const maintenance = await createMaintenanceRefreshRequest(tx, {
-            sourceName: enrichedPlan.sourceName,
+            sourceName: preview.sourceName,
             requestedBy: 'listing-submit',
             idempotencyKey: `listing-submit:${createdSubmission.canonicalListing.id}`,
             payload: {
               canonicalListingId: createdSubmission.canonicalListing.id,
               observationId: createdSubmission.observationId,
-              watchId: createdSubmission.watchId,
-              propertyId,
-              sourceUrl: enrichedPlan.canonicalUrl,
-              sourceName: enrichedPlan.sourceName,
-              sourceListingId: enrichedPlan.sourceListingId,
+              candidateId: createdSubmission.candidateId,
+              propertyId: createdSubmission.canonicalListing.propertyId,
+              sourceUrl: preview.sourceUrlCanonical,
+              sourceName: preview.sourceName,
+              sourceListingId: preview.sourceListingId,
             },
           });
 
@@ -710,18 +621,24 @@ export async function listingRoutes(app: FastifyInstance) {
         return reply.status(201).send({
           id: submission.canonicalListing.id,
           propertyId: submission.canonicalListing.propertyId,
-          sourceUrl: submission.canonicalListing.displayUrl ?? submission.canonicalListing.canonicalUrl ?? enrichedPlan.rawUrl,
+          sourceUrl: submission.canonicalListing.displayUrl ?? submission.canonicalListing.canonicalUrl ?? '',
           sourceName: submission.canonicalListing.sourceName,
           canonicalUrl: submission.canonicalListing.canonicalUrl,
           sourceListingId: submission.canonicalListing.primarySourceListingId,
           status: toPublicListingStatus(submission.canonicalListing.status),
           verificationState: submission.canonicalListing.verificationState,
-          watchState: submission.watchState,
-          watchId: submission.watchId,
+          candidateHandoffState: submission.candidateHandoffState as 'pending' | 'queued' | 'delivered' | 'retryable_error' | 'dead_letter',
+          candidateId: submission.candidateId,
           reasonCode: submission.reasonCode,
           createdAt: submission.canonicalListing.createdAt.toISOString(),
         });
       } catch (err: unknown) {
+        if (err instanceof Error && err.message.includes('preview token')) {
+          return reply.status(400).send({
+            error: 'INVALID_PREVIEW_TOKEN',
+            message: err.message,
+          });
+        }
         const pgError = err as { code?: string };
         if (pgError.code === '23505') {
           return reply.status(409).send({
@@ -797,102 +714,7 @@ export async function listingRoutes(app: FastifyInstance) {
   );
 
   // =========================================================================
-  // 6. POST /api/ingest/listing-validation-outcomes
-  // =========================================================================
-  typedApp.post(
-    '/api/ingest/listing-validation-outcomes',
-    {
-      schema: {
-        tags: ['ingest'],
-        summary: 'Persist listing validation outcome',
-        description: 'Internal callback for source services validating user-submitted listing URLs.',
-        body: validationOutcomeSchema,
-        response: {
-          202: validationOutcomeResponseSchema,
-          401: errorResponseSchema,
-          404: errorResponseSchema,
-        },
-      },
-    },
-    async (request, reply) => {
-      const apiKey = request.headers['x-api-key'] as string | undefined;
-      if (!isValidApiKey(apiKey)) {
-        return reply.status(401).send({
-          error: 'UNAUTHORIZED',
-          message: 'Invalid API key',
-        });
-      }
-
-      try {
-        const { outcome, maintenanceRequest } = await db.transaction(async (tx) => {
-          const applied = await applyListingValidationOutcome(tx, {
-            watchId: request.body.watchId,
-            state: request.body.state,
-            sourceName: request.body.sourceName,
-            rawUrl: request.body.rawUrl,
-            canonicalUrl: request.body.canonicalUrl,
-            sourceListingId: request.body.sourceListingId ?? null,
-            sourceListingIdKind: request.body.sourceListingIdKind ?? null,
-            aliases: request.body.aliases,
-            sourceStatus: request.body.sourceStatus,
-            address: request.body.address,
-            matchedPropertyEvidence: request.body.matchedPropertyEvidence,
-            price: request.body.price,
-            currency: request.body.currency,
-            thumbnailUrl: request.body.thumbnailUrl,
-            title: request.body.title,
-            description: request.body.description,
-            firstSeenAt: request.body.firstSeenAt,
-            lastSeenAt: request.body.lastSeenAt,
-            sourceUpdatedAt: request.body.sourceUpdatedAt,
-            payload: request.body.payload,
-          });
-
-          await advancePropertyChangeVersion(applied.canonicalListing.propertyId, tx);
-          await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
-          const maintenance = await createMaintenanceRefreshRequest(tx, {
-            sourceName: request.body.sourceName,
-            requestedBy: 'validation-outcome',
-            idempotencyKey: `validation-outcome:${request.body.watchId}:${applied.observationId}`,
-            payload: {
-              watchId: request.body.watchId,
-              canonicalListingId: applied.canonicalListing.id,
-              observationId: applied.observationId,
-              state: request.body.state,
-            },
-          });
-
-          return { outcome: applied, maintenanceRequest: maintenance };
-        });
-
-        await requestListingWriteRefreshes({
-          requestedBy: 'validation-outcome',
-          maintenanceBatchId: maintenanceRequest.batchId,
-          propertyTileReason: 'listing-validation-outcome',
-          logger: request.log,
-          context: { watchId: request.body.watchId },
-        });
-
-        return reply.status(202).send({
-          canonicalListingId: outcome.canonicalListing.id,
-          observationId: outcome.observationId,
-          watchId: request.body.watchId,
-          state: request.body.state,
-        });
-      } catch (err) {
-        if (err instanceof Error && err.message.includes('not found')) {
-          return reply.status(404).send({
-            error: 'NOT_FOUND',
-            message: err.message,
-          });
-        }
-        throw err;
-      }
-    },
-  );
-
-  // =========================================================================
-  // 7. GET /api/ingest/watermark
+  // 6. GET /api/ingest/watermark
   // =========================================================================
   typedApp.get(
     '/api/ingest/watermark',
@@ -938,4 +760,3 @@ export type SubmitResponse = z.infer<typeof submitResponseSchema>;
 export type IngestRequest = z.infer<typeof ingestBatchRequestSchema>;
 export type IngestResponse = z.infer<typeof ingestAcceptedResponseSchema>;
 export type WatermarkResponse = z.infer<typeof ingestWatermarkResponseSchema>;
-export type ValidationOutcomeRequest = z.infer<typeof validationOutcomeSchema>;

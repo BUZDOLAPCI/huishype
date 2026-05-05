@@ -184,7 +184,7 @@ type ListingPreviewPublicShape = {
   sourceListingIdKind: SupportedListingSourceResolution['sourceListingIdKind'] | null;
   validationState: 'valid' | 'invalid' | 'provisional';
   matchState: 'matched' | 'mismatch' | 'unverified' | 'unsupported';
-  watchState: 'not_required' | 'will_enqueue' | 'unsupported';
+  handoffState: 'will_create' | 'unsupported';
   reasonCode: PreviewReasonCode;
   title: string | null;
   description: string | null;
@@ -219,7 +219,6 @@ export type BuildListingPreviewPlanInput = {
 };
 
 export type SourceServiceValidateInput = {
-  watchId?: string | null;
   sourceName: ListingSourceName;
   rawUrl: string;
   canonicalUrl: string;
@@ -331,7 +330,6 @@ export async function resolveListingSourceUrl(rawUrl: string, sourceName: Listin
 
 export async function validateListingSource(input: SourceServiceValidateInput): Promise<ListingValidationResponse> {
   return postJson(input.sourceName, '/api/v1/listings/validate', {
-    watchId: input.watchId ?? null,
     sourceName: input.sourceName,
     rawUrl: input.rawUrl,
     canonicalUrl: input.canonicalUrl,
@@ -355,7 +353,7 @@ function basePlan(
     sourceListingIdKind: null,
     validationState: 'provisional',
     matchState: 'unverified',
-    watchState: 'will_enqueue',
+    handoffState: 'will_create',
     reasonCode: 'validation_pending',
     title: input.display?.title ?? null,
     description: input.display?.description ?? null,
@@ -395,7 +393,7 @@ function buildProvisionalPlanFromSupportedResolution(
     canonicalUrl: resolution.canonicalUrl,
     sourceListingId: resolution.sourceListingId,
     sourceListingIdKind: resolution.sourceListingIdKind,
-    watchState: 'will_enqueue',
+    handoffState: 'will_create',
     reasonCode,
     aliases: resolution.aliases,
   });
@@ -431,7 +429,7 @@ function buildPlanFromValidation(
       sourceListingIdKind: serviceSourceListingIdKind,
       validationState: 'valid',
       matchState: 'matched',
-      watchState: 'not_required',
+      handoffState: 'will_create',
       reasonCode: toMatchedReasonCode(resolvedMatchKind),
       title: displayTitle,
       description: displayDescription,
@@ -453,7 +451,7 @@ function buildPlanFromValidation(
       sourceListingIdKind: serviceSourceListingIdKind,
       validationState: 'invalid',
       matchState: 'mismatch',
-      watchState: 'not_required',
+      handoffState: 'will_create',
       reasonCode: 'address_mismatch',
       title: displayTitle,
       description: displayDescription,
@@ -475,7 +473,7 @@ function buildPlanFromValidation(
       sourceListingIdKind: serviceSourceListingIdKind,
       validationState: 'invalid',
       matchState: 'unverified',
-      watchState: 'not_required',
+      handoffState: 'will_create',
       reasonCode: 'source_not_found',
       title: displayTitle,
       description: displayDescription,
@@ -496,7 +494,7 @@ function buildPlanFromValidation(
       sourceListingIdKind: serviceSourceListingIdKind,
       validationState: 'provisional',
       matchState: 'unsupported',
-      watchState: 'unsupported',
+      handoffState: 'unsupported',
       reasonCode: 'source_not_supported',
       title: displayTitle,
       description: displayDescription,
@@ -516,7 +514,7 @@ function buildPlanFromValidation(
     sourceListingIdKind: serviceSourceListingIdKind,
     validationState: 'provisional',
     matchState: 'unverified',
-    watchState: 'will_enqueue',
+    handoffState: 'will_create',
     reasonCode: toReasonCodeForTemporaryFailure(validation.state),
     title: displayTitle,
     description: displayDescription,
@@ -534,7 +532,7 @@ export async function buildListingPreviewPlan(input: BuildListingPreviewPlanInpu
   const detectedSourceName = detectSourceName(input.rawUrl);
   if (!isSourceServiceBacked(detectedSourceName)) {
     return basePlan(input, detectedSourceName, {
-      watchState: 'unsupported',
+      handoffState: 'unsupported',
       matchState: 'unsupported',
       reasonCode: 'source_not_supported',
     });
@@ -554,7 +552,7 @@ export async function buildListingPreviewPlan(input: BuildListingPreviewPlanInpu
 
   if (!resolution.supported) {
     return basePlan(input, resolution.sourceName, {
-      watchState: 'unsupported',
+      handoffState: 'unsupported',
       matchState: 'unsupported',
       reasonCode: toUnsupportedReasonCode(resolution.reasonCode),
     });

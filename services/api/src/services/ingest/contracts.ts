@@ -17,9 +17,55 @@ const ingestPriceDateSchema = z
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
   }, 'Invalid price date');
 
+export const listingLifecycleStatusSchema = z.enum([
+  'available',
+  'sold',
+  'rented',
+  'withdrawn',
+  'not_found',
+]);
+
+export const listingDiagnosticStatusSchema = z.enum([
+  'blocked',
+  'parser_error',
+  'retryable_error',
+  'unsupported',
+  'invalid',
+  'unknown',
+  'mirror_unavailable',
+]);
+
+const legacyListingSourceStatusSchema = z.enum([
+  'available',
+  'sold',
+  'rented',
+  'withdrawn',
+  'not_found',
+  'blocked',
+  'invalid',
+  'parser_error',
+  'unknown',
+]);
+
+const scopeCompletionSchema = z.object({
+  scopeKey: z.string().trim().min(1).max(255),
+  listingType: z.enum(['sale', 'rent', 'unknown']).optional(),
+  normalizedFilters: z.record(z.string(), z.unknown()).optional(),
+  sourceRunId: z.string().trim().min(1).max(255).optional(),
+  sourceRunStartedAt: z.string().datetime().nullable().optional(),
+  sourceRunCompletedAt: z.string().datetime(),
+  coverageStatus: z.enum(['complete', 'partial', 'failed']).optional(),
+  observedListingCount: z.number().int().nonnegative().optional(),
+  sourceHighWatermark: z.string().datetime(),
+  diagnostics: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
 export const ingestListingSchema = z.object({
   sourceUrl: z.string().url(),
   mirrorListingId: z.string().min(1),
+  sourceCandidateId: z.string().min(1).optional(),
+  previewResultId: z.string().uuid().optional(),
+  scopeKey: z.string().trim().min(1).max(255).optional(),
   sourceListingId: z.string().min(1).optional(),
   sourceListingIdKind: z.string().min(1).optional(),
   sourceListingAliases: z.array(z.object({ kind: z.string().min(1), value: z.string().min(1) })).optional(),
@@ -34,20 +80,15 @@ export const ingestListingSchema = z.object({
   ogTitle: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   status: z.enum(['active', 'sold', 'rented', 'withdrawn']).default('active'),
-  sourceStatus: z.enum([
-    'available',
-    'sold',
-    'rented',
-    'withdrawn',
-    'not_found',
-    'blocked',
-    'invalid',
-    'parser_error',
-    'unknown',
-  ]).optional(),
+  lifecycleStatus: listingLifecycleStatusSchema.optional(),
+  diagnosticStatus: listingDiagnosticStatusSchema.optional(),
+  sourceStatus: legacyListingSourceStatusSchema.optional(),
   mirrorFirstSeenAt: z.string().datetime().optional(),
   mirrorLastChangedAt: z.string().datetime().optional(),
   mirrorLastSeenAt: z.string().datetime().optional(),
+  observedAt: z.string().datetime().optional(),
+  sourceRunId: z.string().trim().min(1).max(255).optional(),
+  sourceHighWatermark: z.string().datetime().optional(),
   address: z.object({
     countryCode: z.string().trim().length(2).transform((value) => value.toUpperCase()),
     street: z.string().trim().min(1),
@@ -75,7 +116,28 @@ export const ingestBatchRequestSchema = z.object({
   cursorStart: ingestCursorSchema.nullable().optional().default(null),
   cursorEnd: ingestCursorSchema,
   upstreamRunKey: z.string().trim().min(1).max(255).optional(),
-  listings: z.array(ingestListingSchema).min(1),
+  batchKind: z.enum(['observations', 'completion', 'observations_and_completion']).optional(),
+  scopeKey: z.string().trim().min(1).max(255).optional(),
+  sourceHighWatermark: z.string().datetime().optional(),
+  repairMode: z.boolean().optional(),
+  repairReason: z.string().trim().min(1).optional(),
+  listings: z.array(ingestListingSchema).optional(),
+  completions: z.array(scopeCompletionSchema).optional(),
+}).superRefine((value, ctx) => {
+  if ((value.listings ?? []).length === 0 && (value.completions ?? []).length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['listings'],
+      message: 'Ingest batch must include listing observations or scoped completion evidence',
+    });
+  }
+  if (value.repairMode && !value.repairReason) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['repairReason'],
+      message: 'repairReason is required when repairMode is true',
+    });
+  }
 });
 
 export const ingestAcceptedResponseSchema = z.object({

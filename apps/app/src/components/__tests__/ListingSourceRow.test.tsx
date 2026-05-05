@@ -60,11 +60,11 @@ describe('ListingSourceRow', () => {
         listing={{
           ...fundaListing,
           verificationState: 'validation_pending',
-          watchState: 'queued',
+          candidateHandoffState: 'queued',
         }}
       />
     );
-    expect(screen.getByText('Pending check')).toBeTruthy();
+    expect(screen.getByText('Handoff pending')).toBeTruthy();
   });
 
   it('renders listing type', () => {

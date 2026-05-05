@@ -1,75 +1,36 @@
+import crypto from 'node:crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import {
   canonicalListings,
   db,
+  listingCandidateHandoffs,
   listingObservationLinks,
   listingObservations,
+  listingPreviewResults,
   listingPriceObservations,
   listingSourceAliases,
-  mirrorListingWatches,
   priceHistory,
   type CanonicalListing,
   type DbTransaction,
   type ListingObservation,
+  type ListingPreviewResult,
   type NewListingObservation,
 } from '../db/index.js';
-import { createMaintenanceRefreshRequest } from './ingest/store.js';
 import type {
   ListingPreviewPlan,
   ListingSourceAddress,
   ListingSourceAlias,
-  ListingSourceName,
-  ListingValidationResponse,
 } from './listing-source-resolution.js';
-import {
-  isSourceServiceBacked,
-  resolveListingSourceUrl,
-  SourceServiceTemporaryError,
-  validateListingSource,
-} from './listing-source-resolution.js';
-import { advancePropertyChangeVersion } from './property-read-state.js';
-import { advancePropertyTileSnapshotWatermark } from './property-tile-snapshots.js';
 
 type ReconciliationDb = typeof db | DbTransaction;
-
 type CanonicalStatus = CanonicalListing['status'];
 type VerificationState = CanonicalListing['verificationState'];
 type OriginSummary = CanonicalListing['originSummary'];
 type StatusSource = CanonicalListing['statusSource'];
-
-type WatchState = 'not_required' | 'will_enqueue' | 'unsupported';
 type SourceListingIdKind = NonNullable<NewListingObservation['sourceListingIdKind']>;
-type MirrorListingWatchState =
-  | 'pending'
-  | 'queued'
-  | 'fetching'
-  | 'matched'
-  | 'not_found'
-  | 'blocked'
-  | 'invalid'
-  | 'parser_error'
-  | 'unsupported'
-  | 'retryable_error';
-type TerminalListingValidationState = Exclude<ListingValidationOutcomeInput['state'], 'retryable_error'>;
 
-export const FINAL_LISTING_VALIDATION_STATES = [
-  'matched',
-  'not_found',
-  'blocked',
-  'invalid',
-  'parser_error',
-  'unsupported',
-] as const satisfies readonly TerminalListingValidationState[];
-
-export type ListingSourceStatus = ListingObservation['sourceStatus'];
-
-export type ListingWriteResult = {
-  canonicalListing: CanonicalListing;
-  observationId: string;
-  propertyId: string;
-  inserted: boolean;
-  changed: boolean;
-};
+export type ListingSourceStatus = NonNullable<ListingObservation['sourceStatus']>;
+export type ListingDiagnosticStatus = NonNullable<ListingObservation['diagnosticStatus']>;
 
 export type CanonicalListingReadModel = Omit<Pick<
   CanonicalListing,
@@ -88,108 +49,35 @@ export type CanonicalListingReadModel = Omit<Pick<
   | 'verificationState'
 >, 'displayUrl'> & {
   displayUrl: string;
-  watchState: string | null;
+  candidateHandoffState: string | null;
   reasonCode: string | null;
   createdAt: string;
 };
 
 export type UserListingSubmissionInput = {
   userId: string;
-  plan: ListingPreviewPlan;
+  preview: ListingPreviewResult;
 };
 
 export type UserListingSubmissionResult = {
   canonicalListing: CanonicalListing;
   observationId: string;
-  watchId: string | null;
-  watchState: WatchState;
+  candidateId: string;
+  candidateHandoffState: string;
   reasonCode: string;
-};
-
-export type ListingValidationOutcomeInput = {
-  watchId: string;
-  state: 'matched' | 'not_found' | 'blocked' | 'invalid' | 'parser_error' | 'unsupported' | 'retryable_error';
-  sourceName: string;
-  rawUrl: string;
-  canonicalUrl: string;
-  sourceListingId?: string | null;
-  sourceListingIdKind?: string | null;
-  aliases?: Array<{ kind: string; value: string }>;
-  sourceStatus?: ListingSourceStatus;
-  address?: Record<string, unknown> | null;
-  matchedPropertyEvidence?: {
-    propertyId?: string | null;
-    matchKind?: ListingObservation['propertyMatchKind'];
-  } | null;
-  price?: number | null;
-  currency?: string | null;
-  thumbnailUrl?: string | null;
-  title?: string | null;
-  description?: string | null;
-  firstSeenAt?: string | null;
-  lastSeenAt?: string | null;
-  sourceUpdatedAt?: string | null;
-  payload?: Record<string, unknown>;
-};
-
-export type ClaimedListingValidationWatch = {
-  id: string;
-  sourceName: string;
-  propertyId: string;
-  sourceUrlRaw: string;
-  sourceUrlCanonical: string;
-  sourceListingId: string | null;
-  attemptCount: number;
-  property: {
-    id: string;
-    countryCode: string;
-    street: string;
-    postalCode: string;
-    houseNumber: number;
-    houseNumberAddition: string | null;
-    city: string | null;
-    latitude: number | null;
-    longitude: number | null;
-  };
-};
-
-export type ListingValidationWatchProcessResult =
-  | {
-      watchId: string;
-      outcome: 'terminal';
-      state: TerminalListingValidationState;
-      canonicalListingId: string;
-      observationId: string;
-      propertyId: string;
-      sourceName: string;
-      maintenanceBatchId: string;
-    }
-  | {
-      watchId: string;
-      outcome: 'retryable';
-      state: 'retryable_error';
-      attemptCount: number;
-      nextAttemptAt: Date;
-      error: string;
-    };
-
-export type ListingValidationWatchSweepSummary = {
-  claimedCount: number;
-  terminalCount: number;
-  retryableCount: number;
-  results: ListingValidationWatchProcessResult[];
 };
 
 export type PersistMirrorObservationForIngestInput = {
   batchId: string;
   sourceName: string;
   sourceUrl: string;
-  sourceListingId: string;
-  sourceListingIdKind: string;
+  sourceListingId: string | null;
+  sourceListingIdKind: string | null;
   aliases?: Array<{ kind: string; value: string }>;
-  propertyId: string;
+  propertyId: string | null;
   propertyMatchKind: ListingObservation['propertyMatchKind'];
-  sourceStatus: ListingSourceStatus;
+  sourceStatus?: ListingSourceStatus | null;
+  diagnosticStatus?: ListingDiagnosticStatus | null;
   askingPrice?: number | null;
   priceCurrency?: string | null;
   address?: {
@@ -208,19 +96,31 @@ export type PersistMirrorObservationForIngestInput = {
   firstSeenAt?: string | Date | null;
   lastSeenAt?: string | Date | null;
   sourceUpdatedAt?: string | Date | null;
+  observedAt?: string | Date | null;
+  sourceRunId?: string | null;
+  sourceHighWatermark?: string | Date | null;
+  scopeCompletionId?: string | null;
+  staleForProjection?: boolean;
+  previewResultId?: string | null;
+  candidateHandoffId?: string | null;
   payload?: Record<string, unknown>;
+};
+
+export type ListingWriteResult = {
+  canonicalListing: CanonicalListing | null;
+  observationId: string;
+  propertyId: string | null;
+  inserted: boolean;
+  changed: boolean;
+};
+
+export type StoredPreviewResult = {
+  preview: ListingPreviewResult;
+  previewToken: string;
 };
 
 function targetDb(executor?: ReconciliationDb): ReconciliationDb {
   return executor ?? db;
-}
-
-function supportsTransaction(executor: ReconciliationDb): executor is typeof db {
-  return 'transaction' in executor;
-}
-
-function toTimestamp(value: string | null | undefined): Date | null {
-  return value ? new Date(value) : null;
 }
 
 function toOptionalDate(value: string | Date | null | undefined): Date | null {
@@ -228,7 +128,7 @@ function toOptionalDate(value: string | Date | null | undefined): Date | null {
   return value instanceof Date ? value : new Date(value);
 }
 
-function normalizeSourceListingIdKind(kind: string | null | undefined): SourceListingIdKind {
+function normalizeSourceListingIdKind(kind: string | null | undefined): SourceListingIdKind | null {
   if (
     kind === 'tiny_id'
     || kind === 'global_id'
@@ -240,7 +140,7 @@ function normalizeSourceListingIdKind(kind: string | null | undefined): SourceLi
   ) {
     return kind;
   }
-  return 'unknown';
+  return null;
 }
 
 function isListingSourceAlias(alias: { kind: string; value: string }): alias is ListingSourceAlias {
@@ -251,16 +151,10 @@ function normalizeSourceAliases(aliases: readonly { kind: string; value: string 
   return (aliases ?? []).filter(isListingSourceAlias);
 }
 
-function observationStatusToCanonicalStatus(status: ListingObservation['sourceStatus']): CanonicalStatus {
+function observationStatusToCanonicalStatus(status: ListingSourceStatus): CanonicalStatus {
   if (status === 'available') return 'active';
   if (status === 'not_found') return 'withdrawn';
   return status;
-}
-
-function validationStateToSourceStatus(state: ListingValidationOutcomeInput['state']): ListingObservation['sourceStatus'] {
-  if (state === 'matched') return 'available';
-  if (state === 'unsupported' || state === 'retryable_error') return 'unknown';
-  return state;
 }
 
 function observationStatusSource(origin: ListingObservation['origin']): StatusSource {
@@ -268,24 +162,15 @@ function observationStatusSource(origin: ListingObservation['origin']): StatusSo
 }
 
 function observationVerificationState(observation: ListingObservation): VerificationState {
-  if (observation.propertyMatchKind === 'source_mismatch' || observation.sourceStatus === 'invalid') {
+  if (observation.diagnosticStatus === 'invalid' || observation.propertyMatchKind === 'source_mismatch') {
     return 'invalid';
   }
-  if (observation.sourceStatus === 'blocked') return 'validation_blocked';
-  if (observation.sourceStatus === 'parser_error') return 'validation_failed';
-  if (observation.origin === 'user') {
-    if (observation.validationWatchId) {
-      return 'validation_pending';
-    }
-    if (
-      observation.sourceStatus !== 'unknown'
-      && (observation.propertyMatchKind === 'source_exact' || observation.propertyMatchKind === 'source_spatial')
-    ) {
-      return 'validated';
-    }
-    return 'provisional';
+  if (observation.diagnosticStatus === 'blocked') return 'validation_blocked';
+  if (observation.diagnosticStatus === 'parser_error' || observation.diagnosticStatus === 'retryable_error') {
+    return 'validation_failed';
   }
-  return observation.sourceStatus === 'unknown' ? 'validation_pending' : 'validated';
+  if (observation.origin === 'user') return 'provisional';
+  return observation.sourceStatus ? 'validated' : 'validation_pending';
 }
 
 function mergeOriginSummary(current: OriginSummary | null, origin: ListingObservation['origin']): OriginSummary {
@@ -305,6 +190,14 @@ function priceEventTypeForObservation(observation: ListingObservation): 'initial
   return observation.origin === 'mirror' ? 'mirror_refresh' : 'initial';
 }
 
+function legacyPriceHistoryEventType(
+  observation: ListingObservation,
+  eventType: 'initial' | 'mirror_refresh' | 'user_submission' | 'status_change',
+): string {
+  if (eventType === 'status_change') return observation.sourceStatus === 'rented' ? 'rented' : 'sold';
+  return 'asking_price';
+}
+
 function observationDisplayString(
   observation: ListingObservation,
   key: 'title' | 'description' | 'imageUrl',
@@ -319,29 +212,29 @@ function observationDisplayString(
   return null;
 }
 
-function legacyPriceHistoryEventType(
-  observation: ListingObservation,
-  eventType: 'initial' | 'mirror_refresh' | 'user_submission' | 'status_change',
-): string {
-  if (eventType === 'status_change') {
-    return observation.sourceStatus === 'rented' ? 'rented' : 'sold';
-  }
-  return 'asking_price';
-}
-
-function publicWatchState(plan: ListingPreviewPlan): WatchState {
-  if (plan.watchState === 'unsupported') return 'unsupported';
-  if (plan.watchState === 'will_enqueue') return 'will_enqueue';
-  return 'not_required';
-}
-
-function houseNumberFromAddress(address: ListingSourceAddress | null | undefined): number | null {
-  if (typeof address?.houseNumber === 'number') {
-    return address.houseNumber;
-  }
-
+function houseNumberFromAddress(address: ListingSourceAddress | Record<string, unknown> | null | undefined): number | null {
+  if (typeof address?.houseNumber === 'number') return address.houseNumber;
   const parsed = Number.parseInt(String(address?.houseNumber ?? ''), 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function tokenHash(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function stablePreviewIdempotencyKey(plan: ListingPreviewPlan): string {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify({
+      sourceName: plan.sourceName,
+      canonicalUrl: plan.canonicalUrl,
+      propertyId: plan.submittedPropertyId,
+      sourceListingId: plan.sourceListingId,
+      askingPrice: plan.askingPrice,
+      priceType: plan.priceType,
+      currency: plan.currency,
+    }))
+    .digest('hex');
 }
 
 export async function upsertListingSourceAliases(
@@ -384,10 +277,7 @@ export async function insertListingObservation(
     .values(observation)
     .returning();
 
-  if (!inserted) {
-    throw new Error('Listing observation insert did not return a row');
-  }
-
+  if (!inserted) throw new Error('Listing observation insert did not return a row');
   return inserted;
 }
 
@@ -418,20 +308,23 @@ async function findCanonicalListing(
 ): Promise<CanonicalListing | null> {
   const predicates = [];
   if (primarySourceListingId) {
-    predicates.push(
-      and(
-        eq(canonicalListings.sourceName, observation.sourceName),
-        eq(canonicalListings.primarySourceListingId, primarySourceListingId),
-      ),
-    );
+    predicates.push(and(
+      eq(canonicalListings.sourceName, observation.sourceName),
+      eq(canonicalListings.primarySourceListingId, primarySourceListingId),
+    ));
   }
   if (observation.sourceUrlCanonical) {
-    predicates.push(
-      and(
-        eq(canonicalListings.sourceName, observation.sourceName),
-        eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
-      ),
-    );
+    predicates.push(and(
+      eq(canonicalListings.sourceName, observation.sourceName),
+      eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
+    ));
+  }
+  if (observation.propertyId && observation.sourceUrlCanonical) {
+    predicates.push(and(
+      eq(canonicalListings.sourceName, observation.sourceName),
+      eq(canonicalListings.propertyId, observation.propertyId),
+      eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
+    ));
   }
 
   if (predicates.length === 0) return null;
@@ -446,14 +339,22 @@ async function findCanonicalListing(
   return canonical ?? null;
 }
 
+function canProjectObservation(observation: ListingObservation): observation is ListingObservation & { sourceStatus: ListingSourceStatus } {
+  if (observation.staleForProjection) return false;
+  if (observation.diagnosticStatus) return false;
+  if (!observation.sourceStatus) return false;
+  if (observation.sourceStatus === 'not_found') {
+    return Boolean(observation.sourceListingId || observation.sourceUrlCanonical || observation.scopeCompletionId);
+  }
+  return true;
+}
+
 async function createCanonicalListing(
-  observation: ListingObservation,
+  observation: ListingObservation & { sourceStatus: ListingSourceStatus },
   primarySourceListingId: string | null,
   executor: ReconciliationDb,
 ): Promise<CanonicalListing> {
-  if (!observation.propertyId) {
-    throw new Error('Cannot create canonical listing without a property id');
-  }
+  if (!observation.propertyId) throw new Error('Cannot create canonical listing without a property id');
 
   const [created] = await executor
     .insert(canonicalListings)
@@ -473,6 +374,8 @@ async function createCanonicalListing(
       description: observationDisplayString(observation, 'description'),
       askingPrice: observation.askingPrice,
       priceCurrency: observation.priceCurrency,
+      priceType: typeof observation.payload.priceType === 'string' ? observation.payload.priceType : null,
+      livingAreaM2: typeof observation.payload.livingAreaM2 === 'number' ? observation.payload.livingAreaM2 : null,
       firstSeenAt: observation.firstSeenAt ?? observation.observedAt,
       lastSeenAt: observation.lastSeenAt ?? observation.observedAt,
       lastMirrorSeenAt: observation.origin === 'user' ? null : observation.lastSeenAt ?? observation.observedAt,
@@ -481,40 +384,62 @@ async function createCanonicalListing(
     })
     .returning();
 
-  if (!created) {
-    throw new Error('Canonical listing insert did not return a row');
-  }
+  if (!created) throw new Error('Canonical listing insert did not return a row');
   return created;
+}
+
+function incomingObservationIsNewer(canonical: CanonicalListing, observation: ListingObservation): boolean {
+  const current = observation.origin === 'user'
+    ? canonical.lastUserSeenAt ?? canonical.lastSeenAt ?? canonical.updatedAt ?? canonical.createdAt
+    : canonical.lastMirrorSeenAt ?? new Date(0);
+  const incoming = observation.sourceUpdatedAt ?? observation.lastSeenAt ?? observation.observedAt;
+  return incoming >= current || observation.origin === 'user';
 }
 
 async function updateCanonicalListingFromObservation(
   canonical: CanonicalListing,
-  observation: ListingObservation,
+  observation: ListingObservation & { sourceStatus: ListingSourceStatus },
   primarySourceListingId: string | null,
   executor: ReconciliationDb,
 ): Promise<CanonicalListing> {
   const mirrorBacked = observation.origin !== 'user';
+  const sourceIsNewer = incomingObservationIsNewer(canonical, observation);
+  const shouldApplySourceFacts = !mirrorBacked || sourceIsNewer;
   const [updated] = await executor
     .update(canonicalListings)
     .set({
       primarySourceListingId: canonical.primarySourceListingId ?? primarySourceListingId,
-      canonicalUrl: canonical.canonicalUrl ?? observation.sourceUrlCanonical,
-      displayUrl: observation.sourceUrlCanonical ?? canonical.displayUrl ?? observation.sourceUrlRaw,
-      status: mirrorBacked || canonical.statusSource !== 'mirror'
+      canonicalUrl: shouldApplySourceFacts ? observation.sourceUrlCanonical ?? canonical.canonicalUrl : canonical.canonicalUrl,
+      displayUrl: shouldApplySourceFacts
+        ? observation.sourceUrlCanonical ?? canonical.displayUrl ?? observation.sourceUrlRaw
+        : canonical.displayUrl,
+      status: shouldApplySourceFacts
         ? observationStatusToCanonicalStatus(observation.sourceStatus)
         : canonical.status,
       statusSource: mirrorBacked ? 'mirror' : canonical.statusSource,
       verificationState: observationVerificationState(observation),
       originSummary: mergeOriginSummary(canonical.originSummary, observation.origin),
       submittedBy: canonical.submittedBy ?? observation.submittedBy,
-      thumbnailUrl: observationDisplayString(observation, 'imageUrl') ?? canonical.thumbnailUrl,
-      title: observationDisplayString(observation, 'title') ?? canonical.title,
-      description: observationDisplayString(observation, 'description') ?? canonical.description,
-      askingPrice: mirrorBacked || canonical.askingPrice === null ? observation.askingPrice : canonical.askingPrice,
-      priceCurrency: observation.priceCurrency ?? canonical.priceCurrency,
+      thumbnailUrl: shouldApplySourceFacts
+        ? observationDisplayString(observation, 'imageUrl') ?? canonical.thumbnailUrl
+        : canonical.thumbnailUrl,
+      title: shouldApplySourceFacts ? observationDisplayString(observation, 'title') ?? canonical.title : canonical.title,
+      description: shouldApplySourceFacts
+        ? observationDisplayString(observation, 'description') ?? canonical.description
+        : canonical.description,
+      askingPrice: shouldApplySourceFacts ? observation.askingPrice ?? canonical.askingPrice : canonical.askingPrice,
+      priceCurrency: shouldApplySourceFacts ? observation.priceCurrency ?? canonical.priceCurrency : canonical.priceCurrency,
+      priceType: shouldApplySourceFacts && typeof observation.payload.priceType === 'string'
+        ? observation.payload.priceType
+        : canonical.priceType,
+      livingAreaM2: shouldApplySourceFacts && typeof observation.payload.livingAreaM2 === 'number'
+        ? observation.payload.livingAreaM2
+        : canonical.livingAreaM2,
       firstSeenAt: canonical.firstSeenAt ?? observation.firstSeenAt ?? observation.observedAt,
-      lastSeenAt: observation.lastSeenAt ?? observation.observedAt,
-      lastMirrorSeenAt: mirrorBacked ? observation.lastSeenAt ?? observation.observedAt : canonical.lastMirrorSeenAt,
+      lastSeenAt: shouldApplySourceFacts ? observation.lastSeenAt ?? observation.observedAt : canonical.lastSeenAt,
+      lastMirrorSeenAt: mirrorBacked && shouldApplySourceFacts
+        ? observation.lastSeenAt ?? observation.observedAt
+        : canonical.lastMirrorSeenAt,
       lastUserSeenAt: observation.origin === 'user' ? observation.observedAt : canonical.lastUserSeenAt,
       lastReconciledAt: new Date(),
       updatedAt: new Date(),
@@ -522,9 +447,7 @@ async function updateCanonicalListingFromObservation(
     .where(eq(canonicalListings.id, canonical.id))
     .returning();
 
-  if (!updated) {
-    throw new Error(`Canonical listing ${canonical.id} could not be updated`);
-  }
+  if (!updated) throw new Error(`Canonical listing ${canonical.id} could not be updated`);
   return updated;
 }
 
@@ -536,11 +459,7 @@ async function linkObservationToCanonical(
 ): Promise<void> {
   await executor
     .insert(listingObservationLinks)
-    .values({
-      canonicalListingId,
-      listingObservationId: observationId,
-      linkReason,
-    })
+    .values({ canonicalListingId, listingObservationId: observationId, linkReason })
     .onConflictDoNothing();
 }
 
@@ -549,7 +468,7 @@ export async function projectPriceObservation(
   canonical: CanonicalListing,
   executor?: ReconciliationDb,
 ): Promise<void> {
-  if (!observation.askingPrice || !observation.propertyId) return;
+  if (!observation.askingPrice || !observation.propertyId || !observation.sourceStatus || observation.staleForProjection) return;
   const database = targetDb(executor);
   const eventType = priceEventTypeForObservation(observation);
   const priceDate = priceDateFromObservation(observation);
@@ -585,10 +504,57 @@ export async function projectPriceObservation(
     .onConflictDoNothing();
 }
 
+async function completeCandidateHandoffForObservation(
+  observation: ListingObservation,
+  canonical: CanonicalListing,
+  executor: ReconciliationDb,
+): Promise<string | null> {
+  const predicates = [];
+  if (observation.candidateHandoffId) {
+    predicates.push(eq(listingCandidateHandoffs.id, observation.candidateHandoffId));
+  }
+  if (observation.previewResultId) {
+    predicates.push(eq(listingCandidateHandoffs.previewResultId, observation.previewResultId));
+  }
+  if (observation.propertyId && observation.sourceUrlCanonical) {
+    predicates.push(and(
+      eq(listingCandidateHandoffs.sourceName, observation.sourceName),
+      eq(listingCandidateHandoffs.propertyId, observation.propertyId),
+      eq(listingCandidateHandoffs.sourceUrlCanonical, observation.sourceUrlCanonical),
+      sql`${listingCandidateHandoffs.state} IN ('pending', 'queued', 'retryable_error')`,
+    ));
+  }
+
+  if (predicates.length === 0) return null;
+
+  const [handoff] = await executor
+    .update(listingCandidateHandoffs)
+    .set({
+      canonicalListingId: canonical.id,
+      observationId: observation.id,
+      state: 'delivered',
+      lastAttemptAt: new Date(),
+      nextAttemptAt: null,
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(predicates.length === 1 ? predicates[0] : or(...predicates))
+    .returning({ id: listingCandidateHandoffs.id });
+
+  if (!handoff) return null;
+
+  await executor
+    .update(listingObservations)
+    .set({ candidateHandoffId: handoff.id })
+    .where(eq(listingObservations.id, observation.id));
+
+  return handoff.id;
+}
+
 export async function reconcileListingObservation(
   observationId: string,
   executor?: ReconciliationDb,
-): Promise<CanonicalListing> {
+): Promise<CanonicalListing | null> {
   const database = targetDb(executor);
   const [observation] = await database
     .select()
@@ -596,9 +562,7 @@ export async function reconcileListingObservation(
     .where(eq(listingObservations.id, observationId))
     .limit(1);
 
-  if (!observation) {
-    throw new Error(`Listing observation ${observationId} not found`);
-  }
+  if (!observation) throw new Error(`Listing observation ${observationId} not found`);
 
   if (observation.sourceListingId) {
     await upsertListingSourceAliases(
@@ -611,6 +575,14 @@ export async function reconcileListingObservation(
 
   const primarySourceListingId = await resolvePrimarySourceListingId(observation, database);
   const existingCanonical = await findCanonicalListing(observation, primarySourceListingId, database);
+
+  if (!canProjectObservation(observation)) {
+    if (existingCanonical) {
+      await linkObservationToCanonical(observation.id, existingCanonical.id, 'manual_repair', database);
+    }
+    return existingCanonical;
+  }
+
   const linkReason = primarySourceListingId
     ? primarySourceListingId === observation.sourceListingId ? 'source_identity' : 'source_alias'
     : observation.sourceUrlCanonical
@@ -626,452 +598,129 @@ export async function reconcileListingObservation(
   return canonical;
 }
 
-export async function createOrUpdateMirrorWatch(
-  input: {
-    sourceName: string;
-    propertyId: string;
-    submittedBy?: string | null;
-    sourceUrlRaw: string;
-    sourceUrlCanonical: string;
-    sourceListingId?: string | null;
-    canonicalListingId?: string | null;
-    state?: 'pending' | 'queued' | 'fetching' | 'matched' | 'not_found' | 'blocked' | 'invalid' | 'parser_error' | 'unsupported' | 'retryable_error';
-    stateReason?: string | null;
-    nextAttemptAt?: Date | null;
-  },
+export async function storeListingPreviewResult(
+  plan: ListingPreviewPlan,
+  userId?: string | null,
   executor?: ReconciliationDb,
-): Promise<{ id: string; state: string }> {
-  const rows = await targetDb(executor).execute<{ id: string; state: string }>(sql`
-    INSERT INTO mirror_listing_watches (
-      source_name,
-      property_id,
-      submitted_by,
-      source_url_raw,
-      source_url_canonical,
-      source_listing_id,
-      canonical_listing_id,
-      state,
-      state_reason,
-      next_attempt_at
-    )
-    VALUES (
-      ${input.sourceName},
-      ${input.propertyId},
-      ${input.submittedBy ?? null},
-      ${input.sourceUrlRaw},
-      ${input.sourceUrlCanonical},
-      ${input.sourceListingId ?? null},
-      ${input.canonicalListingId ?? null},
-      ${input.state ?? 'pending'}::mirror_listing_watch_state,
-      ${input.stateReason ?? null},
-      ${input.nextAttemptAt ?? null}
-    )
-    ON CONFLICT (source_name, property_id, source_url_canonical)
-    WHERE state IN ('pending', 'queued', 'fetching', 'retryable_error')
-    DO UPDATE SET
-      source_url_raw = EXCLUDED.source_url_raw,
-      source_listing_id = COALESCE(EXCLUDED.source_listing_id, mirror_listing_watches.source_listing_id),
-      canonical_listing_id = COALESCE(EXCLUDED.canonical_listing_id, mirror_listing_watches.canonical_listing_id),
-      state = EXCLUDED.state,
-      state_reason = EXCLUDED.state_reason,
-      next_attempt_at = EXCLUDED.next_attempt_at,
-      updated_at = now()
-    RETURNING id, state
-  `);
+): Promise<StoredPreviewResult> {
+  const previewToken = crypto.randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + 30 * 60_000);
+  const sourceStatus = plan.sourceStatus === 'available'
+    || plan.sourceStatus === 'sold'
+    || plan.sourceStatus === 'rented'
+    || plan.sourceStatus === 'withdrawn'
+    || plan.sourceStatus === 'not_found'
+    ? plan.sourceStatus
+    : null;
+  const diagnosticStatus = sourceStatus ? null : plan.sourceStatus === 'unknown' ? 'unknown' : plan.sourceStatus;
+  const [preview] = await targetDb(executor)
+    .insert(listingPreviewResults)
+    .values({
+      sourceName: plan.sourceName,
+      propertyId: plan.submittedPropertyId,
+      userId: userId ?? null,
+      sourceUrlRaw: plan.rawUrl,
+      sourceUrlCanonical: plan.canonicalUrl,
+      sourceListingId: plan.sourceListingId,
+      sourceListingIdKind: normalizeSourceListingIdKind(plan.sourceListingIdKind),
+      sourceListingAliases: plan.aliases,
+      validationState: plan.validationState,
+      matchState: plan.matchState,
+      reasonCode: plan.reasonCode,
+      propertyMatchKind: plan.propertyMatchKind,
+      lifecycleStatus: sourceStatus,
+      diagnosticStatus: diagnosticStatus as ListingDiagnosticStatus | null,
+      askingPrice: plan.askingPrice,
+      priceCurrency: plan.currency ?? 'EUR',
+      listingType: plan.priceType,
+      title: plan.title,
+      description: plan.description,
+      imageUrl: plan.imageUrl,
+      addressNormalized: plan.address ?? null,
+      tokenHash: tokenHash(previewToken),
+      idempotencyKey: stablePreviewIdempotencyKey(plan),
+      expiresAt,
+      payload: {
+        matchedPropertyId: plan.matchedPropertyId,
+        previewedAt: new Date().toISOString(),
+      },
+    })
+    .onConflictDoUpdate({
+      target: listingPreviewResults.idempotencyKey,
+      set: {
+        tokenHash: tokenHash(previewToken),
+        consumedAt: null,
+        expiresAt,
+        payload: {
+          matchedPropertyId: plan.matchedPropertyId,
+          previewedAt: new Date().toISOString(),
+        },
+      },
+    })
+    .returning();
 
-  const row = Array.from(rows)[0];
-  if (!row) {
-    throw new Error('Mirror listing watch upsert did not return a row');
-  }
-  return row;
+  if (!preview) throw new Error('Preview result insert did not return a row');
+  return { preview, previewToken };
 }
 
-function isTerminalValidationState(state: string): state is TerminalListingValidationState {
-  return FINAL_LISTING_VALIDATION_STATES.includes(state as TerminalListingValidationState);
-}
-
-function retryMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message.slice(0, 2_000);
-  }
-  return String(error).slice(0, 2_000);
-}
-
-function retryDelayFromAttempt(attemptCount: number): number {
-  const baseDelayMs = 5 * 60_000;
-  const maxDelayMs = 6 * 60 * 60_000;
-  const exponent = Math.max(0, Math.min(attemptCount - 1, 8));
-  return Math.min(baseDelayMs * 2 ** exponent, maxDelayMs);
-}
-
-function nextRetryAt(
-  attemptCount: number,
-  options?: { now?: Date; retryDelayMs?: (attemptCount: number) => number },
-): Date {
-  const now = options?.now ?? new Date();
-  const delayMs = options?.retryDelayMs?.(attemptCount) ?? retryDelayFromAttempt(attemptCount);
-  return new Date(now.getTime() + delayMs);
-}
-
-function validationRetryReason(validation: ListingValidationResponse): string {
-  return validation.reasonCode ?? 'source service returned retryable_error';
-}
-
-export async function claimDueListingValidationWatches(
-  limit: number,
+export async function consumeListingPreviewResult(
+  previewToken: string,
+  userId: string,
   executor?: ReconciliationDb,
-): Promise<ClaimedListingValidationWatch[]> {
-  if (!Number.isInteger(limit) || limit <= 0) {
-    return [];
-  }
-
-  const rows = await targetDb(executor).execute<ClaimedListingValidationWatch>(sql`
-    WITH due AS (
-      SELECT w.id
-      FROM mirror_listing_watches w
-      WHERE w.state IN ('pending', 'queued', 'retryable_error')
-        AND (w.next_attempt_at IS NULL OR w.next_attempt_at <= now())
-      ORDER BY COALESCE(w.next_attempt_at, w.created_at), w.created_at, w.id
-      LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
-    ),
-    claimed AS (
-      UPDATE mirror_listing_watches w
-      SET
-        state = 'fetching'::mirror_listing_watch_state,
-        attempt_count = w.attempt_count + 1,
-        last_attempt_at = now(),
-        last_error = NULL,
-        updated_at = now()
-      FROM due
-      WHERE w.id = due.id
-      RETURNING
-        w.id,
-        w.source_name AS "sourceName",
-        w.property_id AS "propertyId",
-        w.source_url_raw AS "sourceUrlRaw",
-        w.source_url_canonical AS "sourceUrlCanonical",
-        w.source_listing_id AS "sourceListingId",
-        w.attempt_count AS "attemptCount"
-    )
-    SELECT
-      claimed.id,
-      claimed."sourceName",
-      claimed."propertyId",
-      claimed."sourceUrlRaw",
-      claimed."sourceUrlCanonical",
-      claimed."sourceListingId",
-      claimed."attemptCount",
-      json_build_object(
-        'id', p.id,
-        'countryCode', p.country_code,
-        'street', p.street,
-        'postalCode', p.postal_code,
-        'houseNumber', p.house_number,
-        'houseNumberAddition', p.house_number_addition,
-        'city', p.city,
-        'latitude', CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_Y(p.geometry) END,
-        'longitude', CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_X(p.geometry) END
-      ) AS property
-    FROM claimed
-    INNER JOIN properties p ON p.id = claimed."propertyId"
-    ORDER BY claimed.id
-  `);
-
-  return Array.from(rows);
-}
-
-export async function markListingValidationWatchRetryable(
-  input: {
-    watchId: string;
-    error: string;
-    nextAttemptAt: Date;
-    sourceListingId?: string | null;
-    canonicalUrl?: string | null;
-  },
-  executor?: ReconciliationDb,
-): Promise<{ id: string; state: MirrorListingWatchState; attemptCount: number; nextAttemptAt: Date }> {
-  const rows = await targetDb(executor).execute<{
-    id: string;
-    state: MirrorListingWatchState;
-    attemptCount: number;
-    nextAttemptAt: Date;
-  }>(sql`
-    UPDATE mirror_listing_watches
-    SET
-      state = 'retryable_error'::mirror_listing_watch_state,
-      source_url_canonical = COALESCE(${input.canonicalUrl ?? null}, source_url_canonical),
-      source_listing_id = COALESCE(${input.sourceListingId ?? null}, source_listing_id),
-      last_error = ${input.error.slice(0, 2_000)},
-      next_attempt_at = ${input.nextAttemptAt.toISOString()}::timestamptz,
-      updated_at = now()
-    WHERE id = ${input.watchId}
-      AND state NOT IN ('matched', 'not_found', 'blocked', 'invalid', 'parser_error', 'unsupported')
-    RETURNING
-      id,
-      state,
-      attempt_count AS "attemptCount",
-      next_attempt_at AS "nextAttemptAt"
-  `);
-
-  const row = Array.from(rows)[0];
-  if (!row) {
-    throw new Error(`Mirror listing watch ${input.watchId} not found or already terminal`);
-  }
-  return row;
-}
-
-async function applyTerminalListingValidationOutcome(
-  outcome: ListingValidationOutcomeInput & { state: TerminalListingValidationState },
-): Promise<Extract<ListingValidationWatchProcessResult, { outcome: 'terminal' }>> {
-  const applied = await db.transaction(async (tx) => {
-    const result = await applyListingValidationOutcome(tx, outcome);
-    await advancePropertyChangeVersion(result.canonicalListing.propertyId, tx);
-    await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
-    const maintenance = await createMaintenanceRefreshRequest(tx, {
-      sourceName: outcome.sourceName,
-      requestedBy: 'validation-outcome',
-      idempotencyKey: `validation-outcome:${outcome.watchId}:${result.observationId}`,
-      payload: {
-        watchId: outcome.watchId,
-        canonicalListingId: result.canonicalListing.id,
-        observationId: result.observationId,
-        state: outcome.state,
-        requestedByWorker: true,
-      },
-    });
-
-    return {
-      result,
-      maintenance,
-    };
-  });
-
-  return {
-    watchId: outcome.watchId,
-    outcome: 'terminal',
-    state: outcome.state,
-    canonicalListingId: applied.result.canonicalListing.id,
-    observationId: applied.result.observationId,
-    propertyId: applied.result.canonicalListing.propertyId,
-    sourceName: outcome.sourceName,
-    maintenanceBatchId: applied.maintenance.batchId,
-  };
-}
-
-async function markClaimedWatchRetryable(
-  watch: ClaimedListingValidationWatch,
-  error: unknown,
-  options?: { now?: Date; retryDelayMs?: (attemptCount: number) => number },
-  canonicalUrl?: string | null,
-  sourceListingId?: string | null,
-): Promise<Extract<ListingValidationWatchProcessResult, { outcome: 'retryable' }>> {
-  const message = retryMessage(error);
-  const nextAttemptAt = nextRetryAt(watch.attemptCount, options);
-  const updated = await markListingValidationWatchRetryable({
-    watchId: watch.id,
-    error: message,
-    nextAttemptAt,
-    canonicalUrl,
-    sourceListingId,
-  });
-
-  return {
-    watchId: watch.id,
-    outcome: 'retryable',
-    state: 'retryable_error',
-    attemptCount: updated.attemptCount,
-    nextAttemptAt: updated.nextAttemptAt,
-    error: message,
-  };
-}
-
-async function processClaimedListingValidationWatch(
-  watch: ClaimedListingValidationWatch,
-  options?: { now?: Date; retryDelayMs?: (attemptCount: number) => number },
-): Promise<ListingValidationWatchProcessResult> {
-  if (!isSourceServiceBacked(watch.sourceName)) {
-    return applyTerminalListingValidationOutcome({
-      watchId: watch.id,
-      state: 'unsupported',
-      sourceName: watch.sourceName,
-      rawUrl: watch.sourceUrlRaw,
-      canonicalUrl: watch.sourceUrlCanonical,
-      sourceListingId: watch.sourceListingId,
-      sourceListingIdKind: watch.sourceListingId ? 'unknown' : null,
-      aliases: [],
-      sourceStatus: 'unknown',
-      matchedPropertyEvidence: {
-        propertyId: watch.propertyId,
-        matchKind: 'source_unmatched',
-      },
-      payload: {
-        reasonCode: 'source_not_supported',
-      },
-    });
-  }
-
-  let resolution;
-  try {
-    resolution = await resolveListingSourceUrl(watch.sourceUrlRaw, watch.sourceName);
-  } catch (error) {
-    if (error instanceof SourceServiceTemporaryError) {
-      return markClaimedWatchRetryable(watch, error, options);
-    }
-    throw error;
-  }
-
-  if (!resolution.supported) {
-    return applyTerminalListingValidationOutcome({
-      watchId: watch.id,
-      state: 'unsupported',
-      sourceName: resolution.sourceName,
-      rawUrl: resolution.rawUrl,
-      canonicalUrl: watch.sourceUrlCanonical,
-      sourceListingId: watch.sourceListingId,
-      sourceListingIdKind: watch.sourceListingId ? 'unknown' : null,
-      aliases: [],
-      sourceStatus: 'unknown',
-      matchedPropertyEvidence: {
-        propertyId: watch.propertyId,
-        matchKind: 'source_unmatched',
-      },
-      payload: {
-        reasonCode: resolution.reasonCode,
-      },
-    });
-  }
-
-  let validation;
-  try {
-    validation = await validateListingSource({
-      watchId: null,
-      sourceName: resolution.sourceName as ListingSourceName,
-      rawUrl: watch.sourceUrlRaw,
-      canonicalUrl: resolution.canonicalUrl,
-      sourceListingId: resolution.sourceListingId,
-      sourceListingIdKind: resolution.sourceListingIdKind,
-      aliases: resolution.aliases,
-      property: watch.property,
-    });
-  } catch (error) {
-    if (error instanceof SourceServiceTemporaryError) {
-      return markClaimedWatchRetryable(
-        watch,
-        error,
-        options,
-        resolution.canonicalUrl,
-        resolution.sourceListingId,
-      );
-    }
-    throw error;
-  }
-
-  if (validation.state === 'retryable_error') {
-    return markClaimedWatchRetryable(
-      watch,
-      validationRetryReason(validation),
-      options,
-      validation.canonicalUrl || resolution.canonicalUrl,
-      validation.sourceListingId ?? resolution.sourceListingId,
-    );
-  }
-
-  if (!isTerminalValidationState(validation.state)) {
-    return markClaimedWatchRetryable(
-      watch,
-      `Unexpected validation state: ${validation.state}`,
-      options,
-      validation.canonicalUrl || resolution.canonicalUrl,
-      validation.sourceListingId ?? resolution.sourceListingId,
-    );
-  }
-
-  return applyTerminalListingValidationOutcome({
-    watchId: watch.id,
-    state: validation.state,
-    sourceName: validation.sourceName,
-    rawUrl: validation.rawUrl,
-    canonicalUrl: validation.canonicalUrl || resolution.canonicalUrl,
-    sourceListingId: validation.sourceListingId ?? resolution.sourceListingId,
-    sourceListingIdKind: validation.sourceListingIdKind ?? resolution.sourceListingIdKind,
-    aliases: validation.aliases ?? resolution.aliases,
-    sourceStatus: validation.sourceStatus,
-    address: validation.address,
-    matchedPropertyEvidence: validation.matchedPropertyEvidence,
-    price: validation.price,
-    currency: validation.currency,
-    thumbnailUrl: validation.thumbnailUrl,
-    title: validation.title,
-    description: validation.description,
-    firstSeenAt: validation.firstSeenAt,
-    lastSeenAt: validation.lastSeenAt,
-    sourceUpdatedAt: validation.sourceUpdatedAt,
-    payload: validation.payload,
-  });
-}
-
-export async function processDueListingValidationWatches(
-  options: {
-    limit: number;
-    now?: Date;
-    retryDelayMs?: (attemptCount: number) => number;
-  },
-): Promise<ListingValidationWatchSweepSummary> {
-  const claimed = await claimDueListingValidationWatches(options.limit);
-  const results: ListingValidationWatchProcessResult[] = [];
-
-  for (const watch of claimed) {
-    results.push(await processClaimedListingValidationWatch(watch, options));
-  }
-
-  return {
-    claimedCount: claimed.length,
-    terminalCount: results.filter((result) => result.outcome === 'terminal').length,
-    retryableCount: results.filter((result) => result.outcome === 'retryable').length,
-    results,
-  };
+): Promise<ListingPreviewResult> {
+  const [preview] = await targetDb(executor)
+    .update(listingPreviewResults)
+    .set({ consumedAt: new Date() })
+    .where(sql`
+      ${listingPreviewResults.tokenHash} = ${tokenHash(previewToken)}
+      AND ${listingPreviewResults.consumedAt} IS NULL
+      AND ${listingPreviewResults.expiresAt} > now()
+      AND (${listingPreviewResults.userId} IS NULL OR ${listingPreviewResults.userId} = ${userId})
+      AND ${listingPreviewResults.validationState} = 'valid'
+      AND ${listingPreviewResults.matchState} = 'matched'
+      AND ${listingPreviewResults.lifecycleStatus} IS NOT NULL
+    `)
+    .returning();
+  if (!preview) throw new Error('Invalid, expired, or already consumed preview token');
+  return preview;
 }
 
 export async function createUserListingSubmission(
   executor: ReconciliationDb,
   input: UserListingSubmissionInput,
 ): Promise<UserListingSubmissionResult> {
-  const watchState = publicWatchState(input.plan);
   const observation = await insertListingObservation(
     {
-      sourceName: input.plan.sourceName,
-      sourceListingId: input.plan.sourceListingId,
-      sourceListingIdKind: input.plan.sourceListingIdKind,
-      sourceListingAliases: input.plan.aliases,
-      sourceUrlRaw: input.plan.rawUrl,
-      sourceUrlCanonical: input.plan.canonicalUrl,
+      sourceName: input.preview.sourceName,
+      sourceListingId: input.preview.sourceListingId,
+      sourceListingIdKind: input.preview.sourceListingIdKind,
+      sourceListingAliases: input.preview.sourceListingAliases,
+      sourceUrlRaw: input.preview.sourceUrlRaw,
+      sourceUrlCanonical: input.preview.sourceUrlCanonical,
       submittedBy: input.userId,
       origin: 'user',
-      propertyId: input.plan.submittedPropertyId,
-      propertyMatchKind: input.plan.propertyMatchKind,
-      sourceStatus: input.plan.sourceStatus,
-      askingPrice: input.plan.askingPrice,
-      priceCurrency: input.plan.currency ?? 'EUR',
-      addressRaw: input.plan.address
-        ? [
-            input.plan.address.street,
-            input.plan.address.houseNumber,
-            input.plan.address.houseNumberAddition,
-            input.plan.address.postalCode,
-            input.plan.address.city,
-          ].filter((part) => part !== null && part !== undefined && part !== '').join(' ')
+      propertyId: input.preview.propertyId,
+      propertyMatchKind: input.preview.propertyMatchKind,
+      sourceStatus: input.preview.lifecycleStatus ?? 'available',
+      diagnosticStatus: null,
+      askingPrice: input.preview.askingPrice,
+      priceCurrency: input.preview.priceCurrency ?? 'EUR',
+      addressRaw: input.preview.addressNormalized ? JSON.stringify(input.preview.addressNormalized) : null,
+      addressNormalized: input.preview.addressNormalized,
+      postalCode: typeof input.preview.addressNormalized?.postalCode === 'string'
+        ? input.preview.addressNormalized.postalCode
         : null,
-      addressNormalized: input.plan.address ?? null,
-      postalCode: input.plan.address?.postalCode ?? null,
-      houseNumber: houseNumberFromAddress(input.plan.address),
-      houseNumberAddition: input.plan.address?.houseNumberAddition ?? null,
+      houseNumber: houseNumberFromAddress(input.preview.addressNormalized),
+      houseNumberAddition: typeof input.preview.addressNormalized?.houseNumberAddition === 'string'
+        ? input.preview.addressNormalized.houseNumberAddition
+        : null,
+      previewResultId: input.preview.id,
       payload: {
         preview: {
-          title: input.plan.title,
-          description: input.plan.description,
-          imageUrl: input.plan.imageUrl,
-          priceType: input.plan.priceType,
+          title: input.preview.title,
+          description: input.preview.description,
+          imageUrl: input.preview.imageUrl,
+          priceType: input.preview.listingType,
         },
       },
     },
@@ -1079,31 +728,45 @@ export async function createUserListingSubmission(
   );
 
   const canonicalListing = await reconcileListingObservation(observation.id, executor);
-  let watchId: string | null = null;
-  if (watchState === 'will_enqueue') {
-    const watch = await createOrUpdateMirrorWatch(
-      {
-        sourceName: input.plan.sourceName,
-        propertyId: input.plan.submittedPropertyId,
-        submittedBy: input.userId,
-        sourceUrlRaw: input.plan.rawUrl,
-        sourceUrlCanonical: input.plan.canonicalUrl,
-        sourceListingId: input.plan.sourceListingId,
-        canonicalListingId: canonicalListing.id,
-        state: 'queued',
-        stateReason: input.plan.reasonCode,
+  if (!canonicalListing) throw new Error('Preview submission did not project a canonical listing');
+
+  const [candidate] = await executor
+    .insert(listingCandidateHandoffs)
+    .values({
+      previewResultId: input.preview.id,
+      canonicalListingId: canonicalListing.id,
+      observationId: observation.id,
+      sourceName: input.preview.sourceName,
+      propertyId: input.preview.propertyId,
+      submittedBy: input.userId,
+      sourceUrlRaw: input.preview.sourceUrlRaw,
+      sourceUrlCanonical: input.preview.sourceUrlCanonical,
+      sourceListingId: input.preview.sourceListingId,
+      previewFacts: {
+        title: input.preview.title,
+        description: input.preview.description,
+        imageUrl: input.preview.imageUrl,
+        askingPrice: input.preview.askingPrice,
+        currency: input.preview.priceCurrency,
+        listingType: input.preview.listingType,
       },
-      executor,
-    );
-    watchId = watch.id;
-  }
+      matchEvidence: {
+        propertyId: input.preview.propertyId,
+        propertyMatchKind: input.preview.propertyMatchKind,
+        sourceListingAliases: input.preview.sourceListingAliases,
+      },
+      state: 'queued',
+    })
+    .returning();
+
+  if (!candidate) throw new Error('Candidate handoff insert did not return a row');
 
   return {
     canonicalListing,
     observationId: observation.id,
-    watchId,
-    watchState,
-    reasonCode: input.plan.reasonCode,
+    candidateId: candidate.id,
+    candidateHandoffState: candidate.state,
+    reasonCode: input.preview.reasonCode,
   };
 }
 
@@ -1118,7 +781,7 @@ export async function persistMirrorObservationForIngest(
   const sourceUpdatedAt = toOptionalDate(input.sourceUpdatedAt);
   const lastSeenAt = toOptionalDate(input.lastSeenAt);
   const firstSeenAt = toOptionalDate(input.firstSeenAt);
-  const observedAt = sourceUpdatedAt ?? lastSeenAt ?? firstSeenAt ?? new Date();
+  const observedAt = toOptionalDate(input.observedAt) ?? sourceUpdatedAt ?? lastSeenAt ?? firstSeenAt ?? new Date();
 
   const observation = await insertListingObservation(
     {
@@ -1131,7 +794,8 @@ export async function persistMirrorObservationForIngest(
       origin: 'mirror',
       propertyId: input.propertyId,
       propertyMatchKind: input.propertyMatchKind,
-      sourceStatus: input.sourceStatus,
+      sourceStatus: input.sourceStatus ?? null,
+      diagnosticStatus: input.diagnosticStatus ?? null,
       askingPrice: input.askingPrice ?? null,
       priceCurrency: input.priceCurrency ?? 'EUR',
       addressRaw: input.address
@@ -1154,6 +818,12 @@ export async function persistMirrorObservationForIngest(
       sourceUpdatedAt,
       observedAt,
       ingestBatchId: input.batchId,
+      scopeCompletionId: input.scopeCompletionId ?? null,
+      sourceRunId: input.sourceRunId ?? null,
+      sourceHighWatermark: toOptionalDate(input.sourceHighWatermark),
+      staleForProjection: input.staleForProjection ?? false,
+      previewResultId: input.previewResultId ?? null,
+      candidateHandoffId: input.candidateHandoffId ?? null,
       payload: {
         ...input.payload,
         title: input.title ?? null,
@@ -1165,97 +835,22 @@ export async function persistMirrorObservationForIngest(
   );
 
   const canonicalListing = await reconcileListingObservation(observation.id, executor);
+  if (canonicalListing) {
+    await completeCandidateHandoffForObservation(observation, canonicalListing, executor);
+  }
   return {
     canonicalListing,
     observationId: observation.id,
-    propertyId: canonicalListing.propertyId,
-    inserted: true,
-    changed: true,
+    propertyId: canonicalListing?.propertyId ?? input.propertyId,
+    inserted: canonicalListing !== null && !input.staleForProjection,
+    changed: canonicalListing !== null && !input.staleForProjection,
   };
 }
 
-export async function applyListingValidationOutcome(
-  executorOrOutcome: ReconciliationDb | ListingValidationOutcomeInput,
-  maybeOutcome?: ListingValidationOutcomeInput,
-): Promise<{ canonicalListing: CanonicalListing; observationId: string; watchId: string; state: string }> {
-  const database = maybeOutcome ? (executorOrOutcome as ReconciliationDb) : db;
-  const outcome = maybeOutcome ?? (executorOrOutcome as ListingValidationOutcomeInput);
-  const apply = async (tx: ReconciliationDb) => {
-    const [watch] = await tx
-      .select()
-      .from(mirrorListingWatches)
-      .where(eq(mirrorListingWatches.id, outcome.watchId))
-      .limit(1);
-
-    if (!watch) {
-      throw new Error(`Mirror listing watch ${outcome.watchId} not found`);
-    }
-
-    if (outcome.sourceListingId) {
-      await upsertListingSourceAliases(outcome.sourceName, outcome.sourceListingId, normalizeSourceAliases(outcome.aliases), tx);
-    }
-
-    const observation = await insertListingObservation(
-      {
-        sourceName: outcome.sourceName,
-        sourceListingId: outcome.sourceListingId ?? null,
-        sourceListingIdKind: normalizeSourceListingIdKind(outcome.sourceListingIdKind),
-        sourceListingAliases: outcome.aliases ?? [],
-        sourceUrlRaw: outcome.rawUrl,
-        sourceUrlCanonical: outcome.canonicalUrl,
-        origin: 'validation',
-        propertyId: outcome.matchedPropertyEvidence?.propertyId ?? watch.propertyId,
-        propertyMatchKind: outcome.matchedPropertyEvidence?.matchKind ?? 'source_unmatched',
-        sourceStatus: outcome.sourceStatus ?? validationStateToSourceStatus(outcome.state),
-        askingPrice: outcome.price ?? null,
-        priceCurrency: outcome.currency ?? 'EUR',
-        addressRaw: outcome.address ? JSON.stringify(outcome.address) : null,
-        addressNormalized: outcome.address ?? null,
-        postalCode: typeof outcome.address?.postalCode === 'string' ? outcome.address.postalCode : null,
-        houseNumber: typeof outcome.address?.houseNumber === 'number' ? outcome.address.houseNumber : null,
-        houseNumberAddition: typeof outcome.address?.houseNumberAddition === 'string'
-          ? outcome.address.houseNumberAddition
-          : null,
-        firstSeenAt: toTimestamp(outcome.firstSeenAt),
-        lastSeenAt: toTimestamp(outcome.lastSeenAt),
-        sourceUpdatedAt: toTimestamp(outcome.sourceUpdatedAt),
-        validationWatchId: outcome.watchId,
-        payload: {
-          ...(outcome.payload ?? {}),
-          title: outcome.title ?? null,
-          description: outcome.description ?? null,
-          imageUrl: outcome.thumbnailUrl ?? null,
-        },
-      },
-      tx,
-    );
-    const canonicalListing = await reconcileListingObservation(observation.id, tx);
-
-    await tx
-      .update(mirrorListingWatches)
-      .set({
-        state: outcome.state,
-        stateReason: outcome.state === 'retryable_error' ? watch.stateReason : null,
-        sourceListingId: outcome.sourceListingId ?? watch.sourceListingId,
-        canonicalListingId: canonicalListing.id,
-        lastValidationObservationId: observation.id,
-        lastAttemptAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(mirrorListingWatches.id, outcome.watchId));
-
-    return {
-      canonicalListing,
-      observationId: observation.id,
-      watchId: outcome.watchId,
-      state: outcome.state,
-    };
-  };
-
-  return supportsTransaction(database) ? database.transaction(apply) : apply(database);
-}
-
-export async function listCanonicalListingsForProperty(propertyId: string, executor?: ReconciliationDb): Promise<CanonicalListingReadModel[]> {
+export async function listCanonicalListingsForProperty(
+  propertyId: string,
+  executor?: ReconciliationDb,
+): Promise<CanonicalListingReadModel[]> {
   const rows = await targetDb(executor)
     .select({
       id: canonicalListings.id,
@@ -1272,15 +867,16 @@ export async function listCanonicalListingsForProperty(propertyId: string, execu
       status: canonicalListings.status,
       verificationState: canonicalListings.verificationState,
       createdAt: canonicalListings.createdAt,
-      watchState: mirrorListingWatches.state,
-      reasonCode: mirrorListingWatches.stateReason,
+      candidateHandoffState: listingCandidateHandoffs.state,
+      reasonCode: listingPreviewResults.reasonCode,
     })
     .from(canonicalListings)
-    .leftJoin(mirrorListingWatches, eq(mirrorListingWatches.canonicalListingId, canonicalListings.id))
+    .leftJoin(listingCandidateHandoffs, eq(listingCandidateHandoffs.canonicalListingId, canonicalListings.id))
+    .leftJoin(listingPreviewResults, eq(listingPreviewResults.id, listingCandidateHandoffs.previewResultId))
     .where(
       and(
         eq(canonicalListings.propertyId, propertyId),
-        sql`${canonicalListings.verificationState} NOT IN ('invalid', 'validation_blocked', 'validation_failed')`,
+        sql`${canonicalListings.verificationState} <> 'invalid'`,
       ),
     )
     .orderBy(desc(canonicalListings.createdAt));

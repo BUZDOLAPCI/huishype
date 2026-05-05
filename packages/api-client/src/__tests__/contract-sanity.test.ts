@@ -70,7 +70,13 @@ type CanonicalListingVerificationState =
   | 'validation_pending'
   | 'validation_blocked'
   | 'validation_failed';
-type CanonicalListingPreviewWatchState = 'not_required' | 'will_enqueue' | 'unsupported';
+type CanonicalListingPreviewHandoffState = 'will_create' | 'unsupported';
+type CanonicalListingCandidateHandoffState =
+  | 'pending'
+  | 'queued'
+  | 'delivered'
+  | 'retryable_error'
+  | 'dead_letter';
 type CanonicalListingPreviewReasonCode =
   | 'source_identity_match'
   | 'address_match'
@@ -99,7 +105,7 @@ type CanonicalListingPreviewResponse = {
   sourceListingIdKind: string | null;
   validationState: 'valid' | 'invalid' | 'provisional';
   matchState: 'matched' | 'mismatch' | 'unverified' | 'unsupported';
-  watchState: CanonicalListingPreviewWatchState;
+  handoffState: CanonicalListingPreviewHandoffState;
   reasonCode: CanonicalListingPreviewReasonCode;
   title: string | null;
   description: string | null;
@@ -110,18 +116,11 @@ type CanonicalListingPreviewResponse = {
   address: unknown | null;
   submittedPropertyId: string;
   matchedPropertyId: string | null;
+  previewToken: string;
+  previewId: string;
 };
 type CanonicalSubmitListingRequest = {
-  url: string;
-  propertyId: string;
-  ogTitle?: string;
-  thumbnailUrl?: string;
-  title?: string;
-  description?: string;
-  imageUrl?: string;
-  askingPrice?: number;
-  priceType?: CanonicalListingPriceType;
-  currency?: string;
+  previewToken: string;
 };
 type CanonicalSubmitListingResponse = {
   id: string;
@@ -132,8 +131,8 @@ type CanonicalSubmitListingResponse = {
   sourceListingId: string | null;
   status: CanonicalListingStatus;
   verificationState: CanonicalListingVerificationState;
-  watchState: CanonicalListingPreviewWatchState;
-  watchId: string | null;
+  candidateHandoffState: CanonicalListingCandidateHandoffState;
+  candidateId: string;
   reasonCode: string;
   createdAt: string;
 };
@@ -158,7 +157,7 @@ type CanonicalPropertyListingReadItem = {
   energyLabel: string | null;
   status: CanonicalListingStatus;
   verificationState: CanonicalListingVerificationState;
-  watchState: string | null;
+  candidateHandoffState: CanonicalListingCandidateHandoffState | null;
   reasonCode: string | null;
   createdAt: string;
 };

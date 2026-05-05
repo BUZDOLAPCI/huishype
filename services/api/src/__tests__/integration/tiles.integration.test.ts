@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
@@ -6,7 +6,10 @@ import { sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
-import { resetPropertyTileCacheForTests } from '../../routes/tiles.js';
+import {
+  resetPropertyTileCacheForTests,
+  waitForPendingDefaultPropertyTileSnapshotRefreshesForTests,
+} from '../../routes/tiles.js';
 import {
   buildCanonicalGroupsForTile,
   resetCanonicalGroupCacheForTests,
@@ -227,6 +230,10 @@ describe('Tile routes', () => {
     process.env = { ...originalEnv };
     resetPropertyTileCacheForTests();
     resetCanonicalGroupCacheForTests();
+  });
+
+  afterEach(async () => {
+    await waitForPendingDefaultPropertyTileSnapshotRefreshesForTests();
   });
 
   afterAll(async () => {

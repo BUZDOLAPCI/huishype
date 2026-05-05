@@ -66,7 +66,7 @@ describe('buildListingPreviewPlan', () => {
     longitude: 5.4697,
   };
 
-  it('returns a validated no-watch plan for a matched Funda listing', async () => {
+  it('returns a validated plan for a matched Funda listing', async () => {
     mockFetchFn
       .mockResolvedValueOnce(jsonResponse({
         supported: true,
@@ -118,7 +118,7 @@ describe('buildListingPreviewPlan', () => {
       sourceListingId: '89779872',
       validationState: 'valid',
       matchState: 'matched',
-      watchState: 'not_required',
+      handoffState: 'will_create',
       reasonCode: 'source_identity_match',
       askingPrice: 475000,
       currency: 'EUR',
@@ -130,6 +130,10 @@ describe('buildListingPreviewPlan', () => {
     });
     expectSourceServiceAuthHeader(0, 'test-funda-source-service-key');
     expectSourceServiceAuthHeader(1, 'test-funda-source-service-key');
+    const validationRequest = JSON.parse(
+      String((mockFetchFn.mock.calls[1]?.[1] as RequestInit | undefined)?.body),
+    ) as Record<string, unknown>;
+    expect(validationRequest).not.toHaveProperty(['wat', 'chId'].join(''));
   });
 
   it('returns a provisional backed-service plan when the source-service API key is missing', async () => {
@@ -159,7 +163,7 @@ describe('buildListingPreviewPlan', () => {
       sourceListingId: null,
       validationState: 'provisional',
       matchState: 'unverified',
-      watchState: 'will_enqueue',
+      handoffState: 'will_create',
       reasonCode: 'mirror_unavailable',
       title: 'Fallback title',
     });
@@ -185,14 +189,14 @@ describe('buildListingPreviewPlan', () => {
       sourceListingId: null,
       validationState: 'provisional',
       matchState: 'unsupported',
-      watchState: 'unsupported',
+      handoffState: 'unsupported',
       reasonCode: 'source_not_supported',
     });
     expect(mockFetchFn).toHaveBeenCalledTimes(1);
     expectSourceServiceAuthHeader(0, 'test-pararius-source-service-key');
   });
 
-  it('returns a provisional plan with a watch when validation fails temporarily', async () => {
+  it('returns a provisional plan when validation fails temporarily', async () => {
     mockFetchFn
       .mockResolvedValueOnce(jsonResponse({
         supported: true,
@@ -220,7 +224,7 @@ describe('buildListingPreviewPlan', () => {
       sourceListingId: '/apartment-for-rent/eindhoven/87a48057/kathodelaan',
       validationState: 'provisional',
       matchState: 'unverified',
-      watchState: 'will_enqueue',
+      handoffState: 'will_create',
       reasonCode: 'mirror_unavailable',
       sourceStatus: 'unknown',
     });

@@ -7,7 +7,6 @@ import {
   loadIngestProcessorModule,
   loadIngestQueueModule,
   loadIngestStoreModule,
-  loadListingReconciliationModule,
   loadListingsViewModule,
   loadOfficialValuationJobsModule,
   loadOfficialValuationProcessorModule,
@@ -33,10 +32,6 @@ interface RecoverySweepSummary {
   dispatchedBatchIds: string[];
   failedDispatchBatchIds: string[];
   maintenanceRequested: boolean;
-  listingWatchClaimedCount: number;
-  listingWatchTerminalCount: number;
-  listingWatchRetryableCount: number;
-  listingWatchMaintenanceBatchIds: string[];
   officialValuationHydrationJobIds: string[];
   propertyTileSnapshotRefreshRequested: boolean;
   propertyTileSnapshotRefreshReason: string | null;
@@ -49,7 +44,6 @@ export type WorkerRuntimeModuleLoaders = {
   loadIngestProcessorModule: typeof loadIngestProcessorModule;
   loadIngestQueueModule: typeof loadIngestQueueModule;
   loadIngestStoreModule: typeof loadIngestStoreModule;
-  loadListingReconciliationModule: typeof loadListingReconciliationModule;
   loadListingsViewModule: typeof loadListingsViewModule;
   loadOfficialValuationJobsModule: typeof loadOfficialValuationJobsModule;
   loadOfficialValuationProcessorModule: typeof loadOfficialValuationProcessorModule;
@@ -65,7 +59,6 @@ const DEFAULT_MODULE_LOADERS: WorkerRuntimeModuleLoaders = {
   loadIngestProcessorModule,
   loadIngestQueueModule,
   loadIngestStoreModule,
-  loadListingReconciliationModule,
   loadListingsViewModule,
   loadOfficialValuationJobsModule,
   loadOfficialValuationProcessorModule,
@@ -90,16 +83,6 @@ function toIngestLogger(logger: WorkerLogger) {
 
 function createTimeoutError(label: string, timeoutMs: number): Error {
   return new Error(`${label} timed out after ${timeoutMs}ms`);
-}
-
-function createListingWatchRetryDelay(config: WorkerConfig): (attemptCount: number) => number {
-  return (attemptCount: number) => {
-    const exponent = Math.max(0, Math.min(attemptCount - 1, 8));
-    return Math.min(
-      config.listingWatchRetryBaseDelayMs * 2 ** exponent,
-      config.listingWatchRetryMaxDelayMs,
-    );
-  };
 }
 
 async function withTimeout<T>(
@@ -266,9 +249,6 @@ export class WorkerRuntime {
       recoverySweepIntervalMs: this.config.recoverySweepIntervalMs,
       staleProcessingAfterMs: this.config.staleProcessingAfterMs,
       healthLogIntervalMs: this.config.healthLogIntervalMs,
-      listingWatchSweepLimit: this.config.listingWatchSweepLimit,
-      listingWatchRetryBaseDelayMs: this.config.listingWatchRetryBaseDelayMs,
-      listingWatchRetryMaxDelayMs: this.config.listingWatchRetryMaxDelayMs,
     });
 
     await this.runRecoverySweep('startup');
@@ -466,7 +446,6 @@ export class WorkerRuntime {
     const [
       store,
       queue,
-      reconciliation,
       officialValuationStore,
       officialValuationQueue,
       propertyTileSnapshots,
@@ -474,7 +453,6 @@ export class WorkerRuntime {
       await Promise.all([
         this.moduleLoaders.loadIngestStoreModule(),
         this.moduleLoaders.loadIngestQueueModule(),
-        this.moduleLoaders.loadListingReconciliationModule(),
         this.moduleLoaders.loadOfficialValuationStoreModule(),
         this.moduleLoaders.loadOfficialValuationQueueModule(),
         this.moduleLoaders.loadPropertyTileSnapshotsModule(),
@@ -517,68 +495,6 @@ export class WorkerRuntime {
           error: serializeError(error),
         });
       }
-    }
-
-    let listingWatchClaimedCount = 0;
-    let listingWatchTerminalCount = 0;
-    let listingWatchRetryableCount = 0;
-    const listingWatchMaintenanceBatchIds: string[] = [];
-
-    try {
-      const listingWatchSummary = await reconciliation.processDueListingValidationWatches({
-        limit: this.config.listingWatchSweepLimit,
-        retryDelayMs: createListingWatchRetryDelay(this.config),
-      });
-      listingWatchClaimedCount = listingWatchSummary.claimedCount;
-      listingWatchTerminalCount = listingWatchSummary.terminalCount;
-      listingWatchRetryableCount = listingWatchSummary.retryableCount;
-
-      for (const result of listingWatchSummary.results) {
-        if (result.outcome !== 'terminal') {
-          continue;
-        }
-
-        try {
-          await queue.requestLatestListingsRefresh({
-            requestedBy: 'validation-outcome',
-            batchId: result.maintenanceBatchId,
-          });
-          listingWatchMaintenanceBatchIds.push(result.maintenanceBatchId);
-        } catch (error) {
-          this.logger.error('Recovery sweep failed to enqueue validation maintenance refresh', {
-            trigger,
-            watchId: result.watchId,
-            state: result.state,
-            maintenanceBatchId: result.maintenanceBatchId,
-            error: serializeError(error),
-          });
-        }
-        try {
-          const snapshotRefreshRequest = await propertyTileSnapshots.requestPropertyTileSnapshotRefresh({
-            reason: 'validation-outcome',
-          });
-          this.logger.info('Validation outcome property tile refresh request recorded', {
-            trigger,
-            watchId: result.watchId,
-            state: result.state,
-            maintenanceBatchId: result.maintenanceBatchId,
-            ...snapshotRefreshRequest,
-          });
-        } catch (error) {
-          this.logger.error('Recovery sweep failed to request validation property tile refresh', {
-            trigger,
-            watchId: result.watchId,
-            state: result.state,
-            maintenanceBatchId: result.maintenanceBatchId,
-            error: serializeError(error),
-          });
-        }
-      }
-    } catch (error) {
-      this.logger.error('Recovery sweep failed to process listing validation watches', {
-        trigger,
-        error: serializeError(error),
-      });
     }
 
     const officialValuationHydrationJobIds: string[] = [];
@@ -638,10 +554,6 @@ export class WorkerRuntime {
       dispatchedBatchIds,
       failedDispatchBatchIds,
       maintenanceRequested,
-      listingWatchClaimedCount,
-      listingWatchTerminalCount,
-      listingWatchRetryableCount,
-      listingWatchMaintenanceBatchIds,
       officialValuationHydrationJobIds,
       propertyTileSnapshotRefreshRequested,
       propertyTileSnapshotRefreshReason,
@@ -654,10 +566,6 @@ export class WorkerRuntime {
       dispatchedCount: summary.dispatchedBatchIds.length,
       failedDispatchCount: summary.failedDispatchBatchIds.length,
       maintenanceRequested,
-      listingWatchClaimedCount,
-      listingWatchTerminalCount,
-      listingWatchRetryableCount,
-      listingWatchMaintenanceRequestedCount: listingWatchMaintenanceBatchIds.length,
       officialValuationHydrationDispatchedCount: officialValuationHydrationJobIds.length,
       propertyTileSnapshotRefreshRequested,
       propertyTileSnapshotRefreshReason,

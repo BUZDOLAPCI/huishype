@@ -7007,10 +7007,17 @@
                               "validation_failed"
                             ]
                           },
-                          "watchState": {
+                          "candidateHandoffState": {
                             "anyOf": [
                               {
-                                "type": "string"
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "queued",
+                                  "delivered",
+                                  "retryable_error",
+                                  "dead_letter"
+                                ]
                               },
                               {
                                 "type": "null"
@@ -7050,7 +7057,7 @@
                           "energyLabel",
                           "status",
                           "verificationState",
-                          "watchState",
+                          "candidateHandoffState",
                           "reasonCode",
                           "createdAt"
                         ],
@@ -7288,11 +7295,10 @@
                         "unsupported"
                       ]
                     },
-                    "watchState": {
+                    "handoffState": {
                       "type": "string",
                       "enum": [
-                        "not_required",
-                        "will_enqueue",
+                        "will_create",
                         "unsupported"
                       ]
                     },
@@ -7392,6 +7398,14 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "previewToken": {
+                      "type": "string"
+                    },
+                    "previewId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     }
                   },
                   "required": [
@@ -7402,7 +7416,7 @@
                     "sourceListingIdKind",
                     "validationState",
                     "matchState",
-                    "watchState",
+                    "handoffState",
                     "reasonCode",
                     "title",
                     "description",
@@ -7412,7 +7426,9 @@
                     "currency",
                     "address",
                     "submittedPropertyId",
-                    "matchedPropertyId"
+                    "matchedPropertyId",
+                    "previewToken",
+                    "previewId"
                   ],
                   "additionalProperties": false
                 }
@@ -7481,55 +7497,13 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "url": {
+                  "previewToken": {
                     "type": "string",
-                    "format": "uri"
-                  },
-                  "propertyId": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "ogTitle": {
-                    "type": "string"
-                  },
-                  "thumbnailUrl": {
-                    "type": "string"
-                  },
-                  "title": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "description": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "imageUrl": {
-                    "type": "string",
-                    "format": "uri"
-                  },
-                  "askingPrice": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "priceType": {
-                    "type": "string",
-                    "enum": [
-                      "sale",
-                      "rent",
-                      "unknown"
-                    ]
-                  },
-                  "currency": {
-                    "type": "string",
-                    "minLength": 3,
-                    "maxLength": 3
+                    "minLength": 32
                   }
                 },
                 "required": [
-                  "url",
-                  "propertyId"
+                  "previewToken"
                 ]
               }
             }
@@ -7600,25 +7574,20 @@
                         "validation_failed"
                       ]
                     },
-                    "watchState": {
+                    "candidateHandoffState": {
                       "type": "string",
                       "enum": [
-                        "not_required",
-                        "will_enqueue",
-                        "unsupported"
+                        "pending",
+                        "queued",
+                        "delivered",
+                        "retryable_error",
+                        "dead_letter"
                       ]
                     },
-                    "watchId": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
+                    "candidateId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
                     "reasonCode": {
                       "type": "string"
@@ -7638,8 +7607,8 @@
                     "sourceListingId",
                     "status",
                     "verificationState",
-                    "watchState",
-                    "watchId",
+                    "candidateHandoffState",
+                    "candidateId",
                     "reasonCode",
                     "createdAt"
                   ],
@@ -7790,8 +7759,32 @@
                     "minLength": 1,
                     "maxLength": 255
                   },
+                  "batchKind": {
+                    "type": "string",
+                    "enum": [
+                      "observations",
+                      "completion",
+                      "observations_and_completion"
+                    ]
+                  },
+                  "scopeKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "sourceHighWatermark": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                  },
+                  "repairMode": {
+                    "type": "boolean"
+                  },
+                  "repairReason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
                   "listings": {
-                    "minItems": 1,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -7803,6 +7796,20 @@
                         "mirrorListingId": {
                           "type": "string",
                           "minLength": 1
+                        },
+                        "sourceCandidateId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "previewResultId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "scopeKey": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 255
                         },
                         "sourceListingId": {
                           "type": "string",
@@ -7928,6 +7935,28 @@
                             "withdrawn"
                           ]
                         },
+                        "lifecycleStatus": {
+                          "type": "string",
+                          "enum": [
+                            "available",
+                            "sold",
+                            "rented",
+                            "withdrawn",
+                            "not_found"
+                          ]
+                        },
+                        "diagnosticStatus": {
+                          "type": "string",
+                          "enum": [
+                            "blocked",
+                            "parser_error",
+                            "retryable_error",
+                            "unsupported",
+                            "invalid",
+                            "unknown",
+                            "mirror_unavailable"
+                          ]
+                        },
                         "sourceStatus": {
                           "type": "string",
                           "enum": [
@@ -7953,6 +7982,21 @@
                           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
                         },
                         "mirrorLastSeenAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        "observedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        "sourceRunId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 255
+                        },
+                        "sourceHighWatermark": {
                           "type": "string",
                           "format": "date-time",
                           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
@@ -8056,14 +8100,100 @@
                         "address"
                       ]
                     }
+                  },
+                  "completions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "scopeKey": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 255
+                        },
+                        "listingType": {
+                          "type": "string",
+                          "enum": [
+                            "sale",
+                            "rent",
+                            "unknown"
+                          ]
+                        },
+                        "normalizedFilters": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        "sourceRunId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 255
+                        },
+                        "sourceRunStartedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "sourceRunCompletedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        "coverageStatus": {
+                          "type": "string",
+                          "enum": [
+                            "complete",
+                            "partial",
+                            "failed"
+                          ]
+                        },
+                        "observedListingCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "sourceHighWatermark": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        "diagnostics": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {}
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "scopeKey",
+                        "sourceRunCompletedAt",
+                        "sourceHighWatermark"
+                      ]
+                    }
                   }
                 },
                 "required": [
                   "sourceName",
                   "idempotencyKey",
                   "batchSequence",
-                  "cursorEnd",
-                  "listings"
+                  "cursorEnd"
                 ]
               }
             }
@@ -8160,395 +8290,6 @@
             }
           },
           "409": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error",
-                    "message"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/ingest/listing-validation-outcomes": {
-      "post": {
-        "summary": "Persist listing validation outcome",
-        "tags": [
-          "ingest"
-        ],
-        "description": "Internal callback for source services validating user-submitted listing URLs.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "watchId": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "state": {
-                    "type": "string",
-                    "enum": [
-                      "matched",
-                      "not_found",
-                      "blocked",
-                      "invalid",
-                      "parser_error",
-                      "unsupported",
-                      "retryable_error"
-                    ]
-                  },
-                  "sourceName": {
-                    "type": "string"
-                  },
-                  "rawUrl": {
-                    "type": "string",
-                    "format": "uri"
-                  },
-                  "canonicalUrl": {
-                    "type": "string",
-                    "format": "uri"
-                  },
-                  "sourceListingId": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "sourceListingIdKind": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "aliases": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "kind": {
-                          "type": "string"
-                        },
-                        "value": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "value"
-                      ]
-                    }
-                  },
-                  "sourceStatus": {
-                    "type": "string",
-                    "enum": [
-                      "available",
-                      "sold",
-                      "rented",
-                      "withdrawn",
-                      "not_found",
-                      "blocked",
-                      "invalid",
-                      "parser_error",
-                      "unknown"
-                    ]
-                  },
-                  "address": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "countryCode": {
-                            "type": "string"
-                          },
-                          "street": {
-                            "type": "string"
-                          },
-                          "postalCode": {
-                            "type": "string"
-                          },
-                          "houseNumber": {
-                            "anyOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "type": "number"
-                              }
-                            ]
-                          },
-                          "houseNumberAddition": {
-                            "anyOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "city": {
-                            "type": "string"
-                          },
-                          "latitude": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "longitude": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          }
-                        }
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "matchedPropertyEvidence": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "propertyId": {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "format": "uuid",
-                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "matchKind": {
-                            "type": "string",
-                            "enum": [
-                              "user_selected",
-                              "source_exact",
-                              "source_spatial",
-                              "source_unmatched",
-                              "source_mismatch"
-                            ]
-                          }
-                        }
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "price": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "currency": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "minLength": 3,
-                        "maxLength": 3
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "thumbnailUrl": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uri"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "title": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "description": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "firstSeenAt": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "date-time",
-                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "lastSeenAt": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "date-time",
-                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "sourceUpdatedAt": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "date-time",
-                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "payload": {
-                    "type": "object",
-                    "propertyNames": {
-                      "type": "string"
-                    },
-                    "additionalProperties": {}
-                  }
-                },
-                "required": [
-                  "watchId",
-                  "state",
-                  "sourceName",
-                  "rawUrl",
-                  "canonicalUrl"
-                ]
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "canonicalListingId": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "observationId": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "watchId": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "state": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "canonicalListingId",
-                    "observationId",
-                    "watchId",
-                    "state"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error",
-                    "message"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "404": {
             "description": "Default Response",
             "content": {
               "application/json": {

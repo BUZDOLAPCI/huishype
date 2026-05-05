@@ -10,7 +10,7 @@ import React from 'react';
 import { Pressable, Text, View, StyleSheet, Linking } from 'react-native';
 import { Icon } from './ui/Icon';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
-import type { ListingVerificationState, ListingWatchState } from '@huishype/shared';
+import type { ListingCandidateHandoffState, ListingVerificationState } from '@huishype/shared';
 
 export interface ListingSourceData {
   /** Source name (e.g., 'funda', 'pararius'). */
@@ -27,8 +27,8 @@ export interface ListingSourceData {
   pricePeriod?: string;
   /** Canonical listing verification state. */
   verificationState?: ListingVerificationState | null;
-  /** Durable mirror watch state for provisional user submissions. */
-  watchState?: ListingWatchState | null;
+  /** Durable candidate handoff state for provisional user submissions. */
+  candidateHandoffState?: ListingCandidateHandoffState | null;
 }
 
 export interface ListingSourceRowProps {
@@ -56,7 +56,7 @@ function getBranding(source: string) {
 
 function getVerificationBadge(
   verificationState: ListingVerificationState | null | undefined,
-  watchState: ListingWatchState | null | undefined
+  candidateHandoffState: ListingCandidateHandoffState | null | undefined
 ) {
   if (verificationState === 'validated') {
     return {
@@ -74,7 +74,7 @@ function getVerificationBadge(
       textColor: '#B91C1C',
     };
   }
-  if (verificationState === 'validation_blocked' || watchState === 'blocked') {
+  if (verificationState === 'validation_blocked') {
     return {
       label: 'Blocked',
       backgroundColor: '#F5F0E8',
@@ -82,28 +82,33 @@ function getVerificationBadge(
       textColor: '#9C958A',
     };
   }
-  if (
-    verificationState === 'validation_failed' ||
-    watchState === 'parser_error' ||
-    watchState === 'retryable_error'
-  ) {
+  if (candidateHandoffState === 'retryable_error' || candidateHandoffState === 'dead_letter') {
     return {
-      label: 'Check failed',
+      label: 'Handoff failed',
       backgroundColor: '#FFFBEB',
       dotColor: '#D97706',
       textColor: '#B45309',
     };
   }
-  if (
-    verificationState === 'provisional' ||
-    verificationState === 'validation_pending' ||
-    watchState === 'will_enqueue' ||
-    watchState === 'pending' ||
-    watchState === 'queued' ||
-    watchState === 'fetching'
-  ) {
+  if (verificationState === 'validation_failed') {
     return {
-      label: 'Pending check',
+      label: 'Validation failed',
+      backgroundColor: '#FFFBEB',
+      dotColor: '#D97706',
+      textColor: '#B45309',
+    };
+  }
+  if (candidateHandoffState === 'pending' || candidateHandoffState === 'queued') {
+    return {
+      label: 'Handoff pending',
+      backgroundColor: '#FFFBEB',
+      dotColor: '#F59E0B',
+      textColor: '#B45309',
+    };
+  }
+  if (verificationState === 'provisional' || verificationState === 'validation_pending') {
+    return {
+      label: 'Validation pending',
       backgroundColor: '#FFFBEB',
       dotColor: '#F59E0B',
       textColor: '#B45309',
@@ -119,7 +124,10 @@ export function ListingSourceRow({
   testID,
 }: ListingSourceRowProps) {
   const branding = getBranding(listing.source);
-  const verificationBadge = getVerificationBadge(listing.verificationState, listing.watchState);
+  const verificationBadge = getVerificationBadge(
+    listing.verificationState,
+    listing.candidateHandoffState
+  );
 
   const handlePress = () => {
     if (listing.url) {

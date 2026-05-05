@@ -27,6 +27,11 @@ jest.mock('../../../utils/api', () => ({
   API_URL: 'http://localhost:3100',
 }));
 
+const previewContractFields = {
+  previewToken: 'mock-preview-token-000000000000000000',
+  previewId: '22222222-2222-4222-8222-222222222222',
+} as const;
+
 describe('ListingSubmissionSheet', () => {
   beforeEach(() => {
     mockFetch.mockReset();
@@ -39,12 +44,13 @@ describe('ListingSubmissionSheet', () => {
     };
   });
 
-  it('submits thumbnailUrl (not ogImage) and keeps preview request unauthenticated', async () => {
+  it('submits the preview token and keeps preview request unauthenticated', async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({
+          ...previewContractFields,
           sourceName: 'funda',
           rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
           canonicalUrl: 'https://www.funda.nl/detail/12345',
@@ -52,7 +58,7 @@ describe('ListingSubmissionSheet', () => {
           sourceListingIdKind: 'tiny_id',
           validationState: 'valid',
           matchState: 'matched',
-          watchState: 'not_required',
+          handoffState: 'will_create',
           reasonCode: 'source_identity_match',
           title: 'Example Listing',
           description: 'Example description',
@@ -108,18 +114,10 @@ describe('ListingSubmissionSheet', () => {
 
     const submitPayload = JSON.parse(String(submitOptions.body));
     expect(submitPayload).toMatchObject({
-      url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-      propertyId: '11111111-1111-4111-8111-111111111111',
-      ogTitle: 'Example Listing',
-      thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
-      title: 'Example Listing',
-      description: 'Example description',
-      imageUrl: 'https://cdn.example.com/thumb.jpg',
-      askingPrice: 495000,
-      priceType: 'sale',
-      currency: 'EUR',
+      previewToken: previewContractFields.previewToken,
     });
-    expect(submitPayload).not.toHaveProperty('ogImage');
+    expect(submitPayload).not.toHaveProperty('url');
+    expect(submitPayload).not.toHaveProperty('propertyId');
   });
 
   it('renders structured preview addresses without throwing and shows asking price', async () => {
@@ -127,6 +125,7 @@ describe('ListingSubmissionSheet', () => {
       ok: true,
       status: 200,
       json: async () => ({
+        ...previewContractFields,
         sourceName: 'funda',
         rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-structured/',
         canonicalUrl: 'https://www.funda.nl/detail/structured',
@@ -134,7 +133,7 @@ describe('ListingSubmissionSheet', () => {
         sourceListingIdKind: 'tiny_id',
         validationState: 'valid',
         matchState: 'matched',
-        watchState: 'not_required',
+        handoffState: 'will_create',
         reasonCode: 'source_identity_match',
         title: 'Structured Address Listing',
         description: 'Fallback description',
@@ -176,18 +175,31 @@ describe('ListingSubmissionSheet', () => {
     expect(screen.queryByText('Fallback description')).toBeNull();
   });
 
-  it('treats legacy OG-only preview data as provisional instead of proof', async () => {
+  it('treats provisional preview data as pending validation', async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({
-          ogTitle: 'Example Listing',
-          ogImage: 'https://cdn.example.com/thumb.jpg',
-          ogDescription: 'Example description',
+          ...previewContractFields,
           sourceName: 'funda',
-          addressMatch: true,
-          warning: null,
+          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+          canonicalUrl: 'https://www.funda.nl/detail/12345',
+          sourceListingId: '12345',
+          sourceListingIdKind: 'tiny_id',
+          validationState: 'provisional',
+          matchState: 'unverified',
+          handoffState: 'will_create',
+          reasonCode: 'validation_pending',
+          title: 'Example Listing',
+          description: 'Example description',
+          imageUrl: 'https://cdn.example.com/thumb.jpg',
+          askingPrice: null,
+          priceType: 'unknown',
+          currency: null,
+          address: null,
+          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+          matchedPropertyId: null,
         }),
       } as Response)
       .mockResolvedValueOnce({
@@ -233,16 +245,9 @@ describe('ListingSubmissionSheet', () => {
 
     const submitPayload = JSON.parse(String(submitOptions.body));
     expect(submitPayload).toMatchObject({
-      url: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-      propertyId: '11111111-1111-4111-8111-111111111111',
-      ogTitle: 'Example Listing',
-      thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
-      title: 'Example Listing',
-      description: 'Example description',
-      imageUrl: 'https://cdn.example.com/thumb.jpg',
-      priceType: 'unknown',
+      previewToken: previewContractFields.previewToken,
     });
-    expect(submitPayload).not.toHaveProperty('ogImage');
+    expect(submitPayload).not.toHaveProperty('url');
   });
 
   it('requires auth for submit even after an unauthenticated preview', async () => {
@@ -257,6 +262,7 @@ describe('ListingSubmissionSheet', () => {
       ok: true,
       status: 200,
       json: async () => ({
+        ...previewContractFields,
         sourceName: 'funda',
         rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
         canonicalUrl: 'https://www.funda.nl/detail/12345',
@@ -264,7 +270,7 @@ describe('ListingSubmissionSheet', () => {
         sourceListingIdKind: 'tiny_id',
         validationState: 'provisional',
         matchState: 'unverified',
-        watchState: 'will_enqueue',
+        handoffState: 'will_create',
         reasonCode: 'validation_pending',
         title: 'Example Listing',
         description: null,
@@ -297,7 +303,7 @@ describe('ListingSubmissionSheet', () => {
     fireEvent.press(screen.getByText('Preview'));
 
     await screen.findByText('Confirm & Add Listing');
-    expect(screen.getByText('Will check after submit')).toBeTruthy();
+    expect(screen.getByText('Candidate will be queued')).toBeTruthy();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     fireEvent.press(screen.getByText('Confirm & Add Listing'));
@@ -319,6 +325,7 @@ describe('ListingSubmissionSheet', () => {
         ok: true,
         status: 200,
         json: async () => ({
+          ...previewContractFields,
           sourceName: 'funda',
           rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
           canonicalUrl: null,
@@ -326,7 +333,7 @@ describe('ListingSubmissionSheet', () => {
           sourceListingIdKind: 'tiny_id',
           validationState: 'valid',
           matchState: 'matched',
-          watchState: 'not_required',
+          handoffState: 'will_create',
           reasonCode: 'source_identity_match',
           title: 'Example Listing',
           description: null,
@@ -411,6 +418,7 @@ describe('ListingSubmissionSheet', () => {
         ok: true,
         status: 200,
         json: async () => ({
+          ...previewContractFields,
           sourceName: 'funda',
           rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
           canonicalUrl: null,
@@ -418,7 +426,7 @@ describe('ListingSubmissionSheet', () => {
           sourceListingIdKind: 'tiny_id',
           validationState: 'valid',
           matchState: 'matched',
-          watchState: 'not_required',
+          handoffState: 'will_create',
           reasonCode: 'source_identity_match',
           title: 'Example Listing',
           description: null,
@@ -488,6 +496,7 @@ describe('ListingSubmissionSheet', () => {
       ok: true,
       status: 200,
       json: async () => ({
+        ...previewContractFields,
         sourceName: 'funda',
         rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
         canonicalUrl: null,
@@ -495,7 +504,7 @@ describe('ListingSubmissionSheet', () => {
         sourceListingIdKind: 'tiny_id',
         validationState: 'provisional',
         matchState: 'unverified',
-        watchState: 'will_enqueue',
+        handoffState: 'will_create',
         reasonCode: 'validation_pending',
         title: null,
         description: null,
@@ -528,8 +537,8 @@ describe('ListingSubmissionSheet', () => {
     expect(screen.getByText('Funda listing')).toBeTruthy();
     expect(screen.getByText('https://www.funda.nl/koop/eindhoven/huis-12345/')).toBeTruthy();
     expect(screen.getByText('No preview image')).toBeTruthy();
-    expect(screen.getByText('Will check after submit')).toBeTruthy();
-    expect(screen.queryByText('Watch queued')).toBeNull();
+    expect(screen.getByText('Candidate will be queued')).toBeTruthy();
+    expect(screen.queryByText('Candidate queued')).toBeNull();
   });
 
   it('disables confirmation for unsupported previews', async () => {
@@ -537,6 +546,7 @@ describe('ListingSubmissionSheet', () => {
       ok: true,
       status: 200,
       json: async () => ({
+        ...previewContractFields,
         sourceName: 'other',
         rawUrl: 'https://example.com/listing/123',
         canonicalUrl: 'https://example.com/listing/123',
@@ -544,7 +554,7 @@ describe('ListingSubmissionSheet', () => {
         sourceListingIdKind: null,
         validationState: 'provisional',
         matchState: 'unsupported',
-        watchState: 'unsupported',
+        handoffState: 'unsupported',
         reasonCode: 'source_not_supported',
         title: null,
         description: null,
@@ -588,6 +598,7 @@ describe('ListingSubmissionSheet', () => {
       ok: true,
       status: 200,
       json: async () => ({
+        ...previewContractFields,
         sourceName: 'funda',
         rawUrl: 'https://www.funda.nl/detail/mismatch-12345',
         canonicalUrl: 'https://www.funda.nl/detail/12345',
@@ -595,7 +606,7 @@ describe('ListingSubmissionSheet', () => {
         sourceListingIdKind: 'tiny_id',
         validationState: 'invalid',
         matchState: 'mismatch',
-        watchState: 'not_required',
+        handoffState: 'will_create',
         reasonCode: 'address_mismatch',
         title: 'Other Property',
         description: null,

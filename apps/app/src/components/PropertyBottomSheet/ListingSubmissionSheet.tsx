@@ -14,22 +14,10 @@ import { Ionicons } from '@expo/vector-icons';
 import type {
   ListingPreviewResponse,
   ListingSubmitResult,
-  ListingValidationState,
-  ListingWatchState,
 } from '@huishype/shared';
 import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
-
-type LegacyPreviewResponse = Omit<Partial<ListingPreviewResponse>, 'address'> & {
-  url?: string;
-  ogTitle?: string | null;
-  ogImage?: string | null;
-  ogDescription?: string | null;
-  address?: PreviewAddressInput;
-  addressMatch?: boolean;
-  warning?: string | null;
-};
 
 type PreviewAddressObject = {
   street?: unknown;
@@ -40,37 +28,6 @@ type PreviewAddressObject = {
 };
 
 type PreviewAddressInput = string | PreviewAddressObject | null | undefined;
-
-function normalizePreviewResponse(
-  payload: LegacyPreviewResponse,
-  submittedUrl: string,
-  propertyId: string
-): ListingPreviewResponse {
-  const validationState: ListingValidationState = payload.validationState ?? 'provisional';
-  const watchState =
-    payload.watchState ?? (validationState === 'valid' ? 'not_required' : 'will_enqueue');
-
-  return {
-    sourceName: payload.sourceName ?? 'other',
-    rawUrl: payload.rawUrl ?? payload.url ?? submittedUrl,
-    canonicalUrl: payload.canonicalUrl ?? null,
-    sourceListingId: payload.sourceListingId ?? null,
-    sourceListingIdKind: payload.sourceListingIdKind ?? null,
-    validationState,
-    matchState: payload.matchState ?? 'unverified',
-    watchState,
-    reasonCode: payload.reasonCode ?? 'validation_pending',
-    title: payload.title ?? payload.ogTitle ?? null,
-    description: payload.description ?? payload.ogDescription ?? null,
-    imageUrl: payload.imageUrl ?? payload.ogImage ?? null,
-    askingPrice: payload.askingPrice ?? null,
-    priceType: payload.priceType ?? 'unknown',
-    currency: payload.currency ?? null,
-    address: (payload.address ?? null) as ListingPreviewResponse['address'],
-    submittedPropertyId: payload.submittedPropertyId ?? propertyId,
-    matchedPropertyId: payload.matchedPropertyId ?? null,
-  };
-}
 
 function getSourceLabel(sourceName: string) {
   return sourceName === 'funda' ? 'Funda' : sourceName === 'pararius' ? 'Pararius' : 'Listing';
@@ -90,23 +47,12 @@ function getValidationBadge(preview: ListingPreviewResponse) {
   return { label: 'Pending validation', color: '#F59E0B', icon: 'time-outline' as const };
 }
 
-function getWatchLabel(
-  watchState: ListingPreviewResponse['watchState'] | ListingWatchState | null
-) {
-  switch (watchState) {
-    case 'will_enqueue':
-      return 'Will check after submit';
-    case 'pending':
-    case 'queued':
-    case 'fetching':
-      return 'Watch queued';
+function getHandoffLabel(handoffState: ListingPreviewResponse['handoffState'] | null) {
+  switch (handoffState) {
+    case 'will_create':
+      return 'Candidate will be queued';
     case 'unsupported':
       return 'Unsupported';
-    case 'blocked':
-      return 'Blocked';
-    case 'parser_error':
-    case 'retryable_error':
-      return 'Check failed';
     default:
       return null;
   }
@@ -127,7 +73,7 @@ function getInvalidPreviewMessage(preview: ListingPreviewResponse) {
 
 function isPreviewUnsupported(preview: ListingPreviewResponse) {
   return (
-    preview.watchState === 'unsupported' ||
+    preview.handoffState === 'unsupported' ||
     preview.matchState === 'unsupported' ||
     preview.reasonCode === 'source_not_supported'
   );
@@ -315,11 +261,7 @@ export function ListingSubmissionSheet({
         return;
       }
 
-      const data = normalizePreviewResponse(
-        (await response.json()) as LegacyPreviewResponse,
-        trimmedUrl,
-        propertyId
-      );
+      const data = (await response.json()) as ListingPreviewResponse;
       setPreviewData(data);
       setStep('preview');
     } catch {
@@ -352,16 +294,7 @@ export function ListingSubmissionSheet({
           Authorization: `Bearer ${currentAccessToken}`,
         },
         body: JSON.stringify({
-          url: previewData.rawUrl,
-          propertyId,
-          ogTitle: previewData.title ?? undefined,
-          thumbnailUrl: previewData.imageUrl ?? undefined,
-          title: previewData.title ?? undefined,
-          description: previewData.description ?? undefined,
-          imageUrl: previewData.imageUrl ?? undefined,
-          askingPrice: previewData.askingPrice ?? undefined,
-          priceType: previewData.priceType,
-          currency: previewData.currency ?? undefined,
+          previewToken: previewData.previewToken,
         }),
       });
 
@@ -396,7 +329,6 @@ export function ListingSubmissionSheet({
     }
   }, [
     previewData,
-    propertyId,
     getAccessToken,
     requestAuthForSubmit,
     onSubmitted,
@@ -548,10 +480,10 @@ export function ListingSubmissionSheet({
                         </View>
                       );
                     })()}
-                    {getWatchLabel(previewData.watchState) ? (
+                    {getHandoffLabel(previewData.handoffState) ? (
                       <View className="px-2 py-0.5 rounded-full bg-warm-200">
                         <Text className="text-xs text-warm-700 font-medium">
-                          {getWatchLabel(previewData.watchState)}
+                          {getHandoffLabel(previewData.handoffState)}
                         </Text>
                       </View>
                     ) : null}

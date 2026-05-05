@@ -201,16 +201,27 @@ describe('Property read-state change advancement', () => {
     sourceServicesConfig.fundaApiKey = 'test-funda-source-service-key';
     global.fetch = mockFetchFn;
 
+    const previewResponse = await app.inject({
+      method: 'POST',
+      url: '/listings/preview',
+      payload: {
+        url: submittedUrl,
+        propertyId: property.id,
+        title: 'Read state listing submit',
+        description: 'Read state listing description',
+        imageUrl: 'https://cdn.example.com/read-state-listing.jpg',
+      },
+    });
+
+    expect(previewResponse.statusCode).toBe(200);
+    const preview = JSON.parse(previewResponse.body);
+
     const response = await app.inject({
       method: 'POST',
       url: '/listings/submit',
       headers: { authorization: `Bearer ${user.accessToken}` },
       payload: {
-        url: submittedUrl,
-        propertyId: property.id,
-        ogTitle: 'Read state listing submit',
-        description: 'Read state listing description',
-        thumbnailUrl: 'https://cdn.example.com/read-state-listing.jpg',
+        previewToken: preview.previewToken,
       },
     });
 

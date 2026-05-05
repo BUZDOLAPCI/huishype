@@ -19,6 +19,7 @@ import { getMockAuthUser } from './auth.js';
 
 const UUID_SHAPE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALL_LISTING_DOMAINS = getAllListingDomains();
+const previewResults = new Map<string, ListingPreviewResponse>();
 
 function detectSourceName(url: string): string {
   try {
@@ -71,7 +72,7 @@ function getMockPriceType(rawUrl: string): 'sale' | 'rent' | 'unknown' {
 function getMockPreviewState(rawUrl: string): {
   validationState: ListingValidationState;
   matchState: ListingPreviewResponse['matchState'];
-  watchState: ListingPreviewResponse['watchState'];
+  handoffState: ListingPreviewResponse['handoffState'];
   reasonCode: ListingPreviewResponse['reasonCode'];
   matchedPropertyId: string | null;
 } {
@@ -79,7 +80,7 @@ function getMockPreviewState(rawUrl: string): {
     return {
       validationState: 'invalid',
       matchState: 'mismatch',
-      watchState: 'not_required',
+      handoffState: 'will_create',
       reasonCode: 'address_mismatch',
       matchedPropertyId: null,
     };
@@ -88,7 +89,7 @@ function getMockPreviewState(rawUrl: string): {
     return {
       validationState: 'provisional',
       matchState: 'unverified',
-      watchState: 'will_enqueue',
+      handoffState: 'will_create',
       reasonCode: 'mirror_unavailable',
       matchedPropertyId: null,
     };
@@ -96,7 +97,7 @@ function getMockPreviewState(rawUrl: string): {
   return {
     validationState: 'valid',
     matchState: 'matched',
-    watchState: 'not_required',
+    handoffState: 'will_create',
     reasonCode: 'source_identity_match',
     matchedPropertyId: null,
   };
@@ -118,7 +119,7 @@ function buildMockPreviewResponse(
     sourceListingIdKind: identity.sourceListingIdKind,
     validationState: state.validationState,
     matchState: state.matchState,
-    watchState: state.watchState,
+    handoffState: state.handoffState,
     reasonCode: state.reasonCode,
     title: `Te koop: ${property.address}`,
     description: `A mock listing for ${property.address}`,
@@ -130,6 +131,8 @@ function buildMockPreviewResponse(
     submittedPropertyId,
     matchedPropertyId:
       state.matchState === 'matched' ? submittedPropertyId : state.matchedPropertyId,
+    previewToken: `mock-preview-token-${encodeURIComponent(rawUrl)}`,
+    previewId: '22222222-2222-4222-8222-222222222222',
   };
 }
 
@@ -191,7 +194,7 @@ export const listingHandlers = [
           status: listing.status,
           validationState: listing.userSubmitted ? 'provisional' : 'valid',
           matchState: listing.userSubmitted ? 'unverified' : 'matched',
-          watchState: listing.userSubmitted ? 'queued' : 'not_required',
+          candidateHandoffState: listing.userSubmitted ? 'queued' : null,
           verificationState,
           originSummary: listing.userSubmitted ? 'user' : 'mirror',
           reasonCode: listing.userSubmitted ? 'validation_pending' : 'source_identity_match',
@@ -265,9 +268,10 @@ export const listingHandlers = [
       );
     }
 
-    return HttpResponse.json(
-      buildMockPreviewResponse(parsed.data.url, property, parsed.data.propertyId)
-    );
+    const preview = buildMockPreviewResponse(parsed.data.url, property, parsed.data.propertyId);
+    previewResults.set(preview.previewToken, preview);
+
+    return HttpResponse.json(preview);
   }),
 
   /**
@@ -289,7 +293,16 @@ export const listingHandlers = [
       return validationError(parsed.error.issues);
     }
 
-    const property = resolveMockProperty(parsed.data.propertyId);
+    const preview = previewResults.get(parsed.data.previewToken);
+
+    if (!preview) {
+      return HttpResponse.json(
+        { error: 'INVALID_PREVIEW_TOKEN', message: 'Invalid, expired, or already consumed preview token' },
+        { status: 400 }
+      );
+    }
+
+    const property = resolveMockProperty(preview.submittedPropertyId);
 
     if (!property) {
       return HttpResponse.json(
@@ -298,24 +311,6 @@ export const listingHandlers = [
       );
     }
 
-    if (!parsed.data.url.startsWith('https://')) {
-      return HttpResponse.json(
-        { error: 'INVALID_URL', message: 'URL must be from a recognized listing platform.' },
-        { status: 400 }
-      );
-    }
-
-    const hostname = new URL(parsed.data.url).hostname.toLowerCase();
-    if (
-      !ALL_LISTING_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))
-    ) {
-      return HttpResponse.json(
-        { error: 'INVALID_URL', message: 'URL must be from a recognized listing platform.' },
-        { status: 400 }
-      );
-    }
-
-    const preview = buildMockPreviewResponse(parsed.data.url, property, parsed.data.propertyId);
     if (preview.validationState === 'invalid' || preview.matchState === 'mismatch') {
       return HttpResponse.json(
         {
@@ -327,21 +322,24 @@ export const listingHandlers = [
       );
     }
 
+    previewResults.delete(parsed.data.previewToken);
+
     const response: ListingSubmitResult = {
       id: '11111111-1111-4111-8111-111111111111',
-      propertyId: parsed.data.propertyId,
-      sourceUrl: parsed.data.url,
+      propertyId: preview.submittedPropertyId,
+      sourceUrl: preview.rawUrl,
       sourceName: preview.sourceName,
       status: 'active',
       createdAt: new Date().toISOString(),
       canonicalListingId: '11111111-1111-4111-8111-111111111111',
       canonicalUrl: preview.canonicalUrl,
-      displayUrl: preview.canonicalUrl ?? parsed.data.url,
+      displayUrl: preview.canonicalUrl ?? preview.rawUrl,
       sourceListingId: preview.sourceListingId,
       sourceListingIdKind: preview.sourceListingIdKind,
       validationState: preview.validationState,
       matchState: preview.matchState,
-      watchState: preview.watchState,
+      candidateHandoffState: 'queued',
+      candidateId: '33333333-3333-4333-8333-333333333333',
       verificationState:
         preview.validationState === 'valid' && preview.matchState === 'matched'
           ? 'validated'

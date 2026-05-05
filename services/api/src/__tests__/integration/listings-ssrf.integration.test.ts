@@ -150,7 +150,7 @@ describe('Listings SSRF protection + auth', () => {
   });
 
   // -----------------------------------------------------------------------
-  // POST /listings/submit — auth required
+  // POST /listings/submit — auth and preview token required
   // -----------------------------------------------------------------------
 
   describe('POST /listings/submit', () => {
@@ -159,66 +159,37 @@ describe('Listings SSRF protection + auth', () => {
         method: 'POST',
         url: '/listings/submit',
         payload: {
-          url: 'https://www.funda.nl/koop/amsterdam/huis-12345/',
-          propertyId: fakePropertyId,
+          previewToken: 'a'.repeat(48),
         },
       });
       expect(res.statusCode).toBe(401);
     });
 
-    it('should return 400 for non-whitelisted domain', async () => {
+    it('should return 400 for malformed preview token', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/listings/submit',
         headers: { authorization: `Bearer ${accessToken}` },
         payload: {
-          url: 'https://evil.com/steal-data',
-          propertyId: fakePropertyId,
+          previewToken: 'short',
+        },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('should return 400 for tampered preview token', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: {
+          previewToken: 'tampered-preview-token-that-does-not-exist-123456',
         },
       });
       expect(res.statusCode).toBe(400);
       const body = JSON.parse(res.body);
-      expect(body.error).toBe('INVALID_URL');
+      expect(body.error).toBe('INVALID_PREVIEW_TOKEN');
     });
 
-    it('should return 400 for HTTP URL', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/listings/submit',
-        headers: { authorization: `Bearer ${accessToken}` },
-        payload: {
-          url: 'http://www.funda.nl/koop/amsterdam/huis-12345/',
-          propertyId: fakePropertyId,
-        },
-      });
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('should return 400 for localhost SSRF attempt', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/listings/submit',
-        headers: { authorization: `Bearer ${accessToken}` },
-        payload: {
-          url: 'https://127.0.0.1/',
-          propertyId: fakePropertyId,
-        },
-      });
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('should accept valid pararius.nl URL (returns 404 for non-existent property)', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/listings/submit',
-        headers: { authorization: `Bearer ${accessToken}` },
-        payload: {
-          url: 'https://www.pararius.nl/huurwoningen/amsterdam/12345/',
-          propertyId: fakePropertyId,
-        },
-      });
-      // 404 because the property doesn't exist, but it passes URL + auth validation
-      expect(res.statusCode).toBe(404);
-    });
   });
 });

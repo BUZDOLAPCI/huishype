@@ -32,9 +32,6 @@ test('loadWorkerConfig uses defaults when env vars are missing', () => {
   assert.equal(config.healthLogIntervalMs, 60_000);
   assert.equal(config.staleProcessingAfterMs, 600_000);
   assert.equal(config.shutdownTimeoutMs, 15_000);
-  assert.equal(config.listingWatchSweepLimit, 25);
-  assert.equal(config.listingWatchRetryBaseDelayMs, 300_000);
-  assert.equal(config.listingWatchRetryMaxDelayMs, 21_600_000);
 });
 
 test('loadWorkerConfig parses explicit overrides', () => {
@@ -49,9 +46,6 @@ test('loadWorkerConfig parses explicit overrides', () => {
     WORKER_HEALTH_LOG_INTERVAL_MS: '45000',
     WORKER_STALE_PROCESSING_AFTER_MS: '300000',
     WORKER_SHUTDOWN_TIMEOUT_MS: '9000',
-    WORKER_LISTING_WATCH_SWEEP_LIMIT: '10',
-    WORKER_LISTING_WATCH_RETRY_BASE_DELAY_MS: '60000',
-    WORKER_LISTING_WATCH_RETRY_MAX_DELAY_MS: '3600000',
   });
 
   assert.equal(config.ingestConcurrency, 8);
@@ -64,9 +58,6 @@ test('loadWorkerConfig parses explicit overrides', () => {
   assert.equal(config.healthLogIntervalMs, 45_000);
   assert.equal(config.staleProcessingAfterMs, 300_000);
   assert.equal(config.shutdownTimeoutMs, 9_000);
-  assert.equal(config.listingWatchSweepLimit, 10);
-  assert.equal(config.listingWatchRetryBaseDelayMs, 60_000);
-  assert.equal(config.listingWatchRetryMaxDelayMs, 3_600_000);
 });
 
 test('loadWorkerConfig rejects invalid integers', () => {
