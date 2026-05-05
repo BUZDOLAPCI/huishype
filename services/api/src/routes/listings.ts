@@ -29,6 +29,7 @@ import {
   listCanonicalListingsForProperty,
   storeListingPreviewResult,
 } from '../services/listing-reconciliation.js';
+import { enqueueCandidateHandoff } from '../services/candidate-handoffs/index.js';
 import {
   buildListingPreviewPlan,
   type ListingPreviewPlan,
@@ -159,19 +160,12 @@ const previewResponseSchema = z.object({
   canonicalUrl: z.string(),
   sourceListingId: z.string().nullable(),
   sourceListingIdKind: z.string().nullable(),
-  validationState: z.enum(['valid', 'invalid', 'provisional']),
-  matchState: z.enum(['matched', 'mismatch', 'unverified', 'unsupported']),
-  handoffState: z.enum(['will_create', 'unsupported']),
+  validationState: z.literal('valid'),
+  matchState: z.literal('matched'),
+  handoffState: z.literal('will_create'),
   reasonCode: z.enum([
     'source_identity_match',
     'address_match',
-    'address_mismatch',
-    'source_not_supported',
-    'source_not_found',
-    'mirror_unavailable',
-    'parser_error',
-    'og_unavailable',
-    'validation_pending',
   ]),
   title: z.string().nullable(),
   description: z.string().nullable(),
@@ -543,9 +537,14 @@ export async function listingRoutes(app: FastifyInstance) {
       }
 
       const stored = await storeListingPreviewResult(enrichedPlan);
+      const publicPreview = toPublicListingPreviewResponse(enrichedPlan);
 
       return reply.send({
-        ...toPublicListingPreviewResponse(enrichedPlan),
+        ...publicPreview,
+        validationState: 'valid',
+        matchState: 'matched',
+        handoffState: 'will_create',
+        reasonCode: publicPreview.reasonCode as 'source_identity_match' | 'address_match',
         previewToken: stored.previewToken,
         previewId: stored.preview.id,
       });
@@ -616,6 +615,12 @@ export async function listingRoutes(app: FastifyInstance) {
           propertyTileReason: 'listing-submit',
           logger: request.log,
           context: { canonicalListingId: submission.canonicalListing.id },
+        });
+        await enqueueCandidateHandoff(submission.candidateId).catch((err) => {
+          request.log.warn(
+            { err, candidateId: submission.candidateId, canonicalListingId: submission.canonicalListing.id },
+            'Failed to enqueue candidate handoff after submit; durable handoff remains recoverable',
+          );
         });
 
         return reply.status(201).send({

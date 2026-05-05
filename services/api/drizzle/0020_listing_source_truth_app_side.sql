@@ -125,6 +125,18 @@ ON "listing_preview_results" ("property_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "listing_preview_results_source_url_idx"
 ON "listing_preview_results" ("source_name", "source_url_canonical");--> statement-breakpoint
 
+DO $$
+BEGIN
+  ALTER TABLE "listing_preview_results"
+    ADD CONSTRAINT "listing_preview_results_lifecycle_status_check"
+    CHECK (
+      "lifecycle_status" IS NULL
+      OR "lifecycle_status"::text IN ('available', 'sold', 'rented', 'withdrawn', 'not_found')
+    );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+
 CREATE TABLE IF NOT EXISTS "listing_candidate_handoffs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "preview_result_id" uuid REFERENCES "listing_preview_results"("id") ON DELETE set null,
@@ -166,6 +178,15 @@ ALTER TABLE "listing_observations"
   ADD COLUMN IF NOT EXISTS "preview_result_id" uuid REFERENCES "listing_preview_results"("id") ON DELETE set null,
   ADD COLUMN IF NOT EXISTS "candidate_handoff_id" uuid;--> statement-breakpoint
 
+UPDATE "listing_observations"
+SET
+  "diagnostic_status" = COALESCE(
+    "diagnostic_status",
+    "source_status"::text::"listing_diagnostic_status"
+  ),
+  "source_status" = NULL
+WHERE "source_status"::text IN ('blocked', 'invalid', 'parser_error', 'unknown');--> statement-breakpoint
+
 CREATE INDEX IF NOT EXISTS "listing_observations_completion_idx"
 ON "listing_observations" ("scope_completion_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "listing_observations_stale_projection_idx"
@@ -195,6 +216,39 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;--> statement-breakpoint
 
+DO $$
+BEGIN
+  ALTER TABLE "listing_observations"
+    ADD CONSTRAINT "listing_observations_source_status_lifecycle_check"
+    CHECK (
+      "source_status" IS NULL
+      OR "source_status"::text IN ('available', 'sold', 'rented', 'withdrawn', 'not_found')
+    );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+
 ALTER TABLE "listing_replay_staging"
   ADD COLUMN IF NOT EXISTS "diagnostic_status" "listing_diagnostic_status",
   ADD COLUMN IF NOT EXISTS "stale_for_projection" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+
+UPDATE "listing_replay_staging"
+SET
+  "diagnostic_status" = COALESCE(
+    "diagnostic_status",
+    "source_status"::text::"listing_diagnostic_status"
+  ),
+  "source_status" = NULL
+WHERE "source_status"::text IN ('blocked', 'invalid', 'parser_error', 'unknown');--> statement-breakpoint
+
+DO $$
+BEGIN
+  ALTER TABLE "listing_replay_staging"
+    ADD CONSTRAINT "listing_replay_staging_source_status_lifecycle_check"
+    CHECK (
+      "source_status" IS NULL
+      OR "source_status"::text IN ('available', 'sold', 'rented', 'withdrawn', 'not_found')
+    );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint

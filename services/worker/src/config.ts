@@ -1,5 +1,6 @@
 const DEFAULT_INGEST_CONCURRENCY = 4;
 const DEFAULT_MAINTENANCE_CONCURRENCY = 1;
+const DEFAULT_CANDIDATE_HANDOFF_CONCURRENCY = 2;
 const DEFAULT_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY = 1;
 const DEFAULT_PROPERTY_TILE_SNAPSHOT_CONCURRENCY = 1;
 const DEFAULT_RECOVERY_BATCH_LIMIT = 100;
@@ -12,6 +13,7 @@ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15_000;
 export interface WorkerConfig {
   ingestConcurrency: number;
   maintenanceConcurrency: number;
+  candidateHandoffConcurrency: number;
   officialValuationHydrationConcurrency: number;
   propertyTileSnapshotConcurrency: number;
   recoveryBatchLimit: number;
@@ -56,6 +58,11 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
       env.WORKER_MAINTENANCE_CONCURRENCY,
       DEFAULT_MAINTENANCE_CONCURRENCY,
       'WORKER_MAINTENANCE_CONCURRENCY',
+    ),
+    candidateHandoffConcurrency: parsePositiveInt(
+      env.WORKER_CANDIDATE_HANDOFF_CONCURRENCY,
+      DEFAULT_CANDIDATE_HANDOFF_CONCURRENCY,
+      'WORKER_CANDIDATE_HANDOFF_CONCURRENCY',
     ),
     officialValuationHydrationConcurrency: parsePositiveInt(
       env.WORKER_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY,

@@ -70,7 +70,6 @@ type CanonicalListingVerificationState =
   | 'validation_pending'
   | 'validation_blocked'
   | 'validation_failed';
-type CanonicalListingPreviewHandoffState = 'will_create' | 'unsupported';
 type CanonicalListingCandidateHandoffState =
   | 'pending'
   | 'queued'
@@ -79,14 +78,7 @@ type CanonicalListingCandidateHandoffState =
   | 'dead_letter';
 type CanonicalListingPreviewReasonCode =
   | 'source_identity_match'
-  | 'address_match'
-  | 'address_mismatch'
-  | 'source_not_supported'
-  | 'source_not_found'
-  | 'mirror_unavailable'
-  | 'parser_error'
-  | 'og_unavailable'
-  | 'validation_pending';
+  | 'address_match';
 type CanonicalListingPreviewRequest = {
   url: string;
   propertyId: string;
@@ -103,9 +95,9 @@ type CanonicalListingPreviewResponse = {
   canonicalUrl: string;
   sourceListingId: string | null;
   sourceListingIdKind: string | null;
-  validationState: 'valid' | 'invalid' | 'provisional';
-  matchState: 'matched' | 'mismatch' | 'unverified' | 'unsupported';
-  handoffState: CanonicalListingPreviewHandoffState;
+  validationState: 'valid';
+  matchState: 'matched';
+  handoffState: 'will_create';
   reasonCode: CanonicalListingPreviewReasonCode;
   title: string | null;
   description: string | null;

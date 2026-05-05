@@ -21,12 +21,13 @@ export type PropertyTilePayloadBuildResult = {
   statusCode: 200 | 204;
 };
 
-type RuntimeTaskState = 'queued' | 'running' | 'settled';
+type RuntimeTaskState = 'queued' | 'running' | 'detached-draining' | 'settled';
+type RuntimeWaiterAttachment = 'started' | 'coalesced' | 'reattached';
 
 type RuntimeWaiter<TResult> = {
   id: symbol;
   signal?: AbortSignal;
-  coalesced: boolean;
+  attachment: RuntimeWaiterAttachment;
   queueTimer: NodeJS.Timeout;
   budgetTimer: NodeJS.Timeout | null;
   budgetMs: number;
@@ -59,6 +60,7 @@ export type PropertyTileRuntimeCompleted<TResult> = {
   result: TResult;
   publishable: boolean;
   coalesced: boolean;
+  runtimeEvent: RuntimeWaiterAttachment;
   queueTimeMs: number;
   generationTimeMs: number;
   budgetMs: number;
@@ -69,6 +71,7 @@ export type PropertyTileRuntimeResult<TResult> =
   | {
       state: 'timeout' | 'dropped' | 'aborted';
       coalesced: boolean;
+      runtimeEvent: RuntimeWaiterAttachment | 'detached-draining';
       queueTimeMs: number;
       generationTimeMs: number;
       budgetMs: number;
@@ -77,6 +80,7 @@ export type PropertyTileRuntimeResult<TResult> =
   | {
       state: 'error';
       coalesced: boolean;
+      runtimeEvent: RuntimeWaiterAttachment;
       queueTimeMs: number;
       generationTimeMs: number;
       budgetMs: number;
@@ -96,7 +100,7 @@ export type PropertyTileRuntimeRunOptions<TResult> = {
 const DEFAULT_MAX_CONCURRENCY = 3;
 const DEFAULT_QUEUE_LIMIT = 96;
 const DEFAULT_QUEUE_WAIT_MS = 750;
-export const DEFAULT_PUBLIC_PROPERTY_TILE_BUDGET_MS = 8_000;
+export const DEFAULT_PUBLIC_PROPERTY_TILE_BUDGET_MS = 3_000;
 export const DEFAULT_PRIVATE_PROPERTY_TILE_BUDGET_MS = 2_000;
 
 export class PropertyTileBudgetExceededError extends Error {
@@ -227,7 +231,8 @@ export class PropertyTileRuntime {
         clearTimeout(waiter.queueTimer);
         this.resolveWaiter(task, waiter, {
           state: 'aborted',
-          coalesced: waiter.coalesced,
+          coalesced: waiter.attachment !== 'started',
+          runtimeEvent: waiter.attachment,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: 0,
           budgetMs: waiter.budgetMs,
@@ -248,6 +253,7 @@ export class PropertyTileRuntime {
         return Promise.resolve({
           state: 'timeout',
           coalesced: true,
+          runtimeEvent: 'coalesced',
           queueTimeMs: taskQueueTime(existing),
           generationTimeMs:
             existing.startedAt == null ? 0 : Math.max(0, Date.now() - existing.startedAt),
@@ -257,7 +263,7 @@ export class PropertyTileRuntime {
       return this.attachWaiter(
         existing,
         options.signal,
-        true,
+        existing.state === 'detached-draining' ? 'reattached' : 'coalesced',
         options.budgetMs,
         options.queueWaitMs ?? getPropertyTileRuntimeConfig().queueWaitMs
       );
@@ -287,7 +293,7 @@ export class PropertyTileRuntime {
     const waiterPromise = this.attachWaiter(
       task,
       options.signal,
-      false,
+      'started',
       task.budgetMs,
       task.queueWaitMs
     );
@@ -316,7 +322,8 @@ export class PropertyTileRuntime {
       for (const waiter of [...task.waiters.values()]) {
         this.resolveWaiter(task, waiter, {
           state: 'aborted',
-          coalesced: waiter.coalesced,
+          coalesced: waiter.attachment !== 'started',
+          runtimeEvent: waiter.attachment,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
           budgetMs: waiter.budgetMs,
@@ -331,16 +338,21 @@ export class PropertyTileRuntime {
   private attachWaiter<TResult>(
     task: RuntimeTask<TResult>,
     signal: AbortSignal | undefined,
-    coalesced: boolean,
+    attachment: RuntimeWaiterAttachment,
     budgetMs: number,
     queueWaitMs: number
   ): Promise<PropertyTileRuntimeResult<TResult>> {
     return new Promise((resolve) => {
       const id = Symbol(task.key);
+      const wasDetached = task.state === 'detached-draining';
+      if (wasDetached) {
+        task.state = 'running';
+      }
+
       const waiter: RuntimeWaiter<TResult> = {
         id,
         signal,
-        coalesced,
+        attachment,
         budgetMs,
         budgetTimer: null,
         settled: false,
@@ -350,7 +362,8 @@ export class PropertyTileRuntime {
           this.removeWaiter(task, waiter);
           this.resolveWaiter(task, waiter, {
             state: 'timeout',
-            coalesced,
+            coalesced: attachment !== 'started',
+            runtimeEvent: attachment,
             queueTimeMs: Date.now() - task.createdAt,
             generationTimeMs: 0,
             budgetMs,
@@ -360,10 +373,14 @@ export class PropertyTileRuntime {
       };
 
       if (signal?.aborted) {
+        if (wasDetached) {
+          task.state = 'detached-draining';
+        }
         clearTimeout(waiter.queueTimer);
         resolve({
           state: 'aborted',
-          coalesced,
+          coalesced: attachment !== 'started',
+          runtimeEvent: attachment,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: 0,
           budgetMs,
@@ -373,9 +390,11 @@ export class PropertyTileRuntime {
 
       waiter.onAbort = () => {
         this.removeWaiter(task, waiter);
+        const runtimeEvent = this.markDetachedIfNoWaiters(task) ?? waiter.attachment;
         this.resolveWaiter(task, waiter, {
           state: 'aborted',
-          coalesced,
+          coalesced: waiter.attachment !== 'started',
+          runtimeEvent,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
           budgetMs,
@@ -383,18 +402,12 @@ export class PropertyTileRuntime {
 
         if (task.state === 'queued') {
           this.maybeRemoveUnstartedTask(task);
-        } else if (
-          task.state === 'running' &&
-          task.waiters.size === 0 &&
-          !task.uncancellableStage
-        ) {
-          task.controller.abort(new PropertyTileBuildAbortedError());
         }
       };
       signal?.addEventListener('abort', waiter.onAbort, { once: true });
 
       task.waiters.set(id, waiter);
-      if (task.state === 'running') {
+      if (task.state === 'running' || task.state === 'detached-draining') {
         this.armWaiterBudgetTimer(task, waiter);
       }
     });
@@ -410,17 +423,16 @@ export class PropertyTileRuntime {
 
     const onBudgetExpired = () => {
       this.removeWaiter(task, waiter);
+      const runtimeEvent = this.markDetachedIfNoWaiters(task) ?? waiter.attachment;
       this.resolveWaiter(task, waiter, {
         state: 'timeout',
-        coalesced: waiter.coalesced,
+        coalesced: waiter.attachment !== 'started',
+        runtimeEvent,
         queueTimeMs: taskQueueTime(task),
         generationTimeMs: task.startedAt == null ? 0 : Math.max(0, Date.now() - task.startedAt),
         budgetMs: waiter.budgetMs,
       });
 
-      if (task.state === 'running' && task.waiters.size === 0 && !task.uncancellableStage) {
-        task.controller.abort(new PropertyTileBudgetExceededError());
-      }
     };
 
     if (remainingMs <= 0) {
@@ -493,7 +505,8 @@ export class PropertyTileRuntime {
       for (const waiter of [...dropped.waiters.values()]) {
         this.resolveWaiter(dropped, waiter, {
           state: 'dropped',
-          coalesced: waiter.coalesced,
+          coalesced: waiter.attachment !== 'started',
+          runtimeEvent: waiter.attachment,
           queueTimeMs: Date.now() - dropped.createdAt,
           generationTimeMs: 0,
           budgetMs: waiter.budgetMs,
@@ -530,8 +543,9 @@ export class PropertyTileRuntime {
       task.controller.abort(new PropertyTileBudgetExceededError());
       for (const waiter of [...task.waiters.values()]) {
         this.resolveWaiter(task, waiter, {
-          state: 'timeout',
-          coalesced: waiter.coalesced,
+            state: 'timeout',
+            coalesced: waiter.attachment !== 'started',
+            runtimeEvent: this.markDetachedIfNoWaiters(task) ?? waiter.attachment,
           queueTimeMs: taskQueueTime(task),
           generationTimeMs: task.startedAt == null ? 0 : Date.now() - task.startedAt,
           budgetMs: waiter.budgetMs,
@@ -558,7 +572,8 @@ export class PropertyTileRuntime {
             result,
             publishable:
               task.waiters.size > 0 && !task.controller.signal.aborted && !task.invalidated,
-            coalesced: waiter.coalesced,
+            coalesced: waiter.attachment !== 'started',
+            runtimeEvent: waiter.attachment,
             queueTimeMs: taskQueueTime(task),
             generationTimeMs,
             budgetMs: waiter.budgetMs,
@@ -576,7 +591,8 @@ export class PropertyTileRuntime {
         for (const waiter of [...task.waiters.values()]) {
           this.resolveWaiter(task, waiter, {
             state,
-            coalesced: waiter.coalesced,
+            coalesced: waiter.attachment !== 'started',
+            runtimeEvent: waiter.attachment,
             queueTimeMs: taskQueueTime(task),
             generationTimeMs,
             budgetMs: waiter.budgetMs,
@@ -598,12 +614,28 @@ export class PropertyTileRuntime {
 
     if (
       !active &&
-      task.state === 'running' &&
+      (task.state === 'running' || task.state === 'detached-draining') &&
       task.waiters.size === 0 &&
       !task.controller.signal.aborted
     ) {
       task.controller.abort(new PropertyTileBuildAbortedError());
     }
+  }
+
+  private markDetachedIfNoWaiters<TResult>(
+    task: RuntimeTask<TResult>
+  ): 'detached-draining' | null {
+    if (task.state !== 'running' || task.waiters.size > 0) {
+      return null;
+    }
+
+    if (task.uncancellableStage) {
+      task.state = 'detached-draining';
+      return 'detached-draining';
+    }
+
+    task.controller.abort(new PropertyTileBuildAbortedError());
+    return null;
   }
 }
 

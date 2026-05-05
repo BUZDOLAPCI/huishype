@@ -12,6 +12,10 @@ export interface OfficialValuationJobsModule {
   OFFICIAL_VALUATION_HYDRATION_QUEUE: string;
 }
 
+export interface CandidateHandoffJobsModule {
+  CANDIDATE_HANDOFF_QUEUE: string;
+}
+
 export interface IngestQueueModule {
   closeIngestQueues(): Promise<void>;
   enqueueIngestBatch(batchId: string): Promise<void>;
@@ -24,6 +28,26 @@ export interface IngestQueueModule {
     batchId?: string;
   }): Promise<void>;
   enqueuePropertyTileSnapshotRefresh(data: { reason: string }): Promise<unknown>;
+}
+
+export interface CandidateHandoffQueueModule {
+  closeCandidateHandoffQueues(): Promise<void>;
+  enqueueCandidateHandoff(handoffId: string): Promise<void>;
+}
+
+export interface CandidateHandoffStoreModule {
+  collectDueCandidateHandoffIds(limit?: number): Promise<string[]>;
+}
+
+export interface CandidateHandoffProcessorModule {
+  processCandidateHandoffJob(options: {
+    handoffId: string;
+    logger?: {
+      info(payload: Record<string, unknown>, message: string): void;
+      warn(payload: Record<string, unknown>, message: string): void;
+      error(payload: Record<string, unknown>, message: string): void;
+    };
+  }): Promise<Record<string, unknown>>;
 }
 
 export interface PropertyTileSnapshotsModule {
@@ -176,8 +200,24 @@ export function loadOfficialValuationJobsModule(): Promise<OfficialValuationJobs
   return importApiModule<OfficialValuationJobsModule>('services/official-valuations/jobs.js');
 }
 
+export function loadCandidateHandoffJobsModule(): Promise<CandidateHandoffJobsModule> {
+  return importApiModule<CandidateHandoffJobsModule>('services/candidate-handoffs/jobs.js');
+}
+
 export function loadIngestQueueModule(): Promise<IngestQueueModule> {
   return importApiModule<IngestQueueModule>('services/ingest/queue.js');
+}
+
+export function loadCandidateHandoffQueueModule(): Promise<CandidateHandoffQueueModule> {
+  return importApiModule<CandidateHandoffQueueModule>('services/candidate-handoffs/queue.js');
+}
+
+export function loadCandidateHandoffStoreModule(): Promise<CandidateHandoffStoreModule> {
+  return importApiModule<CandidateHandoffStoreModule>('services/candidate-handoffs/store.js');
+}
+
+export function loadCandidateHandoffProcessorModule(): Promise<CandidateHandoffProcessorModule> {
+  return importApiModule<CandidateHandoffProcessorModule>('services/candidate-handoffs/processor.js');
 }
 
 export function loadPropertyTileSnapshotsModule(): Promise<PropertyTileSnapshotsModule> {

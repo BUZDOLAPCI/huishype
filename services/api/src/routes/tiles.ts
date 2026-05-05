@@ -85,6 +85,7 @@ import {
   type PropertyTileBuildOptions,
   type PropertyTilePayloadBuildResult,
   type PropertyTileRuntimeResult,
+  type PropertyTileStageTiming,
 } from '../services/property-tile-runtime.js';
 import {
   getPropertyTilePrecomputeMaxZoom,
@@ -390,6 +391,122 @@ function sendPrivateTilePayload(
   }
 
   return baseReply.header('Content-Type', 'application/x-protobuf').send(payloadResult.payload);
+}
+
+type TileRouteKind = 'public' | 'read' | 'following';
+type TileCacheState = 'hit' | 'miss' | 'stale' | 'precomputed' | 'timeout-empty';
+type TileOutcomeResult =
+  | 'fresh'
+  | 'stale'
+  | 'precomputed'
+  | 'timeout-empty'
+  | 'aborted'
+  | 'dropped'
+  | 'detached-draining'
+  | 'reattached'
+  | 'error';
+type TileErrorClassification =
+  | 'budget_timeout'
+  | 'queue_timeout'
+  | 'client_aborted'
+  | 'transient_db'
+  | 'serialization_failure'
+  | 'validation'
+  | 'auth'
+  | 'programmer';
+
+function classifyTileError(
+  runtimeResult: PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>
+): TileErrorClassification | undefined {
+  if (runtimeResult.state === 'timeout') {
+    return runtimeResult.generationTimeMs > 0 ? 'budget_timeout' : 'queue_timeout';
+  }
+  if (runtimeResult.state === 'dropped') {
+    return 'queue_timeout';
+  }
+  if (runtimeResult.state === 'aborted') {
+    return 'client_aborted';
+  }
+  if (runtimeResult.state !== 'error') {
+    return undefined;
+  }
+
+  if (runtimeResult.error instanceof PropertyTileBudgetExceededError) {
+    return 'budget_timeout';
+  }
+  if (runtimeResult.error instanceof PropertyTileBuildAbortedError) {
+    return 'client_aborted';
+  }
+  if (isPropertyTileRecoverableError(runtimeResult.error)) {
+    return 'transient_db';
+  }
+  if (runtimeResult.error instanceof SyntaxError) {
+    return 'serialization_failure';
+  }
+  return 'programmer';
+}
+
+function logTileOutcome(input: {
+  request: FastifyRequest;
+  routeKind: TileRouteKind;
+  z: number;
+  x: number;
+  y: number;
+  filterSignature: string;
+  cacheState: TileCacheState;
+  result: TileOutcomeResult;
+  runtime: Pick<
+    PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+    'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+  > & { runtimeEvent?: string };
+  errorClassification?: TileErrorClassification;
+  viewerId?: string;
+  stageTimings?: PropertyTileStageTiming[];
+}): void {
+  input.request.log.info(
+    {
+      routeKind: input.routeKind,
+      z: input.z,
+      x: input.x,
+      y: input.y,
+      filterSignature: input.filterSignature,
+      cacheState: input.cacheState,
+      queueTimeMs: input.runtime.queueTimeMs,
+      generationTimeMs: input.runtime.generationTimeMs,
+      budgetMs: input.runtime.budgetMs,
+      coalesced: input.runtime.coalesced,
+      runtimeEvent: input.runtime.runtimeEvent,
+      result: input.result,
+      errorClassification: input.errorClassification,
+      viewerId: input.viewerId,
+      stageTimings: input.stageTimings,
+    },
+    'Property tile outcome',
+  );
+}
+
+function dynamicTileOutcomeResult(
+  runtimeResult: PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>
+): TileOutcomeResult {
+  if (runtimeResult.runtimeEvent === 'reattached') {
+    return 'reattached';
+  }
+  if (runtimeResult.runtimeEvent === 'detached-draining') {
+    return 'detached-draining';
+  }
+  if (runtimeResult.state === 'completed') {
+    return 'fresh';
+  }
+  if (runtimeResult.state === 'timeout') {
+    return 'timeout-empty';
+  }
+  if (runtimeResult.state === 'dropped') {
+    return 'dropped';
+  }
+  if (runtimeResult.state === 'aborted') {
+    return 'aborted';
+  }
+  return 'error';
 }
 
 function readStateIdentityPredicate(viewer: PropertyReadViewer) {
@@ -1902,6 +2019,22 @@ export async function tileRoutes(app: FastifyInstance) {
       const cachedTile = publicPropertyTileCache.get(cacheKey);
 
       if (cachedTile.state === 'fresh') {
+        logTileOutcome({
+          request,
+          routeKind: 'public',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'hit',
+          result: 'fresh',
+          runtime: {
+            coalesced: false,
+            queueTimeMs: 0,
+            generationTimeMs: 0,
+            budgetMs: runtimeConfig.publicBudgetMs,
+          },
+        });
         return sendPublicTileEntry(request, reply, cachedTile.entry, 'hit', {
           coalesced: false,
           queueTimeMs: 0,
@@ -1942,12 +2075,36 @@ export async function tileRoutes(app: FastifyInstance) {
           snapshotRuntime.generationTimeMs = Date.now() - snapshotStartedAt;
           if (cachedTile.state === 'stale') {
             reply.header('X-Tile-Snapshot', 'error');
+            logTileOutcome({
+              request,
+              routeKind: 'public',
+              z,
+              x,
+              y,
+              filterSignature,
+              cacheState: 'stale',
+              result: 'stale',
+              runtime: snapshotRuntime,
+              errorClassification: 'transient_db',
+            });
             return sendPublicTileEntry(request, reply, cachedTile.entry, 'stale', {
               ...snapshotRuntime,
             });
           }
 
           reply.header('X-Tile-Snapshot', 'error');
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'timeout-empty',
+            result: 'timeout-empty',
+            runtime: snapshotRuntime,
+            errorClassification: 'transient_db',
+          });
           return sendTimeoutEmptyTile(reply, snapshotRuntime);
         }
         if (snapshot) {
@@ -1957,6 +2114,17 @@ export async function tileRoutes(app: FastifyInstance) {
             etag: snapshot.etag,
           });
           reply.header('X-Tile-Snapshot', 'hit');
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'precomputed',
+            result: 'precomputed',
+            runtime: snapshotRuntime,
+          });
           return sendPublicTileEntry(request, reply, entry, 'precomputed', {
             ...snapshotRuntime,
           });
@@ -1972,6 +2140,7 @@ export async function tileRoutes(app: FastifyInstance) {
         reply.header('X-Tile-Snapshot', 'miss');
       }
 
+      const stageTimings: PropertyTileStageTiming[] = [];
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
         key: `public:${cacheKey}`,
         zoom: z,
@@ -1979,7 +2148,15 @@ export async function tileRoutes(app: FastifyInstance) {
         statementTimeoutMs: runtimeConfig.publicBudgetMs,
         signal,
         builder: async (options) =>
-          buildPayloadResult(await buildMvtForTile({ z, x, y }, filters, options)),
+          buildPayloadResult(
+            await buildMvtForTile({ z, x, y }, filters, {
+              ...options,
+              onStageTiming: (timing) => {
+                stageTimings.push(timing);
+                options.onStageTiming?.(timing);
+              },
+            })
+          ),
       });
 
       if (runtimeResult.state !== 'completed') {
@@ -1989,9 +2166,35 @@ export async function tileRoutes(app: FastifyInstance) {
         ) {
           const staleEntry = publicPropertyTileCache.getStale(cacheKey);
           if (staleEntry) {
+            logTileOutcome({
+              request,
+              routeKind: 'public',
+              z,
+              x,
+              y,
+              filterSignature,
+              cacheState: 'stale',
+              result: 'stale',
+              runtime: runtimeResult,
+              errorClassification: classifyTileError(runtimeResult),
+              stageTimings,
+            });
             return sendPublicTileEntry(request, reply, staleEntry, 'stale', runtimeResult);
           }
 
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'timeout-empty',
+            result: dynamicTileOutcomeResult(runtimeResult),
+            runtime: runtimeResult,
+            errorClassification: classifyTileError(runtimeResult),
+            stageTimings,
+          });
           return sendTimeoutEmptyTile(reply, runtimeResult);
         }
 
@@ -1999,6 +2202,19 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       if (!runtimeResult.publishable) {
+        logTileOutcome({
+          request,
+          routeKind: 'public',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'timeout-empty',
+          result: dynamicTileOutcomeResult(runtimeResult),
+          runtime: runtimeResult,
+          errorClassification: 'client_aborted',
+          stageTimings,
+        });
         return sendTimeoutEmptyTile(reply, runtimeResult);
       }
 
@@ -2010,9 +2226,34 @@ export async function tileRoutes(app: FastifyInstance) {
 
       // Log slow queries for monitoring
       if (queryTime > 100) {
-        app.log.warn({ z, x, y, queryTime }, `Slow tile generation: ${queryTime}ms`);
+        app.log.warn(
+          {
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            queryTime,
+            queueTimeMs: runtimeResult.queueTimeMs,
+            budgetMs: runtimeResult.budgetMs,
+            cacheState: 'miss',
+          },
+          `Slow tile generation: ${queryTime}ms`
+        );
       }
 
+      logTileOutcome({
+        request,
+        routeKind: 'public',
+        z,
+        x,
+        y,
+        filterSignature,
+        cacheState: 'miss',
+        result: dynamicTileOutcomeResult(runtimeResult),
+        runtime: runtimeResult,
+        stageTimings,
+      });
       return sendPublicTileEntry(request, reply, entry, 'miss', runtimeResult);
     }
   );
@@ -2048,6 +2289,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const runtimeConfig = getPropertyTileRuntimeConfig();
       const viewerScope = getPropertyReadViewerScope(viewer);
       const filterSignature = getMapFilterSignature(filters);
+      const stageTimings: PropertyTileStageTiming[] = [];
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
         key: `read:${z}/${x}/${y}:${filterSignature}:${viewerScope}:live`,
         zoom: z,
@@ -2057,7 +2299,15 @@ export async function tileRoutes(app: FastifyInstance) {
         builder: async (options) => {
           const readScope = await getReadStateScopeForViewer(viewer, options);
           const payloadResult = readScope.hasReadState
-            ? buildPayloadResult(await buildReadMvtForTile({ z, x, y }, viewer, filters, options))
+            ? buildPayloadResult(
+                await buildReadMvtForTile({ z, x, y }, viewer, filters, {
+                  ...options,
+                  onStageTiming: (timing) => {
+                    stageTimings.push(timing);
+                    options.onStageTiming?.(timing);
+                  },
+                })
+              )
             : ({ payload: null, statusCode: 204 } satisfies PropertyTilePayloadBuildResult);
           const latestReadScope = await getReadStateScopeForViewer(viewer, options);
           if (latestReadScope.scope !== readScope.scope) {
@@ -2072,13 +2322,55 @@ export async function tileRoutes(app: FastifyInstance) {
           runtimeResult.state !== 'error' ||
           isPropertyTileRecoverableError(runtimeResult.error)
         ) {
+          logTileOutcome({
+            request,
+            routeKind: 'read',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'timeout-empty',
+            result: dynamicTileOutcomeResult(runtimeResult),
+            runtime: runtimeResult,
+            errorClassification: classifyTileError(runtimeResult),
+            viewerId: viewerScope,
+            stageTimings,
+          });
           return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization, x-session-id');
         }
 
+        logTileOutcome({
+          request,
+          routeKind: 'read',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'miss',
+          result: 'error',
+          runtime: runtimeResult,
+          errorClassification: classifyTileError(runtimeResult),
+          viewerId: viewerScope,
+          stageTimings,
+        });
         throw runtimeResult.error;
       }
 
       if (!runtimeResult.publishable) {
+        logTileOutcome({
+          request,
+          routeKind: 'read',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'timeout-empty',
+          result: dynamicTileOutcomeResult(runtimeResult),
+          runtime: runtimeResult,
+          errorClassification: 'client_aborted',
+          viewerId: viewerScope,
+          stageTimings,
+        });
         return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization, x-session-id');
       }
 
@@ -2089,6 +2381,19 @@ export async function tileRoutes(app: FastifyInstance) {
         );
       }
 
+      logTileOutcome({
+        request,
+        routeKind: 'read',
+        z,
+        x,
+        y,
+        filterSignature,
+        cacheState: 'miss',
+        result: dynamicTileOutcomeResult(runtimeResult),
+        runtime: runtimeResult,
+        viewerId: viewerScope,
+        stageTimings,
+      });
       return sendPrivateTilePayload(
         reply,
         runtimeResult.result,
@@ -2116,6 +2421,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const filters = parseFollowingMapFiltersQuery(request.query);
       const runtimeConfig = getPropertyTileRuntimeConfig();
       const filterSignature = getMapFilterSignature(filters);
+      const stageTimings: PropertyTileStageTiming[] = [];
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
         key: `following:${z}/${x}/${y}:${filterSignature}:user:${request.userId!}`,
         zoom: z,
@@ -2124,7 +2430,13 @@ export async function tileRoutes(app: FastifyInstance) {
         signal: createRequestAbortSignal(request, reply),
         builder: async (options) =>
           buildPayloadResult(
-            await buildFollowingMvtForTile({ z, x, y }, request.userId!, filters, options)
+            await buildFollowingMvtForTile({ z, x, y }, request.userId!, filters, {
+              ...options,
+              onStageTiming: (timing) => {
+                stageTimings.push(timing);
+                options.onStageTiming?.(timing);
+              },
+            })
           ),
       });
 
@@ -2133,13 +2445,55 @@ export async function tileRoutes(app: FastifyInstance) {
           runtimeResult.state !== 'error' ||
           isPropertyTileRecoverableError(runtimeResult.error)
         ) {
+          logTileOutcome({
+            request,
+            routeKind: 'following',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'timeout-empty',
+            result: dynamicTileOutcomeResult(runtimeResult),
+            runtime: runtimeResult,
+            errorClassification: classifyTileError(runtimeResult),
+            viewerId: request.userId,
+            stageTimings,
+          });
           return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization');
         }
 
+        logTileOutcome({
+          request,
+          routeKind: 'following',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'miss',
+          result: 'error',
+          runtime: runtimeResult,
+          errorClassification: classifyTileError(runtimeResult),
+          viewerId: request.userId,
+          stageTimings,
+        });
         throw runtimeResult.error;
       }
 
       if (!runtimeResult.publishable) {
+        logTileOutcome({
+          request,
+          routeKind: 'following',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'timeout-empty',
+          result: dynamicTileOutcomeResult(runtimeResult),
+          runtime: runtimeResult,
+          errorClassification: 'client_aborted',
+          viewerId: request.userId,
+          stageTimings,
+        });
         return sendTimeoutEmptyTile(reply, runtimeResult, 'Authorization');
       }
 
@@ -2150,6 +2504,19 @@ export async function tileRoutes(app: FastifyInstance) {
         );
       }
 
+      logTileOutcome({
+        request,
+        routeKind: 'following',
+        z,
+        x,
+        y,
+        filterSignature,
+        cacheState: 'miss',
+        result: dynamicTileOutcomeResult(runtimeResult),
+        runtime: runtimeResult,
+        viewerId: request.userId,
+        stageTimings,
+      });
       return sendPrivateTilePayload(reply, runtimeResult.result, runtimeResult, 'Authorization');
     }
   );

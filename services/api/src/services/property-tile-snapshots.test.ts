@@ -6,6 +6,7 @@ import {
   getExpectedDefaultPropertyTileSnapshotCoverageDefinition,
   getPropertyTilePrecomputeConcurrency,
   getPropertyTilePrecomputeMaxZoom,
+  getPropertyTileSnapshotLeaseSeconds,
   isPropertyViewSnapshotRecoveryThrottled,
   isSnapshotRefreshRequestThrottled,
   isSnapshotTileDueForRollingWindow,
@@ -158,6 +159,21 @@ describe('property tile snapshots', () => {
         delete process.env.PROPERTY_TILE_PRECOMPUTE_CONCURRENCY;
       } else {
         process.env.PROPERTY_TILE_PRECOMPUTE_CONCURRENCY = previous;
+      }
+    }
+  });
+
+  it('allows snapshot refresh lease duration to be shortened for renewal-sensitive runs', () => {
+    const previous = process.env.PROPERTY_TILE_SNAPSHOT_LEASE_SECONDS;
+    process.env.PROPERTY_TILE_SNAPSHOT_LEASE_SECONDS = '2';
+
+    try {
+      expect(getPropertyTileSnapshotLeaseSeconds()).toBe(2);
+    } finally {
+      if (previous == null) {
+        delete process.env.PROPERTY_TILE_SNAPSHOT_LEASE_SECONDS;
+      } else {
+        process.env.PROPERTY_TILE_SNAPSHOT_LEASE_SECONDS = previous;
       }
     }
   });

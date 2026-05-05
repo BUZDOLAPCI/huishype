@@ -2922,13 +2922,13 @@ export interface paths {
                             sourceListingId: string | null;
                             sourceListingIdKind: string | null;
                             /** @enum {string} */
-                            validationState: "valid" | "invalid" | "provisional";
+                            validationState: "valid";
                             /** @enum {string} */
-                            matchState: "matched" | "mismatch" | "unverified" | "unsupported";
+                            matchState: "matched";
                             /** @enum {string} */
-                            handoffState: "will_create" | "unsupported";
+                            handoffState: "will_create";
                             /** @enum {string} */
-                            reasonCode: "source_identity_match" | "address_match" | "address_mismatch" | "source_not_supported" | "source_not_found" | "mirror_unavailable" | "parser_error" | "og_unavailable" | "validation_pending";
+                            reasonCode: "source_identity_match" | "address_match";
                             title: string | null;
                             description: string | null;
                             imageUrl: string | null;
@@ -2989,7 +2989,7 @@ export interface paths {
         put?: never;
         /**
          * Submit a listing
-         * @description Creates a listing from a user-submitted URL. Requires authentication.
+         * @description Creates a listing from a validated preview token. Requires authentication.
          */
         post: {
             parameters: {
@@ -3176,7 +3176,7 @@ export interface paths {
                             sourceRunId?: string;
                             /** Format: date-time */
                             sourceHighWatermark?: string;
-                            address: {
+                            address?: {
                                 countryCode: string;
                                 street: string;
                                 postalCode: string;

@@ -187,13 +187,13 @@ export interface ListingPreviewAddress {
 export interface ListingPreviewResponse {
   sourceName: ListingSource;
   rawUrl: string;
-  canonicalUrl: string | null;
+  canonicalUrl: string;
   sourceListingId: string | null;
   sourceListingIdKind: string | null;
-  validationState: ListingValidationState;
-  matchState: ListingMatchState;
-  handoffState: ListingPreviewHandoffState;
-  reasonCode: ListingReasonCode | string;
+  validationState: 'valid';
+  matchState: 'matched';
+  handoffState: 'will_create';
+  reasonCode: 'source_identity_match' | 'address_match';
   title: string | null;
   description: string | null;
   imageUrl: string | null;
@@ -208,13 +208,8 @@ export interface ListingPreviewResponse {
 }
 
 export interface ListingSubmitResult extends SubmitListingResponse {
-  canonicalListingId: string;
   canonicalUrl: string | null;
-  displayUrl: string | null;
   sourceListingId: string | null;
-  sourceListingIdKind: string | null;
-  validationState: ListingValidationState;
-  matchState: ListingMatchState;
   candidateHandoffState: ListingCandidateHandoffState;
   candidateId: string;
   verificationState: ListingVerificationState;

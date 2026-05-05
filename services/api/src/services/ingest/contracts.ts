@@ -98,7 +98,7 @@ export const ingestListingSchema = z.object({
     city: z.string().optional(),
     latitude: z.number().nullable().optional(),
     longitude: z.number().nullable().optional(),
-  }),
+  }).optional(),
   priceHistory: z.array(z.object({
     price: z.number(),
     priceDate: ingestPriceDateSchema,

@@ -187,27 +187,6 @@ async function readPropertyTileSnapshotRefreshState(): Promise<
   return Array.from(rows)[0] ?? null;
 }
 
-async function waitForPropertyTileSnapshotRefreshReason(
-  reason: string,
-): Promise<PropertyTileSnapshotRefreshStateRow> {
-  const deadline = Date.now() + 1_000;
-  let lastState: PropertyTileSnapshotRefreshStateRow | null = null;
-
-  while (Date.now() < deadline) {
-    lastState = await readPropertyTileSnapshotRefreshState();
-    if (lastState?.request_reason === reason) {
-      return lastState;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-
-  throw new Error(
-    `Timed out waiting for property tile snapshot refresh reason ${reason}; last state: ${
-      JSON.stringify(lastState)
-    }`,
-  );
-}
-
 /**
  * Integration tests for tile routes.
  *
@@ -800,10 +779,11 @@ describe('Tile routes', () => {
         expect(response.headers['x-tile-snapshot']).toBe('miss');
         expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
 
-        const refreshState = await waitForPropertyTileSnapshotRefreshReason(
-          'snapshot-lookup-miss',
-        );
-        expect(timestampMs(refreshState.requested_at)).toBe(previousRefreshRequestedAt.getTime());
+        await waitForPendingDefaultPropertyTileSnapshotRefreshesForTests();
+        const refreshState = await readPropertyTileSnapshotRefreshState();
+        expect(refreshState).not.toBeNull();
+        expect(refreshState?.request_reason).toBe('test-recent-refresh');
+        expect(timestampMs(refreshState?.requested_at ?? null)).toBe(previousRefreshRequestedAt.getTime());
 
         const rows = await db.execute<{ coverage_count: number }>(sql`
           SELECT count(*)::int AS coverage_count
@@ -977,9 +957,10 @@ describe('Tile routes', () => {
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run').mockResolvedValue({
         state: 'timeout',
         coalesced: false,
+        runtimeEvent: 'started',
         queueTimeMs: 7,
-        generationTimeMs: 8_000,
-        budgetMs: 8_000,
+        generationTimeMs: 3_000,
+        budgetMs: 3_000,
       });
 
       try {

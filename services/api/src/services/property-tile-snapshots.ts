@@ -36,6 +36,7 @@ const DEFAULT_MAX_SECONDS_PER_RUN = 60;
 const DEFAULT_PRECOMPUTE_CONCURRENCY = 1;
 const MAX_PRECOMPUTE_CONCURRENCY = 16;
 const DEFAULT_LEASE_SECONDS = 15 * 60;
+const MIN_LEASE_RENEWAL_INTERVAL_MS = 1_000;
 const DEFAULT_ROLLING_MAX_AGE_SECONDS = 60 * 60;
 const DEFAULT_PROPERTY_VIEW_REFRESH_THROTTLE_MS = 5 * 60_000;
 const SNAPSHOT_SOCIAL_RECENT_WINDOW_DAYS = 7;
@@ -205,6 +206,13 @@ export function getPropertyTilePrecomputeConcurrency(): number {
       'PROPERTY_TILE_PRECOMPUTE_CONCURRENCY',
       DEFAULT_PRECOMPUTE_CONCURRENCY,
     ),
+  );
+}
+
+export function getPropertyTileSnapshotLeaseSeconds(): number {
+  return parsePositiveIntegerEnv(
+    'PROPERTY_TILE_SNAPSHOT_LEASE_SECONDS',
+    DEFAULT_LEASE_SECONDS,
   );
 }
 
@@ -795,7 +803,6 @@ export async function requestPropertyTileSnapshotRefresh(input: {
     .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
     .limit(1);
   const previous = previousRows[0] ?? null;
-  const watermarks = await readSnapshotWatermarks();
   const now = new Date();
   const throttled = isSnapshotRefreshRequestThrottled({
     requestedAt: previous?.requestedAt,
@@ -803,13 +810,21 @@ export async function requestPropertyTileSnapshotRefresh(input: {
     now,
     throttleMs: input.throttleMs,
   });
-  const requestedAt = throttled && previous?.requestedAt ? previous.requestedAt : now;
+
+  if (throttled || input.enqueue === false) {
+    return buildPropertyTileSnapshotRefreshRequestResult({
+      throttled,
+      enqueueDisabled: input.enqueue === false,
+    });
+  }
+
+  const watermarks = await readSnapshotWatermarks();
 
   await db
     .insert(propertyTileSnapshotRefreshState)
     .values({
       key: PROPERTY_TILE_SNAPSHOT_KEY,
-      requestedAt,
+      requestedAt: now,
       requestReason: input.reason,
       requestedListingWatermark: watermarks.listingWatermark,
       requestedSocialWatermark: watermarks.socialWatermark,
@@ -819,7 +834,7 @@ export async function requestPropertyTileSnapshotRefresh(input: {
     .onConflictDoUpdate({
       target: propertyTileSnapshotRefreshState.key,
       set: {
-        requestedAt,
+        requestedAt: now,
         requestReason: input.reason,
         requestedListingWatermark: watermarks.listingWatermark,
         requestedSocialWatermark: watermarks.socialWatermark,
@@ -827,13 +842,6 @@ export async function requestPropertyTileSnapshotRefresh(input: {
         requestedCoverageWatermark: watermarks.coverageWatermark,
       },
     });
-
-  if (throttled || input.enqueue === false) {
-    return buildPropertyTileSnapshotRefreshRequestResult({
-      throttled,
-      enqueueDisabled: input.enqueue === false,
-    });
-  }
 
   const enqueueResult = await enqueuePropertyTileSnapshotRefresh({ reason: input.reason });
   return buildPropertyTileSnapshotRefreshRequestResult({ enqueueResult });
@@ -1050,6 +1058,19 @@ async function claimRefreshLease(owner: string, leaseSeconds: number): Promise<b
       RETURNING key
     `);
   });
+
+  return Array.from(rows).length > 0;
+}
+
+async function renewRefreshLease(owner: string, leaseSeconds: number): Promise<boolean> {
+  const leaseUntil = new Date(Date.now() + leaseSeconds * 1000);
+  const rows = await db.execute<{ key: string }>(sql`
+    UPDATE property_tile_snapshot_refresh_state
+    SET lease_until = ${leaseUntil.toISOString()}::timestamptz
+    WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+      AND lease_owner = ${owner}
+    RETURNING key
+  `);
 
   return Array.from(rows).length > 0;
 }
@@ -1307,10 +1328,34 @@ export async function executePropertyTileSnapshotRefresh(input: {
   const reason = input.reason ?? PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_REASON;
   const owner = input.leaseOwner ?? `${process.pid}:${randomUUID()}`;
   const startedAt = Date.now();
-  const leaseClaimed = await claimRefreshLease(owner, DEFAULT_LEASE_SECONDS);
+  const leaseSeconds = getPropertyTileSnapshotLeaseSeconds();
+  const leaseClaimed = await claimRefreshLease(owner, leaseSeconds);
   if (!leaseClaimed) {
     return { status: 'skipped_locked', reason };
   }
+
+  let leaseLost = false;
+  let leaseRenewalInFlight = false;
+  const renewalInterval = setInterval(() => {
+    if (leaseRenewalInFlight) {
+      return;
+    }
+
+    leaseRenewalInFlight = true;
+    renewRefreshLease(owner, leaseSeconds)
+      .then((renewed) => {
+        if (!renewed) {
+          leaseLost = true;
+        }
+      })
+      .catch(() => {
+        leaseLost = true;
+      })
+      .finally(() => {
+        leaseRenewalInFlight = false;
+      });
+  }, Math.max(MIN_LEASE_RENEWAL_INTERVAL_MS, Math.floor((leaseSeconds * 1000) / 3)));
+  renewalInterval.unref?.();
 
   const coverage = await getDefaultPropertyTileSnapshotCoverage();
   const watermarks = await readSnapshotWatermarks();
@@ -1329,6 +1374,9 @@ export async function executePropertyTileSnapshotRefresh(input: {
   async function refreshNextDueTile(): Promise<void> {
     while (Date.now() - startedAt < maxRunMs) {
       const tileIndex = nextTileIndex;
+      if (leaseLost) {
+        throw new Error('Property tile snapshot refresh lease was lost');
+      }
       if (tileIndex >= dueTiles.length || attemptedTileCount >= maxTiles) {
         return;
       }
@@ -1346,6 +1394,9 @@ export async function executePropertyTileSnapshotRefresh(input: {
           statementTimeoutMs: 1_500,
           runtimeBudgetMs: 2_000,
         });
+        if (leaseLost) {
+          throw new Error('Property tile snapshot refresh lease was lost');
+        }
         const writeResult = await upsertPropertyTileSnapshotRow({
           tile,
           filterSignature: coverage.filterSignature,
@@ -1408,5 +1459,7 @@ export async function executePropertyTileSnapshotRefresh(input: {
       error,
     });
     throw error;
+  } finally {
+    clearInterval(renewalInterval);
   }
 }

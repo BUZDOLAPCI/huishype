@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { PropertyTileRuntime } from './property-tile-runtime.js';
+import {
+  DEFAULT_PUBLIC_PROPERTY_TILE_BUDGET_MS,
+  PropertyTileRuntime,
+  getPropertyTileRuntimeConfig,
+} from './property-tile-runtime.js';
 
 describe('PropertyTileRuntime', () => {
   const originalEnv = { ...process.env };
@@ -70,6 +74,13 @@ describe('PropertyTileRuntime', () => {
     expect(builderCalls).toBe(1);
 
     runtime.resetForTests();
+  });
+
+  it('defaults public property tile runtime budget to the planned 3000ms', () => {
+    delete process.env.PROPERTY_TILE_PUBLIC_BUDGET_MS;
+
+    expect(DEFAULT_PUBLIC_PROPERTY_TILE_BUDGET_MS).toBe(3_000);
+    expect(getPropertyTileRuntimeConfig().publicBudgetMs).toBe(3_000);
   });
 
   it('lets a coalesced waiter enforce its own tighter runtime budget', async () => {
@@ -409,11 +420,70 @@ describe('PropertyTileRuntime', () => {
 
     await builderStarted;
     controller.abort();
-    await expect(result).resolves.toMatchObject({ state: 'aborted' });
+    await expect(result).resolves.toMatchObject({
+      state: 'aborted',
+      runtimeEvent: 'detached-draining',
+    });
 
     releaseSql();
     await builderDone;
     expect(signalAbortedAfterSql).toBe(true);
+    runtime.resetForTests();
+  });
+
+  it('reattaches new waiters to detached-draining same-key work without starting duplicate builders', async () => {
+    const runtime = new PropertyTileRuntime();
+    const controller = new AbortController();
+    let releaseSql!: () => void;
+    let markBuilderStarted!: () => void;
+    const builderStarted = new Promise<void>((resolve) => {
+      markBuilderStarted = resolve;
+    });
+    let builderCalls = 0;
+
+    const firstResult = runtime.run({
+      key: 'public:reattach-running-work',
+      zoom: 10,
+      budgetMs: 5_000,
+      signal: controller.signal,
+      builder: async ({ markUncancellableStage }) => {
+        builderCalls += 1;
+        markBuilderStarted();
+        markUncancellableStage?.(true);
+        await new Promise<void>((resolve) => {
+          releaseSql = resolve;
+        });
+        markUncancellableStage?.(false);
+        return 'reattached-result';
+      },
+    });
+
+    await builderStarted;
+    controller.abort();
+    await expect(firstResult).resolves.toMatchObject({
+      state: 'aborted',
+      runtimeEvent: 'detached-draining',
+    });
+
+    const reattachedResult = runtime.run({
+      key: 'public:reattach-running-work',
+      zoom: 10,
+      budgetMs: 5_000,
+      builder: async () => {
+        throw new Error('reattached waiter should not start a replacement build');
+      },
+    });
+
+    releaseSql();
+
+    await expect(reattachedResult).resolves.toMatchObject({
+      state: 'completed',
+      result: 'reattached-result',
+      coalesced: true,
+      runtimeEvent: 'reattached',
+      publishable: true,
+    });
+    expect(builderCalls).toBe(1);
     runtime.resetForTests();
   });
 

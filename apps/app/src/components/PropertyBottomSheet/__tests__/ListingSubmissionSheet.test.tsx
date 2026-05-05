@@ -175,38 +175,15 @@ describe('ListingSubmissionSheet', () => {
     expect(screen.queryByText('Fallback description')).toBeNull();
   });
 
-  it('treats provisional preview data as pending validation', async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          ...previewContractFields,
-          sourceName: 'funda',
-          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-          canonicalUrl: 'https://www.funda.nl/detail/12345',
-          sourceListingId: '12345',
-          sourceListingIdKind: 'tiny_id',
-          validationState: 'provisional',
-          matchState: 'unverified',
-          handoffState: 'will_create',
-          reasonCode: 'validation_pending',
-          title: 'Example Listing',
-          description: 'Example description',
-          imageUrl: 'https://cdn.example.com/thumb.jpg',
-          askingPrice: null,
-          priceType: 'unknown',
-          currency: null,
-          address: null,
-          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
-          matchedPropertyId: null,
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: async () => ({ message: 'submit failed' }),
-      } as Response);
+  it('shows preview validation failures without creating a confirmation step', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: 'LISTING_VALIDATION_FAILED',
+        message: 'Listing validation failed: mirror_unavailable',
+      }),
+    } as Response);
 
     render(
       <ListingSubmissionSheet
@@ -223,31 +200,13 @@ describe('ListingSubmissionSheet', () => {
     );
     fireEvent.press(screen.getByText('Preview'));
 
-    await screen.findByText('Confirm & Add Listing');
-    expect(screen.getAllByText('Pending validation').length).toBeGreaterThan(0);
-    expect(screen.queryByText('Source validation matched')).toBeNull();
+    await screen.findByText('Listing validation failed: mirror_unavailable');
+    expect(screen.queryByText('Confirm & Add Listing')).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const [previewUrl, previewOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(previewUrl).toBe('http://localhost:3100/listings/preview');
     expect(previewOptions.headers).toEqual({ 'Content-Type': 'application/json' });
-
-    fireEvent.press(screen.getByText('Confirm & Add Listing'));
-
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
-
-    const [submitUrl, submitOptions] = mockFetch.mock.calls[1] as [string, RequestInit];
-    expect(submitUrl).toBe('http://localhost:3100/listings/submit');
-    expect(submitOptions.headers).toEqual({
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer test-access-token',
-    });
-
-    const submitPayload = JSON.parse(String(submitOptions.body));
-    expect(submitPayload).toMatchObject({
-      previewToken: previewContractFields.previewToken,
-    });
-    expect(submitPayload).not.toHaveProperty('url');
   });
 
   it('requires auth for submit even after an unauthenticated preview', async () => {
@@ -263,26 +222,26 @@ describe('ListingSubmissionSheet', () => {
       status: 200,
       json: async () => ({
         ...previewContractFields,
-        sourceName: 'funda',
-        rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-        canonicalUrl: 'https://www.funda.nl/detail/12345',
-        sourceListingId: '12345',
-        sourceListingIdKind: 'tiny_id',
-        validationState: 'provisional',
-        matchState: 'unverified',
-        handoffState: 'will_create',
-        reasonCode: 'validation_pending',
-        title: 'Example Listing',
-        description: null,
-        imageUrl: 'https://cdn.example.com/thumb.jpg',
-        askingPrice: null,
-        priceType: 'unknown',
-        currency: null,
-        address: null,
-        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
-        matchedPropertyId: null,
-      }),
-    } as Response);
+          sourceName: 'funda',
+          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+          canonicalUrl: 'https://www.funda.nl/detail/12345',
+          sourceListingId: '12345',
+          sourceListingIdKind: 'tiny_id',
+          validationState: 'valid',
+          matchState: 'matched',
+          handoffState: 'will_create',
+          reasonCode: 'source_identity_match',
+          title: 'Example Listing',
+          description: null,
+          imageUrl: 'https://cdn.example.com/thumb.jpg',
+          askingPrice: null,
+          priceType: 'unknown',
+          currency: null,
+          address: null,
+          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+          matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+        }),
+      } as Response);
 
     const onAuthRequired = jest.fn();
 
@@ -328,7 +287,7 @@ describe('ListingSubmissionSheet', () => {
           ...previewContractFields,
           sourceName: 'funda',
           rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-          canonicalUrl: null,
+          canonicalUrl: 'https://www.funda.nl/detail/12345',
           sourceListingId: '12345',
           sourceListingIdKind: 'tiny_id',
           validationState: 'valid',
@@ -421,7 +380,7 @@ describe('ListingSubmissionSheet', () => {
           ...previewContractFields,
           sourceName: 'funda',
           rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-          canonicalUrl: null,
+          canonicalUrl: 'https://www.funda.nl/detail/12345',
           sourceListingId: '12345',
           sourceListingIdKind: 'tiny_id',
           validationState: 'valid',
@@ -497,26 +456,26 @@ describe('ListingSubmissionSheet', () => {
       status: 200,
       json: async () => ({
         ...previewContractFields,
-        sourceName: 'funda',
-        rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-        canonicalUrl: null,
-        sourceListingId: '12345',
-        sourceListingIdKind: 'tiny_id',
-        validationState: 'provisional',
-        matchState: 'unverified',
-        handoffState: 'will_create',
-        reasonCode: 'validation_pending',
-        title: null,
-        description: null,
-        imageUrl: null,
+          sourceName: 'funda',
+          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+          canonicalUrl: 'https://www.funda.nl/detail/12345',
+          sourceListingId: '12345',
+          sourceListingIdKind: 'tiny_id',
+          validationState: 'valid',
+          matchState: 'matched',
+          handoffState: 'will_create',
+          reasonCode: 'source_identity_match',
+          title: null,
+          description: null,
+          imageUrl: null,
         askingPrice: null,
         priceType: 'unknown',
-        currency: null,
-        address: null,
-        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
-        matchedPropertyId: null,
-      }),
-    } as Response);
+          currency: null,
+          address: null,
+          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+          matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+        }),
+      } as Response);
 
     render(
       <ListingSubmissionSheet
@@ -535,36 +494,19 @@ describe('ListingSubmissionSheet', () => {
 
     await screen.findByText('Confirm & Add Listing');
     expect(screen.getByText('Funda listing')).toBeTruthy();
-    expect(screen.getByText('https://www.funda.nl/koop/eindhoven/huis-12345/')).toBeTruthy();
+    expect(screen.getByText('https://www.funda.nl/detail/12345')).toBeTruthy();
     expect(screen.getByText('No preview image')).toBeTruthy();
     expect(screen.getByText('Candidate will be queued')).toBeTruthy();
     expect(screen.queryByText('Candidate queued')).toBeNull();
   });
 
-  it('disables confirmation for unsupported previews', async () => {
+  it('shows unsupported source preview rejections without confirmation', async () => {
     mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
+      ok: false,
+      status: 400,
       json: async () => ({
-        ...previewContractFields,
-        sourceName: 'other',
-        rawUrl: 'https://example.com/listing/123',
-        canonicalUrl: 'https://example.com/listing/123',
-        sourceListingId: null,
-        sourceListingIdKind: null,
-        validationState: 'provisional',
-        matchState: 'unsupported',
-        handoffState: 'unsupported',
-        reasonCode: 'source_not_supported',
-        title: null,
-        description: null,
-        imageUrl: null,
-        askingPrice: null,
-        priceType: 'unknown',
-        currency: null,
-        address: null,
-        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
-        matchedPropertyId: null,
+        error: 'LISTING_VALIDATION_FAILED',
+        message: 'Listing validation failed: source_not_supported',
       }),
     } as Response);
 
@@ -583,40 +525,19 @@ describe('ListingSubmissionSheet', () => {
     );
     fireEvent.press(screen.getByText('Preview'));
 
-    await screen.findByText('Cannot Add Listing');
-    expect(screen.getByText('Listing preview')).toBeTruthy();
-    expect(screen.getByText('Unsupported')).toBeTruthy();
-    expect(screen.getByText('This listing source is not supported.')).toBeTruthy();
-    expect(screen.queryByText('Pending source validation')).toBeNull();
-
-    fireEvent.press(screen.getByText('Cannot Add Listing'));
+    await screen.findByText('Listing validation failed: source_not_supported');
+    expect(screen.queryByText('Cannot Add Listing')).toBeNull();
+    expect(screen.queryByText('Confirm & Add Listing')).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('disables confirmation for confirmed listing mismatches', async () => {
+  it('shows listing mismatch preview rejections without confirmation', async () => {
     mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
+      ok: false,
+      status: 400,
       json: async () => ({
-        ...previewContractFields,
-        sourceName: 'funda',
-        rawUrl: 'https://www.funda.nl/detail/mismatch-12345',
-        canonicalUrl: 'https://www.funda.nl/detail/12345',
-        sourceListingId: '12345',
-        sourceListingIdKind: 'tiny_id',
-        validationState: 'invalid',
-        matchState: 'mismatch',
-        handoffState: 'will_create',
-        reasonCode: 'address_mismatch',
-        title: 'Other Property',
-        description: null,
-        imageUrl: null,
-        askingPrice: null,
-        priceType: 'unknown',
-        currency: null,
-        address: 'Other Street 1',
-        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
-        matchedPropertyId: '22222222-2222-4222-8222-222222222222',
+        error: 'LISTING_VALIDATION_FAILED',
+        message: 'Listing validation failed: address_mismatch',
       }),
     } as Response);
 
@@ -635,11 +556,9 @@ describe('ListingSubmissionSheet', () => {
     );
     fireEvent.press(screen.getByText('Preview'));
 
-    await screen.findByText('Cannot Add Listing');
-    expect(screen.getByText('Mismatch')).toBeTruthy();
-    expect(screen.getByText('This listing does not match this property.')).toBeTruthy();
-
-    fireEvent.press(screen.getByText('Cannot Add Listing'));
+    await screen.findByText('Listing validation failed: address_mismatch');
+    expect(screen.queryByText('Cannot Add Listing')).toBeNull();
+    expect(screen.queryByText('Confirm & Add Listing')).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,10 @@
 import { Queue, Worker, type Job } from 'bullmq';
 import { loadWorkerConfig, type WorkerConfig } from './config.js';
 import {
+  loadCandidateHandoffJobsModule,
+  loadCandidateHandoffProcessorModule,
+  loadCandidateHandoffQueueModule,
+  loadCandidateHandoffStoreModule,
   loadApiDbModule,
   loadApiRedisModule,
   loadIngestJobsModule,
@@ -32,6 +36,9 @@ interface RecoverySweepSummary {
   dispatchedBatchIds: string[];
   failedDispatchBatchIds: string[];
   maintenanceRequested: boolean;
+  candidateHandoffIds: string[];
+  candidateHandoffDispatchedIds: string[];
+  candidateHandoffFailedDispatchIds: string[];
   officialValuationHydrationJobIds: string[];
   propertyTileSnapshotRefreshRequested: boolean;
   propertyTileSnapshotRefreshReason: string | null;
@@ -40,6 +47,10 @@ interface RecoverySweepSummary {
 export type WorkerRuntimeModuleLoaders = {
   loadApiDbModule: typeof loadApiDbModule;
   loadApiRedisModule: typeof loadApiRedisModule;
+  loadCandidateHandoffJobsModule: typeof loadCandidateHandoffJobsModule;
+  loadCandidateHandoffProcessorModule: typeof loadCandidateHandoffProcessorModule;
+  loadCandidateHandoffQueueModule: typeof loadCandidateHandoffQueueModule;
+  loadCandidateHandoffStoreModule: typeof loadCandidateHandoffStoreModule;
   loadIngestJobsModule: typeof loadIngestJobsModule;
   loadIngestProcessorModule: typeof loadIngestProcessorModule;
   loadIngestQueueModule: typeof loadIngestQueueModule;
@@ -55,6 +66,10 @@ export type WorkerRuntimeModuleLoaders = {
 const DEFAULT_MODULE_LOADERS: WorkerRuntimeModuleLoaders = {
   loadApiDbModule,
   loadApiRedisModule,
+  loadCandidateHandoffJobsModule,
+  loadCandidateHandoffProcessorModule,
+  loadCandidateHandoffQueueModule,
+  loadCandidateHandoffStoreModule,
   loadIngestJobsModule,
   loadIngestProcessorModule,
   loadIngestQueueModule,
@@ -117,19 +132,23 @@ export class WorkerRuntime {
 
   private ingestWorker: Worker<{ batchId: string }> | null = null;
   private maintenanceWorker: Worker<{ requestedBy: string; batchId?: string }> | null = null;
+  private candidateHandoffWorker: Worker<{ handoffId: string }> | null = null;
   private officialValuationWorker: Worker<OfficialValuationHydrationJobData> | null = null;
   private propertyTileSnapshotWorker: Worker<{ reason: string }> | null = null;
   private ingestQueue: Queue<{ batchId: string }> | null = null;
   private maintenanceQueue: Queue<{ requestedBy: string; batchId?: string }> | null = null;
+  private candidateHandoffQueue: Queue<{ handoffId: string }> | null = null;
   private officialValuationQueue: Queue<OfficialValuationHydrationJobData> | null = null;
   private propertyTileSnapshotQueue: Queue<{ reason: string }> | null = null;
 
   private ingestWorkerConnection: RedisConnectionLike | null = null;
   private maintenanceWorkerConnection: RedisConnectionLike | null = null;
+  private candidateHandoffWorkerConnection: RedisConnectionLike | null = null;
   private officialValuationWorkerConnection: RedisConnectionLike | null = null;
   private propertyTileSnapshotWorkerConnection: RedisConnectionLike | null = null;
   private ingestQueueConnection: RedisConnectionLike | null = null;
   private maintenanceQueueConnection: RedisConnectionLike | null = null;
+  private candidateHandoffQueueConnection: RedisConnectionLike | null = null;
   private officialValuationQueueConnection: RedisConnectionLike | null = null;
   private propertyTileSnapshotQueueConnection: RedisConnectionLike | null = null;
 
@@ -146,8 +165,9 @@ export class WorkerRuntime {
   }
 
   async start(): Promise<void> {
-    const [jobs, officialValuationJobs, apiRedis] = await Promise.all([
+    const [jobs, candidateHandoffJobs, officialValuationJobs, apiRedis] = await Promise.all([
       this.moduleLoaders.loadIngestJobsModule(),
+      this.moduleLoaders.loadCandidateHandoffJobsModule(),
       this.moduleLoaders.loadOfficialValuationJobsModule(),
       this.moduleLoaders.loadApiRedisModule(),
     ]);
@@ -155,13 +175,17 @@ export class WorkerRuntime {
     [
       this.ingestWorkerConnection,
       this.maintenanceWorkerConnection,
+      this.candidateHandoffWorkerConnection,
       this.officialValuationWorkerConnection,
       this.propertyTileSnapshotWorkerConnection,
       this.ingestQueueConnection,
       this.maintenanceQueueConnection,
+      this.candidateHandoffQueueConnection,
       this.officialValuationQueueConnection,
       this.propertyTileSnapshotQueueConnection,
     ] = await Promise.all([
+      apiRedis.createRedisConnection(),
+      apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
@@ -190,6 +214,15 @@ export class WorkerRuntime {
       },
     );
 
+    this.candidateHandoffWorker = new Worker(
+      candidateHandoffJobs.CANDIDATE_HANDOFF_QUEUE,
+      (job) => this.processCandidateHandoffJob(job),
+      {
+        connection: this.candidateHandoffWorkerConnection as never,
+        concurrency: this.config.candidateHandoffConcurrency,
+      },
+    );
+
     this.officialValuationWorker = new Worker(
       officialValuationJobs.OFFICIAL_VALUATION_HYDRATION_QUEUE,
       (job) => this.processOfficialValuationHydrationJob(job),
@@ -214,6 +247,9 @@ export class WorkerRuntime {
     this.maintenanceQueue = new Queue(jobs.MAINTENANCE_QUEUE, {
       connection: this.maintenanceQueueConnection as never,
     });
+    this.candidateHandoffQueue = new Queue(candidateHandoffJobs.CANDIDATE_HANDOFF_QUEUE, {
+      connection: this.candidateHandoffQueueConnection as never,
+    });
     this.officialValuationQueue = new Queue(
       officialValuationJobs.OFFICIAL_VALUATION_HYDRATION_QUEUE,
       {
@@ -226,16 +262,19 @@ export class WorkerRuntime {
 
     this.attachWorkerLogging('ingest', this.ingestWorker);
     this.attachWorkerLogging('maintenance', this.maintenanceWorker);
+    this.attachWorkerLogging('candidate-handoff', this.candidateHandoffWorker);
     this.attachWorkerLogging('official-valuation-hydration', this.officialValuationWorker);
     this.attachWorkerLogging('property-tile-snapshot', this.propertyTileSnapshotWorker);
 
     await Promise.all([
       this.ingestWorker.waitUntilReady(),
       this.maintenanceWorker.waitUntilReady(),
+      this.candidateHandoffWorker.waitUntilReady(),
       this.officialValuationWorker.waitUntilReady(),
       this.propertyTileSnapshotWorker.waitUntilReady(),
       this.ingestQueue.waitUntilReady(),
       this.maintenanceQueue.waitUntilReady(),
+      this.candidateHandoffQueue.waitUntilReady(),
       this.officialValuationQueue.waitUntilReady(),
       this.propertyTileSnapshotQueue.waitUntilReady(),
     ]);
@@ -243,6 +282,7 @@ export class WorkerRuntime {
     this.logger.info('Worker runtime started', {
       ingestConcurrency: this.config.ingestConcurrency,
       maintenanceConcurrency: this.config.maintenanceConcurrency,
+      candidateHandoffConcurrency: this.config.candidateHandoffConcurrency,
       officialValuationHydrationConcurrency: this.config.officialValuationHydrationConcurrency,
       propertyTileSnapshotConcurrency: this.config.propertyTileSnapshotConcurrency,
       skippedBatchRecoveryLimit: this.config.skippedBatchRecoveryLimit,
@@ -343,6 +383,23 @@ export class WorkerRuntime {
     return {
       refreshedBatchCount,
     };
+  }
+
+  private async processCandidateHandoffJob(
+    job: Job<{ handoffId: string }>,
+  ): Promise<Record<string, unknown>> {
+    const processor = await this.moduleLoaders.loadCandidateHandoffProcessorModule();
+
+    this.logger.info('Processing candidate handoff', {
+      jobId: job.id,
+      handoffId: job.data.handoffId,
+      attempt: job.attemptsStarted,
+    });
+
+    return processor.processCandidateHandoffJob({
+      handoffId: job.data.handoffId,
+      logger: toIngestLogger(this.logger),
+    });
   }
 
   private async processOfficialValuationHydrationJob(
@@ -446,6 +503,8 @@ export class WorkerRuntime {
     const [
       store,
       queue,
+      candidateHandoffStore,
+      candidateHandoffQueue,
       officialValuationStore,
       officialValuationQueue,
       propertyTileSnapshots,
@@ -453,6 +512,8 @@ export class WorkerRuntime {
       await Promise.all([
         this.moduleLoaders.loadIngestStoreModule(),
         this.moduleLoaders.loadIngestQueueModule(),
+        this.moduleLoaders.loadCandidateHandoffStoreModule(),
+        this.moduleLoaders.loadCandidateHandoffQueueModule(),
         this.moduleLoaders.loadOfficialValuationStoreModule(),
         this.moduleLoaders.loadOfficialValuationQueueModule(),
         this.moduleLoaders.loadPropertyTileSnapshotsModule(),
@@ -495,6 +556,33 @@ export class WorkerRuntime {
           error: serializeError(error),
         });
       }
+    }
+
+    const candidateHandoffIds: string[] = [];
+    const candidateHandoffDispatchedIds: string[] = [];
+    const candidateHandoffFailedDispatchIds: string[] = [];
+    try {
+      candidateHandoffIds.push(
+        ...(await candidateHandoffStore.collectDueCandidateHandoffIds(this.config.recoveryBatchLimit)),
+      );
+      for (const handoffId of candidateHandoffIds) {
+        try {
+          await candidateHandoffQueue.enqueueCandidateHandoff(handoffId);
+          candidateHandoffDispatchedIds.push(handoffId);
+        } catch (error) {
+          candidateHandoffFailedDispatchIds.push(handoffId);
+          this.logger.error('Recovery sweep failed to dispatch candidate handoff', {
+            trigger,
+            handoffId,
+            error: serializeError(error),
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.error('Recovery sweep failed to collect due candidate handoffs', {
+        trigger,
+        error: serializeError(error),
+      });
     }
 
     const officialValuationHydrationJobIds: string[] = [];
@@ -554,6 +642,9 @@ export class WorkerRuntime {
       dispatchedBatchIds,
       failedDispatchBatchIds,
       maintenanceRequested,
+      candidateHandoffIds,
+      candidateHandoffDispatchedIds,
+      candidateHandoffFailedDispatchIds,
       officialValuationHydrationJobIds,
       propertyTileSnapshotRefreshRequested,
       propertyTileSnapshotRefreshReason,
@@ -566,6 +657,9 @@ export class WorkerRuntime {
       dispatchedCount: summary.dispatchedBatchIds.length,
       failedDispatchCount: summary.failedDispatchBatchIds.length,
       maintenanceRequested,
+      candidateHandoffDueCount: candidateHandoffIds.length,
+      candidateHandoffDispatchedCount: candidateHandoffDispatchedIds.length,
+      candidateHandoffFailedDispatchCount: candidateHandoffFailedDispatchIds.length,
       officialValuationHydrationDispatchedCount: officialValuationHydrationJobIds.length,
       propertyTileSnapshotRefreshRequested,
       propertyTileSnapshotRefreshReason,
@@ -578,6 +672,7 @@ export class WorkerRuntime {
     if (
       !this.ingestQueue ||
       !this.maintenanceQueue ||
+      !this.candidateHandoffQueue ||
       !this.officialValuationQueue ||
       !this.propertyTileSnapshotQueue
     ) {
@@ -588,11 +683,13 @@ export class WorkerRuntime {
       const [
         ingestCounts,
         maintenanceCounts,
+        candidateHandoffCounts,
         officialValuationCounts,
         propertyTileSnapshotCounts,
       ] = await Promise.all([
         this.ingestQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
         this.maintenanceQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
+        this.candidateHandoffQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
         this.officialValuationQueue.getJobCounts(
           'waiting',
           'active',
@@ -617,6 +714,7 @@ export class WorkerRuntime {
         memoryHeapUsedBytes: memoryUsage.heapUsed,
         ingestQueue: ingestCounts,
         maintenanceQueue: maintenanceCounts,
+        candidateHandoffQueue: candidateHandoffCounts,
         officialValuationHydrationQueue: officialValuationCounts,
         propertyTileSnapshotQueue: propertyTileSnapshotCounts,
       });
@@ -651,6 +749,20 @@ export class WorkerRuntime {
       closers.push(
         withTimeout(
           'maintenance worker close',
+          worker.close().catch(async () => {
+            await worker.close(true);
+          }),
+          this.config.shutdownTimeoutMs,
+        ),
+      );
+    }
+
+    if (this.candidateHandoffWorker) {
+      const worker = this.candidateHandoffWorker;
+      this.candidateHandoffWorker = null;
+      closers.push(
+        withTimeout(
+          'candidate handoff worker close',
           worker.close().catch(async () => {
             await worker.close(true);
           }),
@@ -699,6 +811,14 @@ export class WorkerRuntime {
       closers.push(withTimeout('maintenance queue close', queue.close(), this.config.shutdownTimeoutMs));
     }
 
+    if (this.candidateHandoffQueue) {
+      const queue = this.candidateHandoffQueue;
+      this.candidateHandoffQueue = null;
+      closers.push(
+        withTimeout('candidate handoff queue close', queue.close(), this.config.shutdownTimeoutMs),
+      );
+    }
+
     if (this.officialValuationQueue) {
       const queue = this.officialValuationQueue;
       this.officialValuationQueue = null;
@@ -728,25 +848,29 @@ export class WorkerRuntime {
     await Promise.allSettled([
       this.quitRedisConnection('ingestWorkerConnection'),
       this.quitRedisConnection('maintenanceWorkerConnection'),
+      this.quitRedisConnection('candidateHandoffWorkerConnection'),
       this.quitRedisConnection('officialValuationWorkerConnection'),
       this.quitRedisConnection('propertyTileSnapshotWorkerConnection'),
       this.quitRedisConnection('ingestQueueConnection'),
       this.quitRedisConnection('maintenanceQueueConnection'),
+      this.quitRedisConnection('candidateHandoffQueueConnection'),
       this.quitRedisConnection('officialValuationQueueConnection'),
       this.quitRedisConnection('propertyTileSnapshotQueueConnection'),
     ]);
   }
 
   private async closeApiResources(): Promise<void> {
-    const [apiDb, apiRedis, ingestQueue, officialValuationQueue] = await Promise.all([
+    const [apiDb, apiRedis, ingestQueue, candidateHandoffQueue, officialValuationQueue] = await Promise.all([
       this.moduleLoaders.loadApiDbModule(),
       this.moduleLoaders.loadApiRedisModule(),
       this.moduleLoaders.loadIngestQueueModule(),
+      this.moduleLoaders.loadCandidateHandoffQueueModule(),
       this.moduleLoaders.loadOfficialValuationQueueModule(),
     ]);
 
     await Promise.allSettled([
       ingestQueue.closeIngestQueues(),
+      candidateHandoffQueue.closeCandidateHandoffQueues(),
       officialValuationQueue.closeOfficialValuationQueues(),
       apiRedis.closeRedisConnection(),
       apiDb.closeConnection(),
@@ -757,10 +881,12 @@ export class WorkerRuntime {
     key:
       | 'ingestWorkerConnection'
       | 'maintenanceWorkerConnection'
+      | 'candidateHandoffWorkerConnection'
       | 'officialValuationWorkerConnection'
       | 'propertyTileSnapshotWorkerConnection'
       | 'ingestQueueConnection'
       | 'maintenanceQueueConnection'
+      | 'candidateHandoffQueueConnection'
       | 'officialValuationQueueConnection'
       | 'propertyTileSnapshotQueueConnection',
   ): Promise<void> {

@@ -18,6 +18,7 @@ import {
   jsonb,
   primaryKey,
   check,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
@@ -809,6 +810,10 @@ export const listingPreviewResults = pgTable(
     uniqueIndex('listing_preview_results_idempotency_idx').on(table.idempotencyKey),
     index('listing_preview_results_property_idx').on(table.propertyId),
     index('listing_preview_results_source_url_idx').on(table.sourceName, table.sourceUrlCanonical),
+    check(
+      'listing_preview_results_lifecycle_status_check',
+      sql`${table.lifecycleStatus} IS NULL OR ${table.lifecycleStatus} IN ('available', 'sold', 'rented', 'withdrawn', 'not_found')`,
+    ),
   ]
 );
 
@@ -818,7 +823,7 @@ export const listingCandidateHandoffs = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     previewResultId: uuid('preview_result_id').references(() => listingPreviewResults.id, { onDelete: 'set null' }),
     canonicalListingId: uuid('canonical_listing_id').references(() => canonicalListings.id, { onDelete: 'cascade' }),
-    observationId: uuid('observation_id'),
+    observationId: uuid('observation_id').references((): AnyPgColumn => listingObservations.id, { onDelete: 'set null' }),
     sourceName: varchar('source_name', { length: 50 }).notNull(),
     propertyId: uuid('property_id')
       .notNull()
@@ -884,7 +889,7 @@ export const listingObservations = pgTable(
     sourceHighWatermark: timestamp('source_high_watermark', { withTimezone: true }),
     staleForProjection: boolean('stale_for_projection').notNull().default(false),
     previewResultId: uuid('preview_result_id').references(() => listingPreviewResults.id, { onDelete: 'set null' }),
-    candidateHandoffId: uuid('candidate_handoff_id'),
+    candidateHandoffId: uuid('candidate_handoff_id').references(() => listingCandidateHandoffs.id, { onDelete: 'set null' }),
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -900,6 +905,10 @@ export const listingObservations = pgTable(
     index('listing_observations_stale_projection_idx').on(table.staleForProjection),
     index('listing_observations_preview_idx').on(table.previewResultId),
     index('listing_observations_candidate_handoff_idx').on(table.candidateHandoffId),
+    check(
+      'listing_observations_source_status_lifecycle_check',
+      sql`${table.sourceStatus} IS NULL OR ${table.sourceStatus} IN ('available', 'sold', 'rented', 'withdrawn', 'not_found')`,
+    ),
   ]
 );
 
@@ -988,6 +997,10 @@ export const listingReplayStaging = pgTable(
     index('listing_replay_staging_run_idx').on(table.sourceName, table.upstreamRunKey),
     index('listing_replay_staging_source_identity_idx').on(table.sourceName, table.sourceListingId),
     index('listing_replay_staging_processed_idx').on(table.processedAt),
+    check(
+      'listing_replay_staging_source_status_lifecycle_check',
+      sql`${table.sourceStatus} IS NULL OR ${table.sourceStatus} IN ('available', 'sold', 'rented', 'withdrawn', 'not_found')`,
+    ),
   ]
 );
 
@@ -1535,6 +1548,10 @@ export const listingCandidateHandoffsRelations = relations(listingCandidateHando
     fields: [listingCandidateHandoffs.previewResultId],
     references: [listingPreviewResults.id],
   }),
+  observation: one(listingObservations, {
+    fields: [listingCandidateHandoffs.observationId],
+    references: [listingObservations.id],
+  }),
 }));
 
 export const listingObservationsRelations = relations(listingObservations, ({ one, many }) => ({
@@ -1557,6 +1574,10 @@ export const listingObservationsRelations = relations(listingObservations, ({ on
   previewResult: one(listingPreviewResults, {
     fields: [listingObservations.previewResultId],
     references: [listingPreviewResults.id],
+  }),
+  candidateHandoff: one(listingCandidateHandoffs, {
+    fields: [listingObservations.candidateHandoffId],
+    references: [listingCandidateHandoffs.id],
   }),
   observationLink: one(listingObservationLinks),
   priceObservations: many(listingPriceObservations),

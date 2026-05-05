@@ -37,54 +37,21 @@ function getSourceColor(sourceName: string) {
   return sourceName === 'funda' ? '#F97316' : sourceName === 'pararius' ? '#DE911D' : '#9C958A';
 }
 
-function getValidationBadge(preview: ListingPreviewResponse) {
-  if (preview.validationState === 'invalid' || preview.matchState === 'mismatch') {
-    return { label: 'Mismatch', color: '#EF4444', icon: 'alert-circle' as const };
-  }
-  if (preview.validationState === 'valid' && preview.matchState === 'matched') {
-    return { label: 'Validated', color: '#22C55E', icon: 'checkmark-circle' as const };
-  }
-  return { label: 'Pending validation', color: '#F59E0B', icon: 'time-outline' as const };
+function getValidationBadge() {
+  return { label: 'Validated', color: '#22C55E', icon: 'checkmark-circle' as const };
 }
 
 function getHandoffLabel(handoffState: ListingPreviewResponse['handoffState'] | null) {
   switch (handoffState) {
     case 'will_create':
       return 'Candidate will be queued';
-    case 'unsupported':
-      return 'Unsupported';
     default:
       return null;
   }
 }
 
-function getInvalidPreviewMessage(preview: ListingPreviewResponse) {
-  if (preview.reasonCode === 'source_not_supported') {
-    return 'This listing source is not supported.';
-  }
-  if (preview.reasonCode === 'source_not_found') {
-    return 'This listing could not be found.';
-  }
-  if (preview.matchState === 'mismatch' || preview.reasonCode === 'address_mismatch') {
-    return 'This listing does not match this property.';
-  }
-  return 'This listing cannot be linked to this property.';
-}
-
-function isPreviewUnsupported(preview: ListingPreviewResponse) {
-  return (
-    preview.handoffState === 'unsupported' ||
-    preview.matchState === 'unsupported' ||
-    preview.reasonCode === 'source_not_supported'
-  );
-}
-
 function canSubmitPreview(preview: ListingPreviewResponse) {
-  return (
-    preview.validationState !== 'invalid' &&
-    preview.matchState !== 'mismatch' &&
-    !isPreviewUnsupported(preview)
-  );
+  return preview.validationState === 'valid' && preview.matchState === 'matched';
 }
 
 function getPreviewTitle(preview: ListingPreviewResponse) {
@@ -467,7 +434,7 @@ export function ListingSubmissionSheet({
                       </Text>
                     </View>
                     {(() => {
-                      const validationBadge = getValidationBadge(previewData);
+                      const validationBadge = getValidationBadge();
                       return (
                         <View
                           style={{ backgroundColor: validationBadge.color }}
@@ -491,29 +458,10 @@ export function ListingSubmissionSheet({
                 </View>
               </View>
 
-              {previewData.validationState === 'valid' && previewData.matchState === 'matched' && (
+              {previewCanSubmit && (
                 <View className="flex-row items-center mt-3 p-3 bg-green-50 rounded-xl border border-green-200">
                   <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
                   <Text className="text-sm text-green-700 ml-2">Source validation matched</Text>
-                </View>
-              )}
-
-              {previewData.validationState === 'provisional' &&
-                !isPreviewUnsupported(previewData) && (
-                  <View className="flex-row items-center mt-3 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
-                    <Ionicons name="time-outline" size={20} color="#F59E0B" />
-                    <Text className="text-sm text-amber-700 ml-2">Pending source validation</Text>
-                  </View>
-                )}
-
-              {!previewCanSubmit && (
-                <View className="flex-row items-start mt-3 p-3 bg-red-50 rounded-xl border border-red-200">
-                  <Ionicons name="alert-circle" size={20} color="#EF4444" />
-                  <View className="ml-2 flex-1">
-                    <Text className="text-sm text-red-600">
-                      {getInvalidPreviewMessage(previewData)}
-                    </Text>
-                  </View>
                 </View>
               )}
 

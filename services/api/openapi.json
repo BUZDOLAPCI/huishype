@@ -7281,39 +7281,26 @@
                     "validationState": {
                       "type": "string",
                       "enum": [
-                        "valid",
-                        "invalid",
-                        "provisional"
+                        "valid"
                       ]
                     },
                     "matchState": {
                       "type": "string",
                       "enum": [
-                        "matched",
-                        "mismatch",
-                        "unverified",
-                        "unsupported"
+                        "matched"
                       ]
                     },
                     "handoffState": {
                       "type": "string",
                       "enum": [
-                        "will_create",
-                        "unsupported"
+                        "will_create"
                       ]
                     },
                     "reasonCode": {
                       "type": "string",
                       "enum": [
                         "source_identity_match",
-                        "address_match",
-                        "address_mismatch",
-                        "source_not_supported",
-                        "source_not_found",
-                        "mirror_unavailable",
-                        "parser_error",
-                        "og_unavailable",
-                        "validation_pending"
+                        "address_match"
                       ]
                     },
                     "title": {
@@ -7490,7 +7477,7 @@
         "tags": [
           "listings"
         ],
-        "description": "Creates a listing from a user-submitted URL. Requires authentication.",
+        "description": "Creates a listing from a validated preview token. Requires authentication.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -8096,8 +8083,7 @@
                         "sourceUrl",
                         "mirrorListingId",
                         "askingPrice",
-                        "priceType",
-                        "address"
+                        "priceType"
                       ]
                     }
                   },

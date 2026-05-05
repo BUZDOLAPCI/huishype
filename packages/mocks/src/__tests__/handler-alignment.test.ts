@@ -399,13 +399,8 @@ describe('Mock handler runtime parity', () => {
     expect(submitBody).toHaveProperty('sourceName');
     expect(submitBody).toHaveProperty('status');
     expect(submitBody).toHaveProperty('createdAt');
-    expect(submitBody).toHaveProperty('canonicalListingId');
     expect(submitBody).toHaveProperty('canonicalUrl');
-    expect(submitBody).toHaveProperty('displayUrl');
     expect(submitBody).toHaveProperty('sourceListingId');
-    expect(submitBody).toHaveProperty('sourceListingIdKind');
-    expect(submitBody).toHaveProperty('validationState', 'valid');
-    expect(submitBody).toHaveProperty('matchState', 'matched');
     expect(submitBody).toHaveProperty('candidateHandoffState', 'queued');
     expect(submitBody).toHaveProperty('candidateId');
     expect(submitBody).toHaveProperty('verificationState', 'validated');
@@ -420,24 +415,10 @@ describe('Mock handler runtime parity', () => {
       }),
     });
     const mismatchPreviewBody = await mismatchPreviewResponse.json();
-    expect(mismatchPreviewResponse.status).toBe(200);
-    expect(mismatchPreviewBody).toHaveProperty('validationState', 'invalid');
-    expect(mismatchPreviewBody).toHaveProperty('matchState', 'mismatch');
-
-    const mismatchSubmitResponse = await fetch('http://localhost/listings/submit', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        previewToken: mismatchPreviewBody.previewToken,
-      }),
-    });
-    expect(mismatchSubmitResponse.status).toBe(422);
-    expect(await mismatchSubmitResponse.json()).toMatchObject({
+    expect(mismatchPreviewResponse.status).toBe(400);
+    expect(mismatchPreviewBody).toMatchObject({
       error: 'LISTING_VALIDATION_FAILED',
-      reasonCode: 'address_mismatch',
+      message: 'Listing validation failed: address_mismatch',
     });
   });
 

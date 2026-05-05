@@ -12,7 +12,6 @@ import type {
   ListingPreviewResponse,
   ListingReadItem,
   ListingSubmitResult,
-  ListingValidationState,
 } from '@huishype/shared';
 import { mockListings, mockPropertyDetails, getMockProperty } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
@@ -69,38 +68,18 @@ function getMockPriceType(rawUrl: string): 'sale' | 'rent' | 'unknown' {
   return 'unknown';
 }
 
-function getMockPreviewState(rawUrl: string): {
-  validationState: ListingValidationState;
-  matchState: ListingPreviewResponse['matchState'];
-  handoffState: ListingPreviewResponse['handoffState'];
-  reasonCode: ListingPreviewResponse['reasonCode'];
-  matchedPropertyId: string | null;
-} {
+function getMockPreviewRejection(rawUrl: string): { message: string } | null {
   if (rawUrl.includes('mismatch')) {
     return {
-      validationState: 'invalid',
-      matchState: 'mismatch',
-      handoffState: 'will_create',
-      reasonCode: 'address_mismatch',
-      matchedPropertyId: null,
+      message: 'Listing validation failed: address_mismatch',
     };
   }
   if (rawUrl.includes('pending') || rawUrl.includes('unavailable')) {
     return {
-      validationState: 'provisional',
-      matchState: 'unverified',
-      handoffState: 'will_create',
-      reasonCode: 'mirror_unavailable',
-      matchedPropertyId: null,
+      message: 'Listing validation failed: mirror_unavailable',
     };
   }
-  return {
-    validationState: 'valid',
-    matchState: 'matched',
-    handoffState: 'will_create',
-    reasonCode: 'source_identity_match',
-    matchedPropertyId: null,
-  };
+  return null;
 }
 
 function buildMockPreviewResponse(
@@ -110,17 +89,16 @@ function buildMockPreviewResponse(
 ): ListingPreviewResponse {
   const sourceName = detectSourceName(rawUrl);
   const identity = canonicalizeMockUrl(rawUrl);
-  const state = getMockPreviewState(rawUrl);
   return {
     sourceName,
     rawUrl,
     canonicalUrl: identity.canonicalUrl,
     sourceListingId: identity.sourceListingId,
     sourceListingIdKind: identity.sourceListingIdKind,
-    validationState: state.validationState,
-    matchState: state.matchState,
-    handoffState: state.handoffState,
-    reasonCode: state.reasonCode,
+    validationState: 'valid',
+    matchState: 'matched',
+    handoffState: 'will_create',
+    reasonCode: 'source_identity_match',
     title: `Te koop: ${property.address}`,
     description: `A mock listing for ${property.address}`,
     imageUrl: 'https://example.com/listing-preview.jpg',
@@ -129,8 +107,7 @@ function buildMockPreviewResponse(
     currency: 'EUR',
     address: `${property.address}, ${property.postalCode} ${property.city}`,
     submittedPropertyId,
-    matchedPropertyId:
-      state.matchState === 'matched' ? submittedPropertyId : state.matchedPropertyId,
+    matchedPropertyId: submittedPropertyId,
     previewToken: `mock-preview-token-${encodeURIComponent(rawUrl)}`,
     previewId: '22222222-2222-4222-8222-222222222222',
   };
@@ -268,6 +245,17 @@ export const listingHandlers = [
       );
     }
 
+    const previewRejection = getMockPreviewRejection(parsed.data.url);
+    if (previewRejection) {
+      return HttpResponse.json(
+        {
+          error: 'LISTING_VALIDATION_FAILED',
+          message: previewRejection.message,
+        },
+        { status: 400 }
+      );
+    }
+
     const preview = buildMockPreviewResponse(parsed.data.url, property, parsed.data.propertyId);
     previewResults.set(preview.previewToken, preview);
 
@@ -311,17 +299,6 @@ export const listingHandlers = [
       );
     }
 
-    if (preview.validationState === 'invalid' || preview.matchState === 'mismatch') {
-      return HttpResponse.json(
-        {
-          error: 'LISTING_VALIDATION_FAILED',
-          message: 'This listing does not match this property.',
-          reasonCode: preview.reasonCode,
-        },
-        { status: 422 }
-      );
-    }
-
     previewResults.delete(parsed.data.previewToken);
 
     const response: ListingSubmitResult = {
@@ -331,19 +308,11 @@ export const listingHandlers = [
       sourceName: preview.sourceName,
       status: 'active',
       createdAt: new Date().toISOString(),
-      canonicalListingId: '11111111-1111-4111-8111-111111111111',
       canonicalUrl: preview.canonicalUrl,
-      displayUrl: preview.canonicalUrl ?? preview.rawUrl,
       sourceListingId: preview.sourceListingId,
-      sourceListingIdKind: preview.sourceListingIdKind,
-      validationState: preview.validationState,
-      matchState: preview.matchState,
       candidateHandoffState: 'queued',
       candidateId: '33333333-3333-4333-8333-333333333333',
-      verificationState:
-        preview.validationState === 'valid' && preview.matchState === 'matched'
-          ? 'validated'
-          : 'validation_pending',
+      verificationState: 'validated',
       reasonCode: preview.reasonCode,
     };
 
