@@ -1280,6 +1280,33 @@ export const propertyReadState = pgTable(
   ]
 );
 
+export const propertyReadStateVersions = pgTable(
+  'property_read_state_versions',
+  {
+    id: serial('id').primaryKey(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id'),
+    version: bigint('version', { mode: 'number' }).notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('property_read_state_versions_user_idx')
+      .on(table.userId)
+      .where(sql`user_id IS NOT NULL AND session_id IS NULL`),
+    uniqueIndex('property_read_state_versions_session_idx')
+      .on(table.sessionId)
+      .where(sql`session_id IS NOT NULL AND user_id IS NULL`),
+    check(
+      'property_read_state_versions_exactly_one_identity_chk',
+      sql`(${table.userId} IS NULL) <> (${table.sessionId} IS NULL)`,
+    ),
+    check(
+      'property_read_state_versions_session_not_blank_chk',
+      sql`${table.sessionId} IS NULL OR BTRIM(${table.sessionId}) <> ''`,
+    ),
+  ]
+);
+
 // Saved Properties table
 export const savedProperties = pgTable(
   'saved_properties',

@@ -1442,6 +1442,92 @@ describe('Listing routes', () => {
       });
     });
 
+    it('keeps repeated user submissions idempotent for active candidate handoffs and visible listings', async () => {
+      const fixture = await createMatchedSubmissionFixture('repeat-submit');
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl: fixture.rawUrl,
+          canonicalUrl: fixture.canonicalUrl,
+          sourceListingId: fixture.sourceListingId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [
+            { kind: 'tiny_id', value: fixture.sourceListingId },
+            { kind: 'detail_id', value: fixture.sourceListingId },
+          ],
+          listingPath: `/detail/${fixture.sourceListingId}/`,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'matched',
+          sourceName: 'funda',
+          rawUrl: fixture.rawUrl,
+          canonicalUrl: fixture.canonicalUrl,
+          sourceListingId: fixture.sourceListingId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [
+            { kind: 'tiny_id', value: fixture.sourceListingId },
+            { kind: 'detail_id', value: fixture.sourceListingId },
+          ],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: testPropertyId,
+            matchKind: 'source_exact',
+          },
+          thumbnailUrl: fixture.thumbnailUrl,
+          title: fixture.title,
+          price: 525000,
+          currency: 'EUR',
+        }));
+
+      const previewResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: fixture.rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = JSON.parse(previewResponse.body) as { previewToken: string };
+
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          previewToken: preview.previewToken,
+        },
+      });
+
+      expect(submitResponse.statusCode).toBe(201);
+      const repeatedSubmission = JSON.parse(submitResponse.body) as { id: string; candidateId: string };
+      expect(repeatedSubmission.id).toBe(fixture.canonicalListingId);
+      expect(repeatedSubmission.candidateId).toBe(fixture.candidateId);
+
+      const handoffs = await db
+        .select()
+        .from(listingCandidateHandoffs)
+        .where(eq(listingCandidateHandoffs.sourceUrlCanonical, fixture.canonicalUrl));
+      expect(handoffs).toHaveLength(1);
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const visibleRows = listingsBody.data.filter((item: { id: string }) => item.id === fixture.canonicalListingId);
+      expect(visibleRows).toHaveLength(1);
+      expect(visibleRows[0]).toMatchObject({
+        candidateHandoffState: 'queued',
+      });
+    });
+
     it('reconciles mirror observations by source candidate id without preview id', async () => {
       const fixture = await createMatchedSubmissionFixture('source-candidate-observation');
       const watermark = await getIngestWatermark('funda');

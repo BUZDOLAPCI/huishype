@@ -18,6 +18,7 @@ const CSV_PATH = '/tmp/vbo_extract.csv';
 const DOCKER_CONTAINER = 'huishype-postgres';
 const DB_USER = 'huishype';
 const DB_NAME = 'huishype';
+const PROPERTY_TILE_SNAPSHOT_KEY = 'public_default_low_zoom';
 
 /**
  * Format elapsed time as human-readable string.
@@ -267,24 +268,95 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
         OR properties.floor_area_m2 IS DISTINCT FROM EXCLUDED.floor_area_m2
         OR properties.status IS DISTINCT FROM EXCLUDED.status
       RETURNING id
+    ),
+    changed_read_state AS (
+      INSERT INTO property_change_state (property_id, change_version, last_changed_at)
+      SELECT id, 1, NOW()
+      FROM changed_properties
+      ON CONFLICT (property_id) DO UPDATE SET
+        change_version = property_change_state.change_version + 1,
+        last_changed_at = EXCLUDED.last_changed_at
+      RETURNING property_id
     )
-    INSERT INTO property_change_state (property_id, change_version, last_changed_at)
-    SELECT id, 1, NOW()
-    FROM changed_properties
-    ON CONFLICT (property_id) DO UPDATE SET
-      change_version = property_change_state.change_version + 1,
-      last_changed_at = EXCLUDED.last_changed_at
+    SELECT COUNT(*)::int AS changed_count
+    FROM changed_read_state
   `;
 
-  await sql.unsafe(upsertQuery);
+  const changedRows = await sql.unsafe(upsertQuery);
+  const changedCount = Number(changedRows[0]?.changed_count ?? 0);
 
   // Reset statement timeout
   await sql`SET statement_timeout = '0'`;
 
   const result = await sql`SELECT COUNT(*)::int AS count FROM properties`;
   const totalProperties = result[0].count;
-  console.log(`  Upserted to ${fmt(totalProperties)} total properties in ${formatTime(Date.now() - start)}`);
+  console.log(
+    `  Upserted ${fmt(changedCount)} changed properties to ${fmt(totalProperties)} total properties in ${formatTime(Date.now() - start)}`,
+  );
+  if (changedCount > 0) {
+    await requestPropertyTileSnapshotRefreshAfterBulkImport(sql, 'bag-seed');
+  }
   return totalProperties;
+}
+
+async function requestPropertyTileSnapshotRefreshAfterBulkImport(
+  sql: postgres.Sql,
+  reason: string,
+): Promise<void> {
+  const { ensureDefaultPropertyTileSnapshotCoverage } = await import('../src/services/property-tile-snapshots.js');
+  await ensureDefaultPropertyTileSnapshotCoverage();
+
+  await sql`
+    WITH updated_watermarks AS (
+      INSERT INTO property_tile_snapshot_watermarks (
+        key,
+        property_watermark,
+        coverage_watermark,
+        updated_at
+      )
+      VALUES (
+        ${PROPERTY_TILE_SNAPSHOT_KEY},
+        1,
+        1,
+        NOW()
+      )
+      ON CONFLICT (key) DO UPDATE SET
+        property_watermark = property_tile_snapshot_watermarks.property_watermark + 1,
+        coverage_watermark = property_tile_snapshot_watermarks.coverage_watermark + 1,
+        updated_at = NOW()
+      RETURNING
+        listing_watermark,
+        social_watermark,
+        property_watermark,
+        coverage_watermark
+    )
+    INSERT INTO property_tile_snapshot_refresh_state (
+      key,
+      requested_at,
+      request_reason,
+      requested_listing_watermark,
+      requested_social_watermark,
+      requested_property_watermark,
+      requested_coverage_watermark
+    )
+    SELECT
+      ${PROPERTY_TILE_SNAPSHOT_KEY},
+      NOW(),
+      ${reason},
+      listing_watermark,
+      social_watermark,
+      property_watermark,
+      coverage_watermark
+    FROM updated_watermarks
+    ON CONFLICT (key) DO UPDATE SET
+      requested_at = EXCLUDED.requested_at,
+      request_reason = EXCLUDED.request_reason,
+      requested_listing_watermark = EXCLUDED.requested_listing_watermark,
+      requested_social_watermark = EXCLUDED.requested_social_watermark,
+      requested_property_watermark = EXCLUDED.requested_property_watermark,
+      requested_coverage_watermark = EXCLUDED.requested_coverage_watermark
+  `;
+  console.log(`  Requested property tile snapshot refresh (reason: ${reason})`);
 }
 
 // ---------------------------------------------------------------------------

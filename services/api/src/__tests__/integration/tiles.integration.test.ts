@@ -782,7 +782,7 @@ describe('Tile routes', () => {
         await waitForPendingDefaultPropertyTileSnapshotRefreshesForTests();
         const refreshState = await readPropertyTileSnapshotRefreshState();
         expect(refreshState).not.toBeNull();
-        expect(refreshState?.request_reason).toBe('test-recent-refresh');
+        expect(refreshState?.request_reason).toBe('snapshot-lookup-miss');
         expect(timestampMs(refreshState?.requested_at ?? null)).toBe(previousRefreshRequestedAt.getTime());
 
         const rows = await db.execute<{ coverage_count: number }>(sql`
@@ -840,6 +840,18 @@ describe('Tile routes', () => {
         expect(response.headers['x-tile-queue-time']).toBe('0ms');
         expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
         expect(response.headers.etag).toBeDefined();
+
+        resetPropertyTileCacheForTests();
+        const conditionalResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'if-none-match': String(response.headers.etag) },
+        });
+
+        expect(conditionalResponse.statusCode).toBe(304);
+        expect(conditionalResponse.headers['x-tile-cache']).toBe('precomputed');
+        expect(conditionalResponse.headers['x-tile-snapshot']).toBe('hit');
+        expect(conditionalResponse.headers.etag).toBe(response.headers.etag);
       } finally {
         await db.execute(sql`
           DELETE FROM property_tile_snapshots
@@ -978,6 +990,18 @@ describe('Tile routes', () => {
         expect(response.headers['x-tile-queue-time']).toBe('7ms');
         expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
         expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
+
+        const conditionalResponse = await app.inject({
+          method: 'GET',
+          url: tileUrl,
+          headers: { 'if-none-match': buildPropertyTileEtag(cacheKey, payload) },
+        });
+
+        expect(conditionalResponse.statusCode).toBe(304);
+        expect(conditionalResponse.headers['cache-control']).toBe(
+          'public, max-age=0, must-revalidate',
+        );
+        expect(conditionalResponse.headers['x-tile-cache']).toBe('stale');
       } finally {
         runtimeRunSpy.mockRestore();
       }
@@ -1518,6 +1542,45 @@ describe('Tile routes', () => {
       });
     });
 
+    it('returns private timeout-empty without reusing public stale payloads', async () => {
+      const cacheKey = '17/67478/43551:default';
+      const stalePayload = Buffer.from([0x1a, 0x05, 0x73, 0x74, 0x61, 0x6c, 0x65]);
+      publicPropertyTileCache.set(
+        cacheKey,
+        {
+          payload: stalePayload,
+          statusCode: 200,
+          etag: buildPropertyTileEtag(cacheKey, stalePayload),
+        },
+        Date.now() - (PROPERTY_TILE_CACHE_TTL_SECONDS * 1000 + 1_000),
+      );
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run').mockResolvedValue({
+        state: 'timeout',
+        coalesced: false,
+        runtimeEvent: 'started',
+        queueTimeMs: 5,
+        generationTimeMs: 2_000,
+        budgetMs: 2_000,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/read/17/67478/43551.pbf',
+          headers: { 'x-session-id': `read-timeout-${Date.now()}` },
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.rawPayload.length).toBe(0);
+        expect(response.headers['cache-control']).toBe('no-store, max-age=0');
+        expect(response.headers['x-tile-cache']).toBe('timeout-empty');
+        expect(response.headers.etag).toBeUndefined();
+        expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        runtimeRunSpy.mockRestore();
+      }
+    });
+
     it('returns 204 when matching properties are unread and 200 after viewing', async () => {
       const property = await createIntegrationProperty({
         street: 'Read Overlay Tile Street',
@@ -1529,6 +1592,7 @@ describe('Tile routes', () => {
       });
       const tile = tileCoordinatesForPoint(property.lon, property.lat, 17);
       const sessionId = `read-overlay-${Date.now()}`;
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
 
       try {
         await createIntegrationListing({
@@ -1570,7 +1634,14 @@ describe('Tile routes', () => {
         expect(readResponse.headers['x-tile-cache']).toBe('miss');
         expect(readResponse.headers['x-tile-coalesced']).toBe('false');
         expect(readResponse.rawPayload.length).toBeGreaterThan(0);
+        const readRuntimeKeys = runtimeRunSpy.mock.calls
+          .map(([options]) => options.key)
+          .filter((key) => key.startsWith(`read:${tile.z}/${tile.x}/${tile.y}:default:`));
+        expect(readRuntimeKeys).toHaveLength(2);
+        expect(readRuntimeKeys[0]).toContain(':empty');
+        expect(readRuntimeKeys[1]).not.toBe(readRuntimeKeys[0]);
       } finally {
+        runtimeRunSpy.mockRestore();
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }

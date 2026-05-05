@@ -205,6 +205,8 @@ describe('buildOvertureUpsertQuery', () => {
     expect(query).toContain('geometry = CASE');
     expect(query).toContain('THEN properties.geometry');
     expect(query).toContain('ELSE EXCLUDED.geometry');
+    expect(query).toContain('changed_read_state AS');
+    expect(query).toContain('SELECT COUNT(*)::int AS changed_count');
   });
 });
 

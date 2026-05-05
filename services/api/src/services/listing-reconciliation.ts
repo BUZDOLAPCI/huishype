@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { IngestIdempotencyConflictError } from './ingest/errors.js';
 import {
   canonicalListings,
   db,
@@ -228,6 +229,7 @@ function tokenHash(token: string): string {
 
 function stableJson(value: unknown): string {
   if (typeof value === 'undefined') return 'null';
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(',')}]`;
   const record = value as Record<string, unknown>;
@@ -296,17 +298,174 @@ export async function upsertListingSourceAliases(
     });
 }
 
+function dateKey(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function observationCompatibilityPayload(
+  observation: NewListingObservation | ListingObservation,
+): Record<string, unknown> {
+  const payload = { ...(observation.payload ?? {}) };
+  delete payload.sourceCandidateId;
+
+  return {
+    sourceName: observation.sourceName,
+    sourceListingId: observation.sourceListingId ?? null,
+    sourceListingIdKind: observation.sourceListingIdKind ?? null,
+    sourceListingAliases: observation.sourceListingAliases ?? [],
+    sourceUrlRaw: observation.sourceUrlRaw ?? null,
+    sourceUrlCanonical: observation.sourceUrlCanonical ?? null,
+    submittedBy: observation.submittedBy ?? null,
+    origin: observation.origin,
+    propertyId: observation.propertyId ?? null,
+    propertyMatchKind: observation.propertyMatchKind,
+    sourceStatus: observation.sourceStatus ?? null,
+    diagnosticStatus: observation.diagnosticStatus ?? null,
+    askingPrice: observation.askingPrice ?? null,
+    priceCurrency: observation.priceCurrency ?? null,
+    addressRaw: observation.addressRaw ?? null,
+    addressNormalized: observation.addressNormalized ?? null,
+    postalCode: observation.postalCode ?? null,
+    houseNumber: observation.houseNumber ?? null,
+    houseNumberAddition: observation.houseNumberAddition ?? null,
+    listedAt: dateKey(observation.listedAt),
+    firstSeenAt: dateKey(observation.firstSeenAt),
+    lastSeenAt: dateKey(observation.lastSeenAt),
+    sourceUpdatedAt: dateKey(observation.sourceUpdatedAt),
+    observedAt: dateKey(observation.observedAt),
+    payload,
+  };
+}
+
+function observationsAreCompatible(
+  existing: ListingObservation,
+  incoming: NewListingObservation,
+): boolean {
+  return stableJson(observationCompatibilityPayload(existing))
+    === stableJson(observationCompatibilityPayload(incoming));
+}
+
+async function findCompatibleExistingObservationForIdempotentReplay(
+  observation: NewListingObservation,
+  executor?: ReconciliationDb,
+): Promise<ListingObservation | null> {
+  if (!observation.sourceListingId || !observation.observedAt) return null;
+
+  const observedAt = observation.observedAt instanceof Date
+    ? observation.observedAt
+    : new Date(observation.observedAt);
+  const [existing] = await targetDb(executor)
+    .select()
+    .from(listingObservations)
+    .where(
+      and(
+        eq(listingObservations.sourceName, observation.sourceName),
+        eq(listingObservations.sourceListingId, observation.sourceListingId),
+        eq(listingObservations.origin, observation.origin),
+        eq(listingObservations.observedAt, observedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!existing) return null;
+  if (!observationsAreCompatible(existing, observation)) {
+    throw new IngestIdempotencyConflictError(
+      `Listing observation idempotency key for ${observation.sourceName}:${observation.sourceListingId}:${observedAt.toISOString()} is already bound to different source facts`,
+    );
+  }
+
+  return existing;
+}
+
+function nonNullMetadataValue<T>(value: T | null | undefined): T | undefined {
+  return value == null ? undefined : value;
+}
+
+async function refreshCompatibleObservationMetadata(
+  existing: ListingObservation,
+  incoming: NewListingObservation,
+  executor?: ReconciliationDb,
+): Promise<{ observation: ListingObservation; madeFreshForProjection: boolean }> {
+  const set: Partial<NewListingObservation> = {};
+  const incomingStale = incoming.staleForProjection ?? false;
+  const madeFreshForProjection = existing.staleForProjection && !incomingStale;
+
+  if (existing.staleForProjection !== incomingStale) {
+    set.staleForProjection = incomingStale;
+  }
+  if (
+    incoming.sourceHighWatermark
+    && dateKey(existing.sourceHighWatermark) !== dateKey(incoming.sourceHighWatermark)
+  ) {
+    set.sourceHighWatermark = incoming.sourceHighWatermark;
+  }
+
+  const safeLinkage = {
+    ingestBatchId: nonNullMetadataValue(incoming.ingestBatchId),
+    scopeCompletionId: nonNullMetadataValue(incoming.scopeCompletionId),
+    candidateHandoffId: nonNullMetadataValue(incoming.candidateHandoffId),
+    previewResultId: nonNullMetadataValue(incoming.previewResultId),
+    sourceRunId: nonNullMetadataValue(incoming.sourceRunId),
+  };
+
+  for (const [key, value] of Object.entries(safeLinkage) as Array<
+    [keyof typeof safeLinkage, string]
+  >) {
+    if (value && existing[key] !== value) {
+      set[key] = value;
+    }
+  }
+
+  if (Object.keys(set).length === 0) {
+    return { observation: existing, madeFreshForProjection: false };
+  }
+
+  const [updated] = await targetDb(executor)
+    .update(listingObservations)
+    .set(set)
+    .where(eq(listingObservations.id, existing.id))
+    .returning();
+
+  if (!updated) {
+    throw new Error(`Listing observation ${existing.id} could not be refreshed for idempotent replay`);
+  }
+
+  return { observation: updated, madeFreshForProjection };
+}
+
+async function insertListingObservationInternal(
+  observation: NewListingObservation,
+  executor?: ReconciliationDb,
+): Promise<{ observation: ListingObservation; reusedExisting: boolean; madeFreshForProjection: boolean }> {
+  const [inserted] = await targetDb(executor)
+    .insert(listingObservations)
+    .values(observation)
+    .onConflictDoNothing()
+    .returning();
+
+  if (inserted) {
+    return { observation: inserted, reusedExisting: false, madeFreshForProjection: false };
+  }
+
+  const existing = await findCompatibleExistingObservationForIdempotentReplay(observation, executor);
+  if (existing) {
+    const refreshed = await refreshCompatibleObservationMetadata(existing, observation, executor);
+    return {
+      observation: refreshed.observation,
+      reusedExisting: true,
+      madeFreshForProjection: refreshed.madeFreshForProjection,
+    };
+  }
+  throw new Error('Listing observation insert conflicted without a reusable idempotent observation');
+}
+
 export async function insertListingObservation(
   observation: NewListingObservation,
   executor?: ReconciliationDb,
 ): Promise<ListingObservation> {
-  const [inserted] = await targetDb(executor)
-    .insert(listingObservations)
-    .values(observation)
-    .returning();
-
-  if (!inserted) throw new Error('Listing observation insert did not return a row');
-  return inserted;
+  return (await insertListingObservationInternal(observation, executor)).observation;
 }
 
 async function resolvePrimarySourceListingId(
@@ -869,6 +1028,35 @@ export async function createUserListingSubmission(
   const canonicalListing = await reconcileListingObservation(observation.id, executor);
   if (!canonicalListing) throw new Error('Preview submission did not project a canonical listing');
 
+  const [existingActiveHandoff] = await executor
+    .select()
+    .from(listingCandidateHandoffs)
+    .where(
+      and(
+        eq(listingCandidateHandoffs.sourceName, input.preview.sourceName),
+        eq(listingCandidateHandoffs.propertyId, input.preview.propertyId),
+        eq(listingCandidateHandoffs.sourceUrlCanonical, input.preview.sourceUrlCanonical),
+        sql`${listingCandidateHandoffs.state} IN ('pending', 'queued', 'retryable_error')`,
+      ),
+    )
+    .orderBy(desc(listingCandidateHandoffs.updatedAt), desc(listingCandidateHandoffs.createdAt))
+    .limit(1);
+
+  if (existingActiveHandoff) {
+    await executor
+      .update(listingObservations)
+      .set({ candidateHandoffId: existingActiveHandoff.id })
+      .where(eq(listingObservations.id, observation.id));
+
+    return {
+      canonicalListing,
+      observationId: observation.id,
+      candidateId: existingActiveHandoff.id,
+      candidateHandoffState: existingActiveHandoff.state,
+      reasonCode: input.preview.reasonCode,
+    };
+  }
+
   const [candidate] = await executor
     .insert(listingCandidateHandoffs)
     .values({
@@ -922,7 +1110,7 @@ export async function persistMirrorObservationForIngest(
   const firstSeenAt = toOptionalDate(input.firstSeenAt);
   const observedAt = toOptionalDate(input.observedAt) ?? sourceUpdatedAt ?? lastSeenAt ?? firstSeenAt ?? new Date();
 
-  const observation = await insertListingObservation(
+  const { observation, reusedExisting, madeFreshForProjection } = await insertListingObservationInternal(
     {
       sourceName: input.sourceName,
       sourceListingId: input.sourceListingId,
@@ -973,9 +1161,17 @@ export async function persistMirrorObservationForIngest(
     executor,
   );
 
-  const canonicalListing = await reconcileListingObservation(observation.id, executor);
+  const canonicalListing = reusedExisting && observation.staleForProjection
+    ? await findCanonicalListing(
+        observation,
+        await resolvePrimarySourceListingId(observation, executor),
+        executor,
+      )
+    : await reconcileListingObservation(observation.id, executor);
   if (canonicalListing) {
-    if (observation.diagnosticStatus) {
+    if (observation.staleForProjection) {
+      // Stale compatible replays refresh lineage but do not project candidate state.
+    } else if (observation.diagnosticStatus) {
       await markCandidateHandoffForDiagnosticObservation(observation, canonicalListing, executor);
     } else {
       await completeCandidateHandoffForObservation(observation, canonicalListing, executor);
@@ -994,8 +1190,10 @@ export async function persistMirrorObservationForIngest(
     canonicalListing,
     observationId: observation.id,
     propertyId: canonicalListing?.propertyId ?? input.propertyId,
-    inserted: projectedCanonicalFacts && !input.staleForProjection,
-    changed: (projectedCanonicalFacts || diagnosticRetiredProvisional) && !input.staleForProjection,
+    inserted: !reusedExisting && projectedCanonicalFacts && !input.staleForProjection,
+    changed: (!reusedExisting || madeFreshForProjection)
+      && (projectedCanonicalFacts || diagnosticRetiredProvisional)
+      && !input.staleForProjection,
   };
 }
 
@@ -1023,7 +1221,29 @@ export async function listCanonicalListingsForProperty(
       reasonCode: listingPreviewResults.reasonCode,
     })
     .from(canonicalListings)
-    .leftJoin(listingCandidateHandoffs, eq(listingCandidateHandoffs.canonicalListingId, canonicalListings.id))
+    .leftJoin(
+      listingCandidateHandoffs,
+      eq(
+        listingCandidateHandoffs.id,
+        sql`(
+          SELECT handoff.id
+          FROM listing_candidate_handoffs handoff
+          WHERE handoff.canonical_listing_id = ${canonicalListings.id}
+          ORDER BY
+            CASE handoff.state
+              WHEN 'pending' THEN 0
+              WHEN 'queued' THEN 1
+              WHEN 'retryable_error' THEN 2
+              WHEN 'delivered' THEN 3
+              ELSE 4
+            END,
+            handoff.updated_at DESC,
+            handoff.created_at DESC,
+            handoff.id DESC
+          LIMIT 1
+        )`,
+      ),
+    )
     .leftJoin(listingPreviewResults, eq(listingPreviewResults.id, listingCandidateHandoffs.previewResultId))
     .where(
       and(

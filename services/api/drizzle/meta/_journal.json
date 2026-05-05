@@ -148,6 +148,13 @@
       "when": 1777939200000,
       "tag": "0020_listing_source_truth_app_side",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1777939200001,
+      "tag": "0021_property_read_state_versions",
+      "breakpoints": true
     }
   ]
 }

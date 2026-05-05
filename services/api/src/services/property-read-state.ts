@@ -123,6 +123,7 @@ export async function markPropertyRead(
         ),
         seen_at = NOW()
     `);
+    await advancePropertyReadViewerVersion(viewer, target);
     return;
   }
 
@@ -141,7 +142,46 @@ export async function markPropertyRead(
         property_read_state.seen_change_version,
         EXCLUDED.seen_change_version
       ),
-      seen_at = NOW()
+        seen_at = NOW()
+  `);
+  await advancePropertyReadViewerVersion(viewer, target);
+}
+
+export async function advancePropertyReadViewerVersion(
+  viewer: PropertyReadViewer,
+  executor?: SqlExecutor | DbTransaction,
+): Promise<void> {
+  const target = executorOrDb(executor);
+
+  if ('userId' in viewer) {
+    await target.execute(sql`
+      INSERT INTO property_read_state_versions (
+        user_id,
+        session_id,
+        version,
+        updated_at
+      )
+      VALUES (${viewer.userId}, NULL, 1, NOW())
+      ON CONFLICT (user_id) WHERE user_id IS NOT NULL AND session_id IS NULL
+      DO UPDATE SET
+        version = property_read_state_versions.version + 1,
+        updated_at = NOW()
+    `);
+    return;
+  }
+
+  await target.execute(sql`
+    INSERT INTO property_read_state_versions (
+      user_id,
+      session_id,
+      version,
+      updated_at
+    )
+    VALUES (NULL, ${viewer.sessionId}, 1, NOW())
+    ON CONFLICT (session_id) WHERE session_id IS NOT NULL AND user_id IS NULL
+    DO UPDATE SET
+      version = property_read_state_versions.version + 1,
+      updated_at = NOW()
   `);
 }
 

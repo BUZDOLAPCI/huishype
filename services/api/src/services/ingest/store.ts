@@ -608,13 +608,32 @@ export async function createMaintenanceRefreshRequest(
       maintenanceRequestedAt: requestedAt,
       maintenanceCompletedAt: null,
     })
+    .onConflictDoNothing()
     .returning({
       batchId: ingestBatches.id,
       sourceName: ingestBatches.sourceName,
       maintenanceRequestedAt: ingestBatches.maintenanceRequestedAt,
     });
 
-  const row = rows[0];
+  let row = rows[0];
+  if (!row) {
+    const existingRows = await tx
+      .select({
+        batchId: ingestBatches.id,
+        sourceName: ingestBatches.sourceName,
+        maintenanceRequestedAt: ingestBatches.maintenanceRequestedAt,
+      })
+      .from(ingestBatches)
+      .where(
+        and(
+          eq(ingestBatches.sourceName, request.sourceName),
+          eq(ingestBatches.idempotencyKey, request.idempotencyKey),
+        ),
+      )
+      .limit(1);
+    row = existingRows[0];
+  }
+
   if (!row) {
     throw new Error('Failed to create maintenance refresh request');
   }

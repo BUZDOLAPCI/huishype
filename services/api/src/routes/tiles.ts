@@ -561,10 +561,8 @@ async function getReadStateScopeForViewer(
       }
       return tx.execute<{
         has_read_state: boolean;
-        read_count: number;
-        max_seen_at: string | null;
-        max_change_version: number | null;
-        scope_digest: string | null;
+        read_version: number | null;
+        read_version_updated_at: string | null;
       }>(sql`
       SELECT
         EXISTS (
@@ -575,29 +573,14 @@ async function getReadStateScopeForViewer(
             AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
           LIMIT 1
         ) AS has_read_state,
-        COUNT(*)::int AS read_count,
-        MAX(prs.seen_at)::text AS max_seen_at,
-        MAX(COALESCE(pcs.change_version, 0))::bigint AS max_change_version,
-        md5(
-          COALESCE(
-            string_agg(
-              concat_ws(
-                ':',
-                prs.property_id::text,
-                prs.seen_change_version::text,
-                COALESCE(pcs.change_version, 0)::text,
-                EXTRACT(EPOCH FROM prs.seen_at)::text
-              ),
-              '|'
-              ORDER BY prs.property_id::text
-            ),
-            ''
-          )
-        ) AS scope_digest
-      FROM property_read_state prs
-      LEFT JOIN property_change_state pcs ON pcs.property_id = prs.property_id
-      WHERE ${readStateIdentityPredicate(viewer)}
-        AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
+        COALESCE(MAX(prsv.version), 0)::bigint AS read_version,
+        MAX(prsv.updated_at)::text AS read_version_updated_at
+      FROM property_read_state_versions prsv
+      WHERE ${
+        'userId' in viewer
+          ? sql`prsv.user_id = ${viewer.userId} AND prsv.session_id IS NULL`
+          : sql`prsv.session_id = ${viewer.sessionId} AND prsv.user_id IS NULL`
+      }
     `);
     })
     .finally(() => {
@@ -612,9 +595,7 @@ async function getReadStateScopeForViewer(
 
   return {
     hasReadState: true,
-    scope: `${row.read_count}:${row.max_seen_at ?? 'none'}:${row.max_change_version ?? 0}:${
-      row.scope_digest ?? 'none'
-    }`,
+    scope: `${row.read_version ?? 0}:${row.read_version_updated_at ?? 'none'}`,
   };
 }
 
@@ -2290,15 +2271,49 @@ export async function tileRoutes(app: FastifyInstance) {
       const viewerScope = getPropertyReadViewerScope(viewer);
       const filterSignature = getMapFilterSignature(filters);
       const stageTimings: PropertyTileStageTiming[] = [];
+      let initialReadScope: { hasReadState: boolean; scope: string };
+      const readScopeStartedAt = Date.now();
+      try {
+        initialReadScope = await getReadStateScopeForViewer(viewer, {
+          statementTimeoutMs: runtimeConfig.privateBudgetMs,
+          runtimeBudgetMs: runtimeConfig.privateBudgetMs,
+          runtimeStartedAtMs: readScopeStartedAt,
+          runtimeDeadlineMs: readScopeStartedAt + runtimeConfig.privateBudgetMs,
+        });
+      } catch (error) {
+        if (!isPropertyTileRecoverableError(error)) {
+          throw error;
+        }
+        const timeoutRuntime = {
+          coalesced: false,
+          queueTimeMs: 0,
+          generationTimeMs: Date.now() - readScopeStartedAt,
+          budgetMs: runtimeConfig.privateBudgetMs,
+        };
+        logTileOutcome({
+          request,
+          routeKind: 'read',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'timeout-empty',
+          result: 'timeout-empty',
+          runtime: timeoutRuntime,
+          errorClassification: 'budget_timeout',
+          viewerId: viewerScope,
+          stageTimings,
+        });
+        return sendTimeoutEmptyTile(reply, timeoutRuntime, 'Authorization, x-session-id');
+      }
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({
-        key: `read:${z}/${x}/${y}:${filterSignature}:${viewerScope}:live`,
+        key: `read:${z}/${x}/${y}:${filterSignature}:${viewerScope}:${initialReadScope.scope}`,
         zoom: z,
         budgetMs: runtimeConfig.privateBudgetMs,
         statementTimeoutMs: runtimeConfig.privateBudgetMs,
         signal: createRequestAbortSignal(request, reply),
         builder: async (options) => {
-          const readScope = await getReadStateScopeForViewer(viewer, options);
-          const payloadResult = readScope.hasReadState
+          const payloadResult = initialReadScope.hasReadState
             ? buildPayloadResult(
                 await buildReadMvtForTile({ z, x, y }, viewer, filters, {
                   ...options,
@@ -2310,7 +2325,7 @@ export async function tileRoutes(app: FastifyInstance) {
               )
             : ({ payload: null, statusCode: 204 } satisfies PropertyTilePayloadBuildResult);
           const latestReadScope = await getReadStateScopeForViewer(viewer, options);
-          if (latestReadScope.scope !== readScope.scope) {
+          if (latestReadScope.scope !== initialReadScope.scope) {
             throw new PropertyTileBuildAbortedError('Read-state scope changed during tile build');
           }
           return payloadResult;

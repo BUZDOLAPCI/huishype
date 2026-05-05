@@ -26,12 +26,6 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;--> statement-breakpoint
 
-DROP TABLE IF EXISTS "mirror_listing_watches";--> statement-breakpoint
-DROP INDEX IF EXISTS "listing_observations_validation_watch_idx";--> statement-breakpoint
-ALTER TABLE "listing_observations"
-  DROP COLUMN IF EXISTS "validation_watch_id";--> statement-breakpoint
-DROP TYPE IF EXISTS "mirror_listing_watch_state";--> statement-breakpoint
-
 ALTER TABLE "listing_observations"
   ALTER COLUMN "source_status" DROP DEFAULT,
   ALTER COLUMN "source_status" DROP NOT NULL;--> statement-breakpoint
@@ -198,6 +192,103 @@ ON "listing_observations" ("candidate_handoff_id");--> statement-breakpoint
 
 DO $$
 BEGIN
+  IF to_regclass('public.mirror_listing_watches') IS NOT NULL THEN
+    EXECUTE $migrate_watches$
+      INSERT INTO "listing_candidate_handoffs" (
+        "id",
+        "canonical_listing_id",
+        "observation_id",
+        "source_name",
+        "property_id",
+        "submitted_by",
+        "source_url_raw",
+        "source_url_canonical",
+        "source_listing_id",
+        "preview_facts",
+        "match_evidence",
+        "state",
+        "attempt_count",
+        "last_attempt_at",
+        "next_attempt_at",
+        "last_error",
+        "created_at",
+        "updated_at"
+      )
+      SELECT
+        watch."id",
+        watch."canonical_listing_id",
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM "listing_observations" observation
+            WHERE observation."id" = watch."last_validation_observation_id"
+          )
+          THEN watch."last_validation_observation_id"
+          ELSE NULL
+        END,
+        watch."source_name",
+        watch."property_id",
+        watch."submitted_by",
+        watch."source_url_raw",
+        watch."source_url_canonical",
+        watch."source_listing_id",
+        jsonb_build_object('migratedFrom', 'mirror_listing_watches'),
+        jsonb_strip_nulls(jsonb_build_object('stateReason', watch."state_reason")),
+        CASE watch."state"::text
+          WHEN 'pending' THEN 'pending'::"listing_candidate_handoff_state"
+          WHEN 'queued' THEN 'queued'::"listing_candidate_handoff_state"
+          WHEN 'fetching' THEN 'pending'::"listing_candidate_handoff_state"
+          WHEN 'retryable_error' THEN 'retryable_error'::"listing_candidate_handoff_state"
+          WHEN 'invalid' THEN 'dead_letter'::"listing_candidate_handoff_state"
+          WHEN 'unsupported' THEN 'dead_letter'::"listing_candidate_handoff_state"
+          ELSE 'delivered'::"listing_candidate_handoff_state"
+        END,
+        watch."attempt_count",
+        watch."last_attempt_at",
+        watch."next_attempt_at",
+        COALESCE(watch."last_error", watch."state_reason"),
+        watch."created_at",
+        watch."updated_at"
+      FROM "mirror_listing_watches" watch
+      ON CONFLICT ("id") DO NOTHING
+    $migrate_watches$;
+  END IF;
+END $$;--> statement-breakpoint
+
+DO $$
+BEGIN
+  IF to_regclass('public.mirror_listing_watches') IS NOT NULL
+     AND EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'listing_observations'
+         AND column_name = 'validation_watch_id'
+     ) THEN
+    EXECUTE $migrate_observation_watch_links$
+      UPDATE "listing_observations" observation
+      SET "candidate_handoff_id" = observation."validation_watch_id"
+      WHERE observation."validation_watch_id" IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM "listing_candidate_handoffs" handoff
+          WHERE handoff."id" = observation."validation_watch_id"
+        )
+    $migrate_observation_watch_links$;
+  END IF;
+END $$;--> statement-breakpoint
+
+DO $$
+BEGIN
+  UPDATE "listing_candidate_handoffs" handoff
+  SET "observation_id" = NULL
+  WHERE handoff."observation_id" IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "listing_observations" observation
+      WHERE observation."id" = handoff."observation_id"
+    );
+
   ALTER TABLE "listing_candidate_handoffs"
     ADD CONSTRAINT "listing_candidate_handoffs_observation_fk"
     FOREIGN KEY ("observation_id") REFERENCES "listing_observations"("id")
@@ -205,6 +296,12 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;--> statement-breakpoint
+
+DROP TABLE IF EXISTS "mirror_listing_watches";--> statement-breakpoint
+DROP INDEX IF EXISTS "listing_observations_validation_watch_idx";--> statement-breakpoint
+ALTER TABLE "listing_observations"
+  DROP COLUMN IF EXISTS "validation_watch_id";--> statement-breakpoint
+DROP TYPE IF EXISTS "mirror_listing_watch_state";--> statement-breakpoint
 
 DO $$
 BEGIN

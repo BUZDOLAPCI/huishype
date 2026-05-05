@@ -8,6 +8,7 @@ import {
   ingestRuns,
   ingestSources,
   canonicalListings,
+  listingCandidateHandoffs,
   listings,
   listingObservations,
   listingPriceObservations,
@@ -41,6 +42,7 @@ describe('Durable ingest API contract', () => {
     await db.delete(priceHistory).where(eq(priceHistory.source, sourceName));
     await db.delete(listings).where(eq(listings.sourceName, sourceName));
     await db.delete(listingPriceObservations).where(eq(listingPriceObservations.sourceName, sourceName));
+    await db.delete(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.sourceName, sourceName));
     await db.delete(listingObservations).where(eq(listingObservations.sourceName, sourceName));
     await db.delete(canonicalListings).where(eq(canonicalListings.sourceName, sourceName));
     await db.delete(listingScopeCompletions).where(eq(listingScopeCompletions.sourceName, sourceName));
@@ -515,6 +517,122 @@ describe('Durable ingest API contract', () => {
     expect(maintenanceCalls).toBe(1);
   });
 
+  it('does not withdraw present sale listings from unknown full-mirror completions', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = `Unknown Completion Street ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 45 });
+    const mirrorListingId = `idealista-unknown-completion-${stamp}`;
+    const sourceUrl = `https://www.idealista.com/inmueble/unknown-completion-${stamp}/`;
+    const firstCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T16:00:00.000Z',
+      listingKey: `${mirrorListingId}-active`,
+    });
+
+    const firstAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-unknown-completion-active-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: firstCursor,
+      upstreamRunKey: `idealista-unknown-completion-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          scopeKey: 'full-mirror',
+          askingPrice: 440000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-06T16:00:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 45,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await processIngestBatch({
+      batchId: firstAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const replayAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-unknown-completion-replay-${stamp}`,
+      batchSequence: 1,
+      cursorStart: firstCursor,
+      cursorEnd: encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T17:00:00.000Z',
+        listingKey: `${mirrorListingId}-full-mirror`,
+      }),
+      upstreamRunKey: `idealista-unknown-completion-run-${stamp}`,
+      batchKind: 'observations_and_completion',
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          scopeKey: 'full-mirror',
+          askingPrice: 440000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-06T17:00:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 45,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+      completions: [
+        {
+          scopeKey: 'full-mirror',
+          listingType: 'unknown',
+          sourceRunCompletedAt: '2026-04-06T17:00:00.000Z',
+          observedListingCount: 1,
+          sourceHighWatermark: '2026-04-06T17:00:00.000Z',
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: replayAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [canonical] = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.propertyId, propertyId))
+      .limit(1);
+    expect(canonical).toMatchObject({
+      sourceName,
+      primarySourceListingId: mirrorListingId,
+      status: 'active',
+    });
+
+    const observations = await db
+      .select()
+      .from(listingObservations)
+      .where(eq(listingObservations.sourceListingId, mirrorListingId));
+    expect(observations.map((observation) => observation.sourceStatus)).not.toContain('not_found');
+  });
+
   it('stores stale scoped replay observations without projecting or regressing scope watermarks', async () => {
     const sourceName = 'idealista';
     const street = `Stale Scope Street ${Date.now()}`;
@@ -752,6 +870,318 @@ describe('Durable ingest API contract', () => {
     );
   });
 
+  it('treats older concrete sale and rent observations as stale after an unknown full-mirror watermark', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const salePropertyId = await seedProperty({ street: `Unknown Watermark Sale ${stamp}`, houseNumber: 47 });
+    const rentPropertyId = await seedProperty({ street: `Unknown Watermark Rent ${stamp}`, houseNumber: 48 });
+    const newerCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T22:00:00.000Z',
+      listingKey: `idealista-unknown-watermark-newer-${stamp}`,
+    });
+
+    const newerCompletion = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-unknown-watermark-newer-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: newerCursor,
+      upstreamRunKey: `idealista-unknown-watermark-run-${stamp}`,
+      batchKind: 'completion',
+      completions: [
+        {
+          scopeKey: 'full-mirror',
+          listingType: 'unknown',
+          sourceRunCompletedAt: '2026-04-06T22:00:00.000Z',
+          observedListingCount: 0,
+          sourceHighWatermark: '2026-04-06T22:00:00.000Z',
+        },
+      ],
+    });
+    await processIngestBatch({
+      batchId: newerCompletion.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const staleAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-unknown-watermark-older-${stamp}`,
+      batchSequence: 1,
+      cursorStart: newerCursor,
+      cursorEnd: encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T21:30:00.000Z',
+        listingKey: `idealista-unknown-watermark-older-${stamp}`,
+      }),
+      upstreamRunKey: `idealista-unknown-watermark-run-${stamp}-older`,
+      batchKind: 'observations_and_completion',
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/unknown-watermark-sale-${stamp}/`,
+          mirrorListingId: `idealista-unknown-watermark-sale-${stamp}`,
+          scopeKey: 'full-mirror',
+          askingPrice: 455000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-06T21:30:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street: `Unknown Watermark Sale ${stamp}`,
+            postalCode: '1234 AB',
+            houseNumber: 47,
+            city: 'Eindhoven',
+          },
+        },
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/unknown-watermark-rent-${stamp}/`,
+          mirrorListingId: `idealista-unknown-watermark-rent-${stamp}`,
+          scopeKey: 'full-mirror',
+          askingPrice: 1800,
+          priceType: 'rent',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-06T21:30:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street: `Unknown Watermark Rent ${stamp}`,
+            postalCode: '1234 AB',
+            houseNumber: 48,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+      completions: [
+        {
+          scopeKey: 'full-mirror',
+          listingType: 'unknown',
+          sourceRunCompletedAt: '2026-04-06T21:30:00.000Z',
+          observedListingCount: 2,
+          sourceHighWatermark: '2026-04-06T21:30:00.000Z',
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: staleAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 2,
+      skipped: 0,
+    });
+
+    const observations = await db
+      .select()
+      .from(listingObservations)
+      .where(eq(listingObservations.ingestBatchId, staleAccepted.batchId));
+    expect(observations).toHaveLength(2);
+    expect(observations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ propertyId: salePropertyId, staleForProjection: true }),
+        expect.objectContaining({ propertyId: rentPropertyId, staleForProjection: true }),
+      ]),
+    );
+
+    const canonicals = await db
+      .select()
+      .from(canonicalListings)
+      .where(inArray(canonicalListings.propertyId, [salePropertyId, rentPropertyId]));
+    expect(canonicals).toHaveLength(0);
+  });
+
+  it('refreshes safe metadata when a compatible stale observation is replayed as fresh', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = `Observation Metadata Replay ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 49 });
+    const mirrorListingId = `idealista-metadata-replay-${stamp}`;
+    const sourceUrl = `https://www.idealista.com/inmueble/metadata-replay-${stamp}/`;
+    const newerCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T23:00:00.000Z',
+      listingKey: `${mirrorListingId}-newer-watermark`,
+    });
+    const observedAt = '2026-04-06T22:30:00.000Z';
+
+    const newerCompletion = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-metadata-replay-newer-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: newerCursor,
+      upstreamRunKey: `idealista-metadata-replay-run-${stamp}`,
+      batchKind: 'completion',
+      completions: [
+        {
+          scopeKey: 'full-mirror',
+          listingType: 'unknown',
+          sourceRunCompletedAt: '2026-04-06T23:00:00.000Z',
+          observedListingCount: 0,
+          sourceHighWatermark: '2026-04-06T23:00:00.000Z',
+        },
+      ],
+    });
+    await processIngestBatch({
+      batchId: newerCompletion.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const staleCursor = encodeOpaqueIngestCursor({
+      changedAt: observedAt,
+      listingKey: `${mirrorListingId}-stale`,
+    });
+    const staleAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-metadata-replay-stale-${stamp}`,
+      batchSequence: 1,
+      cursorStart: newerCursor,
+      cursorEnd: staleCursor,
+      upstreamRunKey: `idealista-metadata-replay-run-${stamp}-stale`,
+      batchKind: 'observations_and_completion',
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          scopeKey: 'full-mirror',
+          askingPrice: 465000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: observedAt,
+          mirrorLastSeenAt: observedAt,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 49,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+      completions: [
+        {
+          scopeKey: 'full-mirror',
+          listingType: 'unknown',
+          sourceRunCompletedAt: observedAt,
+          observedListingCount: 1,
+          sourceHighWatermark: observedAt,
+        },
+      ],
+    });
+    await processIngestBatch({
+      batchId: staleAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const [candidate] = await db
+      .insert(listingCandidateHandoffs)
+      .values({
+        sourceName,
+        propertyId,
+        sourceUrlRaw: sourceUrl,
+        sourceUrlCanonical: sourceUrl,
+        sourceListingId: mirrorListingId,
+        previewFacts: { title: 'metadata replay' },
+        matchEvidence: { propertyId },
+        state: 'queued',
+      })
+      .returning();
+    expect(candidate?.id).toBeTruthy();
+
+    const freshAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-metadata-replay-fresh-${stamp}`,
+      batchSequence: 2,
+      cursorStart: staleCursor,
+      cursorEnd: encodeOpaqueIngestCursor({
+        changedAt: '2026-04-07T00:00:00.000Z',
+        listingKey: `${mirrorListingId}-fresh`,
+      }),
+      upstreamRunKey: `idealista-metadata-replay-run-${stamp}-fresh`,
+      batchKind: 'observations_and_completion',
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          sourceCandidateId: candidate?.id,
+          scopeKey: 'full-mirror',
+          askingPrice: 465000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: observedAt,
+          mirrorLastSeenAt: observedAt,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 49,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+      completions: [
+        {
+          scopeKey: 'full-mirror',
+          listingType: 'unknown',
+          sourceRunCompletedAt: '2026-04-07T00:00:00.000Z',
+          observedListingCount: 1,
+          sourceHighWatermark: '2026-04-07T00:00:00.000Z',
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: freshAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 1,
+      skipped: 0,
+    });
+
+    const observations = await db
+      .select()
+      .from(listingObservations)
+      .where(eq(listingObservations.sourceListingId, mirrorListingId));
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      propertyId,
+      staleForProjection: false,
+      ingestBatchId: freshAccepted.batchId,
+      candidateHandoffId: candidate?.id,
+      sourceHighWatermark: new Date('2026-04-07T00:00:00.000Z'),
+    });
+    expect(observations[0]?.scopeCompletionId).toBeTruthy();
+
+    const [canonical] = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.propertyId, propertyId))
+      .limit(1);
+    expect(canonical).toMatchObject({
+      sourceName,
+      primarySourceListingId: mirrorListingId,
+      status: 'active',
+    });
+
+    const [handoff] = await db
+      .select()
+      .from(listingCandidateHandoffs)
+      .where(eq(listingCandidateHandoffs.id, candidate?.id ?? '00000000-0000-0000-0000-000000000000'))
+      .limit(1);
+    expect(handoff).toMatchObject({
+      state: 'delivered',
+      canonicalListingId: canonical?.id,
+      observationId: observations[0]?.id,
+    });
+  });
+
   it('persists diagnostic observations as no-op projections', async () => {
     const sourceName = 'fotocasa';
     const street = `Diagnostic Street ${Date.now()}`;
@@ -885,6 +1315,121 @@ describe('Durable ingest API contract', () => {
       .limit(1);
     expect(batch?.skippedCount).toBe(0);
     expect(batch?.maintenanceRequestedAt).toBeNull();
+  });
+
+  it('reuses compatible mirror observations that hit the source observation idempotency key', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `Observation Replay Street ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 46 });
+    const mirrorListingId = `fotocasa-observation-replay-${stamp}`;
+    const sourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/observation-replay-${stamp}`;
+    const firstCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T16:30:00.000Z',
+      listingKey: `${mirrorListingId}-first`,
+    });
+
+    const firstAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-observation-replay-first-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: firstCursor,
+      upstreamRunKey: `fotocasa-observation-replay-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          askingPrice: 415000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-06T16:30:00.000Z',
+          mirrorLastSeenAt: '2026-04-06T16:35:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 46,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await processIngestBatch({
+      batchId: firstAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const replayAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-observation-replay-second-${stamp}`,
+      batchSequence: 1,
+      cursorStart: firstCursor,
+      cursorEnd: encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T16:45:00.000Z',
+        listingKey: `${mirrorListingId}-second`,
+      }),
+      upstreamRunKey: `fotocasa-observation-replay-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          askingPrice: 415000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-06T16:30:00.000Z',
+          mirrorLastSeenAt: '2026-04-06T16:35:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 46,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: replayAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 1,
+      skipped: 0,
+    });
+
+    const observations = await db
+      .select()
+      .from(listingObservations)
+      .where(
+        and(
+          eq(listingObservations.sourceName, sourceName),
+          eq(listingObservations.sourceListingId, mirrorListingId),
+        ),
+      );
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      propertyId,
+      ingestBatchId: replayAccepted.batchId,
+    });
+
+    const canonicals = await db
+      .select()
+      .from(canonicalListings)
+      .where(
+        and(
+          eq(canonicalListings.sourceName, sourceName),
+          eq(canonicalListings.primarySourceListingId, mirrorListingId),
+        ),
+      );
+    expect(canonicals).toHaveLength(1);
   });
 
   it('requeues stale processing batches during the recovery sweep', async () => {

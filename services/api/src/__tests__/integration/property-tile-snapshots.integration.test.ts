@@ -7,6 +7,7 @@ import {
   advancePropertyTileSnapshotWatermark,
   ensureDefaultPropertyTileSnapshotCoverage,
   executePropertyTileSnapshotRefresh,
+  requestPropertyTileSnapshotRefresh,
   upsertPropertyTileSnapshotRow,
   type PropertyTileCoordinate,
 } from '../../services/property-tile-snapshots.js';
@@ -127,6 +128,7 @@ describe('property tile snapshot persistence', () => {
   });
 
   it('executes a refresh, persists coverage, and advances applied watermarks', async () => {
+    await ensureDefaultPropertyTileSnapshotCoverage();
     await advancePropertyTileSnapshotWatermark(['listing']);
     const builderOptions: unknown[] = [];
 
@@ -160,7 +162,85 @@ describe('property tile snapshot persistence', () => {
     expect(row?.coverage_count).toBe(1);
   });
 
+  it('refuses refresh execution when configured coverage has not been explicitly initialized', async () => {
+    await expect(
+      executePropertyTileSnapshotRefresh({
+        reason: 'missing-coverage',
+        leaseOwner: 'missing-coverage-owner',
+        builder: async () => Buffer.from('unused'),
+      }),
+    ).rejects.toThrow(/snapshot coverage .* is not persisted/);
+  });
+
+  it('can explicitly initialize default coverage before recording a fresh-DB refresh request', async () => {
+    const result = await requestPropertyTileSnapshotRefresh({
+      reason: 'bulk-import',
+      enqueue: false,
+      initializeDefaultCoverage: true,
+    });
+    const rows = await db.execute<{ coverage_count: number }>(sql`
+      SELECT count(*)::int AS coverage_count
+      FROM property_tile_snapshot_coverage
+      WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
+    `);
+
+    expect(result).toEqual({
+      enqueued: false,
+      throttled: false,
+      enqueueStatus: 'skipped',
+      skippedReason: 'disabled',
+    });
+    expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(1);
+  });
+
+  it('updates the latest request reason while preserving a throttled request timestamp', async () => {
+    const requestedAt = new Date(Date.now() - 1_000);
+    await db.execute(sql`
+      INSERT INTO property_tile_snapshot_refresh_state (
+        key,
+        requested_at,
+        request_reason,
+        last_error
+      )
+      VALUES (
+        ${PROPERTY_TILE_SNAPSHOT_KEY},
+        ${requestedAt.toISOString()}::timestamptz,
+        'listing-maintenance',
+        NULL
+      )
+      ON CONFLICT (key) DO UPDATE SET
+        requested_at = EXCLUDED.requested_at,
+        request_reason = EXCLUDED.request_reason,
+        last_error = NULL
+    `);
+
+    const result = await requestPropertyTileSnapshotRefresh({
+      reason: 'snapshot-lookup-miss',
+      throttleMs: 60_000,
+    });
+    const rows = await db.execute<{
+      request_reason: string | null;
+      requested_at: Date | string | null;
+    }>(sql`
+      SELECT request_reason, requested_at
+      FROM property_tile_snapshot_refresh_state
+      WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+      LIMIT 1
+    `);
+    const row = Array.from(rows)[0];
+
+    expect(result).toEqual({
+      enqueued: false,
+      throttled: true,
+      enqueueStatus: 'skipped',
+      skippedReason: 'throttled',
+    });
+    expect(row?.request_reason).toBe('snapshot-lookup-miss');
+    expect(new Date(row?.requested_at ?? 0).getTime()).toBe(requestedAt.getTime());
+  });
+
   it('returns bounded structured details for per-tile snapshot refresh failures', async () => {
+    await ensureDefaultPropertyTileSnapshotCoverage();
     const warn = jest.fn();
     const sqlError = Object.assign(new Error('canceling statement due to statement timeout'), {
       code: '57014',
@@ -205,6 +285,7 @@ describe('property tile snapshot persistence', () => {
   });
 
   it('keeps a lease-expired older refresh from overwriting a newer refresh', async () => {
+    await ensureDefaultPropertyTileSnapshotCoverage();
     let releaseOlder!: () => void;
     let markOlderStarted!: () => void;
     const olderStarted = new Promise<void>((resolve) => {

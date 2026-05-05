@@ -727,6 +727,33 @@ function completionListingType(completion: NonNullable<IngestBatchRequest['compl
   return completion.listingType ?? 'unknown';
 }
 
+function completionCoversListingType(completionType: ListingType, listingType: ListingType): boolean {
+  return completionType === 'unknown' || completionType === listingType;
+}
+
+function listingCompatibleProjectionKeys(scopeKey: string, listingType: ListingType): string[] {
+  const keys = [projectionKey(scopeKey, listingType)];
+  if (listingType !== 'unknown') {
+    keys.push(projectionKey(scopeKey, 'unknown'));
+  }
+  return keys;
+}
+
+function compatibleProjectionWatermark(
+  existingWatermarks: Map<string, Date>,
+  scopeKey: string,
+  listingType: ListingType,
+): Date | null {
+  let watermark: Date | null = null;
+  for (const key of listingCompatibleProjectionKeys(scopeKey, listingType)) {
+    const candidate = existingWatermarks.get(key);
+    if (candidate && (!watermark || candidate > watermark)) {
+      watermark = candidate;
+    }
+  }
+  return watermark;
+}
+
 function listingProjectionScopeKey(payload: IngestBatchRequest, listing: IngestListing): string | null {
   return listing.scopeKey ?? payload.scopeKey ?? null;
 }
@@ -757,7 +784,8 @@ function listingProjectionState(
   const scopeKey = listingProjectionScopeKey(payload, listing);
   const listingType = listingProjectionType(listing);
   const completion = (payload.completions ?? []).find(
-    (candidate) => candidate.scopeKey === scopeKey && completionListingType(candidate) === listingType,
+    (candidate) => candidate.scopeKey === scopeKey
+      && completionCoversListingType(completionListingType(candidate), listingType),
   );
   const sourceHighWatermark = parseOptionalDate(listing.sourceHighWatermark)
     ?? (completion ? new Date(completion.sourceHighWatermark) : null)
@@ -767,7 +795,7 @@ function listingProjectionState(
     return { sourceHighWatermark, staleForProjection: false };
   }
 
-  const existingHighWatermark = existingWatermarks.get(projectionKey(scopeKey, listingType));
+  const existingHighWatermark = compatibleProjectionWatermark(existingWatermarks, scopeKey, listingType);
   return {
     sourceHighWatermark,
     staleForProjection: Boolean(existingHighWatermark && existingHighWatermark > sourceHighWatermark),
@@ -791,6 +819,9 @@ async function loadScopeWatermarks(
     if (scopeKey) {
       const listingType = listingProjectionType(listing);
       scopePairs.set(projectionKey(scopeKey, listingType), { scopeKey, listingType });
+      if (listingType !== 'unknown') {
+        scopePairs.set(projectionKey(scopeKey, 'unknown'), { scopeKey, listingType: 'unknown' });
+      }
     }
   }
 
@@ -929,8 +960,11 @@ async function persistMatchedListingObservations(
       const sourceListingId = item.sourceListingId ?? item.mirrorListingId;
       const projectionState = listingProjectionState(payload, options.existingWatermarks, item);
       const scopeKey = listingProjectionScopeKey(payload, item);
+      const listingType = listingProjectionType(item);
       const completionId = scopeKey
-        ? options.completionIdsByScope.get(projectionKey(scopeKey, listingProjectionType(item))) ?? null
+        ? listingCompatibleProjectionKeys(scopeKey, listingType)
+            .map((key) => options.completionIdsByScope.get(key))
+            .find((id): id is string => Boolean(id)) ?? null
         : null;
       const persisted = await persistMirrorObservationForIngest(tx, {
         batchId,
@@ -972,7 +1006,7 @@ async function persistMatchedListingObservations(
           mirrorListingId: item.mirrorListingId,
           sourceCandidateId: item.sourceCandidateId ?? null,
           scopeKey,
-          priceType: item.priceType,
+          priceType: listingType,
           livingAreaM2: item.livingAreaM2 ?? null,
           numRooms: item.numRooms ?? null,
           energyLabel: item.energyLabel ?? null,
@@ -1010,8 +1044,11 @@ async function persistUnmatchedDiagnosticObservations(
 
     const projectionState = listingProjectionState(payload, options.existingWatermarks, item);
     const scopeKey = listingProjectionScopeKey(payload, item);
+    const listingType = listingProjectionType(item);
     const completionId = scopeKey
-      ? options.completionIdsByScope.get(projectionKey(scopeKey, listingProjectionType(item))) ?? null
+      ? listingCompatibleProjectionKeys(scopeKey, listingType)
+          .map((key) => options.completionIdsByScope.get(key))
+          .find((id): id is string => Boolean(id)) ?? null
       : null;
 
     const persisted = await persistMirrorObservationForIngest(tx, {
@@ -1056,7 +1093,7 @@ async function persistUnmatchedDiagnosticObservations(
         mirrorListingId: item.mirrorListingId,
         sourceCandidateId: item.sourceCandidateId ?? null,
         scopeKey,
-        priceType: item.priceType,
+        priceType: listingType,
         diagnosticOnly: true,
         priceHistory: item.priceHistory ?? [],
       },
@@ -1098,7 +1135,8 @@ async function reconcileScopeCompletionAbsence(
 
     const presentListings = (payload.listings ?? []).filter((listing) => {
       const scopeKey = listingProjectionScopeKey(payload, listing);
-      return scopeKey === completion.scopeKey && listingProjectionType(listing) === listingType;
+      return scopeKey === completion.scopeKey
+        && completionCoversListingType(listingType, listingProjectionType(listing));
     });
     const presentSourceListingIds = new Set<string>();
     const presentSourceUrls = new Set<string>();
