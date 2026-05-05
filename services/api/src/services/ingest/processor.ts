@@ -135,6 +135,12 @@ function normalizePostalCodeForMatch(postalCode: string): string {
   return postalCode.replace(/\s+/g, '').toUpperCase();
 }
 
+function candidateHandoffIdFromSourceCandidateId(sourceCandidateId: string | undefined): string | null {
+  return sourceCandidateId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceCandidateId)
+    ? sourceCandidateId
+    : null;
+}
+
 function buildAddressMatchKey(
   countryCode: string,
   streetNorm: string,
@@ -961,6 +967,7 @@ async function persistMatchedListingObservations(
         scopeCompletionId: completionId,
         staleForProjection: projectionState.staleForProjection,
         previewResultId: item.previewResultId,
+        candidateHandoffId: candidateHandoffIdFromSourceCandidateId(item.sourceCandidateId),
         payload: {
           mirrorListingId: item.mirrorListingId,
           sourceCandidateId: item.sourceCandidateId ?? null,
@@ -1044,6 +1051,7 @@ async function persistUnmatchedDiagnosticObservations(
       scopeCompletionId: completionId,
       staleForProjection: projectionState.staleForProjection,
       previewResultId: item.previewResultId,
+      candidateHandoffId: candidateHandoffIdFromSourceCandidateId(item.sourceCandidateId),
       payload: {
         mirrorListingId: item.mirrorListingId,
         sourceCandidateId: item.sourceCandidateId ?? null,

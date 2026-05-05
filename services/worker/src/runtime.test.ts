@@ -237,7 +237,11 @@ test('candidate handoff worker job delegates to processor', async () => {
 
 test('property tile snapshot worker job delegates to snapshot refresh with a durable lease owner', async () => {
   const executeRefreshCalls: unknown[] = [];
-  const executeRefresh = async (input?: { reason?: string; leaseOwner?: string }) => {
+  const executeRefresh = async (input?: {
+    reason?: string;
+    leaseOwner?: string;
+    logger?: unknown;
+  }) => {
     executeRefreshCalls.push(input);
     return { status: 'completed' };
   };
@@ -265,8 +269,12 @@ test('property tile snapshot worker job delegates to snapshot refresh with a dur
   );
 
   assert.deepEqual(result, { status: 'completed' });
-  assert.deepEqual(executeRefreshCalls[0], {
-    reason: 'unit-test',
-    leaseOwner: `worker:${process.pid}:job-1`,
-  });
+  const refreshInput = executeRefreshCalls[0] as {
+    reason?: string;
+    leaseOwner?: string;
+    logger?: unknown;
+  };
+  assert.equal(refreshInput.reason, 'unit-test');
+  assert.equal(refreshInput.leaseOwner, `worker:${process.pid}:job-1`);
+  assert.ok(refreshInput.logger);
 });

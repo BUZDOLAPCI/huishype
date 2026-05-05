@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { sql, type SQL } from 'drizzle-orm';
 import { db, type DbTransaction } from '../db/index.js';
 
@@ -36,7 +37,12 @@ export function resolvePropertyReadViewer(
 }
 
 export function getPropertyReadViewerScope(viewer: PropertyReadViewer): string {
-  return 'userId' in viewer ? `user:${viewer.userId}` : `session:${viewer.sessionId}`;
+  if ('userId' in viewer) {
+    return `user:${viewer.userId}`;
+  }
+
+  const digest = createHash('sha256').update(viewer.sessionId).digest('hex').slice(0, 32);
+  return `session-hash:${digest}`;
 }
 
 function dedupePropertyIds(propertyIds: readonly string[]): string[] {

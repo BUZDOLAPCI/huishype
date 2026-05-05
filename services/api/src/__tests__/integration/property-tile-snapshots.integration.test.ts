@@ -128,20 +128,80 @@ describe('property tile snapshot persistence', () => {
 
   it('executes a refresh, persists coverage, and advances applied watermarks', async () => {
     await advancePropertyTileSnapshotWatermark(['listing']);
+    const builderOptions: unknown[] = [];
 
     const result = await executePropertyTileSnapshotRefresh({
       reason: 'integration-refresh',
       leaseOwner: 'integration-refresh-owner',
-      builder: async () => Buffer.from('refresh-payload'),
+      builder: async (_tile, _filters, options) => {
+        builderOptions.push(options);
+        return Buffer.from('refresh-payload');
+      },
     });
     const row = await readSnapshotRow();
 
     expect(result.status).toBe('completed');
     expect(result.refreshedTileCount).toBe(1);
+    expect(builderOptions[0]).toEqual(
+      expect.objectContaining({
+        statementTimeoutMs: 1500,
+        runtimeBudgetMs: 2000,
+        runtimeStartedAtMs: expect.any(Number),
+        runtimeDeadlineMs: expect.any(Number),
+      }),
+    );
+    expect(
+      (builderOptions[0] as { runtimeDeadlineMs: number }).runtimeDeadlineMs -
+        (builderOptions[0] as { runtimeStartedAtMs: number }).runtimeStartedAtMs,
+    ).toBe(2000);
     expect(row?.payload).toEqual(Buffer.from('refresh-payload'));
     expect(row?.source_listing_watermark).toBe('1');
     expect(row?.applied_listing_watermark).toBe('1');
     expect(row?.coverage_count).toBe(1);
+  });
+
+  it('returns bounded structured details for per-tile snapshot refresh failures', async () => {
+    const warn = jest.fn();
+    const sqlError = Object.assign(new Error('canceling statement due to statement timeout'), {
+      code: '57014',
+    });
+
+    const result = await executePropertyTileSnapshotRefresh({
+      reason: 'integration-refresh-failure',
+      leaseOwner: 'integration-refresh-failure-owner',
+      logger: { warn },
+      builder: async () => {
+        throw sqlError;
+      },
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.failedTileCount).toBe(1);
+    expect(result.failureSummary).toEqual({
+      total: 1,
+      byClassification: { statement_timeout: 1 },
+      byErrorCode: { '57014': 1 },
+      byErrorName: { Error: 1 },
+    });
+    expect(result.failureSamples).toEqual([
+      {
+        tile: '0/0/0',
+        classification: 'statement_timeout',
+        errorName: 'Error',
+        errorCode: '57014',
+        message: 'canceling statement due to statement timeout',
+      },
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'integration-refresh-failure',
+        tile: '0/0/0',
+        classification: 'statement_timeout',
+        errorCode: '57014',
+        err: sqlError,
+      }),
+      'Property tile snapshot refresh tile failed',
+    );
   });
 
   it('keeps a lease-expired older refresh from overwriting a newer refresh', async () => {

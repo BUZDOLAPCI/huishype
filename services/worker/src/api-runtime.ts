@@ -54,6 +54,9 @@ export interface PropertyTileSnapshotsModule {
   executePropertyTileSnapshotRefresh(options?: {
     reason?: string;
     leaseOwner?: string;
+    logger?: {
+      warn(payload: Record<string, unknown>, message: string): void;
+    };
   }): Promise<Record<string, unknown>>;
   requestPropertyTileSnapshotRefresh(input: {
     reason: string;

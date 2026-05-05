@@ -162,7 +162,11 @@ function observationStatusSource(origin: ListingObservation['origin']): StatusSo
 }
 
 function observationVerificationState(observation: ListingObservation): VerificationState {
-  if (observation.diagnosticStatus === 'invalid' || observation.propertyMatchKind === 'source_mismatch') {
+  if (
+    observation.diagnosticStatus === 'invalid'
+    || observation.diagnosticStatus === 'unsupported'
+    || observation.propertyMatchKind === 'source_mismatch'
+  ) {
     return 'invalid';
   }
   if (observation.diagnosticStatus === 'blocked') return 'validation_blocked';
@@ -222,17 +226,41 @@ function tokenHash(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+function stableJson(value: unknown): string {
+  if (typeof value === 'undefined') return 'null';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(',')}}`;
+}
+
 function stablePreviewIdempotencyKey(plan: ListingPreviewPlan): string {
   return crypto
     .createHash('sha256')
-    .update(JSON.stringify({
+    .update(stableJson({
       sourceName: plan.sourceName,
+      rawUrl: plan.rawUrl,
       canonicalUrl: plan.canonicalUrl,
       propertyId: plan.submittedPropertyId,
+      matchedPropertyId: plan.matchedPropertyId,
       sourceListingId: plan.sourceListingId,
+      sourceListingIdKind: plan.sourceListingIdKind,
+      aliases: plan.aliases,
+      validationState: plan.validationState,
+      matchState: plan.matchState,
+      propertyMatchKind: plan.propertyMatchKind,
+      lifecycleStatus: plan.sourceStatus,
       askingPrice: plan.askingPrice,
       priceType: plan.priceType,
       currency: plan.currency,
+      title: plan.title,
+      description: plan.description,
+      imageUrl: plan.imageUrl,
+      address: plan.address,
+      reasonCode: plan.reasonCode,
     }))
     .digest('hex');
 }
@@ -306,6 +334,17 @@ async function findCanonicalListing(
   primarySourceListingId: string | null,
   executor: ReconciliationDb,
 ): Promise<CanonicalListing | null> {
+  if (observation.candidateHandoffId) {
+    const [row] = await executor
+      .select({ canonical: canonicalListings })
+      .from(listingCandidateHandoffs)
+      .innerJoin(canonicalListings, eq(canonicalListings.id, listingCandidateHandoffs.canonicalListingId))
+      .where(eq(listingCandidateHandoffs.id, observation.candidateHandoffId))
+      .limit(1);
+
+    if (row?.canonical) return row.canonical;
+  }
+
   const predicates = [];
   if (primarySourceListingId) {
     predicates.push(and(
@@ -347,6 +386,15 @@ function canProjectObservation(observation: ListingObservation): observation is 
     return Boolean(observation.sourceListingId || observation.sourceUrlCanonical || observation.scopeCompletionId);
   }
   return true;
+}
+
+function shouldRetireProvisionalForDiagnostic(observation: ListingObservation): boolean {
+  return observation.diagnosticStatus === 'invalid'
+    || observation.diagnosticStatus === 'unsupported';
+}
+
+function diagnosticHandoffState(status: ListingDiagnosticStatus): 'retryable_error' | 'dead_letter' {
+  return status === 'invalid' || status === 'unsupported' ? 'dead_letter' : 'retryable_error';
 }
 
 async function createCanonicalListing(
@@ -451,6 +499,33 @@ async function updateCanonicalListingFromObservation(
   return updated;
 }
 
+async function retireProvisionalCanonicalFromDiagnostic(
+  canonical: CanonicalListing,
+  observation: ListingObservation,
+  primarySourceListingId: string | null,
+  executor: ReconciliationDb,
+): Promise<CanonicalListing> {
+  const [updated] = await executor
+    .update(canonicalListings)
+    .set({
+      primarySourceListingId: canonical.primarySourceListingId ?? primarySourceListingId,
+      canonicalUrl: observation.sourceUrlCanonical ?? canonical.canonicalUrl,
+      displayUrl: observation.sourceUrlCanonical ?? canonical.displayUrl ?? observation.sourceUrlRaw,
+      status: 'withdrawn',
+      statusSource: 'mirror',
+      verificationState: observationVerificationState(observation),
+      originSummary: mergeOriginSummary(canonical.originSummary, observation.origin),
+      lastMirrorSeenAt: observation.observedAt,
+      lastReconciledAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(canonicalListings.id, canonical.id))
+    .returning();
+
+  if (!updated) throw new Error(`Canonical listing ${canonical.id} could not be retired`);
+  return updated;
+}
+
 async function linkObservationToCanonical(
   observationId: string,
   canonicalListingId: string,
@@ -551,6 +626,56 @@ async function completeCandidateHandoffForObservation(
   return handoff.id;
 }
 
+async function markCandidateHandoffForDiagnosticObservation(
+  observation: ListingObservation,
+  canonical: CanonicalListing,
+  executor: ReconciliationDb,
+): Promise<string | null> {
+  if (!observation.diagnosticStatus) return null;
+
+  const predicates = [];
+  if (observation.candidateHandoffId) {
+    predicates.push(eq(listingCandidateHandoffs.id, observation.candidateHandoffId));
+  }
+  if (observation.previewResultId) {
+    predicates.push(eq(listingCandidateHandoffs.previewResultId, observation.previewResultId));
+  }
+  if (observation.propertyId && observation.sourceUrlCanonical) {
+    predicates.push(and(
+      eq(listingCandidateHandoffs.sourceName, observation.sourceName),
+      eq(listingCandidateHandoffs.propertyId, observation.propertyId),
+      eq(listingCandidateHandoffs.sourceUrlCanonical, observation.sourceUrlCanonical),
+      sql`${listingCandidateHandoffs.state} IN ('pending', 'queued', 'retryable_error')`,
+    ));
+  }
+
+  if (predicates.length === 0) return null;
+
+  const state = diagnosticHandoffState(observation.diagnosticStatus);
+  const [handoff] = await executor
+    .update(listingCandidateHandoffs)
+    .set({
+      canonicalListingId: canonical.id,
+      observationId: observation.id,
+      state,
+      lastAttemptAt: new Date(),
+      nextAttemptAt: null,
+      lastError: `Source service diagnostic: ${observation.diagnosticStatus}`,
+      updatedAt: new Date(),
+    })
+    .where(predicates.length === 1 ? predicates[0] : or(...predicates))
+    .returning({ id: listingCandidateHandoffs.id });
+
+  if (!handoff) return null;
+
+  await executor
+    .update(listingObservations)
+    .set({ candidateHandoffId: handoff.id })
+    .where(eq(listingObservations.id, observation.id));
+
+  return handoff.id;
+}
+
 export async function reconcileListingObservation(
   observationId: string,
   executor?: ReconciliationDb,
@@ -578,6 +703,20 @@ export async function reconcileListingObservation(
 
   if (!canProjectObservation(observation)) {
     if (existingCanonical) {
+      if (
+        observation.diagnosticStatus
+        && shouldRetireProvisionalForDiagnostic(observation)
+        && existingCanonical.verificationState === 'provisional'
+      ) {
+        const retiredCanonical = await retireProvisionalCanonicalFromDiagnostic(
+          existingCanonical,
+          observation,
+          primarySourceListingId,
+          database,
+        );
+        await linkObservationToCanonical(observation.id, retiredCanonical.id, 'manual_repair', database);
+        return retiredCanonical;
+      }
       await linkObservationToCanonical(observation.id, existingCanonical.id, 'manual_repair', database);
     }
     return existingCanonical;
@@ -836,14 +975,27 @@ export async function persistMirrorObservationForIngest(
 
   const canonicalListing = await reconcileListingObservation(observation.id, executor);
   if (canonicalListing) {
-    await completeCandidateHandoffForObservation(observation, canonicalListing, executor);
+    if (observation.diagnosticStatus) {
+      await markCandidateHandoffForDiagnosticObservation(observation, canonicalListing, executor);
+    } else {
+      await completeCandidateHandoffForObservation(observation, canonicalListing, executor);
+    }
   }
+  const diagnosticRetiredProvisional = Boolean(
+    canonicalListing
+    && observation.diagnosticStatus
+    && shouldRetireProvisionalForDiagnostic(observation)
+    && canonicalListing.status === 'withdrawn'
+    && canonicalListing.statusSource === 'mirror'
+    && canonicalListing.originSummary === 'user_and_mirror'
+  );
+  const projectedCanonicalFacts = Boolean(canonicalListing && !observation.diagnosticStatus);
   return {
     canonicalListing,
     observationId: observation.id,
     propertyId: canonicalListing?.propertyId ?? input.propertyId,
-    inserted: canonicalListing !== null && !input.staleForProjection,
-    changed: canonicalListing !== null && !input.staleForProjection,
+    inserted: projectedCanonicalFacts && !input.staleForProjection,
+    changed: (projectedCanonicalFacts || diagnosticRetiredProvisional) && !input.staleForProjection,
   };
 }
 

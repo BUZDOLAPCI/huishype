@@ -439,6 +439,9 @@ export class WorkerRuntime {
     const result = await snapshots.executePropertyTileSnapshotRefresh({
       reason: job.data.reason,
       leaseOwner: `worker:${process.pid}:${job.id ?? 'unknown'}`,
+      logger: {
+        warn: (payload, message) => this.logger.warn(message, payload),
+      },
     });
 
     this.logger.info('Property tile snapshot refresh completed', {

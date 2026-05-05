@@ -18,6 +18,13 @@ import {
 } from '../db/index.js';
 import { buildPropertyTileEtag } from './property-tile-cache.js';
 import { buildMvtForTile, PROPERTY_TILE_EXTENT } from './property-grouping.js';
+import {
+  isPropertyTileRecoverableError,
+  isPropertyTileStatementTimeoutError,
+  PropertyTileBudgetExceededError,
+  PropertyTileBuildAbortedError,
+  type PropertyTileBuildOptions,
+} from './property-tile-runtime.js';
 import { createDefaultMapFilters, getMapFilterSignature, type MapFilters } from './map-filters.js';
 import {
   enqueuePropertyTileSnapshotRefresh,
@@ -53,6 +60,8 @@ const DENSE_PREWARM_CITY_CENTERS = [
   { lon: 5.1214, lat: 52.0907 }, // Utrecht
   { lon: 4.4777, lat: 51.9244 }, // Rotterdam
 ];
+const SNAPSHOT_REFRESH_FAILURE_SAMPLE_LIMIT = 5;
+const SNAPSHOT_REFRESH_FAILURE_MESSAGE_LIMIT = 240;
 
 type SnapshotDb = typeof db | DbTransaction;
 type SnapshotWatermarks = {
@@ -111,6 +120,8 @@ export interface PropertyTileSnapshotRefreshResult {
   failedTileCount?: number;
   skippedTileCount?: number;
   staleWriteSkippedTileCount?: number;
+  failureSummary?: PropertyTileSnapshotFailureSummary;
+  failureSamples?: PropertyTileSnapshotFailureSample[];
   durationMs?: number;
 }
 
@@ -164,8 +175,27 @@ export function buildPropertyTileSnapshotRefreshRequestResult(input: {
 export type PropertyTileSnapshotBuilder = (
   tile: PropertyTileCoordinate,
   filters?: MapFilters,
-  options?: { statementTimeoutMs?: number; runtimeBudgetMs?: number },
+  options?: PropertyTileBuildOptions,
 ) => Promise<Buffer>;
+
+type PropertyTileSnapshotRefreshLogger = {
+  warn(payload: Record<string, unknown>, message: string): void;
+};
+
+export type PropertyTileSnapshotFailureSample = {
+  tile: string;
+  classification: string;
+  errorName: string;
+  errorCode: string | null;
+  message: string;
+};
+
+export type PropertyTileSnapshotFailureSummary = {
+  total: number;
+  byClassification: Record<string, number>;
+  byErrorCode: Record<string, number>;
+  byErrorName: Record<string, number>;
+};
 
 function parsePositiveIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -179,6 +209,99 @@ function parseNonNegativeIntegerEnv(name: string, fallback: number): number {
   if (!raw) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function snapshotTileKey(tile: PropertyTileCoordinate): string {
+  return `${tile.z}/${tile.x}/${tile.y}`;
+}
+
+function getErrorName(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
+}
+
+function getErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'Unknown property tile snapshot refresh error';
+  return message.length > SNAPSHOT_REFRESH_FAILURE_MESSAGE_LIMIT
+    ? `${message.slice(0, SNAPSHOT_REFRESH_FAILURE_MESSAGE_LIMIT)}...`
+    : message;
+}
+
+function getErrorCode(error: unknown): string | null {
+  if (typeof error === 'object' && error && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === 'string' && code.length > 0 ? code : null;
+  }
+
+  if (typeof error === 'object' && error && 'cause' in error) {
+    return getErrorCode((error as { cause?: unknown }).cause);
+  }
+
+  return null;
+}
+
+function classifySnapshotRefreshFailure(error: unknown): string {
+  if (error instanceof PropertyTileBudgetExceededError) {
+    return 'budget_timeout';
+  }
+  if (error instanceof PropertyTileBuildAbortedError) {
+    return 'aborted';
+  }
+  if (isPropertyTileStatementTimeoutError(error)) {
+    return 'statement_timeout';
+  }
+  if (isPropertyTileRecoverableError(error)) {
+    return 'transient_db';
+  }
+  return 'unexpected';
+}
+
+function incrementRecord(record: Record<string, number>, key: string): void {
+  record[key] = (record[key] ?? 0) + 1;
+}
+
+function recordSnapshotRefreshFailure(input: {
+  summary: PropertyTileSnapshotFailureSummary;
+  samples: PropertyTileSnapshotFailureSample[];
+  tile: PropertyTileCoordinate;
+  error: unknown;
+  reason: string;
+  logger?: PropertyTileSnapshotRefreshLogger;
+}): void {
+  const classification = classifySnapshotRefreshFailure(input.error);
+  const errorCode = getErrorCode(input.error);
+  const errorName = getErrorName(input.error);
+  input.summary.total += 1;
+  incrementRecord(input.summary.byClassification, classification);
+  incrementRecord(input.summary.byErrorName, errorName);
+  incrementRecord(input.summary.byErrorCode, errorCode ?? 'none');
+
+  const sample: PropertyTileSnapshotFailureSample = {
+    tile: snapshotTileKey(input.tile),
+    classification,
+    errorName,
+    errorCode,
+    message: getErrorMessage(input.error),
+  };
+
+  if (input.samples.length < SNAPSHOT_REFRESH_FAILURE_SAMPLE_LIMIT) {
+    input.samples.push(sample);
+    input.logger?.warn(
+      {
+        reason: input.reason,
+        tile: sample.tile,
+        classification: sample.classification,
+        errorName: sample.errorName,
+        errorCode: sample.errorCode,
+        err: input.error,
+      },
+      'Property tile snapshot refresh tile failed',
+    );
+  }
 }
 
 export function getPropertyTilePrecomputeMaxZoom(): number {
@@ -1324,6 +1447,7 @@ export async function executePropertyTileSnapshotRefresh(input: {
   reason?: string;
   leaseOwner?: string;
   builder?: PropertyTileSnapshotBuilder;
+  logger?: PropertyTileSnapshotRefreshLogger;
 } = {}): Promise<PropertyTileSnapshotRefreshResult> {
   const reason = input.reason ?? PROPERTY_TILE_SNAPSHOT_REFRESH_JOB_REASON;
   const owner = input.leaseOwner ?? `${process.pid}:${randomUUID()}`;
@@ -1370,6 +1494,13 @@ export async function executePropertyTileSnapshotRefresh(input: {
   let staleWriteSkippedTileCount = 0;
   let attemptedTileCount = 0;
   let nextTileIndex = 0;
+  const failureSummary: PropertyTileSnapshotFailureSummary = {
+    total: 0,
+    byClassification: {},
+    byErrorCode: {},
+    byErrorName: {},
+  };
+  const failureSamples: PropertyTileSnapshotFailureSample[] = [];
 
   async function refreshNextDueTile(): Promise<void> {
     while (Date.now() - startedAt < maxRunMs) {
@@ -1390,9 +1521,13 @@ export async function executePropertyTileSnapshotRefresh(input: {
 
       try {
         const tileStartedAt = new Date();
+        const tileRuntimeStartedAtMs = Date.now();
+        const tileRuntimeBudgetMs = 2_000;
         const payload = await builder(tile, createDefaultMapFilters(), {
           statementTimeoutMs: 1_500,
-          runtimeBudgetMs: 2_000,
+          runtimeBudgetMs: tileRuntimeBudgetMs,
+          runtimeStartedAtMs: tileRuntimeStartedAtMs,
+          runtimeDeadlineMs: tileRuntimeStartedAtMs + tileRuntimeBudgetMs,
         });
         if (leaseLost) {
           throw new Error('Property tile snapshot refresh lease was lost');
@@ -1410,8 +1545,16 @@ export async function executePropertyTileSnapshotRefresh(input: {
         } else {
           staleWriteSkippedTileCount += 1;
         }
-      } catch {
+      } catch (error) {
         failedTileCount += 1;
+        recordSnapshotRefreshFailure({
+          summary: failureSummary,
+          samples: failureSamples,
+          tile,
+          error,
+          reason,
+          logger: input.logger,
+        });
       }
     }
   }
@@ -1445,9 +1588,21 @@ export async function executePropertyTileSnapshotRefresh(input: {
       failedTileCount,
       skippedTileCount: summary.skippedTileCount,
       staleWriteSkippedTileCount,
+      failureSummary: failureSummary.total > 0 ? failureSummary : undefined,
+      failureSamples: failureSamples.length > 0 ? failureSamples : undefined,
       durationMs: Date.now() - startedAt,
     };
   } catch (error) {
+    input.logger?.warn(
+      {
+        reason,
+        owner,
+        refreshedTileCount,
+        failedTileCount,
+        err: error,
+      },
+      'Property tile snapshot refresh failed',
+    );
     await finishRefresh({
       owner,
       coverage,

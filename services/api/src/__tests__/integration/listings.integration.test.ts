@@ -9,9 +9,13 @@ import {
   propertyTileSnapshotRefreshState,
   propertyTileSnapshotWatermarks,
 } from '../../db/index.js';
-import { canonicalListings, listingCandidateHandoffs, listingPreviewResults, users } from '../../db/schema.js';
+import { canonicalListings, listingCandidateHandoffs, listingObservations, listingPreviewResults, users } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
-import { acceptIngestBatch, encodeOpaqueIngestCursor, processIngestBatch } from '../../services/ingest/index.js';
+import { acceptIngestBatch, encodeOpaqueIngestCursor, getIngestWatermark, processIngestBatch } from '../../services/ingest/index.js';
+import {
+  claimCandidateHandoff,
+  processCandidateHandoffJob,
+} from '../../services/candidate-handoffs/index.js';
 import {
   createIntegrationListing,
   createIntegrationPriceHistory,
@@ -61,6 +65,93 @@ describe('Listing routes', () => {
         'content-length': String(Buffer.byteLength(html)),
       },
     });
+  }
+
+  async function createMatchedSubmissionFixture(label: string) {
+    const sourceListingId = `${Date.now()}${Math.floor(Math.random() * 100_000)}`;
+    const rawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-${label}/${sourceListingId}/`;
+    const canonicalUrl = `https://www.funda.nl/detail/${sourceListingId}/`;
+    const title = `Candidate handoff ${label}`;
+    const thumbnailUrl = `https://cdn.example.com/${label}.jpg`;
+
+    mockFetchFn
+      .mockResolvedValueOnce(jsonResponse({
+        supported: true,
+        sourceName: 'funda',
+        rawUrl,
+        canonicalUrl,
+        sourceListingId,
+        sourceListingIdKind: 'tiny_id',
+        aliases: [
+          { kind: 'tiny_id', value: sourceListingId },
+          { kind: 'detail_id', value: sourceListingId },
+        ],
+        listingPath: `/detail/${sourceListingId}/`,
+        reasonCode: null,
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        state: 'matched',
+        sourceName: 'funda',
+        rawUrl,
+        canonicalUrl,
+        sourceListingId,
+        sourceListingIdKind: 'tiny_id',
+        aliases: [
+          { kind: 'tiny_id', value: sourceListingId },
+          { kind: 'detail_id', value: sourceListingId },
+        ],
+        sourceStatus: 'available',
+        matchedPropertyEvidence: {
+          propertyId: testPropertyId,
+          matchKind: 'source_exact',
+        },
+        thumbnailUrl,
+        title,
+        price: 525000,
+        currency: 'EUR',
+      }));
+
+    const previewResponse = await app.inject({
+      method: 'POST',
+      url: '/listings/preview',
+      payload: {
+        url: rawUrl,
+        propertyId: testPropertyId,
+      },
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    const preview = JSON.parse(previewResponse.body) as {
+      previewId: string;
+      previewToken: string;
+    };
+
+    const submitResponse = await app.inject({
+      method: 'POST',
+      url: '/listings/submit',
+      headers: {
+        authorization: `Bearer ${testAccessToken}`,
+      },
+      payload: {
+        previewToken: preview.previewToken,
+      },
+    });
+    expect(submitResponse.statusCode).toBe(201);
+    const submitted = JSON.parse(submitResponse.body) as {
+      id: string;
+      candidateId: string;
+    };
+
+    mockFetchFn.mockReset();
+    return {
+      candidateId: submitted.candidateId,
+      canonicalListingId: submitted.id,
+      previewId: preview.previewId,
+      sourceListingId,
+      rawUrl,
+      canonicalUrl,
+      title,
+      thumbnailUrl,
+    };
   }
 
   async function readPropertyTileSnapshotInvalidationState() {
@@ -191,13 +282,19 @@ describe('Listing routes', () => {
         WHERE source_name = 'funda'
           AND (
             idempotency_key LIKE 'funda-promotion-%'
+            OR idempotency_key LIKE 'funda-diagnostic-pushback-%'
+            OR idempotency_key LIKE 'funda-source-candidate-%'
             OR idempotency_key LIKE 'listing-submit:%'
           )
       `);
       await db.execute(sql`
         DELETE FROM ingest_runs
         WHERE source_name = 'funda'
-          AND upstream_run_key LIKE 'funda-promotion-run-%'
+          AND (
+            upstream_run_key LIKE 'funda-promotion-run-%'
+            OR upstream_run_key LIKE 'funda-diagnostic-pushback-run-%'
+            OR upstream_run_key LIKE 'funda-source-candidate-run-%'
+          )
       `);
     } catch {
       // Ignore cleanup errors
@@ -417,13 +514,18 @@ describe('Listing routes', () => {
           reasonCode: null,
         }))
         .mockResolvedValueOnce(jsonResponse({
-          state: 'retryable_error',
+          state: 'matched',
           sourceName: 'funda',
           rawUrl,
           canonicalUrl,
           sourceListingId: '90210011',
           sourceListingIdKind: 'tiny_id',
           aliases: [{ kind: 'tiny_id', value: '90210011' }],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: testPropertyId,
+            matchKind: 'source_exact',
+          },
         }))
         .mockResolvedValueOnce(htmlResponse(`
           <html>
@@ -444,10 +546,11 @@ describe('Listing routes', () => {
         },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
-        error: 'LISTING_VALIDATION_FAILED',
-        message: 'Listing validation failed: mirror_unavailable',
+        title: 'OG Fallback Title',
+        description: 'OG fallback description',
+        imageUrl: 'https://cdn.example.com/og-fallback.jpg',
       });
       expect(mockFetchFn).toHaveBeenCalledTimes(3);
       expect(String(mockFetchFn.mock.calls[2]?.[0])).toBe(canonicalUrl);
@@ -499,12 +602,10 @@ describe('Listing routes', () => {
       expect(mockFetchFn).toHaveBeenCalledTimes(2);
     });
 
-    it('should return deterministic display fallback when OG metadata is unavailable', async () => {
+    it('should not fetch OG metadata when source-service resolution fails', async () => {
       const rawUrl = 'https://www.funda.nl/detail/koop/eindhoven/huis-no-og/90210012/';
 
-      mockFetchFn
-        .mockResolvedValueOnce(jsonResponse({}, 503))
-        .mockRejectedValueOnce(new Error('OG fetch unavailable'));
+      mockFetchFn.mockResolvedValueOnce(jsonResponse({}, 503));
 
       const response = await app.inject({
         method: 'POST',
@@ -520,7 +621,7 @@ describe('Listing routes', () => {
         error: 'LISTING_VALIDATION_FAILED',
         message: 'Listing validation failed: mirror_unavailable',
       });
-      expect(mockFetchFn).toHaveBeenCalledTimes(2);
+      expect(mockFetchFn).toHaveBeenCalledTimes(1);
     });
 
     it('should reject non-whitelisted URLs (SSRF protection)', async () => {
@@ -598,7 +699,7 @@ describe('Listing routes', () => {
         error: 'LISTING_VALIDATION_FAILED',
         message: 'Listing validation failed: source_not_supported',
       });
-      expect(mockFetchFn).toHaveBeenCalledTimes(2);
+      expect(mockFetchFn).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -719,6 +820,103 @@ describe('Listing routes', () => {
       expect(response.statusCode).toBe(400);
       expect(JSON.parse(response.body).error).not.toBe('INVALID_URL');
       expect(mockFetchFn).not.toHaveBeenCalled();
+    });
+
+    it('should bind submit to the exact stored preview facts after preview facts change', async () => {
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-preview-facts/${submittedId}/`;
+      const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
+
+      for (const title of ['Original source title', 'Updated source title']) {
+        mockFetchFn
+          .mockResolvedValueOnce(jsonResponse({
+            supported: true,
+            sourceName: 'funda',
+            rawUrl: submittedUrl,
+            canonicalUrl,
+            sourceListingId: submittedId,
+            sourceListingIdKind: 'tiny_id',
+            aliases: [
+              { kind: 'tiny_id', value: submittedId },
+              { kind: 'detail_id', value: submittedId },
+            ],
+            listingPath: `/detail/${submittedId}/`,
+            reasonCode: null,
+          }))
+          .mockResolvedValueOnce(jsonResponse({
+            state: 'matched',
+            sourceName: 'funda',
+            rawUrl: submittedUrl,
+            canonicalUrl,
+            sourceListingId: submittedId,
+            sourceListingIdKind: 'tiny_id',
+            aliases: [
+              { kind: 'tiny_id', value: submittedId },
+              { kind: 'detail_id', value: submittedId },
+            ],
+            sourceStatus: 'available',
+            matchedPropertyEvidence: {
+              propertyId: testPropertyId,
+              matchKind: 'source_exact',
+            },
+            title,
+            description: `${title} description`,
+            thumbnailUrl: `https://cdn.example.com/${submittedId}-${title.startsWith('Original') ? 'old' : 'new'}.jpg`,
+            price: 525000,
+            currency: 'EUR',
+          }));
+      }
+
+      const firstPreviewResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: submittedUrl,
+          propertyId: testPropertyId,
+        },
+      });
+      expect(firstPreviewResponse.statusCode).toBe(200);
+      const firstPreview = JSON.parse(firstPreviewResponse.body);
+
+      const secondPreviewResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: submittedUrl,
+          propertyId: testPropertyId,
+        },
+      });
+      expect(secondPreviewResponse.statusCode).toBe(200);
+      const secondPreview = JSON.parse(secondPreviewResponse.body);
+      expect(secondPreview.previewId).not.toBe(firstPreview.previewId);
+      expect(secondPreview.title).toBe('Updated source title');
+
+      mockFetchFn.mockReset();
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          previewToken: secondPreview.previewToken,
+        },
+      });
+
+      expect(submitResponse.statusCode).toBe(201);
+      expect(mockFetchFn).not.toHaveBeenCalled();
+      const submitted = JSON.parse(submitResponse.body);
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const insertedListing = listingsBody.data.find((item: { id: string }) => item.id === submitted.id);
+      expect(insertedListing).toMatchObject({
+        ogTitle: 'Updated source title',
+        description: 'Updated source title description',
+        thumbnailUrl: `https://cdn.example.com/${submittedId}-new.jpg`,
+      });
     });
 
     it('should create a validated canonical listing with candidate handoff for matched submissions', async () => {
@@ -1072,7 +1270,7 @@ describe('Listing routes', () => {
       expect(handoff).toBeUndefined();
     });
 
-    it('should reject provisional previews before creating a listing', async () => {
+    it('should reject failed previews before app-owned OG fetch or listing creation', async () => {
       const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
       const rawUrl = `https://www.pararius.com/apartment-for-rent/eindhoven/${suffix}/og-submit`;
       const canonicalUrl = rawUrl;
@@ -1098,16 +1296,7 @@ describe('Listing routes', () => {
           sourceListingId,
           sourceListingIdKind: 'canonical_path',
           aliases: [{ kind: 'url_path', value: sourceListingId }],
-        }))
-        .mockResolvedValueOnce(htmlResponse(`
-          <html>
-            <head>
-              <meta property="og:title" content="Submitted OG title">
-              <meta property="og:description" content="Submitted OG description">
-              <meta property="og:image" content="https://cdn.example.com/submitted-og.jpg">
-            </head>
-          </html>
-        `));
+        }));
 
       const response = await app.inject({
         method: 'POST',
@@ -1122,7 +1311,339 @@ describe('Listing routes', () => {
       expect(JSON.parse(response.body)).toMatchObject({
         error: 'LISTING_VALIDATION_FAILED',
       });
-      expect(mockFetchFn).toHaveBeenCalledTimes(3);
+      expect(mockFetchFn).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('candidate handoff source-truth guardrails', () => {
+    it('delivers submitted candidates to the source service and does not reprocess final handoffs', async () => {
+      const fixture = await createMatchedSubmissionFixture('delivery');
+
+      mockFetchFn.mockResolvedValueOnce(jsonResponse({ state: 'queued', created: true }, 202));
+
+      const result = await processCandidateHandoffJob({
+        handoffId: fixture.candidateId,
+      });
+
+      expect(result).toMatchObject({
+        status: 'delivered',
+        handoffId: fixture.candidateId,
+        sourceName: 'funda',
+        attemptCount: 1,
+      });
+      expect(mockFetchFn).toHaveBeenCalledTimes(1);
+      expect(String(mockFetchFn.mock.calls[0]?.[0])).toContain('/api/v1/listings/candidates');
+      const deliveredBody = JSON.parse(String(mockFetchFn.mock.calls[0]?.[1]?.body));
+      expect(deliveredBody).toMatchObject({
+        rawUrl: fixture.rawUrl,
+        canonicalUrl: fixture.canonicalUrl,
+        sourceListingId: fixture.sourceListingId,
+        sourceCandidateId: fixture.candidateId,
+        huishypePreviewId: fixture.previewId,
+        huishypePropertyId: testPropertyId,
+        listingType: 'unknown',
+        previewFacts: {
+          price: 525000,
+          currency: 'EUR',
+          title: fixture.title,
+          thumbnailUrl: fixture.thumbnailUrl,
+        },
+        matchEvidence: {
+          propertyId: testPropertyId,
+          propertyMatchKind: 'source_exact',
+          sourceListingAliases: [
+            { kind: 'tiny_id', value: fixture.sourceListingId },
+            { kind: 'detail_id', value: fixture.sourceListingId },
+          ],
+        },
+        aliases: [
+          { kind: 'tiny_id', value: fixture.sourceListingId },
+          { kind: 'detail_id', value: fixture.sourceListingId },
+        ],
+      });
+
+      const [persistedHandoff] = await db
+        .select()
+        .from(listingCandidateHandoffs)
+        .where(eq(listingCandidateHandoffs.id, fixture.candidateId))
+        .limit(1);
+      expect(persistedHandoff).toMatchObject({
+        state: 'delivered',
+        attemptCount: 1,
+        nextAttemptAt: null,
+        lastError: null,
+      });
+
+      mockFetchFn.mockReset();
+      await expect(processCandidateHandoffJob({ handoffId: fixture.candidateId })).resolves.toMatchObject({
+        status: 'noop',
+        handoffId: fixture.candidateId,
+      });
+      expect(mockFetchFn).not.toHaveBeenCalled();
+    });
+
+    it('schedules a retry when candidate delivery gets a retryable source-service failure', async () => {
+      const fixture = await createMatchedSubmissionFixture('retry');
+
+      mockFetchFn.mockResolvedValueOnce(jsonResponse({ error: 'temporarily unavailable' }, 503));
+
+      const result = await processCandidateHandoffJob({
+        handoffId: fixture.candidateId,
+      });
+
+      expect(result).toMatchObject({
+        status: 'retryable_error',
+        handoffId: fixture.candidateId,
+        sourceName: 'funda',
+        attemptCount: 1,
+      });
+
+      const [persistedHandoff] = await db
+        .select()
+        .from(listingCandidateHandoffs)
+        .where(eq(listingCandidateHandoffs.id, fixture.candidateId))
+        .limit(1);
+      expect(persistedHandoff).toMatchObject({
+        state: 'retryable_error',
+        attemptCount: 1,
+      });
+      expect(persistedHandoff?.lastError).toContain('returned 503');
+      expect(persistedHandoff?.nextAttemptAt).toBeInstanceOf(Date);
+
+      mockFetchFn.mockReset();
+      await expect(processCandidateHandoffJob({ handoffId: fixture.candidateId })).resolves.toMatchObject({
+        status: 'noop',
+        handoffId: fixture.candidateId,
+      });
+      expect(mockFetchFn).not.toHaveBeenCalled();
+    });
+
+    it('does not double-claim a queued candidate handoff across concurrent claimers', async () => {
+      const fixture = await createMatchedSubmissionFixture('concurrent');
+
+      const claims = await Promise.all([
+        claimCandidateHandoff(fixture.candidateId),
+        claimCandidateHandoff(fixture.candidateId),
+      ]);
+
+      const claimedHandoffIds = claims
+        .filter((claim): claim is NonNullable<typeof claim> => claim !== null)
+        .map((claim) => claim.id);
+      expect(claimedHandoffIds).toEqual([fixture.candidateId]);
+
+      const [persistedHandoff] = await db
+        .select()
+        .from(listingCandidateHandoffs)
+        .where(eq(listingCandidateHandoffs.id, fixture.candidateId))
+        .limit(1);
+      expect(persistedHandoff).toMatchObject({
+        state: 'pending',
+        attemptCount: 1,
+      });
+    });
+
+    it('reconciles mirror observations by source candidate id without preview id', async () => {
+      const fixture = await createMatchedSubmissionFixture('source-candidate-observation');
+      const watermark = await getIngestWatermark('funda');
+      const changedSourceListingId = `${fixture.sourceListingId}-mirror`;
+      const changedCanonicalUrl = `https://www.funda.nl/detail/${changedSourceListingId}`;
+      const changedRawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-source-candidate/${changedSourceListingId}/`;
+      const cursorEnd = encodeOpaqueIngestCursor({
+        changedAt: new Date(Date.now() + 1_000).toISOString(),
+        listingKey: `funda-source-candidate-observation-${fixture.sourceListingId}`,
+      });
+      const acceptedMirror = await acceptIngestBatch({
+        sourceName: 'funda',
+        idempotencyKey: `funda-source-candidate-observation-${fixture.sourceListingId}`,
+        batchSequence: 0,
+        cursorStart: watermark.cursor,
+        cursorEnd,
+        upstreamRunKey: `funda-source-candidate-run-observation-${fixture.sourceListingId}`,
+        listings: [
+          {
+            sourceUrl: changedRawUrl,
+            mirrorListingId: changedSourceListingId,
+            sourceCandidateId: fixture.candidateId,
+            sourceListingId: changedSourceListingId,
+            sourceListingIdKind: 'tiny_id',
+            sourceListingAliases: [
+              { kind: 'tiny_id', value: changedSourceListingId },
+              { kind: 'detail_id', value: changedSourceListingId },
+            ],
+            canonicalUrl: changedCanonicalUrl,
+            askingPrice: 530000,
+            priceType: 'sale',
+            currency: 'EUR',
+            status: 'active',
+            lifecycleStatus: 'available',
+            mirrorLastChangedAt: '2026-04-07T10:00:00.000Z',
+            mirrorLastSeenAt: '2026-04-07T10:05:00.000Z',
+            thumbnailUrl: 'https://cdn.example.com/source-candidate-updated.jpg',
+            ogTitle: 'Source candidate updated title',
+            address: {
+              countryCode: 'NL',
+              street: 'Listings Fixture Street',
+              postalCode: '9100AA',
+              houseNumber: 1,
+              city: 'Listings City',
+              latitude: 51.441,
+              longitude: 5.471,
+            },
+          },
+        ],
+      });
+
+      await expect(
+        processIngestBatch({
+          batchId: acceptedMirror.batchId,
+          enqueueMaintenanceRefresh: async () => {},
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        ingested: 1,
+        updated: 0,
+        skipped: 0,
+      });
+
+      const [canonical] = await db
+        .select()
+        .from(canonicalListings)
+        .where(eq(canonicalListings.id, fixture.canonicalListingId))
+        .limit(1);
+      expect(canonical).toMatchObject({
+        canonicalUrl: changedCanonicalUrl,
+        displayUrl: changedCanonicalUrl,
+        status: 'active',
+        statusSource: 'mirror',
+        verificationState: 'validated',
+        originSummary: 'user_and_mirror',
+        askingPrice: 530000,
+        thumbnailUrl: 'https://cdn.example.com/source-candidate-updated.jpg',
+        title: 'Source candidate updated title',
+      });
+
+      const [handoff] = await db
+        .select()
+        .from(listingCandidateHandoffs)
+        .where(eq(listingCandidateHandoffs.id, fixture.candidateId))
+        .limit(1);
+      expect(handoff).toMatchObject({
+        state: 'delivered',
+        canonicalListingId: fixture.canonicalListingId,
+      });
+      expect(handoff?.observationId).toBeTruthy();
+
+      const [observation] = await db
+        .select()
+        .from(listingObservations)
+        .where(eq(listingObservations.id, handoff?.observationId ?? '00000000-0000-0000-0000-000000000000'))
+        .limit(1);
+      expect(observation).toMatchObject({
+        candidateHandoffId: fixture.candidateId,
+        previewResultId: null,
+        sourceListingId: changedSourceListingId,
+      });
+    });
+
+    it('keeps provisional listings active when diagnostic pushback is retryable', async () => {
+      const fixture = await createMatchedSubmissionFixture('diagnostic-pushback');
+      const watermark = await getIngestWatermark('funda');
+      const changedSourceListingId = `${fixture.sourceListingId}-parser`;
+      const changedCanonicalUrl = `https://www.funda.nl/detail/${changedSourceListingId}/`;
+      const cursorEnd = encodeOpaqueIngestCursor({
+        changedAt: new Date(Date.now() + 1_000).toISOString(),
+        listingKey: `funda-diagnostic-pushback-${fixture.sourceListingId}`,
+      });
+      const acceptedMirror = await acceptIngestBatch({
+        sourceName: 'funda',
+        idempotencyKey: `funda-diagnostic-pushback-${fixture.sourceListingId}`,
+        batchSequence: 0,
+        cursorStart: watermark.cursor,
+        cursorEnd,
+        upstreamRunKey: `funda-diagnostic-pushback-run-${fixture.sourceListingId}`,
+        listings: [
+          {
+            sourceUrl: `https://www.funda.nl/detail/koop/eindhoven/huis-diagnostic-pushback/${changedSourceListingId}/`,
+            mirrorListingId: changedSourceListingId,
+            sourceCandidateId: fixture.candidateId,
+            sourceListingId: changedSourceListingId,
+            sourceListingIdKind: 'tiny_id',
+            sourceListingAliases: [
+              { kind: 'tiny_id', value: changedSourceListingId },
+              { kind: 'detail_id', value: changedSourceListingId },
+            ],
+            canonicalUrl: changedCanonicalUrl,
+            askingPrice: null,
+            priceType: 'sale',
+            status: 'active',
+            diagnosticStatus: 'parser_error',
+            mirrorLastChangedAt: '2026-04-07T11:00:00.000Z',
+            mirrorLastSeenAt: '2026-04-07T11:05:00.000Z',
+          },
+        ],
+      });
+
+      await expect(
+        processIngestBatch({
+          batchId: acceptedMirror.batchId,
+          enqueueMaintenanceRefresh: async () => {},
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        ingested: 0,
+        updated: 1,
+        skipped: 0,
+      });
+
+      const [canonical] = await db
+        .select()
+        .from(canonicalListings)
+        .where(eq(canonicalListings.id, fixture.canonicalListingId))
+        .limit(1);
+      expect(canonical).toMatchObject({
+        canonicalUrl: fixture.canonicalUrl,
+        status: 'active',
+        statusSource: 'user',
+        verificationState: 'provisional',
+        originSummary: 'user',
+      });
+
+      const [handoff] = await db
+        .select()
+        .from(listingCandidateHandoffs)
+        .where(eq(listingCandidateHandoffs.id, fixture.candidateId))
+        .limit(1);
+      expect(handoff).toMatchObject({
+        state: 'retryable_error',
+        canonicalListingId: fixture.canonicalListingId,
+      });
+      expect(handoff?.lastError).toBe('Source service diagnostic: parser_error');
+      expect(handoff?.observationId).toBeTruthy();
+
+      const [observation] = await db
+        .select()
+        .from(listingObservations)
+        .where(eq(listingObservations.id, handoff?.observationId ?? '00000000-0000-0000-0000-000000000000'))
+        .limit(1);
+      expect(observation).toMatchObject({
+        candidateHandoffId: fixture.candidateId,
+        previewResultId: null,
+        sourceListingId: changedSourceListingId,
+        diagnosticStatus: 'parser_error',
+      });
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      const listing = listingsBody.data.find((item: { id: string }) => item.id === fixture.canonicalListingId);
+      expect(listing).toMatchObject({
+        status: 'active',
+        verificationState: 'provisional',
+        candidateHandoffState: 'retryable_error',
+      });
     });
   });
 

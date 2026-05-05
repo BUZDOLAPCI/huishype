@@ -524,18 +524,18 @@ export async function listingRoutes(app: FastifyInstance) {
           currency: request.body.currency,
         },
       });
-      const enrichedPlan = await enrichListingPreviewDisplay(plan);
 
       if (
-        enrichedPlan.validationState !== 'valid'
-        || enrichedPlan.matchState !== 'matched'
+        plan.validationState !== 'valid'
+        || plan.matchState !== 'matched'
       ) {
         return reply.status(400).send({
           error: 'LISTING_VALIDATION_FAILED',
-          message: `Listing validation failed: ${enrichedPlan.reasonCode}`,
+          message: `Listing validation failed: ${plan.reasonCode}`,
         });
       }
 
+      const enrichedPlan = await enrichListingPreviewDisplay(plan);
       const stored = await storeListingPreviewResult(enrichedPlan);
       const publicPreview = toPublicListingPreviewResponse(enrichedPlan);
 
