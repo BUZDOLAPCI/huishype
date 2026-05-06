@@ -333,20 +333,27 @@ function dateKey(value: Date | string | null | undefined): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function normalizeUrlForObservationCompatibility(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/[?#].*$/, '').replace(/\/+$/, '');
+}
+
 function observationCompatibilityPayload(
   observation: NewListingObservation | ListingObservation,
 ): Record<string, unknown> {
   const payload = { ...(observation.payload ?? {}) };
   delete payload.sourceCandidateId;
   delete payload.sourceProvenance;
+  delete payload.title;
+  delete payload.description;
+  delete payload.imageUrl;
 
   return {
     sourceName: observation.sourceName,
     sourceListingId: observation.sourceListingId ?? null,
-    sourceListingIdKind: observation.sourceListingIdKind ?? null,
-    sourceListingAliases: observation.sourceListingAliases ?? [],
-    sourceUrlRaw: observation.sourceUrlRaw ?? null,
-    sourceUrlCanonical: observation.sourceUrlCanonical ?? null,
+    sourceUrlRaw: normalizeUrlForObservationCompatibility(observation.sourceUrlRaw),
+    sourceUrlCanonical: normalizeUrlForObservationCompatibility(observation.sourceUrlCanonical),
     submittedBy: observation.submittedBy ?? null,
     origin: sourceEvidenceOriginForCompatibility(observation.origin),
     propertyId: observation.propertyId ?? null,
@@ -362,7 +369,6 @@ function observationCompatibilityPayload(
     houseNumberAddition: observation.houseNumberAddition ?? null,
     listedAt: dateKey(observation.listedAt),
     firstSeenAt: dateKey(observation.firstSeenAt),
-    lastSeenAt: dateKey(observation.lastSeenAt),
     sourceUpdatedAt: dateKey(observation.sourceUpdatedAt),
     observedAt: dateKey(observation.observedAt),
     payload,
@@ -441,6 +447,16 @@ function nonNullMetadataValue<T>(value: T | null | undefined): T | undefined {
   return value == null ? undefined : value;
 }
 
+function incomingDateIsNewer(
+  existing: Date | string | null | undefined,
+  incoming: Date | string | null | undefined,
+): boolean {
+  const existingDate = existing ? new Date(existing) : null;
+  const incomingDate = incoming ? new Date(incoming) : null;
+  if (!incomingDate || Number.isNaN(incomingDate.getTime())) return false;
+  return !existingDate || Number.isNaN(existingDate.getTime()) || incomingDate > existingDate;
+}
+
 async function refreshCompatibleObservationMetadata(
   existing: ListingObservation,
   incoming: NewListingObservation,
@@ -466,6 +482,25 @@ async function refreshCompatibleObservationMetadata(
     && (!incomingStale || !existing.sourceHighWatermark)
   ) {
     set.sourceHighWatermark = incoming.sourceHighWatermark;
+  }
+  if (incomingDateIsNewer(existing.lastSeenAt, incoming.lastSeenAt)) {
+    set.lastSeenAt = incoming.lastSeenAt;
+  }
+  if (
+    incoming.sourceListingIdKind
+    && (!existing.sourceListingIdKind || existing.sourceListingIdKind === 'unknown')
+  ) {
+    set.sourceListingIdKind = incoming.sourceListingIdKind;
+  }
+  if (
+    incoming.sourceListingAliases
+    && incoming.sourceListingAliases.length > 0
+    && (!existing.sourceListingAliases || existing.sourceListingAliases.length === 0)
+  ) {
+    set.sourceListingAliases = incoming.sourceListingAliases;
+  }
+  if (incoming.payload && stableJson(existing.payload ?? {}) !== stableJson(incoming.payload)) {
+    set.payload = incoming.payload;
   }
 
   const safeLinkage = {

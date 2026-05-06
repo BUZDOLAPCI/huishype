@@ -942,7 +942,7 @@ describe('Listing routes', () => {
     });
 
     it('should reject tampered preview tokens after preview succeeds', async () => {
-      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-12);
       const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-token-test/${submittedId}/`;
       const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
 
@@ -1026,7 +1026,7 @@ describe('Listing routes', () => {
       const otherAccessToken = authBody.session.accessToken;
       testUserIds.push(authBody.session.user.id);
 
-      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-12);
       const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-token-owner/${submittedId}/`;
       const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
 
@@ -1117,7 +1117,7 @@ describe('Listing routes', () => {
     });
 
     it('should not reopen a consumed preview when the same preview facts are requested again', async () => {
-      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-12);
       const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-consumed-preview/${submittedId}/`;
       const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
       const sourceResolution = {
@@ -1207,7 +1207,7 @@ describe('Listing routes', () => {
     });
 
     it('should bind submit to the exact stored preview facts after preview facts change', async () => {
-      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-12);
       const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-preview-facts/${submittedId}/`;
       const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
 
@@ -1305,7 +1305,7 @@ describe('Listing routes', () => {
 
     it('should create a validated canonical listing with candidate handoff for matched submissions', async () => {
       const thumbnailUrl = 'https://cdn.example.com/test-thumbnail.jpg';
-      const submittedId = `${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(0, 12);
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(-12);
       const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-contract-test/${submittedId}/`;
       const snapshotStateBefore = await readPropertyTileSnapshotInvalidationState();
 
@@ -1554,7 +1554,7 @@ describe('Listing routes', () => {
     });
 
     it('should reject confirmed source mismatches without creating a canonical listing', async () => {
-      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-12);
       const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
 
       mockFetchFn
@@ -2079,7 +2079,7 @@ describe('Listing routes', () => {
     });
 
     it('attaches user evidence to an existing scraper-backed listing without overwriting mirror truth', async () => {
-      const sourceListingId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const sourceListingId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-12);
       const rawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-existing-scraper/${sourceListingId}/`;
       const canonicalUrl = `https://www.funda.nl/detail/${sourceListingId}/`;
       const watermark = await getIngestWatermark('funda');
@@ -2093,6 +2093,8 @@ describe('Listing routes', () => {
           listingKey: `funda-existing-scraper-${sourceListingId}`,
         }),
         upstreamRunKey: `funda-existing-scraper-run-${sourceListingId}`,
+        repairMode: true,
+        repairReason: 'integration fixture projection',
         listings: [
           {
             sourceUrl: rawUrl,

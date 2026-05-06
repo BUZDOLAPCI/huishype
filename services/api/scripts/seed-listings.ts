@@ -511,7 +511,39 @@ async function fetchMirrorListings(
   offset: number,
 ): Promise<MirrorListing[]> {
   const scopeValue = normalizeScope(scope);
-  const rows = await mirrorDb<MirrorListing[]>`
+  if (source === 'funda') {
+    return mirrorDb<MirrorListing[]>`
+      SELECT
+        l.*,
+        a.street,
+        a.house_number,
+        a.house_number_addition,
+        a.postal_code,
+        a.city,
+        a.latitude,
+        a.longitude
+      FROM listings l
+      LEFT JOIN addresses a ON l.address_id = a.id
+      WHERE (
+        ${scopeValue}::text IS NULL
+        OR ${scopeValue}::text IN ('all', 'full-mirror')
+        OR CASE
+          WHEN lower(COALESCE(l.price_type, '')) IN ('rent', 'rental') THEN 'rent'
+          WHEN lower(COALESCE(l.price_type, '')) IN ('sale', 'sell', 'buy', 'koop') THEN 'sale'
+          ELSE 'sale'
+        END = ${scopeValue}::text
+      )
+      ORDER BY
+        COALESCE(l.last_changed_at, l.last_seen_at, l.first_seen_at, '-infinity'::timestamptz),
+        COALESCE(l.funda_id, ''),
+        l.listing_url,
+        l.id
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `;
+  }
+
+  return mirrorDb<MirrorListing[]>`
     SELECT
       l.*,
       a.street,
@@ -529,24 +561,17 @@ async function fetchMirrorListings(
       OR CASE
         WHEN lower(COALESCE(l.price_type, '')) IN ('rent', 'rental') THEN 'rent'
         WHEN lower(COALESCE(l.price_type, '')) IN ('sale', 'sell', 'buy', 'koop') THEN 'sale'
-        WHEN ${source}::text = 'pararius' THEN 'rent'
-        WHEN ${source}::text = 'funda' THEN 'sale'
-        ELSE 'unknown'
+        ELSE 'rent'
       END = ${scopeValue}::text
     )
     ORDER BY
       COALESCE(l.last_changed_at, l.last_seen_at, l.first_seen_at, '-infinity'::timestamptz),
-      CASE
-        WHEN ${source}::text = 'funda' THEN COALESCE(l.funda_id, '')
-        ELSE COALESCE(l.pararius_id, '')
-      END,
+      COALESCE(l.pararius_id, ''),
       l.listing_url,
       l.id
     LIMIT ${limit}
     OFFSET ${offset}
   `;
-
-  return rows;
 }
 
 async function estimateAffectedCanonicalCount(

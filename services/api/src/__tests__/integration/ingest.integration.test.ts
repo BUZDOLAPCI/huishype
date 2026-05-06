@@ -3082,6 +3082,119 @@ describe('Durable ingest API contract', () => {
     expect(canonicals).toHaveLength(1);
   });
 
+  it('refreshes legacy-compatible source observation metadata during idempotent replay', async () => {
+    const sourceName = 'funda';
+    const stamp = Date.now();
+    const street = `Legacy Observation Replay Street ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 97 });
+    const mirrorListingId = `7974737-${stamp}`;
+    const observedAt = '2026-04-25T14:19:14.381Z';
+    const firstBatchId = await seedCompletedBatchRecord({
+      sourceName,
+      stamp,
+      suffix: 'legacy-observation-first',
+      completedAt: observedAt,
+    });
+    const replayBatchId = await seedCompletedBatchRecord({
+      sourceName,
+      stamp,
+      suffix: 'legacy-observation-replay',
+      completedAt: '2026-05-06T12:31:12.990Z',
+    });
+
+    const first = await persistMirrorObservationForIngest(db, {
+      batchId: firstBatchId,
+      sourceName,
+      sourceUrl: `https://www.funda.nl/detail/${mirrorListingId}`,
+      sourceListingId: mirrorListingId,
+      sourceListingIdKind: 'unknown',
+      aliases: [],
+      propertyId,
+      propertyMatchKind: 'source_exact',
+      sourceStatus: 'available',
+      askingPrice: 2150000,
+      priceCurrency: 'EUR',
+      address: {
+        countryCode: 'NL',
+        street,
+        postalCode: '1082MX',
+        houseNumber: 97,
+        city: 'Amsterdam',
+      },
+      firstSeenAt: observedAt,
+      lastSeenAt: observedAt,
+      sourceUpdatedAt: observedAt,
+      observedAt,
+      payload: {
+        priceType: 'rent',
+        livingAreaM2: 207,
+        numRooms: 4,
+        energyLabel: 'A',
+        mirrorListingId,
+      },
+    });
+
+    const replay = await persistMirrorObservationForIngest(db, {
+      batchId: replayBatchId,
+      sourceName,
+      sourceUrl: `https://www.funda.nl/detail/${mirrorListingId}/`,
+      sourceListingId: mirrorListingId,
+      sourceListingIdKind: 'tiny_id',
+      aliases: [
+        { kind: 'tiny_id', value: mirrorListingId },
+        { kind: 'canonical_url', value: `https://www.funda.nl/detail/${mirrorListingId}/` },
+      ],
+      propertyId,
+      propertyMatchKind: 'source_exact',
+      sourceStatus: 'available',
+      askingPrice: 2150000,
+      priceCurrency: 'EUR',
+      address: {
+        countryCode: 'NL',
+        street,
+        postalCode: '1082MX',
+        houseNumber: 97,
+        city: 'Amsterdam',
+      },
+      title: `Te huur: ${street}: Amsterdam`,
+      firstSeenAt: observedAt,
+      lastSeenAt: '2026-05-06T11:52:09.878Z',
+      sourceUpdatedAt: observedAt,
+      observedAt,
+      sourceHighWatermark: '2026-05-06T12:31:12.990Z',
+      sourceProvenance: 'import',
+      payload: {
+        priceType: 'rent',
+        livingAreaM2: 207,
+        numRooms: 4,
+        energyLabel: 'A',
+        mirrorListingId,
+      },
+    });
+
+    expect(replay.observationId).toBe(first.observationId);
+    const [observation] = await db
+      .select()
+      .from(listingObservations)
+      .where(eq(listingObservations.id, first.observationId))
+      .limit(1);
+
+    expect(observation).toMatchObject({
+      ingestBatchId: replayBatchId,
+      sourceListingIdKind: 'tiny_id',
+      sourceListingAliases: [
+        { kind: 'tiny_id', value: mirrorListingId },
+        { kind: 'canonical_url', value: `https://www.funda.nl/detail/${mirrorListingId}/` },
+      ],
+    });
+    expect(observation?.lastSeenAt?.toISOString()).toBe('2026-05-06T11:52:09.878Z');
+    expect(observation?.payload).toEqual(expect.objectContaining({
+      title: `Te huur: ${street}: Amsterdam`,
+      sourceProvenance: 'import',
+      mirrorListingId,
+    }));
+  });
+
   it('reuses compatible URL-only source observations for idempotent replay', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
