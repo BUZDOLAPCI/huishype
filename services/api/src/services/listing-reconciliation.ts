@@ -348,6 +348,10 @@ function observationCompatibilityPayload(
   delete payload.title;
   delete payload.description;
   delete payload.imageUrl;
+  delete payload.scopeKey;
+  delete payload.reasonCode;
+  delete payload.matchEvidence;
+  delete payload.normalizedFilters;
 
   return {
     sourceName: observation.sourceName,
@@ -416,7 +420,7 @@ async function findCompatibleExistingObservationForIdempotentReplay(
     ? sql`${listingObservations.origin} IN ('mirror', 'replay')`
     : eq(listingObservations.origin, observation.origin);
 
-  const [existing] = await targetDb(executor)
+  const existingRows = await targetDb(executor)
     .select()
     .from(listingObservations)
     .where(
@@ -427,10 +431,11 @@ async function findCompatibleExistingObservationForIdempotentReplay(
         eq(listingObservations.observedAt, observedAt),
       ),
     )
-    .limit(1);
+    .limit(10);
 
-  if (!existing) return null;
-  if (!observationsAreCompatible(existing, observation)) {
+  if (existingRows.length === 0) return null;
+  const compatible = existingRows.find((existing) => observationsAreCompatible(existing, observation));
+  if (!compatible) {
     if (!options.throwOnConflict) return null;
     const identity = observation.sourceListingId
       ? observation.sourceListingId
@@ -440,7 +445,7 @@ async function findCompatibleExistingObservationForIdempotentReplay(
     );
   }
 
-  return existing;
+  return compatible;
 }
 
 function nonNullMetadataValue<T>(value: T | null | undefined): T | undefined {
