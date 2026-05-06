@@ -1049,6 +1049,14 @@ export async function invalidatePropertyTileSnapshots(input: {
   await requestPropertyTileSnapshotRefresh({ reason: input.reason, throttleMs: input.throttleMs });
 }
 
+export async function requestPropertyTileSnapshotRefreshAfterBulkImport(
+  reason: string,
+  requestRefresh: typeof requestPropertyTileSnapshotRefresh = requestPropertyTileSnapshotRefresh,
+): Promise<PropertyTileSnapshotRefreshRequestResult> {
+  await advancePropertyTileSnapshotWatermark(['property', 'coverage']);
+  return requestRefresh({ reason });
+}
+
 export async function upsertPropertyTileSnapshotRow(input: {
   tile: PropertyTileCoordinate;
   filterSignature: string;
@@ -1056,6 +1064,7 @@ export async function upsertPropertyTileSnapshotRow(input: {
   payload: Buffer;
   watermarks: SnapshotWatermarks;
   generatedAt?: Date;
+  leaseOwner?: string;
 }): Promise<{ written: boolean; skippedAsStale: boolean }> {
   const statusCode = input.payload.byteLength > 0 ? 200 : 204;
   const payload = statusCode === 200 ? input.payload : null;
@@ -1064,6 +1073,17 @@ export async function upsertPropertyTileSnapshotRow(input: {
   const generatedAt = input.generatedAt ?? new Date();
 
   const rows = await db.execute<{ z: number }>(sql`
+    WITH lease_guard AS (
+      SELECT 1 AS ok
+      WHERE ${input.leaseOwner ?? null}::text IS NULL
+      UNION ALL
+      SELECT 1 AS ok
+      FROM property_tile_snapshot_refresh_state
+      WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+        AND ${input.leaseOwner ?? null}::text IS NOT NULL
+        AND lease_owner = ${input.leaseOwner ?? null}
+        AND lease_until > now()
+    )
     INSERT INTO property_tile_snapshots (
       z,
       x,
@@ -1081,7 +1101,7 @@ export async function upsertPropertyTileSnapshotRow(input: {
       snapshot_config_hash,
       refreshed_at
     )
-    VALUES (
+    SELECT
       ${input.tile.z},
       ${input.tile.x},
       ${input.tile.y},
@@ -1097,7 +1117,7 @@ export async function upsertPropertyTileSnapshotRow(input: {
       ${input.watermarks.coverageWatermark},
       ${input.coverage.snapshotConfigHash},
       ${generatedAt.toISOString()}::timestamptz
-    )
+    FROM lease_guard
     ON CONFLICT (z, x, y, filter_signature) DO UPDATE SET
       coverage_id = EXCLUDED.coverage_id,
       payload = EXCLUDED.payload,
@@ -1372,6 +1392,7 @@ async function finishRefresh(input: {
       END
     WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
       AND lease_owner = ${input.owner}
+      AND lease_until > now()
   `);
 }
 
@@ -1606,6 +1627,7 @@ export async function executePropertyTileSnapshotRefresh(input: {
           payload,
           watermarks,
           generatedAt: tileStartedAt,
+          leaseOwner: owner,
         });
         if (writeResult.written) {
           refreshedTileCount += 1;

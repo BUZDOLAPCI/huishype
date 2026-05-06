@@ -551,6 +551,123 @@ describe('Durable ingest API contract', () => {
     expect(canonicalRows[0]?.primarySourceListingId).toBe(`idealista-mirror-${stamp}`);
   });
 
+  it('keeps mixed candidate and mirror batches bound to the source cursor', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = 'Mixed Candidate Cursorlaan';
+    await resetIngestSourceState(sourceName);
+    await seedProperty({
+      street,
+      houseNumber: 42,
+      postalCode: '5611AB',
+      city: 'Eindhoven',
+    });
+
+    const firstCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T13:10:00.000Z',
+      listingKey: `idealista-mixed-cursor-first-${stamp}`,
+    });
+    const firstAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-mixed-cursor-first-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: firstCursor,
+      upstreamRunKey: `idealista-mixed-cursor-run-${stamp}-first`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/en/koop/eindhoven/first-${stamp}/`,
+          mirrorListingId: `idealista-mixed-cursor-first-${stamp}`,
+          askingPrice: 515000,
+          priceType: 'sale',
+          status: 'active',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '5611 AB',
+            houseNumber: 42,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: firstAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toMatchObject({
+      status: 'completed',
+    });
+
+    const mixedCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T13:20:00.000Z',
+      listingKey: `idealista-mixed-cursor-second-${stamp}`,
+    });
+    const mixedAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-mixed-cursor-second-${stamp}`,
+      batchSequence: 1,
+      cursorStart: null,
+      cursorEnd: mixedCursor,
+      upstreamRunKey: `idealista-mixed-cursor-run-${stamp}-second`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/en/koop/eindhoven/candidate-${stamp}/`,
+          mirrorListingId: `idealista-mixed-cursor-candidate-${stamp}`,
+          sourceCandidateId: `candidate-${stamp}`,
+          askingPrice: null,
+          priceType: 'unknown',
+          diagnosticStatus: 'unknown',
+          status: 'active',
+        },
+        {
+          sourceUrl: `https://www.idealista.com/en/koop/eindhoven/mirror-${stamp}/`,
+          mirrorListingId: `idealista-mixed-cursor-mirror-${stamp}`,
+          askingPrice: 520000,
+          priceType: 'sale',
+          status: 'active',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '5611 AB',
+            houseNumber: 42,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: mixedAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'noop',
+      ingested: 0,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [sourceAfterMixed] = await db
+      .select()
+      .from(ingestSources)
+      .where(eq(ingestSources.sourceName, sourceName))
+      .limit(1);
+    expect(sourceAfterMixed?.lastCommittedCursor).toBe(firstCursor);
+
+    const [mixedBatch] = await db
+      .select()
+      .from(ingestBatches)
+      .where(eq(ingestBatches.id, mixedAccepted.batchId))
+      .limit(1);
+    expect(mixedBatch?.status).toBe('accepted');
+
+    await resetIngestSourceState(sourceName);
+  });
+
   it('processes zero-row scoped completion batches and advances scope watermarks', async () => {
     const sourceName = 'idealista';
     const cursorEnd = encodeOpaqueIngestCursor({

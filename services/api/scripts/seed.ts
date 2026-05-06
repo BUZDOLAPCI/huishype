@@ -18,7 +18,6 @@ const CSV_PATH = '/tmp/vbo_extract.csv';
 const DOCKER_CONTAINER = 'huishype-postgres';
 const DB_USER = 'huishype';
 const DB_NAME = 'huishype';
-const PROPERTY_TILE_SNAPSHOT_KEY = 'public_default_low_zoom';
 
 /**
  * Format elapsed time as human-readable string.
@@ -294,69 +293,21 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
     `  Upserted ${fmt(changedCount)} changed properties to ${fmt(totalProperties)} total properties in ${formatTime(Date.now() - start)}`,
   );
   if (changedCount > 0) {
-    await requestPropertyTileSnapshotRefreshAfterBulkImport(sql, 'bag-seed');
+    await requestPropertyTileSnapshotRefreshAfterBulkImport('bag-seed');
   }
   return totalProperties;
 }
 
 async function requestPropertyTileSnapshotRefreshAfterBulkImport(
-  sql: postgres.Sql,
   reason: string,
 ): Promise<void> {
-  const { ensureDefaultPropertyTileSnapshotCoverage } = await import('../src/services/property-tile-snapshots.js');
-  await ensureDefaultPropertyTileSnapshotCoverage();
-
-  await sql`
-    WITH updated_watermarks AS (
-      INSERT INTO property_tile_snapshot_watermarks (
-        key,
-        property_watermark,
-        coverage_watermark,
-        updated_at
-      )
-      VALUES (
-        ${PROPERTY_TILE_SNAPSHOT_KEY},
-        1,
-        1,
-        NOW()
-      )
-      ON CONFLICT (key) DO UPDATE SET
-        property_watermark = property_tile_snapshot_watermarks.property_watermark + 1,
-        coverage_watermark = property_tile_snapshot_watermarks.coverage_watermark + 1,
-        updated_at = NOW()
-      RETURNING
-        listing_watermark,
-        social_watermark,
-        property_watermark,
-        coverage_watermark
-    )
-    INSERT INTO property_tile_snapshot_refresh_state (
-      key,
-      requested_at,
-      request_reason,
-      requested_listing_watermark,
-      requested_social_watermark,
-      requested_property_watermark,
-      requested_coverage_watermark
-    )
-    SELECT
-      ${PROPERTY_TILE_SNAPSHOT_KEY},
-      NOW(),
-      ${reason},
-      listing_watermark,
-      social_watermark,
-      property_watermark,
-      coverage_watermark
-    FROM updated_watermarks
-    ON CONFLICT (key) DO UPDATE SET
-      requested_at = EXCLUDED.requested_at,
-      request_reason = EXCLUDED.request_reason,
-      requested_listing_watermark = EXCLUDED.requested_listing_watermark,
-      requested_social_watermark = EXCLUDED.requested_social_watermark,
-      requested_property_watermark = EXCLUDED.requested_property_watermark,
-      requested_coverage_watermark = EXCLUDED.requested_coverage_watermark
-  `;
-  console.log(`  Requested property tile snapshot refresh (reason: ${reason})`);
+  const { requestPropertyTileSnapshotRefreshAfterBulkImport: requestRefresh } = await import(
+    '../src/services/property-tile-snapshots.js'
+  );
+  const result = await requestRefresh(reason);
+  console.log(
+    `  Requested property tile snapshot refresh (reason: ${reason}, enqueue: ${result.enqueueStatus})`,
+  );
 }
 
 // ---------------------------------------------------------------------------

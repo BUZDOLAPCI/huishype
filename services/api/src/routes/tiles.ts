@@ -198,6 +198,7 @@ const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
 const PROPERTY_TILE_SNAPSHOT_LOOKUP_REFRESH_THROTTLE_MS = 60_000;
 const pendingDefaultPropertyTileSnapshotRefreshes = new Set<Promise<unknown>>();
+let lookupCurrentPropertyTileSnapshotForRoute = lookupCurrentPropertyTileSnapshot;
 
 export async function waitForPendingDefaultPropertyTileSnapshotRefreshesForTests(): Promise<void> {
   if (process.env.NODE_ENV !== 'test') {
@@ -214,6 +215,17 @@ export async function waitForPendingDefaultPropertyTileSnapshotRefreshesForTests
 export function resetPropertyTileCacheForTests(): void {
   publicPropertyTileCache.clear();
   propertyTileRuntime.resetForTests();
+  lookupCurrentPropertyTileSnapshotForRoute = lookupCurrentPropertyTileSnapshot;
+}
+
+export function setPropertyTileSnapshotLookupForTests(
+  lookup: typeof lookupCurrentPropertyTileSnapshot,
+): void {
+  if (process.env.NODE_ENV !== 'test') {
+    return;
+  }
+
+  lookupCurrentPropertyTileSnapshotForRoute = lookup;
 }
 
 function buildReadPropertyTileTemplateUrl(
@@ -563,24 +575,54 @@ async function getReadStateScopeForViewer(
         has_read_state: boolean;
         read_version: number | null;
         read_version_updated_at: string | null;
+        read_state_count: string | number | null;
+        current_read_state_count: string | number | null;
+        read_change_version_sum: string | number | null;
+        read_last_changed_at: string | null;
       }>(sql`
+      WITH read_rows AS (
+        SELECT
+          prs.property_id,
+          prs.seen_change_version,
+          COALESCE(pcs.change_version, 0) AS change_version,
+          pcs.last_changed_at
+        FROM property_read_state prs
+        LEFT JOIN property_change_state pcs ON pcs.property_id = prs.property_id
+        WHERE ${readStateIdentityPredicate(viewer)}
+      )
       SELECT
         EXISTS (
           SELECT 1
-          FROM property_read_state prs
-          LEFT JOIN property_change_state pcs ON pcs.property_id = prs.property_id
-          WHERE ${readStateIdentityPredicate(viewer)}
-            AND prs.seen_change_version >= COALESCE(pcs.change_version, 0)
+          FROM read_rows
+          WHERE seen_change_version >= change_version
           LIMIT 1
         ) AS has_read_state,
-        COALESCE(MAX(prsv.version), 0)::bigint AS read_version,
-        MAX(prsv.updated_at)::text AS read_version_updated_at
-      FROM property_read_state_versions prsv
-      WHERE ${
-        'userId' in viewer
-          ? sql`prsv.user_id = ${viewer.userId} AND prsv.session_id IS NULL`
-          : sql`prsv.session_id = ${viewer.sessionId} AND prsv.user_id IS NULL`
-      }
+        (
+          SELECT COALESCE(MAX(prsv.version), 0)::bigint
+          FROM property_read_state_versions prsv
+          WHERE ${
+            'userId' in viewer
+              ? sql`prsv.user_id = ${viewer.userId} AND prsv.session_id IS NULL`
+              : sql`prsv.session_id = ${viewer.sessionId} AND prsv.user_id IS NULL`
+          }
+        ) AS read_version,
+        (
+          SELECT MAX(prsv.updated_at)::text
+          FROM property_read_state_versions prsv
+          WHERE ${
+            'userId' in viewer
+              ? sql`prsv.user_id = ${viewer.userId} AND prsv.session_id IS NULL`
+              : sql`prsv.session_id = ${viewer.sessionId} AND prsv.user_id IS NULL`
+          }
+        ) AS read_version_updated_at,
+        (SELECT COUNT(*)::bigint FROM read_rows) AS read_state_count,
+        (
+          SELECT COUNT(*)::bigint
+          FROM read_rows
+          WHERE seen_change_version >= change_version
+        ) AS current_read_state_count,
+        (SELECT COALESCE(SUM(change_version), 0)::bigint FROM read_rows) AS read_change_version_sum,
+        (SELECT MAX(last_changed_at)::text FROM read_rows) AS read_last_changed_at
     `);
     })
     .finally(() => {
@@ -595,7 +637,14 @@ async function getReadStateScopeForViewer(
 
   return {
     hasReadState: true,
-    scope: `${row.read_version ?? 0}:${row.read_version_updated_at ?? 'none'}`,
+    scope: [
+      row.read_version ?? 0,
+      row.read_version_updated_at ?? 'none',
+      row.read_state_count ?? 0,
+      row.current_read_state_count ?? 0,
+      row.read_change_version_sum ?? 0,
+      row.read_last_changed_at ?? 'none',
+    ].join(':'),
   };
 }
 
@@ -2071,7 +2120,7 @@ export async function tileRoutes(app: FastifyInstance) {
           if (signal.aborted) {
             throw new PropertyTileBuildAbortedError('Property tile snapshot lookup aborted');
           }
-          snapshot = await lookupCurrentPropertyTileSnapshot({ z, x, y, filterSignature });
+          snapshot = await lookupCurrentPropertyTileSnapshotForRoute({ z, x, y, filterSignature });
           snapshotRuntime.generationTimeMs = Date.now() - snapshotStartedAt;
         } catch (error) {
           if (!isPropertyTileRecoverableError(error)) {

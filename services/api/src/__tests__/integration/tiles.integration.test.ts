@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
 import {
   resetPropertyTileCacheForTests,
+  setPropertyTileSnapshotLookupForTests,
   waitForPendingDefaultPropertyTileSnapshotRefreshesForTests,
 } from '../../routes/tiles.js';
 import {
@@ -27,6 +28,7 @@ import {
   publicPropertyTileCache,
 } from '../../services/property-tile-cache.js';
 import { propertyTileRuntime } from '../../services/property-tile-runtime.js';
+import { advancePropertyChangeVersion } from '../../services/property-read-state.js';
 import { createDefaultMapFilters, type MapFilters } from '../../services/map-filters.js';
 import {
   createIntegrationFollow,
@@ -686,7 +688,83 @@ describe('Tile routes', () => {
         expect(response.headers['cache-control']).toBe('private, no-store');
         expect(response.headers.vary).toContain('Authorization');
         expect(response.headers.vary).toContain('x-session-id');
+
+        await advancePropertyChangeVersion(property.id);
+
+        const staleReadResponse = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/read.json?marketState=not-listed,for-sale',
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(staleReadResponse.statusCode).toBe(200);
+        expect(JSON.parse(staleReadResponse.body).tiles).toEqual([]);
       } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+
+    it('invalidates an in-flight read TileJSON freshness lookup when a property is viewed', async () => {
+      const sessionId = `read-tilejson-race-${Date.now()}`;
+      const sessionScope = crypto.createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
+      const property = await createIntegrationProperty({
+        street: 'Read TileJSON Race Street',
+        houseNumber: 1,
+        city: 'Readtile',
+        postalCode: '9300AB',
+        lon: 6.21,
+        lat: 52.21,
+      });
+      let markLookupStarted!: () => void;
+      const lookupStarted = new Promise<void>((resolve) => {
+        markLookupStarted = resolve;
+      });
+
+      const staleLookup = propertyTileRuntime.run({
+        key: `read-scope:session-hash:${sessionScope}`,
+        zoom: 22,
+        budgetMs: 10_000,
+        statementTimeoutMs: 10_000,
+        builder: (options) => {
+          markLookupStarted();
+          return new Promise((resolve, reject) => {
+            const timer = setTimeout(
+              () => resolve({ hasReadState: false, scope: 'stale-empty' }),
+              10_000,
+            );
+            options.signal?.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                reject(options.signal?.reason ?? new Error('read scope lookup aborted'));
+              },
+              { once: true },
+            );
+          });
+        },
+      });
+
+      try {
+        await lookupStarted;
+
+        const viewResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${property.id}/view`,
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(viewResponse.statusCode).toBe(200);
+        await expect(staleLookup).resolves.toEqual(
+          expect.objectContaining({ state: 'aborted' }),
+        );
+
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/read.json',
+          headers: { 'x-session-id': sessionId },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).tiles[0]).toContain('/tiles/properties/read/{z}/{x}/{y}.pbf');
+      } finally {
+        propertyTileRuntime.resetForTests();
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }
     });
@@ -1023,6 +1101,57 @@ describe('Tile routes', () => {
         expect(conditionalResponse.headers['x-tile-cache']).toBe('stale');
       } finally {
         runtimeRunSpy.mockRestore();
+      }
+    });
+
+    it('falls back to stale cache when default snapshot lookup has a recoverable error', async () => {
+      const tileUrl = '/tiles/properties/10/0/0.pbf';
+      const cacheKey = '10/0/0:default';
+      const payload = Buffer.from([0x1a, 0x05, 0x73, 0x74, 0x61, 0x6c, 0x65]);
+      publicPropertyTileCache.set(
+        cacheKey,
+        {
+          payload,
+          statusCode: 200,
+          etag: buildPropertyTileEtag(cacheKey, payload),
+        },
+        Date.now() - (PROPERTY_TILE_CACHE_TTL_SECONDS * 1000 + 1_000),
+      );
+      const previousRefreshRequestedAt = await seedRecentPropertyTileSnapshotRefreshRequest(
+        'recent-before-lookup-error',
+      );
+      const lookupError = Object.assign(
+        new Error('terminating connection due to administrator command'),
+        { code: '57P01' },
+      );
+      setPropertyTileSnapshotLookupForTests(async () => {
+        throw lookupError;
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: tileUrl,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.rawPayload).toEqual(payload);
+        expect(response.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
+        expect(response.headers['x-tile-cache']).toBe('stale');
+        expect(response.headers['x-tile-snapshot']).toBe('error');
+
+        await waitForPendingDefaultPropertyTileSnapshotRefreshesForTests();
+        const refreshState = await readPropertyTileSnapshotRefreshState();
+        expect(refreshState?.request_reason).toBe('snapshot-lookup-error');
+        expect(timestampMs(refreshState?.requested_at ?? null)).toBe(
+          previousRefreshRequestedAt.getTime(),
+        );
+      } finally {
+        resetPropertyTileCacheForTests();
+        await db.execute(sql`
+          DELETE FROM property_tile_snapshot_refresh_state
+          WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+        `);
       }
     });
 

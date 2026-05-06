@@ -162,12 +162,15 @@ const previewResponseSchema = z.object({
   canonicalUrl: z.string(),
   sourceListingId: z.string().nullable(),
   sourceListingIdKind: z.string().nullable(),
-  validationState: z.literal('valid'),
-  matchState: z.literal('matched'),
+  validationState: z.enum(['valid', 'provisional']),
+  matchState: z.enum(['matched', 'unverified']),
   handoffState: z.literal('will_create'),
   reasonCode: z.enum([
     'source_identity_match',
     'address_match',
+    'mirror_unavailable',
+    'parser_error',
+    'validation_pending',
   ]),
   title: z.string().nullable(),
   description: z.string().nullable(),
@@ -315,9 +318,30 @@ function buildDeterministicDisplayFallback(plan: ListingPreviewPlan): {
   };
 }
 
+function isSubmittablePreviewPlan(plan: ListingPreviewPlan): boolean {
+  if (plan.handoffState !== 'will_create') return false;
+  if (plan.validationState === 'valid' && plan.matchState === 'matched') return true;
+  return plan.validationState === 'provisional'
+    && plan.matchState === 'unverified'
+    && (
+      plan.reasonCode === 'mirror_unavailable'
+      || plan.reasonCode === 'parser_error'
+      || plan.reasonCode === 'validation_pending'
+    );
+}
+
 async function enrichListingPreviewDisplay(plan: ListingPreviewPlan): Promise<ListingPreviewPlan> {
   const needsOgMetadata = plan.title == null || plan.description == null || plan.imageUrl == null;
   if (!needsOgMetadata) return plan;
+
+  if (plan.validationState !== 'valid' || plan.matchState !== 'matched') {
+    const fallback = buildDeterministicDisplayFallback(plan);
+    return {
+      ...plan,
+      title: plan.title ?? fallback.title,
+      description: plan.description ?? fallback.description,
+    };
+  }
 
   const ogMetadata = await fetchOgMetadata(plan.canonicalUrl || plan.rawUrl).catch(() => ({
     ogTitle: null,
@@ -477,6 +501,7 @@ export async function listingRoutes(app: FastifyInstance) {
   typedApp.post(
     '/listings/preview',
     {
+      onRequest: [app.optionalAuth],
       schema: {
         tags: ['listings'],
         summary: 'Preview a listing URL',
@@ -529,10 +554,7 @@ export async function listingRoutes(app: FastifyInstance) {
         },
       });
 
-      if (
-        plan.validationState !== 'valid'
-        || plan.matchState !== 'matched'
-      ) {
+      if (!isSubmittablePreviewPlan(plan)) {
         return reply.status(400).send({
           error: 'LISTING_VALIDATION_FAILED',
           message: `Listing validation failed: ${plan.reasonCode}`,
@@ -540,15 +562,20 @@ export async function listingRoutes(app: FastifyInstance) {
       }
 
       const enrichedPlan = await enrichListingPreviewDisplay(plan);
-      const stored = await storeListingPreviewResult(enrichedPlan);
+      const stored = await storeListingPreviewResult(enrichedPlan, request.userId);
       const publicPreview = toPublicListingPreviewResponse(enrichedPlan);
 
       return reply.send({
         ...publicPreview,
-        validationState: 'valid',
-        matchState: 'matched',
+        validationState: enrichedPlan.validationState as 'valid' | 'provisional',
+        matchState: enrichedPlan.matchState as 'matched' | 'unverified',
         handoffState: 'will_create',
-        reasonCode: publicPreview.reasonCode as 'source_identity_match' | 'address_match',
+        reasonCode: publicPreview.reasonCode as
+          | 'source_identity_match'
+          | 'address_match'
+          | 'mirror_unavailable'
+          | 'parser_error'
+          | 'validation_pending',
         previewToken: stored.previewToken,
         previewId: stored.preview.id,
       });

@@ -92,7 +92,6 @@ interface ClaimedBatch {
 function isSourceCursorBoundBatch(payload: IngestBatchRequest): boolean {
   return !(
     payload.scopeKey === 'candidate'
-    || (payload.listings ?? []).some((listing) => listing.scopeKey === 'candidate' || Boolean(listing.sourceCandidateId))
     || Object.prototype.hasOwnProperty.call(payload as Record<string, unknown>, 'requestedBy')
   );
 }
@@ -101,12 +100,6 @@ function sourceCursorBoundBatchPredicate(): ReturnType<typeof sql> {
   return sql`
     NOT (${ingestBatches.payloadJson} ? 'requestedBy')
     AND COALESCE(${ingestBatches.payloadJson}->>'scopeKey', '') <> 'candidate'
-    AND NOT EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements(COALESCE(${ingestBatches.payloadJson}->'listings', '[]'::jsonb)) AS listing(value)
-      WHERE listing.value->>'scopeKey' = 'candidate'
-        OR listing.value ? 'sourceCandidateId'
-    )
   `;
 }
 

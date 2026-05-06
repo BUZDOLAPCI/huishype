@@ -134,12 +134,13 @@ function hasDiagnosticStatus(listing: z.infer<typeof ingestListingSchema>): bool
   );
 }
 
-function isCandidateScopedBatch(value: {
-  scopeKey?: string;
-  listings?: Array<{ scopeKey?: string; sourceCandidateId?: string }>;
-}): boolean {
-  return value.scopeKey === 'candidate'
-    || (value.listings ?? []).some((listing) => listing.scopeKey === 'candidate' || Boolean(listing.sourceCandidateId));
+function isCandidateScopedListing(
+  batch: { scopeKey?: string },
+  listing: { scopeKey?: string; sourceCandidateId?: string },
+): boolean {
+  return batch.scopeKey === 'candidate'
+    || listing.scopeKey === 'candidate'
+    || Boolean(listing.sourceCandidateId);
 }
 
 function hasCompleteAddress(listing: z.infer<typeof ingestListingSchema>): boolean {
@@ -187,13 +188,13 @@ export const ingestBatchRequestSchema = z.object({
     });
   }
 
-  const isCandidateBatch = isCandidateScopedBatch(value);
   for (let index = 0; index < (value.listings ?? []).length; index += 1) {
     const listing = value.listings?.[index];
     if (!listing) continue;
     const isDiagnostic = hasDiagnosticStatus(listing);
+    const isCandidateListing = isCandidateScopedListing(value, listing);
 
-    if (!isCandidateBatch && !isDiagnostic && !mirrorListingTypeSchema.safeParse(listing.priceType).success) {
+    if (!isCandidateListing && !isDiagnostic && !mirrorListingTypeSchema.safeParse(listing.priceType).success) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['listings', index, 'priceType'],
@@ -201,7 +202,7 @@ export const ingestBatchRequestSchema = z.object({
       });
     }
 
-    if (!isCandidateBatch && !isDiagnostic && !hasCompleteAddress(listing)) {
+    if (!isCandidateListing && !isDiagnostic && !hasCompleteAddress(listing)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['listings', index, 'address'],

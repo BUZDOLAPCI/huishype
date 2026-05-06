@@ -83,12 +83,6 @@ function sourceCursorBoundBatchPredicate(): ReturnType<typeof sql> {
   return sql`
     NOT (b.payload_json ? 'requestedBy')
     AND COALESCE(b.payload_json->>'scopeKey', '') <> 'candidate'
-    AND NOT EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements(COALESCE(b.payload_json->'listings', '[]'::jsonb)) AS listing(value)
-      WHERE listing.value->>'scopeKey' = 'candidate'
-        OR listing.value ? 'sourceCandidateId'
-    )
   `;
 }
 

@@ -596,10 +596,15 @@ describe('Listing routes', () => {
         },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
-        error: 'LISTING_VALIDATION_FAILED',
-        message: 'Listing validation failed: mirror_unavailable',
+        validationState: 'provisional',
+        matchState: 'unverified',
+        handoffState: 'will_create',
+        reasonCode: 'mirror_unavailable',
+        title: 'Request title',
+        description: 'Request description',
+        imageUrl: 'https://cdn.example.com/request-display.jpg',
       });
       expect(mockFetchFn).toHaveBeenCalledTimes(2);
     });
@@ -618,10 +623,14 @@ describe('Listing routes', () => {
         },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
-        error: 'LISTING_VALIDATION_FAILED',
-        message: 'Listing validation failed: mirror_unavailable',
+        validationState: 'provisional',
+        matchState: 'unverified',
+        handoffState: 'will_create',
+        reasonCode: 'mirror_unavailable',
+        title: 'Funda listing',
+        description: 'Listing submitted from funda.nl',
       });
       expect(mockFetchFn).toHaveBeenCalledTimes(1);
     });
@@ -806,6 +815,91 @@ describe('Listing routes', () => {
       expect(mockFetchFn).not.toHaveBeenCalled();
     });
 
+    it('should bind authenticated preview tokens to the previewing user', async () => {
+      const uniqueId = `listowner${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const authResp = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: {
+          idToken: `mock-google-${uniqueId}-gid${uniqueId}`,
+        },
+      });
+      const authBody = JSON.parse(authResp.body);
+      const otherAccessToken = authBody.session.accessToken;
+      testUserIds.push(authBody.session.user.id);
+
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-token-owner/${submittedId}/`;
+      const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl: submittedUrl,
+          canonicalUrl,
+          sourceListingId: submittedId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: submittedId }],
+          listingPath: `/detail/${submittedId}/`,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'matched',
+          sourceName: 'funda',
+          rawUrl: submittedUrl,
+          canonicalUrl,
+          sourceListingId: submittedId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: submittedId }],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: testPropertyId,
+            matchKind: 'source_exact',
+          },
+          title: 'Owner-bound preview listing',
+        }));
+
+      const previewResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          url: submittedUrl,
+          propertyId: testPropertyId,
+        },
+      });
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = JSON.parse(previewResponse.body);
+
+      const wrongUserSubmit = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${otherAccessToken}`,
+        },
+        payload: {
+          previewToken: preview.previewToken,
+        },
+      });
+      expect(wrongUserSubmit.statusCode).toBe(400);
+      expect(JSON.parse(wrongUserSubmit.body).error).toBe('INVALID_PREVIEW_TOKEN');
+
+      const ownerSubmit = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          previewToken: preview.previewToken,
+        },
+      });
+      expect(ownerSubmit.statusCode).toBe(201);
+    });
+
     it('should reject legacy submit payloads without revalidating a URL', async () => {
       const response = await app.inject({
         method: 'POST',
@@ -822,6 +916,96 @@ describe('Listing routes', () => {
       expect(response.statusCode).toBe(400);
       expect(JSON.parse(response.body).error).not.toBe('INVALID_URL');
       expect(mockFetchFn).not.toHaveBeenCalled();
+    });
+
+    it('should not reopen a consumed preview when the same preview facts are requested again', async () => {
+      const submittedId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-consumed-preview/${submittedId}/`;
+      const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
+      const sourceResolution = {
+        supported: true,
+        sourceName: 'funda',
+        rawUrl: submittedUrl,
+        canonicalUrl,
+        sourceListingId: submittedId,
+        sourceListingIdKind: 'tiny_id',
+        aliases: [{ kind: 'tiny_id', value: submittedId }],
+        listingPath: `/detail/${submittedId}/`,
+        reasonCode: null,
+      };
+      const sourceValidation = {
+        state: 'matched',
+        sourceName: 'funda',
+        rawUrl: submittedUrl,
+        canonicalUrl,
+        sourceListingId: submittedId,
+        sourceListingIdKind: 'tiny_id',
+        aliases: [{ kind: 'tiny_id', value: submittedId }],
+        sourceStatus: 'available',
+        matchedPropertyEvidence: {
+          propertyId: testPropertyId,
+          matchKind: 'source_exact',
+        },
+        title: 'Consumed preview listing',
+      };
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse(sourceResolution))
+        .mockResolvedValueOnce(jsonResponse(sourceValidation));
+
+      const firstPreviewResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: submittedUrl,
+          propertyId: testPropertyId,
+        },
+      });
+      expect(firstPreviewResponse.statusCode).toBe(200);
+      const firstPreview = JSON.parse(firstPreviewResponse.body);
+
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          previewToken: firstPreview.previewToken,
+        },
+      });
+      expect(submitResponse.statusCode).toBe(201);
+
+      const [consumedBefore] = await db
+        .select()
+        .from(listingPreviewResults)
+        .where(eq(listingPreviewResults.id, firstPreview.previewId))
+        .limit(1);
+      expect(consumedBefore?.consumedAt).not.toBeNull();
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse(sourceResolution))
+        .mockResolvedValueOnce(jsonResponse(sourceValidation));
+
+      const secondPreviewResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: submittedUrl,
+          propertyId: testPropertyId,
+        },
+      });
+      expect(secondPreviewResponse.statusCode).toBe(200);
+      const secondPreview = JSON.parse(secondPreviewResponse.body);
+      expect(secondPreview.previewId).not.toBe(firstPreview.previewId);
+
+      const [consumedAfter] = await db
+        .select()
+        .from(listingPreviewResults)
+        .where(eq(listingPreviewResults.id, firstPreview.previewId))
+        .limit(1);
+      expect(consumedAfter?.consumedAt?.toISOString()).toBe(consumedBefore?.consumedAt?.toISOString());
+      expect(consumedAfter?.tokenHash).toBe(consumedBefore?.tokenHash);
     });
 
     it('should bind submit to the exact stored preview facts after preview facts change', async () => {
@@ -1224,7 +1408,7 @@ describe('Listing routes', () => {
       expect(canonical).toBeUndefined();
     });
 
-    it('should reject temporary source failures before provisional creation or candidate handoff', async () => {
+    it('should create a provisional listing and queued candidate for temporary source failures', async () => {
       const rawUrl = 'https://www.pararius.com/apartment-for-rent/eindhoven/87a48057/kathodelaan';
       const canonicalUrl = rawUrl;
       const sourceListingId = '/apartment-for-rent/eindhoven/87a48057/kathodelaan';
@@ -1260,9 +1444,37 @@ describe('Listing routes', () => {
           title: 'Temporary failure listing',
         },
       });
-      expect(previewResponse.statusCode).toBe(400);
-      expect(JSON.parse(previewResponse.body)).toMatchObject({
-        error: 'LISTING_VALIDATION_FAILED',
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = JSON.parse(previewResponse.body);
+      expect(preview).toMatchObject({
+        validationState: 'provisional',
+        matchState: 'unverified',
+        handoffState: 'will_create',
+        reasonCode: 'mirror_unavailable',
+        title: 'Temporary failure listing',
+      });
+
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          previewToken: preview.previewToken,
+        },
+      });
+
+      expect(submitResponse.statusCode).toBe(201);
+      const submitted = JSON.parse(submitResponse.body);
+      expect(submitted).toMatchObject({
+        propertyId: testPropertyId,
+        sourceName: 'pararius',
+        canonicalUrl,
+        sourceListingId,
+        verificationState: 'provisional',
+        candidateHandoffState: 'queued',
+        reasonCode: 'mirror_unavailable',
       });
 
       const [handoff] = await db
@@ -1270,10 +1482,14 @@ describe('Listing routes', () => {
         .from(listingCandidateHandoffs)
         .where(eq(listingCandidateHandoffs.sourceUrlCanonical, canonicalUrl))
         .limit(1);
-      expect(handoff).toBeUndefined();
+      expect(handoff).toMatchObject({
+        id: submitted.candidateId,
+        previewResultId: preview.previewId,
+        state: 'queued',
+      });
     });
 
-    it('should reject failed previews before app-owned OG fetch or listing creation', async () => {
+    it('should avoid app-owned OG fetch for provisional temporary failure previews', async () => {
       const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
       const rawUrl = `https://www.pararius.com/apartment-for-rent/eindhoven/${suffix}/og-submit`;
       const canonicalUrl = rawUrl;
@@ -1310,9 +1526,13 @@ describe('Listing routes', () => {
         },
       });
 
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
-        error: 'LISTING_VALIDATION_FAILED',
+        validationState: 'provisional',
+        matchState: 'unverified',
+        reasonCode: 'mirror_unavailable',
+        title: 'Pararius listing',
+        description: 'Listing submitted from pararius.com',
       });
       expect(mockFetchFn).toHaveBeenCalledTimes(2);
     });

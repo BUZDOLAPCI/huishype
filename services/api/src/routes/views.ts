@@ -158,7 +158,8 @@ export async function viewRoutes(app: FastifyInstance) {
       await markPropertyRead(propertyId, viewer);
       const viewerScope = getPropertyReadViewerScope(viewer);
       propertyTileRuntime.invalidateMatching((key) =>
-        key.startsWith(`read:`) && key.includes(`:${viewerScope}:`)
+        key === `read-scope:${viewerScope}` ||
+        (key.startsWith(`read:`) && key.includes(`:${viewerScope}:`))
       );
 
       if (!alreadyViewed) {

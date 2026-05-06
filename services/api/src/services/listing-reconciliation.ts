@@ -16,6 +16,7 @@ import {
   type ListingObservation,
   type ListingPreviewResult,
   type NewListingObservation,
+  type NewListingPreviewResult,
 } from '../db/index.js';
 import type {
   ListingPreviewPlan,
@@ -265,6 +266,13 @@ function stablePreviewIdempotencyKey(plan: ListingPreviewPlan): string {
       reasonCode: plan.reasonCode,
     }))
     .digest('hex');
+}
+
+function previewOwnerConflictPredicate(userId: string | null | undefined): ReturnType<typeof sql> {
+  if (!userId) {
+    return sql`${listingPreviewResults.userId} IS NULL`;
+  }
+  return sql`${listingPreviewResults.userId} = ${userId}`;
 }
 
 export async function upsertListingSourceAliases(
@@ -903,6 +911,7 @@ export async function storeListingPreviewResult(
 ): Promise<StoredPreviewResult> {
   const previewToken = crypto.randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + 30 * 60_000);
+  const baseIdempotencyKey = stablePreviewIdempotencyKey(plan);
   const sourceStatus = plan.sourceStatus === 'available'
     || plan.sourceStatus === 'sold'
     || plan.sourceStatus === 'rented'
@@ -911,54 +920,73 @@ export async function storeListingPreviewResult(
     ? plan.sourceStatus
     : null;
   const diagnosticStatus = sourceStatus ? null : plan.sourceStatus === 'unknown' ? 'unknown' : plan.sourceStatus;
-  const [preview] = await targetDb(executor)
+  const previewValues = {
+    sourceName: plan.sourceName,
+    propertyId: plan.submittedPropertyId,
+    userId: userId ?? null,
+    sourceUrlRaw: plan.rawUrl,
+    sourceUrlCanonical: plan.canonicalUrl,
+    sourceListingId: plan.sourceListingId,
+    sourceListingIdKind: normalizeSourceListingIdKind(plan.sourceListingIdKind),
+    sourceListingAliases: plan.aliases,
+    validationState: plan.validationState,
+    matchState: plan.matchState,
+    reasonCode: plan.reasonCode,
+    propertyMatchKind: plan.propertyMatchKind,
+    lifecycleStatus: sourceStatus,
+    diagnosticStatus: diagnosticStatus as ListingDiagnosticStatus | null,
+    askingPrice: plan.askingPrice,
+    priceCurrency: plan.currency ?? 'EUR',
+    listingType: plan.priceType,
+    title: plan.title,
+    description: plan.description,
+    imageUrl: plan.imageUrl,
+    addressNormalized: plan.address ?? null,
+    tokenHash: tokenHash(previewToken),
+    idempotencyKey: baseIdempotencyKey,
+    expiresAt,
+    payload: {
+      matchedPropertyId: plan.matchedPropertyId,
+      previewedAt: new Date().toISOString(),
+    },
+  } satisfies NewListingPreviewResult;
+
+  const database = targetDb(executor);
+  const [preview] = await database
     .insert(listingPreviewResults)
-    .values({
-      sourceName: plan.sourceName,
-      propertyId: plan.submittedPropertyId,
-      userId: userId ?? null,
-      sourceUrlRaw: plan.rawUrl,
-      sourceUrlCanonical: plan.canonicalUrl,
-      sourceListingId: plan.sourceListingId,
-      sourceListingIdKind: normalizeSourceListingIdKind(plan.sourceListingIdKind),
-      sourceListingAliases: plan.aliases,
-      validationState: plan.validationState,
-      matchState: plan.matchState,
-      reasonCode: plan.reasonCode,
-      propertyMatchKind: plan.propertyMatchKind,
-      lifecycleStatus: sourceStatus,
-      diagnosticStatus: diagnosticStatus as ListingDiagnosticStatus | null,
-      askingPrice: plan.askingPrice,
-      priceCurrency: plan.currency ?? 'EUR',
-      listingType: plan.priceType,
-      title: plan.title,
-      description: plan.description,
-      imageUrl: plan.imageUrl,
-      addressNormalized: plan.address ?? null,
-      tokenHash: tokenHash(previewToken),
-      idempotencyKey: stablePreviewIdempotencyKey(plan),
-      expiresAt,
-      payload: {
-        matchedPropertyId: plan.matchedPropertyId,
-        previewedAt: new Date().toISOString(),
-      },
-    })
+    .values(previewValues)
     .onConflictDoUpdate({
       target: listingPreviewResults.idempotencyKey,
       set: {
         tokenHash: tokenHash(previewToken),
-        consumedAt: null,
         expiresAt,
         payload: {
           matchedPropertyId: plan.matchedPropertyId,
           previewedAt: new Date().toISOString(),
         },
       },
+      where: sql`
+        ${listingPreviewResults.consumedAt} IS NULL
+        AND ${previewOwnerConflictPredicate(userId)}
+      `,
     })
     .returning();
 
-  if (!preview) throw new Error('Preview result insert did not return a row');
-  return { preview, previewToken };
+  if (preview) {
+    return { preview, previewToken };
+  }
+
+  const [freshPreview] = await database
+    .insert(listingPreviewResults)
+    .values({
+      ...previewValues,
+      idempotencyKey: `${baseIdempotencyKey}:${crypto.randomUUID()}`,
+    })
+    .returning();
+
+  const storedPreview = freshPreview;
+  if (!storedPreview) throw new Error('Preview result insert did not return a row');
+  return { preview: storedPreview, previewToken };
 }
 
 export async function consumeListingPreviewResult(
@@ -968,15 +996,24 @@ export async function consumeListingPreviewResult(
 ): Promise<ListingPreviewResult> {
   const [preview] = await targetDb(executor)
     .update(listingPreviewResults)
-    .set({ consumedAt: new Date() })
+    .set({ consumedAt: new Date(), userId })
     .where(sql`
       ${listingPreviewResults.tokenHash} = ${tokenHash(previewToken)}
       AND ${listingPreviewResults.consumedAt} IS NULL
       AND ${listingPreviewResults.expiresAt} > now()
       AND (${listingPreviewResults.userId} IS NULL OR ${listingPreviewResults.userId} = ${userId})
-      AND ${listingPreviewResults.validationState} = 'valid'
-      AND ${listingPreviewResults.matchState} = 'matched'
-      AND ${listingPreviewResults.lifecycleStatus} IS NOT NULL
+      AND (
+        (
+          ${listingPreviewResults.validationState} = 'valid'
+          AND ${listingPreviewResults.matchState} = 'matched'
+          AND ${listingPreviewResults.lifecycleStatus} IS NOT NULL
+        )
+        OR (
+          ${listingPreviewResults.validationState} = 'provisional'
+          AND ${listingPreviewResults.matchState} = 'unverified'
+          AND ${listingPreviewResults.reasonCode} IN ('mirror_unavailable', 'parser_error', 'validation_pending')
+        )
+      )
     `)
     .returning();
   if (!preview) throw new Error('Invalid, expired, or already consumed preview token');

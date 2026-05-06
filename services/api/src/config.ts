@@ -87,6 +87,7 @@ export const config = {
     fundaApiKey: process.env.FUNDA_SOURCE_SERVICE_API_KEY || '',
     parariusBaseUrl: process.env.PARARIUS_SOURCE_SERVICE_URL || 'http://localhost:8101',
     parariusApiKey: process.env.PARARIUS_SOURCE_SERVICE_API_KEY || '',
+    requestTimeoutMs: parseInt(process.env.SOURCE_SERVICE_REQUEST_TIMEOUT_MS || '15000', 10),
   },
   env,
   isDev,

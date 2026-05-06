@@ -7,6 +7,7 @@ import {
   advancePropertyTileSnapshotWatermark,
   ensureDefaultPropertyTileSnapshotCoverage,
   executePropertyTileSnapshotRefresh,
+  requestPropertyTileSnapshotRefreshAfterBulkImport,
   requestPropertyTileSnapshotRefresh,
   upsertPropertyTileSnapshotRow,
   type PropertyTileCoordinate,
@@ -196,6 +197,39 @@ describe('property tile snapshot persistence', () => {
     expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(1);
   });
 
+  it('bulk import refresh requests advance property watermarks and use the queue request path', async () => {
+    const requestRefresh = jest.fn<typeof requestPropertyTileSnapshotRefresh>().mockResolvedValue({
+      enqueued: true,
+      throttled: false,
+      enqueueStatus: 'enqueued',
+      queueJobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+    });
+
+    const result = await requestPropertyTileSnapshotRefreshAfterBulkImport(
+      'bulk-import-test',
+      requestRefresh,
+    );
+    const rows = await db.execute<{
+      property_watermark: string;
+      coverage_watermark: string;
+    }>(sql`
+      SELECT property_watermark::text, coverage_watermark::text
+      FROM property_tile_snapshot_watermarks
+      WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+    `);
+    const row = Array.from(rows)[0];
+
+    expect(result).toEqual({
+      enqueued: true,
+      throttled: false,
+      enqueueStatus: 'enqueued',
+      queueJobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
+    });
+    expect(requestRefresh).toHaveBeenCalledWith({ reason: 'bulk-import-test' });
+    expect(row?.property_watermark).toBe('1');
+    expect(row?.coverage_watermark).toBe('1');
+  });
+
   it('updates the latest request reason while preserving a throttled request timestamp', async () => {
     const requestedAt = new Date(Date.now() - 1_000);
     await db.execute(sql`
@@ -360,5 +394,42 @@ describe('property tile snapshot persistence', () => {
     expect(row?.payload).toEqual(Buffer.from('newer-payload'));
     expect(row?.source_listing_watermark).toBe('1');
     expect(row?.applied_listing_watermark).toBe('1');
+  });
+
+  it('does not publish snapshot rows after the refresh lease has expired', async () => {
+    await ensureDefaultPropertyTileSnapshotCoverage();
+    let releaseBuilder!: () => void;
+    let markBuilderStarted!: () => void;
+    const builderStarted = new Promise<void>((resolve) => {
+      markBuilderStarted = resolve;
+    });
+
+    const refreshRun = executePropertyTileSnapshotRefresh({
+      reason: 'expired-lease-write',
+      leaseOwner: 'expired-lease-owner',
+      builder: async () => {
+        markBuilderStarted();
+        await new Promise<void>((resolve) => {
+          releaseBuilder = resolve;
+        });
+        return Buffer.from('expired-lease-payload');
+      },
+    });
+    await builderStarted;
+
+    await db.execute(sql`
+      UPDATE property_tile_snapshot_refresh_state
+      SET lease_until = now() - interval '1 second'
+      WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
+    `);
+
+    releaseBuilder();
+    const result = await refreshRun;
+    const row = await readSnapshotRow();
+
+    expect(result.status).toBe('completed');
+    expect(result.refreshedTileCount).toBe(0);
+    expect(result.staleWriteSkippedTileCount).toBe(1);
+    expect(row).toBeNull();
   });
 });

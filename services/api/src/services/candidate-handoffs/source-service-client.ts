@@ -35,6 +35,14 @@ function getSourceServiceCandidatePath(sourceName: SourceName): string {
     : '/api/v1/candidates/intake';
 }
 
+function getSourceServiceRequestTimeoutMs(): number {
+  const timeoutMs = config.sourceServices.requestTimeoutMs;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return 15_000;
+  }
+  return Math.floor(timeoutMs);
+}
+
 function normalizeListingType(value: unknown): 'sale' | 'rent' | 'unknown' {
   return value === 'sale' || value === 'rent' ? value : 'unknown';
 }
@@ -142,6 +150,9 @@ export async function deliverCandidateHandoffToSourceService(
   }
 
   const path = getSourceServiceCandidatePath(handoff.sourceName);
+  const timeoutMs = getSourceServiceRequestTimeoutMs();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetch(`${getSourceServiceBaseUrl(handoff.sourceName)}${path}`, {
@@ -151,9 +162,17 @@ export async function deliverCandidateHandoffToSourceService(
         'content-type': 'application/json',
       },
       body: JSON.stringify(buildCandidatePayload(handoff)),
+      signal: controller.signal,
     });
   } catch (error) {
+    if (controller.signal.aborted) {
+      throw new CandidateHandoffTemporaryError(
+        `Source service candidate handoff ${path} timed out after ${timeoutMs}ms`,
+      );
+    }
     throw new CandidateHandoffTemporaryError(`Source service candidate handoff failed: ${(error as Error).message}`);
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (!response.ok) {

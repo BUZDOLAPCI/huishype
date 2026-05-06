@@ -12,6 +12,7 @@ type MutableSourceServices = {
   fundaApiKey: string;
   parariusBaseUrl: string;
   parariusApiKey: string;
+  requestTimeoutMs: number;
 };
 
 const sourceServicesConfig = config.sourceServices as MutableSourceServices;
@@ -20,6 +21,7 @@ const originalSourceServicesConfig = {
   fundaApiKey: config.sourceServices.fundaApiKey,
   parariusBaseUrl: config.sourceServices.parariusBaseUrl,
   parariusApiKey: config.sourceServices.parariusApiKey,
+  requestTimeoutMs: config.sourceServices.requestTimeoutMs,
 };
 
 function candidate(overrides: Partial<ListingCandidateHandoff> = {}): ListingCandidateHandoff {
@@ -70,6 +72,7 @@ describe('candidate handoff source-service client', () => {
     sourceServicesConfig.fundaApiKey = 'funda-key';
     sourceServicesConfig.parariusBaseUrl = 'https://pararius-source.test';
     sourceServicesConfig.parariusApiKey = 'pararius-key';
+    sourceServicesConfig.requestTimeoutMs = 15_000;
   });
 
   afterEach(() => {
@@ -77,6 +80,7 @@ describe('candidate handoff source-service client', () => {
     sourceServicesConfig.fundaApiKey = originalSourceServicesConfig.fundaApiKey;
     sourceServicesConfig.parariusBaseUrl = originalSourceServicesConfig.parariusBaseUrl;
     sourceServicesConfig.parariusApiKey = originalSourceServicesConfig.parariusApiKey;
+    sourceServicesConfig.requestTimeoutMs = originalSourceServicesConfig.requestTimeoutMs;
     jest.restoreAllMocks();
   });
 
@@ -146,6 +150,29 @@ describe('candidate handoff source-service client', () => {
     jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({ error: 'unsupported' }, 422));
     await expect(deliverCandidateHandoffToSourceService(candidate())).rejects.toBeInstanceOf(
       CandidateHandoffPermanentError,
+    );
+  });
+
+  it('aborts hanging source-service candidate handoffs and treats them as retryable', async () => {
+    sourceServicesConfig.requestTimeoutMs = 1;
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementationOnce((_url, init) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal as AbortSignal | undefined;
+        expect(signal).toBeDefined();
+        signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        }, { once: true });
+      });
+    });
+
+    await expect(deliverCandidateHandoffToSourceService(candidate())).rejects.toThrow(
+      CandidateHandoffTemporaryError,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://funda-source.test/api/v1/listings/candidates',
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 });
