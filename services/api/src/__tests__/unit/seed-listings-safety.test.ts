@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import {
+  buildListingReplayExecutionAssessment,
   buildListingReplayThresholds,
   classifyListingReplayPreparation,
   collectListingReplayThresholdViolations,
@@ -68,6 +69,42 @@ describe('seed listings replay safety', () => {
     ]);
 
     expect(violations).toEqual(['pararius:max_skip_ratio']);
+  });
+
+  it('marks stale projection as repair-only and absence without completion as blocked', () => {
+    expect(
+      buildListingReplayExecutionAssessment(
+        {
+          mirrorListingCount: 100,
+          staleObservationCount: 5,
+          absenceWithoutCompletionCount: 0,
+          duplicateCanonicalCandidateCount: 0,
+          reactivationCandidateCount: 0,
+        },
+        [],
+      ),
+    ).toEqual({
+      executeAllowed: false,
+      repairExecuteAllowed: true,
+      abortReasons: ['stale_for_projection_without_repair'],
+    });
+
+    expect(
+      buildListingReplayExecutionAssessment(
+        {
+          mirrorListingCount: 100,
+          staleObservationCount: 0,
+          absenceWithoutCompletionCount: 1,
+          duplicateCanonicalCandidateCount: 0,
+          reactivationCandidateCount: 0,
+        },
+        [],
+      ),
+    ).toMatchObject({
+      executeAllowed: false,
+      repairExecuteAllowed: false,
+      abortReasons: ['absence_without_completion'],
+    });
   });
 
   it('keeps diagnostic replay rows with source evidence even when address fields are incomplete', () => {

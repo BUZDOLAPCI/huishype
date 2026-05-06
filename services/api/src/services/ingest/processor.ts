@@ -841,8 +841,31 @@ function parseOptionalDate(value: string | null | undefined): Date | null {
   return value ? new Date(value) : null;
 }
 
-function projectionKey(scopeKey: string, listingType: ListingType): string {
-  return `${scopeKey}\0${listingType}`;
+function stableJson(value: unknown): string {
+  if (typeof value === 'undefined') return 'null';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(',')}}`;
+}
+
+function normalizedFilterKey(filters: Record<string, unknown> | null | undefined): string {
+  return stableJson(filters ?? {});
+}
+
+function normalizedFiltersAreEmpty(filters: Record<string, unknown> | null | undefined): boolean {
+  return Object.keys(filters ?? {}).length === 0;
+}
+
+function projectionKey(
+  scopeKey: string,
+  listingType: ListingType,
+  filters?: Record<string, unknown> | null,
+): string {
+  return `${scopeKey}\0${listingType}\0${normalizedFilterKey(filters)}`;
 }
 
 function completionListingType(completion: NonNullable<IngestBatchRequest['completions']>[number]): ListingType {
@@ -853,10 +876,14 @@ function completionCoversListingType(completionType: ListingType, listingType: L
   return completionType === 'unknown' || completionType === listingType;
 }
 
-function listingCompatibleProjectionKeys(scopeKey: string, listingType: ListingType): string[] {
-  const keys = [projectionKey(scopeKey, listingType)];
+function listingCompatibleProjectionKeys(
+  scopeKey: string,
+  listingType: ListingType,
+  filters?: Record<string, unknown> | null,
+): string[] {
+  const keys = [projectionKey(scopeKey, listingType, filters)];
   if (listingType !== 'unknown') {
-    keys.push(projectionKey(scopeKey, 'unknown'));
+    keys.push(projectionKey(scopeKey, 'unknown', filters));
   }
   return keys;
 }
@@ -865,9 +892,10 @@ function compatibleProjectionWatermark(
   existingWatermarks: Map<string, Date>,
   scopeKey: string,
   listingType: ListingType,
+  filters?: Record<string, unknown> | null,
 ): Date | null {
   let watermark: Date | null = null;
-  for (const key of listingCompatibleProjectionKeys(scopeKey, listingType)) {
+  for (const key of listingCompatibleProjectionKeys(scopeKey, listingType, filters)) {
     const candidate = existingWatermarks.get(key);
     if (candidate && (!watermark || candidate > watermark)) {
       watermark = candidate;
@@ -882,6 +910,18 @@ function listingProjectionScopeKey(payload: IngestBatchRequest, listing: IngestL
 
 function listingProjectionType(listing: IngestListing): ListingType {
   return listing.priceType;
+}
+
+function matchingCompletionForListing(
+  payload: IngestBatchRequest,
+  listing: IngestListing,
+): NonNullable<IngestBatchRequest['completions']>[number] | null {
+  const scopeKey = listingProjectionScopeKey(payload, listing);
+  const listingType = listingProjectionType(listing);
+  return (payload.completions ?? []).find(
+    (candidate) => candidate.scopeKey === scopeKey
+      && completionCoversListingType(completionListingType(candidate), listingType),
+  ) ?? null;
 }
 
 function listingSourceProvenance(
@@ -901,7 +941,9 @@ function completionProjectionState(
 ): ProjectionState {
   const listingType = completionListingType(completion);
   const sourceHighWatermark = new Date(completion.sourceHighWatermark);
-  const existingHighWatermark = existingWatermarks.get(projectionKey(completion.scopeKey, listingType));
+  const existingHighWatermark = existingWatermarks.get(
+    projectionKey(completion.scopeKey, listingType, completion.normalizedFilters),
+  );
   return {
     sourceHighWatermark,
     staleForProjection: sourceProjection.staleForProjection
@@ -917,10 +959,8 @@ function listingProjectionState(
 ): ProjectionState {
   const scopeKey = listingProjectionScopeKey(payload, listing);
   const listingType = listingProjectionType(listing);
-  const completion = (payload.completions ?? []).find(
-    (candidate) => candidate.scopeKey === scopeKey
-      && completionCoversListingType(completionListingType(candidate), listingType),
-  );
+  const completion = matchingCompletionForListing(payload, listing);
+  const normalizedFilters = completion?.normalizedFilters ?? {};
   const sourceHighWatermark = parseOptionalDate(listing.sourceHighWatermark)
     ?? (completion ? new Date(completion.sourceHighWatermark) : null)
     ?? parseOptionalDate(payload.sourceHighWatermark);
@@ -929,7 +969,12 @@ function listingProjectionState(
     return { sourceHighWatermark, staleForProjection: sourceProjection.staleForProjection };
   }
 
-  const existingHighWatermark = compatibleProjectionWatermark(existingWatermarks, scopeKey, listingType);
+  const existingHighWatermark = compatibleProjectionWatermark(
+    existingWatermarks,
+    scopeKey,
+    listingType,
+    normalizedFilters,
+  );
   return {
     sourceHighWatermark,
     staleForProjection: sourceProjection.staleForProjection
@@ -965,21 +1010,37 @@ async function loadScopeWatermarks(
   tx: DbTransaction,
   payload: IngestBatchRequest,
 ): Promise<Map<string, Date>> {
-  const scopePairs = new Map<string, { scopeKey: string; listingType: ListingType }>();
+  const scopePairs = new Map<string, {
+    scopeKey: string;
+    listingType: ListingType;
+    normalizedFilters: Record<string, unknown>;
+  }>();
   for (const completion of payload.completions ?? []) {
     const listingType = completionListingType(completion);
-    scopePairs.set(projectionKey(completion.scopeKey, listingType), {
+    const normalizedFilters = completion.normalizedFilters ?? {};
+    scopePairs.set(projectionKey(completion.scopeKey, listingType, normalizedFilters), {
       scopeKey: completion.scopeKey,
       listingType,
+      normalizedFilters,
     });
   }
   for (const listing of payload.listings ?? []) {
     const scopeKey = listingProjectionScopeKey(payload, listing);
     if (scopeKey) {
       const listingType = listingProjectionType(listing);
-      scopePairs.set(projectionKey(scopeKey, listingType), { scopeKey, listingType });
+      const completion = matchingCompletionForListing(payload, listing);
+      const normalizedFilters = completion?.normalizedFilters ?? {};
+      scopePairs.set(projectionKey(scopeKey, listingType, normalizedFilters), {
+        scopeKey,
+        listingType,
+        normalizedFilters,
+      });
       if (listingType !== 'unknown') {
-        scopePairs.set(projectionKey(scopeKey, 'unknown'), { scopeKey, listingType: 'unknown' });
+        scopePairs.set(projectionKey(scopeKey, 'unknown', normalizedFilters), {
+          scopeKey,
+          listingType: 'unknown',
+          normalizedFilters,
+        });
       }
     }
   }
@@ -988,7 +1049,44 @@ async function loadScopeWatermarks(
     return new Map();
   }
 
-  const rows = await tx
+  const completionRows = await tx
+    .select({
+      scopeKey: listingScopeCompletions.scopeKey,
+      listingType: listingScopeCompletions.listingType,
+      normalizedFilters: listingScopeCompletions.normalizedFilters,
+      sourceHighWatermark: sql<Date>`MAX(${listingScopeCompletions.sourceHighWatermark})`,
+    })
+    .from(listingScopeCompletions)
+    .where(
+      and(
+        eq(listingScopeCompletions.sourceName, payload.sourceName),
+        eq(listingScopeCompletions.staleForProjection, false),
+        or(...Array.from(scopePairs.values()).map((pair) => and(
+          eq(listingScopeCompletions.scopeKey, pair.scopeKey),
+          eq(listingScopeCompletions.listingType, pair.listingType),
+          sql`${listingScopeCompletions.normalizedFilters} = ${JSON.stringify(pair.normalizedFilters)}::jsonb`,
+        ))),
+      ),
+    )
+    .groupBy(
+      listingScopeCompletions.scopeKey,
+      listingScopeCompletions.listingType,
+      listingScopeCompletions.normalizedFilters,
+    );
+
+  const watermarks = new Map(completionRows.map((row) => [
+    projectionKey(row.scopeKey, row.listingType as ListingType, row.normalizedFilters),
+    row.sourceHighWatermark,
+  ]));
+
+  const emptyFilterPairs = Array.from(scopePairs.values()).filter((pair) =>
+    normalizedFiltersAreEmpty(pair.normalizedFilters)
+  );
+  if (emptyFilterPairs.length === 0) {
+    return watermarks;
+  }
+
+  const coarseRows = await tx
     .select({
       scopeKey: listingSourceScopeWatermarks.scopeKey,
       listingType: listingSourceScopeWatermarks.listingType,
@@ -998,17 +1096,22 @@ async function loadScopeWatermarks(
     .where(
       and(
         eq(listingSourceScopeWatermarks.sourceName, payload.sourceName),
-        or(...Array.from(scopePairs.values()).map((pair) => and(
+        or(...emptyFilterPairs.map((pair) => and(
           eq(listingSourceScopeWatermarks.scopeKey, pair.scopeKey),
           eq(listingSourceScopeWatermarks.listingType, pair.listingType),
         ))),
       ),
     );
 
-  return new Map(rows.map((row) => [
-    projectionKey(row.scopeKey, row.listingType as ListingType),
-    row.sourceHighWatermark,
-  ]));
+  for (const row of coarseRows) {
+    const key = projectionKey(row.scopeKey, row.listingType as ListingType, {});
+    const existing = watermarks.get(key);
+    if (!existing || existing < row.sourceHighWatermark) {
+      watermarks.set(key, row.sourceHighWatermark);
+    }
+  }
+
+  return watermarks;
 }
 
 async function persistScopeCompletions(
@@ -1053,7 +1156,7 @@ async function persistScopeCompletions(
       .returning();
 
     if (row) {
-      completionIdsByScope.set(projectionKey(completion.scopeKey, listingType), row.id);
+      completionIdsByScope.set(projectionKey(completion.scopeKey, listingType, completion.normalizedFilters), row.id);
     } else {
       const [existing] = await tx
         .select({ id: listingScopeCompletions.id })
@@ -1064,13 +1167,16 @@ async function persistScopeCompletions(
             eq(listingScopeCompletions.scopeKey, completion.scopeKey),
             eq(listingScopeCompletions.listingType, listingType),
             eq(listingScopeCompletions.sourceHighWatermark, sourceHighWatermark),
+            sql`${listingScopeCompletions.normalizedFilters} = ${JSON.stringify(completion.normalizedFilters ?? {})}::jsonb`,
           ),
         )
         .limit(1);
-      if (existing) completionIdsByScope.set(projectionKey(completion.scopeKey, listingType), existing.id);
+      if (existing) {
+        completionIdsByScope.set(projectionKey(completion.scopeKey, listingType, completion.normalizedFilters), existing.id);
+      }
     }
 
-    if (!staleForProjection) {
+    if (!staleForProjection && normalizedFiltersAreEmpty(completion.normalizedFilters)) {
       await tx
         .insert(listingSourceScopeWatermarks)
         .values({
@@ -1120,8 +1226,10 @@ async function persistMatchedListingObservations(
       const projectionState = listingProjectionState(payload, options.existingWatermarks, item, options.sourceProjection);
       const scopeKey = listingProjectionScopeKey(payload, item);
       const listingType = listingProjectionType(item);
+      const completion = matchingCompletionForListing(payload, item);
+      const normalizedFilters = completion?.normalizedFilters ?? {};
       const completionId = scopeKey
-        ? listingCompatibleProjectionKeys(scopeKey, listingType)
+        ? listingCompatibleProjectionKeys(scopeKey, listingType, normalizedFilters)
             .map((key) => options.completionIdsByScope.get(key))
             .find((id): id is string => Boolean(id)) ?? null
         : null;
@@ -1168,6 +1276,7 @@ async function persistMatchedListingObservations(
           mirrorListingId: item.mirrorListingId,
           sourceCandidateId: item.sourceCandidateId ?? null,
           scopeKey,
+          normalizedFilters,
           priceType: listingType,
           livingAreaM2: item.livingAreaM2 ?? null,
           numRooms: item.numRooms ?? null,
@@ -1208,8 +1317,10 @@ async function persistUnmatchedDiagnosticObservations(
     const projectionState = listingProjectionState(payload, options.existingWatermarks, item, options.sourceProjection);
     const scopeKey = listingProjectionScopeKey(payload, item);
     const listingType = listingProjectionType(item);
+    const completion = matchingCompletionForListing(payload, item);
+    const normalizedFilters = completion?.normalizedFilters ?? {};
     const completionId = scopeKey
-      ? listingCompatibleProjectionKeys(scopeKey, listingType)
+      ? listingCompatibleProjectionKeys(scopeKey, listingType, normalizedFilters)
           .map((key) => options.completionIdsByScope.get(key))
           .find((id): id is string => Boolean(id)) ?? null
       : null;
@@ -1257,6 +1368,7 @@ async function persistUnmatchedDiagnosticObservations(
         mirrorListingId: item.mirrorListingId,
         sourceCandidateId: item.sourceCandidateId ?? null,
         scopeKey,
+        normalizedFilters,
         priceType: listingType,
         diagnosticOnly: true,
         priceHistory: item.priceHistory ?? [],
@@ -1282,7 +1394,9 @@ async function reconcileScopeCompletionAbsence(
   for (const completion of payload.completions ?? []) {
     const listingType = completionListingType(completion);
     const completionState = completionProjectionState(payload, existingWatermarks, completion, sourceProjection);
-    const completionId = completionIdsByScope.get(projectionKey(completion.scopeKey, listingType));
+    const completionId = completionIdsByScope.get(
+      projectionKey(completion.scopeKey, listingType, completion.normalizedFilters),
+    );
     if (
       !completionId
       || !completionState.sourceHighWatermark
@@ -1333,11 +1447,28 @@ async function reconcileScopeCompletionAbsence(
     const listingTypePredicate = listingType === 'unknown'
       ? sql`TRUE`
       : sql`${canonicalListings.priceType} = ${listingType}`;
+    const priorFilterPredicate = normalizedFiltersAreEmpty(completion.normalizedFilters)
+      ? sql`(
+          lo.scope_completion_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM listing_scope_completions prior_lsc
+            WHERE prior_lsc.id = lo.scope_completion_id
+              AND prior_lsc.normalized_filters = '{}'::jsonb
+          )
+        )`
+      : sql`EXISTS (
+          SELECT 1
+          FROM listing_scope_completions prior_lsc
+          WHERE prior_lsc.id = lo.scope_completion_id
+            AND prior_lsc.normalized_filters = ${JSON.stringify(completion.normalizedFilters ?? {})}::jsonb
+        )`;
     const priorScopePredicate = listingType === 'unknown'
-      ? sql`lo.payload->>'scopeKey' = ${completion.scopeKey}`
+      ? sql`lo.payload->>'scopeKey' = ${completion.scopeKey} AND ${priorFilterPredicate}`
       : sql`
           lo.payload->>'scopeKey' = ${completion.scopeKey}
           AND COALESCE(lo.payload->>'priceType', lo.payload->>'listingType') = ${listingType}
+          AND ${priorFilterPredicate}
         `;
 
     const candidates = await tx

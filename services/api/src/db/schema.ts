@@ -897,6 +897,9 @@ export const listingObservations = pgTable(
     uniqueIndex('listing_observations_mirror_idempotency_idx')
       .on(table.sourceName, table.sourceListingId, table.origin, table.observedAt)
       .where(sql`source_listing_id IS NOT NULL`),
+    uniqueIndex('listing_observations_source_url_evidence_idx')
+      .on(table.sourceName, table.sourceUrlCanonical, table.origin, table.observedAt)
+      .where(sql`source_listing_id IS NULL AND source_url_canonical IS NOT NULL`),
     index('listing_observations_source_identity_idx').on(table.sourceName, table.sourceListingId),
     index('listing_observations_source_url_idx').on(table.sourceName, table.sourceUrlCanonical),
     index('listing_observations_property_id_idx').on(table.propertyId),

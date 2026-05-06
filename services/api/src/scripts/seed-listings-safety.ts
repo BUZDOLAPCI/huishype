@@ -13,6 +13,11 @@ export interface ListingReplaySafetySummary {
   skippedBeforeIngestCount: number;
   affectedCanonicalCount?: number;
   staleObservationCount?: number;
+  reactivationCandidateCount?: number;
+  duplicateCanonicalCandidateCount?: number;
+  terminalLifecycleChangeCount?: number;
+  absenceWithoutCompletionCount?: number;
+  readModelRefreshCount?: number;
 }
 
 export interface ListingReplayPreparationEvidence {
@@ -24,6 +29,12 @@ export interface ListingReplayPreparationEvidence {
 }
 
 export type ListingReplayTransitionClass = 'projectable' | 'diagnostic' | 'skipped';
+
+export interface ListingReplayExecutionAssessment {
+  executeAllowed: boolean;
+  repairExecuteAllowed: boolean;
+  abortReasons: string[];
+}
 
 export function hasCompleteMirrorAddress(evidence: ListingReplayPreparationEvidence): boolean {
   return Boolean(
@@ -93,6 +104,43 @@ export function buildListingReplayThresholds(
     maxStaleRows: options.maxStaleRows ?? null,
     skipRatio,
     violations,
+  };
+}
+
+export function buildListingReplayExecutionAssessment(
+  summary: Pick<
+    ListingReplaySafetySummary,
+    | 'mirrorListingCount'
+    | 'reactivationCandidateCount'
+    | 'duplicateCanonicalCandidateCount'
+    | 'terminalLifecycleChangeCount'
+    | 'absenceWithoutCompletionCount'
+    | 'staleObservationCount'
+  >,
+  thresholdViolations: string[],
+): ListingReplayExecutionAssessment {
+  const abortReasons = [...thresholdViolations];
+  const projectableBase = Math.max(summary.mirrorListingCount, 1);
+  const reactivationRatio = (summary.reactivationCandidateCount ?? 0) / projectableBase;
+  const duplicateRatio = (summary.duplicateCanonicalCandidateCount ?? 0) / projectableBase;
+
+  if (reactivationRatio > 0.01) {
+    abortReasons.push('reactivation_ratio_gt_1_percent');
+  }
+  if (duplicateRatio > 0.001) {
+    abortReasons.push('duplicate_candidate_ratio_gt_0_1_percent');
+  }
+  if ((summary.absenceWithoutCompletionCount ?? 0) > 0) {
+    abortReasons.push('absence_without_completion');
+  }
+  if ((summary.staleObservationCount ?? 0) > 0) {
+    abortReasons.push('stale_for_projection_without_repair');
+  }
+
+  return {
+    executeAllowed: abortReasons.length === 0,
+    repairExecuteAllowed: abortReasons.every((reason) => reason === 'stale_for_projection_without_repair'),
+    abortReasons,
   };
 }
 

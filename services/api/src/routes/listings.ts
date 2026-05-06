@@ -1,9 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { db, properties, priceHistory } from '../db/index.js';
+import {
+  canonicalListings,
+  db,
+  listingCandidateHandoffs,
+  properties,
+  priceHistory,
+} from '../db/index.js';
 import { config } from '../config.js';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import rateLimit from '@fastify/rate-limit';
 import { getAllListingDomains, getAllListingSourceNames } from '@huishype/shared/config';
 import {
@@ -582,7 +588,7 @@ export async function listingRoutes(app: FastifyInstance) {
           400: errorResponseSchema,
           401: errorResponseSchema,
           404: errorResponseSchema,
-          409: errorResponseSchema,
+          409: z.union([submitResponseSchema, errorResponseSchema]),
         },
       },
     },
@@ -596,8 +602,42 @@ export async function listingRoutes(app: FastifyInstance) {
           });
         }
 
-        const { submission, maintenanceRequest } = await db.transaction(async (tx) => {
+        const { submission, maintenanceRequest, duplicate } = await db.transaction(async (tx) => {
           const preview = await consumeListingPreviewResult(request.body.previewToken, userId, tx);
+          const duplicatePredicates: ReturnType<typeof sql>[] = [];
+          if (preview.sourceListingId) {
+            const sourceListingPredicate = and(
+              eq(canonicalListings.sourceName, preview.sourceName),
+              eq(canonicalListings.primarySourceListingId, preview.sourceListingId),
+            );
+            if (sourceListingPredicate) duplicatePredicates.push(sourceListingPredicate);
+          }
+          if (preview.sourceUrlCanonical) {
+            const canonicalUrlPredicate = and(
+              eq(canonicalListings.sourceName, preview.sourceName),
+              eq(canonicalListings.canonicalUrl, preview.sourceUrlCanonical),
+            );
+            if (canonicalUrlPredicate) duplicatePredicates.push(canonicalUrlPredicate);
+          }
+
+          const [existingCanonical] = duplicatePredicates.length > 0
+            ? await tx
+                .select({ id: canonicalListings.id })
+                .from(canonicalListings)
+                .where(duplicatePredicates.length === 1 ? duplicatePredicates[0] : or(...duplicatePredicates))
+                .limit(1)
+            : [];
+          const [existingHandoff] = await tx
+            .select({ id: listingCandidateHandoffs.id })
+            .from(listingCandidateHandoffs)
+            .where(and(
+              eq(listingCandidateHandoffs.sourceName, preview.sourceName),
+              eq(listingCandidateHandoffs.propertyId, preview.propertyId),
+              eq(listingCandidateHandoffs.sourceUrlCanonical, preview.sourceUrlCanonical),
+              sql`${listingCandidateHandoffs.state} IN ('pending', 'queued', 'retryable_error', 'delivered')`,
+            ))
+            .limit(1);
+
           const createdSubmission = await createUserListingSubmission(tx, {
             userId,
             preview,
@@ -620,7 +660,11 @@ export async function listingRoutes(app: FastifyInstance) {
             },
           });
 
-          return { submission: createdSubmission, maintenanceRequest: maintenance };
+          return {
+            submission: createdSubmission,
+            maintenanceRequest: maintenance,
+            duplicate: Boolean(existingCanonical || existingHandoff),
+          };
         });
 
         await requestListingWriteRefreshes({
@@ -637,7 +681,7 @@ export async function listingRoutes(app: FastifyInstance) {
           );
         });
 
-        return reply.status(201).send({
+        return reply.status(duplicate ? 409 : 201).send({
           id: submission.canonicalListing.id,
           propertyId: submission.canonicalListing.propertyId,
           sourceUrl: submission.canonicalListing.displayUrl ?? submission.canonicalListing.canonicalUrl ?? '',

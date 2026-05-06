@@ -24,6 +24,7 @@ import {
 import { closeConnection } from '../src/db/index.js';
 import type { ListingSourceAlias } from '../src/services/listing-source-resolution.js';
 import {
+  buildListingReplayExecutionAssessment,
   buildListingReplayThresholds,
   collectListingReplayThresholdViolations,
   computePlannedListingReplayBatchCount,
@@ -87,12 +88,19 @@ interface MirrorListing {
 interface SourceSummary {
   sourceName: SourceName;
   scopeKey: string;
+  scopeMode: 'whole_mirror' | 'scoped';
   dryRun: boolean;
   repairMode: boolean;
+  replayReason: string | null;
+  mirrorSnapshotId: string;
   sourceRunId: string;
   sourceHighWatermark: string;
+  oldestSourceTimestamp: string | null;
+  newestSourceTimestamp: string | null;
   existingCursor: string | null;
   mirrorListingCount: number;
+  fullMirrorListingCount: number;
+  excludedMirrorListingCount: number;
   preparedListingCount: number;
   skippedBeforeIngestCount: number;
   diagnosticListingCount: number;
@@ -102,8 +110,19 @@ interface SourceSummary {
     skipped: number;
     completion: number;
     staleObservations: number;
+    reactivationCandidates: number;
+    duplicateCanonicalCandidates: number;
+    terminalLifecycleChanges: number;
+    absenceWithoutCompletion: number;
+    readModelRefreshes: number;
   };
   affectedCanonicalCount: number;
+  staleObservationCount: number;
+  reactivationCandidateCount: number;
+  duplicateCanonicalCandidateCount: number;
+  terminalLifecycleChangeCount: number;
+  absenceWithoutCompletionCount: number;
+  readModelRefreshCount: number;
   batchCount: number;
   processedBatchCount: number;
   ingestedCount: number;
@@ -118,6 +137,16 @@ interface SourceSummary {
     skipRatio: number;
     violations: string[];
   };
+  executionAssessment: {
+    executeAllowed: boolean;
+    repairExecuteAllowed: boolean;
+    abortReasons: string[];
+  };
+  limitations: string[];
+  excludedMirrorRange: {
+    reason: string;
+    excludedListingCount: number;
+  } | null;
   examples: {
     skippedBeforeIngest: Array<Record<string, unknown>>;
     diagnosticListings: Array<Record<string, unknown>>;
@@ -171,6 +200,9 @@ function parseOptions(): CliOptions {
   }
   if (!dryRun && scope && !reason) {
     throw new Error('Executing a scoped replay requires --reason');
+  }
+  if (dryRun && scope && !reason) {
+    throw new Error('Dry-running a scoped replay requires --reason');
   }
   if (repair && !reason) {
     throw new Error('--repair requires --reason');
@@ -378,30 +410,82 @@ function toIngestListing(
   };
 }
 
-async function getMirrorHighWatermark(mirrorDb: postgres.Sql, source: SourceName, scope: string | null): Promise<{ count: number; highWatermark: string }> {
+async function getMirrorSnapshot(mirrorDb: postgres.Sql, source: SourceName, scope: string | null): Promise<{
+  count: number;
+  fullCount: number;
+  excludedCount: number;
+  oldestTimestamp: string | null;
+  highWatermark: string;
+  snapshotId: string;
+}> {
   const scopeValue = normalizeScope(scope);
-  const rows = await mirrorDb<[{ count: string; high_watermark: Date | null }]>`
+  const rows = await mirrorDb<[{
+    count: string;
+    full_count: string;
+    oldest_timestamp: Date | null;
+    high_watermark: Date | null;
+  }]>`
     SELECT
-      COUNT(*)::text AS count,
-      MAX(COALESCE(l.last_changed_at, l.last_seen_at, l.first_seen_at)) AS high_watermark
+      COUNT(*) FILTER (
+        WHERE (
+          ${scopeValue}::text IS NULL
+          OR ${scopeValue}::text IN ('all', 'full-mirror')
+          OR CASE
+            WHEN lower(COALESCE(l.price_type, '')) IN ('rent', 'rental') THEN 'rent'
+            WHEN lower(COALESCE(l.price_type, '')) IN ('sale', 'sell', 'buy', 'koop') THEN 'sale'
+            WHEN ${source}::text = 'pararius' THEN 'rent'
+            WHEN ${source}::text = 'funda' THEN 'sale'
+            ELSE 'unknown'
+          END = ${scopeValue}::text
+        )
+      )::text AS count,
+      COUNT(*)::text AS full_count,
+      MIN(COALESCE(l.last_changed_at, l.last_seen_at, l.first_seen_at)) FILTER (
+        WHERE (
+          ${scopeValue}::text IS NULL
+          OR ${scopeValue}::text IN ('all', 'full-mirror')
+          OR CASE
+            WHEN lower(COALESCE(l.price_type, '')) IN ('rent', 'rental') THEN 'rent'
+            WHEN lower(COALESCE(l.price_type, '')) IN ('sale', 'sell', 'buy', 'koop') THEN 'sale'
+            WHEN ${source}::text = 'pararius' THEN 'rent'
+            WHEN ${source}::text = 'funda' THEN 'sale'
+            ELSE 'unknown'
+          END = ${scopeValue}::text
+        )
+      ) AS oldest_timestamp,
+      MAX(COALESCE(l.last_changed_at, l.last_seen_at, l.first_seen_at)) FILTER (
+        WHERE (
+          ${scopeValue}::text IS NULL
+          OR ${scopeValue}::text IN ('all', 'full-mirror')
+          OR CASE
+            WHEN lower(COALESCE(l.price_type, '')) IN ('rent', 'rental') THEN 'rent'
+            WHEN lower(COALESCE(l.price_type, '')) IN ('sale', 'sell', 'buy', 'koop') THEN 'sale'
+            WHEN ${source}::text = 'pararius' THEN 'rent'
+            WHEN ${source}::text = 'funda' THEN 'sale'
+            ELSE 'unknown'
+          END = ${scopeValue}::text
+        )
+      ) AS high_watermark
     FROM listings l
     LEFT JOIN addresses a ON l.address_id = a.id
-    WHERE (
-      ${scopeValue}::text IS NULL
-      OR ${scopeValue}::text IN ('all', 'full-mirror')
-      OR CASE
-        WHEN lower(COALESCE(l.price_type, '')) IN ('rent', 'rental') THEN 'rent'
-        WHEN lower(COALESCE(l.price_type, '')) IN ('sale', 'sell', 'buy', 'koop') THEN 'sale'
-        WHEN ${source}::text = 'pararius' THEN 'rent'
-        WHEN ${source}::text = 'funda' THEN 'sale'
-        ELSE 'unknown'
-      END = ${scopeValue}::text
-    )
   `;
+  const count = Number(rows[0]?.count ?? 0);
+  const fullCount = Number(rows[0]?.full_count ?? count);
+  const highWatermark = (rows[0]?.high_watermark ?? new Date()).toISOString();
+  const oldestTimestamp = rows[0]?.oldest_timestamp?.toISOString() ?? null;
 
   return {
-    count: Number(rows[0]?.count ?? 0),
-    highWatermark: (rows[0]?.high_watermark ?? new Date()).toISOString(),
+    count,
+    fullCount,
+    excludedCount: Math.max(0, fullCount - count),
+    oldestTimestamp,
+    highWatermark,
+    snapshotId: [
+      source,
+      scopeValue ?? 'full-mirror',
+      count,
+      highWatermark,
+    ].join(':'),
   };
 }
 
@@ -472,6 +556,53 @@ async function estimateAffectedCanonicalCount(
   return Number(rows[0]?.count ?? 0);
 }
 
+async function estimateDuplicateCanonicalCandidateCount(
+  mainDb: postgres.Sql,
+  source: SourceName,
+  scope: string | null,
+): Promise<number> {
+  const scopeValue = normalizeScope(scope);
+  const rows = await mainDb<[{ count: string }]>`
+    SELECT COUNT(*)::text AS count
+    FROM (
+      SELECT canonical_url
+      FROM canonical_listings
+      WHERE source_name = ${source}
+        AND canonical_url IS NOT NULL
+        AND (
+          ${scopeValue}::text IS NULL
+          OR ${scopeValue}::text IN ('all', 'full-mirror')
+          OR price_type = ${scopeValue}::text
+        )
+      GROUP BY canonical_url
+      HAVING COUNT(*) > 1
+    ) duplicate_urls
+  `;
+
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function estimateTerminalLifecycleChangeCount(
+  mainDb: postgres.Sql,
+  source: SourceName,
+  scope: string | null,
+): Promise<number> {
+  const scopeValue = normalizeScope(scope);
+  const rows = await mainDb<[{ count: string }]>`
+    SELECT COUNT(*)::text AS count
+    FROM canonical_listings
+    WHERE source_name = ${source}
+      AND status = 'active'
+      AND (
+        ${scopeValue}::text IS NULL
+        OR ${scopeValue}::text IN ('all', 'full-mirror')
+        OR price_type = ${scopeValue}::text
+      )
+  `;
+
+  return Number(rows[0]?.count ?? 0);
+}
+
 function buildCompletion(input: {
   source: SourceName;
   scopeKey: string;
@@ -505,7 +636,7 @@ async function planSource(
 ): Promise<SourceSummary> {
   const scopeKey = options.scope?.trim().toLowerCase() || 'full-mirror';
   const watermark = await getIngestWatermark(source);
-  const mirrorState = await getMirrorHighWatermark(mirrorDb, source, options.scope);
+  const mirrorState = await getMirrorSnapshot(mirrorDb, source, options.scope);
   const sourceRunId = [
     'seed-listings',
     source,
@@ -518,12 +649,19 @@ async function planSource(
   const summary: SourceSummary = {
     sourceName: source,
     scopeKey,
+    scopeMode: options.scope ? 'scoped' : 'whole_mirror',
     dryRun: options.dryRun,
     repairMode: options.repair,
+    replayReason: options.reason,
+    mirrorSnapshotId: mirrorState.snapshotId,
     sourceRunId,
     sourceHighWatermark: mirrorState.highWatermark,
+    oldestSourceTimestamp: mirrorState.oldestTimestamp,
+    newestSourceTimestamp: mirrorState.highWatermark,
     existingCursor: watermark.cursor,
     mirrorListingCount: mirrorState.count,
+    fullMirrorListingCount: mirrorState.fullCount,
+    excludedMirrorListingCount: mirrorState.excludedCount,
     preparedListingCount: 0,
     skippedBeforeIngestCount: 0,
     diagnosticListingCount: 0,
@@ -533,8 +671,19 @@ async function planSource(
       skipped: 0,
       completion: 1,
       staleObservations: 0,
+      reactivationCandidates: 0,
+      duplicateCanonicalCandidates: 0,
+      terminalLifecycleChanges: 0,
+      absenceWithoutCompletion: 0,
+      readModelRefreshes: 0,
     },
     affectedCanonicalCount: await estimateAffectedCanonicalCount(mainDb, source, options.scope),
+    staleObservationCount: 0,
+    reactivationCandidateCount: 0,
+    duplicateCanonicalCandidateCount: await estimateDuplicateCanonicalCandidateCount(mainDb, source, options.scope),
+    terminalLifecycleChangeCount: await estimateTerminalLifecycleChangeCount(mainDb, source, options.scope),
+    absenceWithoutCompletionCount: 0,
+    readModelRefreshCount: 0,
     batchCount: 0,
     processedBatchCount: 0,
     ingestedCount: 0,
@@ -549,6 +698,22 @@ async function planSource(
       skipRatio: 0,
       violations: [],
     },
+    executionAssessment: {
+      executeAllowed: false,
+      repairExecuteAllowed: false,
+      abortReasons: [],
+    },
+    limitations: [
+      'Dry-run counts are based on mirror snapshots and canonical summaries; exact canonical diffs are computed only by ingest execution.',
+      'Scoped replay excludes mirror rows outside the selected price-type scope.',
+      'Absence projection requires a completion batch; this replay plans one final scoped completion.',
+    ],
+    excludedMirrorRange: options.scope
+      ? {
+          reason: `--scope ${scopeKey} excludes mirror rows whose normalized price type is outside this scope`,
+          excludedListingCount: mirrorState.excludedCount,
+        }
+      : null,
     examples: {
       skippedBeforeIngest: [],
       diagnosticListings: [],
@@ -606,6 +771,11 @@ async function planSource(
       && new Date(watermark.lastCommittedChangedAt).getTime() > new Date(summary.sourceHighWatermark).getTime(),
   );
   summary.transitionCounts.staleObservations = summary.staleForProjection ? summary.preparedListingCount : 0;
+  summary.staleObservationCount = summary.transitionCounts.staleObservations;
+  summary.transitionCounts.duplicateCanonicalCandidates = summary.duplicateCanonicalCandidateCount;
+  summary.transitionCounts.terminalLifecycleChanges = summary.terminalLifecycleChangeCount;
+  summary.transitionCounts.readModelRefreshes = summary.preparedListingCount > 0 ? 1 : 0;
+  summary.readModelRefreshCount = summary.transitionCounts.readModelRefreshes;
   if (summary.staleForProjection && summary.examples.staleRows.length < 5) {
     summary.examples.staleRows.push({
       sourceHighWatermark: summary.sourceHighWatermark,
@@ -614,6 +784,10 @@ async function planSource(
     });
   }
   summary.thresholds = buildListingReplayThresholds(summary, options);
+  summary.executionAssessment = buildListingReplayExecutionAssessment(
+    summary,
+    summary.thresholds.violations,
+  );
   summary.batchCount = computePlannedListingReplayBatchCount(summary, options);
 
   return summary;
@@ -625,7 +799,7 @@ async function executeSource(
   options: CliOptions,
   summary: SourceSummary,
 ): Promise<SourceSummary> {
-  const mirrorState = await getMirrorHighWatermark(mirrorDb, source, options.scope);
+  const mirrorState = await getMirrorSnapshot(mirrorDb, source, options.scope);
   if (
     mirrorState.count !== summary.mirrorListingCount
     || mirrorState.highWatermark !== summary.sourceHighWatermark
@@ -758,7 +932,13 @@ async function main(): Promise<void> {
     }
 
     const violations = collectListingReplayThresholdViolations(summaries);
-    if (!options.dryRun && violations.length > 0) {
+    const abortReasons = summaries.flatMap((summary) =>
+      summary.executionAssessment.abortReasons.map((reason) => `${summary.sourceName}:${reason}`)
+    );
+    const executeBlocked = options.repair
+      ? summaries.some((summary) => !summary.executionAssessment.repairExecuteAllowed)
+      : summaries.some((summary) => !summary.executionAssessment.executeAllowed);
+    if (!options.dryRun && (violations.length > 0 || executeBlocked)) {
       console.log(JSON.stringify({
         dryRun: options.dryRun,
         source: options.source,
@@ -766,7 +946,7 @@ async function main(): Promise<void> {
         repair: options.repair,
         summaries,
       }, null, 2));
-      throw new Error(`Replay threshold violation: ${violations.join(', ')}`);
+      throw new Error(`Replay safety violation: ${abortReasons.join(', ')}`);
     }
 
     if (!options.dryRun) {

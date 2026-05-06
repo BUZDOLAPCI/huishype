@@ -334,6 +334,7 @@ function observationCompatibilityPayload(
 ): Record<string, unknown> {
   const payload = { ...(observation.payload ?? {}) };
   delete payload.sourceCandidateId;
+  delete payload.sourceProvenance;
 
   return {
     sourceName: observation.sourceName,
@@ -343,7 +344,7 @@ function observationCompatibilityPayload(
     sourceUrlRaw: observation.sourceUrlRaw ?? null,
     sourceUrlCanonical: observation.sourceUrlCanonical ?? null,
     submittedBy: observation.submittedBy ?? null,
-    origin: observation.origin,
+    origin: sourceEvidenceOriginForCompatibility(observation.origin),
     propertyId: observation.propertyId ?? null,
     propertyMatchKind: observation.propertyMatchKind,
     sourceStatus: observation.sourceStatus ?? null,
@@ -372,23 +373,47 @@ function observationsAreCompatible(
     === stableJson(observationCompatibilityPayload(incoming));
 }
 
+function sourceEvidenceOriginForCompatibility(origin: ListingObservation['origin']): ListingObservation['origin'] | 'source' {
+  return origin === 'mirror' || origin === 'replay' ? 'source' : origin;
+}
+
+function isSourceEvidenceOrigin(origin: ListingObservation['origin']): boolean {
+  return origin === 'mirror' || origin === 'replay';
+}
+
 async function findCompatibleExistingObservationForIdempotentReplay(
   observation: NewListingObservation,
+  options: { throwOnConflict: boolean } = { throwOnConflict: true },
   executor?: ReconciliationDb,
 ): Promise<ListingObservation | null> {
-  if (!observation.sourceListingId || !observation.observedAt) return null;
+  if (!observation.observedAt) return null;
 
   const observedAt = observation.observedAt instanceof Date
     ? observation.observedAt
     : new Date(observation.observedAt);
+
+  const identityPredicate = observation.sourceListingId
+    ? eq(listingObservations.sourceListingId, observation.sourceListingId)
+    : observation.sourceUrlCanonical
+      ? and(
+          sql`${listingObservations.sourceListingId} IS NULL`,
+          eq(listingObservations.sourceUrlCanonical, observation.sourceUrlCanonical),
+        )
+      : null;
+  if (!identityPredicate) return null;
+
+  const originPredicate = isSourceEvidenceOrigin(observation.origin)
+    ? sql`${listingObservations.origin} IN ('mirror', 'replay')`
+    : eq(listingObservations.origin, observation.origin);
+
   const [existing] = await targetDb(executor)
     .select()
     .from(listingObservations)
     .where(
       and(
         eq(listingObservations.sourceName, observation.sourceName),
-        eq(listingObservations.sourceListingId, observation.sourceListingId),
-        eq(listingObservations.origin, observation.origin),
+        identityPredicate,
+        originPredicate,
         eq(listingObservations.observedAt, observedAt),
       ),
     )
@@ -396,8 +421,12 @@ async function findCompatibleExistingObservationForIdempotentReplay(
 
   if (!existing) return null;
   if (!observationsAreCompatible(existing, observation)) {
+    if (!options.throwOnConflict) return null;
+    const identity = observation.sourceListingId
+      ? observation.sourceListingId
+      : observation.sourceUrlCanonical ?? 'unknown-url';
     throw new IngestIdempotencyConflictError(
-      `Listing observation idempotency key for ${observation.sourceName}:${observation.sourceListingId}:${observedAt.toISOString()} is already bound to different source facts`,
+      `Listing observation idempotency key for ${observation.sourceName}:${identity}:${observedAt.toISOString()} is already bound to different source facts`,
     );
   }
 
@@ -417,12 +446,20 @@ async function refreshCompatibleObservationMetadata(
   const incomingStale = incoming.staleForProjection ?? false;
   const madeFreshForProjection = existing.staleForProjection && !incomingStale;
 
-  if (existing.staleForProjection !== incomingStale) {
-    set.staleForProjection = incomingStale;
+  if (madeFreshForProjection) {
+    set.staleForProjection = false;
+  }
+  if (
+    existing.origin === 'replay'
+    && incoming.origin === 'mirror'
+    && !incomingStale
+  ) {
+    set.origin = 'mirror';
   }
   if (
     incoming.sourceHighWatermark
     && dateKey(existing.sourceHighWatermark) !== dateKey(incoming.sourceHighWatermark)
+    && (!incomingStale || !existing.sourceHighWatermark)
   ) {
     set.sourceHighWatermark = incoming.sourceHighWatermark;
   }
@@ -464,6 +501,20 @@ async function insertListingObservationInternal(
   observation: NewListingObservation,
   executor?: ReconciliationDb,
 ): Promise<{ observation: ListingObservation; reusedExisting: boolean; madeFreshForProjection: boolean }> {
+  const existingBeforeInsert = await findCompatibleExistingObservationForIdempotentReplay(
+    observation,
+    { throwOnConflict: false },
+    executor,
+  );
+  if (existingBeforeInsert) {
+    const refreshed = await refreshCompatibleObservationMetadata(existingBeforeInsert, observation, executor);
+    return {
+      observation: refreshed.observation,
+      reusedExisting: true,
+      madeFreshForProjection: refreshed.madeFreshForProjection,
+    };
+  }
+
   const [inserted] = await targetDb(executor)
     .insert(listingObservations)
     .values(observation)
@@ -474,7 +525,7 @@ async function insertListingObservationInternal(
     return { observation: inserted, reusedExisting: false, madeFreshForProjection: false };
   }
 
-  const existing = await findCompatibleExistingObservationForIdempotentReplay(observation, executor);
+  const existing = await findCompatibleExistingObservationForIdempotentReplay(observation, { throwOnConflict: true }, executor);
   if (existing) {
     const refreshed = await refreshCompatibleObservationMetadata(existing, observation, executor);
     return {
@@ -626,6 +677,31 @@ function incomingObservationIsNewer(canonical: CanonicalListing, observation: Li
     : canonical.lastMirrorSeenAt ?? new Date(0);
   const incoming = observation.sourceUpdatedAt ?? observation.lastSeenAt ?? observation.observedAt;
   return incoming >= current || observation.origin === 'user';
+}
+
+async function markObservationStaleForProjection(
+  observation: ListingObservation,
+  executor: ReconciliationDb,
+): Promise<ListingObservation> {
+  if (observation.staleForProjection) return observation;
+  const [updated] = await executor
+    .update(listingObservations)
+    .set({ staleForProjection: true })
+    .where(eq(listingObservations.id, observation.id))
+    .returning();
+
+  if (!updated) throw new Error(`Listing observation ${observation.id} could not be marked stale for projection`);
+  return updated;
+}
+
+function observationLinkReason(
+  observation: ListingObservation,
+  primarySourceListingId: string | null,
+): 'source_identity' | 'source_alias' | 'canonical_url' | 'user_provisional' {
+  if (primarySourceListingId) {
+    return primarySourceListingId === observation.sourceListingId ? 'source_identity' : 'source_alias';
+  }
+  return observation.sourceUrlCanonical ? 'canonical_url' : 'user_provisional';
 }
 
 async function updateCanonicalListingFromObservation(
@@ -966,11 +1042,17 @@ export async function reconcileListingObservation(
     return existingCanonical;
   }
 
-  const linkReason = primarySourceListingId
-    ? primarySourceListingId === observation.sourceListingId ? 'source_identity' : 'source_alias'
-    : observation.sourceUrlCanonical
-      ? 'canonical_url'
-      : 'user_provisional';
+  const linkReason = observationLinkReason(observation, primarySourceListingId);
+
+  if (
+    existingCanonical
+    && observation.origin !== 'user'
+    && !incomingObservationIsNewer(existingCanonical, observation)
+  ) {
+    const staleObservation = await markObservationStaleForProjection(observation, database);
+    await linkObservationToCanonical(staleObservation.id, existingCanonical.id, linkReason, database);
+    return existingCanonical;
+  }
 
   const canonical = existingCanonical
     ? await updateCanonicalListingFromObservation(existingCanonical, observation, primarySourceListingId, database)
@@ -1296,32 +1378,42 @@ export async function persistMirrorObservationForIngest(
         executor,
       )
     : await reconcileListingObservation(observation.id, executor);
+  const [effectiveObservation] = await executor
+    .select()
+    .from(listingObservations)
+    .where(eq(listingObservations.id, observation.id))
+    .limit(1);
+  const reconciledObservation = effectiveObservation ?? observation;
   if (canonicalListing) {
-    if (observation.staleForProjection) {
+    if (reconciledObservation.staleForProjection) {
       // Stale compatible replays refresh lineage but do not project candidate state.
-    } else if (observation.diagnosticStatus) {
-      await markCandidateHandoffForDiagnosticObservation(observation, canonicalListing, executor);
+    } else if (reconciledObservation.diagnosticStatus) {
+      await markCandidateHandoffForDiagnosticObservation(reconciledObservation, canonicalListing, executor);
     } else {
-      await completeCandidateHandoffForObservation(observation, canonicalListing, executor);
+      await completeCandidateHandoffForObservation(reconciledObservation, canonicalListing, executor);
     }
   }
   const diagnosticRetiredProvisional = Boolean(
     canonicalListing
-    && observation.diagnosticStatus
-    && shouldRetireProvisionalForDiagnostic(observation)
+    && reconciledObservation.diagnosticStatus
+    && shouldRetireProvisionalForDiagnostic(reconciledObservation)
     && canonicalListing.status === 'withdrawn'
     && canonicalListing.statusSource === 'mirror'
     && canonicalListing.originSummary === 'user_and_mirror'
   );
-  const projectedCanonicalFacts = Boolean(canonicalListing && !observation.diagnosticStatus);
+  const projectedCanonicalFacts = Boolean(
+    canonicalListing
+    && !reconciledObservation.diagnosticStatus
+    && !reconciledObservation.staleForProjection,
+  );
   return {
     canonicalListing,
-    observationId: observation.id,
+    observationId: reconciledObservation.id,
     propertyId: canonicalListing?.propertyId ?? input.propertyId,
-    inserted: !reusedExisting && projectedCanonicalFacts && !input.staleForProjection,
+    inserted: !reusedExisting && projectedCanonicalFacts,
     changed: (!reusedExisting || madeFreshForProjection)
       && (projectedCanonicalFacts || diagnosticRetiredProvisional)
-      && !input.staleForProjection,
+      && !reconciledObservation.staleForProjection,
   };
 }
 

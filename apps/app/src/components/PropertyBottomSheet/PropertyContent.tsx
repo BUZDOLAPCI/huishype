@@ -20,6 +20,7 @@ import {
 } from 'react';
 import { Pressable, View, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
+import type { PropertyListingsResponse } from '@huishype/shared';
 
 import { useProperty } from '../../hooks/useProperties';
 import { useListings, type ListingData } from '../../hooks/useListings';
@@ -232,8 +233,19 @@ function PropertyContentSections({
         propertyId={property.id}
         visible={showSubmission}
         onClose={() => setShowSubmission(false)}
-        onSubmitted={() => {
+        onSubmitted={(submittedListing) => {
           setShowSubmission(false);
+          if (submittedListing) {
+            queryClient.setQueryData<PropertyListingsResponse>(
+              ['listings', property.id],
+              (existing) => ({
+                data: [
+                  submittedListing,
+                  ...(existing?.data ?? []).filter((listing) => listing.id !== submittedListing.id),
+                ],
+              }),
+            );
+          }
           queryClient.invalidateQueries({ queryKey: ['listings', property.id] });
         }}
         onAuthRequired={onAuthRequired}

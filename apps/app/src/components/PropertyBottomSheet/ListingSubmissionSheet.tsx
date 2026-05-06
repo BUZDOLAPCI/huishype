@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { ListingPreviewResponse } from '@huishype/shared';
+import type { ListingPreviewResponse, ListingReadItem, ListingSubmitResult } from '@huishype/shared';
 import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
@@ -189,11 +189,50 @@ interface ListingSubmissionSheetProps {
   propertyId: string;
   visible: boolean;
   onClose: () => void;
-  onSubmitted: () => void;
+  onSubmitted: (listing?: ListingReadItem) => void;
   onAuthRequired?: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
 }
 
 type Step = 'input' | 'preview' | 'submitting' | 'success' | 'error';
+
+function isSubmitResult(value: unknown): value is ListingSubmitResult {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      typeof (value as ListingSubmitResult).id === 'string' &&
+      typeof (value as ListingSubmitResult).propertyId === 'string' &&
+      typeof (value as ListingSubmitResult).sourceUrl === 'string' &&
+      typeof (value as ListingSubmitResult).sourceName === 'string'
+  );
+}
+
+function buildSubmittedListing(
+  preview: ListingPreviewResponse,
+  submit: ListingSubmitResult
+): ListingReadItem {
+  return {
+    id: submit.id,
+    propertyId: submit.propertyId,
+    sourceUrl: submit.sourceUrl,
+    displayUrl: submit.sourceUrl,
+    sourceName: submit.sourceName,
+    canonicalUrl: submit.canonicalUrl,
+    sourceListingId: submit.sourceListingId,
+    askingPrice: preview.askingPrice,
+    priceType: preview.priceType,
+    currency: preview.currency,
+    thumbnailUrl: preview.imageUrl,
+    ogTitle: preview.title,
+    livingAreaM2: null,
+    numRooms: null,
+    energyLabel: null,
+    status: submit.status,
+    candidateHandoffState: submit.candidateHandoffState,
+    verificationState: submit.verificationState,
+    reasonCode: submit.reasonCode,
+    createdAt: submit.createdAt,
+  };
+}
 
 export function ListingSubmissionSheet({
   propertyId,
@@ -313,10 +352,11 @@ export function ListingSubmissionSheet({
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({ message: 'Failed to submit listing' }));
+      const responseBody = await response
+        .json()
+        .catch(() => ({ message: 'Failed to submit listing' }));
+
+      if (!response.ok && !(response.status === 409 && isSubmitResult(responseBody))) {
         if (response.status === 401) {
           requestAuthForSubmit();
           setStep('preview');
@@ -325,17 +365,22 @@ export function ListingSubmissionSheet({
         if (response.status === 409) {
           setError('This listing has already been added');
         } else {
-          setError(errorData.message || `Failed to submit listing (${response.status})`);
+          const responseMessage = typeof (responseBody as { message?: unknown }).message === 'string'
+            ? (responseBody as { message: string }).message
+            : null;
+          setError(responseMessage || `Failed to submit listing (${response.status})`);
         }
         setStep('error');
         return;
       }
 
-      await response.json().catch(() => null);
+      const submittedListing = isSubmitResult(responseBody)
+        ? buildSubmittedListing(previewData, responseBody)
+        : undefined;
       setStep('success');
       // Brief delay to show success state, then close
       setTimeout(() => {
-        onSubmitted();
+        onSubmitted(submittedListing);
         reset();
       }, 1200);
     } catch {

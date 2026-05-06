@@ -200,6 +200,85 @@ describe('ListingSubmissionSheet', () => {
     });
   });
 
+  it('treats duplicate 409 submit bodies as submitted listings', async () => {
+    const onSubmitted = jest.fn();
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ...previewContractFields,
+          sourceName: 'funda',
+          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-duplicate/',
+          canonicalUrl: 'https://www.funda.nl/detail/duplicate',
+          sourceListingId: 'duplicate',
+          sourceListingIdKind: 'tiny_id',
+          validationState: 'valid',
+          matchState: 'matched',
+          handoffState: 'will_create',
+          reasonCode: 'source_identity_match',
+          title: 'Duplicate Listing',
+          description: null,
+          imageUrl: 'https://cdn.example.com/duplicate.jpg',
+          askingPrice: 495000,
+          priceType: 'sale',
+          currency: 'EUR',
+          address: null,
+          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+          matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          id: '44444444-4444-4444-8444-444444444444',
+          propertyId: '11111111-1111-4111-8111-111111111111',
+          sourceUrl: 'https://www.funda.nl/detail/duplicate',
+          sourceName: 'funda',
+          canonicalUrl: 'https://www.funda.nl/detail/duplicate',
+          sourceListingId: 'duplicate',
+          status: 'active',
+          verificationState: 'provisional',
+          candidateHandoffState: 'queued',
+          candidateId: '55555555-5555-4555-8555-555555555555',
+          reasonCode: 'source_identity_match',
+          createdAt: '2026-05-06T12:00:00.000Z',
+        }),
+      } as Response);
+
+    render(
+      <ListingSubmissionSheet
+        propertyId="11111111-1111-4111-8111-111111111111"
+        visible
+        onClose={jest.fn()}
+        onSubmitted={onSubmitted}
+      />
+    );
+
+    fireEvent.changeText(
+      screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+      'https://www.funda.nl/koop/eindhoven/huis-duplicate/'
+    );
+    fireEvent.press(screen.getByText('Preview'));
+
+    await screen.findByText('Confirm & Add Listing');
+    fireEvent.press(screen.getByText('Confirm & Add Listing'));
+
+    await screen.findByText('Listing Added');
+    await waitFor(
+      () => {
+        expect(onSubmitted).toHaveBeenCalledWith(expect.objectContaining({
+          id: '44444444-4444-4444-8444-444444444444',
+          ogTitle: 'Duplicate Listing',
+          askingPrice: 495000,
+          candidateHandoffState: 'queued',
+        }));
+      },
+      { timeout: 2000 }
+    );
+  });
+
   it.each(['parser_error', 'validation_pending'] as const)(
     'enables confirmation for provisional %s previews',
     async (reasonCode) => {

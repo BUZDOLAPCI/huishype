@@ -1802,7 +1802,7 @@ describe('Listing routes', () => {
         },
       });
 
-      expect(submitResponse.statusCode).toBe(201);
+      expect(submitResponse.statusCode).toBe(409);
       const repeatedSubmission = JSON.parse(submitResponse.body) as { id: string; candidateId: string };
       expect(repeatedSubmission.id).toBe(fixture.canonicalListingId);
       expect(repeatedSubmission.candidateId).toBe(fixture.candidateId);
@@ -1896,7 +1896,7 @@ describe('Listing routes', () => {
         },
       });
 
-      expect(submitResponse.statusCode).toBe(201);
+      expect(submitResponse.statusCode).toBe(409);
       expect(mockFetchFn).not.toHaveBeenCalled();
       const repeatedSubmission = JSON.parse(submitResponse.body) as {
         id: string;
@@ -2047,7 +2047,7 @@ describe('Listing routes', () => {
           previewToken: preview.previewToken,
         },
       });
-      expect(submitResponse.statusCode).toBe(201);
+      expect(submitResponse.statusCode).toBe(409);
       expect(mockFetchFn).not.toHaveBeenCalled();
       expect(JSON.parse(submitResponse.body)).toMatchObject({
         id: mirrorCanonical?.id,
