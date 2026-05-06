@@ -627,13 +627,26 @@ async function resolvePrimarySourceListingId(
   observation: ListingObservation,
   executor: ReconciliationDb,
 ): Promise<string | null> {
-  const aliases = normalizeSourceAliases(observation.sourceListingAliases);
+  return resolvePrimarySourceListingIdFromFacts(
+    observation.sourceName,
+    observation.sourceListingId,
+    normalizeSourceAliases(observation.sourceListingAliases),
+    executor,
+  );
+}
+
+async function resolvePrimarySourceListingIdFromFacts(
+  sourceName: string,
+  sourceListingId: string | null | undefined,
+  aliases: readonly ListingSourceAlias[],
+  executor: ReconciliationDb,
+): Promise<string | null> {
   const aliasPredicates = aliases.map((alias) => and(
     eq(listingSourceAliases.aliasKind, alias.kind),
     eq(listingSourceAliases.aliasValue, alias.value),
   ));
-  if (observation.sourceListingId) {
-    aliasPredicates.push(eq(listingSourceAliases.aliasValue, observation.sourceListingId));
+  if (sourceListingId) {
+    aliasPredicates.push(eq(listingSourceAliases.aliasValue, sourceListingId));
   }
 
   if (aliasPredicates.length > 0) {
@@ -642,7 +655,7 @@ async function resolvePrimarySourceListingId(
       .from(listingSourceAliases)
       .where(
         and(
-          eq(listingSourceAliases.sourceName, observation.sourceName),
+          eq(listingSourceAliases.sourceName, sourceName),
           aliasPredicates.length === 1 ? aliasPredicates[0] : or(...aliasPredicates),
         ),
       )
@@ -652,7 +665,7 @@ async function resolvePrimarySourceListingId(
     if (alias?.primarySourceListingId) return alias.primarySourceListingId;
   }
 
-  return observation.sourceListingId ?? null;
+  return sourceListingId ?? null;
 }
 
 function sourceIdentityAliasesForCanonicalLookup(observation: ListingObservation): ListingSourceAlias[] {
@@ -697,13 +710,33 @@ async function findCanonicalListing(
     if (row?.canonical) return row.canonical;
   }
 
-  const predicates = [];
+  const findFirst = async (predicate: ReturnType<typeof and>): Promise<CanonicalListing | null> => {
+    if (!predicate) return null;
+    const [canonical] = await executor
+      .select()
+      .from(canonicalListings)
+      .where(predicate)
+      .orderBy(desc(canonicalListings.updatedAt))
+      .limit(1);
+    return canonical ?? null;
+  };
+
   if (primarySourceListingId) {
-    predicates.push(and(
+    const canonical = await findFirst(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       eq(canonicalListings.primarySourceListingId, primarySourceListingId),
     ));
+    if (canonical) return canonical;
   }
+
+  if (observation.sourceUrlCanonical) {
+    const canonical = await findFirst(and(
+      eq(canonicalListings.sourceName, observation.sourceName),
+      eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
+    ));
+    if (canonical) return canonical;
+  }
+
   const lookupAliases = sourceIdentityAliasesForCanonicalLookup(observation);
   const sourceIdAliases = lookupAliases
     .filter((alias) => alias.kind !== 'canonical_url')
@@ -712,41 +745,31 @@ async function findCanonicalListing(
     .filter((alias) => alias.kind === 'canonical_url')
     .map((alias) => alias.value);
   if (sourceIdAliases.length > 0) {
-    predicates.push(and(
+    const canonical = await findFirst(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       inArray(canonicalListings.primarySourceListingId, sourceIdAliases),
     ));
+    if (canonical) return canonical;
   }
+
   if (canonicalUrlAliases.length > 0) {
-    predicates.push(and(
+    const canonical = await findFirst(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       inArray(canonicalListings.canonicalUrl, canonicalUrlAliases),
     ));
+    if (canonical) return canonical;
   }
-  if (observation.sourceUrlCanonical) {
-    predicates.push(and(
-      eq(canonicalListings.sourceName, observation.sourceName),
-      eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
-    ));
-  }
+
   if (observation.propertyId && observation.sourceUrlCanonical) {
-    predicates.push(and(
+    const canonical = await findFirst(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       eq(canonicalListings.propertyId, observation.propertyId),
       eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
     ));
+    if (canonical) return canonical;
   }
 
-  if (predicates.length === 0) return null;
-
-  const [canonical] = await executor
-    .select()
-    .from(canonicalListings)
-    .where(predicates.length === 1 ? predicates[0] : or(...predicates))
-    .orderBy(desc(canonicalListings.updatedAt))
-    .limit(1);
-
-  return canonical ?? null;
+  return null;
 }
 
 function canProjectObservation(observation: ListingObservation): observation is ListingObservation & { sourceStatus: ListingSourceStatus } {
@@ -1461,8 +1484,15 @@ export async function persistMirrorObservationForIngest(
   executor: ReconciliationDb,
   input: PersistMirrorObservationForIngestInput,
 ): Promise<ListingWriteResult> {
+  const normalizedAliases = normalizeSourceAliases(input.aliases);
   if (input.sourceListingId) {
-    await upsertListingSourceAliases(input.sourceName, input.sourceListingId, normalizeSourceAliases(input.aliases), executor);
+    const primarySourceListingId = await resolvePrimarySourceListingIdFromFacts(
+      input.sourceName,
+      input.sourceListingId,
+      normalizedAliases,
+      executor,
+    );
+    await upsertListingSourceAliases(input.sourceName, primarySourceListingId ?? input.sourceListingId, normalizedAliases, executor);
   }
 
   const sourceUpdatedAt = toOptionalDate(input.sourceUpdatedAt);

@@ -30,7 +30,7 @@ import {
   requeueBlockedSourceBatchesAtWatermark,
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
 } from '../../services/ingest/index.js';
-import { persistMirrorObservationForIngest } from '../../services/listing-reconciliation.js';
+import { persistMirrorObservationForIngest, upsertListingSourceAliases } from '../../services/listing-reconciliation.js';
 import { PROPERTY_TILE_SNAPSHOT_KEY } from '../../services/property-tile-snapshots.js';
 
 describe('Durable ingest API contract', () => {
@@ -1968,6 +1968,140 @@ describe('Durable ingest API contract', () => {
       primarySourceListingId: oldListingId,
       canonicalUrl: newUrl.replace(/\/$/, ''),
       askingPrice: 510000,
+    });
+  });
+
+  it('prefers resolved primary source identity over newer alias matches when legacy duplicate canonicals exist', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = `Alias Duplicate Canonical Street ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 61 });
+    const primaryListingId = `idealista-alias-primary-${stamp}`;
+    const legacyListingId = `idealista-alias-legacy-${stamp}`;
+    const primaryUrl = `https://www.idealista.com/inmueble/alias-primary-${stamp}`;
+    const legacyUrl = `https://www.idealista.com/inmueble/alias-legacy-${stamp}`;
+    const firstBatchId = await seedCompletedBatchRecord({
+      sourceName,
+      stamp,
+      suffix: 'alias-primary',
+      completedAt: '2026-04-06T20:30:00.000Z',
+    });
+    const secondBatchId = await seedCompletedBatchRecord({
+      sourceName,
+      stamp,
+      suffix: 'alias-legacy',
+      completedAt: '2026-04-06T20:40:00.000Z',
+    });
+
+    await persistMirrorObservationForIngest(db, {
+      batchId: firstBatchId,
+      sourceName,
+      sourceUrl: primaryUrl,
+      sourceListingId: primaryListingId,
+      sourceListingIdKind: 'tiny_id',
+      aliases: [{ kind: 'tiny_id', value: primaryListingId }],
+      propertyId,
+      propertyMatchKind: 'source_exact',
+      sourceStatus: 'available',
+      askingPrice: 500000,
+      priceCurrency: 'EUR',
+      address: {
+        countryCode: 'NL',
+        street,
+        postalCode: '1234 AB',
+        houseNumber: 61,
+        city: 'Eindhoven',
+      },
+      firstSeenAt: '2026-04-06T20:30:00.000Z',
+      lastSeenAt: '2026-04-06T20:30:00.000Z',
+      sourceUpdatedAt: '2026-04-06T20:30:00.000Z',
+      observedAt: '2026-04-06T20:30:00.000Z',
+      sourceHighWatermark: '2026-04-06T20:30:00.000Z',
+      payload: { priceType: 'sale' },
+    });
+
+    const [legacyCanonical] = await db
+      .insert(canonicalListings)
+      .values({
+        propertyId,
+        sourceName,
+        primarySourceListingId: legacyListingId,
+        canonicalUrl: legacyUrl,
+        displayUrl: legacyUrl,
+        status: 'active',
+        statusSource: 'mirror',
+        verificationState: 'validated',
+        originSummary: 'mirror',
+        askingPrice: 490000,
+        priceCurrency: 'EUR',
+        priceType: 'sale',
+        firstSeenAt: new Date('2026-04-06T20:35:00.000Z'),
+        lastSeenAt: new Date('2026-04-06T20:35:00.000Z'),
+        lastMirrorSeenAt: new Date('2026-04-06T20:35:00.000Z'),
+        lastReconciledAt: new Date('2026-04-06T20:35:00.000Z'),
+        updatedAt: new Date('2026-04-06T20:35:00.000Z'),
+      })
+      .returning({ id: canonicalListings.id });
+
+    await upsertListingSourceAliases(sourceName, primaryListingId, [
+      { kind: 'tiny_id', value: primaryListingId },
+      { kind: 'tiny_id', value: legacyListingId },
+      { kind: 'canonical_url', value: primaryUrl },
+    ], db);
+
+    await expect(
+      persistMirrorObservationForIngest(db, {
+        batchId: secondBatchId,
+        sourceName,
+        sourceUrl: primaryUrl,
+        sourceListingId: legacyListingId,
+        sourceListingIdKind: 'tiny_id',
+        aliases: [
+          { kind: 'tiny_id', value: legacyListingId },
+          { kind: 'tiny_id', value: primaryListingId },
+          { kind: 'canonical_url', value: primaryUrl },
+        ],
+        propertyId,
+        propertyMatchKind: 'source_exact',
+        sourceStatus: 'available',
+        askingPrice: 510000,
+        priceCurrency: 'EUR',
+        address: {
+          countryCode: 'NL',
+          street,
+          postalCode: '1234 AB',
+          houseNumber: 61,
+          city: 'Eindhoven',
+        },
+        firstSeenAt: '2026-04-06T20:40:00.000Z',
+        lastSeenAt: '2026-04-06T20:40:00.000Z',
+        sourceUpdatedAt: '2026-04-06T20:40:00.000Z',
+        observedAt: '2026-04-06T20:40:00.000Z',
+        sourceHighWatermark: '2026-04-06T20:40:00.000Z',
+        payload: { priceType: 'sale' },
+      }),
+    ).resolves.toMatchObject({
+      canonicalListing: {
+        id: expect.any(String),
+        primarySourceListingId: primaryListingId,
+      },
+    });
+
+    const canonicalRows = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.propertyId, propertyId))
+      .orderBy(canonicalListings.primarySourceListingId);
+
+    expect(canonicalRows).toHaveLength(2);
+    expect(canonicalRows.find((row) => row.primarySourceListingId === primaryListingId)).toMatchObject({
+      canonicalUrl: primaryUrl,
+      askingPrice: 510000,
+    });
+    expect(canonicalRows.find((row) => row.id === legacyCanonical?.id)).toMatchObject({
+      primarySourceListingId: legacyListingId,
+      canonicalUrl: legacyUrl,
+      askingPrice: 490000,
     });
   });
 
