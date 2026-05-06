@@ -2925,13 +2925,13 @@ export interface paths {
                             sourceListingId: string | null;
                             sourceListingIdKind: string | null;
                             /** @enum {string} */
-                            validationState: "valid";
+                            validationState: "valid" | "provisional";
                             /** @enum {string} */
-                            matchState: "matched";
+                            matchState: "matched" | "unverified";
                             /** @enum {string} */
                             handoffState: "will_create";
                             /** @enum {string} */
-                            reasonCode: "source_identity_match" | "address_match";
+                            reasonCode: "source_identity_match" | "address_match" | "mirror_unavailable" | "parser_error" | "validation_pending";
                             title: string | null;
                             description: string | null;
                             imageUrl: string | null;
@@ -3124,6 +3124,7 @@ export interface paths {
                         cursorStart?: string | null;
                         cursorEnd: string;
                         upstreamRunKey?: string;
+                        runId?: string;
                         /** @enum {string} */
                         batchKind?: "observations" | "completion" | "observations_and_completion";
                         scopeKey?: string;
@@ -3149,7 +3150,9 @@ export interface paths {
                             canonicalUrl?: string;
                             askingPrice: number | null;
                             /** @enum {string} */
-                            priceType: "sale" | "rent";
+                            priceType?: "sale" | "rent" | "unknown";
+                            /** @enum {string} */
+                            listingType?: "sale" | "rent" | "unknown";
                             currency?: string;
                             livingAreaM2?: number | null;
                             numRooms?: number | null;
@@ -3180,10 +3183,10 @@ export interface paths {
                             /** Format: date-time */
                             sourceHighWatermark?: string;
                             address?: {
-                                countryCode: string;
-                                street: string;
-                                postalCode: string;
-                                houseNumber: string | number;
+                                countryCode?: string;
+                                street?: string;
+                                postalCode?: string;
+                                houseNumber?: string | number;
                                 houseNumberAddition?: string | null;
                                 city?: string;
                                 latitude?: number | null;

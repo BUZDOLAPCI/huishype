@@ -74,11 +74,15 @@ function getMockPreviewRejection(rawUrl: string): { message: string } | null {
       message: 'Listing validation failed: address_mismatch',
     };
   }
-  if (rawUrl.includes('pending') || rawUrl.includes('unavailable')) {
-    return {
-      message: 'Listing validation failed: mirror_unavailable',
-    };
-  }
+  return null;
+}
+
+function getMockProvisionalReason(
+  rawUrl: string
+): 'mirror_unavailable' | 'parser_error' | 'validation_pending' | null {
+  if (rawUrl.includes('parser-error')) return 'parser_error';
+  if (rawUrl.includes('validation-pending')) return 'validation_pending';
+  if (rawUrl.includes('pending') || rawUrl.includes('unavailable')) return 'mirror_unavailable';
   return null;
 }
 
@@ -253,6 +257,13 @@ export const listingHandlers = [
     }
 
     const preview = buildMockPreviewResponse(parsed.data.url, property, parsed.data.propertyId);
+    const provisionalReason = getMockProvisionalReason(parsed.data.url);
+    if (provisionalReason) {
+      preview.validationState = 'provisional';
+      preview.matchState = 'unverified';
+      preview.reasonCode = provisionalReason;
+      preview.matchedPropertyId = null;
+    }
     previewResults.set(preview.previewToken, preview);
 
     return HttpResponse.json(preview);
@@ -281,7 +292,10 @@ export const listingHandlers = [
 
     if (!preview) {
       return HttpResponse.json(
-        { error: 'INVALID_PREVIEW_TOKEN', message: 'Invalid, expired, or already consumed preview token' },
+        {
+          error: 'INVALID_PREVIEW_TOKEN',
+          message: 'Invalid, expired, or already consumed preview token',
+        },
         { status: 400 }
       );
     }
@@ -308,7 +322,7 @@ export const listingHandlers = [
       sourceListingId: preview.sourceListingId,
       candidateHandoffState: 'queued',
       candidateId: '33333333-3333-4333-8333-333333333333',
-      verificationState: 'validated',
+      verificationState: preview.validationState === 'provisional' ? 'provisional' : 'validated',
       reasonCode: preview.reasonCode,
     };
 

@@ -11,10 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type {
-  ListingPreviewResponse,
-  ListingSubmitResult,
-} from '@huishype/shared';
+import type { ListingPreviewResponse, ListingSubmitResult } from '@huishype/shared';
 import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
@@ -37,21 +34,78 @@ function getSourceColor(sourceName: string) {
   return sourceName === 'funda' ? '#F97316' : sourceName === 'pararius' ? '#DE911D' : '#9C958A';
 }
 
-function getValidationBadge() {
+function isValidatedPreview(preview: ListingPreviewResponse) {
+  return (
+    preview.validationState === 'valid' &&
+    preview.matchState === 'matched' &&
+    (preview.reasonCode === 'source_identity_match' || preview.reasonCode === 'address_match')
+  );
+}
+
+function isProvisionalPreview(preview: ListingPreviewResponse) {
+  return (
+    preview.validationState === 'provisional' &&
+    preview.matchState === 'unverified' &&
+    (preview.reasonCode === 'mirror_unavailable' ||
+      preview.reasonCode === 'parser_error' ||
+      preview.reasonCode === 'validation_pending')
+  );
+}
+
+function getValidationBadge(preview: ListingPreviewResponse) {
+  if (isProvisionalPreview(preview)) {
+    return { label: 'Pending validation', color: '#F5A623', icon: 'time' as const };
+  }
+
   return { label: 'Validated', color: '#22C55E', icon: 'checkmark-circle' as const };
 }
 
 function getHandoffLabel(handoffState: ListingPreviewResponse['handoffState'] | null) {
   switch (handoffState) {
     case 'will_create':
-      return 'Candidate will be queued';
+      return 'Ready to add';
     default:
       return null;
   }
 }
 
 function canSubmitPreview(preview: ListingPreviewResponse) {
-  return preview.validationState === 'valid' && preview.matchState === 'matched';
+  if (preview.handoffState !== 'will_create' || !preview.previewToken) {
+    return false;
+  }
+
+  return isValidatedPreview(preview) || isProvisionalPreview(preview);
+}
+
+function getPreviewStatusMessage(preview: ListingPreviewResponse) {
+  if (isProvisionalPreview(preview)) {
+    return 'Validation is still pending. You can add this listing while we verify the details.';
+  }
+
+  if (isValidatedPreview(preview)) {
+    return 'Listing details validated and matched.';
+  }
+
+  return 'This preview cannot be added.';
+}
+
+function getPreviewErrorMessage(status: number, message: unknown) {
+  if (status === 409) {
+    return 'This listing has already been added';
+  }
+
+  const rawMessage = typeof message === 'string' ? message : '';
+  if (rawMessage.includes('source_not_supported')) {
+    return 'That listing site is not supported yet.';
+  }
+  if (rawMessage.includes('address_mismatch')) {
+    return 'This listing does not appear to match this property.';
+  }
+  if (rawMessage.includes('source_not_found')) {
+    return 'We could not find that listing. Check the link and try again.';
+  }
+
+  return 'We could not validate this listing. Please check the link and try again.';
 }
 
 function getPreviewTitle(preview: ListingPreviewResponse) {
@@ -219,11 +273,7 @@ export function ListingSubmissionSheet({
         const errorData = await response
           .json()
           .catch(() => ({ message: 'Failed to load preview' }));
-        if (response.status === 409) {
-          setError('This listing has already been added');
-        } else {
-          setError(errorData.message || `Failed to load preview (${response.status})`);
-        }
+        setError(getPreviewErrorMessage(response.status, errorData.message));
         setIsLoadingPreview(false);
         return;
       }
@@ -294,13 +344,7 @@ export function ListingSubmissionSheet({
       setError('Network error. Please check your connection and try again.');
       setStep('error');
     }
-  }, [
-    previewData,
-    getAccessToken,
-    requestAuthForSubmit,
-    onSubmitted,
-    reset,
-  ]);
+  }, [previewData, getAccessToken, requestAuthForSubmit, onSubmitted, reset]);
 
   handleSubmitRef.current = handleSubmit;
 
@@ -434,7 +478,7 @@ export function ListingSubmissionSheet({
                       </Text>
                     </View>
                     {(() => {
-                      const validationBadge = getValidationBadge();
+                      const validationBadge = getValidationBadge(previewData);
                       return (
                         <View
                           style={{ backgroundColor: validationBadge.color }}
@@ -459,9 +503,27 @@ export function ListingSubmissionSheet({
               </View>
 
               {previewCanSubmit && (
-                <View className="flex-row items-center mt-3 p-3 bg-green-50 rounded-xl border border-green-200">
-                  <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
-                  <Text className="text-sm text-green-700 ml-2">Source validation matched</Text>
+                <View
+                  className={`flex-row items-center mt-3 p-3 rounded-xl border ${
+                    isProvisionalPreview(previewData)
+                      ? 'bg-warning-orange-50 border-warning-orange-100'
+                      : 'bg-green-50 border-green-200'
+                  }`}
+                >
+                  <Ionicons
+                    name={isProvisionalPreview(previewData) ? 'time' : 'checkmark-circle'}
+                    size={20}
+                    color={isProvisionalPreview(previewData) ? '#F5A623' : '#22C55E'}
+                  />
+                  <Text
+                    className={`text-sm ml-2 flex-1 ${
+                      isProvisionalPreview(previewData)
+                        ? 'text-warning-orange-700'
+                        : 'text-green-700'
+                    }`}
+                  >
+                    {getPreviewStatusMessage(previewData)}
+                  </Text>
                 </View>
               )}
 
@@ -501,8 +563,8 @@ export function ListingSubmissionSheet({
               <Text className="text-lg font-semibold text-warm-900">Listing Added</Text>
               <Text className="text-sm text-warm-500 mt-1">
                 {submitResult?.verificationState === 'validated'
-                  ? 'Source validation matched.'
-                  : 'Pending source validation.'}
+                  ? 'Listing details validated.'
+                  : 'Listing validation is pending.'}
               </Text>
             </View>
           )}

@@ -190,10 +190,15 @@ export interface ListingPreviewResponse {
   canonicalUrl: string;
   sourceListingId: string | null;
   sourceListingIdKind: string | null;
-  validationState: 'valid';
-  matchState: 'matched';
+  validationState: 'valid' | 'provisional';
+  matchState: 'matched' | 'unverified';
   handoffState: 'will_create';
-  reasonCode: 'source_identity_match' | 'address_match';
+  reasonCode:
+    | 'source_identity_match'
+    | 'address_match'
+    | 'mirror_unavailable'
+    | 'parser_error'
+    | 'validation_pending';
   title: string | null;
   description: string | null;
   imageUrl: string | null;

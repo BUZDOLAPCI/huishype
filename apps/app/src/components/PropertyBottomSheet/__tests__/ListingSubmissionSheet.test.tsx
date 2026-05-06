@@ -94,6 +94,7 @@ describe('ListingSubmissionSheet', () => {
 
     await screen.findByText('Confirm & Add Listing');
     expect(screen.getByText('Validated')).toBeTruthy();
+    expect(screen.getByText('Listing details validated and matched.')).toBeTruthy();
     expect(screen.getByText(/€\s?495[,.]000/)).toBeTruthy();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
@@ -119,6 +120,136 @@ describe('ListingSubmissionSheet', () => {
     expect(submitPayload).not.toHaveProperty('url');
     expect(submitPayload).not.toHaveProperty('propertyId');
   });
+
+  it('submits a provisional preview token when validation is pending', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ...previewContractFields,
+          sourceName: 'funda',
+          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-pending/',
+          canonicalUrl: 'https://www.funda.nl/detail/pending',
+          sourceListingId: 'pending',
+          sourceListingIdKind: 'tiny_id',
+          validationState: 'provisional',
+          matchState: 'unverified',
+          handoffState: 'will_create',
+          reasonCode: 'mirror_unavailable',
+          title: 'Pending Listing',
+          description: 'Pending description',
+          imageUrl: null,
+          askingPrice: 425000,
+          priceType: 'sale',
+          currency: 'EUR',
+          address: null,
+          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+          matchedPropertyId: null,
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          id: 'listing-1',
+          propertyId: '11111111-1111-4111-8111-111111111111',
+          sourceUrl: 'https://www.funda.nl/koop/eindhoven/huis-pending/',
+          sourceName: 'funda',
+          canonicalUrl: 'https://www.funda.nl/detail/pending',
+          sourceListingId: 'pending',
+          status: 'active',
+          verificationState: 'provisional',
+          candidateHandoffState: 'queued',
+          candidateId: '33333333-3333-4333-8333-333333333333',
+          reasonCode: 'mirror_unavailable',
+          createdAt: '2026-05-06T12:00:00.000Z',
+        }),
+      } as Response);
+
+    render(
+      <ListingSubmissionSheet
+        propertyId="11111111-1111-4111-8111-111111111111"
+        visible
+        onClose={jest.fn()}
+        onSubmitted={jest.fn()}
+      />
+    );
+
+    fireEvent.changeText(
+      screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+      'https://www.funda.nl/koop/eindhoven/huis-pending/'
+    );
+    fireEvent.press(screen.getByText('Preview'));
+
+    await screen.findByText('Confirm & Add Listing');
+    expect(screen.getByText('Pending validation')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Validation is still pending. You can add this listing while we verify the details.'
+      )
+    ).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Confirm & Add Listing'));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    const [submitUrl, submitOptions] = mockFetch.mock.calls[1] as [string, RequestInit];
+    expect(submitUrl).toBe('http://localhost:3100/listings/submit');
+    expect(JSON.parse(String(submitOptions.body))).toMatchObject({
+      previewToken: previewContractFields.previewToken,
+    });
+  });
+
+  it.each(['parser_error', 'validation_pending'] as const)(
+    'enables confirmation for provisional %s previews',
+    async (reasonCode) => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ...previewContractFields,
+          sourceName: 'pararius',
+          rawUrl: `https://www.pararius.com/apartment-for-rent/eindhoven/${reasonCode}/listing`,
+          canonicalUrl: `https://www.pararius.com/apartment-for-rent/eindhoven/${reasonCode}/listing`,
+          sourceListingId: `/apartment-for-rent/eindhoven/${reasonCode}/listing`,
+          sourceListingIdKind: 'canonical_path',
+          validationState: 'provisional',
+          matchState: 'unverified',
+          handoffState: 'will_create',
+          reasonCode,
+          title: 'Provisional Listing',
+          description: null,
+          imageUrl: null,
+          askingPrice: null,
+          priceType: 'rent',
+          currency: 'EUR',
+          address: null,
+          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+          matchedPropertyId: null,
+        }),
+      } as Response);
+
+      render(
+        <ListingSubmissionSheet
+          propertyId="11111111-1111-4111-8111-111111111111"
+          visible
+          onClose={jest.fn()}
+          onSubmitted={jest.fn()}
+        />
+      );
+
+      fireEvent.changeText(
+        screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+        `https://www.pararius.com/apartment-for-rent/eindhoven/${reasonCode}/listing`
+      );
+      fireEvent.press(screen.getByText('Preview'));
+
+      await screen.findByText('Confirm & Add Listing');
+      expect(screen.getByText('Pending validation')).toBeTruthy();
+      expect(screen.queryByText('Cannot Add Listing')).toBeNull();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('renders structured preview addresses without throwing and shows asking price', async () => {
     mockFetch.mockResolvedValueOnce({
@@ -181,7 +312,7 @@ describe('ListingSubmissionSheet', () => {
       status: 400,
       json: async () => ({
         error: 'LISTING_VALIDATION_FAILED',
-        message: 'Listing validation failed: mirror_unavailable',
+        message: 'Listing validation failed: address_mismatch',
       }),
     } as Response);
 
@@ -200,7 +331,7 @@ describe('ListingSubmissionSheet', () => {
     );
     fireEvent.press(screen.getByText('Preview'));
 
-    await screen.findByText('Listing validation failed: mirror_unavailable');
+    await screen.findByText('This listing does not appear to match this property.');
     expect(screen.queryByText('Confirm & Add Listing')).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
@@ -222,26 +353,26 @@ describe('ListingSubmissionSheet', () => {
       status: 200,
       json: async () => ({
         ...previewContractFields,
-          sourceName: 'funda',
-          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-          canonicalUrl: 'https://www.funda.nl/detail/12345',
-          sourceListingId: '12345',
-          sourceListingIdKind: 'tiny_id',
-          validationState: 'valid',
-          matchState: 'matched',
-          handoffState: 'will_create',
-          reasonCode: 'source_identity_match',
-          title: 'Example Listing',
-          description: null,
-          imageUrl: 'https://cdn.example.com/thumb.jpg',
-          askingPrice: null,
-          priceType: 'unknown',
-          currency: null,
-          address: null,
-          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
-          matchedPropertyId: '11111111-1111-4111-8111-111111111111',
-        }),
-      } as Response);
+        sourceName: 'funda',
+        rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+        canonicalUrl: 'https://www.funda.nl/detail/12345',
+        sourceListingId: '12345',
+        sourceListingIdKind: 'tiny_id',
+        validationState: 'valid',
+        matchState: 'matched',
+        handoffState: 'will_create',
+        reasonCode: 'source_identity_match',
+        title: 'Example Listing',
+        description: null,
+        imageUrl: 'https://cdn.example.com/thumb.jpg',
+        askingPrice: null,
+        priceType: 'unknown',
+        currency: null,
+        address: null,
+        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+        matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+      }),
+    } as Response);
 
     const onAuthRequired = jest.fn();
 
@@ -262,7 +393,7 @@ describe('ListingSubmissionSheet', () => {
     fireEvent.press(screen.getByText('Preview'));
 
     await screen.findByText('Confirm & Add Listing');
-    expect(screen.getByText('Candidate will be queued')).toBeTruthy();
+    expect(screen.getByText('Ready to add')).toBeTruthy();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     fireEvent.press(screen.getByText('Confirm & Add Listing'));
@@ -336,7 +467,7 @@ describe('ListingSubmissionSheet', () => {
     await waitFor(() => {
       expect(onAuthRequired).toHaveBeenCalledWith(
         'Sign in to add this listing',
-        expect.any(Function),
+        expect.any(Function)
       );
     });
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -430,7 +561,7 @@ describe('ListingSubmissionSheet', () => {
     await waitFor(() => {
       expect(onAuthRequired).toHaveBeenCalledWith(
         'Sign in to add this listing',
-        expect.any(Function),
+        expect.any(Function)
       );
     });
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -456,26 +587,26 @@ describe('ListingSubmissionSheet', () => {
       status: 200,
       json: async () => ({
         ...previewContractFields,
-          sourceName: 'funda',
-          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
-          canonicalUrl: 'https://www.funda.nl/detail/12345',
-          sourceListingId: '12345',
-          sourceListingIdKind: 'tiny_id',
-          validationState: 'valid',
-          matchState: 'matched',
-          handoffState: 'will_create',
-          reasonCode: 'source_identity_match',
-          title: null,
-          description: null,
-          imageUrl: null,
+        sourceName: 'funda',
+        rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+        canonicalUrl: 'https://www.funda.nl/detail/12345',
+        sourceListingId: '12345',
+        sourceListingIdKind: 'tiny_id',
+        validationState: 'valid',
+        matchState: 'matched',
+        handoffState: 'will_create',
+        reasonCode: 'source_identity_match',
+        title: null,
+        description: null,
+        imageUrl: null,
         askingPrice: null,
         priceType: 'unknown',
-          currency: null,
-          address: null,
-          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
-          matchedPropertyId: '11111111-1111-4111-8111-111111111111',
-        }),
-      } as Response);
+        currency: null,
+        address: null,
+        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+        matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+      }),
+    } as Response);
 
     render(
       <ListingSubmissionSheet
@@ -496,7 +627,7 @@ describe('ListingSubmissionSheet', () => {
     expect(screen.getByText('Funda listing')).toBeTruthy();
     expect(screen.getByText('https://www.funda.nl/detail/12345')).toBeTruthy();
     expect(screen.getByText('No preview image')).toBeTruthy();
-    expect(screen.getByText('Candidate will be queued')).toBeTruthy();
+    expect(screen.getByText('Ready to add')).toBeTruthy();
     expect(screen.queryByText('Candidate queued')).toBeNull();
   });
 
@@ -525,7 +656,7 @@ describe('ListingSubmissionSheet', () => {
     );
     fireEvent.press(screen.getByText('Preview'));
 
-    await screen.findByText('Listing validation failed: source_not_supported');
+    await screen.findByText('That listing site is not supported yet.');
     expect(screen.queryByText('Cannot Add Listing')).toBeNull();
     expect(screen.queryByText('Confirm & Add Listing')).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -556,7 +687,7 @@ describe('ListingSubmissionSheet', () => {
     );
     fireEvent.press(screen.getByText('Preview'));
 
-    await screen.findByText('Listing validation failed: address_mismatch');
+    await screen.findByText('This listing does not appear to match this property.');
     expect(screen.queryByText('Cannot Add Listing')).toBeNull();
     expect(screen.queryByText('Confirm & Add Listing')).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);

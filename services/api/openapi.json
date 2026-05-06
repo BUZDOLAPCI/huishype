@@ -7298,13 +7298,15 @@
                     "validationState": {
                       "type": "string",
                       "enum": [
-                        "valid"
+                        "valid",
+                        "provisional"
                       ]
                     },
                     "matchState": {
                       "type": "string",
                       "enum": [
-                        "matched"
+                        "matched",
+                        "unverified"
                       ]
                     },
                     "handoffState": {
@@ -7317,7 +7319,10 @@
                       "type": "string",
                       "enum": [
                         "source_identity_match",
-                        "address_match"
+                        "address_match",
+                        "mirror_unavailable",
+                        "parser_error",
+                        "validation_pending"
                       ]
                     },
                     "title": {
@@ -7763,6 +7768,11 @@
                     "minLength": 1,
                     "maxLength": 255
                   },
+                  "runId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
                   "batchKind": {
                     "type": "string",
                     "enum": [
@@ -7861,7 +7871,16 @@
                           "type": "string",
                           "enum": [
                             "sale",
-                            "rent"
+                            "rent",
+                            "unknown"
+                          ]
+                        },
+                        "listingType": {
+                          "type": "string",
+                          "enum": [
+                            "sale",
+                            "rent",
+                            "unknown"
                           ]
                         },
                         "currency": {
@@ -8014,12 +8033,10 @@
                               "maxLength": 2
                             },
                             "street": {
-                              "type": "string",
-                              "minLength": 1
+                              "type": "string"
                             },
                             "postalCode": {
-                              "type": "string",
-                              "minLength": 1
+                              "type": "string"
                             },
                             "houseNumber": {
                               "anyOf": [
@@ -8064,13 +8081,7 @@
                                 }
                               ]
                             }
-                          },
-                          "required": [
-                            "countryCode",
-                            "street",
-                            "postalCode",
-                            "houseNumber"
-                          ]
+                          }
                         },
                         "priceHistory": {
                           "type": "array",
@@ -8099,8 +8110,7 @@
                       "required": [
                         "sourceUrl",
                         "mirrorListingId",
-                        "askingPrice",
-                        "priceType"
+                        "askingPrice"
                       ]
                     }
                   },

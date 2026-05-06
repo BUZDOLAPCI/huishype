@@ -181,7 +181,7 @@ describe('Mock handler runtime parity', () => {
 
   it('exposes official valuation years and hydrate acceptance on property detail mocks', async () => {
     const detailResponse = await fetch(
-      `http://localhost/properties/${mockPropertyIds.prinsengracht263}`,
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}`
     );
     const detailBody = await detailResponse.json();
 
@@ -213,7 +213,7 @@ describe('Mock handler runtime parity', () => {
           valuationYear: 2024,
           referenceDate: '2024-01-01',
         }),
-      },
+      }
     );
     const hydrateBody = await hydrateResponse.json();
 
@@ -227,7 +227,7 @@ describe('Mock handler runtime parity', () => {
     });
 
     const refreshedDetailResponse = await fetch(
-      `http://localhost/properties/${mockPropertyIds.prinsengracht263}`,
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}`
     );
     await expect(refreshedDetailResponse.json()).resolves.toMatchObject({
       officialValuation: 2910000,
@@ -405,6 +405,65 @@ describe('Mock handler runtime parity', () => {
     expect(submitBody).toHaveProperty('candidateId');
     expect(submitBody).toHaveProperty('verificationState', 'validated');
     expect(submitBody).toHaveProperty('reasonCode');
+
+    const provisionalPreviewResponse = await fetch('http://localhost/listings/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://www.funda.nl/koop/eindhoven/huis-unavailable/',
+        propertyId: listingPropertyId,
+      }),
+    });
+    const provisionalPreviewBody = await provisionalPreviewResponse.json();
+    expect(provisionalPreviewResponse.status).toBe(200);
+    expect(provisionalPreviewBody).toMatchObject({
+      validationState: 'provisional',
+      matchState: 'unverified',
+      handoffState: 'will_create',
+      reasonCode: 'mirror_unavailable',
+      matchedPropertyId: null,
+    });
+
+    const provisionalSubmitResponse = await fetch('http://localhost/listings/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        previewToken: provisionalPreviewBody.previewToken,
+      }),
+    });
+    const provisionalSubmitBody = await provisionalSubmitResponse.json();
+    expect(provisionalSubmitResponse.status).toBe(201);
+    expect(provisionalSubmitBody).toMatchObject({
+      propertyId: listingPropertyId,
+      verificationState: 'provisional',
+      reasonCode: 'mirror_unavailable',
+    });
+
+    for (const [urlFragment, reasonCode] of [
+      ['parser-error', 'parser_error'],
+      ['validation-pending', 'validation_pending'],
+    ] as const) {
+      const response = await fetch('http://localhost/listings/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: `https://www.pararius.com/apartment-for-rent/eindhoven/${urlFragment}/listing`,
+          propertyId: listingPropertyId,
+        }),
+      });
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        validationState: 'provisional',
+        matchState: 'unverified',
+        handoffState: 'will_create',
+        reasonCode,
+        matchedPropertyId: null,
+      });
+    }
 
     const mismatchPreviewResponse = await fetch('http://localhost/listings/preview', {
       method: 'POST',

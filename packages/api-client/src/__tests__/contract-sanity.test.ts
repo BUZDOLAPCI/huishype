@@ -78,7 +78,10 @@ type CanonicalListingCandidateHandoffState =
   | 'dead_letter';
 type CanonicalListingPreviewReasonCode =
   | 'source_identity_match'
-  | 'address_match';
+  | 'address_match'
+  | 'mirror_unavailable'
+  | 'parser_error'
+  | 'validation_pending';
 type CanonicalListingPreviewRequest = {
   url: string;
   propertyId: string;
@@ -95,8 +98,8 @@ type CanonicalListingPreviewResponse = {
   canonicalUrl: string;
   sourceListingId: string | null;
   sourceListingIdKind: string | null;
-  validationState: 'valid';
-  matchState: 'matched';
+  validationState: 'valid' | 'provisional';
+  matchState: 'matched' | 'unverified';
   handoffState: 'will_create';
   reasonCode: CanonicalListingPreviewReasonCode;
   title: string | null;
@@ -163,9 +166,7 @@ type SavedPropertiesQueryFromOpenApi = NonNullable<
 >;
 type SavedPropertiesResponseFromOpenApi =
   paths['/saved-properties']['get']['responses'][200]['content']['application/json'];
-type UserSearchQueryFromOpenApi = NonNullable<
-  paths['/users/search']['get']['parameters']['query']
->;
+type UserSearchQueryFromOpenApi = NonNullable<paths['/users/search']['get']['parameters']['query']>;
 type UserSearchResponseFromOpenApi =
   paths['/users/search']['get']['responses'][200]['content']['application/json'];
 type UserSearchErrorFromOpenApi =
@@ -367,7 +368,10 @@ const feedContractAssertions = [
     >
   >,
   true as Expect<
-    Equal<GroupedPropertyActivityResponseFromOpenApi['items'][number]['preview']['kind'], 'comment' | 'summary'>
+    Equal<
+      GroupedPropertyActivityResponseFromOpenApi['items'][number]['preview']['kind'],
+      'comment' | 'summary'
+    >
   >,
   true as Expect<
     Equal<
