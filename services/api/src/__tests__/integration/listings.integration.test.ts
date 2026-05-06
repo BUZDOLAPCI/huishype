@@ -9,8 +9,16 @@ import {
   propertyTileSnapshotRefreshState,
   propertyTileSnapshotWatermarks,
 } from '../../db/index.js';
-import { canonicalListings, listingCandidateHandoffs, listingObservations, listingPreviewResults, users } from '../../db/schema.js';
-import { eq, sql } from 'drizzle-orm';
+import {
+  canonicalListings,
+  listingCandidateHandoffs,
+  listingObservations,
+  listingPreviewResults,
+  listingPriceObservations,
+  priceHistory,
+  users,
+} from '../../db/schema.js';
+import { and, eq, sql } from 'drizzle-orm';
 import { acceptIngestBatch, encodeOpaqueIngestCursor, getIngestWatermark, processIngestBatch } from '../../services/ingest/index.js';
 import {
   claimCandidateHandoff,
@@ -67,7 +75,7 @@ describe('Listing routes', () => {
     });
   }
 
-  async function createMatchedSubmissionFixture(label: string) {
+  async function createMatchedSubmissionFixture(label: string, askingPrice = 525000) {
     const sourceListingId = `${Date.now()}${Math.floor(Math.random() * 100_000)}`;
     const rawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-${label}/${sourceListingId}/`;
     const canonicalUrl = `https://www.funda.nl/detail/${sourceListingId}/`;
@@ -107,7 +115,7 @@ describe('Listing routes', () => {
         },
         thumbnailUrl,
         title,
-        price: 525000,
+        price: askingPrice,
         currency: 'EUR',
       }));
 
@@ -151,7 +159,65 @@ describe('Listing routes', () => {
       canonicalUrl,
       title,
       thumbnailUrl,
+      askingPrice,
     };
+  }
+
+  async function seedProjectedRentPriceArtifact(input: {
+    canonicalListingId: string;
+    propertyId: string;
+    sourceListingId: string;
+    sourceUrlCanonical: string;
+    price: number;
+    priceDate: string;
+  }) {
+    const observedAt = new Date(`${input.priceDate}T10:00:00.000Z`);
+    const [observation] = await db
+      .insert(listingObservations)
+      .values({
+        sourceName: 'funda',
+        sourceListingId: `${input.sourceListingId}-rent-artifact-${input.price}`,
+        sourceListingIdKind: 'tiny_id',
+        sourceUrlRaw: input.sourceUrlCanonical,
+        sourceUrlCanonical: input.sourceUrlCanonical,
+        origin: 'mirror',
+        propertyId: input.propertyId,
+        propertyMatchKind: 'source_exact',
+        sourceStatus: 'rented',
+        askingPrice: input.price,
+        priceCurrency: 'EUR',
+        observedAt,
+      })
+      .returning();
+    if (!observation) throw new Error('Failed to seed rent listing observation');
+
+    await db
+      .insert(listingPriceObservations)
+      .values({
+        listingObservationId: observation.id,
+        canonicalListingId: input.canonicalListingId,
+        propertyId: input.propertyId,
+        sourceName: 'funda',
+        sourceListingId: observation.sourceListingId,
+        origin: 'mirror',
+        price: input.price,
+        currency: 'EUR',
+        eventType: 'status_change',
+        priceDate: input.priceDate,
+        observedAt,
+      });
+
+    await db
+      .insert(priceHistory)
+      .values({
+        propertyId: input.propertyId,
+        listingId: null,
+        price: input.price,
+        priceDate: input.priceDate,
+        eventType: 'rented',
+        source: 'funda',
+      })
+      .onConflictDoNothing();
   }
 
   async function readPropertyTileSnapshotInvalidationState() {
@@ -284,6 +350,8 @@ describe('Listing routes', () => {
             idempotency_key LIKE 'funda-promotion-%'
             OR idempotency_key LIKE 'funda-diagnostic-pushback-%'
             OR idempotency_key LIKE 'funda-source-candidate-%'
+            OR idempotency_key LIKE 'funda-addressless-candidate-outcomes-%'
+            OR idempotency_key LIKE 'funda-existing-scraper-%'
             OR idempotency_key LIKE 'listing-submit:%'
           )
       `);
@@ -294,6 +362,8 @@ describe('Listing routes', () => {
             upstream_run_key LIKE 'funda-promotion-run-%'
             OR upstream_run_key LIKE 'funda-diagnostic-pushback-run-%'
             OR upstream_run_key LIKE 'funda-source-candidate-run-%'
+            OR upstream_run_key LIKE 'funda-addressless-candidate-outcomes-run-%'
+            OR upstream_run_key LIKE 'funda-existing-scraper-run-%'
           )
       `);
     } catch {
@@ -1857,6 +1927,154 @@ describe('Listing routes', () => {
       });
     });
 
+    it('attaches user evidence to an existing scraper-backed listing without overwriting mirror truth', async () => {
+      const sourceListingId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 12);
+      const rawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-existing-scraper/${sourceListingId}/`;
+      const canonicalUrl = `https://www.funda.nl/detail/${sourceListingId}/`;
+      const watermark = await getIngestWatermark('funda');
+      const acceptedMirror = await acceptIngestBatch({
+        sourceName: 'funda',
+        idempotencyKey: `funda-existing-scraper-${sourceListingId}`,
+        batchSequence: 0,
+        cursorStart: watermark.cursor,
+        cursorEnd: encodeOpaqueIngestCursor({
+          changedAt: '2026-04-09T10:00:00.000Z',
+          listingKey: `funda-existing-scraper-${sourceListingId}`,
+        }),
+        upstreamRunKey: `funda-existing-scraper-run-${sourceListingId}`,
+        listings: [
+          {
+            sourceUrl: rawUrl,
+            mirrorListingId: sourceListingId,
+            sourceListingId,
+            sourceListingIdKind: 'tiny_id',
+            canonicalUrl,
+            askingPrice: 610000,
+            priceType: 'sale',
+            currency: 'EUR',
+            status: 'sold',
+            sourceStatus: 'sold',
+            ogTitle: 'Mirror-owned sold title',
+            thumbnailUrl: 'https://cdn.example.com/mirror-owned.jpg',
+            mirrorLastChangedAt: '2026-04-09T10:00:00.000Z',
+            mirrorLastSeenAt: '2026-04-09T10:05:00.000Z',
+            address: {
+              countryCode: 'NL',
+              street: 'Listings Fixture Street',
+              postalCode: '9100AA',
+              houseNumber: 1,
+              city: 'Listings City',
+              latitude: 51.441,
+              longitude: 5.471,
+            },
+          },
+        ],
+      });
+      await expect(
+        processIngestBatch({
+          batchId: acceptedMirror.batchId,
+          enqueueMaintenanceRefresh: async () => {},
+        }),
+      ).resolves.toMatchObject({ status: 'completed' });
+
+      const [mirrorCanonical] = await db
+        .select()
+        .from(canonicalListings)
+        .where(eq(canonicalListings.primarySourceListingId, sourceListingId))
+        .limit(1);
+      expect(mirrorCanonical).toMatchObject({
+        status: 'sold',
+        statusSource: 'mirror',
+        verificationState: 'validated',
+        askingPrice: 610000,
+        title: 'Mirror-owned sold title',
+      });
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: sourceListingId }],
+          listingPath: `/detail/${sourceListingId}/`,
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'matched',
+          sourceName: 'funda',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: sourceListingId }],
+          sourceStatus: 'available',
+          matchedPropertyEvidence: {
+            propertyId: testPropertyId,
+            matchKind: 'source_exact',
+          },
+          title: 'User preview should not win',
+          price: 499000,
+          currency: 'EUR',
+        }));
+
+      const previewResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+        },
+      });
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = JSON.parse(previewResponse.body) as { previewToken: string };
+      mockFetchFn.mockReset();
+
+      const submitResponse = await app.inject({
+        method: 'POST',
+        url: '/listings/submit',
+        headers: {
+          authorization: `Bearer ${testAccessToken}`,
+        },
+        payload: {
+          previewToken: preview.previewToken,
+        },
+      });
+      expect(submitResponse.statusCode).toBe(201);
+      expect(mockFetchFn).not.toHaveBeenCalled();
+      expect(JSON.parse(submitResponse.body)).toMatchObject({
+        id: mirrorCanonical?.id,
+        status: 'sold',
+        verificationState: 'validated',
+      });
+
+      const [afterSubmit] = await db
+        .select()
+        .from(canonicalListings)
+        .where(eq(canonicalListings.id, mirrorCanonical?.id ?? '00000000-0000-0000-0000-000000000000'))
+        .limit(1);
+      expect(afterSubmit).toMatchObject({
+        status: 'sold',
+        statusSource: 'mirror',
+        verificationState: 'validated',
+        originSummary: 'user_and_mirror',
+        askingPrice: 610000,
+        title: 'Mirror-owned sold title',
+      });
+
+      const userPreviewPriceRows = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, testPropertyId),
+          eq(priceHistory.price, 499000),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(userPreviewPriceRows).toHaveLength(0);
+    });
+
     it('reconciles mirror observations by source candidate id without preview id', async () => {
       const fixture = await createMatchedSubmissionFixture('source-candidate-observation');
       const watermark = await getIngestWatermark('funda');
@@ -1958,6 +2176,268 @@ describe('Listing routes', () => {
         previewResultId: null,
         sourceListingId: changedSourceListingId,
       });
+    });
+
+    it('moves a provisional listing when source candidate evidence corrects the property match', async () => {
+      const fixture = await createMatchedSubmissionFixture('source-candidate-property-correction', 531111);
+      const staleRentPrice = 531112;
+      const oldPropertyPriceRowsBefore = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, testPropertyId),
+          eq(priceHistory.price, fixture.askingPrice),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(oldPropertyPriceRowsBefore.length).toBeGreaterThan(0);
+      await seedProjectedRentPriceArtifact({
+        canonicalListingId: fixture.canonicalListingId,
+        propertyId: testPropertyId,
+        sourceListingId: fixture.sourceListingId,
+        sourceUrlCanonical: fixture.canonicalUrl,
+        price: staleRentPrice,
+        priceDate: '2026-04-06',
+      });
+
+      const oldPropertyRentRowsBefore = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, testPropertyId),
+          eq(priceHistory.price, staleRentPrice),
+          eq(priceHistory.eventType, 'rented'),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(oldPropertyRentRowsBefore).toHaveLength(1);
+
+      const watermark = await getIngestWatermark('funda');
+      const changedSourceListingId = `${fixture.sourceListingId}-corrected`;
+      const changedCanonicalUrl = `https://www.funda.nl/detail/${changedSourceListingId}/`;
+      const acceptedMirror = await acceptIngestBatch({
+        sourceName: 'funda',
+        idempotencyKey: `funda-source-candidate-property-correction-${fixture.sourceListingId}`,
+        batchSequence: 0,
+        cursorStart: watermark.cursor,
+        cursorEnd: encodeOpaqueIngestCursor({
+          changedAt: new Date(Date.now() + 1_000).toISOString(),
+          listingKey: `funda-source-candidate-property-correction-${fixture.sourceListingId}`,
+        }),
+        upstreamRunKey: `funda-source-candidate-property-correction-run-${fixture.sourceListingId}`,
+        listings: [
+          {
+            sourceUrl: `https://www.funda.nl/detail/koop/eindhoven/huis-corrected/${changedSourceListingId}/`,
+            mirrorListingId: changedSourceListingId,
+            sourceCandidateId: fixture.candidateId,
+            sourceListingId: changedSourceListingId,
+            sourceListingIdKind: 'tiny_id',
+            canonicalUrl: changedCanonicalUrl,
+            askingPrice: 535000,
+            priceType: 'sale',
+            currency: 'EUR',
+            status: 'active',
+            sourceStatus: 'available',
+            mirrorLastChangedAt: '2026-04-07T12:00:00.000Z',
+            mirrorLastSeenAt: '2026-04-07T12:05:00.000Z',
+            ogTitle: 'Corrected property listing',
+            address: {
+              countryCode: 'NL',
+              street: 'Listings Mismatch Street',
+              postalCode: '9100AB',
+              houseNumber: 2,
+              city: 'Listings City',
+              latitude: 51.442,
+              longitude: 5.472,
+            },
+          },
+        ],
+      });
+
+      await expect(
+        processIngestBatch({
+          batchId: acceptedMirror.batchId,
+          enqueueMaintenanceRefresh: async () => {},
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        ingested: 1,
+        updated: 0,
+        skipped: 0,
+      });
+
+      const [canonical] = await db
+        .select()
+        .from(canonicalListings)
+        .where(eq(canonicalListings.id, fixture.canonicalListingId))
+        .limit(1);
+      expect(canonical).toMatchObject({
+        canonicalUrl: changedCanonicalUrl.replace(/\/$/, ''),
+        status: 'active',
+        statusSource: 'mirror',
+        verificationState: 'validated',
+        askingPrice: 535000,
+        title: 'Corrected property listing',
+      });
+      expect(canonical?.propertyId).not.toBe(testPropertyId);
+
+      const oldPropertyPriceRowsAfter = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, testPropertyId),
+          eq(priceHistory.price, fixture.askingPrice),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(oldPropertyPriceRowsAfter).toHaveLength(0);
+
+      const oldPropertyRentRowsAfter = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, testPropertyId),
+          eq(priceHistory.price, staleRentPrice),
+          eq(priceHistory.eventType, 'rented'),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(oldPropertyRentRowsAfter).toHaveLength(0);
+
+      const newPropertyPriceRows = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, canonical?.propertyId ?? otherPropertyId),
+          eq(priceHistory.price, 535000),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(newPropertyPriceRows).toHaveLength(1);
+    });
+
+    it('withdraws an addressless source-candidate lifecycle outcome and cleans invalid provisional prices', async () => {
+      const withdrawnFixture = await createMatchedSubmissionFixture('addressless-withdrawal', 532222);
+      const invalidFixture = await createMatchedSubmissionFixture('addressless-invalid-cleanup', 533333);
+      const staleRentPrice = 533334;
+      await seedProjectedRentPriceArtifact({
+        canonicalListingId: invalidFixture.canonicalListingId,
+        propertyId: testPropertyId,
+        sourceListingId: invalidFixture.sourceListingId,
+        sourceUrlCanonical: invalidFixture.canonicalUrl,
+        price: staleRentPrice,
+        priceDate: '2026-04-07',
+      });
+
+      const staleRentRowsBefore = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, testPropertyId),
+          eq(priceHistory.price, staleRentPrice),
+          eq(priceHistory.eventType, 'rented'),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(staleRentRowsBefore).toHaveLength(1);
+
+      const watermark = await getIngestWatermark('funda');
+      const acceptedMirror = await acceptIngestBatch({
+        sourceName: 'funda',
+        idempotencyKey: `funda-addressless-candidate-outcomes-${withdrawnFixture.sourceListingId}`,
+        batchSequence: 0,
+        cursorStart: watermark.cursor,
+        cursorEnd: encodeOpaqueIngestCursor({
+          changedAt: new Date(Date.now() + 1_000).toISOString(),
+          listingKey: `funda-addressless-candidate-outcomes-${withdrawnFixture.sourceListingId}`,
+        }),
+        upstreamRunKey: `funda-addressless-candidate-outcomes-run-${withdrawnFixture.sourceListingId}`,
+        listings: [
+          {
+            sourceUrl: withdrawnFixture.rawUrl,
+            mirrorListingId: `${withdrawnFixture.sourceListingId}-not-found`,
+            sourceCandidateId: withdrawnFixture.candidateId,
+            sourceListingId: withdrawnFixture.sourceListingId,
+            sourceListingIdKind: 'tiny_id',
+            canonicalUrl: withdrawnFixture.canonicalUrl,
+            askingPrice: null,
+            priceType: 'sale',
+            status: 'withdrawn',
+            sourceStatus: 'not_found',
+            mirrorLastChangedAt: '2026-04-07T13:00:00.000Z',
+            mirrorLastSeenAt: '2026-04-07T13:05:00.000Z',
+          },
+          {
+            sourceUrl: invalidFixture.rawUrl,
+            mirrorListingId: `${invalidFixture.sourceListingId}-invalid`,
+            sourceCandidateId: invalidFixture.candidateId,
+            sourceListingId: invalidFixture.sourceListingId,
+            sourceListingIdKind: 'tiny_id',
+            canonicalUrl: invalidFixture.canonicalUrl,
+            askingPrice: null,
+            priceType: 'sale',
+            status: 'active',
+            diagnosticStatus: 'invalid',
+            mirrorLastChangedAt: '2026-04-07T13:10:00.000Z',
+            mirrorLastSeenAt: '2026-04-07T13:15:00.000Z',
+          },
+        ],
+      });
+
+      await expect(
+        processIngestBatch({
+          batchId: acceptedMirror.batchId,
+          enqueueMaintenanceRefresh: async () => {},
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        ingested: 1,
+        updated: 1,
+        skipped: 0,
+      });
+
+      const [withdrawnCanonical] = await db
+        .select()
+        .from(canonicalListings)
+        .where(eq(canonicalListings.id, withdrawnFixture.canonicalListingId))
+        .limit(1);
+      expect(withdrawnCanonical).toMatchObject({
+        status: 'withdrawn',
+        statusSource: 'mirror',
+        verificationState: 'validated',
+      });
+
+      const [invalidCanonical] = await db
+        .select()
+        .from(canonicalListings)
+        .where(eq(canonicalListings.id, invalidFixture.canonicalListingId))
+        .limit(1);
+      expect(invalidCanonical).toMatchObject({
+        status: 'withdrawn',
+        statusSource: 'mirror',
+        verificationState: 'invalid',
+      });
+
+      const invalidLegacyPrices = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, testPropertyId),
+          eq(priceHistory.price, invalidFixture.askingPrice),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(invalidLegacyPrices).toHaveLength(0);
+
+      const staleRentRowsAfter = await db
+        .select()
+        .from(priceHistory)
+        .where(and(
+          eq(priceHistory.propertyId, testPropertyId),
+          eq(priceHistory.price, staleRentPrice),
+          eq(priceHistory.eventType, 'rented'),
+          eq(priceHistory.source, 'funda'),
+        ));
+      expect(staleRentRowsAfter).toHaveLength(0);
+
+      const invalidProjectedPrices = await db
+        .select()
+        .from(listingPriceObservations)
+        .where(eq(listingPriceObservations.canonicalListingId, invalidFixture.canonicalListingId));
+      expect(invalidProjectedPrices).toHaveLength(0);
     });
 
     it('keeps provisional listings active when diagnostic pushback is retryable', async () => {

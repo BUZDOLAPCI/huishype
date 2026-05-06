@@ -5,6 +5,8 @@ import {
   type DbTransaction,
   ingestBatches,
   ingestSources,
+  listingCandidateHandoffs,
+  listingPreviewResults,
   listingScopeCompletions,
   listingSourceScopeWatermarks,
   listingObservations,
@@ -17,7 +19,7 @@ import {
 } from '../../utils/address.js';
 import type { IngestBatchRequest, IngestListing } from './contracts.js';
 import { ingestBatchRequestSchema } from './contracts.js';
-import { decodeOpaqueIngestCursor } from './cursor.js';
+import { compareOpaqueIngestCursors, decodeOpaqueIngestCursor, isOpaqueIngestCursorAtOrBefore } from './cursor.js';
 import { requestLatestListingsRefresh } from './queue.js';
 import type { MaintenanceRefreshJobData } from './jobs.js';
 import {
@@ -77,6 +79,11 @@ type ListingType = 'sale' | 'rent' | 'unknown';
 
 interface ProjectionState {
   sourceHighWatermark: Date | null;
+  staleForProjection: boolean;
+}
+
+interface SourceProjectionState {
+  lastCommittedCursor: string | null;
   staleForProjection: boolean;
 }
 
@@ -339,6 +346,7 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
         id: ingestBatches.id,
         sourceName: ingestBatches.sourceName,
         cursorStart: ingestBatches.cursorStart,
+        cursorEnd: ingestBatches.cursorEnd,
         payloadJson: ingestBatches.payloadJson,
       })
       .from(ingestBatches)
@@ -366,12 +374,17 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
       .limit(1);
 
     const lastCommittedCursor = sourceRows[0]?.lastCommittedCursor ?? null;
+    const isStaleEvidenceBatch =
+      isSourceCursorBoundBatch(payload)
+      && !payload.repairMode
+      && lastCommittedCursor !== null
+      && isOpaqueIngestCursorAtOrBefore(candidate.cursorEnd, lastCommittedCursor);
     const isNextBatch =
       !isSourceCursorBoundBatch(payload)
       || (candidate.cursorStart == null && lastCommittedCursor == null)
       || candidate.cursorStart === lastCommittedCursor;
 
-    if (!isNextBatch) {
+    if (!isNextBatch && !isStaleEvidenceBatch) {
       return null;
     }
 
@@ -418,7 +431,7 @@ function canonicalizeListings(listings: IngestListing[]): {
 
   for (const item of listings) {
     if (!item.address) {
-      if (toDiagnosticStatus(item)) {
+      if (toDiagnosticStatus(item) || item.sourceCandidateId || item.previewResultId) {
         canonicalized.push({ item, canonical: null, spatialCandidate: null });
       } else {
         skippedCount += 1;
@@ -633,6 +646,94 @@ async function spatialMatchProperties(
   }
 }
 
+async function candidateMatchProperties(
+  tx: DbTransaction,
+  sourceName: string,
+  canonicalized: CanonicalizedListing[],
+  propertyIdsByListingIndex: Map<number, string>,
+): Promise<void> {
+  const handoffIdsByIndex = new Map<number, string>();
+  const previewIdsByIndex = new Map<number, string>();
+  const sourceUrlsByIndex = new Map<number, string>();
+
+  for (let index = 0; index < canonicalized.length; index += 1) {
+    if (propertyIdsByListingIndex.has(index)) {
+      continue;
+    }
+    const item = canonicalized[index]?.item;
+    if (!item) {
+      continue;
+    }
+
+    const handoffId = candidateHandoffIdFromSourceCandidateId(item.sourceCandidateId);
+    if (handoffId) {
+      handoffIdsByIndex.set(index, handoffId);
+    }
+    if (item.previewResultId) {
+      previewIdsByIndex.set(index, item.previewResultId);
+    }
+    if (item.sourceCandidateId || item.previewResultId) {
+      sourceUrlsByIndex.set(index, normalizeSourceUrl(item.canonicalUrl ?? item.sourceUrl));
+    }
+  }
+
+  const predicates = [];
+  const handoffIds = Array.from(new Set(handoffIdsByIndex.values()));
+  const previewIds = Array.from(new Set(previewIdsByIndex.values()));
+  const sourceUrls = Array.from(new Set(sourceUrlsByIndex.values()));
+
+  if (handoffIds.length > 0) {
+    predicates.push(inArray(listingCandidateHandoffs.id, handoffIds));
+  }
+  if (previewIds.length > 0) {
+    predicates.push(inArray(listingCandidateHandoffs.previewResultId, previewIds));
+  }
+  if (sourceUrls.length > 0) {
+    predicates.push(and(
+      eq(listingCandidateHandoffs.sourceName, sourceName),
+      inArray(listingCandidateHandoffs.sourceUrlCanonical, sourceUrls),
+    ));
+    predicates.push(and(
+      eq(listingPreviewResults.sourceName, sourceName),
+      inArray(listingPreviewResults.sourceUrlCanonical, sourceUrls),
+    ));
+  }
+
+  if (predicates.length === 0) {
+    return;
+  }
+
+  const rows = await tx
+    .select({
+      handoffId: listingCandidateHandoffs.id,
+      previewResultId: listingCandidateHandoffs.previewResultId,
+      handoffSourceUrl: listingCandidateHandoffs.sourceUrlCanonical,
+      previewId: listingPreviewResults.id,
+      previewSourceUrl: listingPreviewResults.sourceUrlCanonical,
+      propertyId: sql<string>`COALESCE(${listingCandidateHandoffs.propertyId}, ${listingPreviewResults.propertyId})`,
+    })
+    .from(listingCandidateHandoffs)
+    .leftJoin(listingPreviewResults, eq(listingPreviewResults.id, listingCandidateHandoffs.previewResultId))
+    .where(predicates.length === 1 ? predicates[0] : or(...predicates));
+
+  for (let index = 0; index < canonicalized.length; index += 1) {
+    if (propertyIdsByListingIndex.has(index)) {
+      continue;
+    }
+    const handoffId = handoffIdsByIndex.get(index);
+    const previewId = previewIdsByIndex.get(index);
+    const sourceUrl = sourceUrlsByIndex.get(index);
+    const row = rows.find((candidate) =>
+      (handoffId && candidate.handoffId === handoffId)
+      || (previewId && (candidate.previewResultId === previewId || candidate.previewId === previewId))
+      || (sourceUrl && (candidate.handoffSourceUrl === sourceUrl || candidate.previewSourceUrl === sourceUrl))
+    );
+    if (row?.propertyId) {
+      propertyIdsByListingIndex.set(index, row.propertyId);
+    }
+  }
+}
+
 function mapExactMatchesToListings(
   canonicalized: CanonicalizedListing[],
   propertyIdByAddress: Map<string, string>,
@@ -682,6 +783,9 @@ function dedupeMatchedListings(
     const propertyId = propertyIdsByListingIndex.get(index);
     if (!propertyId) {
       if (toDiagnosticStatus(entry.item)) {
+        continue;
+      }
+      if (entry.item.sourceCandidateId || entry.item.previewResultId) {
         continue;
       }
       skippedCount += 1;
@@ -784,13 +888,15 @@ function completionProjectionState(
   payload: IngestBatchRequest,
   existingWatermarks: Map<string, Date>,
   completion: NonNullable<IngestBatchRequest['completions']>[number],
+  sourceProjection: SourceProjectionState,
 ): ProjectionState {
   const listingType = completionListingType(completion);
   const sourceHighWatermark = new Date(completion.sourceHighWatermark);
   const existingHighWatermark = existingWatermarks.get(projectionKey(completion.scopeKey, listingType));
   return {
     sourceHighWatermark,
-    staleForProjection: !payload.repairMode && Boolean(existingHighWatermark && existingHighWatermark > sourceHighWatermark),
+    staleForProjection: sourceProjection.staleForProjection
+      || (!payload.repairMode && Boolean(existingHighWatermark && existingHighWatermark > sourceHighWatermark)),
   };
 }
 
@@ -798,6 +904,7 @@ function listingProjectionState(
   payload: IngestBatchRequest,
   existingWatermarks: Map<string, Date>,
   listing: IngestListing,
+  sourceProjection: SourceProjectionState,
 ): ProjectionState {
   const scopeKey = listingProjectionScopeKey(payload, listing);
   const listingType = listingProjectionType(listing);
@@ -810,13 +917,38 @@ function listingProjectionState(
     ?? parseOptionalDate(payload.sourceHighWatermark);
 
   if (!scopeKey || !sourceHighWatermark || payload.repairMode) {
-    return { sourceHighWatermark, staleForProjection: false };
+    return { sourceHighWatermark, staleForProjection: sourceProjection.staleForProjection };
   }
 
   const existingHighWatermark = compatibleProjectionWatermark(existingWatermarks, scopeKey, listingType);
   return {
     sourceHighWatermark,
-    staleForProjection: Boolean(existingHighWatermark && existingHighWatermark > sourceHighWatermark),
+    staleForProjection: sourceProjection.staleForProjection
+      || Boolean(existingHighWatermark && existingHighWatermark > sourceHighWatermark),
+  };
+}
+
+async function loadSourceProjectionState(
+  tx: DbTransaction,
+  payload: IngestBatchRequest,
+): Promise<SourceProjectionState> {
+  if (!isSourceCursorBoundBatch(payload) || payload.repairMode) {
+    return { lastCommittedCursor: null, staleForProjection: false };
+  }
+
+  const [source] = await tx
+    .select({ lastCommittedCursor: ingestSources.lastCommittedCursor })
+    .from(ingestSources)
+    .where(eq(ingestSources.sourceName, payload.sourceName))
+    .limit(1);
+  const lastCommittedCursor = source?.lastCommittedCursor ?? null;
+
+  return {
+    lastCommittedCursor,
+    staleForProjection: Boolean(
+      lastCommittedCursor
+        && isOpaqueIngestCursorAtOrBefore(payload.cursorEnd, lastCommittedCursor),
+    ),
   };
 }
 
@@ -875,6 +1007,7 @@ async function persistScopeCompletions(
   payload: IngestBatchRequest,
   batchId: string,
   existingWatermarks: Map<string, Date>,
+  sourceProjection: SourceProjectionState,
 ): Promise<Map<string, string>> {
   const completionIdsByScope = new Map<string, string>();
   if ((payload.completions ?? []).length === 0) return completionIdsByScope;
@@ -886,6 +1019,7 @@ async function persistScopeCompletions(
       payload,
       existingWatermarks,
       completion,
+      sourceProjection,
     );
     const [row] = await tx
       .insert(listingScopeCompletions)
@@ -964,6 +1098,7 @@ async function persistMatchedListingObservations(
   options: {
     existingWatermarks: Map<string, Date>;
     completionIdsByScope: Map<string, string>;
+    sourceProjection: SourceProjectionState;
   },
 ): Promise<ListingWriteResult[]> {
   const results: ListingWriteResult[] = [];
@@ -972,11 +1107,8 @@ async function persistMatchedListingObservations(
   for (let offset = 0; offset < matched.length; offset += chunkSize) {
     const chunk = matched.slice(offset, offset + chunkSize);
     for (const { propertyId, item } of chunk) {
-      if (!item.address) {
-        continue;
-      }
       const sourceListingId = item.sourceListingId ?? item.mirrorListingId;
-      const projectionState = listingProjectionState(payload, options.existingWatermarks, item);
+      const projectionState = listingProjectionState(payload, options.existingWatermarks, item, options.sourceProjection);
       const scopeKey = listingProjectionScopeKey(payload, item);
       const listingType = listingProjectionType(item);
       const completionId = scopeKey
@@ -992,21 +1124,23 @@ async function persistMatchedListingObservations(
         sourceListingIdKind: item.sourceListingIdKind ?? 'unknown',
         aliases: item.sourceListingAliases,
         propertyId,
-        propertyMatchKind: 'source_exact',
+        propertyMatchKind: item.address ? 'source_exact' : 'source_unmatched',
         sourceStatus: toSourceStatus(item),
         diagnosticStatus: toDiagnosticStatus(item),
         askingPrice: item.askingPrice,
         priceCurrency: item.currency ?? 'EUR',
-        address: {
-          countryCode: item.address.countryCode,
-          street: item.address.street,
-          postalCode: item.address.postalCode,
-          houseNumber: item.address.houseNumber,
-          houseNumberAddition: item.address.houseNumberAddition ?? null,
-          city: item.address.city,
-          latitude: item.address.latitude ?? null,
-          longitude: item.address.longitude ?? null,
-        },
+        address: item.address
+          ? {
+              countryCode: item.address.countryCode,
+              street: item.address.street,
+              postalCode: item.address.postalCode,
+              houseNumber: item.address.houseNumber,
+              houseNumberAddition: item.address.houseNumberAddition ?? null,
+              city: item.address.city,
+              latitude: item.address.latitude ?? null,
+              longitude: item.address.longitude ?? null,
+            }
+          : undefined,
         title: item.ogTitle ?? null,
         description: item.description ?? null,
         imageUrl: item.thumbnailUrl ?? null,
@@ -1014,7 +1148,7 @@ async function persistMatchedListingObservations(
         lastSeenAt: item.mirrorLastSeenAt,
         sourceUpdatedAt: item.mirrorLastChangedAt,
         observedAt: item.observedAt,
-        sourceRunId: item.sourceRunId,
+        sourceRunId: item.sourceRunId ?? payload.upstreamRunKey,
         sourceHighWatermark: projectionState.sourceHighWatermark,
         scopeCompletionId: completionId,
         staleForProjection: projectionState.staleForProjection,
@@ -1048,6 +1182,7 @@ async function persistUnmatchedDiagnosticObservations(
   options: {
     existingWatermarks: Map<string, Date>;
     completionIdsByScope: Map<string, string>;
+    sourceProjection: SourceProjectionState;
   },
 ): Promise<ListingWriteResult[]> {
   const matchedMirrorListingIds = new Set(matched.map((match) => match.item.mirrorListingId));
@@ -1060,7 +1195,7 @@ async function persistUnmatchedDiagnosticObservations(
       continue;
     }
 
-    const projectionState = listingProjectionState(payload, options.existingWatermarks, item);
+    const projectionState = listingProjectionState(payload, options.existingWatermarks, item, options.sourceProjection);
     const scopeKey = listingProjectionScopeKey(payload, item);
     const listingType = listingProjectionType(item);
     const completionId = scopeKey
@@ -1101,7 +1236,7 @@ async function persistUnmatchedDiagnosticObservations(
       lastSeenAt: item.mirrorLastSeenAt,
       sourceUpdatedAt: item.mirrorLastChangedAt,
       observedAt: item.observedAt,
-      sourceRunId: item.sourceRunId,
+      sourceRunId: item.sourceRunId ?? payload.upstreamRunKey,
       sourceHighWatermark: projectionState.sourceHighWatermark,
       scopeCompletionId: completionId,
       staleForProjection: projectionState.staleForProjection,
@@ -1122,13 +1257,6 @@ async function persistUnmatchedDiagnosticObservations(
   return results;
 }
 
-function observationIdentityForListing(item: IngestListing): { sourceListingId: string; sourceUrl: string } {
-  return {
-    sourceListingId: item.sourceListingId ?? item.mirrorListingId,
-    sourceUrl: normalizeSourceUrl(item.canonicalUrl ?? item.sourceUrl),
-  };
-}
-
 async function reconcileScopeCompletionAbsence(
   tx: DbTransaction,
   sourceName: string,
@@ -1136,32 +1264,57 @@ async function reconcileScopeCompletionAbsence(
   payload: IngestBatchRequest,
   existingWatermarks: Map<string, Date>,
   completionIdsByScope: Map<string, string>,
+  sourceProjection: SourceProjectionState,
 ): Promise<ListingWriteResult[]> {
   const results: ListingWriteResult[] = [];
 
   for (const completion of payload.completions ?? []) {
     const listingType = completionListingType(completion);
-    const completionState = completionProjectionState(payload, existingWatermarks, completion);
+    const completionState = completionProjectionState(payload, existingWatermarks, completion, sourceProjection);
     const completionId = completionIdsByScope.get(projectionKey(completion.scopeKey, listingType));
     if (
       !completionId
+      || !completionState.sourceHighWatermark
       || completionState.staleForProjection
       || (completion.coverageStatus ?? 'complete') !== 'complete'
     ) {
       continue;
     }
 
-    const presentListings = (payload.listings ?? []).filter((listing) => {
-      const scopeKey = listingProjectionScopeKey(payload, listing);
-      return scopeKey === completion.scopeKey
-        && completionCoversListingType(listingType, listingProjectionType(listing));
-    });
     const presentSourceListingIds = new Set<string>();
     const presentSourceUrls = new Set<string>();
-    for (const listing of presentListings) {
-      const identity = observationIdentityForListing(listing);
-      presentSourceListingIds.add(identity.sourceListingId);
-      presentSourceUrls.add(identity.sourceUrl);
+
+    const presentRows = await tx
+      .select({
+        sourceListingId: listingObservations.sourceListingId,
+        sourceUrlCanonical: listingObservations.sourceUrlCanonical,
+      })
+      .from(listingObservations)
+      .where(
+        and(
+          eq(listingObservations.sourceName, sourceName),
+          eq(listingObservations.origin, 'mirror'),
+          eq(listingObservations.staleForProjection, false),
+          eq(listingObservations.sourceStatus, 'available'),
+          sql`${listingObservations.diagnosticStatus} IS NULL`,
+          sql`${listingObservations.sourceHighWatermark} = ${completionState.sourceHighWatermark.toISOString()}::timestamptz`,
+          sql`${listingObservations.sourceRunId} IS NOT DISTINCT FROM ${(completion.sourceRunId ?? payload.upstreamRunKey) ?? null}`,
+          listingType === 'unknown'
+            ? sql`${listingObservations.payload}->>'scopeKey' = ${completion.scopeKey}`
+            : sql`
+                ${listingObservations.payload}->>'scopeKey' = ${completion.scopeKey}
+                AND COALESCE(${listingObservations.payload}->>'priceType', ${listingObservations.payload}->>'listingType') = ${listingType}
+              `,
+        ),
+      );
+
+    for (const row of presentRows) {
+      if (row.sourceListingId) {
+        presentSourceListingIds.add(row.sourceListingId);
+      }
+      if (row.sourceUrlCanonical) {
+        presentSourceUrls.add(row.sourceUrlCanonical);
+      }
     }
 
     const listingTypePredicate = listingType === 'unknown'
@@ -1238,7 +1391,7 @@ async function reconcileScopeCompletionAbsence(
         sourceRunId: completion.sourceRunId ?? payload.upstreamRunKey ?? null,
         sourceHighWatermark: completionState.sourceHighWatermark,
         scopeCompletionId: completionId,
-        staleForProjection: false,
+        staleForProjection: completionState.staleForProjection,
         payload: {
           scopeKey: completion.scopeKey,
           priceType: listingType,
@@ -1457,6 +1610,7 @@ async function recoverSkippedCompletedBatch(
     const exactMatches = await exactMatchProperties(tx, canonicalized);
     const propertyIdsByListingIndex = mapExactMatchesToListings(canonicalized, exactMatches);
     await spatialMatchProperties(tx, canonicalized, propertyIdsByListingIndex);
+    await candidateMatchProperties(tx, claimed.sourceName, canonicalized, propertyIdsByListingIndex);
 
     const { matched, skippedCount: unmatchedSkips } = dedupeMatchedListings(
       canonicalized,
@@ -1497,6 +1651,7 @@ async function recoverSkippedCompletedBatch(
       {
         existingWatermarks: new Map(),
         completionIdsByScope: new Map(),
+        sourceProjection: { lastCommittedCursor: null, staleForProjection: false },
       },
     );
 
@@ -1603,9 +1758,11 @@ async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: strin
         ),
       )
       .orderBy(asc(ingestBatches.receivedAt), asc(ingestBatches.batchSequence))
-      .limit(1);
+      .limit(1000);
 
-    const next = nextRows[0];
+    const next = nextRows.find((row) =>
+      currentCursor === null || compareOpaqueIngestCursors(row.cursorEnd, currentCursor) > 0
+    );
     if (!next) {
       break;
     }
@@ -1700,11 +1857,13 @@ export async function processIngestBatch(
         ON CONFLICT (source_name) DO NOTHING
       `);
       const existingWatermarks = await loadScopeWatermarks(tx, claimed.payload);
+      const sourceProjection = await loadSourceProjectionState(tx, claimed.payload);
       const completionIdsByScope = await persistScopeCompletions(
         tx,
         claimed.payload,
         claimed.id,
         existingWatermarks,
+        sourceProjection,
       );
 
       const {
@@ -1715,6 +1874,7 @@ export async function processIngestBatch(
       const exactMatches = await exactMatchProperties(tx, canonicalized);
       const propertyIdsByListingIndex = mapExactMatchesToListings(canonicalized, exactMatches);
       await spatialMatchProperties(tx, canonicalized, propertyIdsByListingIndex);
+      await candidateMatchProperties(tx, claimed.sourceName, canonicalized, propertyIdsByListingIndex);
 
       const {
         matched,
@@ -1735,6 +1895,7 @@ export async function processIngestBatch(
         {
           existingWatermarks,
           completionIdsByScope,
+          sourceProjection,
         },
       );
       const diagnosticWrites = await persistUnmatchedDiagnosticObservations(
@@ -1747,6 +1908,7 @@ export async function processIngestBatch(
         {
           existingWatermarks,
           completionIdsByScope,
+          sourceProjection,
         },
       );
       const absenceWrites = await reconcileScopeCompletionAbsence(
@@ -1756,6 +1918,7 @@ export async function processIngestBatch(
         claimed.payload,
         existingWatermarks,
         completionIdsByScope,
+        sourceProjection,
       );
       const allListingWrites = [...listingWrites, ...diagnosticWrites, ...absenceWrites];
       await advancePropertyChangeVersion(

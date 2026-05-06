@@ -11,6 +11,32 @@ export interface ListingReplaySafetySummary {
   skippedBeforeIngestCount: number;
 }
 
+export interface ListingReplayPreparationEvidence {
+  listingUrl: string | null | undefined;
+  street: string | null | undefined;
+  postalCode: string | null | undefined;
+  houseNumber: string | number | null | undefined;
+  diagnosticStatus: string | null | undefined;
+}
+
+export function shouldPreserveMirrorRowForIngest(evidence: ListingReplayPreparationEvidence): boolean {
+  if (!evidence.listingUrl?.trim()) {
+    return false;
+  }
+
+  if (evidence.diagnosticStatus) {
+    return true;
+  }
+
+  return Boolean(
+    evidence.street?.trim()
+      && evidence.postalCode?.trim()
+      && evidence.houseNumber !== null
+      && evidence.houseNumber !== undefined
+      && String(evidence.houseNumber).trim(),
+  );
+}
+
 export function buildListingReplayThresholds(
   summary: Pick<ListingReplaySafetySummary, 'mirrorListingCount' | 'skippedBeforeIngestCount'>,
   options: Pick<ListingReplaySafetyOptions, 'maxSkipped' | 'maxSkipRatio'>,

@@ -70,16 +70,16 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
       return { text: 'Blocked', color: '#9C958A' };
     }
     if (candidateHandoffState === 'retryable_error' || candidateHandoffState === 'dead_letter') {
-      return { text: 'Handoff failed', color: '#D97706' };
+      return { text: 'Needs review', color: '#D97706' };
     }
     if (verificationState === 'validation_failed') {
       return { text: 'Validation failed', color: '#D97706' };
     }
     if (candidateHandoffState === 'pending' || candidateHandoffState === 'queued') {
-      return { text: 'Handoff pending', color: '#F59E0B' };
+      return { text: 'Live', color: '#16A34A' };
     }
     if (verificationState === 'provisional' || verificationState === 'validation_pending') {
-      return { text: 'Validation pending', color: '#F59E0B' };
+      return { text: 'Live', color: '#16A34A' };
     }
     return null;
   };

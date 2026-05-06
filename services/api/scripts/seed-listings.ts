@@ -27,6 +27,7 @@ import {
   buildListingReplayThresholds,
   collectListingReplayThresholdViolations,
   computePlannedListingReplayBatchCount,
+  shouldPreserveMirrorRowForIngest,
 } from '../src/scripts/seed-listings-safety.js';
 
 dotenv.config();
@@ -295,15 +296,38 @@ function resolveIdentity(source: SourceName, rawUrl: string, mirrorId: string | 
   };
 }
 
-function toIngestListing(row: MirrorListing, source: SourceName, scopeKey: string, sourceHighWatermark: string): IngestListing | null {
-  if (!row.listing_url || !row.postal_code || !row.house_number || !row.street) {
+function toIngestListing(
+  row: MirrorListing,
+  source: SourceName,
+  scopeKey: string,
+  sourceHighWatermark: string,
+): IngestListing | null {
+  const status = mapStatus(row.status);
+  if (!shouldPreserveMirrorRowForIngest({
+    listingUrl: row.listing_url,
+    street: row.street,
+    postalCode: row.postal_code,
+    houseNumber: row.house_number,
+    diagnosticStatus: status.diagnosticStatus,
+  })) {
     return null;
   }
 
   const mirrorId = source === 'funda' ? row.funda_id : row.pararius_id;
   const identity = resolveIdentity(source, row.listing_url, mirrorId);
-  const status = mapStatus(row.status);
   const priceType = normalizePriceType(row.price_type, source);
+  const address = row.street || row.postal_code || row.house_number || row.city
+    ? {
+        countryCode: 'NL',
+        street: row.street ?? '',
+        postalCode: row.postal_code ?? '',
+        houseNumber: row.house_number ?? '',
+        houseNumberAddition: row.house_number_addition,
+        city: row.city ?? '',
+        latitude: row.latitude,
+        longitude: row.longitude,
+      }
+    : undefined;
 
   return {
     sourceUrl: row.listing_url,
@@ -329,16 +353,7 @@ function toIngestListing(row: MirrorListing, source: SourceName, scopeKey: strin
     mirrorLastSeenAt: row.last_seen_at?.toISOString(),
     observedAt: (row.last_changed_at ?? row.last_seen_at ?? row.first_seen_at ?? new Date()).toISOString(),
     sourceHighWatermark,
-    address: {
-      countryCode: 'NL',
-      street: row.street,
-      postalCode: row.postal_code,
-      houseNumber: row.house_number,
-      houseNumberAddition: row.house_number_addition,
-      city: row.city ?? '',
-      latitude: row.latitude,
-      longitude: row.longitude,
-    },
+    address,
   };
 }
 
@@ -349,7 +364,7 @@ async function getMirrorHighWatermark(mirrorDb: postgres.Sql, source: SourceName
       COUNT(*)::text AS count,
       MAX(COALESCE(l.last_changed_at, l.last_seen_at, l.first_seen_at)) AS high_watermark
     FROM listings l
-    JOIN addresses a ON l.address_id = a.id
+    LEFT JOIN addresses a ON l.address_id = a.id
     WHERE (
       ${scopeValue}::text IS NULL
       OR ${scopeValue}::text IN ('all', 'full-mirror')
@@ -388,7 +403,7 @@ async function fetchMirrorListings(
       a.latitude,
       a.longitude
     FROM listings l
-    JOIN addresses a ON l.address_id = a.id
+    LEFT JOIN addresses a ON l.address_id = a.id
     WHERE (
       ${scopeValue}::text IS NULL
       OR ${scopeValue}::text IN ('all', 'full-mirror')
@@ -400,7 +415,14 @@ async function fetchMirrorListings(
         ELSE 'unknown'
       END = ${scopeValue}::text
     )
-    ORDER BY l.id
+    ORDER BY
+      COALESCE(l.last_changed_at, l.last_seen_at, l.first_seen_at, '-infinity'::timestamptz),
+      CASE
+        WHEN ${source}::text = 'funda' THEN COALESCE(l.funda_id, '')
+        ELSE COALESCE(l.pararius_id, '')
+      END,
+      l.listing_url,
+      l.id
     LIMIT ${limit}
     OFFSET ${offset}
   `;

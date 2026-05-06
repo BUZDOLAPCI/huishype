@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { ListingPreviewResponse, ListingSubmitResult } from '@huishype/shared';
+import type { ListingPreviewResponse } from '@huishype/shared';
 import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
@@ -54,16 +54,16 @@ function isProvisionalPreview(preview: ListingPreviewResponse) {
 
 function getValidationBadge(preview: ListingPreviewResponse) {
   if (isProvisionalPreview(preview)) {
-    return { label: 'Pending validation', color: '#F5A623', icon: 'time' as const };
+    return { label: 'Ready', color: '#22C55E', icon: 'checkmark-circle' as const };
   }
 
-  return { label: 'Validated', color: '#22C55E', icon: 'checkmark-circle' as const };
+  return { label: 'Ready', color: '#22C55E', icon: 'checkmark-circle' as const };
 }
 
 function getHandoffLabel(handoffState: ListingPreviewResponse['handoffState'] | null) {
   switch (handoffState) {
     case 'will_create':
-      return 'Ready to add';
+      return null;
     default:
       return null;
   }
@@ -79,11 +79,11 @@ function canSubmitPreview(preview: ListingPreviewResponse) {
 
 function getPreviewStatusMessage(preview: ListingPreviewResponse) {
   if (isProvisionalPreview(preview)) {
-    return 'Validation is still pending. You can add this listing while we verify the details.';
+    return 'This listing will be added to HuisHype immediately.';
   }
 
   if (isValidatedPreview(preview)) {
-    return 'Listing details validated and matched.';
+    return 'This listing is ready to add.';
   }
 
   return 'This preview cannot be added.';
@@ -205,7 +205,6 @@ export function ListingSubmissionSheet({
   const [url, setUrl] = useState('');
   const [step, setStep] = useState<Step>('input');
   const [previewData, setPreviewData] = useState<ListingPreviewResponse | null>(null);
-  const [submitResult, setSubmitResult] = useState<ListingSubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [pendingSubmitAfterAuth, setPendingSubmitAfterAuth] = useState(false);
@@ -238,7 +237,6 @@ export function ListingSubmissionSheet({
     setUrl('');
     setStep('input');
     setPreviewData(null);
-    setSubmitResult(null);
     setError(null);
     setIsLoadingPreview(false);
     pendingSubmitAfterAuthRef.current = false;
@@ -333,7 +331,7 @@ export function ListingSubmissionSheet({
         return;
       }
 
-      setSubmitResult((await response.json()) as ListingSubmitResult);
+      await response.json().catch(() => null);
       setStep('success');
       // Brief delay to show success state, then close
       setTimeout(() => {
@@ -504,24 +502,14 @@ export function ListingSubmissionSheet({
 
               {previewCanSubmit && (
                 <View
-                  className={`flex-row items-center mt-3 p-3 rounded-xl border ${
-                    isProvisionalPreview(previewData)
-                      ? 'bg-warning-orange-50 border-warning-orange-100'
-                      : 'bg-green-50 border-green-200'
-                  }`}
+                  className="flex-row items-center mt-3 p-3 rounded-xl border bg-green-50 border-green-200"
                 >
                   <Ionicons
-                    name={isProvisionalPreview(previewData) ? 'time' : 'checkmark-circle'}
+                    name="checkmark-circle"
                     size={20}
-                    color={isProvisionalPreview(previewData) ? '#F5A623' : '#22C55E'}
+                    color="#22C55E"
                   />
-                  <Text
-                    className={`text-sm ml-2 flex-1 ${
-                      isProvisionalPreview(previewData)
-                        ? 'text-warning-orange-700'
-                        : 'text-green-700'
-                    }`}
-                  >
+                  <Text className="text-sm ml-2 flex-1 text-green-700">
                     {getPreviewStatusMessage(previewData)}
                   </Text>
                 </View>
@@ -561,11 +549,7 @@ export function ListingSubmissionSheet({
                 <Ionicons name="checkmark" size={32} color="#22C55E" />
               </View>
               <Text className="text-lg font-semibold text-warm-900">Listing Added</Text>
-              <Text className="text-sm text-warm-500 mt-1">
-                {submitResult?.verificationState === 'validated'
-                  ? 'Listing details validated.'
-                  : 'Listing validation is pending.'}
-              </Text>
+              <Text className="text-sm text-warm-500 mt-1">Your listing is live on HuisHype.</Text>
             </View>
           )}
 

@@ -3,6 +3,7 @@ import {
   buildListingReplayThresholds,
   collectListingReplayThresholdViolations,
   computePlannedListingReplayBatchCount,
+  shouldPreserveMirrorRowForIngest,
 } from '../../scripts/seed-listings-safety.js';
 
 describe('seed listings replay safety', () => {
@@ -60,5 +61,37 @@ describe('seed listings replay safety', () => {
     ]);
 
     expect(violations).toEqual(['pararius:max_skip_ratio']);
+  });
+
+  it('keeps diagnostic replay rows with source evidence even when address fields are incomplete', () => {
+    expect(
+      shouldPreserveMirrorRowForIngest({
+        listingUrl: 'https://example.test/listing/blocked',
+        street: null,
+        postalCode: null,
+        houseNumber: null,
+        diagnosticStatus: 'blocked',
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldPreserveMirrorRowForIngest({
+        listingUrl: 'https://example.test/listing/missing-address',
+        street: null,
+        postalCode: null,
+        houseNumber: null,
+        diagnosticStatus: null,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPreserveMirrorRowForIngest({
+        listingUrl: '',
+        street: null,
+        postalCode: null,
+        houseNumber: null,
+        diagnosticStatus: 'blocked',
+      }),
+    ).toBe(false);
   });
 });

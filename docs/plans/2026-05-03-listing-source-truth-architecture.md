@@ -188,12 +188,15 @@ and must not re-fetch or re-validate the source page.
    exact preflight. The token/result must bind source, canonical URL, submitted
    property id, match evidence, listing facts, preview timestamp, user/session
    scope as needed, and an idempotency key.
-4. If preview cannot fetch, parse, or validate the listing because the page is
-   invalid, not found, an unsupported source URL shape, blocked source, parser
-   error, address/property mismatch, missing required facts, or any similar
-   terminal diagnostic, HuisHype rejects with a user-facing error. It does not
-   create a provisional listing and does not send a candidate to any
-   scraper/source service.
+4. If preview reaches a terminal rejection because the page is invalid, not
+   found, an unsupported source URL shape, blocked source, confirmed
+   address/property mismatch, missing required facts, or any similar terminal
+   diagnostic, HuisHype rejects with a user-facing error. It does not create a
+   provisional listing and does not send a candidate to any scraper/source
+   service. Source-service unavailability, parser retryability, or pending
+   source validation are not terminal by themselves when HuisHype can still
+   produce a successful user-approved preview with source/platform identity and
+   display facts.
 5. If preview succeeds and HuisHype already has the listing, the confirmed
    submission is stored as user evidence or ignored idempotently. It must not
    create a duplicate canonical listing or overwrite scraper-owned mirror truth.
@@ -210,8 +213,9 @@ and must not re-fetch or re-validate the source page.
 7. After provisional creation, HuisHype sends a durable candidate/nudge to the
    relevant source service. This handoff tells the scraper that a user approved
    the preview snapshot and that the mirror should ingest the source page and
-   push canonical state later. The nudge must be stored in an application outbox
-   or equivalent retryable handoff before returning submit success to the user.
+   push canonical state later. The user-facing submission is already live at
+   this point; source-service delivery and scrape completion are background
+   canonicalization work, not visible gates.
 8. The source service records the candidate in a durable candidate/intake table
    with provenance `user_submitted`, preserving the raw URL, normalized and
    canonical URL, source listing id if known, submitted property id, preview
@@ -251,9 +255,11 @@ yet covered that source scope.
   re-fetch the marketplace page, re-run parser validation, or silently refresh
   listing facts.
 - A failed preview with terminal diagnostics such as invalid page, listing not
-  found, unsupported URL shape, blocked source, parser error, address/property
+  found, unsupported URL shape, blocked source, confirmed address/property
   mismatch, or missing required facts rejects the user submission before
-  provisional creation and before source-service candidate handoff.
+  provisional creation and before source-service candidate handoff. A successful
+  HuisHype preview can still be provisional when source validation is
+  unavailable, retryable, or pending.
 - After a successful preview and user confirmation, the application can submit
   durable scrape candidates to source services. Those candidates are
   coverage-expansion nudges for scraper-backed canonical mirror ingestion, not
@@ -286,6 +292,10 @@ yet covered that source scope.
   observations, and must be visible in every listing-facing surface that would
   show a scraper-backed listing. It does not become scraper-backed truth until
   the source service pushes source-owned evidence back through ingest.
+- Submit consumes only the exact stored or signed preview result that the user
+  approved. It must not refetch, reparse, or revalidate the marketplace page,
+  and it must not make source-service availability a user-visible live-state
+  gate.
 - When mirror evidence arrives for a user-submitted candidate, reconciliation
   should promote or correct the existing provisional canonical listing instead
   of creating a replacement row.
@@ -471,8 +481,10 @@ The existing app-owned preview/submit path must be reshaped into exactly one
 pre-submit preview preflight/fetch/validation function plus tokenized or stored
 preview-result submission. Preview performs the only HuisHype marketplace
 fetch/parse/validation pass for user submission. Submit performs duplicate
-checks, creates the provisional row from that exact preview result, and enqueues
-durable candidate handoff, but must not fetch or validate the source page again.
+checks, creates the provisional row from that exact preview result, returns a
+live app state immediately, and enqueues durable candidate handoff for
+background canonicalization, but must not fetch or validate the source page
+again.
 
 ## Current Repo Touchpoints
 

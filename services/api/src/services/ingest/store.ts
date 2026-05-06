@@ -1,7 +1,10 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, ingestBatches, ingestRuns, ingestSources, type DbTransaction } from '../../db/index.js';
 import { ingestBatchRequestSchema, type IngestBatchRequest, type IngestWatermarkResponse } from './contracts.js';
-import { decodeOpaqueIngestCursor, encodeOpaqueIngestCursor } from './cursor.js';
+import {
+  encodeOpaqueIngestCursor,
+  isOpaqueIngestCursorAtOrBefore,
+} from './cursor.js';
 import { IngestIdempotencyConflictError } from './errors.js';
 
 type BatchRow = typeof ingestBatches.$inferSelect;
@@ -190,27 +193,23 @@ function isCursorAtOrBeforeCommittedWatermark(candidate: SupersededBatchCandidat
   }
 
   try {
-    const cursorEnd = decodeOpaqueIngestCursor(candidate.cursor_end);
-    const committedChangedAt = toIsoString(candidate.last_committed_changed_at);
-    const committed =
-      committedChangedAt && candidate.last_committed_listing_key
-        ? {
-            changedAt: committedChangedAt,
-            listingKey: candidate.last_committed_listing_key,
-          }
-        : decodeOpaqueIngestCursor(candidate.last_committed_cursor);
-
-    const cursorEndChangedAtMs = new Date(cursorEnd.changedAt).getTime();
-    const committedChangedAtMs = new Date(committed.changedAt).getTime();
-
-    if (cursorEndChangedAtMs !== committedChangedAtMs) {
-      return cursorEndChangedAtMs < committedChangedAtMs;
-    }
-
-    return cursorEnd.listingKey <= committed.listingKey;
+    return isOpaqueIngestCursorAtOrBefore(candidate.cursor_end, candidate.last_committed_cursor);
   } catch {
     return false;
   }
+}
+
+function hasProjectionEvidencePredicate(alias = sql`b`): ReturnType<typeof sql> {
+  return sql`(
+    (
+      jsonb_typeof(${alias}.payload_json->'listings') = 'array'
+      AND jsonb_array_length(${alias}.payload_json->'listings') > 0
+    )
+    OR (
+      jsonb_typeof(${alias}.payload_json->'completions') = 'array'
+      AND jsonb_array_length(${alias}.payload_json->'completions') > 0
+    )
+  )`;
 }
 
 async function ensureRun(
@@ -454,6 +453,7 @@ async function markSupersededBatchesAfterWatermark(limit: number): Promise<Super
       )
       AND s.last_committed_cursor IS NOT NULL
       AND ${sourceCursorBoundBatchPredicate()}
+      AND NOT ${hasProjectionEvidencePredicate()}
     ORDER BY b.received_at, b.batch_sequence, b.id
     LIMIT ${limit}
   `);
@@ -479,6 +479,33 @@ async function markSupersededBatchesAfterWatermark(limit: number): Promise<Super
       )
     RETURNING id, run_id, source_name
   `));
+}
+
+async function listStaleEvidenceBatchIdsAfterWatermark(limit: number): Promise<string[]> {
+  const candidates = await db.execute<SupersededBatchCandidate>(sql`
+    SELECT
+      b.id,
+      b.cursor_end,
+      s.last_committed_cursor,
+      s.last_committed_changed_at,
+      s.last_committed_listing_key
+    FROM ingest_batches b
+    INNER JOIN ingest_sources s ON s.source_name = b.source_name
+    WHERE (
+        b.status IN ('accepted', 'queued', 'retryable')
+        OR (b.status = 'processing' AND b.started_at IS NULL)
+      )
+      AND s.last_committed_cursor IS NOT NULL
+      AND ${sourceCursorBoundBatchPredicate()}
+      AND ${hasProjectionEvidencePredicate()}
+    ORDER BY b.received_at, b.batch_sequence, b.id
+    LIMIT ${Math.max(limit * 10, 100)}
+  `);
+
+  return Array.from(candidates)
+    .filter((candidate) => isCursorAtOrBeforeCommittedWatermark(candidate))
+    .slice(0, limit)
+    .map((candidate) => candidate.id);
 }
 
 async function finalizeSupersededRunLifecycles(rows: SupersededBatchRow[]): Promise<void> {
@@ -975,6 +1002,7 @@ export async function collectRecoveryDispatchWork(
 
   const supersededRows = await markSupersededBatchesAfterWatermark(Math.max(limit * 10, 100));
   await finalizeSupersededRunLifecycles(supersededRows);
+  const staleEvidenceBatchIds = await listStaleEvidenceBatchIdsAfterWatermark(limit);
 
   const recoverableRows = await db.execute<{ id: string }>(sql`
     WITH next_recoverable_per_source AS (
@@ -1013,7 +1041,10 @@ export async function collectRecoveryDispatchWork(
 
   return {
     staleProcessingBatchIds: Array.from(staleRows, (row) => row.id),
-    recoverableBatchIds: Array.from(recoverableRows, (row) => row.id),
+    recoverableBatchIds: Array.from(new Set([
+      ...staleEvidenceBatchIds,
+      ...Array.from(recoverableRows, (row) => row.id),
+    ])).slice(0, limit),
     maintenancePending: maintenanceRows.length > 0 || skippedRecoveryPending,
   };
 }

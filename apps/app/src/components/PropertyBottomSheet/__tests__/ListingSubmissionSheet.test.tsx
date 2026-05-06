@@ -93,8 +93,8 @@ describe('ListingSubmissionSheet', () => {
     fireEvent.press(screen.getByText('Preview'));
 
     await screen.findByText('Confirm & Add Listing');
-    expect(screen.getByText('Validated')).toBeTruthy();
-    expect(screen.getByText('Listing details validated and matched.')).toBeTruthy();
+    expect(screen.getByText('Ready')).toBeTruthy();
+    expect(screen.getByText('This listing is ready to add.')).toBeTruthy();
     expect(screen.getByText(/€\s?495[,.]000/)).toBeTruthy();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
@@ -183,10 +183,10 @@ describe('ListingSubmissionSheet', () => {
     fireEvent.press(screen.getByText('Preview'));
 
     await screen.findByText('Confirm & Add Listing');
-    expect(screen.getByText('Pending validation')).toBeTruthy();
+    expect(screen.getByText('Ready')).toBeTruthy();
     expect(
       screen.getByText(
-        'Validation is still pending. You can add this listing while we verify the details.'
+        'This listing will be added to HuisHype immediately.'
       )
     ).toBeTruthy();
 
@@ -245,7 +245,7 @@ describe('ListingSubmissionSheet', () => {
       fireEvent.press(screen.getByText('Preview'));
 
       await screen.findByText('Confirm & Add Listing');
-      expect(screen.getByText('Pending validation')).toBeTruthy();
+      expect(screen.getByText('Ready')).toBeTruthy();
       expect(screen.queryByText('Cannot Add Listing')).toBeNull();
       expect(mockFetch).toHaveBeenCalledTimes(1);
     }
@@ -393,7 +393,7 @@ describe('ListingSubmissionSheet', () => {
     fireEvent.press(screen.getByText('Preview'));
 
     await screen.findByText('Confirm & Add Listing');
-    expect(screen.getByText('Ready to add')).toBeTruthy();
+    expect(screen.queryByText('Ready to add')).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     fireEvent.press(screen.getByText('Confirm & Add Listing'));
@@ -627,7 +627,7 @@ describe('ListingSubmissionSheet', () => {
     expect(screen.getByText('Funda listing')).toBeTruthy();
     expect(screen.getByText('https://www.funda.nl/detail/12345')).toBeTruthy();
     expect(screen.getByText('No preview image')).toBeTruthy();
-    expect(screen.getByText('Ready to add')).toBeTruthy();
+    expect(screen.queryByText('Ready to add')).toBeNull();
     expect(screen.queryByText('Candidate queued')).toBeNull();
   });
 

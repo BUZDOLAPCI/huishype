@@ -54,7 +54,7 @@ describe('ListingSourceRow', () => {
     expect(screen.getByText('Expired')).toBeTruthy();
   });
 
-  it('renders provisional verification status', () => {
+  it('renders provisional listings as live', () => {
     render(
       <ListingSourceRow
         listing={{
@@ -64,7 +64,7 @@ describe('ListingSourceRow', () => {
         }}
       />
     );
-    expect(screen.getByText('Handoff pending')).toBeTruthy();
+    expect(screen.getByText('Live')).toBeTruthy();
   });
 
   it('renders listing type', () => {

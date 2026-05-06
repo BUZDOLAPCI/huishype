@@ -31,6 +31,32 @@ export function decodeOpaqueIngestCursor(cursor: string): IngestCursorPayload {
   return ingestCursorPayloadSchema.parse(parsed);
 }
 
+export function compareIngestCursorPayloads(left: IngestCursorPayload, right: IngestCursorPayload): number {
+  const leftChangedAt = new Date(left.changedAt).getTime();
+  const rightChangedAt = new Date(right.changedAt).getTime();
+
+  if (leftChangedAt !== rightChangedAt) {
+    return leftChangedAt < rightChangedAt ? -1 : 1;
+  }
+
+  if (left.listingKey === right.listingKey) {
+    return 0;
+  }
+
+  return left.listingKey < right.listingKey ? -1 : 1;
+}
+
+export function compareOpaqueIngestCursors(left: string, right: string): number {
+  return compareIngestCursorPayloads(
+    decodeOpaqueIngestCursor(left),
+    decodeOpaqueIngestCursor(right),
+  );
+}
+
+export function isOpaqueIngestCursorAtOrBefore(candidate: string, watermark: string): boolean {
+  return compareOpaqueIngestCursors(candidate, watermark) <= 0;
+}
+
 export function isOpaqueIngestCursor(cursor: string): boolean {
   try {
     decodeOpaqueIngestCursor(cursor);

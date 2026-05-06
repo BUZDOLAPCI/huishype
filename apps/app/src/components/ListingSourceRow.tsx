@@ -84,7 +84,7 @@ function getVerificationBadge(
   }
   if (candidateHandoffState === 'retryable_error' || candidateHandoffState === 'dead_letter') {
     return {
-      label: 'Handoff failed',
+      label: 'Needs review',
       backgroundColor: '#FFFBEB',
       dotColor: '#D97706',
       textColor: '#B45309',
@@ -100,18 +100,18 @@ function getVerificationBadge(
   }
   if (candidateHandoffState === 'pending' || candidateHandoffState === 'queued') {
     return {
-      label: 'Handoff pending',
-      backgroundColor: '#FFFBEB',
-      dotColor: '#F59E0B',
-      textColor: '#B45309',
+      label: 'Live',
+      backgroundColor: '#ECFDF5',
+      dotColor: '#16A34A',
+      textColor: '#15803D',
     };
   }
   if (verificationState === 'provisional' || verificationState === 'validation_pending') {
     return {
-      label: 'Validation pending',
-      backgroundColor: '#FFFBEB',
-      dotColor: '#F59E0B',
-      textColor: '#B45309',
+      label: 'Live',
+      backgroundColor: '#ECFDF5',
+      dotColor: '#16A34A',
+      textColor: '#15803D',
     };
   }
   return null;

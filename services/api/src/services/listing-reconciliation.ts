@@ -204,6 +204,22 @@ function legacyPriceHistoryEventType(
   return 'asking_price';
 }
 
+function legacyPriceHistoryEventTypeForPriceObservation(
+  eventType: string,
+  sourceStatus: ListingSourceStatus | null,
+): string {
+  if (eventType === 'status_change') return sourceStatus === 'rented' ? 'rented' : 'sold';
+  return 'asking_price';
+}
+
+function isMirrorBackedCanonical(canonical: CanonicalListing): boolean {
+  return canonical.originSummary === 'mirror'
+    || canonical.originSummary === 'user_and_mirror'
+    || canonical.statusSource === 'mirror'
+    || canonical.verificationState === 'validated'
+    || canonical.lastMirrorSeenAt !== null;
+}
+
 function observationDisplayString(
   observation: ListingObservation,
   key: 'title' | 'description' | 'imageUrl',
@@ -619,10 +635,25 @@ async function updateCanonicalListingFromObservation(
 ): Promise<CanonicalListing> {
   const mirrorBacked = observation.origin !== 'user';
   const sourceIsNewer = incomingObservationIsNewer(canonical, observation);
-  const shouldApplySourceFacts = !mirrorBacked || sourceIsNewer;
+  const preserveMirrorFacts = observation.origin === 'user' && isMirrorBackedCanonical(canonical);
+  const shouldApplySourceFacts = preserveMirrorFacts ? false : (!mirrorBacked || sourceIsNewer);
+  const shouldCorrectProvisionalProperty = mirrorBacked
+    && canonical.originSummary === 'user'
+    && canonical.verificationState === 'provisional'
+    && observation.propertyId !== null
+    && observation.propertyId !== canonical.propertyId;
+
+  if (shouldCorrectProvisionalProperty) {
+    await cleanupCanonicalPriceArtifacts(canonical, executor);
+  }
+  const nextPropertyId = shouldCorrectProvisionalProperty && observation.propertyId
+    ? observation.propertyId
+    : canonical.propertyId;
+
   const [updated] = await executor
     .update(canonicalListings)
     .set({
+      propertyId: nextPropertyId,
       primarySourceListingId: canonical.primarySourceListingId ?? primarySourceListingId,
       canonicalUrl: shouldApplySourceFacts ? observation.sourceUrlCanonical ?? canonical.canonicalUrl : canonical.canonicalUrl,
       displayUrl: shouldApplySourceFacts
@@ -631,8 +662,8 @@ async function updateCanonicalListingFromObservation(
       status: shouldApplySourceFacts
         ? observationStatusToCanonicalStatus(observation.sourceStatus)
         : canonical.status,
-      statusSource: mirrorBacked ? 'mirror' : canonical.statusSource,
-      verificationState: observationVerificationState(observation),
+      statusSource: preserveMirrorFacts ? canonical.statusSource : (mirrorBacked ? 'mirror' : canonical.statusSource),
+      verificationState: preserveMirrorFacts ? canonical.verificationState : observationVerificationState(observation),
       originSummary: mergeOriginSummary(canonical.originSummary, observation.origin),
       submittedBy: canonical.submittedBy ?? observation.submittedBy,
       thumbnailUrl: shouldApplySourceFacts
@@ -666,12 +697,51 @@ async function updateCanonicalListingFromObservation(
   return updated;
 }
 
+async function cleanupCanonicalPriceArtifacts(
+  canonical: Pick<CanonicalListing, 'id' | 'propertyId'>,
+  executor: ReconciliationDb,
+): Promise<void> {
+  const projectedPrices = await executor
+    .select({
+      propertyId: listingPriceObservations.propertyId,
+      price: listingPriceObservations.price,
+      priceDate: listingPriceObservations.priceDate,
+      eventType: listingPriceObservations.eventType,
+      sourceName: listingPriceObservations.sourceName,
+      sourceStatus: listingObservations.sourceStatus,
+    })
+    .from(listingPriceObservations)
+    .innerJoin(listingObservations, eq(listingObservations.id, listingPriceObservations.listingObservationId))
+    .where(eq(listingPriceObservations.canonicalListingId, canonical.id));
+
+  for (const projected of projectedPrices) {
+    await executor
+      .delete(priceHistory)
+      .where(and(
+        eq(priceHistory.propertyId, projected.propertyId),
+        eq(priceHistory.price, projected.price),
+        eq(priceHistory.priceDate, projected.priceDate),
+        eq(priceHistory.eventType, legacyPriceHistoryEventTypeForPriceObservation(
+          projected.eventType,
+          projected.sourceStatus,
+        )),
+        eq(priceHistory.source, projected.sourceName),
+      ));
+  }
+
+  await executor
+    .delete(listingPriceObservations)
+    .where(eq(listingPriceObservations.canonicalListingId, canonical.id));
+}
+
 async function retireProvisionalCanonicalFromDiagnostic(
   canonical: CanonicalListing,
   observation: ListingObservation,
   primarySourceListingId: string | null,
   executor: ReconciliationDb,
 ): Promise<CanonicalListing> {
+  await cleanupCanonicalPriceArtifacts(canonical, executor);
+
   const [updated] = await executor
     .update(canonicalListings)
     .set({
@@ -774,6 +844,9 @@ async function completeCandidateHandoffForObservation(
     .set({
       canonicalListingId: canonical.id,
       observationId: observation.id,
+      propertyId: canonical.propertyId,
+      sourceUrlCanonical: observation.sourceUrlCanonical ?? canonical.canonicalUrl ?? undefined,
+      sourceListingId: observation.sourceListingId ?? canonical.primarySourceListingId ?? undefined,
       state: 'delivered',
       lastAttemptAt: new Date(),
       nextAttemptAt: null,
@@ -824,6 +897,9 @@ async function markCandidateHandoffForDiagnosticObservation(
     .set({
       canonicalListingId: canonical.id,
       observationId: observation.id,
+      propertyId: canonical.propertyId,
+      sourceUrlCanonical: observation.sourceUrlCanonical ?? canonical.canonicalUrl ?? undefined,
+      sourceListingId: observation.sourceListingId ?? canonical.primarySourceListingId ?? undefined,
       state,
       lastAttemptAt: new Date(),
       nextAttemptAt: null,
@@ -900,7 +976,9 @@ export async function reconcileListingObservation(
     : await createCanonicalListing(observation, primarySourceListingId, database);
 
   await linkObservationToCanonical(observation.id, canonical.id, linkReason, database);
-  await projectPriceObservation(observation, canonical, database);
+  if (!(observation.origin === 'user' && existingCanonical && isMirrorBackedCanonical(existingCanonical))) {
+    await projectPriceObservation(observation, canonical, database);
+  }
   return canonical;
 }
 
