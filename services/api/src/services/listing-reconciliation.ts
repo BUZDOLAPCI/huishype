@@ -434,7 +434,8 @@ async function findCompatibleExistingObservationForIdempotentReplay(
     .limit(10);
 
   if (existingRows.length === 0) return null;
-  const compatible = existingRows.find((existing) => observationsAreCompatible(existing, observation));
+  const compatibleRows = existingRows.filter((existing) => observationsAreCompatible(existing, observation));
+  const compatible = compatibleRows.find((existing) => existing.origin === observation.origin) ?? compatibleRows[0];
   if (!compatible) {
     if (!options.throwOnConflict) return null;
     const identity = observation.sourceListingId
@@ -462,6 +463,39 @@ function incomingDateIsNewer(
   return !existingDate || Number.isNaN(existingDate.getTime()) || incomingDate > existingDate;
 }
 
+async function sourceObservationOriginExists(
+  observation: ListingObservation,
+  origin: ListingObservation['origin'],
+  executor?: ReconciliationDb,
+): Promise<boolean> {
+  if (!observation.observedAt) return false;
+  const identityPredicate = observation.sourceListingId
+    ? eq(listingObservations.sourceListingId, observation.sourceListingId)
+    : observation.sourceUrlCanonical
+      ? and(
+          sql`${listingObservations.sourceListingId} IS NULL`,
+          eq(listingObservations.sourceUrlCanonical, observation.sourceUrlCanonical),
+        )
+      : null;
+  if (!identityPredicate) return false;
+
+  const [existing] = await targetDb(executor)
+    .select({ id: listingObservations.id })
+    .from(listingObservations)
+    .where(
+      and(
+        eq(listingObservations.sourceName, observation.sourceName),
+        identityPredicate,
+        eq(listingObservations.origin, origin),
+        eq(listingObservations.observedAt, observation.observedAt),
+        sql`${listingObservations.id} <> ${observation.id}`,
+      ),
+    )
+    .limit(1);
+
+  return Boolean(existing);
+}
+
 async function refreshCompatibleObservationMetadata(
   existing: ListingObservation,
   incoming: NewListingObservation,
@@ -478,6 +512,7 @@ async function refreshCompatibleObservationMetadata(
     existing.origin === 'replay'
     && incoming.origin === 'mirror'
     && !incomingStale
+    && !(await sourceObservationOriginExists(existing, 'mirror', executor))
   ) {
     set.origin = 'mirror';
   }
