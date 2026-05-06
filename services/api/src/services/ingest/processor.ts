@@ -19,7 +19,12 @@ import {
 } from '../../utils/address.js';
 import type { IngestBatchRequest, IngestListing } from './contracts.js';
 import { ingestBatchRequestSchema } from './contracts.js';
-import { compareOpaqueIngestCursors, decodeOpaqueIngestCursor, isOpaqueIngestCursorAtOrBefore } from './cursor.js';
+import {
+  compareOpaqueIngestCursors,
+  decodeOpaqueIngestCursor,
+  isOpaqueIngestCursorAtOrBefore,
+  opaqueIngestCursorsEqual,
+} from './cursor.js';
 import { requestLatestListingsRefresh } from './queue.js';
 import type { MaintenanceRefreshJobData } from './jobs.js';
 import {
@@ -382,7 +387,11 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
     const isNextBatch =
       !isSourceCursorBoundBatch(payload)
       || (candidate.cursorStart == null && lastCommittedCursor == null)
-      || candidate.cursorStart === lastCommittedCursor;
+      || (
+        candidate.cursorStart !== null
+        && lastCommittedCursor !== null
+        && opaqueIngestCursorsEqual(candidate.cursorStart, lastCommittedCursor)
+      );
 
     if (!isNextBatch && !isStaleEvidenceBatch) {
       return null;
@@ -1974,12 +1983,13 @@ async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: strin
     const cursorCondition =
       currentCursor === null
         ? sql`${ingestBatches.cursorStart} IS NULL`
-        : sql`${ingestBatches.cursorStart} = ${currentCursor}`;
+        : sql`${ingestBatches.cursorStart} IS NOT NULL`;
 
-    const nextRows = await tx
+    const candidateRows = await tx
       .select({
         id: ingestBatches.id,
         runId: ingestBatches.runId,
+        cursorStart: ingestBatches.cursorStart,
         cursorEnd: ingestBatches.cursorEnd,
       })
       .from(ingestBatches)
@@ -1994,8 +2004,15 @@ async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: strin
       .orderBy(asc(ingestBatches.receivedAt), asc(ingestBatches.batchSequence))
       .limit(1000);
 
-    const next = nextRows.find((row) =>
-      currentCursor === null || compareOpaqueIngestCursors(row.cursorEnd, currentCursor) > 0
+    const next = candidateRows.find((row) =>
+      (
+        currentCursor === null
+        || (
+          row.cursorStart !== null
+          && opaqueIngestCursorsEqual(row.cursorStart, currentCursor)
+        )
+      )
+      && (currentCursor === null || compareOpaqueIngestCursors(row.cursorEnd, currentCursor) > 0)
     );
     if (!next) {
       break;

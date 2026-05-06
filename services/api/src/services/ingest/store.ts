@@ -4,6 +4,7 @@ import { ingestBatchRequestSchema, type IngestBatchRequest, type IngestWatermark
 import {
   encodeOpaqueIngestCursor,
   isOpaqueIngestCursorAtOrBefore,
+  opaqueIngestCursorsEqual,
 } from './cursor.js';
 import { IngestIdempotencyConflictError } from './errors.js';
 
@@ -1004,26 +1005,48 @@ export async function collectRecoveryDispatchWork(
   await finalizeSupersededRunLifecycles(supersededRows);
   const staleEvidenceBatchIds = await listStaleEvidenceBatchIdsAfterWatermark(limit);
 
-  const recoverableRows = await db.execute<{ id: string }>(sql`
-    WITH next_recoverable_per_source AS (
-      SELECT DISTINCT ON (b.source_name)
-        b.id,
-        b.received_at,
-        b.batch_sequence
-      FROM ingest_batches b
-      LEFT JOIN ingest_sources s ON s.source_name = b.source_name
-      WHERE (
-          b.status IN ('accepted', 'queued', 'retryable')
-          OR (b.status = 'processing' AND b.started_at IS NULL)
-        )
-        AND b.cursor_start IS NOT DISTINCT FROM s.last_committed_cursor
-      ORDER BY b.source_name, b.received_at DESC, b.batch_sequence DESC, b.id DESC
-    )
-    SELECT id
-    FROM next_recoverable_per_source
-    ORDER BY received_at, batch_sequence, id
-    LIMIT ${limit}
+  const recoverableCandidates = await db.execute<{
+    id: string;
+    source_name: string;
+    cursor_start: string | null;
+    last_committed_cursor: string | null;
+  }>(sql`
+    SELECT
+      b.id,
+      b.source_name,
+      b.cursor_start,
+      s.last_committed_cursor
+    FROM ingest_batches b
+    LEFT JOIN ingest_sources s ON s.source_name = b.source_name
+    WHERE (
+        b.status IN ('accepted', 'queued', 'retryable')
+        OR (b.status = 'processing' AND b.started_at IS NULL)
+      )
+      AND (
+        (b.cursor_start IS NULL AND s.last_committed_cursor IS NULL)
+        OR b.cursor_start IS NOT NULL
+      )
+    ORDER BY b.source_name, b.received_at DESC, b.batch_sequence DESC, b.id DESC
+    LIMIT ${Math.max(limit * 10, 100)}
   `);
+
+  const recoverableBatchIds: string[] = [];
+  const seenRecoverableSources = new Set<string>();
+  for (const row of Array.from(recoverableCandidates)) {
+    if (seenRecoverableSources.has(row.source_name)) continue;
+    const atWatermark =
+      (row.cursor_start === null && row.last_committed_cursor === null)
+      || (
+        row.cursor_start !== null
+        && row.last_committed_cursor !== null
+        && opaqueIngestCursorsEqual(row.cursor_start, row.last_committed_cursor)
+      );
+    if (!atWatermark) continue;
+
+    recoverableBatchIds.push(row.id);
+    seenRecoverableSources.add(row.source_name);
+    if (recoverableBatchIds.length >= limit) break;
+  }
 
   const maintenanceRows = await db
     .select({ id: ingestBatches.id })
@@ -1043,7 +1066,7 @@ export async function collectRecoveryDispatchWork(
     staleProcessingBatchIds: Array.from(staleRows, (row) => row.id),
     recoverableBatchIds: Array.from(new Set([
       ...staleEvidenceBatchIds,
-      ...Array.from(recoverableRows, (row) => row.id),
+      ...recoverableBatchIds,
     ])).slice(0, limit),
     maintenancePending: maintenanceRows.length > 0 || skippedRecoveryPending,
   };

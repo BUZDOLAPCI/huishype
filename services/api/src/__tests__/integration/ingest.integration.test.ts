@@ -39,6 +39,10 @@ describe('Durable ingest API contract', () => {
   const cleanupPropertyIds: string[] = [];
   const cleanupSourceNames = ['idealista', 'fotocasa'];
 
+  function encodeRawCursor(payload: { changedAt: string; listingKey: string }): string {
+    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  }
+
   async function resetIngestSourceState(sourceName: string) {
     await db.delete(priceHistory).where(eq(priceHistory.source, sourceName));
     await db.delete(listings).where(eq(listings.sourceName, sourceName));
@@ -3505,6 +3509,93 @@ describe('Durable ingest API contract', () => {
 
     expect(result.recoverableBatchIds).toContain(firstAccepted.batchId);
     expect(result.recoverableBatchIds).not.toContain(secondAccepted.batchId);
+  });
+
+  it('dispatches and processes the next batch when cursor precision differs but position is equal', async () => {
+    const stamp = Date.now();
+    const listingKey = `idealista-equivalent-cursor-1-${stamp}`;
+    const committedCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T05:00:47.016Z',
+      listingKey,
+    });
+    const equivalentCursor = encodeRawCursor({
+      changedAt: '2026-04-09T05:00:47.016000Z',
+      listingKey,
+    });
+    const nextCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T05:10:00.000Z',
+      listingKey: `idealista-equivalent-cursor-2-${stamp}`,
+    });
+
+    const firstAccepted = await acceptIngestBatch({
+      sourceName: 'idealista',
+      idempotencyKey: `idealista-equivalent-cursor-first-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: committedCursor,
+      upstreamRunKey: `idealista-equivalent-cursor-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/equivalent-cursor-${stamp}/`,
+          mirrorListingId: `idealista-equivalent-cursor-listing-${stamp}`,
+          askingPrice: 520000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Precision',
+            postalCode: '28013',
+            houseNumber: 10,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+    await processIngestBatch({ batchId: firstAccepted.batchId, enqueueMaintenanceRefresh: async () => {} });
+
+    const secondAccepted = await acceptIngestBatch({
+      sourceName: 'idealista',
+      idempotencyKey: `idealista-equivalent-cursor-second-${stamp}`,
+      batchSequence: 1,
+      cursorStart: equivalentCursor,
+      cursorEnd: nextCursor,
+      upstreamRunKey: `idealista-equivalent-cursor-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/equivalent-cursor-${stamp + 1}/`,
+          mirrorListingId: `idealista-equivalent-cursor-listing-${stamp + 1}`,
+          askingPrice: 530000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Precision',
+            postalCode: '28013',
+            houseNumber: 11,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+
+    await db.update(ingestBatches).set({ status: 'queued' }).where(eq(ingestBatches.id, secondAccepted.batchId));
+
+    const recovery = await collectRecoveryDispatchWork(new Date('2026-04-09T05:15:00.000Z'));
+    expect(recovery.recoverableBatchIds).toContain(secondAccepted.batchId);
+
+    await expect(
+      processIngestBatch({ batchId: secondAccepted.batchId, enqueueMaintenanceRefresh: async () => {} }),
+    ).resolves.toMatchObject({
+      status: 'completed',
+    });
+
+    const [sourceState] = await db
+      .select({ lastCommittedCursor: ingestSources.lastCommittedCursor })
+      .from(ingestSources)
+      .where(eq(ingestSources.sourceName, 'idealista'))
+      .limit(1);
+
+    expect(sourceState?.lastCommittedCursor).toBe(nextCursor);
   });
 
   it('dispatches queued evidence batches already covered by the committed watermark as stale audit work', async () => {

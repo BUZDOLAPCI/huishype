@@ -53,6 +53,16 @@ export function compareOpaqueIngestCursors(left: string, right: string): number 
   );
 }
 
+export function opaqueIngestCursorsEqual(left: string, right: string): boolean {
+  if (left === right) return true;
+
+  try {
+    return compareOpaqueIngestCursors(left, right) === 0;
+  } catch {
+    return false;
+  }
+}
+
 export function isOpaqueIngestCursorAtOrBefore(candidate: string, watermark: string): boolean {
   return compareOpaqueIngestCursors(candidate, watermark) <= 0;
 }
