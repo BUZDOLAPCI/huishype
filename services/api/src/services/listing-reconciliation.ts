@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { IngestIdempotencyConflictError } from './ingest/errors.js';
 import {
   canonicalListings,
@@ -44,6 +44,8 @@ export type CanonicalListingReadModel = Omit<Pick<
   | 'displayUrl'
   | 'askingPrice'
   | 'priceCurrency'
+  | 'priceType'
+  | 'livingAreaM2'
   | 'thumbnailUrl'
   | 'title'
   | 'description'
@@ -51,6 +53,8 @@ export type CanonicalListingReadModel = Omit<Pick<
   | 'verificationState'
 >, 'displayUrl'> & {
   displayUrl: string;
+  numRooms: number | null;
+  energyLabel: string | null;
   candidateHandoffState: string | null;
   reasonCode: string | null;
   createdAt: string;
@@ -548,20 +552,58 @@ async function resolvePrimarySourceListingId(
   observation: ListingObservation,
   executor: ReconciliationDb,
 ): Promise<string | null> {
-  if (!observation.sourceListingId) return null;
+  const aliases = normalizeSourceAliases(observation.sourceListingAliases);
+  const aliasPredicates = aliases.map((alias) => and(
+    eq(listingSourceAliases.aliasKind, alias.kind),
+    eq(listingSourceAliases.aliasValue, alias.value),
+  ));
+  if (observation.sourceListingId) {
+    aliasPredicates.push(eq(listingSourceAliases.aliasValue, observation.sourceListingId));
+  }
 
-  const [alias] = await executor
-    .select({ primarySourceListingId: listingSourceAliases.primarySourceListingId })
-    .from(listingSourceAliases)
-    .where(
-      and(
-        eq(listingSourceAliases.sourceName, observation.sourceName),
-        eq(listingSourceAliases.aliasValue, observation.sourceListingId),
-      ),
-    )
-    .limit(1);
+  if (aliasPredicates.length > 0) {
+    const [alias] = await executor
+      .select({ primarySourceListingId: listingSourceAliases.primarySourceListingId })
+      .from(listingSourceAliases)
+      .where(
+        and(
+          eq(listingSourceAliases.sourceName, observation.sourceName),
+          aliasPredicates.length === 1 ? aliasPredicates[0] : or(...aliasPredicates),
+        ),
+      )
+      .orderBy(desc(listingSourceAliases.lastSeenAt))
+      .limit(1);
 
-  return alias?.primarySourceListingId ?? observation.sourceListingId;
+    if (alias?.primarySourceListingId) return alias.primarySourceListingId;
+  }
+
+  return observation.sourceListingId ?? null;
+}
+
+function sourceIdentityAliasesForCanonicalLookup(observation: ListingObservation): ListingSourceAlias[] {
+  const aliases = normalizeSourceAliases(observation.sourceListingAliases);
+  const sourceListingAliasKind = normalizeSourceListingIdKind(observation.sourceListingIdKind);
+  const compatibleAliasKind = sourceListingAliasKind === 'canonical_path'
+    ? 'url_path'
+    : sourceListingAliasKind;
+  if (
+    observation.sourceListingId
+    && compatibleAliasKind !== null
+    && compatibleAliasKind !== 'unknown'
+    && !aliases.some((alias) => alias.value === observation.sourceListingId)
+  ) {
+    aliases.push({
+      kind: compatibleAliasKind,
+      value: observation.sourceListingId,
+    });
+  }
+  if (
+    observation.sourceUrlCanonical
+    && !aliases.some((alias) => alias.kind === 'canonical_url' && alias.value === observation.sourceUrlCanonical)
+  ) {
+    aliases.push({ kind: 'canonical_url', value: observation.sourceUrlCanonical });
+  }
+  return aliases;
 }
 
 async function findCanonicalListing(
@@ -585,6 +627,25 @@ async function findCanonicalListing(
     predicates.push(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       eq(canonicalListings.primarySourceListingId, primarySourceListingId),
+    ));
+  }
+  const lookupAliases = sourceIdentityAliasesForCanonicalLookup(observation);
+  const sourceIdAliases = lookupAliases
+    .filter((alias) => alias.kind !== 'canonical_url')
+    .map((alias) => alias.value);
+  const canonicalUrlAliases = lookupAliases
+    .filter((alias) => alias.kind === 'canonical_url')
+    .map((alias) => alias.value);
+  if (sourceIdAliases.length > 0) {
+    predicates.push(and(
+      eq(canonicalListings.sourceName, observation.sourceName),
+      inArray(canonicalListings.primarySourceListingId, sourceIdAliases),
+    ));
+  }
+  if (canonicalUrlAliases.length > 0) {
+    predicates.push(and(
+      eq(canonicalListings.sourceName, observation.sourceName),
+      inArray(canonicalListings.canonicalUrl, canonicalUrlAliases),
     ));
   }
   if (observation.sourceUrlCanonical) {
@@ -660,8 +721,8 @@ async function createCanonicalListing(
       priceType: typeof observation.payload.priceType === 'string' ? observation.payload.priceType : null,
       livingAreaM2: typeof observation.payload.livingAreaM2 === 'number' ? observation.payload.livingAreaM2 : null,
       firstSeenAt: observation.firstSeenAt ?? observation.observedAt,
-      lastSeenAt: observation.lastSeenAt ?? observation.observedAt,
-      lastMirrorSeenAt: observation.origin === 'user' ? null : observation.lastSeenAt ?? observation.observedAt,
+      lastSeenAt: listingSeenAtForCanonicalProjection(observation),
+      lastMirrorSeenAt: observation.origin === 'user' ? null : listingSeenAtForCanonicalProjection(observation),
       lastUserSeenAt: observation.origin === 'user' ? observation.observedAt : null,
       lastReconciledAt: new Date(),
     })
@@ -675,8 +736,17 @@ function incomingObservationIsNewer(canonical: CanonicalListing, observation: Li
   const current = observation.origin === 'user'
     ? canonical.lastUserSeenAt ?? canonical.lastSeenAt ?? canonical.updatedAt ?? canonical.createdAt
     : canonical.lastMirrorSeenAt ?? new Date(0);
-  const incoming = observation.sourceUpdatedAt ?? observation.lastSeenAt ?? observation.observedAt;
+  const incoming = observation.origin === 'user'
+    ? observation.sourceUpdatedAt ?? observation.lastSeenAt ?? observation.observedAt
+    : observation.sourceHighWatermark ?? observation.sourceUpdatedAt ?? observation.lastSeenAt ?? observation.observedAt;
   return incoming >= current || observation.origin === 'user';
+}
+
+function listingSeenAtForCanonicalProjection(observation: ListingObservation): Date {
+  if (observation.origin === 'user') {
+    return observation.lastSeenAt ?? observation.observedAt;
+  }
+  return observation.sourceHighWatermark ?? observation.lastSeenAt ?? observation.observedAt;
 }
 
 async function markObservationStaleForProjection(
@@ -759,9 +829,9 @@ async function updateCanonicalListingFromObservation(
         ? observation.payload.livingAreaM2
         : canonical.livingAreaM2,
       firstSeenAt: canonical.firstSeenAt ?? observation.firstSeenAt ?? observation.observedAt,
-      lastSeenAt: shouldApplySourceFacts ? observation.lastSeenAt ?? observation.observedAt : canonical.lastSeenAt,
+      lastSeenAt: shouldApplySourceFacts ? listingSeenAtForCanonicalProjection(observation) : canonical.lastSeenAt,
       lastMirrorSeenAt: mirrorBacked && shouldApplySourceFacts
-        ? observation.lastSeenAt ?? observation.observedAt
+        ? listingSeenAtForCanonicalProjection(observation)
         : canonical.lastMirrorSeenAt,
       lastUserSeenAt: observation.origin === 'user' ? observation.observedAt : canonical.lastUserSeenAt,
       lastReconciledAt: new Date(),
@@ -1009,15 +1079,6 @@ export async function reconcileListingObservation(
 
   if (!observation) throw new Error(`Listing observation ${observationId} not found`);
 
-  if (observation.sourceListingId) {
-    await upsertListingSourceAliases(
-      observation.sourceName,
-      observation.sourceListingId,
-      normalizeSourceAliases(observation.sourceListingAliases),
-      database,
-    );
-  }
-
   const primarySourceListingId = await resolvePrimarySourceListingId(observation, database);
   const existingCanonical = await findCanonicalListing(observation, primarySourceListingId, database);
 
@@ -1044,6 +1105,10 @@ export async function reconcileListingObservation(
 
   const linkReason = observationLinkReason(observation, primarySourceListingId);
 
+  if (!existingCanonical && !observation.propertyId) {
+    return null;
+  }
+
   if (
     existingCanonical
     && observation.origin !== 'user'
@@ -1059,6 +1124,17 @@ export async function reconcileListingObservation(
     : await createCanonicalListing(observation, primarySourceListingId, database);
 
   await linkObservationToCanonical(observation.id, canonical.id, linkReason, database);
+  const canonicalPrimarySourceListingId = canonical.primarySourceListingId
+    ?? primarySourceListingId
+    ?? observation.sourceListingId;
+  if (canonicalPrimarySourceListingId) {
+    await upsertListingSourceAliases(
+      observation.sourceName,
+      canonicalPrimarySourceListingId,
+      sourceIdentityAliasesForCanonicalLookup(observation),
+      database,
+    );
+  }
   if (!(observation.origin === 'user' && existingCanonical && isMirrorBackedCanonical(existingCanonical))) {
     await projectPriceObservation(observation, canonical, database);
   }
@@ -1431,6 +1507,36 @@ export async function listCanonicalListingsForProperty(
       displayUrl: canonicalListings.displayUrl,
       askingPrice: canonicalListings.askingPrice,
       priceCurrency: canonicalListings.priceCurrency,
+      priceType: canonicalListings.priceType,
+      livingAreaM2: canonicalListings.livingAreaM2,
+      numRooms: sql<number | null>`(
+        SELECT CASE
+          WHEN jsonb_typeof(lo.payload->'numRooms') = 'number'
+            THEN (lo.payload->>'numRooms')::int
+          ELSE NULL
+        END
+        FROM listing_observation_links lol
+        JOIN listing_observations lo ON lo.id = lol.listing_observation_id
+        WHERE lol.canonical_listing_id = ${canonicalListings.id}
+          AND lo.stale_for_projection = false
+        ORDER BY
+          lo.observed_at DESC,
+          lo.created_at DESC,
+          lo.id DESC
+        LIMIT 1
+      )`,
+      energyLabel: sql<string | null>`(
+        SELECT NULLIF(lo.payload->>'energyLabel', '')
+        FROM listing_observation_links lol
+        JOIN listing_observations lo ON lo.id = lol.listing_observation_id
+        WHERE lol.canonical_listing_id = ${canonicalListings.id}
+          AND lo.stale_for_projection = false
+        ORDER BY
+          lo.observed_at DESC,
+          lo.created_at DESC,
+          lo.id DESC
+        LIMIT 1
+      )`,
       thumbnailUrl: canonicalListings.thumbnailUrl,
       title: canonicalListings.title,
       description: canonicalListings.description,

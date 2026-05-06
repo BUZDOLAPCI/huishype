@@ -94,6 +94,8 @@ export const ingestListingSchema = z.object({
   sourceListingIdKind: z.string().min(1).optional(),
   sourceListingAliases: z.array(z.object({ kind: z.string().min(1), value: z.string().min(1) })).optional(),
   canonicalUrl: z.string().url().optional(),
+  reasonCode: z.string().trim().min(1).nullable().optional(),
+  matchEvidence: z.record(z.string(), z.unknown()).nullable().optional(),
   askingPrice: z.number().nullable(),
   priceType: listingTypeSchema.optional(),
   listingType: listingTypeSchema.optional(),
@@ -144,6 +146,26 @@ function hasDiagnosticStatus(listing: z.infer<typeof ingestListingSchema>): bool
         'mirror_unavailable',
       ].includes(listing.sourceStatus ?? ''),
   );
+}
+
+function isTerminalLifecycleStatus(value: string | undefined): boolean {
+  return value === 'sold'
+    || value === 'rented'
+    || value === 'withdrawn'
+    || value === 'not_found';
+}
+
+function hasSourceIdentity(listing: z.infer<typeof ingestListingSchema>): boolean {
+  return Boolean(listing.sourceListingId?.trim() || listing.canonicalUrl?.trim());
+}
+
+function hasTerminalLifecycleSourceIdentity(listing: z.infer<typeof ingestListingSchema>): boolean {
+  return hasSourceIdentity(listing)
+    && (
+      isTerminalLifecycleStatus(listing.lifecycleStatus)
+      || isTerminalLifecycleStatus(listing.sourceStatus)
+      || isTerminalLifecycleStatus(listing.status)
+    );
 }
 
 function isCandidateScopedListing(
@@ -208,7 +230,14 @@ export const ingestBatchRequestSchema = z.object({
     const isDiagnostic = hasDiagnosticStatus(listing);
     const isCandidateListing = isCandidateScopedListing(value, listing);
 
-    if (!isCandidateListing && !isDiagnostic && !mirrorListingTypeSchema.safeParse(listing.priceType).success) {
+    const hasTerminalIdentity = hasTerminalLifecycleSourceIdentity(listing);
+
+    if (
+      !isCandidateListing
+      && !isDiagnostic
+      && !hasTerminalIdentity
+      && !mirrorListingTypeSchema.safeParse(listing.priceType).success
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['listings', index, 'priceType'],
@@ -216,7 +245,7 @@ export const ingestBatchRequestSchema = z.object({
       });
     }
 
-    if (!isCandidateListing && !isDiagnostic && !hasCompleteAddress(listing)) {
+    if (!isCandidateListing && !isDiagnostic && !hasTerminalIdentity && !hasCompleteAddress(listing)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['listings', index, 'address'],

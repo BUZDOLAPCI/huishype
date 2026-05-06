@@ -4,12 +4,7 @@ BEGIN
     'active',
     'sold',
     'rented',
-    'withdrawn',
-    'not_found',
-    'blocked',
-    'invalid',
-    'parser_error',
-    'unknown'
+    'withdrawn'
   );
 EXCEPTION
   WHEN duplicate_object THEN NULL;

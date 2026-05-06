@@ -3081,6 +3081,26 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: uuid */
+                            propertyId: string;
+                            sourceUrl: string;
+                            sourceName: string;
+                            canonicalUrl: string | null;
+                            sourceListingId: string | null;
+                            /** @enum {string} */
+                            status: "active" | "sold" | "rented" | "withdrawn";
+                            /** @enum {string} */
+                            verificationState: "provisional" | "validated" | "invalid" | "validation_pending" | "validation_blocked" | "validation_failed";
+                            /** @enum {string} */
+                            candidateHandoffState: "pending" | "queued" | "delivered" | "retryable_error" | "dead_letter";
+                            /** Format: uuid */
+                            candidateId: string;
+                            reasonCode: string;
+                            /** Format: date-time */
+                            createdAt: string;
+                        } | {
                             error: string;
                             message: string;
                         };
@@ -3130,6 +3150,10 @@ export interface paths {
                         scopeKey?: string;
                         /** Format: date-time */
                         sourceHighWatermark?: string;
+                        /** @enum {string} */
+                        sourceProvenance?: "crawler_discovered" | "user_submitted" | "replay" | "import";
+                        /** @enum {string} */
+                        provenance?: "crawler_discovered" | "user_submitted" | "replay" | "import";
                         repairMode?: boolean;
                         repairReason?: string;
                         listings?: {
@@ -3148,6 +3172,10 @@ export interface paths {
                             }[];
                             /** Format: uri */
                             canonicalUrl?: string;
+                            reasonCode?: string | null;
+                            matchEvidence?: {
+                                [key: string]: unknown;
+                            } | null;
                             askingPrice: number | null;
                             /** @enum {string} */
                             priceType?: "sale" | "rent" | "unknown";
@@ -3182,6 +3210,10 @@ export interface paths {
                             sourceRunId?: string;
                             /** Format: date-time */
                             sourceHighWatermark?: string;
+                            /** @enum {string} */
+                            sourceProvenance?: "crawler_discovered" | "user_submitted" | "replay" | "import";
+                            /** @enum {string} */
+                            provenance?: "crawler_discovered" | "user_submitted" | "replay" | "import";
                             address?: {
                                 countryCode?: string;
                                 street?: string;

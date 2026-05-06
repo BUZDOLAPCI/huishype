@@ -155,6 +155,15 @@ interface SourceSummary {
   };
 }
 
+interface ReplayIdentityEstimateSets {
+  presentSourceListingIds: Set<string>;
+  presentCanonicalUrls: Set<string>;
+  activeSourceListingIds: Set<string>;
+  activeCanonicalUrls: Set<string>;
+  terminalSourceListingIds: Set<string>;
+  terminalCanonicalUrls: Set<string>;
+}
+
 const MAIN_DB_URL = process.env.DATABASE_URL || 'postgresql://huishype:huishype_dev@localhost:5440/huishype';
 const FUNDA_DB_URL = process.env.FUNDA_MIRROR_URL || 'postgresql://scraper:secret@localhost:5441/funda_mirror';
 const PARARIUS_DB_URL = process.env.PARARIUS_MIRROR_URL || 'postgresql://scraper:secret@localhost:5442/pararius_mirror';
@@ -582,27 +591,6 @@ async function estimateDuplicateCanonicalCandidateCount(
   return Number(rows[0]?.count ?? 0);
 }
 
-async function estimateTerminalLifecycleChangeCount(
-  mainDb: postgres.Sql,
-  source: SourceName,
-  scope: string | null,
-): Promise<number> {
-  const scopeValue = normalizeScope(scope);
-  const rows = await mainDb<[{ count: string }]>`
-    SELECT COUNT(*)::text AS count
-    FROM canonical_listings
-    WHERE source_name = ${source}
-      AND status = 'active'
-      AND (
-        ${scopeValue}::text IS NULL
-        OR ${scopeValue}::text IN ('all', 'full-mirror')
-        OR price_type = ${scopeValue}::text
-      )
-  `;
-
-  return Number(rows[0]?.count ?? 0);
-}
-
 function buildCompletion(input: {
   source: SourceName;
   scopeKey: string;
@@ -615,10 +603,11 @@ function buildCompletion(input: {
 }) {
   const listingType: 'sale' | 'rent' | 'unknown' =
     input.scopeKey === 'sale' || input.scopeKey === 'rent' ? input.scopeKey : 'unknown';
+  const isSourceWideScope = input.scopeKey === 'full-mirror' || input.scopeKey === 'all';
   return {
     scopeKey: input.scopeKey,
     listingType,
-    normalizedFilters: { replayScope: input.scopeKey },
+    normalizedFilters: isSourceWideScope ? {} : { replayScope: input.scopeKey },
     sourceRunId: input.sourceRunId,
     sourceRunCompletedAt: input.sourceHighWatermark,
     coverageStatus: input.coverageStatus,
@@ -626,6 +615,104 @@ function buildCompletion(input: {
     sourceHighWatermark: input.sourceHighWatermark,
     diagnostics: input.diagnostics ?? (input.reason ? { reason: input.reason } : null),
   };
+}
+
+function createReplayIdentityEstimateSets(): ReplayIdentityEstimateSets {
+  return {
+    presentSourceListingIds: new Set(),
+    presentCanonicalUrls: new Set(),
+    activeSourceListingIds: new Set(),
+    activeCanonicalUrls: new Set(),
+    terminalSourceListingIds: new Set(),
+    terminalCanonicalUrls: new Set(),
+  };
+}
+
+function recordReplayIdentityEstimate(sets: ReplayIdentityEstimateSets, listing: IngestListing): void {
+  const sourceListingId = listing.sourceListingId || listing.mirrorListingId;
+  const canonicalUrl = listing.canonicalUrl ?? listing.sourceUrl;
+  if (sourceListingId) sets.presentSourceListingIds.add(sourceListingId);
+  if (canonicalUrl) sets.presentCanonicalUrls.add(canonicalUrl);
+
+  if (!listing.diagnosticStatus && listing.lifecycleStatus === 'available') {
+    if (sourceListingId) sets.activeSourceListingIds.add(sourceListingId);
+    if (canonicalUrl) sets.activeCanonicalUrls.add(canonicalUrl);
+  } else if (
+    !listing.diagnosticStatus
+    && (
+      listing.lifecycleStatus === 'sold'
+      || listing.lifecycleStatus === 'rented'
+      || listing.lifecycleStatus === 'withdrawn'
+      || listing.lifecycleStatus === 'not_found'
+    )
+  ) {
+    if (sourceListingId) sets.terminalSourceListingIds.add(sourceListingId);
+    if (canonicalUrl) sets.terminalCanonicalUrls.add(canonicalUrl);
+  }
+}
+
+async function estimateCanonicalIdentityMatches(
+  mainDb: postgres.Sql,
+  input: {
+    source: SourceName;
+    scope: string | null;
+    sourceListingIds: Set<string>;
+    canonicalUrls: Set<string>;
+    statusMode: 'active' | 'not_active';
+  },
+): Promise<number> {
+  const sourceListingIds = Array.from(input.sourceListingIds);
+  const canonicalUrls = Array.from(input.canonicalUrls);
+  if (sourceListingIds.length === 0 && canonicalUrls.length === 0) return 0;
+  const scopeValue = normalizeScope(input.scope);
+  const rows = await mainDb<[{ count: string }]>`
+    SELECT COUNT(DISTINCT id)::text AS count
+    FROM canonical_listings
+    WHERE source_name = ${input.source}
+      AND (
+        (${input.statusMode}::text = 'active' AND status = 'active')
+        OR (${input.statusMode}::text = 'not_active' AND status <> 'active')
+      )
+      AND (
+        ${scopeValue}::text IS NULL
+        OR ${scopeValue}::text IN ('all', 'full-mirror')
+        OR price_type = ${scopeValue}::text
+      )
+      AND (
+        primary_source_listing_id = ANY(${sourceListingIds}::text[])
+        OR canonical_url = ANY(${canonicalUrls}::text[])
+      )
+  `;
+
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function estimateAbsentActiveCanonicalCount(
+  mainDb: postgres.Sql,
+  source: SourceName,
+  scope: string | null,
+  sets: ReplayIdentityEstimateSets,
+): Promise<number> {
+  const sourceListingIds = Array.from(sets.presentSourceListingIds);
+  const canonicalUrls = Array.from(sets.presentCanonicalUrls);
+  const scopeValue = normalizeScope(scope);
+  const rows = await mainDb<[{ count: string }]>`
+    SELECT COUNT(*)::text AS count
+    FROM canonical_listings
+    WHERE source_name = ${source}
+      AND status = 'active'
+      AND (
+        ${scopeValue}::text IS NULL
+        OR ${scopeValue}::text IN ('all', 'full-mirror')
+        OR price_type = ${scopeValue}::text
+      )
+      AND NOT (
+        COALESCE(primary_source_listing_id, '') = ANY(${sourceListingIds}::text[])
+        OR COALESCE(canonical_url, '') = ANY(${canonicalUrls}::text[])
+      )
+  `;
+
+  return Number(rows[0]?.count ?? 0);
 }
 
 async function planSource(
@@ -645,6 +732,7 @@ async function planSource(
     mirrorState.count,
     options.repair ? 'repair' : 'replay',
   ].join(':');
+  const estimateSets = createReplayIdentityEstimateSets();
 
   const summary: SourceSummary = {
     sourceName: source,
@@ -681,7 +769,7 @@ async function planSource(
     staleObservationCount: 0,
     reactivationCandidateCount: 0,
     duplicateCanonicalCandidateCount: await estimateDuplicateCanonicalCandidateCount(mainDb, source, options.scope),
-    terminalLifecycleChangeCount: await estimateTerminalLifecycleChangeCount(mainDb, source, options.scope),
+    terminalLifecycleChangeCount: 0,
     absenceWithoutCompletionCount: 0,
     readModelRefreshCount: 0,
     batchCount: 0,
@@ -763,6 +851,7 @@ async function planSource(
       }
 
       summary.preparedListingCount += 1;
+      recordReplayIdentityEstimate(estimateSets, listing);
     }
   }
 
@@ -772,8 +861,27 @@ async function planSource(
   );
   summary.transitionCounts.staleObservations = summary.staleForProjection ? summary.preparedListingCount : 0;
   summary.staleObservationCount = summary.transitionCounts.staleObservations;
+  summary.reactivationCandidateCount = await estimateCanonicalIdentityMatches(mainDb, {
+    source,
+    scope: options.scope,
+    sourceListingIds: estimateSets.activeSourceListingIds,
+    canonicalUrls: estimateSets.activeCanonicalUrls,
+    statusMode: 'not_active',
+  });
+  summary.terminalLifecycleChangeCount = await estimateCanonicalIdentityMatches(mainDb, {
+    source,
+    scope: options.scope,
+    sourceListingIds: estimateSets.terminalSourceListingIds,
+    canonicalUrls: estimateSets.terminalCanonicalUrls,
+    statusMode: 'active',
+  });
+  summary.absenceWithoutCompletionCount = summary.skippedBeforeIngestCount > 0
+    ? await estimateAbsentActiveCanonicalCount(mainDb, source, options.scope, estimateSets)
+    : 0;
+  summary.transitionCounts.reactivationCandidates = summary.reactivationCandidateCount;
   summary.transitionCounts.duplicateCanonicalCandidates = summary.duplicateCanonicalCandidateCount;
   summary.transitionCounts.terminalLifecycleChanges = summary.terminalLifecycleChangeCount;
+  summary.transitionCounts.absenceWithoutCompletion = summary.absenceWithoutCompletionCount;
   summary.transitionCounts.readModelRefreshes = summary.preparedListingCount > 0 ? 1 : 0;
   summary.readModelRefreshCount = summary.transitionCounts.readModelRefreshes;
   if (summary.staleForProjection && summary.examples.staleRows.length < 5) {

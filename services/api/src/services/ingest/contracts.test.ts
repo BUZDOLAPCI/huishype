@@ -22,6 +22,8 @@ describe('ingest batch contracts', () => {
           sourceUrl: 'https://www.funda.nl/detail/koop/eindhoven/candidate/1/',
           mirrorListingId: 'candidate-row',
           sourceCandidateId: 'candidate-1',
+          reasonCode: 'validation_pending',
+          matchEvidence: { source: 'candidate-preview', score: 0.72 },
           askingPrice: null,
           priceType: 'unknown',
           status: 'active',
@@ -44,6 +46,10 @@ describe('ingest batch contracts', () => {
     });
 
     expect(parsed.success).toBe(true);
+    expect(parsed.data?.listings?.[0]).toMatchObject({
+      reasonCode: 'validation_pending',
+      matchEvidence: { source: 'candidate-preview', score: 0.72 },
+    });
   });
 
   it('does not let one candidate row bypass validation for normal mirror rows', () => {
@@ -80,6 +86,57 @@ describe('ingest batch contracts', () => {
       expect.objectContaining({
         path: ['listings', 1, 'address'],
       }),
+    ]));
+  });
+
+  it('accepts addressless terminal lifecycle evidence with source identity only', () => {
+    const parsed = ingestBatchRequestSchema.safeParse({
+      sourceName: 'funda',
+      idempotencyKey: 'terminal-identity-valid',
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: cursor('terminal-identity-valid'),
+      listings: [
+        {
+          sourceUrl: 'https://www.funda.nl/detail/koop/eindhoven/terminal/12345678/',
+          canonicalUrl: 'https://www.funda.nl/detail/12345678/',
+          mirrorListingId: 'terminal-row',
+          sourceListingId: '12345678',
+          askingPrice: null,
+          priceType: 'unknown',
+          lifecycleStatus: 'not_found',
+          status: 'active',
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it('still rejects active addressless mirror rows without a complete address', () => {
+    const parsed = ingestBatchRequestSchema.safeParse({
+      sourceName: 'funda',
+      idempotencyKey: 'active-addressless-invalid',
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: cursor('active-addressless-invalid'),
+      listings: [
+        {
+          sourceUrl: 'https://www.funda.nl/detail/koop/eindhoven/active/12345679/',
+          canonicalUrl: 'https://www.funda.nl/detail/12345679/',
+          mirrorListingId: 'active-addressless-row',
+          sourceListingId: '12345679',
+          askingPrice: 475000,
+          priceType: 'sale',
+          lifecycleStatus: 'available',
+          status: 'active',
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['listings', 0, 'address'] }),
     ]));
   });
 

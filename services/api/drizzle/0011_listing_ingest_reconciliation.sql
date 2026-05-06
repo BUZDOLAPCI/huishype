@@ -35,7 +35,7 @@ END $$;--> statement-breakpoint
 
 DO $$
 BEGIN
-  CREATE TYPE "canonical_listing_status" AS ENUM ('active', 'sold', 'rented', 'withdrawn', 'not_found', 'blocked', 'invalid', 'parser_error', 'unknown');
+  CREATE TYPE "canonical_listing_status" AS ENUM ('active', 'sold', 'rented', 'withdrawn');
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;--> statement-breakpoint

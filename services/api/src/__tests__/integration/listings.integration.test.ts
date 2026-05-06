@@ -12,6 +12,7 @@ import {
 import {
   canonicalListings,
   listingCandidateHandoffs,
+  listingObservationLinks,
   listingObservations,
   listingPreviewResults,
   listingPriceObservations,
@@ -392,6 +393,74 @@ describe('Listing routes', () => {
         expect(['funda', 'pararius', 'other']).toContain(listing.sourceName);
         expect(['active', 'sold', 'rented', 'withdrawn']).toContain(listing.status);
       }
+    });
+
+    it('returns stored canonical and observation listing facts', async () => {
+      const stamp = Date.now();
+      const [canonical] = await db
+        .insert(canonicalListings)
+        .values({
+          propertyId: testPropertyId,
+          sourceName: 'funda',
+          primarySourceListingId: `listing-facts-${stamp}`,
+          canonicalUrl: `https://www.funda.nl/detail/${stamp}/`,
+          displayUrl: `https://www.funda.nl/detail/${stamp}/`,
+          status: 'active',
+          statusSource: 'mirror',
+          verificationState: 'validated',
+          originSummary: 'mirror',
+          askingPrice: 612000,
+          priceCurrency: 'EUR',
+          priceType: 'sale',
+          livingAreaM2: 88,
+        })
+        .returning();
+      expect(canonical).toBeDefined();
+
+      const [observation] = await db
+        .insert(listingObservations)
+        .values({
+          sourceName: 'funda',
+          sourceListingId: `listing-facts-${stamp}`,
+          sourceListingIdKind: 'tiny_id',
+          sourceUrlRaw: `https://www.funda.nl/detail/${stamp}/`,
+          sourceUrlCanonical: `https://www.funda.nl/detail/${stamp}/`,
+          origin: 'mirror',
+          propertyId: testPropertyId,
+          propertyMatchKind: 'source_exact',
+          sourceStatus: 'available',
+          askingPrice: 612000,
+          priceCurrency: 'EUR',
+          observedAt: new Date('2026-04-06T10:00:00.000Z'),
+          payload: {
+            priceType: 'sale',
+            livingAreaM2: 88,
+            numRooms: 4,
+            energyLabel: 'A',
+          },
+        })
+        .returning();
+      expect(observation).toBeDefined();
+      await db.insert(listingObservationLinks).values({
+        canonicalListingId: canonical!.id,
+        listingObservationId: observation!.id,
+        linkReason: 'source_identity',
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const listing = body.data.find((item: { id: string }) => item.id === canonical!.id);
+      expect(listing).toMatchObject({
+        priceType: 'sale',
+        livingAreaM2: 88,
+        numRooms: 4,
+        energyLabel: 'A',
+      });
     });
 
     it('should return 404 for non-existent property', async () => {

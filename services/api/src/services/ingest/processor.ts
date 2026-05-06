@@ -431,7 +431,12 @@ function canonicalizeListings(listings: IngestListing[]): {
 
   for (const item of listings) {
     if (!item.address) {
-      if (toDiagnosticStatus(item) || item.sourceCandidateId || item.previewResultId) {
+      if (
+        toDiagnosticStatus(item)
+        || canPersistAddresslessTerminalSourceEvidence(item)
+        || item.sourceCandidateId
+        || item.previewResultId
+      ) {
         canonicalized.push({ item, canonical: null, spatialCandidate: null });
       } else {
         skippedCount += 1;
@@ -785,6 +790,9 @@ function dedupeMatchedListings(
       if (toDiagnosticStatus(entry.item)) {
         continue;
       }
+      if (canPersistAddresslessTerminalSourceEvidence(entry.item)) {
+        continue;
+      }
       if (entry.item.sourceCandidateId || entry.item.previewResultId) {
         continue;
       }
@@ -837,6 +845,21 @@ function toDiagnosticStatus(item: IngestListing): ListingDiagnosticStatus | null
   return null;
 }
 
+function isTerminalSourceStatus(status: ListingSourceStatus | null): boolean {
+  return status === 'sold'
+    || status === 'rented'
+    || status === 'withdrawn'
+    || status === 'not_found';
+}
+
+function hasSourceIdentity(item: IngestListing): boolean {
+  return Boolean(item.sourceListingId?.trim() || item.canonicalUrl?.trim());
+}
+
+function canPersistAddresslessTerminalSourceEvidence(item: IngestListing): boolean {
+  return hasSourceIdentity(item) && isTerminalSourceStatus(toSourceStatus(item));
+}
+
 function parseOptionalDate(value: string | null | undefined): Date | null {
   return value ? new Date(value) : null;
 }
@@ -858,6 +881,19 @@ function normalizedFilterKey(filters: Record<string, unknown> | null | undefined
 
 function normalizedFiltersAreEmpty(filters: Record<string, unknown> | null | undefined): boolean {
   return Object.keys(filters ?? {}).length === 0;
+}
+
+function normalizedFiltersAreSourceWideFullMirror(filters: Record<string, unknown> | null | undefined): boolean {
+  const entries = Object.entries(filters ?? {});
+  if (entries.length === 0) return true;
+  return entries.length === 1
+    && entries[0]?.[0] === 'replayScope'
+    && (entries[0][1] === 'full-mirror' || entries[0][1] === 'all');
+}
+
+function isSourceWideCompletion(completion: NonNullable<IngestBatchRequest['completions']>[number]): boolean {
+  return (completion.scopeKey === 'full-mirror' || completion.scopeKey === 'all')
+    && normalizedFiltersAreSourceWideFullMirror(completion.normalizedFilters);
 }
 
 function projectionKey(
@@ -1275,6 +1311,8 @@ async function persistMatchedListingObservations(
         payload: {
           mirrorListingId: item.mirrorListingId,
           sourceCandidateId: item.sourceCandidateId ?? null,
+          reasonCode: item.reasonCode ?? null,
+          matchEvidence: item.matchEvidence ?? null,
           scopeKey,
           normalizedFilters,
           priceType: listingType,
@@ -1310,7 +1348,13 @@ async function persistUnmatchedDiagnosticObservations(
   for (const entry of canonicalized) {
     const item = entry.item;
     const diagnosticStatus = toDiagnosticStatus(item);
-    if (!diagnosticStatus || matchedMirrorListingIds.has(item.mirrorListingId)) {
+    const sourceStatus = toSourceStatus(item);
+    const isAddresslessTerminalEvidence = !diagnosticStatus
+      && canPersistAddresslessTerminalSourceEvidence(item);
+    if (
+      (!diagnosticStatus && !isAddresslessTerminalEvidence)
+      || matchedMirrorListingIds.has(item.mirrorListingId)
+    ) {
       continue;
     }
 
@@ -1334,7 +1378,7 @@ async function persistUnmatchedDiagnosticObservations(
       aliases: item.sourceListingAliases,
       propertyId: null,
       propertyMatchKind: 'source_unmatched',
-      sourceStatus: toSourceStatus(item),
+      sourceStatus,
       diagnosticStatus,
       askingPrice: item.askingPrice,
       priceCurrency: item.currency ?? 'EUR',
@@ -1367,10 +1411,13 @@ async function persistUnmatchedDiagnosticObservations(
       payload: {
         mirrorListingId: item.mirrorListingId,
         sourceCandidateId: item.sourceCandidateId ?? null,
+        reasonCode: item.reasonCode ?? null,
+        matchEvidence: item.matchEvidence ?? null,
         scopeKey,
         normalizedFilters,
         priceType: listingType,
-        diagnosticOnly: true,
+        diagnosticOnly: Boolean(diagnosticStatus),
+        sourceEvidenceOnly: isAddresslessTerminalEvidence,
         priceHistory: item.priceHistory ?? [],
       },
     });
@@ -1393,6 +1440,7 @@ async function reconcileScopeCompletionAbsence(
 
   for (const completion of payload.completions ?? []) {
     const listingType = completionListingType(completion);
+    const sourceWideCompletion = isSourceWideCompletion(completion);
     const completionState = completionProjectionState(payload, existingWatermarks, completion, sourceProjection);
     const completionId = completionIdsByScope.get(
       projectionKey(completion.scopeKey, listingType, completion.normalizedFilters),
@@ -1421,7 +1469,7 @@ async function reconcileScopeCompletionAbsence(
           eq(listingObservations.origin, 'mirror'),
           eq(listingObservations.staleForProjection, false),
           sql`(
-            ${listingObservations.sourceStatus} = 'available'
+            ${listingObservations.sourceStatus} IS NOT NULL
             OR ${listingObservations.diagnosticStatus} IS NOT NULL
           )`,
           sql`${listingObservations.sourceHighWatermark} = ${completionState.sourceHighWatermark.toISOString()}::timestamptz`,
@@ -1447,7 +1495,7 @@ async function reconcileScopeCompletionAbsence(
     const listingTypePredicate = listingType === 'unknown'
       ? sql`TRUE`
       : sql`${canonicalListings.priceType} = ${listingType}`;
-    const priorFilterPredicate = normalizedFiltersAreEmpty(completion.normalizedFilters)
+    const priorFilterPredicate = normalizedFiltersAreEmpty(completion.normalizedFilters) || sourceWideCompletion
       ? sql`(
           lo.scope_completion_id IS NULL
           OR EXISTS (
@@ -1463,12 +1511,35 @@ async function reconcileScopeCompletionAbsence(
           WHERE prior_lsc.id = lo.scope_completion_id
             AND prior_lsc.normalized_filters = ${JSON.stringify(completion.normalizedFilters ?? {})}::jsonb
         )`;
-    const priorScopePredicate = listingType === 'unknown'
-      ? sql`lo.payload->>'scopeKey' = ${completion.scopeKey} AND ${priorFilterPredicate}`
+    const priorScopePredicate = sourceWideCompletion
+      ? sql`TRUE`
+      : listingType === 'unknown'
+        ? sql`lo.payload->>'scopeKey' = ${completion.scopeKey} AND ${priorFilterPredicate}`
       : sql`
           lo.payload->>'scopeKey' = ${completion.scopeKey}
           AND COALESCE(lo.payload->>'priceType', lo.payload->>'listingType') = ${listingType}
           AND ${priorFilterPredicate}
+        `;
+    const canonicalEvidencePredicate = sourceWideCompletion
+      ? sql`(
+          ${canonicalListings.originSummary} IN ('mirror', 'user_and_mirror')
+          OR ${canonicalListings.statusSource} = 'mirror'
+          OR ${canonicalListings.verificationState} = 'validated'
+          OR ${canonicalListings.lastMirrorSeenAt} IS NOT NULL
+        )`
+      : sql`
+          EXISTS (
+            SELECT 1
+            FROM listing_observation_links lol
+            JOIN listing_observations lo ON lo.id = lol.listing_observation_id
+            WHERE lol.canonical_listing_id = ${canonicalListings.id}
+              AND lo.source_name = ${sourceName}
+              AND lo.origin = 'mirror'
+              AND lo.stale_for_projection = false
+              AND lo.diagnostic_status IS NULL
+              AND lo.source_status = 'available'
+              AND ${priorScopePredicate}
+          )
         `;
 
     const candidates = await tx
@@ -1487,20 +1558,7 @@ async function reconcileScopeCompletionAbsence(
           eq(canonicalListings.sourceName, sourceName),
           eq(canonicalListings.status, 'active'),
           listingTypePredicate,
-          sql`
-            EXISTS (
-              SELECT 1
-              FROM listing_observation_links lol
-              JOIN listing_observations lo ON lo.id = lol.listing_observation_id
-              WHERE lol.canonical_listing_id = ${canonicalListings.id}
-                AND lo.source_name = ${sourceName}
-                AND lo.origin = 'mirror'
-                AND lo.stale_for_projection = false
-                AND lo.diagnostic_status IS NULL
-                AND lo.source_status = 'available'
-                AND ${priorScopePredicate}
-            )
-          `,
+          canonicalEvidencePredicate,
         ),
       );
 
