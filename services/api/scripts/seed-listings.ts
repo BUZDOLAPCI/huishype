@@ -27,6 +27,7 @@ import {
   buildListingReplayThresholds,
   collectListingReplayThresholdViolations,
   computePlannedListingReplayBatchCount,
+  hasCompleteMirrorAddress,
   shouldPreserveMirrorRowForIngest,
 } from '../src/scripts/seed-listings-safety.js';
 
@@ -55,6 +56,8 @@ interface CliOptions {
   fetchSize: number;
   maxSkipped: number;
   maxSkipRatio: number;
+  maxAffectedCanonical: number;
+  maxStaleRows: number;
 }
 
 interface MirrorListing {
@@ -93,6 +96,14 @@ interface SourceSummary {
   preparedListingCount: number;
   skippedBeforeIngestCount: number;
   diagnosticListingCount: number;
+  transitionCounts: {
+    projectable: number;
+    diagnostic: number;
+    skipped: number;
+    completion: number;
+    staleObservations: number;
+  };
+  affectedCanonicalCount: number;
   batchCount: number;
   processedBatchCount: number;
   ingestedCount: number;
@@ -102,12 +113,16 @@ interface SourceSummary {
   thresholds: {
     maxSkipped: number;
     maxSkipRatio: number;
+    maxAffectedCanonical: number | null;
+    maxStaleRows: number | null;
     skipRatio: number;
     violations: string[];
   };
   examples: {
     skippedBeforeIngest: Array<Record<string, unknown>>;
     diagnosticListings: Array<Record<string, unknown>>;
+    projectableListings: Array<Record<string, unknown>>;
+    staleRows: Array<Record<string, unknown>>;
   };
 }
 
@@ -171,6 +186,8 @@ function parseOptions(): CliOptions {
     fetchSize: parsePositiveInteger(getArgValue(args, '--fetch-size'), 5_000),
     maxSkipped: parseNonNegativeInteger(getArgValue(args, '--max-skipped'), 50_000),
     maxSkipRatio: parseRatio(getArgValue(args, '--max-skip-ratio'), 0.1),
+    maxAffectedCanonical: parseNonNegativeInteger(getArgValue(args, '--max-affected-canonical'), 250_000),
+    maxStaleRows: parseNonNegativeInteger(getArgValue(args, '--max-stale-rows'), 250_000),
   };
 }
 
@@ -303,19 +320,22 @@ function toIngestListing(
   sourceHighWatermark: string,
 ): IngestListing | null {
   const status = mapStatus(row.status);
-  if (!shouldPreserveMirrorRowForIngest({
+  const preparationEvidence = {
     listingUrl: row.listing_url,
     street: row.street,
     postalCode: row.postal_code,
     houseNumber: row.house_number,
     diagnosticStatus: status.diagnosticStatus,
-  })) {
+  };
+  if (!shouldPreserveMirrorRowForIngest(preparationEvidence)) {
     return null;
   }
 
   const mirrorId = source === 'funda' ? row.funda_id : row.pararius_id;
   const identity = resolveIdentity(source, row.listing_url, mirrorId);
   const priceType = normalizePriceType(row.price_type, source);
+  const diagnosticStatus = status.diagnosticStatus
+    ?? (hasCompleteMirrorAddress(preparationEvidence) ? undefined : 'unknown');
   const address = row.street || row.postal_code || row.house_number || row.city
     ? {
         countryCode: 'NL',
@@ -346,13 +366,14 @@ function toIngestListing(
     thumbnailUrl: extractThumbnailUrl(row.photo_urls),
     ogTitle: buildTitle(row, source),
     status: status.publicStatus,
-    lifecycleStatus: status.lifecycleStatus,
-    diagnosticStatus: status.diagnosticStatus,
+    lifecycleStatus: diagnosticStatus ? undefined : status.lifecycleStatus,
+    diagnosticStatus,
     mirrorFirstSeenAt: row.first_seen_at?.toISOString(),
     mirrorLastChangedAt: row.last_changed_at?.toISOString(),
     mirrorLastSeenAt: row.last_seen_at?.toISOString(),
     observedAt: (row.last_changed_at ?? row.last_seen_at ?? row.first_seen_at ?? new Date()).toISOString(),
     sourceHighWatermark,
+    sourceProvenance: 'import',
     address,
   };
 }
@@ -430,13 +451,36 @@ async function fetchMirrorListings(
   return rows;
 }
 
+async function estimateAffectedCanonicalCount(
+  mainDb: postgres.Sql,
+  source: SourceName,
+  scope: string | null,
+): Promise<number> {
+  const scopeValue = normalizeScope(scope);
+  const rows = await mainDb<[{ count: string }]>`
+    SELECT COUNT(*)::text AS count
+    FROM canonical_listings
+    WHERE source_name = ${source}
+      AND status = 'active'
+      AND (
+        ${scopeValue}::text IS NULL
+        OR ${scopeValue}::text IN ('all', 'full-mirror')
+        OR price_type = ${scopeValue}::text
+      )
+  `;
+
+  return Number(rows[0]?.count ?? 0);
+}
+
 function buildCompletion(input: {
   source: SourceName;
   scopeKey: string;
   sourceRunId: string;
   sourceHighWatermark: string;
   observedListingCount: number;
+  coverageStatus: 'complete' | 'partial';
   reason: string | null;
+  diagnostics?: Record<string, unknown>;
 }) {
   const listingType: 'sale' | 'rent' | 'unknown' =
     input.scopeKey === 'sale' || input.scopeKey === 'rent' ? input.scopeKey : 'unknown';
@@ -446,14 +490,19 @@ function buildCompletion(input: {
     normalizedFilters: { replayScope: input.scopeKey },
     sourceRunId: input.sourceRunId,
     sourceRunCompletedAt: input.sourceHighWatermark,
-    coverageStatus: 'complete' as const,
+    coverageStatus: input.coverageStatus,
     observedListingCount: input.observedListingCount,
     sourceHighWatermark: input.sourceHighWatermark,
-    diagnostics: input.reason ? { reason: input.reason } : null,
+    diagnostics: input.diagnostics ?? (input.reason ? { reason: input.reason } : null),
   };
 }
 
-async function planSource(source: SourceName, mirrorDb: postgres.Sql, options: CliOptions): Promise<SourceSummary> {
+async function planSource(
+  source: SourceName,
+  mirrorDb: postgres.Sql,
+  mainDb: postgres.Sql,
+  options: CliOptions,
+): Promise<SourceSummary> {
   const scopeKey = options.scope?.trim().toLowerCase() || 'full-mirror';
   const watermark = await getIngestWatermark(source);
   const mirrorState = await getMirrorHighWatermark(mirrorDb, source, options.scope);
@@ -478,6 +527,14 @@ async function planSource(source: SourceName, mirrorDb: postgres.Sql, options: C
     preparedListingCount: 0,
     skippedBeforeIngestCount: 0,
     diagnosticListingCount: 0,
+    transitionCounts: {
+      projectable: 0,
+      diagnostic: 0,
+      skipped: 0,
+      completion: 1,
+      staleObservations: 0,
+    },
+    affectedCanonicalCount: await estimateAffectedCanonicalCount(mainDb, source, options.scope),
     batchCount: 0,
     processedBatchCount: 0,
     ingestedCount: 0,
@@ -487,12 +544,16 @@ async function planSource(source: SourceName, mirrorDb: postgres.Sql, options: C
     thresholds: {
       maxSkipped: options.maxSkipped,
       maxSkipRatio: options.maxSkipRatio,
+      maxAffectedCanonical: options.maxAffectedCanonical,
+      maxStaleRows: options.maxStaleRows,
       skipRatio: 0,
       violations: [],
     },
     examples: {
       skippedBeforeIngest: [],
       diagnosticListings: [],
+      projectableListings: [],
+      staleRows: [],
     },
   };
 
@@ -502,6 +563,7 @@ async function planSource(source: SourceName, mirrorDb: postgres.Sql, options: C
       const listing = toIngestListing(row, source, scopeKey, summary.sourceHighWatermark);
       if (!listing) {
         summary.skippedBeforeIngestCount += 1;
+        summary.transitionCounts.skipped += 1;
         if (summary.examples.skippedBeforeIngest.length < 5) {
           summary.examples.skippedBeforeIngest.push({
             id: row.id,
@@ -516,11 +578,21 @@ async function planSource(source: SourceName, mirrorDb: postgres.Sql, options: C
 
       if (listing.diagnosticStatus) {
         summary.diagnosticListingCount += 1;
+        summary.transitionCounts.diagnostic += 1;
         if (summary.examples.diagnosticListings.length < 5) {
           summary.examples.diagnosticListings.push({
             mirrorListingId: listing.mirrorListingId,
             sourceUrl: listing.sourceUrl,
             diagnosticStatus: listing.diagnosticStatus,
+          });
+        }
+      } else {
+        summary.transitionCounts.projectable += 1;
+        if (summary.examples.projectableListings.length < 5) {
+          summary.examples.projectableListings.push({
+            mirrorListingId: listing.mirrorListingId,
+            sourceUrl: listing.sourceUrl,
+            priceType: listing.priceType,
           });
         }
       }
@@ -529,12 +601,20 @@ async function planSource(source: SourceName, mirrorDb: postgres.Sql, options: C
     }
   }
 
-  summary.thresholds = buildListingReplayThresholds(summary, options);
-  summary.batchCount = computePlannedListingReplayBatchCount(summary, options);
   summary.staleForProjection = Boolean(
     watermark.lastCommittedChangedAt
       && new Date(watermark.lastCommittedChangedAt).getTime() > new Date(summary.sourceHighWatermark).getTime(),
   );
+  summary.transitionCounts.staleObservations = summary.staleForProjection ? summary.preparedListingCount : 0;
+  if (summary.staleForProjection && summary.examples.staleRows.length < 5) {
+    summary.examples.staleRows.push({
+      sourceHighWatermark: summary.sourceHighWatermark,
+      lastCommittedChangedAt: watermark.lastCommittedChangedAt,
+      plannedStaleObservationCount: summary.transitionCounts.staleObservations,
+    });
+  }
+  summary.thresholds = buildListingReplayThresholds(summary, options);
+  summary.batchCount = computePlannedListingReplayBatchCount(summary, options);
 
   return summary;
 }
@@ -583,7 +663,14 @@ async function executeSource(
           sourceRunId: summary.sourceRunId,
           sourceHighWatermark: summary.sourceHighWatermark,
           observedListingCount: summary.preparedListingCount,
+          coverageStatus: summary.skippedBeforeIngestCount > 0 ? 'partial' : 'complete',
           reason: options.reason,
+          diagnostics: {
+            reason: options.reason,
+            transitionCounts: summary.transitionCounts,
+            skippedBeforeIngestCount: summary.skippedBeforeIngestCount,
+            diagnosticListingCount: summary.diagnosticListingCount,
+          },
         })]
       : [];
     const payload = {
@@ -598,6 +685,7 @@ async function executeSource(
         : 'observations',
       scopeKey: summary.scopeKey,
       sourceHighWatermark: summary.sourceHighWatermark,
+      sourceProvenance: 'import',
       repairMode: options.repair,
       repairReason: options.reason ?? undefined,
       listings: listingsBuffer.splice(0, listingsBuffer.length),
@@ -666,7 +754,7 @@ async function main(): Promise<void> {
     await mainDb`SELECT 1`;
     const sources = selectedSources(options.source);
     for (const source of sources) {
-      summaries.push(await planSource(source, mirrorDbs[source], options));
+      summaries.push(await planSource(source, mirrorDbs[source], mainDb, options));
     }
 
     const violations = collectListingReplayThresholdViolations(summaries);

@@ -82,4 +82,101 @@ describe('ingest batch contracts', () => {
       }),
     ]));
   });
+
+  it('accepts source-service provenance on batches and individual observations', () => {
+    const parsed = ingestBatchRequestSchema.parse({
+      sourceName: 'funda',
+      idempotencyKey: 'provenance-valid',
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: cursor('provenance-valid'),
+      sourceProvenance: 'replay',
+      listings: [
+        {
+          sourceUrl: 'https://www.funda.nl/detail/koop/eindhoven/provenance/1/',
+          mirrorListingId: 'provenance-row',
+          askingPrice: 475000,
+          priceType: 'sale',
+          sourceProvenance: 'crawler_discovered',
+          status: 'active',
+          address: {
+            countryCode: 'NL',
+            street: 'Provenance Cursorlaan',
+            postalCode: '5611AA',
+            houseNumber: 41,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    expect(parsed.sourceProvenance).toBe('replay');
+    expect(parsed.listings?.[0]?.sourceProvenance).toBe('crawler_discovered');
+  });
+
+  it('normalizes legacy scraper provenance for processor consumption', () => {
+    const parsed = ingestBatchRequestSchema.parse({
+      sourceName: 'funda',
+      idempotencyKey: 'legacy-provenance-valid',
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: cursor('legacy-provenance-valid'),
+      provenance: 'import',
+      listings: [
+        {
+          sourceUrl: 'https://www.funda.nl/detail/koop/eindhoven/provenance/2/',
+          mirrorListingId: 'legacy-provenance-row',
+          askingPrice: 475000,
+          priceType: 'sale',
+          provenance: 'crawler_discovered',
+          status: 'active',
+          address: {
+            countryCode: 'NL',
+            street: 'Legacy Provenancelaan',
+            postalCode: '5611AA',
+            houseNumber: 41,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    expect(parsed.sourceProvenance).toBe('import');
+    expect(parsed.listings?.[0]?.sourceProvenance).toBe('crawler_discovered');
+    expect(parsed).not.toHaveProperty('provenance');
+    expect(parsed.listings?.[0]).not.toHaveProperty('provenance');
+  });
+
+  it('prefers sourceProvenance over legacy provenance when both are present', () => {
+    const parsed = ingestBatchRequestSchema.parse({
+      sourceName: 'funda',
+      idempotencyKey: 'preferred-provenance-valid',
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: cursor('preferred-provenance-valid'),
+      sourceProvenance: 'replay',
+      provenance: 'import',
+      listings: [
+        {
+          sourceUrl: 'https://www.funda.nl/detail/koop/eindhoven/provenance/3/',
+          mirrorListingId: 'preferred-provenance-row',
+          askingPrice: 475000,
+          priceType: 'sale',
+          sourceProvenance: 'user_submitted',
+          provenance: 'crawler_discovered',
+          status: 'active',
+          address: {
+            countryCode: 'NL',
+            street: 'Preferred Provenancelaan',
+            postalCode: '5611AA',
+            houseNumber: 41,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    expect(parsed.sourceProvenance).toBe('replay');
+    expect(parsed.listings?.[0]?.sourceProvenance).toBe('user_submitted');
+  });
 });

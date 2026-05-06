@@ -36,7 +36,6 @@ import {
   type PropertyValidationContext,
   toPublicListingPreviewResponse,
 } from '../services/listing-source-resolution.js';
-import { fetchOgMetadata } from '../services/og-fetcher.js';
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -334,28 +333,12 @@ async function enrichListingPreviewDisplay(plan: ListingPreviewPlan): Promise<Li
   const needsOgMetadata = plan.title == null || plan.description == null || plan.imageUrl == null;
   if (!needsOgMetadata) return plan;
 
-  if (plan.validationState !== 'valid' || plan.matchState !== 'matched') {
-    const fallback = buildDeterministicDisplayFallback(plan);
-    return {
-      ...plan,
-      title: plan.title ?? fallback.title,
-      description: plan.description ?? fallback.description,
-    };
-  }
-
-  const ogMetadata = await fetchOgMetadata(plan.canonicalUrl || plan.rawUrl).catch(() => ({
-    ogTitle: null,
-    ogDescription: null,
-    ogImage: null,
-  }));
-
   const fallback = buildDeterministicDisplayFallback(plan);
 
   return {
     ...plan,
-    title: plan.title ?? ogMetadata.ogTitle ?? fallback.title,
-    description: plan.description ?? ogMetadata.ogDescription ?? fallback.description,
-    imageUrl: plan.imageUrl ?? ogMetadata.ogImage ?? null,
+    title: plan.title ?? fallback.title,
+    description: plan.description ?? fallback.description,
   };
 }
 

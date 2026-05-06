@@ -49,6 +49,12 @@ const legacyListingSourceStatusSchema = z.enum([
 
 const listingTypeSchema = z.enum(['sale', 'rent', 'unknown']);
 const mirrorListingTypeSchema = z.enum(['sale', 'rent']);
+export const ingestSourceProvenanceSchema = z.enum([
+  'crawler_discovered',
+  'user_submitted',
+  'replay',
+  'import',
+]);
 const optionalNullableCoordinateSchema = z.preprocess(
   (value) => (value === '' ? null : value),
   z.coerce.number().nullable(),
@@ -108,16 +114,22 @@ export const ingestListingSchema = z.object({
   observedAt: z.string().datetime().optional(),
   sourceRunId: z.string().trim().min(1).max(255).optional(),
   sourceHighWatermark: z.string().datetime().optional(),
+  sourceProvenance: ingestSourceProvenanceSchema.optional(),
+  provenance: ingestSourceProvenanceSchema.optional(),
   address: ingestListingAddressSchema.optional(),
   priceHistory: z.array(z.object({
     price: z.number(),
     priceDate: ingestPriceDateSchema,
     eventType: z.string(),
   })).optional(),
-}).transform((value) => ({
-  ...value,
-  priceType: value.priceType ?? value.listingType ?? 'unknown',
-}));
+}).transform(({ provenance, ...value }) => {
+  const sourceProvenance = value.sourceProvenance ?? provenance;
+  return {
+    ...value,
+    ...(sourceProvenance ? { sourceProvenance } : {}),
+    priceType: value.priceType ?? value.listingType ?? 'unknown',
+  };
+});
 
 function hasDiagnosticStatus(listing: z.infer<typeof ingestListingSchema>): boolean {
   return Boolean(
@@ -168,6 +180,8 @@ export const ingestBatchRequestSchema = z.object({
   batchKind: z.enum(['observations', 'completion', 'observations_and_completion']).optional(),
   scopeKey: z.string().trim().min(1).max(255).optional(),
   sourceHighWatermark: z.string().datetime().optional(),
+  sourceProvenance: ingestSourceProvenanceSchema.optional(),
+  provenance: ingestSourceProvenanceSchema.optional(),
   repairMode: z.boolean().optional(),
   repairReason: z.string().trim().min(1).optional(),
   listings: z.array(ingestListingSchema).optional(),
@@ -210,10 +224,14 @@ export const ingestBatchRequestSchema = z.object({
       });
     }
   }
-}).transform(({ runId, ...value }) => ({
-  ...value,
-  upstreamRunKey: value.upstreamRunKey ?? runId,
-}));
+}).transform(({ runId, provenance, ...value }) => {
+  const sourceProvenance = value.sourceProvenance ?? provenance;
+  return {
+    ...value,
+    upstreamRunKey: value.upstreamRunKey ?? runId,
+    ...(sourceProvenance ? { sourceProvenance } : {}),
+  };
+});
 
 export const ingestAcceptedResponseSchema = z.object({
   batchId: z.string().uuid(),

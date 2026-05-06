@@ -1131,6 +1131,117 @@ describe('Durable ingest API contract', () => {
     expect(observations.map((observation) => observation.sourceStatus)).not.toContain('not_found');
   });
 
+  it('does not infer absence when the current completion only has diagnostic identity evidence', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = `Diagnostic Present Completion ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 56 });
+    const mirrorListingId = `idealista-diagnostic-present-${stamp}`;
+    const sourceUrl = `https://www.idealista.com/inmueble/diagnostic-present-${stamp}/`;
+    const firstCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T16:00:00.000Z',
+      listingKey: `${mirrorListingId}-active`,
+    });
+
+    const firstAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-diagnostic-present-active-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: firstCursor,
+      upstreamRunKey: `idealista-diagnostic-present-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          scopeKey: 'full-mirror',
+          askingPrice: 440000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-06T16:00:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 56,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+    await processIngestBatch({
+      batchId: firstAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const replayAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-diagnostic-present-replay-${stamp}`,
+      batchSequence: 1,
+      cursorStart: firstCursor,
+      cursorEnd: encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T17:00:00.000Z',
+        listingKey: `${mirrorListingId}-diagnostic`,
+      }),
+      upstreamRunKey: `idealista-diagnostic-present-run-${stamp}`,
+      batchKind: 'observations_and_completion',
+      sourceProvenance: 'import',
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          sourceListingId: mirrorListingId,
+          scopeKey: 'full-mirror',
+          askingPrice: null,
+          priceType: 'sale',
+          status: 'active',
+          diagnosticStatus: 'unknown',
+          observedAt: '2026-04-06T17:00:00.000Z',
+          sourceHighWatermark: '2026-04-06T17:00:00.000Z',
+        },
+      ],
+      completions: [
+        {
+          scopeKey: 'full-mirror',
+          listingType: 'unknown',
+          sourceRunCompletedAt: '2026-04-06T17:00:00.000Z',
+          observedListingCount: 1,
+          sourceHighWatermark: '2026-04-06T17:00:00.000Z',
+        },
+      ],
+    });
+
+    await processIngestBatch({
+      batchId: replayAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const [canonical] = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.propertyId, propertyId))
+      .limit(1);
+    expect(canonical).toMatchObject({
+      sourceName,
+      primarySourceListingId: mirrorListingId,
+      status: 'active',
+    });
+
+    const observations = await db
+      .select()
+      .from(listingObservations)
+      .where(eq(listingObservations.sourceListingId, mirrorListingId));
+    expect(observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        diagnosticStatus: 'unknown',
+        sourceStatus: null,
+        payload: expect.objectContaining({ sourceProvenance: 'import' }),
+      }),
+    ]));
+    expect(observations.map((observation) => observation.sourceStatus)).not.toContain('not_found');
+  });
+
   it('stores stale scoped replay observations without projecting or regressing scope watermarks', async () => {
     const sourceName = 'idealista';
     const street = `Stale Scope Street ${Date.now()}`;
@@ -1365,6 +1476,126 @@ describe('Durable ingest API contract', () => {
     expect(sourceState?.lastCommittedCursor).toBe(newerCursor);
     expect(sourceState?.lastCommittedChangedAt).toEqual(new Date('2026-04-06T20:00:00.000Z'));
     expect(sourceState?.lastBatchId).toBe(newerAccepted.batchId);
+  });
+
+  it('appends stale replay evidence without mutating prior projected observations', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = `Immutable Stale Replay ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 55 });
+    const mirrorListingId = `idealista-immutable-stale-${stamp}`;
+    const sourceUrl = `https://www.idealista.com/inmueble/immutable-stale-${stamp}/`;
+    const observedAt = '2026-04-06T19:00:00.000Z';
+    const newerCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T20:00:00.000Z',
+      listingKey: `${mirrorListingId}-newer`,
+    });
+    const olderCursor = encodeOpaqueIngestCursor({
+      changedAt: observedAt,
+      listingKey: `${mirrorListingId}-older`,
+    });
+
+    const newerAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-immutable-stale-newer-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: newerCursor,
+      upstreamRunKey: `idealista-immutable-stale-run-newer-${stamp}`,
+      sourceHighWatermark: '2026-04-06T20:00:00.000Z',
+      sourceProvenance: 'crawler_discovered',
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          askingPrice: 510000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: observedAt,
+          observedAt,
+          sourceHighWatermark: '2026-04-06T20:00:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 55,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+    await processIngestBatch({
+      batchId: newerAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const staleAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-immutable-stale-older-${stamp}`,
+      batchSequence: 1,
+      cursorStart: newerCursor,
+      cursorEnd: olderCursor,
+      upstreamRunKey: `idealista-immutable-stale-run-older-${stamp}`,
+      sourceHighWatermark: observedAt,
+      sourceProvenance: 'replay',
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          askingPrice: 470000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: observedAt,
+          observedAt,
+          sourceHighWatermark: observedAt,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 55,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+    await processIngestBatch({
+      batchId: staleAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    });
+
+    const observations = await db
+      .select()
+      .from(listingObservations)
+      .where(eq(listingObservations.sourceListingId, mirrorListingId));
+    expect(observations).toHaveLength(2);
+    expect(observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ingestBatchId: newerAccepted.batchId,
+        origin: 'mirror',
+        staleForProjection: false,
+        askingPrice: 510000,
+        payload: expect.objectContaining({ sourceProvenance: 'crawler_discovered' }),
+      }),
+      expect.objectContaining({
+        ingestBatchId: staleAccepted.batchId,
+        origin: 'replay',
+        staleForProjection: true,
+        askingPrice: 470000,
+        payload: expect.objectContaining({ sourceProvenance: 'replay' }),
+      }),
+    ]));
+
+    const [canonical] = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.propertyId, propertyId))
+      .limit(1);
+    expect(canonical).toMatchObject({
+      status: 'active',
+      askingPrice: 510000,
+    });
   });
 
   it('preserves diagnostic mirror observations that do not have address fields', async () => {
@@ -1817,8 +2048,8 @@ describe('Durable ingest API contract', () => {
       }),
     ).resolves.toEqual({
       status: 'completed',
-      ingested: 0,
-      updated: 1,
+      ingested: 1,
+      updated: 0,
       skipped: 0,
     });
 
@@ -1826,15 +2057,25 @@ describe('Durable ingest API contract', () => {
       .select()
       .from(listingObservations)
       .where(eq(listingObservations.sourceListingId, mirrorListingId));
-    expect(observations).toHaveLength(1);
-    expect(observations[0]).toMatchObject({
+    expect(observations).toHaveLength(2);
+    const freshObservation = observations.find((observation) => observation.ingestBatchId === freshAccepted.batchId);
+    const staleObservation = observations.find((observation) => observation.ingestBatchId === staleAccepted.batchId);
+    expect(freshObservation).toMatchObject({
       propertyId,
+      origin: 'mirror',
       staleForProjection: false,
       ingestBatchId: freshAccepted.batchId,
       candidateHandoffId: candidate?.id,
       sourceHighWatermark: new Date('2026-04-07T00:00:00.000Z'),
     });
-    expect(observations[0]?.scopeCompletionId).toBeTruthy();
+    expect(freshObservation?.scopeCompletionId).toBeTruthy();
+    expect(staleObservation).toMatchObject({
+      propertyId,
+      origin: 'replay',
+      staleForProjection: true,
+      ingestBatchId: staleAccepted.batchId,
+      candidateHandoffId: null,
+    });
 
     const [canonical] = await db
       .select()
@@ -1855,7 +2096,7 @@ describe('Durable ingest API contract', () => {
     expect(handoff).toMatchObject({
       state: 'delivered',
       canonicalListingId: canonical?.id,
-      observationId: observations[0]?.id,
+      observationId: freshObservation?.id,
     });
   });
 

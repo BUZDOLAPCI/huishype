@@ -101,6 +101,7 @@ export type PersistMirrorObservationForIngestInput = {
   observedAt?: string | Date | null;
   sourceRunId?: string | null;
   sourceHighWatermark?: string | Date | null;
+  sourceProvenance?: 'crawler_discovered' | 'user_submitted' | 'replay' | 'import' | null;
   scopeCompletionId?: string | null;
   staleForProjection?: boolean;
   previewResultId?: string | null;
@@ -1130,6 +1131,7 @@ export async function createUserListingSubmission(
       previewResultId: input.preview.id,
       payload: {
         preview: {
+          sourceProvenance: 'user_submitted',
           title: input.preview.title,
           description: input.preview.description,
           imageUrl: input.preview.imageUrl,
@@ -1243,7 +1245,7 @@ export async function persistMirrorObservationForIngest(
       sourceListingAliases: input.aliases ?? [],
       sourceUrlRaw: input.sourceUrl,
       sourceUrlCanonical: input.sourceUrl,
-      origin: 'mirror',
+      origin: input.staleForProjection ? 'replay' : 'mirror',
       propertyId: input.propertyId,
       propertyMatchKind: input.propertyMatchKind,
       sourceStatus: input.sourceStatus ?? null,
@@ -1278,6 +1280,7 @@ export async function persistMirrorObservationForIngest(
       candidateHandoffId: input.candidateHandoffId ?? null,
       payload: {
         ...input.payload,
+        sourceProvenance: input.sourceProvenance ?? null,
         title: input.title ?? null,
         description: input.description ?? null,
         imageUrl: input.imageUrl ?? null,

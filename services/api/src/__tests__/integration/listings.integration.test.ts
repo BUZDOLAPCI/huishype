@@ -66,15 +66,6 @@ describe('Listing routes', () => {
     } as Response;
   }
 
-  function htmlResponse(html: string): Response {
-    return new Response(html, {
-      headers: {
-        'content-type': 'text/html',
-        'content-length': String(Buffer.byteLength(html)),
-      },
-    });
-  }
-
   async function createMatchedSubmissionFixture(label: string, askingPrice = 525000) {
     const sourceListingId = `${Date.now()}${Math.floor(Math.random() * 100_000)}`;
     const rawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-${label}/${sourceListingId}/`;
@@ -569,7 +560,7 @@ describe('Listing routes', () => {
       });
     });
 
-    it('should use OG metadata when validation and request display are empty', async () => {
+    it('should use deterministic display fallback instead of fetching OG metadata', async () => {
       const rawUrl = 'https://www.funda.nl/detail/koop/eindhoven/huis-og-fallback/90210011/';
       const canonicalUrl = 'https://www.funda.nl/detail/90210011/';
 
@@ -598,16 +589,7 @@ describe('Listing routes', () => {
             propertyId: testPropertyId,
             matchKind: 'source_exact',
           },
-        }))
-        .mockResolvedValueOnce(htmlResponse(`
-          <html>
-            <head>
-              <meta property="og:title" content="OG Fallback Title">
-              <meta property="og:description" content="OG fallback description">
-              <meta property="og:image" content="https://cdn.example.com/og-fallback.jpg">
-            </head>
-          </html>
-        `));
+        }));
 
       const response = await app.inject({
         method: 'POST',
@@ -620,12 +602,12 @@ describe('Listing routes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(JSON.parse(response.body)).toMatchObject({
-        title: 'OG Fallback Title',
-        description: 'OG fallback description',
-        imageUrl: 'https://cdn.example.com/og-fallback.jpg',
+        title: 'Funda listing',
+        description: 'Listing submitted from funda.nl',
+        imageUrl: null,
       });
-      expect(mockFetchFn).toHaveBeenCalledTimes(3);
-      expect(String(mockFetchFn.mock.calls[2]?.[0])).toBe(canonicalUrl);
+      expect(mockFetchFn).toHaveBeenCalledTimes(2);
+      expect(mockFetchFn.mock.calls.map((call) => String(call[0]))).not.toContain(canonicalUrl);
     });
 
     it('should keep request display ahead of OG fallback when validation has no display', async () => {
@@ -1557,6 +1539,29 @@ describe('Listing routes', () => {
         previewResultId: preview.previewId,
         state: 'queued',
       });
+
+      const [observation] = await db
+        .select()
+        .from(listingObservations)
+        .where(eq(listingObservations.previewResultId, preview.previewId))
+        .limit(1);
+      expect(observation?.payload).toMatchObject({
+        preview: expect.objectContaining({ sourceProvenance: 'user_submitted' }),
+      });
+
+      const listingsResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/${testPropertyId}/listings`,
+      });
+      expect(listingsResponse.statusCode).toBe(200);
+      const listingsBody = JSON.parse(listingsResponse.body);
+      expect(listingsBody.data).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: submitted.id,
+          verificationState: 'provisional',
+          candidateHandoffState: 'queued',
+        }),
+      ]));
     });
 
     it('should avoid app-owned OG fetch for provisional temporary failure previews', async () => {

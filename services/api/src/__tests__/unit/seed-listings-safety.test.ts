@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   buildListingReplayThresholds,
+  classifyListingReplayPreparation,
   collectListingReplayThresholdViolations,
   computePlannedListingReplayBatchCount,
   shouldPreserveMirrorRowForIngest,
@@ -12,18 +13,24 @@ describe('seed listings replay safety', () => {
       {
         mirrorListingCount: 100,
         skippedBeforeIngestCount: 12,
+        affectedCanonicalCount: 42,
+        staleObservationCount: 5,
       },
       {
         maxSkipped: 10,
         maxSkipRatio: 0.1,
+        maxAffectedCanonical: 40,
+        maxStaleRows: 4,
       },
     );
 
     expect(thresholds).toEqual({
       maxSkipped: 10,
       maxSkipRatio: 0.1,
+      maxAffectedCanonical: 40,
+      maxStaleRows: 4,
       skipRatio: 0.12,
-      violations: ['max_skipped', 'max_skip_ratio'],
+      violations: ['max_skipped', 'max_skip_ratio', 'max_affected_canonical', 'max_stale_rows'],
     });
   });
 
@@ -65,6 +72,16 @@ describe('seed listings replay safety', () => {
 
   it('keeps diagnostic replay rows with source evidence even when address fields are incomplete', () => {
     expect(
+      classifyListingReplayPreparation({
+        listingUrl: 'https://example.test/listing/incomplete-active',
+        street: null,
+        postalCode: null,
+        houseNumber: null,
+        diagnosticStatus: null,
+      }),
+    ).toBe('diagnostic');
+
+    expect(
       shouldPreserveMirrorRowForIngest({
         listingUrl: 'https://example.test/listing/blocked',
         street: null,
@@ -82,7 +99,7 @@ describe('seed listings replay safety', () => {
         houseNumber: null,
         diagnosticStatus: null,
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldPreserveMirrorRowForIngest({

@@ -884,6 +884,15 @@ function listingProjectionType(listing: IngestListing): ListingType {
   return listing.priceType;
 }
 
+function listingSourceProvenance(
+  payload: IngestBatchRequest,
+  listing: IngestListing,
+): NonNullable<IngestListing['sourceProvenance']> {
+  return listing.sourceProvenance
+    ?? payload.sourceProvenance
+    ?? (listing.sourceCandidateId || listing.previewResultId ? 'user_submitted' : 'crawler_discovered');
+}
+
 function completionProjectionState(
   payload: IngestBatchRequest,
   existingWatermarks: Map<string, Date>,
@@ -1150,6 +1159,7 @@ async function persistMatchedListingObservations(
         observedAt: item.observedAt,
         sourceRunId: item.sourceRunId ?? payload.upstreamRunKey,
         sourceHighWatermark: projectionState.sourceHighWatermark,
+        sourceProvenance: listingSourceProvenance(payload, item),
         scopeCompletionId: completionId,
         staleForProjection: projectionState.staleForProjection,
         previewResultId: item.previewResultId,
@@ -1238,6 +1248,7 @@ async function persistUnmatchedDiagnosticObservations(
       observedAt: item.observedAt,
       sourceRunId: item.sourceRunId ?? payload.upstreamRunKey,
       sourceHighWatermark: projectionState.sourceHighWatermark,
+      sourceProvenance: listingSourceProvenance(payload, item),
       scopeCompletionId: completionId,
       staleForProjection: projectionState.staleForProjection,
       previewResultId: item.previewResultId,
@@ -1295,8 +1306,10 @@ async function reconcileScopeCompletionAbsence(
           eq(listingObservations.sourceName, sourceName),
           eq(listingObservations.origin, 'mirror'),
           eq(listingObservations.staleForProjection, false),
-          eq(listingObservations.sourceStatus, 'available'),
-          sql`${listingObservations.diagnosticStatus} IS NULL`,
+          sql`(
+            ${listingObservations.sourceStatus} = 'available'
+            OR ${listingObservations.diagnosticStatus} IS NOT NULL
+          )`,
           sql`${listingObservations.sourceHighWatermark} = ${completionState.sourceHighWatermark.toISOString()}::timestamptz`,
           sql`${listingObservations.sourceRunId} IS NOT DISTINCT FROM ${(completion.sourceRunId ?? payload.upstreamRunKey) ?? null}`,
           listingType === 'unknown'
@@ -1390,6 +1403,7 @@ async function reconcileScopeCompletionAbsence(
         observedAt: sourceRunCompletedAt,
         sourceRunId: completion.sourceRunId ?? payload.upstreamRunKey ?? null,
         sourceHighWatermark: completionState.sourceHighWatermark,
+        sourceProvenance: payload.sourceProvenance ?? 'replay',
         scopeCompletionId: completionId,
         staleForProjection: completionState.staleForProjection,
         payload: {

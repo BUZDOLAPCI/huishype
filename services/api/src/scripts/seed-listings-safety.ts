@@ -2,6 +2,8 @@ export interface ListingReplaySafetyOptions {
   maxSkipped: number;
   maxSkipRatio: number;
   batchSize: number;
+  maxAffectedCanonical?: number;
+  maxStaleRows?: number;
 }
 
 export interface ListingReplaySafetySummary {
@@ -9,6 +11,8 @@ export interface ListingReplaySafetySummary {
   mirrorListingCount: number;
   preparedListingCount: number;
   skippedBeforeIngestCount: number;
+  affectedCanonicalCount?: number;
+  staleObservationCount?: number;
 }
 
 export interface ListingReplayPreparationEvidence {
@@ -19,15 +23,9 @@ export interface ListingReplayPreparationEvidence {
   diagnosticStatus: string | null | undefined;
 }
 
-export function shouldPreserveMirrorRowForIngest(evidence: ListingReplayPreparationEvidence): boolean {
-  if (!evidence.listingUrl?.trim()) {
-    return false;
-  }
+export type ListingReplayTransitionClass = 'projectable' | 'diagnostic' | 'skipped';
 
-  if (evidence.diagnosticStatus) {
-    return true;
-  }
-
+export function hasCompleteMirrorAddress(evidence: ListingReplayPreparationEvidence): boolean {
   return Boolean(
     evidence.street?.trim()
       && evidence.postalCode?.trim()
@@ -37,9 +35,33 @@ export function shouldPreserveMirrorRowForIngest(evidence: ListingReplayPreparat
   );
 }
 
+export function classifyListingReplayPreparation(
+  evidence: ListingReplayPreparationEvidence,
+): ListingReplayTransitionClass {
+  if (!evidence.listingUrl?.trim()) {
+    return 'skipped';
+  }
+
+  if (evidence.diagnosticStatus) {
+    return 'diagnostic';
+  }
+
+  return hasCompleteMirrorAddress(evidence) ? 'projectable' : 'diagnostic';
+}
+
+export function shouldPreserveMirrorRowForIngest(evidence: ListingReplayPreparationEvidence): boolean {
+  return classifyListingReplayPreparation(evidence) !== 'skipped';
+}
+
 export function buildListingReplayThresholds(
-  summary: Pick<ListingReplaySafetySummary, 'mirrorListingCount' | 'skippedBeforeIngestCount'>,
-  options: Pick<ListingReplaySafetyOptions, 'maxSkipped' | 'maxSkipRatio'>,
+  summary: Pick<
+    ListingReplaySafetySummary,
+    'mirrorListingCount' | 'skippedBeforeIngestCount' | 'affectedCanonicalCount' | 'staleObservationCount'
+  >,
+  options: Pick<
+    ListingReplaySafetyOptions,
+    'maxSkipped' | 'maxSkipRatio' | 'maxAffectedCanonical' | 'maxStaleRows'
+  >,
 ) {
   const skipRatio = summary.mirrorListingCount === 0
     ? 0
@@ -51,10 +73,24 @@ export function buildListingReplayThresholds(
   if (skipRatio > options.maxSkipRatio) {
     violations.push('max_skip_ratio');
   }
+  if (
+    options.maxAffectedCanonical !== undefined
+    && (summary.affectedCanonicalCount ?? 0) > options.maxAffectedCanonical
+  ) {
+    violations.push('max_affected_canonical');
+  }
+  if (
+    options.maxStaleRows !== undefined
+    && (summary.staleObservationCount ?? 0) > options.maxStaleRows
+  ) {
+    violations.push('max_stale_rows');
+  }
 
   return {
     maxSkipped: options.maxSkipped,
     maxSkipRatio: options.maxSkipRatio,
+    maxAffectedCanonical: options.maxAffectedCanonical ?? null,
+    maxStaleRows: options.maxStaleRows ?? null,
     skipRatio,
     violations,
   };
