@@ -94,6 +94,9 @@ export const config = {
     parariusApiKey: process.env.PARARIUS_SOURCE_SERVICE_API_KEY || '',
     requestTimeoutMs: parseInt(process.env.SOURCE_SERVICE_REQUEST_TIMEOUT_MS || '15000', 10),
   },
+  ingest: {
+    listingBodyLimitBytes: parseInt(process.env.INGEST_LISTINGS_BODY_LIMIT_BYTES || String(10 * 1024 * 1024), 10),
+  },
   env,
   isDev,
   isTest: env === 'test',

@@ -2736,6 +2736,43 @@ describe('Listing routes', () => {
   });
 
   describe('POST /api/ingest/listings', () => {
+    it('should allow mirror ingest bodies above the Fastify default parser limit', async () => {
+      const largeDescription = 'x'.repeat(1_100_000);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/ingest/listings',
+        payload: {
+          sourceName: 'funda',
+          idempotencyKey: `large-unauthorized-${Date.now()}`,
+          batchSequence: 0,
+          cursorStart: null,
+          cursorEnd: encodeOpaqueIngestCursor({
+            changedAt: '2026-04-06T12:00:00.000Z',
+            listingKey: 'large-unauthorized',
+          }),
+          listings: [
+            {
+              sourceUrl: 'https://www.funda.nl/koop/eindhoven/huis-large/',
+              mirrorListingId: `large-unauthorized-${Date.now()}`,
+              askingPrice: 450000,
+              priceType: 'sale',
+              description: largeDescription,
+              address: {
+                countryCode: 'NL',
+                street: 'Teststraat',
+                postalCode: '1234 AB',
+                houseNumber: 10,
+                city: 'Eindhoven',
+              },
+            },
+          ],
+        },
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
     it('should reject unauthenticated requests (no API key)', async () => {
       const response = await app.inject({
         method: 'POST',

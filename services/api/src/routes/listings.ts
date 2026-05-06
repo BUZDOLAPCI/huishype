@@ -721,6 +721,7 @@ export async function listingRoutes(app: FastifyInstance) {
   typedApp.post(
     '/api/ingest/listings',
     {
+      bodyLimit: config.ingest.listingBodyLimitBytes,
       schema: {
         tags: ['ingest'],
         summary: 'Batch ingest listings from mirror',
