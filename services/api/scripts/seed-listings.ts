@@ -20,7 +20,12 @@ import {
   encodeOpaqueIngestCursor,
   getIngestWatermark,
   processIngestBatch,
+  refreshLatestListingsMaintenance,
 } from '../src/services/ingest/index.js';
+import {
+  refreshLatestListingsView,
+  refreshPriceGuessStartMarketSummaries,
+} from '../src/services/listings-view.js';
 import { closeConnection } from '../src/db/index.js';
 import type { ListingSourceAlias } from '../src/services/listing-source-resolution.js';
 import {
@@ -1020,6 +1025,17 @@ async function executeSource(
   }
 
   await flushBatch(true);
+  const refreshedBatchCount = await refreshLatestListingsMaintenance([
+    refreshLatestListingsView,
+    refreshPriceGuessStartMarketSummaries,
+  ], {
+    skippedBatchRecoveryLimit: 100,
+  });
+  resultSummary.readModelRefreshCount = refreshedBatchCount;
+  resultSummary.transitionCounts = {
+    ...resultSummary.transitionCounts,
+    readModelRefreshes: refreshedBatchCount,
+  };
   return resultSummary;
 }
 

@@ -730,6 +730,83 @@ describe('Listing routes', () => {
       expect(mockFetchFn).toHaveBeenCalledTimes(2);
     });
 
+    it('rejects blocked source previews before storing provisional listings or handoffs', async () => {
+      const rawUrl = 'https://www.funda.nl/detail/koop/eindhoven/huis-blocked-preview/90210014/';
+      const canonicalUrl = 'https://www.funda.nl/detail/90210014/';
+      const beforePreviewRows = await db
+        .select({ id: listingPreviewResults.id })
+        .from(listingPreviewResults)
+        .where(eq(listingPreviewResults.propertyId, testPropertyId));
+      const beforeCandidateRows = await db
+        .select({ id: listingCandidateHandoffs.id })
+        .from(listingCandidateHandoffs)
+        .where(eq(listingCandidateHandoffs.propertyId, testPropertyId));
+      const beforeCanonicalRows = await db
+        .select({ id: canonicalListings.id })
+        .from(canonicalListings)
+        .where(eq(canonicalListings.propertyId, testPropertyId));
+
+      mockFetchFn
+        .mockResolvedValueOnce(jsonResponse({
+          supported: true,
+          sourceName: 'funda',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId: '90210014',
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: '90210014' }],
+          listingPath: '/detail/90210014/',
+          reasonCode: null,
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          state: 'blocked',
+          reasonCode: 'captcha',
+          sourceName: 'funda',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId: '90210014',
+          sourceListingIdKind: 'tiny_id',
+          aliases: [{ kind: 'tiny_id', value: '90210014' }],
+          sourceStatus: 'blocked',
+        }));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/listings/preview',
+        payload: {
+          url: rawUrl,
+          propertyId: testPropertyId,
+          title: 'Blocked preview should not store',
+        },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'LISTING_VALIDATION_FAILED',
+        message: 'Listing validation failed: source_blocked',
+      });
+      expect(mockFetchFn).toHaveBeenCalledTimes(2);
+
+      await expect(
+        db
+          .select({ id: listingPreviewResults.id })
+          .from(listingPreviewResults)
+          .where(eq(listingPreviewResults.propertyId, testPropertyId)),
+      ).resolves.toHaveLength(beforePreviewRows.length);
+      await expect(
+        db
+          .select({ id: listingCandidateHandoffs.id })
+          .from(listingCandidateHandoffs)
+          .where(eq(listingCandidateHandoffs.propertyId, testPropertyId)),
+      ).resolves.toHaveLength(beforeCandidateRows.length);
+      await expect(
+        db
+          .select({ id: canonicalListings.id })
+          .from(canonicalListings)
+          .where(eq(canonicalListings.propertyId, testPropertyId)),
+      ).resolves.toHaveLength(beforeCanonicalRows.length);
+    });
+
     it('should not fetch OG metadata when source-service resolution fails', async () => {
       const rawUrl = 'https://www.funda.nl/detail/koop/eindhoven/huis-no-og/90210012/';
 

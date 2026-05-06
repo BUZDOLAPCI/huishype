@@ -31,6 +31,11 @@ describe('validateProductionSecrets', () => {
     RESEND_API_KEY: 're_test_key',
     EMAIL_FROM: 'HuisHype <noreply@huishype.nl>',
     EMAIL_REPLY_TO: 'support@huishype.nl',
+    INGEST_API_KEY: 'ingest-secret',
+    FUNDA_SOURCE_SERVICE_URL: 'https://funda-source.internal',
+    FUNDA_SOURCE_SERVICE_API_KEY: 'funda-source-secret',
+    PARARIUS_SOURCE_SERVICE_URL: 'https://pararius-source.internal',
+    PARARIUS_SOURCE_SERVICE_API_KEY: 'pararius-source-secret',
   };
 
   it('should not throw in dev mode even if all secrets are missing', () => {
@@ -83,7 +88,7 @@ describe('validateProductionSecrets', () => {
 
   it('should list all missing secrets in the error message', () => {
     expect(() => validateProductionSecrets({}, false)).toThrow(
-      'Missing required secrets in production: JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET, GOOGLE_CLIENT_ID, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO',
+      'Missing required secrets in production: JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET, GOOGLE_CLIENT_ID, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO, INGEST_API_KEY, FUNDA_SOURCE_SERVICE_URL, FUNDA_SOURCE_SERVICE_API_KEY, PARARIUS_SOURCE_SERVICE_URL, PARARIUS_SOURCE_SERVICE_API_KEY',
     );
   });
 
@@ -105,6 +110,20 @@ describe('validateProductionSecrets', () => {
     const env = { ...fullSecrets, EMAIL_REPLY_TO: undefined };
     expect(() => validateProductionSecrets(env, false)).toThrow(
       'Missing required secrets in production: EMAIL_REPLY_TO',
+    );
+  });
+
+  it('should throw in production when ingest/source-service architecture secrets are missing', () => {
+    const env = {
+      ...fullSecrets,
+      INGEST_API_KEY: undefined,
+      FUNDA_SOURCE_SERVICE_URL: undefined,
+      FUNDA_SOURCE_SERVICE_API_KEY: undefined,
+      PARARIUS_SOURCE_SERVICE_URL: undefined,
+      PARARIUS_SOURCE_SERVICE_API_KEY: undefined,
+    };
+    expect(() => validateProductionSecrets(env, false)).toThrow(
+      'INGEST_API_KEY, FUNDA_SOURCE_SERVICE_URL, FUNDA_SOURCE_SERVICE_API_KEY, PARARIUS_SOURCE_SERVICE_URL, PARARIUS_SOURCE_SERVICE_API_KEY',
     );
   });
 

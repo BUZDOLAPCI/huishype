@@ -499,6 +499,7 @@ export async function listingRoutes(app: FastifyInstance) {
         response: {
           200: previewResponseSchema,
           400: errorResponseSchema,
+          422: errorResponseSchema,
           404: errorResponseSchema,
         },
       },
@@ -544,7 +545,7 @@ export async function listingRoutes(app: FastifyInstance) {
       });
 
       if (!isSubmittablePreviewPlan(plan)) {
-        return reply.status(400).send({
+        return reply.status(plan.reasonCode === 'source_blocked' ? 422 : 400).send({
           error: 'LISTING_VALIDATION_FAILED',
           message: `Listing validation failed: ${plan.reasonCode}`,
         });

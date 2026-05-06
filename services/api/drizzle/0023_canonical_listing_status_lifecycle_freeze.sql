@@ -2,6 +2,21 @@ DROP MATERIALIZED VIEW IF EXISTS "mv_price_guess_start_market_summaries";--> sta
 DROP MATERIALIZED VIEW IF EXISTS "mv_latest_active_listings";--> statement-breakpoint
 DROP VIEW IF EXISTS "v_canonical_listing_facts";--> statement-breakpoint
 
+CREATE TEMP TABLE IF NOT EXISTS "_canonical_listing_status_0023_affected_properties"
+ON COMMIT DROP AS
+SELECT DISTINCT "property_id"
+FROM "canonical_listings"
+WHERE "status"::text IN ('not_found', 'blocked', 'invalid', 'parser_error', 'unknown');--> statement-breakpoint
+
+DROP TRIGGER IF EXISTS "canonical_listings_property_tile_listing_candidate_refresh"
+ON "canonical_listings";--> statement-breakpoint
+DROP TRIGGER IF EXISTS "canonical_listings_property_tile_listing_fact_refresh"
+ON "canonical_listings";--> statement-breakpoint
+DROP INDEX IF EXISTS "canonical_listings_property_status_idx";--> statement-breakpoint
+DROP INDEX IF EXISTS "canonical_listings_tile_candidate_status_property_idx";--> statement-breakpoint
+DROP INDEX IF EXISTS "canonical_listings_tile_thumbnail_idx";--> statement-breakpoint
+DROP INDEX IF EXISTS "canonical_listings_tile_active_latest_idx";--> statement-breakpoint
+
 UPDATE "canonical_listings"
 SET "status" = CASE "status"::text
   WHEN 'not_found' THEN 'withdrawn'::"canonical_listing_status"
@@ -63,6 +78,87 @@ BEGIN
     CHECK ("status"::text IN ('active', 'sold', 'rented', 'withdrawn'));
 EXCEPTION
   WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+
+CREATE INDEX IF NOT EXISTS "canonical_listings_property_status_idx"
+ON "canonical_listings" ("property_id", "status");--> statement-breakpoint
+
+CREATE INDEX IF NOT EXISTS "canonical_listings_tile_candidate_status_property_idx"
+ON "canonical_listings" ("status", "property_id")
+WHERE "verification_state" <> 'invalid'
+  AND "status" IN ('active', 'sold', 'rented');--> statement-breakpoint
+
+CREATE INDEX IF NOT EXISTS "canonical_listings_tile_thumbnail_idx"
+ON "canonical_listings" (
+  "property_id",
+  ("status" = 'active') DESC,
+  COALESCE(
+    "last_reconciled_at",
+    "last_mirror_seen_at",
+    "last_user_seen_at",
+    "last_seen_at",
+    "updated_at",
+    "created_at"
+  ) DESC,
+  "created_at" DESC,
+  "id" DESC
+)
+INCLUDE ("thumbnail_url")
+WHERE "verification_state" <> 'invalid'
+  AND "thumbnail_url" IS NOT NULL;--> statement-breakpoint
+
+CREATE INDEX IF NOT EXISTS "canonical_listings_tile_active_latest_idx"
+ON "canonical_listings" (
+  "property_id",
+  COALESCE(
+    "last_reconciled_at",
+    "last_mirror_seen_at",
+    "last_user_seen_at",
+    "last_seen_at",
+    "updated_at",
+    "created_at"
+  ) DESC,
+  "created_at" DESC,
+  "id" DESC
+)
+WHERE "verification_state" <> 'invalid'
+  AND "status" = 'active';--> statement-breakpoint
+
+CREATE TRIGGER "canonical_listings_property_tile_listing_candidate_refresh"
+AFTER INSERT OR DELETE OR UPDATE OF "property_id", "status", "verification_state"
+ON "canonical_listings"
+FOR EACH ROW
+EXECUTE FUNCTION refresh_property_tile_listing_candidate_from_listing();--> statement-breakpoint
+
+CREATE TRIGGER "canonical_listings_property_tile_listing_fact_refresh"
+AFTER INSERT OR DELETE OR UPDATE OF
+  "id",
+  "property_id",
+  "status",
+  "verification_state",
+  "source_name",
+  "price_type",
+  "last_reconciled_at",
+  "last_mirror_seen_at",
+  "last_user_seen_at",
+  "last_seen_at",
+  "updated_at",
+  "created_at"
+ON "canonical_listings"
+FOR EACH ROW
+EXECUTE FUNCTION refresh_property_tile_listing_fact_from_listing();--> statement-breakpoint
+
+DO $$
+DECLARE
+  affected_property_id uuid;
+BEGIN
+  FOR affected_property_id IN
+    SELECT "property_id"
+    FROM "_canonical_listing_status_0023_affected_properties"
+  LOOP
+    PERFORM refresh_property_tile_listing_candidate(affected_property_id);
+    PERFORM refresh_property_tile_listing_fact(affected_property_id);
+  END LOOP;
 END $$;--> statement-breakpoint
 
 CREATE VIEW "v_canonical_listing_facts" AS

@@ -616,6 +616,7 @@ export const listingScopeCompletions = pgTable(
       table.sourceName,
       table.scopeKey,
       table.listingType,
+      table.normalizedFilters,
       sql`COALESCE(${table.sourceRunId}, '')`,
       table.sourceHighWatermark
     ),

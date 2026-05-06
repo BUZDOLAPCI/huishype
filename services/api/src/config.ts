@@ -40,6 +40,11 @@ export function validateProductionSecrets(env: Record<string, string | undefined
   if (!env.RESEND_API_KEY) missing.push('RESEND_API_KEY');
   if (!env.EMAIL_FROM) missing.push('EMAIL_FROM');
   if (!env.EMAIL_REPLY_TO) missing.push('EMAIL_REPLY_TO');
+  if (!env.INGEST_API_KEY) missing.push('INGEST_API_KEY');
+  if (!env.FUNDA_SOURCE_SERVICE_URL) missing.push('FUNDA_SOURCE_SERVICE_URL');
+  if (!env.FUNDA_SOURCE_SERVICE_API_KEY) missing.push('FUNDA_SOURCE_SERVICE_API_KEY');
+  if (!env.PARARIUS_SOURCE_SERVICE_URL) missing.push('PARARIUS_SOURCE_SERVICE_URL');
+  if (!env.PARARIUS_SOURCE_SERVICE_API_KEY) missing.push('PARARIUS_SOURCE_SERVICE_API_KEY');
   if (missing.length > 0) {
     throw new Error(`Missing required secrets in production: ${missing.join(', ')}`);
   }

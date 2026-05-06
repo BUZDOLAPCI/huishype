@@ -748,6 +748,65 @@ describe('Durable ingest API contract', () => {
     expect(scopeWatermark).toBeUndefined();
   });
 
+  it('persists separate scope completions for the same run and watermark with different normalized filters', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-filter-idempotency-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T13:30:00.000Z',
+        listingKey: `idealista-filter-idempotency-${stamp}`,
+      }),
+      upstreamRunKey: `idealista-filter-idempotency-run-${stamp}`,
+      batchKind: 'completion',
+      completions: [
+        {
+          scopeKey: 'city:eindhoven',
+          listingType: 'sale',
+          normalizedFilters: { rooms: 3 },
+          sourceRunCompletedAt: '2026-04-06T13:30:00.000Z',
+          observedListingCount: 0,
+          sourceHighWatermark: '2026-04-06T13:30:00.000Z',
+        },
+        {
+          scopeKey: 'city:eindhoven',
+          listingType: 'sale',
+          normalizedFilters: { rooms: 4 },
+          sourceRunCompletedAt: '2026-04-06T13:30:00.000Z',
+          observedListingCount: 0,
+          sourceHighWatermark: '2026-04-06T13:30:00.000Z',
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const completions = await db
+      .select({
+        normalizedFilters: listingScopeCompletions.normalizedFilters,
+      })
+      .from(listingScopeCompletions)
+      .where(eq(listingScopeCompletions.ingestBatchId, accepted.batchId));
+
+    expect(completions.map((row) => row.normalizedFilters)).toEqual(
+      expect.arrayContaining([{ rooms: 3 }, { rooms: 4 }]),
+    );
+    expect(completions).toHaveLength(2);
+  });
+
   it('withdraws active listings absent from a completed scope-only batch and requests read-model refresh', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
@@ -862,6 +921,117 @@ describe('Durable ingest API contract', () => {
       staleForProjection: false,
     });
     expect(maintenanceCalls).toBe(1);
+  });
+
+  it('does not let an older completion withdraw a newer active observation', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const street = `Older Completion Street ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 44 });
+    const mirrorListingId = `idealista-older-completion-${stamp}`;
+    const sourceUrl = `https://www.idealista.com/inmueble/older-completion-${stamp}/`;
+    const activeCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T16:00:00.000Z',
+      listingKey: `${mirrorListingId}-active`,
+    });
+
+    const activeAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-older-completion-active-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: activeCursor,
+      upstreamRunKey: `idealista-older-completion-active-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl,
+          mirrorListingId,
+          scopeKey: 'city:eindhoven',
+          askingPrice: 431000,
+          priceType: 'sale',
+          status: 'active',
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-06T16:00:00.000Z',
+          sourceHighWatermark: '2026-04-06T16:00:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 44,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: activeAccepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const olderCompletion = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-older-completion-${stamp}`,
+      batchSequence: 1,
+      cursorStart: activeCursor,
+      cursorEnd: encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T17:00:00.000Z',
+        listingKey: `${mirrorListingId}-older-completion`,
+      }),
+      upstreamRunKey: `idealista-older-completion-repair-run-${stamp}`,
+      batchKind: 'completion',
+      repairMode: true,
+      repairReason: 'test older completion ordering',
+      completions: [
+        {
+          scopeKey: 'city:eindhoven',
+          listingType: 'sale',
+          sourceRunCompletedAt: '2026-04-06T15:00:00.000Z',
+          observedListingCount: 0,
+          sourceHighWatermark: '2026-04-06T15:00:00.000Z',
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: olderCompletion.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [canonical] = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.propertyId, propertyId))
+      .limit(1);
+    expect(canonical).toMatchObject({
+      sourceName,
+      primarySourceListingId: mirrorListingId,
+      status: 'active',
+      lastMirrorSeenAt: new Date('2026-04-06T16:00:00.000Z'),
+    });
+
+    const absenceRows = await db
+      .select()
+      .from(listingObservations)
+      .where(and(
+        eq(listingObservations.ingestBatchId, olderCompletion.batchId),
+        eq(listingObservations.sourceStatus, 'not_found'),
+      ));
+    expect(absenceRows).toHaveLength(0);
   });
 
   it('does not apply scoped absence across different normalized filters', async () => {

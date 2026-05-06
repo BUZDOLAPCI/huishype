@@ -169,6 +169,13 @@
       "when": 1778112000000,
       "tag": "0023_canonical_listing_status_lifecycle_freeze",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1778112000001,
+      "tag": "0024_listing_scope_completion_filter_idempotency",
+      "breakpoints": true
     }
   ]
 }

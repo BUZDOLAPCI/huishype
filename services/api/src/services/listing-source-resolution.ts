@@ -171,6 +171,7 @@ type PreviewReasonCode =
   | 'address_mismatch'
   | 'source_not_supported'
   | 'source_not_found'
+  | 'source_blocked'
   | 'mirror_unavailable'
   | 'parser_error'
   | 'og_unavailable'
@@ -484,6 +485,27 @@ function buildPlanFromValidation(
       aliases,
       propertyMatchKind: matchKind ?? 'source_unmatched',
       sourceStatus: validation.sourceStatus ?? 'not_found',
+    });
+  }
+
+  if (validation.state === 'blocked') {
+    return basePlan(input, resolution.sourceName, {
+      canonicalUrl: serviceCanonicalUrl,
+      sourceListingId: serviceSourceListingId,
+      sourceListingIdKind: serviceSourceListingIdKind,
+      validationState: 'invalid',
+      matchState: 'unverified',
+      handoffState: 'unsupported',
+      reasonCode: 'source_blocked',
+      title: displayTitle,
+      description: displayDescription,
+      imageUrl: displayImageUrl,
+      askingPrice: displayPrice,
+      currency: displayCurrency,
+      address: validation.address ?? null,
+      aliases,
+      propertyMatchKind: matchKind ?? 'source_unmatched',
+      sourceStatus: validation.sourceStatus ?? 'blocked',
     });
   }
 

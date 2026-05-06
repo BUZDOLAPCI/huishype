@@ -1163,6 +1163,7 @@ async function persistScopeCompletions(
   for (const completion of payload.completions ?? []) {
     const listingType = completionListingType(completion);
     const sourceHighWatermark = new Date(completion.sourceHighWatermark);
+    const sourceRunId = completion.sourceRunId ?? payload.upstreamRunKey ?? null;
     const { staleForProjection } = completionProjectionState(
       payload,
       existingWatermarks,
@@ -1176,7 +1177,7 @@ async function persistScopeCompletions(
         scopeKey: completion.scopeKey,
         listingType,
         normalizedFilters: completion.normalizedFilters ?? {},
-        sourceRunId: completion.sourceRunId ?? payload.upstreamRunKey ?? null,
+        sourceRunId,
         sourceRunStartedAt: parseOptionalDate(completion.sourceRunStartedAt ?? null),
         sourceRunCompletedAt: new Date(completion.sourceRunCompletedAt),
         coverageStatus: completion.coverageStatus ?? 'complete',
@@ -1203,6 +1204,7 @@ async function persistScopeCompletions(
             eq(listingScopeCompletions.scopeKey, completion.scopeKey),
             eq(listingScopeCompletions.listingType, listingType),
             eq(listingScopeCompletions.sourceHighWatermark, sourceHighWatermark),
+            sql`${listingScopeCompletions.sourceRunId} IS NOT DISTINCT FROM ${sourceRunId}`,
             sql`${listingScopeCompletions.normalizedFilters} = ${JSON.stringify(completion.normalizedFilters ?? {})}::jsonb`,
           ),
         )
@@ -1495,6 +1497,26 @@ async function reconcileScopeCompletionAbsence(
     const listingTypePredicate = listingType === 'unknown'
       ? sql`TRUE`
       : sql`${canonicalListings.priceType} = ${listingType}`;
+    const completionHighWatermarkSql = sql`${completionState.sourceHighWatermark.toISOString()}::timestamptz`;
+    const activeEvidenceSourceTime = sql`COALESCE(lo.source_high_watermark, lo.source_updated_at, lo.last_seen_at, lo.observed_at, lo.created_at)`;
+    const noNewerActiveEvidencePredicate = sql`NOT EXISTS (
+      SELECT 1
+      FROM listing_observation_links newer_lol
+      JOIN listing_observations newer_lo ON newer_lo.id = newer_lol.listing_observation_id
+      WHERE newer_lol.canonical_listing_id = ${canonicalListings.id}
+        AND newer_lo.source_name = ${sourceName}
+        AND newer_lo.origin = 'mirror'
+        AND newer_lo.stale_for_projection = false
+        AND newer_lo.diagnostic_status IS NULL
+        AND newer_lo.source_status = 'available'
+        AND COALESCE(
+          newer_lo.source_high_watermark,
+          newer_lo.source_updated_at,
+          newer_lo.last_seen_at,
+          newer_lo.observed_at,
+          newer_lo.created_at
+        ) > ${completionHighWatermarkSql}
+    )`;
     const priorFilterPredicate = normalizedFiltersAreEmpty(completion.normalizedFilters) || sourceWideCompletion
       ? sql`(
           lo.scope_completion_id IS NULL
@@ -1522,10 +1544,17 @@ async function reconcileScopeCompletionAbsence(
         `;
     const canonicalEvidencePredicate = sourceWideCompletion
       ? sql`(
-          ${canonicalListings.originSummary} IN ('mirror', 'user_and_mirror')
-          OR ${canonicalListings.statusSource} = 'mirror'
-          OR ${canonicalListings.verificationState} = 'validated'
-          OR ${canonicalListings.lastMirrorSeenAt} IS NOT NULL
+          (
+            ${canonicalListings.originSummary} IN ('mirror', 'user_and_mirror')
+            OR ${canonicalListings.statusSource} = 'mirror'
+            OR ${canonicalListings.verificationState} = 'validated'
+            OR ${canonicalListings.lastMirrorSeenAt} IS NOT NULL
+          )
+          AND COALESCE(
+            ${canonicalListings.lastMirrorSeenAt},
+            ${canonicalListings.lastSeenAt}
+          ) <= ${completionHighWatermarkSql}
+          AND ${noNewerActiveEvidencePredicate}
         )`
       : sql`
           EXISTS (
@@ -1539,7 +1568,9 @@ async function reconcileScopeCompletionAbsence(
               AND lo.diagnostic_status IS NULL
               AND lo.source_status = 'available'
               AND ${priorScopePredicate}
+              AND ${activeEvidenceSourceTime} <= ${completionHighWatermarkSql}
           )
+          AND ${noNewerActiveEvidencePredicate}
         `;
 
     const candidates = await tx
