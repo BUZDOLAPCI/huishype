@@ -23,13 +23,27 @@ describe('GET /health', () => {
     expect(response.statusCode).toBe(200);
   });
 
-  it('should return status ok or degraded depending on pyramid availability', async () => {
+  it('should mirror property tile pyramid readiness in the canonical health status', async () => {
     const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });
     const body = JSON.parse(response.body);
-    expect(['ok', 'degraded']).toContain(body.status);
+    expect(body.status).toBe(body.propertyTilePyramid.status);
+
+    if (body.status === 'ok') {
+      expect(body.propertyTilePyramid.currentVersionId).toEqual(expect.any(String));
+      expect(body.propertyTilePyramid.degradedReason).toBeNull();
+      expect(body.propertyTilePyramid.terminalFailureCount).toBe(0);
+    } else {
+      expect(body.propertyTilePyramid.status).toBe('degraded');
+      expect(
+        body.propertyTilePyramid.degradedReason ||
+          body.propertyTilePyramid.activeCandidateVersionId ||
+          body.propertyTilePyramid.retryableFailureDueAt ||
+          body.propertyTilePyramid.terminalFailureCount > 0
+      ).toBeTruthy();
+    }
   });
 
   it('should include expected response shape', async () => {

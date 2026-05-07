@@ -1540,6 +1540,10 @@ export const propertyTilePyramidTiles = pgTable(
     index('property_tile_pyramid_tiles_payload_retention_idx')
       .on(table.versionId, table.payloadGeneratedAt)
       .where(sql`payload IS NOT NULL`),
+    index('property_tile_pyramid_tiles_promotion_invalid_idx')
+      .on(table.versionId)
+      .where(sql`validation_status <> 'validated'
+        OR tile_status NOT IN ('valid_empty', 'valid_nodes', 'valid_encoded')`),
     check(
       'property_tile_pyramid_tiles_coord_check',
       sql`${table.z} >= 0

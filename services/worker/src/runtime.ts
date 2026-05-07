@@ -441,6 +441,7 @@ export class WorkerRuntime {
     const result = await pyramid.executeDuePropertyTilePyramidBuild({
       reason: job.data.reason,
       leaseOwner: `worker:${process.pid}:${job.id ?? 'unknown'}`,
+      versionId: job.data.versionId,
       logger: toIngestLogger(this.logger),
     });
 

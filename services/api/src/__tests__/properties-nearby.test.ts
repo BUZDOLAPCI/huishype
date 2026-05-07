@@ -224,14 +224,26 @@ async function withHermeticCurrentPyramidNode(
     versionId: string;
     propertyIds: string[];
   }) => Promise<void>,
+  options: {
+    includeTileManifest?: boolean;
+    lon?: number;
+    lat?: number;
+    tile?: { z: number; x: number; y: number };
+    manifestTile?: { z: number; x: number; y: number };
+    tileStatus?: 'valid_nodes' | 'valid_encoded';
+  } = {},
 ) {
+  const includeTileManifest = options.includeTileManifest ?? true;
+  const tileStatus = options.tileStatus ?? 'valid_nodes';
   const slot = getDefaultPropertyTilePyramidSlot();
   const versionId = crypto.randomUUID();
   const nodeId = `nearby-fractional-${versionId}`;
   const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
-  const lon = 5.812845;
-  const lat = 52.123956;
-  const tile = tileForCoordinate(lon, lat, getPropertyTilePyramidMaxZoom());
+  const lon = options.lon ?? 5.812845;
+  const lat = options.lat ?? 52.123956;
+  const tile = options.tile ?? tileForCoordinate(lon, lat, getPropertyTilePyramidMaxZoom());
+  const manifestTile = options.manifestTile ?? tile;
+  const payload = tileStatus === 'valid_encoded' ? Buffer.from(`nearby-encoded-${versionId}`) : null;
   const previousRows = await db.execute<{
     current_version_id: string;
     previous_version_id: string | null;
@@ -319,6 +331,39 @@ async function withHermeticCurrentPyramidNode(
     )
   `);
 
+  if (includeTileManifest) {
+    await db.execute(sql`
+      INSERT INTO property_tile_pyramid_tiles (
+        version_id,
+        z,
+        x,
+        y,
+        tile_status,
+        validation_status,
+        node_count,
+        etag,
+        payload,
+        payload_sha256,
+        payload_generated_at,
+        validated_at
+      )
+      VALUES (
+        ${versionId},
+        ${manifestTile.z},
+        ${manifestTile.x},
+        ${manifestTile.y},
+        ${tileStatus}::property_tile_pyramid_tile_status,
+        'validated',
+        ${propertyIds.length},
+        ${`nearby-fractional-etag-${versionId}`},
+        ${payload},
+        ${payload ? crypto.createHash('sha256').update(payload).digest('hex') : null},
+        ${payload ? sql`NOW()` : null},
+        NOW()
+      )
+    `);
+  }
+
   await db.execute(sql`
     INSERT INTO property_tile_pyramid_current (
       coverage_id,
@@ -380,6 +425,70 @@ async function withHermeticCurrentPyramidNode(
   }
 }
 
+async function withTemporarilyNoCurrentPyramid(
+  run: (fixture: { slot: ReturnType<typeof getDefaultPropertyTilePyramidSlot> }) => Promise<void>,
+) {
+  const slot = getDefaultPropertyTilePyramidSlot();
+  const previousRows = await db.execute<{
+    current_version_id: string;
+    previous_version_id: string | null;
+    current_promoted_at: Date;
+    promotion_reason: string | null;
+  }>(sql`
+    SELECT current_version_id::text, previous_version_id::text, current_promoted_at, promotion_reason
+    FROM property_tile_pyramid_current
+    WHERE coverage_id = ${slot.coverageId}
+      AND filter_signature = ${slot.filterSignature}
+      AND max_zoom = ${slot.maxZoom}
+      AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+  `);
+  const previousCurrent = Array.from(previousRows)[0] ?? null;
+
+  await db.execute(sql`
+    DELETE FROM property_tile_pyramid_current
+    WHERE coverage_id = ${slot.coverageId}
+      AND filter_signature = ${slot.filterSignature}
+      AND max_zoom = ${slot.maxZoom}
+      AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+  `);
+
+  try {
+    await run({ slot });
+  } finally {
+    if (previousCurrent) {
+      await db.execute(sql`
+        INSERT INTO property_tile_pyramid_current (
+          coverage_id,
+          filter_signature,
+          max_zoom,
+          pyramid_kind,
+          current_version_id,
+          previous_version_id,
+          current_promoted_at,
+          promotion_reason
+        )
+        VALUES (
+          ${slot.coverageId},
+          ${slot.filterSignature},
+          ${slot.maxZoom},
+          ${slot.pyramidKind}::property_tile_pyramid_kind,
+          ${previousCurrent.current_version_id},
+          ${previousCurrent.previous_version_id},
+          ${previousCurrent.current_promoted_at},
+          ${previousCurrent.promotion_reason}
+        )
+        ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
+        DO UPDATE SET
+          current_version_id = EXCLUDED.current_version_id,
+          previous_version_id = EXCLUDED.previous_version_id,
+          current_promoted_at = EXCLUDED.current_promoted_at,
+          promotion_reason = EXCLUDED.promotion_reason,
+          updated_at = NOW()
+      `);
+    }
+  }
+}
+
 function tileForCoordinate(lon: number, lat: number, zoom: number) {
   const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
   return {
@@ -387,6 +496,14 @@ function tileForCoordinate(lon: number, lat: number, zoom: number) {
     x: Math.floor(worldX / PROPERTY_TILE_EXTENT),
     y: Math.floor(worldY / PROPERTY_TILE_EXTENT),
   };
+}
+
+function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
+  const scale = Math.pow(2, zoom) * PROPERTY_TILE_EXTENT;
+  const lon = (worldX / scale) * 360 - 180;
+  const mercatorY = Math.PI * (1 - (2 * worldY) / scale);
+  const lat = (Math.atan(Math.sinh(mercatorY)) * 180) / Math.PI;
+  return [lon, lat];
 }
 
 function getTileNeighborhood(tile: { z: number; x: number; y: number }) {
@@ -469,6 +586,38 @@ describe('GET /properties/nearby', () => {
         method: 'GET',
         url: '/properties/nearby?lon=5.4697&lat=100',
       });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('should return 400 when pyramidVersionId is malformed', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url:
+          '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10' +
+          '&pyramidVersionId=not-a-uuid' +
+          '&pyramidNodeId=test-node',
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('should return 400 when pyramidVersionId is provided without pyramidNodeId', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url:
+          '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10' +
+          '&pyramidVersionId=00000000-0000-4000-a000-000000000001',
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('should return 400 when pyramidNodeId is provided without pyramidVersionId', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10&pyramidNodeId=test-node',
+      });
+
       expect(response.statusCode).toBe(400);
     });
 
@@ -647,6 +796,52 @@ describe('GET /properties/nearby', () => {
       );
     });
 
+    it('requests a durable pyramid build when covered low-zoom nearby has no current version', async () => {
+      await withTemporarilyNoCurrentPyramid(async ({ slot }) => {
+        const beforeRows = await db.execute<{ id: string }>(sql`
+          SELECT id::text
+          FROM property_tile_pyramid_versions
+          WHERE coverage_id = ${slot.coverageId}
+            AND filter_signature = ${slot.filterSignature}
+            AND max_zoom = ${slot.maxZoom}
+            AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+        `);
+        const beforeIds = new Set(Array.from(beforeRows).map((row) => row.id));
+
+        const response = await app.inject({
+          method: 'GET',
+          url: '/properties/nearby?lon=5.812345&lat=52.123456&zoom=10',
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body)).toBeNull();
+        expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-unavailable');
+
+        const afterRows = await db.execute<{ id: string; request_reason: string | null }>(sql`
+          SELECT id::text, request_reason
+          FROM property_tile_pyramid_versions
+          WHERE coverage_id = ${slot.coverageId}
+            AND filter_signature = ${slot.filterSignature}
+            AND max_zoom = ${slot.maxZoom}
+            AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+            AND request_reason = 'nearby-fallback-miss'
+        `);
+        const buildRequests = Array.from(afterRows);
+
+        expect(buildRequests.length).toBeGreaterThan(0);
+
+        const createdIds = buildRequests
+          .map((row) => row.id)
+          .filter((id) => !beforeIds.has(id));
+        for (const id of createdIds) {
+          await db.execute(sql`
+            DELETE FROM property_tile_pyramid_versions
+            WHERE id = ${id}
+          `);
+        }
+      });
+    });
+
     it('uses the integer pyramid serving zoom for fractional default low-zoom nearby', async () => {
       await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId, propertyIds }) => {
         const response = await app.inject({
@@ -665,6 +860,125 @@ describe('GET /properties/nearby', () => {
         expect(body.groupKind).toBe('cluster');
         expect(body.previewPropertyIds).toEqual(propertyIds);
       });
+    });
+
+    it('uses valid encoded tile manifests for promoted point nearby nodes', async () => {
+      await withHermeticCurrentPyramidNode(
+        async ({ lon, lat, nodeId, versionId, propertyIds }) => {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10.75`,
+          });
+
+          expect(response.statusCode).toBe(200);
+          expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-promoted');
+
+          const body = JSON.parse(response.body);
+          expect(body).not.toBeNull();
+          expect(body.pyramidNodeId).toBe(nodeId);
+          expect(body.pyramidVersionId).toBe(versionId);
+          expect(body.previewPropertyIds).toEqual(propertyIds);
+        },
+        { tileStatus: 'valid_encoded' },
+      );
+    });
+
+    it('uses valid encoded tile manifests for exact pyramid node lookup', async () => {
+      await withHermeticCurrentPyramidNode(
+        async ({ lon, lat, nodeId, versionId, propertyIds }) => {
+          const response = await app.inject({
+            method: 'GET',
+            url:
+              `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10.75` +
+              `&pyramidVersionId=${versionId}` +
+              `&pyramidNodeId=${encodeURIComponent(nodeId)}`,
+          });
+
+          expect(response.statusCode).toBe(200);
+          expect(response.headers['x-huishype-nearby-status']).toBeUndefined();
+
+          const body = JSON.parse(response.body);
+          expect(body).not.toBeNull();
+          expect(body.pyramidNodeId).toBe(nodeId);
+          expect(body.pyramidVersionId).toBe(versionId);
+          expect(body.previewPropertyIds).toEqual(propertyIds);
+        },
+        { tileStatus: 'valid_encoded' },
+      );
+    });
+
+    it('finds promoted point nearby nodes in the tap tile neighborhood', async () => {
+      const zoom = getPropertyTilePyramidMaxZoom();
+      const baseTile = tileForCoordinate(5.812345, 52.123456, zoom);
+      const tapWorldX = (baseTile.x + 1) * PROPERTY_TILE_EXTENT - 16;
+      const nodeWorldX = (baseTile.x + 1) * PROPERTY_TILE_EXTENT + 16;
+      const worldY = (baseTile.y + 0.5) * PROPERTY_TILE_EXTENT;
+      const [tapLon, tapLat] = worldUnitsToLngLat(tapWorldX, worldY, zoom);
+      const [nodeLon, nodeLat] = worldUnitsToLngLat(nodeWorldX, worldY, zoom);
+      const neighborTile = { z: zoom, x: baseTile.x + 1, y: baseTile.y };
+
+      await withHermeticCurrentPyramidNode(
+        async ({ nodeId, versionId, propertyIds }) => {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/properties/nearby?lon=${tapLon}&lat=${tapLat}&zoom=${zoom}`,
+          });
+
+          expect(response.statusCode).toBe(200);
+          expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-promoted');
+
+          const body = JSON.parse(response.body);
+          expect(body).not.toBeNull();
+          expect(body.pyramidNodeId).toBe(nodeId);
+          expect(body.pyramidVersionId).toBe(versionId);
+          expect(body.previewPropertyIds).toEqual(propertyIds);
+        },
+        { lon: nodeLon, lat: nodeLat, tile: neighborTile },
+      );
+    });
+
+    it('does not expose point nearby nodes when only a different owner tile manifest is serveable', async () => {
+      const zoom = getPropertyTilePyramidMaxZoom();
+      const baseTile = tileForCoordinate(5.812345, 52.123456, zoom);
+      const tapWorldX = (baseTile.x + 1) * PROPERTY_TILE_EXTENT - 16;
+      const nodeWorldX = (baseTile.x + 1) * PROPERTY_TILE_EXTENT + 16;
+      const worldY = (baseTile.y + 0.5) * PROPERTY_TILE_EXTENT;
+      const [tapLon, tapLat] = worldUnitsToLngLat(tapWorldX, worldY, zoom);
+      const [nodeLon, nodeLat] = worldUnitsToLngLat(nodeWorldX, worldY, zoom);
+      const neighborTile = { z: zoom, x: baseTile.x + 1, y: baseTile.y };
+
+      await withHermeticCurrentPyramidNode(
+        async () => {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/properties/nearby?lon=${tapLon}&lat=${tapLat}&zoom=${zoom}`,
+          });
+
+          expect(response.statusCode).toBe(200);
+          expect(JSON.parse(response.body)).toBeNull();
+          expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-empty');
+        },
+        { lon: nodeLon, lat: nodeLat, tile: neighborTile, manifestTile: baseTile },
+      );
+    });
+
+    it('does not expose exact pyramid nodes whose owner tile manifest is not serveable', async () => {
+      await withHermeticCurrentPyramidNode(
+        async ({ lon, lat, nodeId, versionId }) => {
+          const response = await app.inject({
+            method: 'GET',
+            url:
+              `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10.75` +
+              `&pyramidVersionId=${versionId}` +
+              `&pyramidNodeId=${encodeURIComponent(nodeId)}`,
+          });
+
+          expect(response.statusCode).toBe(200);
+          expect(JSON.parse(response.body)).toBeNull();
+          expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-missing');
+        },
+        { includeTileManifest: false },
+      );
     });
 
     it('should return a grouped feature in a populated area', async () => {

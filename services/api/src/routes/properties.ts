@@ -7,6 +7,8 @@ import { formatDisplayAddress } from '../utils/address.js';
 import { getCountryConfig, isValidCountryCode, type CountryCode } from '@huishype/shared';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
 import {
+  PROPERTY_TILE_EXTENT,
+  lngLatToWorldUnits,
   resolveNearbyFollowingGroupedFeature,
   resolveNearbyGroupedFeature,
 } from '../services/property-grouping.js';
@@ -40,6 +42,7 @@ import {
   getPropertyTilePyramidMaxZoom,
   isDefaultPropertyTilePyramidPointCovered,
   lookupCurrentPropertyTilePyramidVersion,
+  safeRequestPropertyTilePyramidBuild,
 } from '../services/property-tile-pyramid.js';
 
 const coordinateSchema = z.object({
@@ -244,14 +247,24 @@ const resolveFoundResponseSchema = z.object({
 
 const resolveResponseSchema = z.nullable(resolveFoundResponseSchema);
 
-const nearbyQuerySchema = z.object({
-  lon: z.coerce.number().min(-180).max(180),
-  lat: z.coerce.number().min(-90).max(90),
-  zoom: z.coerce.number().min(0).max(22).default(17),
-  pyramidVersionId: z.string().min(1).optional(),
-  pyramidNodeId: z.string().min(1).optional(),
-  ...mapFiltersQuerySchema.shape,
-});
+const nearbyQuerySchema = z
+  .object({
+    lon: z.coerce.number().min(-180).max(180),
+    lat: z.coerce.number().min(-90).max(90),
+    zoom: z.coerce.number().min(0).max(22).default(17),
+    pyramidVersionId: z.string().uuid().optional(),
+    pyramidNodeId: z.string().min(1).optional(),
+    ...mapFiltersQuerySchema.shape,
+  })
+  .superRefine((query, ctx) => {
+    if (Boolean(query.pyramidVersionId) !== Boolean(query.pyramidNodeId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: query.pyramidVersionId ? ['pyramidNodeId'] : ['pyramidVersionId'],
+        message: 'pyramidVersionId and pyramidNodeId must be provided together',
+      });
+    }
+  });
 
 const readStateCoverageSchema = z.enum(['complete', 'partial']);
 
@@ -662,6 +675,37 @@ function hasPyramidNodeQueryPair(query: {
   return Boolean(query.pyramidVersionId && query.pyramidNodeId);
 }
 
+function pyramidOwnerTileForCoordinate(lon: number, lat: number, zoom: number) {
+  const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
+  const maxTileCoord = 2 ** zoom - 1;
+  return {
+    z: zoom,
+    x: Math.max(0, Math.min(maxTileCoord, Math.floor(worldX / PROPERTY_TILE_EXTENT))),
+    y: Math.max(0, Math.min(maxTileCoord, Math.floor(worldY / PROPERTY_TILE_EXTENT))),
+  };
+}
+
+function getPyramidOwnerTileNeighborhood(tile: { z: number; x: number; y: number }) {
+  const tileCount = Math.pow(2, tile.z);
+  const tiles: Array<{ z: number; x: number; y: number }> = [];
+  const seen = new Set<string>();
+
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      const x = (tile.x + dx + tileCount) % tileCount;
+      const y = tile.y + dy;
+      if (y < 0 || y >= tileCount) continue;
+
+      const key = `${x}:${y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tiles.push({ z: tile.z, x, y });
+    }
+  }
+
+  return tiles;
+}
+
 function mapPyramidNearbyNodeRow(
   row: PyramidNearbyNodeRow | null,
   versionId: string,
@@ -786,9 +830,20 @@ async function resolvePyramidNearbyNodeById(input: {
       thumbnail_url,
       has_active_listing,
       market_state
-    FROM property_tile_pyramid_nodes
-    WHERE version_id = ${input.pyramidVersionId}::uuid
-      AND node_id = ${input.pyramidNodeId}
+    FROM property_tile_pyramid_nodes n
+    JOIN property_tile_pyramid_tiles t
+      ON t.version_id = n.version_id
+     AND t.z = n.z
+     AND t.x = n.x
+     AND t.y = n.y
+     AND t.validation_status = 'validated'::property_tile_pyramid_tile_validation_status
+     AND t.tile_status IN (
+       'valid_empty'::property_tile_pyramid_tile_status,
+       'valid_nodes'::property_tile_pyramid_tile_status,
+       'valid_encoded'::property_tile_pyramid_tile_status
+     )
+    WHERE n.version_id = ${input.pyramidVersionId}::uuid
+      AND n.node_id = ${input.pyramidNodeId}
     LIMIT 1
   `);
 
@@ -814,6 +869,7 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
   lon: number;
   lat: number;
   zoom: number;
+  logger: { warn(bindings: Record<string, unknown>, message: string): void };
 }): Promise<{
   result: NearbyGroupedContractResult | null;
   status: string;
@@ -828,13 +884,38 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
 
   const current = await lookupCurrentPropertyTilePyramidVersion(slot);
   if (current.state !== 'current') {
+    await safeRequestPropertyTilePyramidBuild(
+      {
+        reason: 'nearby-fallback-miss',
+        slot,
+      },
+      input.logger,
+      {
+        lon: input.lon,
+        lat: input.lat,
+        zoom: input.zoom,
+        servingZoom,
+      },
+    );
     return { result: null, status: current.tileStatus };
   }
 
   const searchRadiusMeters = pyramidNearbySearchRadiusMeters(input.lat, servingZoom);
+  const ownerTileNeighborhood = getPyramidOwnerTileNeighborhood(
+    pyramidOwnerTileForCoordinate(input.lon, input.lat, servingZoom),
+  );
+  const ownerTileRows = sql.join(
+    ownerTileNeighborhood.map(
+      (tile) => sql`(${tile.z}::integer, ${tile.x}::integer, ${tile.y}::integer)`,
+    ),
+    sql`, `,
+  );
   const rows = await db.execute<PyramidNearbyNodeRow>(sql`
     WITH tap AS (
       SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
+    ),
+    tap_owner_tiles(z, x, y) AS (
+      VALUES ${ownerTileRows}
     )
     SELECT
       node_id,
@@ -864,9 +945,25 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
       thumbnail_url,
       has_active_listing,
       market_state
-    FROM property_tile_pyramid_nodes, tap
-    WHERE version_id = ${current.version.versionId}::uuid
-      AND z = ${servingZoom}
+    FROM property_tile_pyramid_nodes n
+    JOIN property_tile_pyramid_tiles t
+      ON t.version_id = n.version_id
+     AND t.z = n.z
+     AND t.x = n.x
+     AND t.y = n.y
+     AND t.validation_status = 'validated'::property_tile_pyramid_tile_validation_status
+     AND t.tile_status IN (
+       'valid_empty'::property_tile_pyramid_tile_status,
+       'valid_nodes'::property_tile_pyramid_tile_status,
+       'valid_encoded'::property_tile_pyramid_tile_status
+     )
+    JOIN tap_owner_tiles ot
+      ON ot.z = n.z
+     AND ot.x = n.x
+     AND ot.y = n.y
+    CROSS JOIN tap
+    WHERE n.version_id = ${current.version.versionId}::uuid
+      AND n.z = ${servingZoom}
       AND ST_DWithin(render_geometry::geography, tap.geom::geography, ${searchRadiusMeters})
       AND ST_Distance(render_geometry::geography, tap.geom::geography) <=
         CASE
@@ -1253,7 +1350,12 @@ export async function propertyRoutes(app: FastifyInstance) {
         isDefaultPyramidNearbyZoom(zoom, getPropertyTilePyramidMaxZoom())
       ) {
         try {
-          const lookup = await resolvePyramidNearbyNodeAtPoint({ lon, lat, zoom });
+          const lookup = await resolvePyramidNearbyNodeAtPoint({
+            lon,
+            lat,
+            zoom,
+            logger: request.log,
+          });
           result = lookup.result;
           reply.header('X-HuisHype-Nearby-Status', result ? 'pyramid-promoted' : lookup.status);
           if (lookup.versionId) {

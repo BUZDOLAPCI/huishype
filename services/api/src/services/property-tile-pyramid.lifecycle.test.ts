@@ -75,6 +75,7 @@ function withTemporaryEnv<T>(
 
 describe('property tile pyramid build lifecycle', () => {
   beforeEach(() => {
+    jest.useRealTimers();
     executeMock.mockReset();
     transactionMock.mockReset();
     txExecuteMock.mockReset();
@@ -143,6 +144,75 @@ describe('property tile pyramid build lifecycle', () => {
       queueJobId: expect.stringMatching(/^property-tile-pyramid-[a-f0-9]{40}$/),
     });
     expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports enqueue failure instead of claiming the durable request was enqueued', async () => {
+    executeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'queued-version',
+          status: 'queued',
+          next_retry_at: null,
+          queue_eligible: true,
+          pending_replacement: false,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    enqueuePropertyTilePyramidBuildMock.mockRejectedValueOnce(new Error('redis unavailable'));
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'worker-recovery',
+      sourceWatermarkHash: 'watermarks',
+      sourceWatermarksJson: {},
+      buildInputsHash: 'inputs',
+    });
+
+    expect(result).toMatchObject({
+      status: 'enqueue_failed',
+      versionId: 'queued-version',
+      existingStatus: 'queued',
+      reason: 'redis unavailable',
+    });
+    expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+    const failureQuery = JSON.stringify(executeMock.mock.calls.at(-1)?.[0]);
+    expect(failureQuery).toContain('queue_dispatch');
+    expect(failureQuery).toContain('failure_message');
+  });
+
+  it('records pending replacement metadata instead of dispatching a duplicate active build for the slot', async () => {
+    executeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'active-version',
+          status: 'building',
+          next_retry_at: null,
+          queue_eligible: false,
+          pending_replacement: true,
+        },
+      ]);
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'source-watermark',
+      sourceWatermarkHash: 'new-watermarks',
+      sourceWatermarksJson: { sources: [{ source: 'unit' }] },
+      buildInputsHash: 'inputs',
+    });
+
+    expect(result).toMatchObject({
+      status: 'coalesced',
+      versionId: 'active-version',
+      existingStatus: 'building',
+      reason: 'pending-replacement-recorded',
+    });
+    expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+    const requestQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
+    expect(requestQuery).toContain('active_replacement');
+    expect(requestQuery).toContain('pending_replacement_watermarks_json');
+    expect(requestQuery).toContain("status IN ('queued', 'building', 'validating', 'validated')");
   });
 
   it.each([
@@ -224,6 +294,27 @@ describe('property tile pyramid build lifecycle', () => {
     });
   });
 
+  it('restricts a worker job to the intended version id when provided', async () => {
+    executeMock
+      .mockResolvedValueOnce([{ retryable_version_count: 0 }])
+      .mockResolvedValueOnce([]);
+
+    const { executeDuePropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await executeDuePropertyTilePyramidBuild({
+      leaseOwner: 'unit-test',
+      versionId: '00000000-0000-0000-0000-000000000123',
+      reason: 'worker-build',
+    });
+
+    expect(result).toMatchObject({
+      status: 'noop',
+      reason: 'no-eligible-pyramid-version',
+    });
+    const leaseQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
+    expect(leaseQuery).toContain('id =');
+    expect(leaseQuery).toContain('00000000-0000-0000-0000-000000000123');
+  });
+
   it('uses the configured WAL limit when validating build resources', async () => {
     await withTemporaryEnv({
       PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
@@ -258,5 +349,167 @@ describe('property tile pyramid build lifecycle', () => {
       });
       expect(transactionMock).not.toHaveBeenCalled();
     });
+  });
+
+  it('builds source watermark snapshots from named durable sources', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-07T10:30:00.000Z'));
+    executeMock
+      .mockResolvedValueOnce([
+        {
+          scope: 'listing_facts',
+          scope_key: 'global',
+          watermark_value: '3',
+          watermark_timestamp: '2026-05-07T10:00:00.000Z',
+          updated_at: '2026-05-07T10:01:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          key: 'public_default_low_zoom',
+          listing_watermark: '4',
+          social_watermark: '5',
+          property_watermark: '6',
+          coverage_watermark: '7',
+          updated_at: '2026-05-07T10:02:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          source_name: 'funda',
+          last_committed_cursor: 'cursor-1',
+          last_committed_changed_at: '2026-05-07T09:00:00.000Z',
+          last_committed_listing_key: 'listing-1',
+          last_batch_id: 'batch-1',
+          last_run_completed_at: '2026-05-07T09:05:00.000Z',
+          last_run_status: 'completed',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          source_name: 'funda',
+          scope_key: 'nl',
+          listing_type: 'sale',
+          source_high_watermark: '2026-05-07T09:10:00.000Z',
+          ingest_batch_id: 'batch-2',
+          updated_at: '2026-05-07T09:11:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          source_name: 'funda',
+          scope_key: 'nl',
+          listing_type: 'sale',
+          source_high_watermark: '2026-05-07T09:12:00.000Z',
+          source_run_completed_at: '2026-05-07T09:13:00.000Z',
+          coverage_status: 'complete',
+          observed_listing_count: '42',
+          stale_for_projection: false,
+          repair_mode: false,
+        },
+      ])
+      .mockResolvedValueOnce([{ row_count: '10', max_updated_at: '2026-05-07T09:14:00.000Z' }])
+      .mockResolvedValueOnce([{ row_count: '11', max_updated_at: '2026-05-07T09:15:00.000Z' }]);
+
+    const { readPropertyTilePyramidSourceWatermarkSnapshot } = await import('./property-tile-pyramid.js');
+    const snapshot = await readPropertyTilePyramidSourceWatermarkSnapshot();
+    const sources = (snapshot.sourceWatermarksJson as { sources: unknown[] }).sources;
+
+    expect(snapshot.sourceWatermarkHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(sources).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'property_tile_snapshot_watermarks' }),
+      expect.objectContaining({ source: 'ingest_sources' }),
+      expect.objectContaining({ source: 'listing_source_scope_watermarks' }),
+      expect.objectContaining({ source: 'listing_scope_completions' }),
+      expect.objectContaining({ source: 'property_tile_listing_candidates' }),
+      expect.objectContaining({ source: 'property_tile_listing_facts' }),
+      expect.objectContaining({ source: 'rolling_social_window', bucket: 493930 }),
+    ]));
+  });
+
+  it('uses the regenerated payload etag when a promoted tile payload is rebuilt from nodes', async () => {
+    executeMock
+      .mockResolvedValueOnce([
+        {
+          payload: null,
+          etag: '"pyramid-old-empty-seed"',
+          node_count: 1,
+          tile_status: 'valid_nodes',
+          validation_status: 'validated',
+        },
+      ])
+      .mockResolvedValueOnce([{ mvt: Buffer.from('new-payload') }])
+      .mockResolvedValueOnce([]);
+
+    const {
+      buildPropertyTilePyramidEtag,
+      lookupPromotedPropertyTilePyramidTile,
+    } = await import('./property-tile-pyramid.js');
+    const version = {
+      versionId: '00000000-0000-0000-0000-000000000001',
+      coverageId: 'public_default_low_zoom',
+      filterSignature: 'default',
+      maxZoom: 0,
+      pyramidKind: 'public_default_low_zoom',
+      buildInputsHash: 'inputs',
+      sourceWatermarkHash: 'watermarks',
+      status: 'promoted' as const,
+      promotedAt: null,
+      degradedAt: null,
+      degradedReason: null,
+    };
+
+    const result = await lookupPromotedPropertyTilePyramidTile({
+      version,
+      z: 0,
+      x: 0,
+      y: 0,
+    });
+
+    expect(result).toMatchObject({
+      state: 'hit',
+      encodedFromNodes: true,
+      statusCode: 200,
+    });
+    expect(result.state === 'hit' ? result.etag : null).toBe(buildPropertyTilePyramidEtag({
+      versionId: version.versionId,
+      z: 0,
+      x: 0,
+      y: 0,
+      payload: Buffer.from('new-payload'),
+    }));
+    expect(result.state === 'hit' ? result.etag : null).not.toBe('"pyramid-old-empty-seed"');
+  });
+
+  it('runs retention through chunked child-table cleanup before deleting versions', async () => {
+    executeMock
+      .mockResolvedValueOnce([{ locked: true }])
+      .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([]);
+
+    const { runPropertyTilePyramidRetention } = await import('./property-tile-pyramid.js');
+    const result = await runPropertyTilePyramidRetention();
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      resetPayloads: 0,
+      deletedMembers: 0,
+      deletedNodes: 0,
+      deletedTiles: 0,
+      deletedVersions: 0,
+    });
+    const retentionQueries = executeMock.mock.calls
+      .slice(1, -1)
+      .map((call) => JSON.stringify(call[0]))
+      .join('\n');
+    expect(retentionQueries).toContain('LIMIT 10000');
+    expect(retentionQueries).toContain('FOR UPDATE SKIP LOCKED');
+    expect(retentionQueries).toContain('property_tile_pyramid_members');
+    expect(retentionQueries).toContain('previous_version_id');
+    expect(retentionQueries).toContain("interval '7 days'");
+    expect(retentionQueries).toContain('property_tile_pyramid_audit');
   });
 });

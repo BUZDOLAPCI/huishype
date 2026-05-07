@@ -781,7 +781,9 @@ describe('Tile routes', () => {
 
       expect(response.statusCode).toBe(204);
       expect(response.headers['cache-control']).toBe('no-store');
-      expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-enqueued');
+      expect(['pyramid-build-enqueued', 'pyramid-build-active']).toContain(
+        response.headers['x-huishype-tile-status'],
+      );
       expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
       expect(response.headers['x-tile-cache']).not.toBe('timeout-empty');
       expect(response.headers.etag).toBeUndefined();

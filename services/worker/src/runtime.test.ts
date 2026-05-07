@@ -260,6 +260,7 @@ test('property tile pyramid worker job delegates to durable pyramid build lease'
   const executeBuild = async (input: {
     reason?: string;
     leaseOwner?: string;
+    versionId?: string;
     logger?: unknown;
   }) => {
     executeBuildCalls.push(input);
@@ -289,9 +290,11 @@ test('property tile pyramid worker job delegates to durable pyramid build lease'
   const buildInput = executeBuildCalls[0] as {
     reason?: string;
     leaseOwner?: string;
+    versionId?: string;
     logger?: unknown;
   };
   assert.equal(buildInput.reason, 'unit-test');
   assert.equal(buildInput.leaseOwner, `worker:${process.pid}:job-1`);
+  assert.equal(buildInput.versionId, 'version-1');
   assert.ok(buildInput.logger);
 });

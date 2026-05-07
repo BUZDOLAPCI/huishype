@@ -49,6 +49,8 @@ type Expand<T> = { [K in keyof T]: T[K] };
 type FeedQueryFromOpenApi = NonNullable<paths['/feed']['get']['parameters']['query']>;
 type FeedResponseFromOpenApi =
   paths['/feed']['get']['responses'][200]['content']['application/json'];
+type OpsPropertyTilePyramidResponseFromOpenApi =
+  paths['/ops/property-tile-pyramid']['get']['responses'][200]['content']['application/json'];
 type ListingPreviewRequestFromOpenApi =
   paths['/listings/preview']['post']['requestBody']['content']['application/json'];
 type ListingPreviewResponseFromOpenApi =
@@ -160,6 +162,35 @@ type CanonicalPropertyListingReadItem = {
 };
 type CanonicalPropertyListingsResponse = {
   data: CanonicalPropertyListingReadItem[];
+};
+type CanonicalOpsPropertyTilePyramidResponse = {
+  status: 'ok' | 'degraded';
+  currentVersionId: string | null;
+  currentPromotedAt: string | null;
+  previousVersionId: string | null;
+  degradedReason: string | null;
+  activeCandidateVersionId: string | null;
+  activeCandidateStatus: string | null;
+  retryableFailureDueAt: string | null;
+  terminalFailureCount: number;
+  encodedCoverageRatio: number | null;
+  manifestTileCount: number | null;
+  encodedTileCount: number | null;
+  nodeCount: number | null;
+  memberCount: number | null;
+  activeLeaseOwner: string | null;
+  activeLeaseAgeSeconds: number | null;
+  lastSuccessfulPromotionAt: string | null;
+  lastAuditAction: string | null;
+  lastAuditReason: string | null;
+  resourceControls: {
+    chunkTileLimit: number;
+    memberPageSize: number;
+    statementTimeoutMs: number;
+    leaseSeconds: number;
+    maxHeapMb: number;
+    maxWalBytesPerChunk: number;
+  };
 };
 type SavedPropertiesQueryFromOpenApi = NonNullable<
   paths['/saved-properties']['get']['parameters']['query']
@@ -499,6 +530,9 @@ const feedContractAssertions = [
   true as Expect<Equal<UserSearchQueryFromOpenApi['q'], string | undefined>>,
   true as Assert<IsExact<UserSearchResponseFromOpenApi, SearchUsersResponse>>,
   true as Assert<IsExact<UserSearchErrorFromOpenApi, { error: string; message: string }>>,
+  true as Assert<
+    IsExact<OpsPropertyTilePyramidResponseFromOpenApi, CanonicalOpsPropertyTilePyramidResponse>
+  >,
 ] as const;
 
 describe('Generated OpenAPI types', () => {
@@ -511,6 +545,7 @@ describe('Generated OpenAPI types', () => {
     // The runtime check is a bonus.
     const expectedPaths: PathKeys[] = [
       '/health',
+      '/ops/property-tile-pyramid',
       '/auth/google',
       '/auth/email/request',
       '/auth/email/verify',

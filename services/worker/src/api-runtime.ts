@@ -53,6 +53,7 @@ export interface PropertyTilePyramidModule {
   executeDuePropertyTilePyramidBuild(options: {
     reason?: string;
     leaseOwner: string;
+    versionId?: string;
     logger?: {
       info(payload: Record<string, unknown>, message: string): void;
       warn(payload: Record<string, unknown>, message: string): void;
