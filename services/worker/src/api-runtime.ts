@@ -4,8 +4,8 @@ import path from 'node:path';
 export interface IngestJobsModule {
   INGEST_BATCH_QUEUE: string;
   MAINTENANCE_QUEUE: string;
-  PROPERTY_TILE_SNAPSHOT_QUEUE: string;
-  PROPERTY_TILE_SNAPSHOT_REFRESH_JOB: string;
+  PROPERTY_TILE_PYRAMID_QUEUE: string;
+  PROPERTY_TILE_PYRAMID_BUILD_JOB: string;
 }
 
 export interface OfficialValuationJobsModule {
@@ -27,7 +27,6 @@ export interface IngestQueueModule {
       | 'worker-sweep';
     batchId?: string;
   }): Promise<void>;
-  enqueuePropertyTileSnapshotRefresh(data: { reason: string }): Promise<unknown>;
 }
 
 export interface CandidateHandoffQueueModule {
@@ -50,28 +49,23 @@ export interface CandidateHandoffProcessorModule {
   }): Promise<Record<string, unknown>>;
 }
 
-export interface PropertyTileSnapshotsModule {
-  executePropertyTileSnapshotRefresh(options?: {
+export interface PropertyTilePyramidModule {
+  executeDuePropertyTilePyramidBuild(options: {
     reason?: string;
-    leaseOwner?: string;
+    leaseOwner: string;
     logger?: {
+      info(payload: Record<string, unknown>, message: string): void;
       warn(payload: Record<string, unknown>, message: string): void;
+      error(payload: Record<string, unknown>, message: string): void;
     };
   }): Promise<Record<string, unknown>>;
-  requestPropertyTileSnapshotRefresh(input: {
+  requestPropertyTilePyramidBuild(input: {
     reason: string;
-    throttleMs?: number;
   }): Promise<{
-    enqueued: boolean;
-    throttled: boolean;
-    enqueueStatus?: 'enqueued' | 'retried' | 'coalesced' | 'skipped';
-    skippedReason?: 'throttled' | 'disabled';
+    status: string;
+    versionId?: string;
     queueJobId?: string;
-    queueJobState?: string | null;
-  }>;
-  shouldRequestPropertyTileSnapshotRefresh(): Promise<{
-    shouldEnqueue: boolean;
-    reason: string;
+    reason?: string;
   }>;
 }
 
@@ -223,8 +217,8 @@ export function loadCandidateHandoffProcessorModule(): Promise<CandidateHandoffP
   return importApiModule<CandidateHandoffProcessorModule>('services/candidate-handoffs/processor.js');
 }
 
-export function loadPropertyTileSnapshotsModule(): Promise<PropertyTileSnapshotsModule> {
-  return importApiModule<PropertyTileSnapshotsModule>('services/property-tile-snapshots.js');
+export function loadPropertyTilePyramidModule(): Promise<PropertyTilePyramidModule> {
+  return importApiModule<PropertyTilePyramidModule>('services/property-tile-pyramid.js');
 }
 
 export function loadOfficialValuationQueueModule(): Promise<OfficialValuationQueueModule> {

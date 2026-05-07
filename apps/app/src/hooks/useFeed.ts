@@ -5,11 +5,14 @@
  */
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { Platform } from 'react-native';
 import { API_URL } from '../utils/api';
-import type { PropertyFeedFilter } from '@huishype/shared';
-import { withDerivedPropertyImageData } from '../utils/property-image';
+import type { CountryCode, PropertyFeedFilter } from '@huishype/shared';
+import { getPropertyThumbnailFromGeometry } from '../lib/propertyThumbnail';
 
 export type { FeedTab, PropertyFeedFilter } from '@huishype/shared';
+
+const FEED_PAGE_SIZE = Platform.OS === 'web' ? 20 : 3;
 
 export interface FeedScope {
   country?: string;
@@ -87,8 +90,12 @@ export const feedKeys = {
 
 // Transform API item to FeedProperty (adds compat fields used by PropertyFeedCard)
 function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
-  const property = withDerivedPropertyImageData({
+  const property = {
     ...item,
+    aerialImageUrl:
+      Platform.OS === 'web'
+        ? getPropertyThumbnailFromGeometry(item.geometry, item.countryCode as CountryCode)
+        : null,
     // PropertyFeedCard compat fields
     postalCode: item.zipCode,
     coordinates: item.geometry
@@ -97,7 +104,7 @@ function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
     fmvValue: item.fmv ?? undefined,
     yearBuilt: null, // not returned by feed endpoint
     floorAreaM2: null, // not returned by feed endpoint
-  });
+  };
 
   return property;
 }
@@ -107,8 +114,11 @@ async function fetchFeed(
   page: number = 1,
   limit: number = 20,
   filter: PropertyFeedFilter = 'trending',
-  scope?: FeedScope,
-): Promise<{ properties: FeedProperty[]; meta: { page: number; limit: number; hasMore: boolean } }> {
+  scope?: FeedScope
+): Promise<{
+  properties: FeedProperty[];
+  meta: { page: number; limit: number; hasMore: boolean };
+}> {
   const params = new URLSearchParams({
     page: String(page),
     limit: String(limit),
@@ -151,11 +161,11 @@ async function fetchFeed(
 export function useFeed(
   filter: PropertyFeedFilter = 'trending',
   scope?: FeedScope,
-  enabled = true,
+  enabled = true
 ) {
   return useQuery({
     queryKey: feedKeys.list(filter, scope),
-    queryFn: () => fetchFeed(1, 20, filter, scope),
+    queryFn: () => fetchFeed(1, FEED_PAGE_SIZE, filter, scope),
     enabled,
     staleTime: 30 * 1000, // 30 seconds
     refetchOnWindowFocus: false,
@@ -168,11 +178,11 @@ export function useFeed(
 export function useInfiniteFeed(
   filter: PropertyFeedFilter = 'trending',
   scope?: FeedScope,
-  enabled = true,
+  enabled = true
 ) {
   return useInfiniteQuery({
     queryKey: feedKeys.infinite(filter, scope),
-    queryFn: ({ pageParam = 1 }) => fetchFeed(pageParam, 20, filter, scope),
+    queryFn: ({ pageParam = 1 }) => fetchFeed(pageParam, FEED_PAGE_SIZE, filter, scope),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => {
       return lastPage.meta.hasMore ? lastPage.meta.page + 1 : undefined;

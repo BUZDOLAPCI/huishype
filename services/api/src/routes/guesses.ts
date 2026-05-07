@@ -8,9 +8,9 @@ import { calculateFmvForProperty } from '../services/fmv.js';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import { getPriceGuessStartForProperty } from '../services/price-guess-start.js';
 import {
-  advancePropertyTileSnapshotWatermark,
-  safeRequestPropertyTileSnapshotRefresh,
-} from '../services/property-tile-snapshots.js';
+  advancePropertyTilePyramidSourceWatermark,
+  safeRequestPropertyTilePyramidBuild,
+} from '../services/property-tile-pyramid.js';
 
 // Schema definitions
 const priceGuessSchema = z.object({
@@ -295,12 +295,12 @@ export async function guessRoutes(app: FastifyInstance) {
             .returning();
 
           await advancePropertyChangeVersion(propertyId, tx);
-          await advancePropertyTileSnapshotWatermark(['social'], tx);
+          await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
           return rows;
         });
 
         const updatedGuess = updated[0];
-        await safeRequestPropertyTileSnapshotRefresh(
+        await safeRequestPropertyTilePyramidBuild(
           { reason: 'price-guess-update' },
           request.log,
           { propertyId, guessId: updatedGuess.id },
@@ -328,12 +328,12 @@ export async function guessRoutes(app: FastifyInstance) {
           .returning();
 
         await advancePropertyChangeVersion(propertyId, tx);
-        await advancePropertyTileSnapshotWatermark(['social'], tx);
+        await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
         return rows;
       });
 
       const created = newGuess[0];
-      await safeRequestPropertyTileSnapshotRefresh(
+      await safeRequestPropertyTilePyramidBuild(
         { reason: 'price-guess-create' },
         request.log,
         { propertyId, guessId: created.id },

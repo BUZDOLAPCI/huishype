@@ -13,7 +13,7 @@ import {
   type MaintenanceRefreshRequestRecord,
 } from '../ingest/store.js';
 import { advancePropertyChangeVersion } from '../property-read-state.js';
-import { advancePropertyTileSnapshotWatermark } from '../property-tile-snapshots.js';
+import { advancePropertyTilePyramidSourceWatermark } from '../property-tile-pyramid.js';
 import type { ClientObservedOfficialValuation, OfficialValuationSource } from './contracts.js';
 import { getFailedHydrationRetryAt, getOfficialValuationSourceConfig } from './registry.js';
 import type { OfficialValuationSourceProperty, OfficialValuationSourceResult } from './source-client.js';
@@ -343,7 +343,7 @@ export async function acceptOfficialValuationHydrationRequest(input: {
       });
       await refreshPropertyOfficialValuationCache(tx, input.propertyId);
       await advancePropertyChangeVersion(input.propertyId, tx);
-      await advancePropertyTileSnapshotWatermark(['property'], tx);
+      await advancePropertyTilePyramidSourceWatermark(['official_valuations'], tx);
       cachedProperty = (await getPropertyForHydration(tx, input.propertyId)) ?? property;
       maintenanceRequest = await createOfficialValuationMaintenanceRefreshRequest(tx, {
         propertyId: input.propertyId,
@@ -675,7 +675,7 @@ export async function markOfficialValuationHydrationSucceeded(
 
     await refreshPropertyOfficialValuationCache(tx, job.propertyId);
     await advancePropertyChangeVersion(job.propertyId, tx);
-    await advancePropertyTileSnapshotWatermark(['property'], tx);
+    await advancePropertyTilePyramidSourceWatermark(['official_valuations'], tx);
 
     return createOfficialValuationMaintenanceRefreshRequest(tx, {
       propertyId: job.propertyId,

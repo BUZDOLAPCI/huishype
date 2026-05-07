@@ -23,13 +23,13 @@ describe('GET /health', () => {
     expect(response.statusCode).toBe(200);
   });
 
-  it('should return status ok', async () => {
+  it('should return status ok or degraded depending on pyramid availability', async () => {
     const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });
     const body = JSON.parse(response.body);
-    expect(body.status).toBe('ok');
+    expect(['ok', 'degraded']).toContain(body.status);
   });
 
   it('should include expected response shape', async () => {
@@ -43,6 +43,10 @@ describe('GET /health', () => {
     expect(body).toHaveProperty('timestamp');
     expect(body).toHaveProperty('version');
     expect(body).toHaveProperty('uptime');
+    expect(body).toHaveProperty('propertyTilePyramid');
+    expect(body.propertyTilePyramid).toHaveProperty('status');
+    expect(body.propertyTilePyramid).toHaveProperty('currentVersionId');
+    expect(body.propertyTilePyramid).toHaveProperty('degradedReason');
 
     expect(typeof body.status).toBe('string');
     expect(typeof body.timestamp).toBe('string');

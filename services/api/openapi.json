@@ -54,13 +54,357 @@
                     "uptime": {
                       "type": "number",
                       "description": "Server uptime in seconds"
+                    },
+                    "propertyTilePyramid": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "ok",
+                            "degraded"
+                          ]
+                        },
+                        "currentVersionId": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "degradedReason": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "activeCandidateVersionId": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "retryableFailureDueAt": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "terminalFailureCount": {
+                          "type": "number"
+                        },
+                        "encodedCoverageRatio": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastSuccessfulPromotionAt": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "currentVersionId",
+                        "degradedReason",
+                        "activeCandidateVersionId",
+                        "retryableFailureDueAt",
+                        "terminalFailureCount",
+                        "encodedCoverageRatio",
+                        "lastSuccessfulPromotionAt"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
                     "status",
                     "timestamp",
                     "version",
-                    "uptime"
+                    "uptime",
+                    "propertyTilePyramid"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/property-tile-pyramid": {
+      "get": {
+        "summary": "Property tile pyramid operational state",
+        "tags": [
+          "ops"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "degraded"
+                      ]
+                    },
+                    "currentVersionId": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "currentPromotedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "previousVersionId": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "degradedReason": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "activeCandidateVersionId": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "activeCandidateStatus": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "retryableFailureDueAt": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "terminalFailureCount": {
+                      "type": "number"
+                    },
+                    "encodedCoverageRatio": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "manifestTileCount": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "encodedTileCount": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "nodeCount": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "memberCount": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "activeLeaseOwner": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "activeLeaseAgeSeconds": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lastSuccessfulPromotionAt": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lastAuditAction": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lastAuditReason": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "resourceControls": {
+                      "type": "object",
+                      "properties": {
+                        "chunkTileLimit": {
+                          "type": "number"
+                        },
+                        "memberPageSize": {
+                          "type": "number"
+                        },
+                        "statementTimeoutMs": {
+                          "type": "number"
+                        },
+                        "leaseSeconds": {
+                          "type": "number"
+                        },
+                        "maxHeapMb": {
+                          "type": "number"
+                        },
+                        "maxWalBytesPerChunk": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "chunkTileLimit",
+                        "memberPageSize",
+                        "statementTimeoutMs",
+                        "leaseSeconds",
+                        "maxHeapMb",
+                        "maxWalBytesPerChunk"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "currentVersionId",
+                    "currentPromotedAt",
+                    "previousVersionId",
+                    "degradedReason",
+                    "activeCandidateVersionId",
+                    "activeCandidateStatus",
+                    "retryableFailureDueAt",
+                    "terminalFailureCount",
+                    "encodedCoverageRatio",
+                    "manifestTileCount",
+                    "encodedTileCount",
+                    "nodeCount",
+                    "memberCount",
+                    "activeLeaseOwner",
+                    "activeLeaseAgeSeconds",
+                    "lastSuccessfulPromotionAt",
+                    "lastAuditAction",
+                    "lastAuditReason",
+                    "resourceControls"
                   ],
                   "additionalProperties": false
                 }
@@ -1502,6 +1846,24 @@
           },
           {
             "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "pyramidVersionId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "pyramidNodeId",
+            "required": false
+          },
+          {
+            "schema": {
               "type": "number"
             },
             "in": "query",
@@ -1609,6 +1971,36 @@
                                 "format": "uuid",
                                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                               }
+                            },
+                            "pyramidVersionId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pyramidNodeId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "membershipComplete": {
+                              "type": "boolean"
+                            },
+                            "readStateCoverage": {
+                              "type": "string",
+                              "enum": [
+                                "complete",
+                                "partial"
+                              ]
                             },
                             "coordinate": {
                               "type": "array",
@@ -1726,6 +2118,10 @@
                             "pointCount",
                             "propertyIds",
                             "previewPropertyIds",
+                            "pyramidVersionId",
+                            "pyramidNodeId",
+                            "membershipComplete",
+                            "readStateCoverage",
                             "coordinate",
                             "distanceMeters",
                             "bbox",
@@ -1780,6 +2176,36 @@
                                 "format": "uuid",
                                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                               }
+                            },
+                            "pyramidVersionId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pyramidNodeId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "membershipComplete": {
+                              "type": "boolean"
+                            },
+                            "readStateCoverage": {
+                              "type": "string",
+                              "enum": [
+                                "complete",
+                                "partial"
+                              ]
                             },
                             "coordinate": {
                               "type": "array",
@@ -1858,6 +2284,10 @@
                             "pointCount",
                             "propertyIds",
                             "previewPropertyIds",
+                            "pyramidVersionId",
+                            "pyramidNodeId",
+                            "membershipComplete",
+                            "readStateCoverage",
                             "coordinate",
                             "distanceMeters",
                             "bbox",
@@ -2463,6 +2893,36 @@
                                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                               }
                             },
+                            "pyramidVersionId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pyramidNodeId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "membershipComplete": {
+                              "type": "boolean"
+                            },
+                            "readStateCoverage": {
+                              "type": "string",
+                              "enum": [
+                                "complete",
+                                "partial"
+                              ]
+                            },
                             "coordinate": {
                               "type": "array",
                               "prefixItems": [
@@ -2579,6 +3039,10 @@
                             "pointCount",
                             "propertyIds",
                             "previewPropertyIds",
+                            "pyramidVersionId",
+                            "pyramidNodeId",
+                            "membershipComplete",
+                            "readStateCoverage",
                             "coordinate",
                             "distanceMeters",
                             "bbox",
@@ -2633,6 +3097,36 @@
                                 "format": "uuid",
                                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                               }
+                            },
+                            "pyramidVersionId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pyramidNodeId": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "membershipComplete": {
+                              "type": "boolean"
+                            },
+                            "readStateCoverage": {
+                              "type": "string",
+                              "enum": [
+                                "complete",
+                                "partial"
+                              ]
                             },
                             "coordinate": {
                               "type": "array",
@@ -2711,6 +3205,10 @@
                             "pointCount",
                             "propertyIds",
                             "previewPropertyIds",
+                            "pyramidVersionId",
+                            "pyramidNodeId",
+                            "membershipComplete",
+                            "readStateCoverage",
                             "coordinate",
                             "distanceMeters",
                             "bbox",
@@ -7468,6 +7966,29 @@
             }
           },
           "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "422": {
             "description": "Default Response",
             "content": {
               "application/json": {

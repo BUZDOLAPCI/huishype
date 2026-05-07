@@ -5,9 +5,7 @@ import {
   type VisualTestContext,
   waitForMapStyleLoaded,
 } from './helpers/visual-test-helpers';
-import {
-  dismissPreviewCard,
-} from './helpers/screenshot-harness';
+import { dismissPreviewCard } from './helpers/screenshot-harness';
 import fs from 'fs';
 import path from 'path';
 
@@ -24,17 +22,20 @@ test.beforeAll(async () => {
 });
 
 async function setMapZoom(page: Page, zoom: number): Promise<void> {
-  const didSetZoom = await page.evaluate(({ targetZoom, center }) => {
-    const map = window.__mapInstance;
-    if (!map) return false;
-    map.jumpTo({
-      center,
-      zoom: targetZoom,
-      pitch: 0,
-      bearing: 0,
-    });
-    return true;
-  }, { targetZoom: zoom, center: PREVIEWABLE_CLUSTER_CENTER });
+  const didSetZoom = await page.evaluate(
+    ({ targetZoom, center }) => {
+      const map = window.__mapInstance;
+      if (!map) return false;
+      map.jumpTo({
+        center,
+        zoom: targetZoom,
+        pitch: 0,
+        bearing: 0,
+      });
+      return true;
+    },
+    { targetZoom: zoom, center: PREVIEWABLE_CLUSTER_CENTER }
+  );
 
   expect(didSetZoom).toBe(true);
 
@@ -63,19 +64,54 @@ async function setMapZoom(page: Page, zoom: number): Promise<void> {
         return false;
       }
 
-      const features = map.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers: [clusterLayerId] }
-      ) || [];
+      const parseIds = (value: unknown): string[] => {
+        if (typeof value === 'string') {
+          return value.split(',').filter(Boolean);
+        }
+        if (Array.isArray(value)) {
+          return value.filter(
+            (item): item is string => typeof item === 'string' && item.length > 0
+          );
+        }
+        return [];
+      };
+      const parseOptionalBoolean = (value: unknown): boolean | null => {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+          if (value.toLowerCase() === 'true') return true;
+          if (value.toLowerCase() === 'false') return false;
+        }
+        if (typeof value === 'number') {
+          if (value === 1) return true;
+          if (value === 0) return false;
+        }
+        return null;
+      };
+
+      const features =
+        map.queryRenderedFeatures(
+          [
+            [0, 0],
+            [canvas.width, canvas.height],
+          ],
+          { layers: [clusterLayerId] }
+        ) || [];
 
       return features.some((feature) => {
         const pointCount = Number(feature.properties?.point_count || 0);
-        const propertyIdCount = String(feature.properties?.property_ids || '')
-          .split(',')
-          .filter(Boolean)
-          .length;
+        const propertyIds = parseIds(feature.properties?.property_ids);
+        const previewPropertyIds = parseIds(feature.properties?.preview_property_ids);
+        const membershipComplete = parseOptionalBoolean(feature.properties?.membership_complete);
+        const readStateCoverage =
+          typeof feature.properties?.read_state_coverage === 'string'
+            ? feature.properties.read_state_coverage
+            : null;
+        const fallbackPropertyIds =
+          membershipComplete !== false && readStateCoverage !== 'partial' ? propertyIds : [];
+        const previewMembershipIds =
+          previewPropertyIds.length > 0 ? previewPropertyIds : fallbackPropertyIds;
 
-        return pointCount > 1 && pointCount <= previewLimit && propertyIdCount > 1;
+        return pointCount > 1 && pointCount <= previewLimit && previewMembershipIds.length > 1;
       });
     },
     {
@@ -106,30 +142,67 @@ async function openClusterPreview(page: Page): Promise<{ success: boolean; point
         return [];
       }
 
-      const features = map.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers: [clusterLayerId] }
-      ) || [];
+      const features =
+        map.queryRenderedFeatures(
+          [
+            [0, 0],
+            [canvas.width, canvas.height],
+          ],
+          { layers: [clusterLayerId] }
+        ) || [];
 
       const rect = canvas.getBoundingClientRect();
       const edgeMargin = 40;
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
+      const parseIds = (value: unknown): string[] => {
+        if (typeof value === 'string') {
+          return value.split(',').filter(Boolean);
+        }
+        if (Array.isArray(value)) {
+          return value.filter(
+            (item): item is string => typeof item === 'string' && item.length > 0
+          );
+        }
+        return [];
+      };
+      const parseOptionalBoolean = (value: unknown): boolean | null => {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+          if (value.toLowerCase() === 'true') return true;
+          if (value.toLowerCase() === 'false') return false;
+        }
+        if (typeof value === 'number') {
+          if (value === 1) return true;
+          if (value === 0) return false;
+        }
+        return null;
+      };
+
       return features
-        .filter((feature) =>
-          feature.geometry?.type === 'Point' &&
-          Number(feature.properties?.point_count || 0) > 1 &&
-          Number(feature.properties?.point_count || 0) <= previewLimit
+        .filter(
+          (feature) =>
+            feature.geometry?.type === 'Point' &&
+            Number(feature.properties?.point_count || 0) > 1 &&
+            Number(feature.properties?.point_count || 0) <= previewLimit
         )
         .map((feature) => {
-          const propertyIds = String(feature.properties?.property_ids || '')
-            .split(',')
-            .filter(Boolean);
+          const propertyIds = parseIds(feature.properties?.property_ids);
+          const previewPropertyIds = parseIds(feature.properties?.preview_property_ids);
+          const membershipComplete = parseOptionalBoolean(feature.properties?.membership_complete);
+          const readStateCoverage =
+            typeof feature.properties?.read_state_coverage === 'string'
+              ? feature.properties.read_state_coverage
+              : null;
+          const fallbackPropertyIds =
+            membershipComplete !== false && readStateCoverage !== 'partial' ? propertyIds : [];
+          const previewMembershipIds =
+            previewPropertyIds.length > 0 ? previewPropertyIds : fallbackPropertyIds;
           const point = map.project(feature.geometry.coordinates);
           return {
             pointCount: Number(feature.properties?.point_count || 0),
-            propertyIdCount: propertyIds.length,
+            previewMembershipIdCount: previewMembershipIds.length,
             screenX: rect.left + point.x,
             screenY: rect.top + point.y,
             distanceToCenter: Math.hypot(point.x - centerX, point.y - centerY),
@@ -140,7 +213,7 @@ async function openClusterPreview(page: Page): Promise<{ success: boolean; point
               point.y <= canvas.height - edgeMargin,
           };
         })
-        .filter((candidate) => candidate.propertyIdCount > 1 && candidate.inBounds)
+        .filter((candidate) => candidate.previewMembershipIdCount > 1 && candidate.inBounds)
         .sort((a, b) => a.distanceToCenter - b.distanceToCenter);
     },
     {
@@ -169,7 +242,9 @@ async function openClusterPreview(page: Page): Promise<{ success: boolean; point
   return { success: false };
 }
 
-async function openPreviewableCluster(page: Page): Promise<{ success: boolean; pointCount?: number }> {
+async function openPreviewableCluster(
+  page: Page
+): Promise<{ success: boolean; pointCount?: number }> {
   await setMapZoom(page, PREVIEWABLE_CLUSTER_ZOOM);
   return openClusterPreview(page);
 }

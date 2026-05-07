@@ -6,8 +6,8 @@ import {
   db,
   ingestBatches,
   listings,
-  propertyTileSnapshotRefreshState,
-  propertyTileSnapshotWatermarks,
+  propertyTilePyramidSourceWatermarks,
+  propertyTilePyramidVersions,
 } from '../../db/index.js';
 import {
   canonicalListings,
@@ -19,7 +19,7 @@ import {
   priceHistory,
   users,
 } from '../../db/schema.js';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { acceptIngestBatch, encodeOpaqueIngestCursor, getIngestWatermark, processIngestBatch } from '../../services/ingest/index.js';
 import {
   claimCandidateHandoff,
@@ -30,7 +30,6 @@ import {
   createIntegrationPriceHistory,
   createIntegrationProperty,
 } from './helpers/fixtures.js';
-import { PROPERTY_TILE_SNAPSHOT_KEY } from '../../services/property-tile-snapshots.js';
 
 /**
  * Integration tests for listing routes.
@@ -212,22 +211,24 @@ describe('Listing routes', () => {
       .onConflictDoNothing();
   }
 
-  async function readPropertyTileSnapshotInvalidationState() {
-    const [watermark] = await db
+  async function readPropertyTilePyramidInvalidationState() {
+    const watermarks = await db
       .select()
-      .from(propertyTileSnapshotWatermarks)
-      .where(eq(propertyTileSnapshotWatermarks.key, PROPERTY_TILE_SNAPSHOT_KEY))
-      .limit(1);
-    const [refreshState] = await db
+      .from(propertyTilePyramidSourceWatermarks)
+      .where(sql`${propertyTilePyramidSourceWatermarks.scope} IN ('listing_facts', 'property_status')`);
+    const [latestBuild] = await db
       .select()
-      .from(propertyTileSnapshotRefreshState)
-      .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
+      .from(propertyTilePyramidVersions)
+      .where(eq(propertyTilePyramidVersions.requestReason, 'listing-submit'))
+      .orderBy(desc(propertyTilePyramidVersions.requestedAt))
       .limit(1);
 
     return {
-      listingWatermark: watermark?.listingWatermark ?? 0n,
-      propertyWatermark: watermark?.propertyWatermark ?? 0n,
-      refreshState: refreshState ?? null,
+      listingFactsWatermark:
+        watermarks.find((row) => row.scope === 'listing_facts')?.watermarkValue ?? 0n,
+      propertyStatusWatermark:
+        watermarks.find((row) => row.scope === 'property_status')?.watermarkValue ?? 0n,
+      latestBuild: latestBuild ?? null,
     };
   }
 
@@ -1307,7 +1308,7 @@ describe('Listing routes', () => {
       const thumbnailUrl = 'https://cdn.example.com/test-thumbnail.jpg';
       const submittedId = `${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(-12);
       const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-contract-test/${submittedId}/`;
-      const snapshotStateBefore = await readPropertyTileSnapshotInvalidationState();
+      const pyramidStateBefore = await readPropertyTilePyramidInvalidationState();
 
       mockFetchFn
         .mockResolvedValueOnce(jsonResponse({
@@ -1428,13 +1429,12 @@ describe('Listing routes', () => {
         sourceListingId: submittedId,
       });
 
-      const snapshotStateAfter = await readPropertyTileSnapshotInvalidationState();
-      expect(snapshotStateAfter.listingWatermark > snapshotStateBefore.listingWatermark).toBe(true);
-      expect(snapshotStateAfter.propertyWatermark > snapshotStateBefore.propertyWatermark).toBe(true);
-      expect(snapshotStateAfter.refreshState).toMatchObject({
+      const pyramidStateAfter = await readPropertyTilePyramidInvalidationState();
+      expect(pyramidStateAfter.listingFactsWatermark > pyramidStateBefore.listingFactsWatermark).toBe(true);
+      expect(pyramidStateAfter.propertyStatusWatermark > pyramidStateBefore.propertyStatusWatermark).toBe(true);
+      expect(pyramidStateAfter.latestBuild).toMatchObject({
         requestReason: 'listing-submit',
-        requestedListingWatermark: snapshotStateAfter.listingWatermark,
-        requestedPropertyWatermark: snapshotStateAfter.propertyWatermark,
+        sourceWatermarkHash: expect.any(String),
       });
 
       const [handoff] = await db

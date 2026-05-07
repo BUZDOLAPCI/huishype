@@ -18,6 +18,7 @@ import {
   jsonb,
   primaryKey,
   check,
+  foreignKey,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
@@ -255,6 +256,67 @@ export const listingCandidateHandoffStateEnum = pgEnum('listing_candidate_handof
   'delivered',
   'retryable_error',
   'dead_letter',
+]);
+export const propertyTilePyramidKindEnum = pgEnum('property_tile_pyramid_kind', [
+  'public_default_low_zoom',
+]);
+export const propertyTilePyramidVersionStatusEnum = pgEnum('property_tile_pyramid_version_status', [
+  'queued',
+  'building',
+  'validating',
+  'validated',
+  'promoted',
+  'failed_retryable',
+  'failed_terminal',
+  'superseded',
+]);
+export const propertyTilePyramidTileStatusEnum = pgEnum('property_tile_pyramid_tile_status', [
+  'pending',
+  'valid_empty',
+  'valid_nodes',
+  'valid_encoded',
+  'failed',
+]);
+export const propertyTilePyramidTileValidationStatusEnum = pgEnum(
+  'property_tile_pyramid_tile_validation_status',
+  ['pending', 'validated', 'failed'],
+);
+export const propertyTilePyramidNodeClassEnum = pgEnum('property_tile_pyramid_node_class', [
+  'active',
+  'ghost',
+]);
+export const propertyTilePyramidGroupKindEnum = pgEnum('property_tile_pyramid_group_kind', [
+  'single',
+  'cluster',
+]);
+export const propertyTilePyramidWatermarkScopeEnum = pgEnum(
+  'property_tile_pyramid_watermark_scope',
+  [
+    'snapshot_watermarks',
+    'ingest_source',
+    'listing_source_scope',
+    'listing_scope_completion',
+    'listing_candidates',
+    'listing_facts',
+    'property_geometry',
+    'property_status',
+    'social_inputs',
+    'official_valuations',
+    'views_engagement',
+    'rolling_social_window',
+    'coverage',
+  ],
+);
+export const propertyTilePyramidAuditActionEnum = pgEnum('property_tile_pyramid_audit_action', [
+  'created',
+  'status_changed',
+  'promoted',
+  'rollback',
+  'degraded',
+  'validation_failed',
+  'retention_deleted',
+  'lease_acquired',
+  'lease_released',
 ]);
 export const listingPriceObservationEventTypeEnum = pgEnum('listing_price_observation_event_type', [
   'initial',
@@ -1234,6 +1296,496 @@ export const propertyTileSnapshotRefreshState = pgTable('property_tile_snapshot_
   failedTileCount: integer('failed_tile_count').notNull().default(0),
   lastWindowRefreshAt: timestamp('last_window_refresh_at', { withTimezone: true }),
 });
+
+export const propertyTilePyramidVersions = pgTable(
+  'property_tile_pyramid_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    coverageId: text('coverage_id').notNull(),
+    filterSignature: text('filter_signature').notNull(),
+    maxZoom: integer('max_zoom').notNull(),
+    pyramidKind: propertyTilePyramidKindEnum('pyramid_kind')
+      .notNull()
+      .default('public_default_low_zoom'),
+    configHash: text('config_hash').notNull(),
+    buildInputsHash: text('build_inputs_hash').notNull(),
+    sourceWatermarkHash: text('source_watermark_hash').notNull(),
+    sourceWatermarksJson: jsonb('source_watermarks_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    coverageSnapshotJson: jsonb('coverage_snapshot_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    configSnapshotJson: jsonb('config_snapshot_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    groupingConstantsJson: jsonb('grouping_constants_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    validationSummary: jsonb('validation_summary')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    buildStatsJson: jsonb('build_stats_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    status: propertyTilePyramidVersionStatusEnum('status').notNull().default('queued'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(5),
+    requestReason: text('request_reason'),
+    failureCategory: text('failure_category'),
+    failureMessage: text('failure_message'),
+    failureStackSummary: text('failure_stack_summary'),
+    failedStage: text('failed_stage'),
+    failedZ: integer('failed_z'),
+    failedX: integer('failed_x'),
+    failedY: integer('failed_y'),
+    terminalReason: text('terminal_reason'),
+    nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    leaseOwner: text('lease_owner'),
+    leaseToken: text('lease_token'),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    pendingReplacementWatermarksJson: jsonb('pending_replacement_watermarks_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    expectedTileCount: integer('expected_tile_count').notNull().default(0),
+    validatedTileCount: integer('validated_tile_count').notNull().default(0),
+    nonEmptyTileCount: integer('non_empty_tile_count').notNull().default(0),
+    nodeCount: integer('node_count').notNull().default(0),
+    memberRowCount: bigint('member_row_count', { mode: 'bigint' }).notNull().default(0n),
+    encodedPayloadBytes: bigint('encoded_payload_bytes', { mode: 'bigint' }).notNull().default(0n),
+    heapBytes: bigint('heap_bytes', { mode: 'bigint' }).notNull().default(0n),
+    indexBytes: bigint('index_bytes', { mode: 'bigint' }).notNull().default(0n),
+    walBytes: bigint('wal_bytes', { mode: 'bigint' }).notNull().default(0n),
+    buildDurationMs: integer('build_duration_ms'),
+    degradedAt: timestamp('degraded_at', { withTimezone: true }),
+    degradedReason: text('degraded_reason'),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    buildStartedAt: timestamp('build_started_at', { withTimezone: true }),
+    buildFinishedAt: timestamp('build_finished_at', { withTimezone: true }),
+    validatedAt: timestamp('validated_at', { withTimezone: true }),
+    promotedAt: timestamp('promoted_at', { withTimezone: true }),
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('property_tile_pyramid_versions_build_identity_idx').on(
+      table.coverageId,
+      table.filterSignature,
+      table.maxZoom,
+      table.pyramidKind,
+      table.buildInputsHash,
+      table.sourceWatermarkHash
+    ),
+    uniqueIndex('property_tile_pyramid_versions_current_fk_idx').on(
+      table.id,
+      table.coverageId,
+      table.filterSignature,
+      table.maxZoom,
+      table.pyramidKind
+    ),
+    index('property_tile_pyramid_versions_slot_status_idx').on(
+      table.coverageId,
+      table.filterSignature,
+      table.maxZoom,
+      table.pyramidKind,
+      table.status,
+      sql`created_at DESC`
+    ),
+    index('property_tile_pyramid_versions_eligible_idx')
+      .on(table.status, table.nextRetryAt, table.requestedAt)
+      .where(sql`status IN ('queued', 'failed_retryable')`),
+    index('property_tile_pyramid_versions_lease_idx')
+      .on(table.leaseUntil, table.status)
+      .where(sql`lease_until IS NOT NULL`),
+    index('property_tile_pyramid_versions_retention_idx').on(
+      table.status,
+      table.promotedAt,
+      table.createdAt
+    ),
+    check(
+      'property_tile_pyramid_versions_zoom_check',
+      sql`${table.maxZoom} >= 0 AND ${table.maxZoom} <= 22`,
+    ),
+    check(
+      'property_tile_pyramid_versions_counts_check',
+      sql`${table.attemptCount} >= 0
+        AND ${table.maxAttempts} > 0
+        AND ${table.expectedTileCount} >= 0
+        AND ${table.validatedTileCount} >= 0
+        AND ${table.nonEmptyTileCount} >= 0
+        AND ${table.nodeCount} >= 0
+        AND ${table.memberRowCount} >= 0
+        AND ${table.encodedPayloadBytes} >= 0
+        AND ${table.heapBytes} >= 0
+        AND ${table.indexBytes} >= 0
+        AND ${table.walBytes} >= 0
+        AND (${table.buildDurationMs} IS NULL OR ${table.buildDurationMs} >= 0)`,
+    ),
+    check(
+      'property_tile_pyramid_versions_status_timestamps_check',
+      sql`(${table.status} = 'promoted') = (${table.promotedAt} IS NOT NULL)
+        AND (${table.status} <> 'failed_terminal' OR ${table.terminalReason} IS NOT NULL)`,
+    ),
+    check(
+      'property_tile_pyramid_versions_failed_tile_check',
+      sql`(${table.failedZ} IS NULL AND ${table.failedX} IS NULL AND ${table.failedY} IS NULL)
+        OR (
+          ${table.failedZ} IS NOT NULL
+          AND ${table.failedX} IS NOT NULL
+          AND ${table.failedY} IS NOT NULL
+          AND ${table.failedZ} >= 0
+          AND ${table.failedZ} <= 22
+          AND ${table.failedX} >= 0
+          AND ${table.failedY} >= 0
+          AND ${table.failedX} < (1::bigint << ${table.failedZ})
+          AND ${table.failedY} < (1::bigint << ${table.failedZ})
+        )`,
+    ),
+  ],
+);
+
+export const propertyTilePyramidCurrent = pgTable(
+  'property_tile_pyramid_current',
+  {
+    coverageId: text('coverage_id').notNull(),
+    filterSignature: text('filter_signature').notNull(),
+    maxZoom: integer('max_zoom').notNull(),
+    pyramidKind: propertyTilePyramidKindEnum('pyramid_kind')
+      .notNull()
+      .default('public_default_low_zoom'),
+    currentVersionId: uuid('current_version_id').notNull(),
+    previousVersionId: uuid('previous_version_id').references(() => propertyTilePyramidVersions.id, {
+      onDelete: 'set null',
+    }),
+    currentPromotedAt: timestamp('current_promoted_at', { withTimezone: true }).notNull(),
+    promotionReason: text('promotion_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.coverageId, table.filterSignature, table.maxZoom, table.pyramidKind],
+    }),
+    foreignKey({
+      name: 'property_tile_pyramid_current_version_fk',
+      columns: [
+        table.currentVersionId,
+        table.coverageId,
+        table.filterSignature,
+        table.maxZoom,
+        table.pyramidKind,
+      ],
+      foreignColumns: [
+        propertyTilePyramidVersions.id,
+        propertyTilePyramidVersions.coverageId,
+        propertyTilePyramidVersions.filterSignature,
+        propertyTilePyramidVersions.maxZoom,
+        propertyTilePyramidVersions.pyramidKind,
+      ],
+    }),
+    index('property_tile_pyramid_current_version_idx').on(table.currentVersionId),
+    index('property_tile_pyramid_current_previous_idx').on(table.previousVersionId),
+    check(
+      'property_tile_pyramid_current_zoom_check',
+      sql`${table.maxZoom} >= 0 AND ${table.maxZoom} <= 22`,
+    ),
+  ],
+);
+
+export const propertyTilePyramidTiles = pgTable(
+  'property_tile_pyramid_tiles',
+  {
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => propertyTilePyramidVersions.id, { onDelete: 'cascade' }),
+    z: integer('z').notNull(),
+    x: integer('x').notNull(),
+    y: integer('y').notNull(),
+    tileStatus: propertyTilePyramidTileStatusEnum('tile_status').notNull().default('pending'),
+    validationStatus: propertyTilePyramidTileValidationStatusEnum('validation_status')
+      .notNull()
+      .default('pending'),
+    nodeCount: integer('node_count').notNull().default(0),
+    etag: text('etag'),
+    payload: bytea('payload'),
+    payloadSha256: text('payload_sha256'),
+    payloadGeneratedAt: timestamp('payload_generated_at', { withTimezone: true }),
+    validatedAt: timestamp('validated_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.versionId, table.z, table.x, table.y] }),
+    index('property_tile_pyramid_tiles_status_idx').on(
+      table.versionId,
+      table.tileStatus,
+      table.validationStatus,
+      table.z,
+      table.x,
+      table.y
+    ),
+    index('property_tile_pyramid_tiles_payload_missing_idx')
+      .on(table.versionId, table.z, table.x, table.y)
+      .where(sql`tile_status = 'valid_nodes' AND payload IS NULL`),
+    index('property_tile_pyramid_tiles_payload_retention_idx')
+      .on(table.versionId, table.payloadGeneratedAt)
+      .where(sql`payload IS NOT NULL`),
+    check(
+      'property_tile_pyramid_tiles_coord_check',
+      sql`${table.z} >= 0
+        AND ${table.z} <= 22
+        AND ${table.x} >= 0
+        AND ${table.y} >= 0
+        AND ${table.x} < (1::bigint << ${table.z})
+        AND ${table.y} < (1::bigint << ${table.z})`,
+    ),
+    check(
+      'property_tile_pyramid_tiles_payload_check',
+      sql`${table.nodeCount} >= 0
+        AND (
+          (${table.tileStatus} = 'pending' AND ${table.payload} IS NULL)
+          OR (
+            ${table.tileStatus} = 'valid_empty'
+            AND ${table.nodeCount} = 0
+            AND ${table.payload} IS NULL
+            AND ${table.etag} IS NOT NULL
+          )
+          OR (
+            ${table.tileStatus} = 'valid_nodes'
+            AND ${table.nodeCount} > 0
+            AND ${table.payload} IS NULL
+            AND ${table.etag} IS NOT NULL
+          )
+          OR (
+            ${table.tileStatus} = 'valid_encoded'
+            AND ${table.payload} IS NOT NULL
+            AND octet_length(${table.payload}) > 0
+            AND ${table.etag} IS NOT NULL
+            AND ${table.payloadSha256} IS NOT NULL
+            AND ${table.payloadGeneratedAt} IS NOT NULL
+          )
+          OR (${table.tileStatus} = 'failed' AND ${table.payload} IS NULL)
+        )`,
+    ),
+    check(
+      'property_tile_pyramid_tiles_validation_check',
+      sql`(${table.validationStatus} <> 'validated' OR ${table.validatedAt} IS NOT NULL)
+        AND (${table.validationStatus} <> 'failed' OR ${table.lastError} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const propertyTilePyramidNodes = pgTable(
+  'property_tile_pyramid_nodes',
+  {
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => propertyTilePyramidVersions.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    z: integer('z').notNull(),
+    x: integer('x').notNull(),
+    y: integer('y').notNull(),
+    renderLon: doublePrecision('render_lon').notNull(),
+    renderLat: doublePrecision('render_lat').notNull(),
+    renderGeometry: geometry('render_geometry').notNull(),
+    anchorWorldX: doublePrecision('anchor_world_x').notNull(),
+    anchorWorldY: doublePrecision('anchor_world_y').notNull(),
+    nodeClass: propertyTilePyramidNodeClassEnum('node_class').notNull(),
+    groupKind: propertyTilePyramidGroupKindEnum('group_kind').notNull(),
+    pointCount: integer('point_count').notNull(),
+    representativePropertyId: uuid('representative_property_id'),
+    previewPropertyIds: uuid('preview_property_ids').array().notNull().default(sql`ARRAY[]::uuid[]`),
+    previewCount: integer('preview_count').notNull().default(0),
+    nodeSummaryJson: jsonb('node_summary_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    previewPropertiesJson: jsonb('preview_properties_json')
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    bboxWest: doublePrecision('bbox_west'),
+    bboxSouth: doublePrecision('bbox_south'),
+    bboxEast: doublePrecision('bbox_east'),
+    bboxNorth: doublePrecision('bbox_north'),
+    activeListingCount: integer('active_listing_count').notNull().default(0),
+    completedListingCount: integer('completed_listing_count').notNull().default(0),
+    socialCount: integer('social_count').notNull().default(0),
+    recentSocialCount: integer('recent_social_count').notNull().default(0),
+    socialScoreTotal: real('social_score_total').notNull().default(0),
+    socialScoreMax: real('social_score_max').notNull().default(0),
+    recentSocialScoreTotal: real('recent_social_score_total').notNull().default(0),
+    commentCount: integer('comment_count').notNull().default(0),
+    address: text('address'),
+    city: text('city'),
+    askingPrice: bigint('asking_price', { mode: 'number' }),
+    thumbnailUrl: text('thumbnail_url'),
+    hasActiveListing: boolean('has_active_listing'),
+    marketState: varchar('market_state', { length: 20 }),
+    tapRadiusPx: real('tap_radius_px'),
+    tapPriorityScore: real('tap_priority_score').notNull().default(0),
+    nearbyMetadataJson: jsonb('nearby_metadata_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.versionId, table.nodeId] }),
+    index('property_tile_pyramid_nodes_tile_idx').on(table.versionId, table.z, table.x, table.y),
+    index('property_tile_pyramid_nodes_nearby_tile_idx').on(
+      table.versionId,
+      table.z,
+      table.x,
+      table.y,
+      table.renderLon,
+      table.renderLat
+    ),
+    index('property_tile_pyramid_nodes_render_geometry_idx').using('gist', table.renderGeometry),
+    index('property_tile_pyramid_nodes_representative_idx').on(
+      table.versionId,
+      table.representativePropertyId
+    ),
+    check(
+      'property_tile_pyramid_nodes_coord_check',
+      sql`${table.z} >= 0
+        AND ${table.z} <= 22
+        AND ${table.x} >= 0
+        AND ${table.y} >= 0
+        AND ${table.x} < (1::bigint << ${table.z})
+        AND ${table.y} < (1::bigint << ${table.z})
+        AND ${table.renderLon} >= -180
+        AND ${table.renderLon} <= 180
+        AND ${table.renderLat} >= -90
+        AND ${table.renderLat} <= 90`,
+    ),
+    check(
+      'property_tile_pyramid_nodes_counts_check',
+      sql`${table.pointCount} > 0
+        AND ${table.previewCount} >= 0
+        AND ${table.previewCount} <= ${table.pointCount}
+        AND ${table.previewCount} = cardinality(${table.previewPropertyIds})
+        AND ${table.activeListingCount} >= 0
+        AND ${table.completedListingCount} >= 0
+        AND ${table.socialCount} >= 0
+        AND ${table.recentSocialCount} >= 0
+        AND ${table.socialScoreTotal} >= 0
+        AND ${table.socialScoreMax} >= 0
+        AND ${table.recentSocialScoreTotal} >= 0
+        AND ${table.commentCount} >= 0
+        AND (${table.tapRadiusPx} IS NULL OR ${table.tapRadiusPx} >= 0)
+        AND ${table.tapPriorityScore} >= 0`,
+    ),
+    check(
+      'property_tile_pyramid_nodes_bbox_check',
+      sql`(
+          ${table.bboxWest} IS NULL
+          AND ${table.bboxSouth} IS NULL
+          AND ${table.bboxEast} IS NULL
+          AND ${table.bboxNorth} IS NULL
+        )
+        OR (
+          ${table.bboxWest} IS NOT NULL
+          AND ${table.bboxSouth} IS NOT NULL
+          AND ${table.bboxEast} IS NOT NULL
+          AND ${table.bboxNorth} IS NOT NULL
+          AND ${table.bboxWest} <= ${table.bboxEast}
+          AND ${table.bboxSouth} <= ${table.bboxNorth}
+          AND ${table.bboxWest} >= -180
+          AND ${table.bboxEast} <= 180
+          AND ${table.bboxSouth} >= -90
+          AND ${table.bboxNorth} <= 90
+        )`,
+    ),
+    check(
+      'property_tile_pyramid_nodes_market_state_check',
+      sql`${table.marketState} IS NULL
+        OR ${table.marketState} IN ('for-sale', 'for-rent', 'sold', 'rented', 'not-listed')`,
+    ),
+  ],
+);
+
+export const propertyTilePyramidSourceWatermarks = pgTable(
+  'property_tile_pyramid_source_watermarks',
+  {
+    scope: propertyTilePyramidWatermarkScopeEnum('scope').notNull(),
+    scopeKey: text('scope_key').notNull().default('global'),
+    watermarkValue: bigint('watermark_value', { mode: 'bigint' }).notNull().default(0n),
+    watermarkTimestamp: timestamp('watermark_timestamp', { withTimezone: true }),
+    watermarkJson: jsonb('watermark_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    pendingReplacementWatermarkValue: bigint('pending_replacement_watermark_value', {
+      mode: 'bigint',
+    }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.scopeKey] }),
+    index('property_tile_pyramid_watermarks_updated_idx').on(table.updatedAt),
+    check(
+      'property_tile_pyramid_watermarks_value_check',
+      sql`${table.watermarkValue} >= 0
+        AND (
+          ${table.pendingReplacementWatermarkValue} IS NULL
+          OR ${table.pendingReplacementWatermarkValue} >= ${table.watermarkValue}
+        )`,
+    ),
+  ],
+);
+
+export const propertyTilePyramidAudit = pgTable(
+  'property_tile_pyramid_audit',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id').references(() => propertyTilePyramidVersions.id, {
+      onDelete: 'set null',
+    }),
+    coverageId: text('coverage_id').notNull(),
+    filterSignature: text('filter_signature').notNull(),
+    maxZoom: integer('max_zoom').notNull(),
+    pyramidKind: propertyTilePyramidKindEnum('pyramid_kind')
+      .notNull()
+      .default('public_default_low_zoom'),
+    action: propertyTilePyramidAuditActionEnum('action').notNull(),
+    actor: text('actor').notNull().default('system'),
+    fromStatus: propertyTilePyramidVersionStatusEnum('from_status'),
+    toStatus: propertyTilePyramidVersionStatusEnum('to_status'),
+    previousVersionId: uuid('previous_version_id'),
+    currentVersionId: uuid('current_version_id'),
+    reason: text('reason'),
+    detailsJson: jsonb('details_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('property_tile_pyramid_audit_version_idx').on(table.versionId, table.createdAt),
+    index('property_tile_pyramid_audit_slot_idx').on(
+      table.coverageId,
+      table.filterSignature,
+      table.maxZoom,
+      table.pyramidKind,
+      table.createdAt
+    ),
+    check(
+      'property_tile_pyramid_audit_zoom_check',
+      sql`${table.maxZoom} >= 0 AND ${table.maxZoom} <= 22`,
+    ),
+  ],
+);
 
 // Canonical per-property user-visible change marker.
 // Kept separate from properties so imports do not rewrite the wide address table.

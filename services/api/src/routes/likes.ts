@@ -4,9 +4,9 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, reactions, properties, comments } from '../db/index.js';
 import { eq, and, sql } from 'drizzle-orm';
 import {
-  advancePropertyTileSnapshotWatermark,
-  safeRequestPropertyTileSnapshotRefresh,
-} from '../services/property-tile-snapshots.js';
+  advancePropertyTilePyramidSourceWatermark,
+  safeRequestPropertyTilePyramidBuild,
+} from '../services/property-tile-pyramid.js';
 
 // Schema definitions
 const commentParamsSchema = z.object({
@@ -151,7 +151,7 @@ export async function likeRoutes(app: FastifyInstance) {
           userId,
           reactionType: 'like',
         });
-        await advancePropertyTileSnapshotWatermark(['social'], tx);
+        await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
         return { status: 'created' as const };
       });
 
@@ -169,7 +169,7 @@ export async function likeRoutes(app: FastifyInstance) {
         });
       }
 
-      await safeRequestPropertyTileSnapshotRefresh(
+      await safeRequestPropertyTilePyramidBuild(
         { reason: 'comment-like' },
         request.log,
         { commentId },
@@ -248,7 +248,7 @@ export async function likeRoutes(app: FastifyInstance) {
         await tx
           .delete(reactions)
           .where(eq(reactions.id, existingReaction[0].id));
-        await advancePropertyTileSnapshotWatermark(['social'], tx);
+        await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
         return { status: 'deleted' as const };
       });
 
@@ -266,7 +266,7 @@ export async function likeRoutes(app: FastifyInstance) {
         });
       }
 
-      await safeRequestPropertyTileSnapshotRefresh(
+      await safeRequestPropertyTilePyramidBuild(
         { reason: 'comment-unlike' },
         request.log,
         { commentId },
@@ -366,7 +366,7 @@ export async function likeRoutes(app: FastifyInstance) {
             FROM reactions
             WHERE target_type = 'property' AND target_id = ${propertyId} AND reaction_type = 'like'
           `);
-          await advancePropertyTileSnapshotWatermark(['social'], tx);
+          await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
           return Array.from(result)[0]?.like_count ?? 0;
         });
       } catch (err: unknown) {
@@ -380,7 +380,7 @@ export async function likeRoutes(app: FastifyInstance) {
         throw err;
       }
 
-      await safeRequestPropertyTileSnapshotRefresh(
+      await safeRequestPropertyTilePyramidBuild(
         { reason: 'property-like' },
         request.log,
         { propertyId },
@@ -432,7 +432,7 @@ export async function likeRoutes(app: FastifyInstance) {
         `);
         const deletedCount = Array.from(rows)[0]?.deleted_count ?? 0;
         if (deletedCount > 0) {
-          await advancePropertyTileSnapshotWatermark(['social'], tx);
+          await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
         }
         return rows;
       });
@@ -447,7 +447,7 @@ export async function likeRoutes(app: FastifyInstance) {
         });
       }
 
-      await safeRequestPropertyTileSnapshotRefresh(
+      await safeRequestPropertyTilePyramidBuild(
         { reason: 'property-unlike' },
         request.log,
         { propertyId },

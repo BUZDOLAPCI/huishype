@@ -176,7 +176,7 @@ describe('property tile snapshot persistence', () => {
     expect(row?.coverage_count).toBe(1);
   });
 
-  it('can explicitly initialize default coverage before recording a fresh-DB refresh request', async () => {
+  it('keeps default coverage unmodified when legacy snapshot refresh requests are disabled', async () => {
     const result = await requestPropertyTileSnapshotRefresh({
       reason: 'bulk-import',
       enqueue: false,
@@ -193,15 +193,17 @@ describe('property tile snapshot persistence', () => {
       throttled: false,
       enqueueStatus: 'skipped',
       skippedReason: 'disabled',
+      queueJobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
     });
-    expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(1);
+    expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(0);
   });
 
-  it('bulk import refresh requests advance property watermarks and use the queue request path', async () => {
+  it('bulk import refresh requests use the disabled legacy request path without advancing snapshot watermarks', async () => {
     const requestRefresh = jest.fn<typeof requestPropertyTileSnapshotRefresh>().mockResolvedValue({
-      enqueued: true,
+      enqueued: false,
       throttled: false,
-      enqueueStatus: 'enqueued',
+      enqueueStatus: 'skipped',
+      skippedReason: 'disabled',
       queueJobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
     });
 
@@ -220,17 +222,22 @@ describe('property tile snapshot persistence', () => {
     const row = Array.from(rows)[0];
 
     expect(result).toEqual({
-      enqueued: true,
+      enqueued: false,
       throttled: false,
-      enqueueStatus: 'enqueued',
+      enqueueStatus: 'skipped',
+      skippedReason: 'disabled',
       queueJobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
     });
-    expect(requestRefresh).toHaveBeenCalledWith({ reason: 'bulk-import-test' });
-    expect(row?.property_watermark).toBe('1');
-    expect(row?.coverage_watermark).toBe('1');
+    expect(requestRefresh).toHaveBeenCalledWith({
+      reason: 'bulk-import-test',
+      enqueue: false,
+      initializeDefaultCoverage: false,
+    });
+    expect(row?.property_watermark ?? '0').toBe('0');
+    expect(row?.coverage_watermark ?? '0').toBe('0');
   });
 
-  it('updates the latest request reason while preserving a throttled request timestamp', async () => {
+  it('does not mutate refresh state for disabled legacy snapshot requests', async () => {
     const requestedAt = new Date(Date.now() - 1_000);
     await db.execute(sql`
       INSERT INTO property_tile_snapshot_refresh_state (
@@ -268,11 +275,12 @@ describe('property tile snapshot persistence', () => {
 
     expect(result).toEqual({
       enqueued: false,
-      throttled: true,
+      throttled: false,
       enqueueStatus: 'skipped',
-      skippedReason: 'throttled',
+      skippedReason: 'disabled',
+      queueJobId: 'property-tile-snapshot-refresh-public-default-low-zoom',
     });
-    expect(row?.request_reason).toBe('snapshot-lookup-miss');
+    expect(row?.request_reason).toBe('listing-maintenance');
     expect(new Date(row?.requested_at ?? 0).getTime()).toBe(requestedAt.getTime());
   });
 

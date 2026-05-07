@@ -57,6 +57,10 @@ describe('Mock handler runtime parity', () => {
     'pointCount',
     'propertyIds',
     'previewPropertyIds',
+    'pyramidVersionId',
+    'pyramidNodeId',
+    'membershipComplete',
+    'readStateCoverage',
     'coordinate',
     'bbox',
     'activeListingCount',
@@ -577,6 +581,10 @@ describe('Mock handler runtime parity', () => {
     expect(nearbyClusterResponse.status).toBe(200);
     expect(nearbyClusterBody).toHaveProperty('groupKind', 'cluster');
     expect(nearbyClusterBody).toHaveProperty('isRead', false);
+    expect(nearbyClusterBody).toHaveProperty('membershipComplete', false);
+    expect(nearbyClusterBody).toHaveProperty('readStateCoverage', 'partial');
+    expect(nearbyClusterBody.propertyIds).toEqual([]);
+    expect(nearbyClusterBody.previewPropertyIds.length).toBeGreaterThan(0);
     expect(Object.keys(nearbyClusterBody).sort()).toEqual(nearbyClusterKeys);
 
     const nearbyNullResponse = await fetch(

@@ -7,7 +7,7 @@ import {
   properties,
   propertyOfficialValuationHydrationJobs,
   propertyOfficialValuations,
-  propertyTileSnapshotWatermarks,
+  propertyTilePyramidSourceWatermarks,
 } from '../../db/index.js';
 import {
   acceptOfficialValuationHydrationRequest,
@@ -15,21 +15,20 @@ import {
   releaseOfficialValuationSourceRequest,
   reserveOfficialValuationSourceRequest,
 } from '../../services/official-valuations/store.js';
-import { PROPERTY_TILE_SNAPSHOT_KEY } from '../../services/property-tile-snapshots.js';
 import { createIntegrationProperty } from './helpers/fixtures.js';
 
 describe('official valuation hydration requests', () => {
   const propertyIds: string[] = [];
   const maintenanceBatchIds: string[] = [];
 
-  async function readPropertyTileSnapshotPropertyWatermark(): Promise<bigint> {
+  async function readOfficialValuationPyramidWatermark(): Promise<bigint> {
     const [watermark] = await db
-      .select({ propertyWatermark: propertyTileSnapshotWatermarks.propertyWatermark })
-      .from(propertyTileSnapshotWatermarks)
-      .where(eq(propertyTileSnapshotWatermarks.key, PROPERTY_TILE_SNAPSHOT_KEY))
+      .select({ watermarkValue: propertyTilePyramidSourceWatermarks.watermarkValue })
+      .from(propertyTilePyramidSourceWatermarks)
+      .where(eq(propertyTilePyramidSourceWatermarks.scope, 'official_valuations'))
       .limit(1);
 
-    return watermark?.propertyWatermark ?? 0n;
+    return watermark?.watermarkValue ?? 0n;
   }
 
   afterAll(async () => {
@@ -72,7 +71,7 @@ describe('official valuation hydration requests', () => {
       verifiedAt: new Date(),
       origin: 'server_verified',
     });
-    const snapshotPropertyWatermarkBefore = await readPropertyTileSnapshotPropertyWatermark();
+    const pyramidWatermarkBefore = await readOfficialValuationPyramidWatermark();
 
     const result = await acceptOfficialValuationHydrationRequest({
       propertyId: property.id,
@@ -118,8 +117,8 @@ describe('official valuation hydration requests', () => {
       officialValuationYear: 2025,
       officialValuationVerified: true,
     });
-    const snapshotPropertyWatermarkAfter = await readPropertyTileSnapshotPropertyWatermark();
-    expect(snapshotPropertyWatermarkAfter > snapshotPropertyWatermarkBefore).toBe(true);
+    const pyramidWatermarkAfter = await readOfficialValuationPyramidWatermark();
+    expect(pyramidWatermarkAfter > pyramidWatermarkBefore).toBe(true);
   });
 
   it('enforces WOZ source concurrency through durable source state', async () => {
@@ -186,7 +185,7 @@ describe('official valuation hydration requests', () => {
         lastAttemptAt: new Date(),
       })
       .returning();
-    const snapshotPropertyWatermarkBefore = await readPropertyTileSnapshotPropertyWatermark();
+    const pyramidWatermarkBefore = await readOfficialValuationPyramidWatermark();
 
     const maintenance = await markOfficialValuationHydrationSucceeded(job.id, {
       valuation: 512_000,
@@ -231,7 +230,7 @@ describe('official valuation hydration requests', () => {
       valuationYear: 2025,
       origin: 'server_verified',
     });
-    const snapshotPropertyWatermarkAfter = await readPropertyTileSnapshotPropertyWatermark();
-    expect(snapshotPropertyWatermarkAfter > snapshotPropertyWatermarkBefore).toBe(true);
+    const pyramidWatermarkAfter = await readOfficialValuationPyramidWatermark();
+    expect(pyramidWatermarkAfter > pyramidWatermarkBefore).toBe(true);
   });
 });

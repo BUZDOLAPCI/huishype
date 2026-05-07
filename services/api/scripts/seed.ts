@@ -293,20 +293,27 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
     `  Upserted ${fmt(changedCount)} changed properties to ${fmt(totalProperties)} total properties in ${formatTime(Date.now() - start)}`,
   );
   if (changedCount > 0) {
-    await requestPropertyTileSnapshotRefreshAfterBulkImport('bag-seed');
+    await requestPropertyTilePyramidBuildAfterBulkImport('bag-seed');
   }
   return totalProperties;
 }
 
-async function requestPropertyTileSnapshotRefreshAfterBulkImport(
+async function requestPropertyTilePyramidBuildAfterBulkImport(
   reason: string,
 ): Promise<void> {
-  const { requestPropertyTileSnapshotRefreshAfterBulkImport: requestRefresh } = await import(
-    '../src/services/property-tile-snapshots.js'
+  const {
+    advancePropertyTilePyramidSourceWatermark,
+    safeRequestPropertyTilePyramidBuild,
+  } = await import(
+    '../src/services/property-tile-pyramid.js'
   );
-  const result = await requestRefresh(reason);
+  await advancePropertyTilePyramidSourceWatermark(['property_geometry', 'coverage']);
+  const result = await safeRequestPropertyTilePyramidBuild(
+    { reason },
+    { warn: (bindings, message) => console.warn(message, bindings) },
+  );
   console.log(
-    `  Requested property tile snapshot refresh (reason: ${reason}, enqueue: ${result.enqueueStatus})`,
+    `  Requested property tile pyramid build (reason: ${reason}, status: ${result?.status ?? 'failed'})`,
   );
 }
 

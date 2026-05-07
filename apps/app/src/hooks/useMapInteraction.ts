@@ -319,6 +319,30 @@ function flyToPreviewAnchor(
   });
 }
 
+function focusClusterExtent(
+  camera: MapCameraCommands,
+  group: Pick<NearbyPropertyGroup, 'bbox' | 'coordinate'>,
+  currentZoom: number,
+): void {
+  if (group.bbox) {
+    camera.fitBounds(
+      [group.bbox.west, group.bbox.south, group.bbox.east, group.bbox.north],
+      { padding: 80, duration: 500 },
+    );
+    return;
+  }
+
+  camera.flyTo({
+    center: group.coordinate,
+    zoom: Math.min(currentZoom + 2, 18),
+    duration: 500,
+  });
+}
+
+function shouldUsePreviewIdsOnly(group: Pick<NearbyPropertyGroup, 'membershipComplete' | 'readStateCoverage'>): boolean {
+  return group.membershipComplete === false || group.readStateCoverage === 'partial';
+}
+
 function mergeHydratedPreviewProperty(
   currentProperty: GroupPreviewProperty,
   selectedProperty: NonNullable<ReturnType<typeof useProperty>['data']>,
@@ -848,7 +872,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
       if (!group) return false;
 
       if (group.groupKind === 'cluster') {
-        const previewPropertyIds = group.previewPropertyIds.length > 0
+        const previewOnly = shouldUsePreviewIdsOnly(group);
+        const previewPropertyIds = group.previewPropertyIds.length > 0 || previewOnly
           ? group.previewPropertyIds
           : group.propertyIds;
         const estimatedZoom = group.bbox
@@ -873,18 +898,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
             void openClusterPreviewAtCoord(previewPropertyIds, coord, group.nodeClass);
           });
-        } else if (group.bbox) {
-          camera.fitBounds(
-            [group.bbox.west, group.bbox.south, group.bbox.east, group.bbox.north],
-            { padding: 80, duration: 500 },
-          );
         } else {
-          const [lng, lat] = group.coordinate;
-          camera.flyTo({
-            center: [lng, lat],
-            zoom: Math.min(currentZoom + 2, 18),
-            duration: 500,
-          });
+          focusClusterExtent(camera, group, currentZoom);
         }
         return true;
       } else {
@@ -993,7 +1008,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
           setCurrentPreviewIndex(0);
         });
       } else if (result.groupKind === 'cluster') {
-        const previewIds = result.previewPropertyIds;
+        const previewOnly = shouldUsePreviewIdsOnly(result);
+        const previewIds = result.previewPropertyIds.length > 0 || previewOnly
+          ? result.previewPropertyIds
+          : result.propertyIds;
         const estimatedZoom = result.bbox
           ? estimateZoomForBbox(
               result.bbox.west,
@@ -1015,17 +1033,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
             void openClusterPreviewAtCoord(previewIds, result.coordinate, result.nodeClass);
           });
-        } else if (result.bbox) {
-          camera.fitBounds(
-            [result.bbox.west, result.bbox.south, result.bbox.east, result.bbox.north],
-            { padding: 80, duration: 500 },
-          );
         } else {
-          camera.flyTo({
-            center: result.coordinate,
-            zoom: Math.min(currentZoom + 2, 18),
-            duration: 500,
-          });
+          focusClusterExtent(camera, result, currentZoom);
         }
       }
     },

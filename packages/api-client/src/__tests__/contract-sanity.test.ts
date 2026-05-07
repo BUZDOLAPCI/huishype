@@ -222,6 +222,9 @@ type ReadPropertyTilesResponseFromOpenApi =
 type FollowingNearbyQueryFromOpenApi = NonNullable<
   paths['/properties/following-nearby']['get']['parameters']['query']
 >;
+type PublicNearbyQueryFromOpenApi = NonNullable<
+  paths['/properties/nearby']['get']['parameters']['query']
+>;
 type NearbyGroupedResponseFromOpenApi =
   paths['/properties/nearby']['get']['responses'][200]['content']['application/json'];
 type NearbySingleFromOpenApi = Extract<
@@ -247,6 +250,10 @@ type CanonicalNearbySingle = {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: 'complete' | 'partial';
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -272,6 +279,10 @@ type CanonicalNearbyCluster = {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: 'complete' | 'partial';
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -450,6 +461,14 @@ const feedContractAssertions = [
   true as Expect<
     Equal<keyof FollowingNearbyQueryFromOpenApi, keyof GetFollowingNearbyPropertyRequest>
   >,
+  true as Expect<
+    Equal<
+      Exclude<keyof PublicNearbyQueryFromOpenApi, 'pyramidVersionId' | 'pyramidNodeId'>,
+      keyof FollowingNearbyQueryFromOpenApi
+    >
+  >,
+  true as Expect<Equal<PublicNearbyQueryFromOpenApi['pyramidVersionId'], string | undefined>>,
+  true as Expect<Equal<PublicNearbyQueryFromOpenApi['pyramidNodeId'], string | undefined>>,
   true as Expect<
     Equal<Extract<keyof FollowingNearbyQueryFromOpenApi, 'bbox' | 'socialScope'>, never>
   >,

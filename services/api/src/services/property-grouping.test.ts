@@ -38,6 +38,15 @@ function renderSql(query: SQL) {
   return dialect.sqlToQuery(query).sql;
 }
 
+function renderSqlQuery(query: SQL) {
+  return dialect.sqlToQuery(query);
+}
+
+function makePropertyId(index: number): string {
+  const suffix = index.toString(16).padStart(12, '0');
+  return `00000000-0000-4000-a000-${suffix}`;
+}
+
 function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
   const scale = Math.pow(2, zoom) * PROPERTY_TILE_EXTENT;
   const lon = (worldX / scale) * 360 - 180;
@@ -113,8 +122,7 @@ function makeCanonicalGroup(
   index: number,
   overrides: Partial<CanonicalPropertyGroup> = {}
 ): CanonicalPropertyGroup {
-  const suffix = index.toString(16).padStart(12, '0');
-  const id = `00000000-0000-4000-a000-${suffix}`;
+  const id = makePropertyId(index);
   return {
     nodeClass: 'active',
     groupKind: 'single',
@@ -1487,6 +1495,46 @@ describe('property-grouping', () => {
     );
   });
 
+  it(
+    'aggregates very large active clusters without spread argument overflow',
+    () => {
+      const zoom = 17;
+      const tile = { z: zoom, x: 100, y: 100 };
+      const worldX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+      const worldY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+      const memberCount = 140_000;
+      const candidates = Array.from({ length: memberCount }, (_, index) =>
+        makeCandidateAtWorld(makePropertyId(index), worldX, worldY, zoom, {
+          socialScore: index % 97,
+          recentSocialScore: index % 53,
+          commentCount: 1,
+          hasActiveListing: index % 2 === 0,
+          hasCompletedListing: index % 2 !== 0,
+          marketState: index % 2 === 0 ? 'for-sale' : 'sold',
+        })
+      );
+
+      const groups = groupCandidatesForTile(tile, candidates);
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0].groupKind).toBe('cluster');
+      expect(groups[0].pointCount).toBe(memberCount);
+      expect(groups[0].propertyIds).toHaveLength(memberCount);
+      expect(groups[0].previewPropertyIds).toHaveLength(PROPERTY_PREVIEW_MEMBER_LIMIT);
+      expect(groups[0].activeListingCount).toBe(memberCount / 2);
+      expect(groups[0].completedListingCount).toBe(memberCount / 2);
+      expect(groups[0].socialScoreMax).toBe(96);
+      expect(groups[0].commentCount).toBe(memberCount);
+      expect(groups[0].bbox).toEqual([
+        groups[0].coordinate[0],
+        groups[0].coordinate[1],
+        groups[0].coordinate[0],
+        groups[0].coordinate[1],
+      ]);
+    },
+    30_000
+  );
+
   it('emits a cross-edge group from only the tile that owns the representative anchor', () => {
     const zoom = 17;
     const ownerTile = { z: zoom, x: 100, y: 100 };
@@ -1626,6 +1674,51 @@ describe('property-grouping', () => {
     expect(feature).not.toHaveProperty('floorAreaM2');
   });
 
+  it('omits incomplete cluster property ids from low-zoom and large MVT transport', () => {
+    const propertyIds = Array.from({ length: PROPERTY_PREVIEW_MEMBER_LIMIT + 2 }, (_, index) =>
+      makePropertyId(index + 10_000)
+    );
+    const cluster = makeCanonicalGroup(10_000, {
+      groupKind: 'cluster',
+      pointCount: propertyIds.length,
+      primaryPropertyId: propertyIds[0],
+      propertyIds,
+      previewPropertyIds: propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+      address: null,
+      city: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      hasActiveListing: null,
+      marketState: null,
+    });
+    const lowZoomFeature = serializeGroupForTile(cluster, { z: 10, x: 511, y: 340 });
+    const largeHighZoomFeature = serializeGroupForTile(cluster, { z: 17, x: 67478, y: 43551 });
+    const boundedHighZoomFeature = serializeGroupForTile(
+      {
+        ...cluster,
+        pointCount: PROPERTY_PREVIEW_MEMBER_LIMIT,
+        propertyIds: propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+      },
+      { z: 17, x: 67478, y: 43551 }
+    );
+    const singleFeature = serializeGroupForTile(makeCanonicalGroup(10_100), {
+      z: 10,
+      x: 511,
+      y: 340,
+    });
+
+    expect(lowZoomFeature.property_ids).toBe('');
+    expect(largeHighZoomFeature.property_ids).toBe('');
+    expect(lowZoomFeature.preview_property_ids).toBe(
+      propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
+    );
+    expect(boundedHighZoomFeature.property_ids).toBe(
+      propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
+    );
+    expect(singleFeature.property_ids).toBe(singleFeature.primary_property_id);
+    expect(singleFeature.preview_property_ids).toBe(singleFeature.primary_property_id);
+  });
+
   it('encodes dense MVT feature sets through typed SQL values without JSONB expansion', async () => {
     const groups = Array.from({ length: 192 }, (_, index) => makeCanonicalGroup(index));
     const timings: Array<{ stage: string; itemCount?: number }> = [];
@@ -1658,6 +1751,45 @@ describe('property-grouping', () => {
         { stage: 'MVT SQL encoding', itemCount: 1 },
       ])
     );
+  });
+
+  it('does not place unbounded low-zoom cluster membership into MVT VALUES params', async () => {
+    const propertyIds = Array.from({ length: 140_000 }, (_, index) =>
+      makePropertyId(index + 20_000)
+    );
+    const omittedMemberId = propertyIds[PROPERTY_PREVIEW_MEMBER_LIMIT + 1];
+    const cluster = makeCanonicalGroup(20_000, {
+      groupKind: 'cluster',
+      pointCount: propertyIds.length,
+      primaryPropertyId: propertyIds[0],
+      propertyIds,
+      previewPropertyIds: propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+      address: null,
+      city: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      hasActiveListing: null,
+      marketState: null,
+    });
+    let renderedMvtParams: unknown[] = [];
+    const executeSpy = jest.spyOn(db, 'execute').mockImplementation((async (query: unknown) => {
+      renderedMvtParams = renderSqlQuery(query as SQL).params;
+      return [{ mvt: Buffer.from('bounded-mvt') }] as never;
+    }) as never);
+
+    const result = await buildMvtForGroups({ z: 10, x: 511, y: 340 }, [cluster]);
+
+    expect(result.toString()).toBe('bounded-mvt');
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(renderedMvtParams).toContain('');
+    expect(renderedMvtParams).toContain(
+      propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
+    );
+    expect(
+      renderedMvtParams.some(
+        (param) => typeof param === 'string' && param.includes(omittedMemberId)
+      )
+    ).toBe(false);
   });
 
   it('applies map filters before grouping clustered active sale candidates', async () => {

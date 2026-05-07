@@ -176,6 +176,13 @@
       "when": 1778112000001,
       "tag": "0024_listing_scope_completion_filter_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1778112000002,
+      "tag": "0025_property_tile_pyramid",
+      "breakpoints": true
     }
   ]
 }

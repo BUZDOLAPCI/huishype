@@ -264,6 +264,10 @@ interface PropertyNodeGroupBase {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: 'complete' | 'partial';
   coordinate: [number, number];
   bbox: PropertyGroupBounds | null;
   activeListingCount: number;

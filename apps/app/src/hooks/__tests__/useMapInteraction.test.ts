@@ -858,6 +858,52 @@ describe('useMapInteraction', () => {
         activityLevel: 'warm',
       });
     });
+
+    it('zooms into incomplete pyramid clusters with empty previews instead of using full ids', async () => {
+      jest.useFakeTimers();
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const camera = createMockCamera();
+      const feature: GeoJSON.Feature = {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+        properties: {
+          node_class: 'active',
+          group_kind: 'cluster',
+          primary_property_id: 'p1',
+          point_count: 50,
+          property_ids: 'p1,p2,p3',
+          preview_property_ids: '',
+          membership_complete: 'false',
+          read_state_coverage: 'partial',
+          pyramid_version_id: 'v1',
+          pyramid_node_id: 'n1',
+          bbox_west: 4.8,
+          bbox_south: 52.3,
+          bbox_east: 5.0,
+          bbox_north: 52.4,
+        },
+      };
+
+      await act(async () => {
+        await result.current.handleFeaturePress([feature], 10, camera);
+      });
+
+      expect(mockFetchBatchProperties).not.toHaveBeenCalled();
+      expect(camera.flyTo).not.toHaveBeenCalledWith({
+        center: [4.9, 52.37],
+        zoom: 10,
+        duration: 500,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+      });
+      expect(camera.fitBounds).toHaveBeenCalledWith([4.8, 52.3, 5.0, 52.4], {
+        padding: 80,
+        duration: 500,
+      });
+      expect(result.current.previewGroup).toBeNull();
+    });
   });
 
   describe('handleNearbyResult', () => {
@@ -875,6 +921,10 @@ describe('useMapInteraction', () => {
         pointCount: 1,
         propertyIds: ['prop-1'],
         previewPropertyIds: ['prop-1'],
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete',
         coordinate: [4.9, 52.37],
         bbox: null,
         activeListingCount: 1,
@@ -971,6 +1021,10 @@ describe('useMapInteraction', () => {
         pointCount: 50,
         propertyIds: ['p1', 'p2', 'p3'],
         previewPropertyIds: ['p1', 'p2', 'p3'],
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete',
         coordinate: [4.9, 52.37],
         bbox: { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
         activeListingCount: 2,

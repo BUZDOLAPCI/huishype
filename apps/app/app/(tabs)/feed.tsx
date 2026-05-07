@@ -5,13 +5,7 @@
  * Recent Activity and Following use grouped property posts from /activity/properties.
  */
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { router } from 'expo-router';
 import { isValidCountryCode } from '@huishype/shared/config';
@@ -61,10 +55,10 @@ const FEED_LIST_CONTAINER_STYLE = {
   flex: 1,
 };
 
-const FEED_LIST_WINDOW_SIZE = 5;
-const FEED_LIST_INITIAL_NUM_TO_RENDER = 6;
-const FEED_LIST_MAX_TO_RENDER_PER_BATCH = 4;
-const FEED_LIST_BATCHING_PERIOD_MS = 50;
+const FEED_LIST_WINDOW_SIZE = 3;
+const FEED_LIST_INITIAL_NUM_TO_RENDER = 3;
+const FEED_LIST_MAX_TO_RENDER_PER_BATCH = 2;
+const FEED_LIST_BATCHING_PERIOD_MS = 100;
 
 // --- Header title per filter ---
 
@@ -113,6 +107,7 @@ export default function FeedScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const trackedFollowingEmptyViewRef = useRef(false);
+  const hasInteractedWithListRef = useRef(false);
 
   const feedCountryCode = useMemo(() => {
     const candidate = profile?.homeCountry?.toUpperCase();
@@ -145,13 +140,12 @@ export default function FeedScreen() {
   // Property feed (trending/latest)
   const isPropertyFeed = activeFilter === 'trending' || activeFilter === 'latest';
   const activityScope = activeFilter === 'following' ? 'following' : 'public';
-  const propertyFeedFilter: PropertyFeedFilter =
-    activeFilter === 'latest' ? 'latest' : 'trending';
+  const propertyFeedFilter: PropertyFeedFilter = activeFilter === 'latest' ? 'latest' : 'trending';
   const isBootstrappingPropertyFeed = isPropertyFeed && !feedScope;
   const feedQuery = useInfiniteFeed(
     isPropertyFeed ? propertyFeedFilter : 'trending',
     feedScope,
-    isPropertyFeed && !!feedScope,
+    isPropertyFeed && !!feedScope
   );
 
   // Activity feed
@@ -213,23 +207,33 @@ export default function FeedScreen() {
     setIsRefreshing(false);
   }, [activeQuery]);
 
-  const handleFilterChange = useCallback((filter: FeedTab) => {
-    if (filter === 'following' && !isAuthenticated) {
-      setShowAuth(true);
-      return;
-    }
+  const handleFilterChange = useCallback(
+    (filter: FeedTab) => {
+      if (filter === 'following' && !isAuthenticated) {
+        setShowAuth(true);
+        return;
+      }
 
-    setActiveFilter(filter);
-  }, [isAuthenticated]);
+      setActiveFilter(filter);
+    },
+    [isAuthenticated]
+  );
 
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
     router.push(toInternalAppHref(buildPropertyRoute(property, '/feed')));
   }, []);
   const handleLoadMore = useCallback(() => {
+    if (!hasInteractedWithListRef.current) {
+      return;
+    }
+
     if (activeQuery.hasNextPage && !activeQuery.isFetchingNextPage) {
       activeQuery.fetchNextPage();
     }
   }, [activeQuery]);
+  const handleListInteraction = useCallback(() => {
+    hasInteractedWithListRef.current = true;
+  }, []);
 
   // --- Property feed render ---
 
@@ -288,10 +292,7 @@ export default function FeedScreen() {
     [activeFilter, handlePropertyPress]
   );
 
-  const propertyKeyExtractor = useCallback(
-    (item: FeedProperty) => item.id,
-    []
-  );
+  const propertyKeyExtractor = useCallback((item: FeedProperty) => item.id, []);
   const activityKeyExtractor = useCallback(
     (item: GroupedPropertyActivityItem) => item.property.id,
     []
@@ -333,10 +334,7 @@ export default function FeedScreen() {
     return (
       <ScreenBackground>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
-        <FeedFilterChips
-          activeFilter={activeFilter}
-          onFilterChange={handleFilterChange}
-        />
+        <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
         <FeedLoadingState />
         {authModal}
       </ScreenBackground>
@@ -348,10 +346,7 @@ export default function FeedScreen() {
     return (
       <ScreenBackground>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
-        <FeedFilterChips
-          activeFilter={activeFilter}
-          onFilterChange={handleFilterChange}
-        />
+        <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
         <FeedErrorState
           message={activeQuery.error?.message || 'Failed to load'}
           onRetry={activeQuery.refetch}
@@ -362,19 +357,14 @@ export default function FeedScreen() {
   }
 
   // Empty state
-  const isEmpty = isPropertyFeed
-    ? properties.length === 0
-    : activities.length === 0;
+  const isEmpty = isPropertyFeed ? properties.length === 0 : activities.length === 0;
 
   if (isEmpty) {
     const signedInFollowing = activeFilter !== 'following' || isAuthenticated;
     return (
       <ScreenBackground>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
-        <FeedFilterChips
-          activeFilter={activeFilter}
-          onFilterChange={handleFilterChange}
-        />
+        <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
         <FeedEmptyState
           filter={activeFilter}
           signedIn={signedInFollowing}
@@ -400,10 +390,7 @@ export default function FeedScreen() {
     <ScreenBackground style={{ alignItems: 'center' }} testID="feed-screen">
       <View style={FEED_LIST_CONTAINER_STYLE}>
         <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
-        <FeedFilterChips
-          activeFilter={activeFilter}
-          onFilterChange={handleFilterChange}
-        />
+        <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
 
         {isPropertyFeed ? (
           <FlatList
@@ -414,13 +401,14 @@ export default function FeedScreen() {
             refreshControl={refreshControl}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
+            onScrollBeginDrag={handleListInteraction}
+            onMomentumScrollBegin={handleListInteraction}
             ListFooterComponent={ListFooterComponent}
             showsVerticalScrollIndicator={false}
             initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}
             maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
             updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
             windowSize={FEED_LIST_WINDOW_SIZE}
-            removeClippedSubviews
             testID="feed-list"
           />
         ) : (
@@ -432,13 +420,14 @@ export default function FeedScreen() {
             refreshControl={refreshControl}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
+            onScrollBeginDrag={handleListInteraction}
+            onMomentumScrollBegin={handleListInteraction}
             ListFooterComponent={ListFooterComponent}
             showsVerticalScrollIndicator={false}
             initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}
             maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
             updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
             windowSize={FEED_LIST_WINDOW_SIZE}
-            removeClippedSubviews
             testID="activity-feed-list"
           />
         )}

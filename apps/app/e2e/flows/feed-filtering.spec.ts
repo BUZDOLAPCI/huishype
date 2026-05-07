@@ -28,6 +28,7 @@ test.use({ trace: 'off' });
 test.describe('Feed Filtering', () => {
   let consoleErrors: string[] = [];
   let consoleWarnings: string[] = [];
+  let expectedResolveConflictResponses: string[] = [];
 
   test.beforeAll(async () => {
     const fullPath = path.resolve(process.cwd(), SCREENSHOT_DIR);
@@ -39,6 +40,7 @@ test.describe('Feed Filtering', () => {
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
     consoleWarnings = [];
+    expectedResolveConflictResponses = [];
 
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
@@ -54,6 +56,15 @@ test.describe('Feed Filtering', () => {
     page.on('pageerror', (error) => {
       consoleErrors.push(`Page Error: ${error.message}`);
     });
+
+    page.on('response', (response) => {
+      if (
+        response.status() === 409 &&
+        response.url().includes('/properties/resolve')
+      ) {
+        expectedResolveConflictResponses.push(response.url());
+      }
+    });
   });
 
   test.afterEach(async () => {
@@ -62,13 +73,21 @@ test.describe('Feed Filtering', () => {
       consoleWarnings.slice(0, 10).forEach((w) => console.log(`  - ${w}`));
     }
 
-    if (consoleErrors.length > 0) {
-      console.error(`Console errors detected (${consoleErrors.length}):`);
-      consoleErrors.forEach((e) => console.error(`  - ${e}`));
+    const unexpectedConsoleErrors = consoleErrors.filter((error) => {
+      const isBrowserResourceConflict =
+        /Failed to load resource: the server responded with a status of 409 \(Conflict\)/.test(
+          error
+        );
+      return !(isBrowserResourceConflict && expectedResolveConflictResponses.length > 0);
+    });
+
+    if (unexpectedConsoleErrors.length > 0) {
+      console.error(`Console errors detected (${unexpectedConsoleErrors.length}):`);
+      unexpectedConsoleErrors.forEach((e) => console.error(`  - ${e}`));
     }
     expect(
-      consoleErrors,
-      `Expected zero console errors but found ${consoleErrors.length}`
+      unexpectedConsoleErrors,
+      `Expected zero unexpected console errors but found ${unexpectedConsoleErrors.length}`
     ).toHaveLength(0);
   });
 

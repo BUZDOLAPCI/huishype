@@ -180,10 +180,15 @@ test.describe('App Boot & Navigation', () => {
 
     const body = await response.json();
     expect(body).toHaveProperty('status');
-    expect(body.status).toBe('ok');
+    expect(['ok', 'degraded']).toContain(body.status);
     expect(body).toHaveProperty('timestamp');
     expect(body).toHaveProperty('version');
     expect(body).toHaveProperty('uptime');
+    if (body.status === 'degraded') {
+      expect(body).toHaveProperty('propertyTilePyramid');
+      expect(body.propertyTilePyramid).toHaveProperty('status', 'degraded');
+      expect(body.propertyTilePyramid).toHaveProperty('degradedReason');
+    }
   });
 
   test('zoom level indicator is visible on map', async ({ page }) => {

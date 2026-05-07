@@ -644,7 +644,11 @@ export function buildNearbyGroupPath(
   lon: number,
   lat: number,
   zoom: number,
-  filters: MapFilters
+  filters: MapFilters,
+  pyramidNode?: {
+    pyramidVersionId?: string | null;
+    pyramidNodeId?: string | null;
+  }
 ): string {
   const params = updateMapFilterSearchParams(
     new URLSearchParams({
@@ -654,6 +658,10 @@ export function buildNearbyGroupPath(
     }),
     filters
   );
+  if (pyramidNode?.pyramidVersionId && pyramidNode.pyramidNodeId) {
+    params.set('pyramidVersionId', pyramidNode.pyramidVersionId);
+    params.set('pyramidNodeId', pyramidNode.pyramidNodeId);
+  }
 
   return `/properties/nearby?${params.toString()}`;
 }

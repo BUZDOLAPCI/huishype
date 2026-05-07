@@ -166,7 +166,9 @@ export function buildPropertyTileSnapshotRefreshRequestResult(input: {
     enqueueStatus: enqueueResult.status,
     queueJobId: enqueueResult.jobId,
   };
-  if (enqueueResult.status === 'coalesced') {
+  if (enqueueResult.status === 'skipped') {
+    result.skippedReason = enqueueResult.skippedReason;
+  } else if (enqueueResult.status === 'coalesced') {
     result.queueJobState = enqueueResult.existingState;
   } else if (enqueueResult.status === 'retried') {
     result.queueJobState = enqueueResult.previousState;
@@ -955,106 +957,23 @@ export async function requestPropertyTileSnapshotRefresh(input: {
   enqueue?: boolean;
   initializeDefaultCoverage?: boolean;
 }): Promise<PropertyTileSnapshotRefreshRequestResult> {
-  if (input.initializeDefaultCoverage !== false) {
-    await ensureDefaultPropertyTileSnapshotCoverage();
-  }
-
-  const previousRows = await db
-    .select({
-      requestedAt: propertyTileSnapshotRefreshState.requestedAt,
-      lastError: propertyTileSnapshotRefreshState.lastError,
-    })
-    .from(propertyTileSnapshotRefreshState)
-    .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
-    .limit(1);
-  const previous = previousRows[0] ?? null;
-  const now = new Date();
-  const throttled = isSnapshotRefreshRequestThrottled({
-    requestedAt: previous?.requestedAt,
-    lastError: previous?.lastError,
-    now,
-    throttleMs: input.throttleMs,
-  });
-
-  if (input.enqueue === false) {
-    return buildPropertyTileSnapshotRefreshRequestResult({
-      enqueueDisabled: true,
-    });
-  }
-
-  const watermarks = await readSnapshotWatermarks();
-
-  if (throttled) {
-    await db
-      .insert(propertyTileSnapshotRefreshState)
-      .values({
-        key: PROPERTY_TILE_SNAPSHOT_KEY,
-        requestedAt: previous?.requestedAt ?? now,
-        requestReason: input.reason,
-        requestedListingWatermark: watermarks.listingWatermark,
-        requestedSocialWatermark: watermarks.socialWatermark,
-        requestedPropertyWatermark: watermarks.propertyWatermark,
-        requestedCoverageWatermark: watermarks.coverageWatermark,
-      })
-      .onConflictDoUpdate({
-        target: propertyTileSnapshotRefreshState.key,
-        set: {
-          requestReason: input.reason,
-          requestedListingWatermark: watermarks.listingWatermark,
-          requestedSocialWatermark: watermarks.socialWatermark,
-          requestedPropertyWatermark: watermarks.propertyWatermark,
-          requestedCoverageWatermark: watermarks.coverageWatermark,
-        },
-      });
-    return buildPropertyTileSnapshotRefreshRequestResult({ throttled: true });
-  }
-
-  await db
-    .insert(propertyTileSnapshotRefreshState)
-    .values({
-      key: PROPERTY_TILE_SNAPSHOT_KEY,
-      requestedAt: now,
-      requestReason: input.reason,
-      requestedListingWatermark: watermarks.listingWatermark,
-      requestedSocialWatermark: watermarks.socialWatermark,
-      requestedPropertyWatermark: watermarks.propertyWatermark,
-      requestedCoverageWatermark: watermarks.coverageWatermark,
-    })
-    .onConflictDoUpdate({
-      target: propertyTileSnapshotRefreshState.key,
-      set: {
-        requestedAt: now,
-        requestReason: input.reason,
-        requestedListingWatermark: watermarks.listingWatermark,
-        requestedSocialWatermark: watermarks.socialWatermark,
-        requestedPropertyWatermark: watermarks.propertyWatermark,
-        requestedCoverageWatermark: watermarks.coverageWatermark,
-      },
-    });
-
   const enqueueResult = await enqueuePropertyTileSnapshotRefresh({ reason: input.reason });
   return buildPropertyTileSnapshotRefreshRequestResult({ enqueueResult });
 }
 
-export async function invalidatePropertyTileSnapshots(input: {
+export async function invalidatePropertyTileSnapshots(_input: {
   dimensions: readonly PropertyTileSnapshotWatermarkDimension[];
   reason: string;
   throttleMs?: number;
   executor?: SnapshotDb;
 }): Promise<void> {
-  await advancePropertyTileSnapshotWatermark(input.dimensions, input.executor);
-  if (input.executor) {
-    return;
-  }
-  await requestPropertyTileSnapshotRefresh({ reason: input.reason, throttleMs: input.throttleMs });
 }
 
 export async function requestPropertyTileSnapshotRefreshAfterBulkImport(
   reason: string,
   requestRefresh: typeof requestPropertyTileSnapshotRefresh = requestPropertyTileSnapshotRefresh,
 ): Promise<PropertyTileSnapshotRefreshRequestResult> {
-  await advancePropertyTileSnapshotWatermark(['property', 'coverage']);
-  return requestRefresh({ reason });
+  return requestRefresh({ reason, enqueue: false, initializeDefaultCoverage: false });
 }
 
 export async function upsertPropertyTileSnapshotRow(input: {

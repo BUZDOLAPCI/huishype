@@ -8,7 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { jest } from '@jest/globals';
 import {
   resetPropertyTileCacheForTests,
-  setPropertyTileSnapshotLookupForTests,
+  setPropertyTilePyramidServiceForTests,
   waitForPendingDefaultPropertyTileSnapshotRefreshesForTests,
 } from '../../routes/tiles.js';
 import {
@@ -16,12 +16,6 @@ import {
   resetCanonicalGroupCacheForTests,
   type CanonicalPropertyGroup,
 } from '../../services/property-grouping.js';
-import {
-  DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID,
-  PROPERTY_TILE_SNAPSHOT_KEY,
-  ensureDefaultPropertyTileSnapshotCoverage,
-  upsertPropertyTileSnapshotRow,
-} from '../../services/property-tile-snapshots.js';
 import {
   buildPropertyTileEtag,
   PROPERTY_TILE_CACHE_TTL_SECONDS,
@@ -138,55 +132,6 @@ function expectCompletedActiveSingleGroup(
   expect(group.completedListingCount).toBe(1);
   expect(group.hasActiveListing).toBe(false);
   expect(group.marketState).toBe(marketState);
-}
-
-type PropertyTileSnapshotRefreshStateRow = {
-  request_reason: string | null;
-  requested_at: Date | string | null;
-};
-
-function timestampMs(value: Date | string | null): number | null {
-  if (value == null) {
-    return null;
-  }
-  return value instanceof Date ? value.getTime() : new Date(value).getTime();
-}
-
-async function seedRecentPropertyTileSnapshotRefreshRequest(
-  reason: string,
-): Promise<Date> {
-  const requestedAt = new Date(Date.now() - 1_000);
-  await db.execute(sql`
-    INSERT INTO property_tile_snapshot_refresh_state (
-      key,
-      requested_at,
-      request_reason,
-      last_error
-    )
-    VALUES (
-      ${PROPERTY_TILE_SNAPSHOT_KEY},
-      ${requestedAt.toISOString()}::timestamptz,
-      ${reason},
-      NULL
-    )
-    ON CONFLICT (key) DO UPDATE SET
-      requested_at = EXCLUDED.requested_at,
-      request_reason = EXCLUDED.request_reason,
-      last_error = NULL
-  `);
-  return requestedAt;
-}
-
-async function readPropertyTileSnapshotRefreshState(): Promise<
-  PropertyTileSnapshotRefreshStateRow | null
-> {
-  const rows = await db.execute<PropertyTileSnapshotRefreshStateRow>(sql`
-    SELECT request_reason, requested_at
-    FROM property_tile_snapshot_refresh_state
-    WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
-    LIMIT 1
-  `);
-  return Array.from(rows)[0] ?? null;
 }
 
 /**
@@ -826,37 +771,44 @@ describe('Tile routes', () => {
     // Eindhoven area tile coordinates at various zoom levels
     // Eindhoven center ≈ 51.44, 5.47
 
-    it('should return 204 for an empty ocean tile', async () => {
-      // Tile in the middle of the Atlantic ocean at zoom 10
+    it('returns the pyramid 204 miss contract for public default low-zoom when no current version exists', async () => {
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+
       const response = await app.inject({
         method: 'GET',
         url: '/tiles/properties/10/0/0.pbf',
       });
 
-      // Should be 204 (No Content) for empty tiles
       expect(response.statusCode).toBe(204);
-      expect(response.headers['cache-control']).toBe(
-        'public, max-age=300, stale-while-revalidate=300'
-      );
-      expect(response.headers.etag).toBeDefined();
-      expect(response.headers['x-tile-cache']).toBe('miss');
-      expect(response.headers['x-tile-snapshot']).toBe('miss');
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-enqueued');
+      expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
+      expect(response.headers['x-tile-cache']).not.toBe('timeout-empty');
+      expect(response.headers.etag).toBeUndefined();
+      expect(runtimeRunSpy).not.toHaveBeenCalled();
+
+      runtimeRunSpy.mockRestore();
     });
 
-    it('dynamically builds missing default low-zoom snapshots and bootstraps coverage for refresh', async () => {
-      await db.execute(sql`
-        DELETE FROM property_tile_snapshots
-        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-      `);
-      await db.execute(sql`
-        DELETE FROM property_tile_snapshot_coverage
-        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-      `);
-      const previousRefreshRequestedAt = await seedRecentPropertyTileSnapshotRefreshRequest(
-        'test-recent-refresh',
-      );
-
+    it('coalesces a durable pyramid build request and never dynamically builds a covered miss', async () => {
+      const buildRequests: unknown[] = [];
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 10,
+        lookupCurrentVersion: async () => ({
+          state: 'none',
+          tileStatus: 'pyramid-unavailable',
+          reason: 'unit-no-current',
+        }),
+        requestBuild: async (input) => {
+          buildRequests.push(input);
+          return {
+            status: 'enqueued',
+            versionId: '00000000-0000-0000-0000-000000000001',
+            queueJobId: 'property-tile-pyramid-unit',
+          };
+        },
+      });
 
       try {
         const response = await app.inject({
@@ -864,59 +816,53 @@ describe('Tile routes', () => {
           url: '/tiles/properties/10/0/0.pbf',
         });
 
-        expect([200, 204]).toContain(response.statusCode);
-        expect(response.headers['cache-control']).toBe(
-          'public, max-age=300, stale-while-revalidate=300'
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-enqueued');
+        expect(response.headers['x-huishype-pyramid-candidate-version']).toBe(
+          '00000000-0000-0000-0000-000000000001',
         );
-        expect(response.headers['x-tile-cache']).toBe('miss');
-        expect(response.headers['x-tile-snapshot']).toBe('miss');
-        expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
-
-        await waitForPendingDefaultPropertyTileSnapshotRefreshesForTests();
-        const refreshState = await readPropertyTileSnapshotRefreshState();
-        expect(refreshState).not.toBeNull();
-        expect(refreshState?.request_reason).toBe('snapshot-lookup-miss');
-        expect(timestampMs(refreshState?.requested_at ?? null)).toBe(previousRefreshRequestedAt.getTime());
-
-        const rows = await db.execute<{ coverage_count: number }>(sql`
-          SELECT count(*)::int AS coverage_count
-          FROM property_tile_snapshot_coverage
-          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-        `);
-        expect(Array.from(rows)[0]?.coverage_count ?? 0).toBe(1);
+        expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
+        expect(buildRequests).toHaveLength(1);
+        expect(buildRequests[0]).toMatchObject({ reason: 'tile-miss' });
       } finally {
         runtimeRunSpy.mockRestore();
-        await db.execute(sql`
-          DELETE FROM property_tile_snapshot_refresh_state
-          WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
-        `);
-        await db.execute(sql`
-          DELETE FROM property_tile_snapshot_coverage
-          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-        `);
       }
     });
 
-    it('serves current public default low-zoom tiles from precomputed snapshots with public headers', async () => {
+    it('serves current public default low-zoom tiles from promoted pyramid payloads with versioned cache keys', async () => {
       const tile = { z: 0, x: 0, y: 0 };
       const payload = Buffer.from([0x1a, 0x03, 0x68, 0x68, 0x70]);
-      let coverage: Awaited<ReturnType<typeof ensureDefaultPropertyTileSnapshotCoverage>> | null =
-        null;
+      const lookupTile = jest.fn(async () => ({
+        state: 'hit' as const,
+        versionId: '00000000-0000-0000-0000-0000000000aa',
+        payload,
+        statusCode: 200 as const,
+        etag: '"pyramid-aa"',
+        nodeCount: 1,
+        encodedFromNodes: false,
+      }));
 
       try {
-        coverage = await ensureDefaultPropertyTileSnapshotCoverage();
-        await upsertPropertyTileSnapshotRow({
-          tile,
-          filterSignature: coverage.filterSignature,
-          coverage,
-          payload,
-          watermarks: {
-            listingWatermark: 0n,
-            socialWatermark: 0n,
-            propertyWatermark: 0n,
-            coverageWatermark: coverage.coverageWatermark,
-          },
-          generatedAt: new Date(),
+        setPropertyTilePyramidServiceForTests({
+          getMaxZoom: () => 10,
+          lookupCurrentVersion: async () => ({
+            state: 'current',
+            version: {
+              versionId: '00000000-0000-0000-0000-0000000000aa',
+              coverageId: 'public_default_low_zoom',
+              filterSignature: 'default',
+              maxZoom: 10,
+              pyramidKind: 'public_default_low_zoom',
+              buildInputsHash: 'inputs',
+              sourceWatermarkHash: 'watermarks',
+              status: 'promoted',
+              promotedAt: new Date().toISOString(),
+              degradedAt: null,
+              degradedReason: null,
+            },
+          }),
+          lookupTile,
         });
 
         const response = await app.inject({
@@ -931,14 +877,15 @@ describe('Tile routes', () => {
           'public, max-age=300, stale-while-revalidate=300'
         );
         expect(response.headers['x-tile-cache']).toBe('precomputed');
-        expect(response.headers['x-tile-snapshot']).toBe('hit');
+        expect(response.headers['x-huishype-pyramid-version']).toBe(
+          '00000000-0000-0000-0000-0000000000aa',
+        );
         expect(response.headers['x-tile-coalesced']).toBe('false');
         expect(response.headers['x-tile-generation-time']).toMatch(/^\d+ms$/);
         expect(response.headers['x-tile-queue-time']).toBe('0ms');
         expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
-        expect(response.headers.etag).toBeDefined();
+        expect(response.headers.etag).toBe('"pyramid-aa"');
 
-        resetPropertyTileCacheForTests();
         const conditionalResponse = await app.inject({
           method: 'GET',
           url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
@@ -946,34 +893,22 @@ describe('Tile routes', () => {
         });
 
         expect(conditionalResponse.statusCode).toBe(304);
-        expect(conditionalResponse.headers['x-tile-cache']).toBe('precomputed');
-        expect(conditionalResponse.headers['x-tile-snapshot']).toBe('hit');
+        expect(conditionalResponse.headers['x-tile-cache']).toBe('hit');
         expect(conditionalResponse.headers.etag).toBe(response.headers.etag);
+        expect(lookupTile).toHaveBeenCalledTimes(1);
       } finally {
-        await db.execute(sql`
-          DELETE FROM property_tile_snapshots
-          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-            AND z = ${tile.z}
-            AND x = ${tile.x}
-            AND y = ${tile.y}
-        `);
-        await db.execute(sql`
-          DELETE FROM property_tile_snapshot_coverage
-          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-        `);
+        resetPropertyTileCacheForTests();
       }
     });
 
-    it('serves current low-zoom snapshots while PropertyTileRuntime is saturated', async () => {
+    it('serves current low-zoom pyramid payloads while PropertyTileRuntime is saturated', async () => {
       process.env.PROPERTY_TILE_MAX_CONCURRENCY = '1';
       process.env.PROPERTY_TILE_QUEUE_WAIT_MS = '5';
       const tile = { z: 0, x: 0, y: 0 };
-      const snapshotPayload = Buffer.from([
+      const pyramidPayload = Buffer.from([
         0x1a, 0x08, 0x73, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74,
       ]);
       const releaseBlocker: { current: (() => void) | null } = { current: null };
-      let coverage: Awaited<ReturnType<typeof ensureDefaultPropertyTileSnapshotCoverage>> | null =
-        null;
       let markBlockerStarted!: () => void;
       const blockerStarted = new Promise<void>((resolve) => {
         markBlockerStarted = resolve;
@@ -993,19 +928,33 @@ describe('Tile routes', () => {
       });
 
       try {
-        coverage = await ensureDefaultPropertyTileSnapshotCoverage();
-        await upsertPropertyTileSnapshotRow({
-          tile,
-          filterSignature: coverage.filterSignature,
-          coverage,
-          payload: snapshotPayload,
-          watermarks: {
-            listingWatermark: 0n,
-            socialWatermark: 0n,
-            propertyWatermark: 0n,
-            coverageWatermark: coverage.coverageWatermark,
-          },
-          generatedAt: new Date(),
+        setPropertyTilePyramidServiceForTests({
+          getMaxZoom: () => 10,
+          lookupCurrentVersion: async () => ({
+            state: 'current',
+            version: {
+              versionId: '00000000-0000-0000-0000-0000000000bb',
+              coverageId: 'public_default_low_zoom',
+              filterSignature: 'default',
+              maxZoom: 10,
+              pyramidKind: 'public_default_low_zoom',
+              buildInputsHash: 'inputs',
+              sourceWatermarkHash: 'watermarks',
+              status: 'promoted',
+              promotedAt: new Date().toISOString(),
+              degradedAt: null,
+              degradedReason: null,
+            },
+          }),
+          lookupTile: async () => ({
+            state: 'hit',
+            versionId: '00000000-0000-0000-0000-0000000000bb',
+            payload: pyramidPayload,
+            statusCode: 200,
+            etag: '"pyramid-bb"',
+            nodeCount: 1,
+            encodedFromNodes: false,
+          }),
         });
 
         await blockerStarted;
@@ -1016,32 +965,21 @@ describe('Tile routes', () => {
         });
 
         expect(response.statusCode).toBe(200);
-        expect(response.rawPayload).toEqual(snapshotPayload);
+        expect(response.rawPayload).toEqual(pyramidPayload);
         expect(response.headers['x-tile-cache']).toBe('precomputed');
-        expect(response.headers['x-tile-snapshot']).toBe('hit');
+        expect(response.headers['x-huishype-pyramid-version']).toBe(
+          '00000000-0000-0000-0000-0000000000bb',
+        );
         expect(runtimeRunSpy).not.toHaveBeenCalled();
       } finally {
         runtimeRunSpy?.mockRestore();
         releaseBlocker.current?.();
         await blocker;
         propertyTileRuntime.resetForTests();
-        await db.execute(sql`
-          DELETE FROM property_tile_snapshots
-          WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-            AND z = ${tile.z}
-            AND x = ${tile.x}
-            AND y = ${tile.y}
-        `);
-        if (coverage) {
-          await db.execute(sql`
-            DELETE FROM property_tile_snapshot_coverage
-            WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-          `);
-        }
       }
     });
 
-    it('falls back to stale cache when a missing default low-zoom snapshot dynamic build times out', async () => {
+    it('does not serve an old non-versioned stale cache entry for pyramid-covered misses', async () => {
       const tileUrl = '/tiles/properties/10/0/0.pbf';
       const cacheKey = '10/0/0:default';
       const payload = Buffer.from([0x1a, 0x05, 0x73, 0x74, 0x61, 0x6c, 0x65]);
@@ -1055,21 +993,15 @@ describe('Tile routes', () => {
         },
         staleNow
       );
-      await db.execute(sql`
-        DELETE FROM property_tile_snapshots
-        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-      `);
-      await db.execute(sql`
-        DELETE FROM property_tile_snapshot_coverage
-        WHERE coverage_id = ${DEFAULT_PROPERTY_TILE_SNAPSHOT_COVERAGE_ID}
-      `);
-      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run').mockResolvedValue({
-        state: 'timeout',
-        coalesced: false,
-        runtimeEvent: 'started',
-        queueTimeMs: 7,
-        generationTimeMs: 3_000,
-        budgetMs: 3_000,
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 10,
+        lookupCurrentVersion: async () => ({
+          state: 'none',
+          tileStatus: 'pyramid-unavailable',
+          reason: 'unit-no-current',
+        }),
+        requestBuild: async () => ({ status: 'coalesced', versionId: 'candidate' }),
       });
 
       try {
@@ -1078,54 +1010,98 @@ describe('Tile routes', () => {
           url: tileUrl,
         });
 
-        expect(response.statusCode).toBe(200);
-        expect(response.rawPayload).toEqual(payload);
-        expect(response.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
-        expect(response.headers['x-tile-cache']).toBe('stale');
-        expect(response.headers['x-tile-snapshot']).toBe('miss');
-        expect(response.headers['x-tile-generation-time']).toMatch(/^\d+ms$/);
-        expect(response.headers['x-tile-queue-time']).toBe('7ms');
-        expect(response.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
-        expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
-
-        const conditionalResponse = await app.inject({
-          method: 'GET',
-          url: tileUrl,
-          headers: { 'if-none-match': buildPropertyTileEtag(cacheKey, payload) },
-        });
-
-        expect(conditionalResponse.statusCode).toBe(304);
-        expect(conditionalResponse.headers['cache-control']).toBe(
-          'public, max-age=0, must-revalidate',
-        );
-        expect(conditionalResponse.headers['x-tile-cache']).toBe('stale');
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-active');
+        expect(response.rawPayload).not.toEqual(payload);
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
       } finally {
         runtimeRunSpy.mockRestore();
       }
     });
 
-    it('falls back to stale cache when default snapshot lookup has a recoverable error', async () => {
+    it('marks the promoted pyramid degraded when a current tile manifest is missing', async () => {
+      const markVersionDegraded = jest.fn(async () => undefined);
+      const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
+      const currentVersion = {
+        versionId: '00000000-0000-0000-0000-0000000000cc',
+        coverageId: 'public_default_low_zoom',
+        filterSignature: 'default',
+        maxZoom: 10,
+        pyramidKind: 'public_default_low_zoom',
+        buildInputsHash: 'inputs',
+        sourceWatermarkHash: 'watermarks',
+        status: 'promoted' as const,
+        promotedAt: new Date().toISOString(),
+        degradedAt: null,
+        degradedReason: null,
+      };
+
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 10,
+        lookupCurrentVersion: async () => ({
+          state: 'current',
+          version: currentVersion,
+        }),
+        lookupTile: async () => ({
+          state: 'missing',
+          tileStatus: 'pyramid-missing',
+          reason: 'manifest-missing',
+        }),
+        markVersionDegraded,
+        requestBuild,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/10/0/0.pbf',
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-active');
+        expect(markVersionDegraded).toHaveBeenCalledWith({
+          version: currentVersion,
+          reason: 'manifest-missing',
+          details: {
+            z: 10,
+            x: 0,
+            y: 0,
+            tileStatus: 'pyramid-missing',
+          },
+          actor: 'tiles-route',
+        });
+        expect(requestBuild).toHaveBeenCalledWith({
+          reason: 'manifest-missing',
+          slot: {
+            coverageId: 'public_default_low_zoom',
+            filterSignature: 'default',
+            maxZoom: 10,
+            pyramidKind: 'public_default_low_zoom',
+          },
+        });
+      } finally {
+        resetPropertyTileCacheForTests();
+      }
+    });
+
+    it('returns a controlled 204 when current pyramid lookup has a recoverable error', async () => {
       const tileUrl = '/tiles/properties/10/0/0.pbf';
-      const cacheKey = '10/0/0:default';
-      const payload = Buffer.from([0x1a, 0x05, 0x73, 0x74, 0x61, 0x6c, 0x65]);
-      publicPropertyTileCache.set(
-        cacheKey,
-        {
-          payload,
-          statusCode: 200,
-          etag: buildPropertyTileEtag(cacheKey, payload),
-        },
-        Date.now() - (PROPERTY_TILE_CACHE_TTL_SECONDS * 1000 + 1_000),
-      );
-      const previousRefreshRequestedAt = await seedRecentPropertyTileSnapshotRefreshRequest(
-        'recent-before-lookup-error',
-      );
       const lookupError = Object.assign(
         new Error('terminating connection due to administrator command'),
         { code: '57P01' },
       );
-      setPropertyTileSnapshotLookupForTests(async () => {
-        throw lookupError;
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 10,
+        lookupCurrentVersion: async () => {
+          throw lookupError;
+        },
+        requestBuild: async () => ({
+          status: 'enqueued',
+          versionId: 'candidate',
+          queueJobId: 'property-tile-pyramid-unit',
+        }),
       });
 
       try {
@@ -1134,24 +1110,15 @@ describe('Tile routes', () => {
           url: tileUrl,
         });
 
-        expect(response.statusCode).toBe(200);
-        expect(response.rawPayload).toEqual(payload);
-        expect(response.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
-        expect(response.headers['x-tile-cache']).toBe('stale');
-        expect(response.headers['x-tile-snapshot']).toBe('error');
-
-        await waitForPendingDefaultPropertyTileSnapshotRefreshesForTests();
-        const refreshState = await readPropertyTileSnapshotRefreshState();
-        expect(refreshState?.request_reason).toBe('snapshot-lookup-error');
-        expect(timestampMs(refreshState?.requested_at ?? null)).toBe(
-          previousRefreshRequestedAt.getTime(),
-        );
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-enqueued');
+        expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
+        expect(response.headers['x-tile-cache']).not.toBe('timeout-empty');
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
       } finally {
         resetPropertyTileCacheForTests();
-        await db.execute(sql`
-          DELETE FROM property_tile_snapshot_refresh_state
-          WHERE key = ${PROPERTY_TILE_SNAPSHOT_KEY}
-        `);
+        runtimeRunSpy.mockRestore();
       }
     });
 

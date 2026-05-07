@@ -38,6 +38,82 @@ export interface paths {
                             version: string;
                             /** @description Server uptime in seconds */
                             uptime: number;
+                            propertyTilePyramid: {
+                                /** @enum {string} */
+                                status: "ok" | "degraded";
+                                currentVersionId: string | null;
+                                degradedReason: string | null;
+                                activeCandidateVersionId: string | null;
+                                retryableFailureDueAt: string | null;
+                                terminalFailureCount: number;
+                                encodedCoverageRatio: number | null;
+                                lastSuccessfulPromotionAt: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ops/property-tile-pyramid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Property tile pyramid operational state */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok" | "degraded";
+                            currentVersionId: string | null;
+                            currentPromotedAt: string | null;
+                            previousVersionId: string | null;
+                            degradedReason: string | null;
+                            activeCandidateVersionId: string | null;
+                            activeCandidateStatus: string | null;
+                            retryableFailureDueAt: string | null;
+                            terminalFailureCount: number;
+                            encodedCoverageRatio: number | null;
+                            manifestTileCount: number | null;
+                            encodedTileCount: number | null;
+                            nodeCount: number | null;
+                            memberCount: number | null;
+                            activeLeaseOwner: string | null;
+                            activeLeaseAgeSeconds: number | null;
+                            lastSuccessfulPromotionAt: string | null;
+                            lastAuditAction: string | null;
+                            lastAuditReason: string | null;
+                            resourceControls: {
+                                chunkTileLimit: number;
+                                memberPageSize: number;
+                                statementTimeoutMs: number;
+                                leaseSeconds: number;
+                                maxHeapMb: number;
+                                maxWalBytesPerChunk: number;
+                            };
                         };
                     };
                 };
@@ -628,6 +704,8 @@ export interface paths {
                     lon: number;
                     lat: number;
                     zoom?: number;
+                    pyramidVersionId?: string;
+                    pyramidNodeId?: string;
                     salePriceFrom?: number;
                     salePriceTo?: number;
                     rentPriceFrom?: number;
@@ -655,6 +733,11 @@ export interface paths {
                             pointCount: number;
                             propertyIds: string[];
                             previewPropertyIds: string[];
+                            pyramidVersionId: string | null;
+                            pyramidNodeId: string | null;
+                            membershipComplete: boolean;
+                            /** @enum {string} */
+                            readStateCoverage: "complete" | "partial";
                             /** @description [longitude, latitude] */
                             coordinate: [
                                 number,
@@ -693,6 +776,11 @@ export interface paths {
                             pointCount: number;
                             propertyIds: string[];
                             previewPropertyIds: string[];
+                            pyramidVersionId: string | null;
+                            pyramidNodeId: string | null;
+                            membershipComplete: boolean;
+                            /** @enum {string} */
+                            readStateCoverage: "complete" | "partial";
                             /** @description [longitude, latitude] */
                             coordinate: [
                                 number,
@@ -885,6 +973,11 @@ export interface paths {
                             pointCount: number;
                             propertyIds: string[];
                             previewPropertyIds: string[];
+                            pyramidVersionId: string | null;
+                            pyramidNodeId: string | null;
+                            membershipComplete: boolean;
+                            /** @enum {string} */
+                            readStateCoverage: "complete" | "partial";
                             /** @description [longitude, latitude] */
                             coordinate: [
                                 number,
@@ -923,6 +1016,11 @@ export interface paths {
                             pointCount: number;
                             propertyIds: string[];
                             previewPropertyIds: string[];
+                            pyramidVersionId: string | null;
+                            pyramidNodeId: string | null;
+                            membershipComplete: boolean;
+                            /** @enum {string} */
+                            readStateCoverage: "complete" | "partial";
                             /** @description [longitude, latitude] */
                             coordinate: [
                                 number,
@@ -2963,6 +3061,18 @@ export interface paths {
                 };
                 /** @description Default Response */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };

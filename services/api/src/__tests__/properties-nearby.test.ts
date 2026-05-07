@@ -303,6 +303,20 @@ describe('GET /properties/nearby', () => {
       });
       expect(response.statusCode).toBe(400);
     });
+
+    it('accepts pyramid node identity as an exact lookup pair', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url:
+          '/properties/nearby?lon=5.4697&lat=51.4416&zoom=10' +
+          '&pyramidVersionId=00000000-0000-4000-a000-000000000001' +
+          '&pyramidNodeId=test-node',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toBeNull();
+      expect(response.headers['x-huishype-nearby-status']).toMatch(/^pyramid-/);
+    });
   });
 
   describe('response shape', () => {
@@ -322,6 +336,10 @@ describe('GET /properties/nearby', () => {
         expect(body).toHaveProperty('pointCount');
         expect(Array.isArray(body.propertyIds)).toBe(true);
         expect(Array.isArray(body.previewPropertyIds)).toBe(true);
+        expect(typeof body.membershipComplete).toBe('boolean');
+        expect(['complete', 'partial']).toContain(body.readStateCoverage);
+        expect(body).toHaveProperty('pyramidVersionId');
+        expect(body).toHaveProperty('pyramidNodeId');
         expect(Array.isArray(body.coordinate)).toBe(true);
         expect(body.coordinate).toHaveLength(2);
         expect(body).not.toHaveProperty('node_class');
@@ -353,6 +371,8 @@ describe('GET /properties/nearby', () => {
         expect(typeof body.socialScoreMax).toBe('number');
         expect(typeof body.recentSocialScoreTotal).toBe('number');
         expect(typeof body.distanceMeters).toBe('number');
+        expect(body.membershipComplete).toBe(true);
+        expect(body.readStateCoverage).toBe('complete');
 
         if (body.groupKind === 'single') {
           expect(typeof body.address).toBe('string');
@@ -854,6 +874,8 @@ describe('GET /properties/nearby', () => {
       expect(paramNames).toContain('rentPriceFrom');
       expect(paramNames).toContain('rentPriceTo');
       expect(paramNames).toContain('marketState');
+      expect(paramNames).toContain('pyramidVersionId');
+      expect(paramNames).toContain('pyramidNodeId');
       expect(paramNames).not.toContain('cluster');
       expect(paramNames).not.toContain('limit');
     });

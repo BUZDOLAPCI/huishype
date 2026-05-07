@@ -16,7 +16,7 @@ import {
   loadOfficialValuationProcessorModule,
   loadOfficialValuationQueueModule,
   loadOfficialValuationStoreModule,
-  loadPropertyTileSnapshotsModule,
+  loadPropertyTilePyramidModule,
   type RedisConnectionLike,
 } from './api-runtime.js';
 import { createWorkerLogger, serializeError, type WorkerLogger } from './logger.js';
@@ -40,8 +40,8 @@ interface RecoverySweepSummary {
   candidateHandoffDispatchedIds: string[];
   candidateHandoffFailedDispatchIds: string[];
   officialValuationHydrationJobIds: string[];
-  propertyTileSnapshotRefreshRequested: boolean;
-  propertyTileSnapshotRefreshReason: string | null;
+  propertyTilePyramidBuildRequested: boolean;
+  propertyTilePyramidBuildStatus: string | null;
 }
 
 export type WorkerRuntimeModuleLoaders = {
@@ -60,7 +60,7 @@ export type WorkerRuntimeModuleLoaders = {
   loadOfficialValuationProcessorModule: typeof loadOfficialValuationProcessorModule;
   loadOfficialValuationQueueModule: typeof loadOfficialValuationQueueModule;
   loadOfficialValuationStoreModule: typeof loadOfficialValuationStoreModule;
-  loadPropertyTileSnapshotsModule: typeof loadPropertyTileSnapshotsModule;
+  loadPropertyTilePyramidModule: typeof loadPropertyTilePyramidModule;
 };
 
 const DEFAULT_MODULE_LOADERS: WorkerRuntimeModuleLoaders = {
@@ -79,7 +79,7 @@ const DEFAULT_MODULE_LOADERS: WorkerRuntimeModuleLoaders = {
   loadOfficialValuationProcessorModule,
   loadOfficialValuationQueueModule,
   loadOfficialValuationStoreModule,
-  loadPropertyTileSnapshotsModule,
+  loadPropertyTilePyramidModule,
 };
 
 function toIngestLogger(logger: WorkerLogger) {
@@ -134,23 +134,23 @@ export class WorkerRuntime {
   private maintenanceWorker: Worker<{ requestedBy: string; batchId?: string }> | null = null;
   private candidateHandoffWorker: Worker<{ handoffId: string }> | null = null;
   private officialValuationWorker: Worker<OfficialValuationHydrationJobData> | null = null;
-  private propertyTileSnapshotWorker: Worker<{ reason: string }> | null = null;
+  private propertyTilePyramidWorker: Worker<{ versionId?: string; reason: string }> | null = null;
   private ingestQueue: Queue<{ batchId: string }> | null = null;
   private maintenanceQueue: Queue<{ requestedBy: string; batchId?: string }> | null = null;
   private candidateHandoffQueue: Queue<{ handoffId: string }> | null = null;
   private officialValuationQueue: Queue<OfficialValuationHydrationJobData> | null = null;
-  private propertyTileSnapshotQueue: Queue<{ reason: string }> | null = null;
+  private propertyTilePyramidQueue: Queue<{ versionId?: string; reason: string }> | null = null;
 
   private ingestWorkerConnection: RedisConnectionLike | null = null;
   private maintenanceWorkerConnection: RedisConnectionLike | null = null;
   private candidateHandoffWorkerConnection: RedisConnectionLike | null = null;
   private officialValuationWorkerConnection: RedisConnectionLike | null = null;
-  private propertyTileSnapshotWorkerConnection: RedisConnectionLike | null = null;
+  private propertyTilePyramidWorkerConnection: RedisConnectionLike | null = null;
   private ingestQueueConnection: RedisConnectionLike | null = null;
   private maintenanceQueueConnection: RedisConnectionLike | null = null;
   private candidateHandoffQueueConnection: RedisConnectionLike | null = null;
   private officialValuationQueueConnection: RedisConnectionLike | null = null;
-  private propertyTileSnapshotQueueConnection: RedisConnectionLike | null = null;
+  private propertyTilePyramidQueueConnection: RedisConnectionLike | null = null;
 
   private recoveryInterval: TimerHandle | null = null;
   private healthInterval: TimerHandle | null = null;
@@ -177,12 +177,12 @@ export class WorkerRuntime {
       this.maintenanceWorkerConnection,
       this.candidateHandoffWorkerConnection,
       this.officialValuationWorkerConnection,
-      this.propertyTileSnapshotWorkerConnection,
+      this.propertyTilePyramidWorkerConnection,
       this.ingestQueueConnection,
       this.maintenanceQueueConnection,
       this.candidateHandoffQueueConnection,
       this.officialValuationQueueConnection,
-      this.propertyTileSnapshotQueueConnection,
+      this.propertyTilePyramidQueueConnection,
     ] = await Promise.all([
       apiRedis.createRedisConnection(),
       apiRedis.createRedisConnection(),
@@ -232,12 +232,12 @@ export class WorkerRuntime {
       },
     );
 
-    this.propertyTileSnapshotWorker = new Worker(
-      jobs.PROPERTY_TILE_SNAPSHOT_QUEUE,
-      (job) => this.processPropertyTileSnapshotRefreshJob(job, jobs.PROPERTY_TILE_SNAPSHOT_REFRESH_JOB),
+    this.propertyTilePyramidWorker = new Worker(
+      jobs.PROPERTY_TILE_PYRAMID_QUEUE,
+      (job) => this.processPropertyTilePyramidBuildJob(job, jobs.PROPERTY_TILE_PYRAMID_BUILD_JOB),
       {
-        connection: this.propertyTileSnapshotWorkerConnection as never,
-        concurrency: this.config.propertyTileSnapshotConcurrency,
+        connection: this.propertyTilePyramidWorkerConnection as never,
+        concurrency: this.config.propertyTilePyramidConcurrency,
       },
     );
 
@@ -256,27 +256,27 @@ export class WorkerRuntime {
         connection: this.officialValuationQueueConnection as never,
       },
     );
-    this.propertyTileSnapshotQueue = new Queue(jobs.PROPERTY_TILE_SNAPSHOT_QUEUE, {
-      connection: this.propertyTileSnapshotQueueConnection as never,
+    this.propertyTilePyramidQueue = new Queue(jobs.PROPERTY_TILE_PYRAMID_QUEUE, {
+      connection: this.propertyTilePyramidQueueConnection as never,
     });
 
     this.attachWorkerLogging('ingest', this.ingestWorker);
     this.attachWorkerLogging('maintenance', this.maintenanceWorker);
     this.attachWorkerLogging('candidate-handoff', this.candidateHandoffWorker);
     this.attachWorkerLogging('official-valuation-hydration', this.officialValuationWorker);
-    this.attachWorkerLogging('property-tile-snapshot', this.propertyTileSnapshotWorker);
+    this.attachWorkerLogging('property-tile-pyramid', this.propertyTilePyramidWorker);
 
     await Promise.all([
       this.ingestWorker.waitUntilReady(),
       this.maintenanceWorker.waitUntilReady(),
       this.candidateHandoffWorker.waitUntilReady(),
       this.officialValuationWorker.waitUntilReady(),
-      this.propertyTileSnapshotWorker.waitUntilReady(),
+      this.propertyTilePyramidWorker.waitUntilReady(),
       this.ingestQueue.waitUntilReady(),
       this.maintenanceQueue.waitUntilReady(),
       this.candidateHandoffQueue.waitUntilReady(),
       this.officialValuationQueue.waitUntilReady(),
-      this.propertyTileSnapshotQueue.waitUntilReady(),
+      this.propertyTilePyramidQueue.waitUntilReady(),
     ]);
 
     this.logger.info('Worker runtime started', {
@@ -284,7 +284,7 @@ export class WorkerRuntime {
       maintenanceConcurrency: this.config.maintenanceConcurrency,
       candidateHandoffConcurrency: this.config.candidateHandoffConcurrency,
       officialValuationHydrationConcurrency: this.config.officialValuationHydrationConcurrency,
-      propertyTileSnapshotConcurrency: this.config.propertyTileSnapshotConcurrency,
+      propertyTilePyramidConcurrency: this.config.propertyTilePyramidConcurrency,
       skippedBatchRecoveryLimit: this.config.skippedBatchRecoveryLimit,
       recoverySweepIntervalMs: this.config.recoverySweepIntervalMs,
       staleProcessingAfterMs: this.config.staleProcessingAfterMs,
@@ -421,31 +421,31 @@ export class WorkerRuntime {
     });
   }
 
-  private async processPropertyTileSnapshotRefreshJob(
-    job: Job<{ reason: string }>,
+  private async processPropertyTilePyramidBuildJob(
+    job: Job<{ versionId?: string; reason: string }>,
     expectedJobName: string,
   ): Promise<Record<string, unknown>> {
     if (job.name !== expectedJobName) {
-      throw new Error(`Unsupported property tile snapshot job: ${job.name}`);
+      throw new Error(`Unsupported property tile pyramid job: ${job.name}`);
     }
 
-    const snapshots = await this.moduleLoaders.loadPropertyTileSnapshotsModule();
-    this.logger.info('Refreshing property tile snapshots', {
+    const pyramid = await this.moduleLoaders.loadPropertyTilePyramidModule();
+    this.logger.info('Building property tile pyramid', {
       jobId: job.id,
+      versionId: job.data.versionId ?? null,
       reason: job.data.reason,
       attempt: job.attemptsStarted,
     });
 
-    const result = await snapshots.executePropertyTileSnapshotRefresh({
+    const result = await pyramid.executeDuePropertyTilePyramidBuild({
       reason: job.data.reason,
       leaseOwner: `worker:${process.pid}:${job.id ?? 'unknown'}`,
-      logger: {
-        warn: (payload, message) => this.logger.warn(message, payload),
-      },
+      logger: toIngestLogger(this.logger),
     });
 
-    this.logger.info('Property tile snapshot refresh completed', {
+    this.logger.info('Property tile pyramid build completed', {
       jobId: job.id,
+      versionId: job.data.versionId ?? null,
       reason: job.data.reason,
       ...result,
     });
@@ -510,7 +510,7 @@ export class WorkerRuntime {
       candidateHandoffQueue,
       officialValuationStore,
       officialValuationQueue,
-      propertyTileSnapshots,
+      propertyTilePyramid,
     ] =
       await Promise.all([
         this.moduleLoaders.loadIngestStoreModule(),
@@ -519,7 +519,7 @@ export class WorkerRuntime {
         this.moduleLoaders.loadCandidateHandoffQueueModule(),
         this.moduleLoaders.loadOfficialValuationStoreModule(),
         this.moduleLoaders.loadOfficialValuationQueueModule(),
-        this.moduleLoaders.loadPropertyTileSnapshotsModule(),
+        this.moduleLoaders.loadPropertyTilePyramidModule(),
       ]);
 
     const staleProcessingBefore = new Date(Date.now() - this.config.staleProcessingAfterMs);
@@ -610,29 +610,20 @@ export class WorkerRuntime {
       });
     }
 
-    let propertyTileSnapshotRefreshRequested = false;
-    let propertyTileSnapshotRefreshReason: string | null = null;
+    let propertyTilePyramidBuildRequested = false;
+    let propertyTilePyramidBuildStatus: string | null = null;
     try {
-      const snapshotCheck = await propertyTileSnapshots.shouldRequestPropertyTileSnapshotRefresh();
-      propertyTileSnapshotRefreshReason = snapshotCheck.reason;
-      if (snapshotCheck.shouldEnqueue) {
-        const snapshotRefreshRequest = await propertyTileSnapshots.requestPropertyTileSnapshotRefresh({
-          reason: `worker-recovery:${snapshotCheck.reason}`,
-        });
-        propertyTileSnapshotRefreshRequested = snapshotRefreshRequest.enqueueStatus !== 'skipped';
-        this.logger.info('Property tile snapshot recovery refresh request recorded', {
-          trigger,
-          reason: snapshotCheck.reason,
-          ...snapshotRefreshRequest,
-        });
-      }
-      this.logger.info('Property tile snapshot recovery check completed', {
+      const buildRequest = await propertyTilePyramid.requestPropertyTilePyramidBuild({
+        reason: 'worker-recovery',
+      });
+      propertyTilePyramidBuildRequested = buildRequest.status !== 'unavailable';
+      propertyTilePyramidBuildStatus = buildRequest.status;
+      this.logger.info('Property tile pyramid recovery build request recorded', {
         trigger,
-        shouldEnqueue: snapshotCheck.shouldEnqueue,
-        reason: snapshotCheck.reason,
+        ...buildRequest,
       });
     } catch (error) {
-      this.logger.error('Recovery sweep failed to check property tile snapshots', {
+      this.logger.error('Recovery sweep failed to request property tile pyramid build', {
         trigger,
         error: serializeError(error),
       });
@@ -649,8 +640,8 @@ export class WorkerRuntime {
       candidateHandoffDispatchedIds,
       candidateHandoffFailedDispatchIds,
       officialValuationHydrationJobIds,
-      propertyTileSnapshotRefreshRequested,
-      propertyTileSnapshotRefreshReason,
+      propertyTilePyramidBuildRequested,
+      propertyTilePyramidBuildStatus,
     };
 
     this.logger.info('Recovery sweep completed', {
@@ -664,8 +655,8 @@ export class WorkerRuntime {
       candidateHandoffDispatchedCount: candidateHandoffDispatchedIds.length,
       candidateHandoffFailedDispatchCount: candidateHandoffFailedDispatchIds.length,
       officialValuationHydrationDispatchedCount: officialValuationHydrationJobIds.length,
-      propertyTileSnapshotRefreshRequested,
-      propertyTileSnapshotRefreshReason,
+      propertyTilePyramidBuildRequested,
+      propertyTilePyramidBuildStatus,
     });
 
     return summary;
@@ -677,7 +668,7 @@ export class WorkerRuntime {
       !this.maintenanceQueue ||
       !this.candidateHandoffQueue ||
       !this.officialValuationQueue ||
-      !this.propertyTileSnapshotQueue
+      !this.propertyTilePyramidQueue
     ) {
       return;
     }
@@ -688,7 +679,7 @@ export class WorkerRuntime {
         maintenanceCounts,
         candidateHandoffCounts,
         officialValuationCounts,
-        propertyTileSnapshotCounts,
+        propertyTilePyramidCounts,
       ] = await Promise.all([
         this.ingestQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
         this.maintenanceQueue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'),
@@ -700,7 +691,7 @@ export class WorkerRuntime {
           'failed',
           'completed',
         ),
-        this.propertyTileSnapshotQueue.getJobCounts(
+        this.propertyTilePyramidQueue.getJobCounts(
           'waiting',
           'active',
           'delayed',
@@ -719,7 +710,7 @@ export class WorkerRuntime {
         maintenanceQueue: maintenanceCounts,
         candidateHandoffQueue: candidateHandoffCounts,
         officialValuationHydrationQueue: officialValuationCounts,
-        propertyTileSnapshotQueue: propertyTileSnapshotCounts,
+        propertyTilePyramidQueue: propertyTilePyramidCounts,
       });
     } catch (error) {
       this.logger.warn('Worker health snapshot failed', {
@@ -788,12 +779,12 @@ export class WorkerRuntime {
       );
     }
 
-    if (this.propertyTileSnapshotWorker) {
-      const worker = this.propertyTileSnapshotWorker;
-      this.propertyTileSnapshotWorker = null;
+    if (this.propertyTilePyramidWorker) {
+      const worker = this.propertyTilePyramidWorker;
+      this.propertyTilePyramidWorker = null;
       closers.push(
         withTimeout(
-          'property tile snapshot worker close',
+          'property tile pyramid worker close',
           worker.close().catch(async () => {
             await worker.close(true);
           }),
@@ -834,12 +825,12 @@ export class WorkerRuntime {
       );
     }
 
-    if (this.propertyTileSnapshotQueue) {
-      const queue = this.propertyTileSnapshotQueue;
-      this.propertyTileSnapshotQueue = null;
+    if (this.propertyTilePyramidQueue) {
+      const queue = this.propertyTilePyramidQueue;
+      this.propertyTilePyramidQueue = null;
       closers.push(
         withTimeout(
-          'property tile snapshot queue close',
+          'property tile pyramid queue close',
           queue.close(),
           this.config.shutdownTimeoutMs,
         ),
@@ -853,12 +844,12 @@ export class WorkerRuntime {
       this.quitRedisConnection('maintenanceWorkerConnection'),
       this.quitRedisConnection('candidateHandoffWorkerConnection'),
       this.quitRedisConnection('officialValuationWorkerConnection'),
-      this.quitRedisConnection('propertyTileSnapshotWorkerConnection'),
+      this.quitRedisConnection('propertyTilePyramidWorkerConnection'),
       this.quitRedisConnection('ingestQueueConnection'),
       this.quitRedisConnection('maintenanceQueueConnection'),
       this.quitRedisConnection('candidateHandoffQueueConnection'),
       this.quitRedisConnection('officialValuationQueueConnection'),
-      this.quitRedisConnection('propertyTileSnapshotQueueConnection'),
+      this.quitRedisConnection('propertyTilePyramidQueueConnection'),
     ]);
   }
 
@@ -886,12 +877,12 @@ export class WorkerRuntime {
       | 'maintenanceWorkerConnection'
       | 'candidateHandoffWorkerConnection'
       | 'officialValuationWorkerConnection'
-      | 'propertyTileSnapshotWorkerConnection'
+      | 'propertyTilePyramidWorkerConnection'
       | 'ingestQueueConnection'
       | 'maintenanceQueueConnection'
       | 'candidateHandoffQueueConnection'
       | 'officialValuationQueueConnection'
-      | 'propertyTileSnapshotQueueConnection',
+      | 'propertyTilePyramidQueueConnection',
   ): Promise<void> {
     const connection = this[key];
     this[key] = null;

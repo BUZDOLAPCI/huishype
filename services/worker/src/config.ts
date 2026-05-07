@@ -2,7 +2,7 @@ const DEFAULT_INGEST_CONCURRENCY = 4;
 const DEFAULT_MAINTENANCE_CONCURRENCY = 1;
 const DEFAULT_CANDIDATE_HANDOFF_CONCURRENCY = 2;
 const DEFAULT_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY = 1;
-const DEFAULT_PROPERTY_TILE_SNAPSHOT_CONCURRENCY = 1;
+const DEFAULT_PROPERTY_TILE_PYRAMID_CONCURRENCY = 1;
 const DEFAULT_RECOVERY_BATCH_LIMIT = 100;
 const DEFAULT_SKIPPED_BATCH_RECOVERY_LIMIT = 1;
 const DEFAULT_RECOVERY_SWEEP_INTERVAL_MS = 30_000;
@@ -15,7 +15,7 @@ export interface WorkerConfig {
   maintenanceConcurrency: number;
   candidateHandoffConcurrency: number;
   officialValuationHydrationConcurrency: number;
-  propertyTileSnapshotConcurrency: number;
+  propertyTilePyramidConcurrency: number;
   recoveryBatchLimit: number;
   skippedBatchRecoveryLimit: number;
   recoverySweepIntervalMs: number;
@@ -69,10 +69,10 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
       DEFAULT_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY,
       'WORKER_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY',
     ),
-    propertyTileSnapshotConcurrency: parsePositiveInt(
-      env.WORKER_PROPERTY_TILE_SNAPSHOT_CONCURRENCY,
-      DEFAULT_PROPERTY_TILE_SNAPSHOT_CONCURRENCY,
-      'WORKER_PROPERTY_TILE_SNAPSHOT_CONCURRENCY',
+    propertyTilePyramidConcurrency: parsePositiveInt(
+      env.WORKER_PROPERTY_TILE_PYRAMID_CONCURRENCY,
+      DEFAULT_PROPERTY_TILE_PYRAMID_CONCURRENCY,
+      'WORKER_PROPERTY_TILE_PYRAMID_CONCURRENCY',
     ),
     recoveryBatchLimit: parsePositiveInt(
       env.WORKER_RECOVERY_BATCH_LIMIT,

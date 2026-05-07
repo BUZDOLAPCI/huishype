@@ -405,6 +405,22 @@ describe('fetchNearbyGroup', () => {
     expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=today');
   });
+
+  it('threads pyramid node identity into the nearby request URL as a pair', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => null,
+    });
+
+    await fetchNearbyGroup(5.4697, 51.4416, 15, undefined, {
+      pyramidVersionId: '9007199254740993123',
+      pyramidNodeId: '9007199254740993999',
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('pyramidVersionId=9007199254740993123');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('pyramidNodeId=9007199254740993999');
+  });
 });
 
 describe('fetchFollowingNearbyGroup', () => {
@@ -495,6 +511,10 @@ describe('grouped property normalization', () => {
         pointCount: 1,
         propertyIds: ['11111111-1111-4111-8111-111111111111'],
         previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete',
         coordinate: [5.4697, 51.4416],
         distanceMeters: 12,
         bbox: null,
@@ -531,6 +551,80 @@ describe('grouped property normalization', () => {
       hasActiveListing: true,
       marketState: 'for-sale',
       isRead: true,
+      membershipComplete: true,
+      readStateCoverage: 'complete',
+    });
+  });
+
+  it('accepts missing property_ids when a primary property id is present', () => {
+    const feature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.4697, 51.4416],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: '11111111-1111-4111-8111-111111111111',
+        point_count: 1,
+        activeListingCount: 1,
+        socialCount: 0,
+        recentSocialCount: 0,
+        socialScoreTotal: 0,
+        socialScoreMax: 0,
+        recentSocialScoreTotal: 0,
+        commentCount: 0,
+      },
+    } as const satisfies GeoJSON.Feature;
+
+    expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
+      primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+      propertyIds: ['11111111-1111-4111-8111-111111111111'],
+      previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+      membershipComplete: true,
+      readStateCoverage: 'complete',
+    });
+  });
+
+  it('does not fall back to full property_ids for incomplete pyramid clusters', () => {
+    const feature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.4697, 51.4416],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'cluster',
+        primary_property_id: '11111111-1111-4111-8111-111111111111',
+        point_count: 12,
+        property_ids: '11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222',
+        preview_property_ids: '',
+        pyramid_version_id: '9007199254740993123',
+        pyramid_node_id: '9007199254740993999',
+        membership_complete: 'false',
+        read_state_coverage: 'partial',
+        activeListingCount: 2,
+        socialCount: 0,
+        recentSocialCount: 0,
+        socialScoreTotal: 0,
+        socialScoreMax: 0,
+        recentSocialScoreTotal: 0,
+        commentCount: 0,
+      },
+    } as const satisfies GeoJSON.Feature;
+
+    expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
+      pyramidVersionId: '9007199254740993123',
+      pyramidNodeId: '9007199254740993999',
+      membershipComplete: false,
+      readStateCoverage: 'partial',
+      propertyIds: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
+      previewPropertyIds: [],
     });
   });
 
@@ -583,6 +677,10 @@ describe('grouped property normalization', () => {
         pointCount: 1,
         propertyIds: ['11111111-1111-4111-8111-111111111111'],
         previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete',
         coordinate: [5.4697, 51.4416],
         distanceMeters: 12,
         bbox: null,

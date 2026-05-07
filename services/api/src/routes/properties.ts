@@ -35,6 +35,10 @@ import {
   hydrateOfficialValuationRequestSchema,
   requestOfficialValuationHydration,
 } from '../services/official-valuations/index.js';
+import {
+  getDefaultPropertyTilePyramidSlot,
+  lookupCurrentPropertyTilePyramidVersion,
+} from '../services/property-tile-pyramid.js';
 
 const coordinateSchema = z.object({
   type: z.literal('Point'),
@@ -242,8 +246,12 @@ const nearbyQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
   lat: z.coerce.number().min(-90).max(90),
   zoom: z.coerce.number().min(0).max(22).default(17),
+  pyramidVersionId: z.string().min(1).optional(),
+  pyramidNodeId: z.string().min(1).optional(),
   ...mapFiltersQuerySchema.shape,
 });
+
+const readStateCoverageSchema = z.enum(['complete', 'partial']);
 
 const nearbyGroupedBaseSchema = z.object({
   nodeClass: z.enum(['active', 'ghost']),
@@ -251,6 +259,10 @@ const nearbyGroupedBaseSchema = z.object({
   pointCount: z.number(),
   propertyIds: z.array(z.string().uuid()),
   previewPropertyIds: z.array(z.string().uuid()),
+  pyramidVersionId: z.string().nullable(),
+  pyramidNodeId: z.string().nullable(),
+  membershipComplete: z.boolean(),
+  readStateCoverage: readStateCoverageSchema,
   coordinate: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
   distanceMeters: z.number(),
   bbox: z
@@ -287,6 +299,43 @@ const nearbyGroupedResultSchema = z.discriminatedUnion('groupKind', [
 ]);
 
 const nearbyGroupedResponseSchema = z.nullable(nearbyGroupedResultSchema);
+
+type NearbyGroupedContractResult = Awaited<ReturnType<typeof resolveNearbyGroupedFeature>> & {
+  pyramidVersionId?: string | null;
+  pyramidNodeId?: string | null;
+  membershipComplete?: boolean;
+  readStateCoverage?: 'complete' | 'partial';
+};
+
+type PyramidNearbyNodeRow = {
+  node_id: string;
+  primary_property_id: string | null;
+  node_class: 'active' | 'ghost';
+  group_kind: 'single' | 'cluster';
+  point_count: number | string;
+  preview_property_ids: string[] | null;
+  render_lon: number | string;
+  render_lat: number | string;
+  distance_meters: number | string;
+  bbox_west: number | string | null;
+  bbox_south: number | string | null;
+  bbox_east: number | string | null;
+  bbox_north: number | string | null;
+  active_listing_count: number | string;
+  completed_listing_count: number | string;
+  social_count: number | string;
+  recent_social_count: number | string;
+  social_score_total: number | string;
+  social_score_max: number | string;
+  recent_social_score_total: number | string;
+  comment_count: number | string;
+  address: string | null;
+  city: string | null;
+  asking_price: number | string | null;
+  thumbnail_url: string | null;
+  has_active_listing: boolean | null;
+  market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
+};
 
 const followingNearbyQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
@@ -522,12 +571,15 @@ function mapPublicPropertyRow(row: PropertyRow) {
 }
 
 function mapNearbyGroupedResult(
-  result: Awaited<ReturnType<typeof resolveNearbyGroupedFeature>>,
+  result: NearbyGroupedContractResult | null,
   isRead = false,
 ) {
   if (!result) {
     return null;
   }
+
+  const membershipComplete = result.membershipComplete ?? true;
+  const readStateCoverage = result.readStateCoverage ?? (membershipComplete ? 'complete' : 'partial');
 
   const baseResult = {
     nodeClass: result.nodeClass,
@@ -535,6 +587,10 @@ function mapNearbyGroupedResult(
     pointCount: result.pointCount,
     propertyIds: result.propertyIds,
     previewPropertyIds: result.previewPropertyIds,
+    pyramidVersionId: result.pyramidVersionId ?? null,
+    pyramidNodeId: result.pyramidNodeId ?? null,
+    membershipComplete,
+    readStateCoverage,
     coordinate: result.coordinate,
     distanceMeters: result.distanceMeters,
     bbox: result.bbox,
@@ -576,6 +632,162 @@ function mapNearbyGroupedResult(
     ...baseResult,
     groupKind: 'cluster' as const,
   };
+}
+
+function isPyramidSchemaUnavailable(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === '42P01' || code === '42703' || code === '42883') {
+    return true;
+  }
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  if (cause && cause !== error && isPyramidSchemaUnavailable(cause)) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : '';
+  return (
+    message.includes('property_tile_pyramid_') &&
+    (message.includes('does not exist') || message.includes('Failed query'))
+  );
+}
+
+function hasPyramidNodeQueryPair(query: {
+  pyramidVersionId?: string;
+  pyramidNodeId?: string;
+}): query is { pyramidVersionId: string; pyramidNodeId: string } {
+  return Boolean(query.pyramidVersionId && query.pyramidNodeId);
+}
+
+function mapPyramidNearbyNodeRow(
+  row: PyramidNearbyNodeRow | null,
+  versionId: string,
+): NearbyGroupedContractResult | null {
+  if (!row) {
+    return null;
+  }
+
+  const primaryPropertyId = row.primary_property_id ?? row.preview_property_ids?.[0] ?? null;
+  if (!primaryPropertyId) {
+    return null;
+  }
+
+  const bbox =
+    row.bbox_west != null &&
+    row.bbox_south != null &&
+    row.bbox_east != null &&
+    row.bbox_north != null
+      ? [
+          Number(row.bbox_west),
+          Number(row.bbox_south),
+          Number(row.bbox_east),
+          Number(row.bbox_north),
+        ] as [number, number, number, number]
+      : null;
+
+  const baseResult = {
+    nodeClass: row.node_class,
+    primaryPropertyId,
+    pointCount: Number(row.point_count),
+    propertyIds: row.group_kind === 'single' ? [primaryPropertyId] : [],
+    previewPropertyIds: row.preview_property_ids ?? [],
+    pyramidVersionId: versionId,
+    pyramidNodeId: row.node_id,
+    membershipComplete: row.group_kind === 'single',
+    readStateCoverage: row.group_kind === 'single' ? 'complete' as const : 'partial' as const,
+    coordinate: [Number(row.render_lon), Number(row.render_lat)] as [number, number],
+    distanceMeters: Number(row.distance_meters),
+    bbox,
+    activeListingCount: Number(row.active_listing_count),
+    completedListingCount: Number(row.completed_listing_count),
+    socialCount: Number(row.social_count),
+    recentSocialCount: Number(row.recent_social_count),
+    socialScoreTotal: Number(row.social_score_total),
+    socialScoreMax: Number(row.social_score_max),
+    recentSocialScoreTotal: Number(row.recent_social_score_total),
+    commentCount: Number(row.comment_count),
+  };
+
+  if (row.group_kind === 'single') {
+    return {
+      ...baseResult,
+      groupKind: 'single' as const,
+      address: row.address ?? '',
+      city: row.city ?? '',
+      askingPrice: row.asking_price == null ? null : Number(row.asking_price),
+      thumbnailUrl: row.thumbnail_url,
+      hasActiveListing: row.has_active_listing ?? false,
+      marketState: row.market_state ?? 'not-listed',
+      ownerTile: { z: 0, x: 0, y: 0 },
+      anchorWorldX: 0,
+      anchorWorldY: 0,
+    };
+  }
+
+  return {
+    ...baseResult,
+    groupKind: 'cluster' as const,
+    address: null,
+    city: null,
+    askingPrice: null,
+    thumbnailUrl: null,
+    hasActiveListing: null,
+    marketState: null,
+    ownerTile: { z: 0, x: 0, y: 0 },
+    anchorWorldX: 0,
+    anchorWorldY: 0,
+  };
+}
+
+async function resolvePyramidNearbyNodeById(input: {
+  lon: number;
+  lat: number;
+  pyramidVersionId: string;
+  pyramidNodeId: string;
+}): Promise<NearbyGroupedContractResult | null> {
+  const slot = getDefaultPropertyTilePyramidSlot();
+  const current = await lookupCurrentPropertyTilePyramidVersion(slot);
+  if (current.state !== 'current' || current.version.versionId !== input.pyramidVersionId) {
+    return null;
+  }
+
+  const rows = await db.execute<PyramidNearbyNodeRow>(sql`
+    SELECT
+      node_id,
+      COALESCE(representative_property_id::text, preview_property_ids[1]::text) AS primary_property_id,
+      node_class,
+      group_kind,
+      point_count,
+      ARRAY(SELECT unnest(preview_property_ids)::text) AS preview_property_ids,
+      render_lon,
+      render_lat,
+      ST_Distance(
+        render_geometry::geography,
+        ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326)::geography
+      ) AS distance_meters,
+      bbox_west,
+      bbox_south,
+      bbox_east,
+      bbox_north,
+      active_listing_count,
+      completed_listing_count,
+      social_count,
+      recent_social_count,
+      social_score_total,
+      social_score_max,
+      recent_social_score_total,
+      comment_count,
+      address,
+      city,
+      asking_price,
+      thumbnail_url,
+      has_active_listing,
+      market_state
+    FROM property_tile_pyramid_nodes
+    WHERE version_id = ${input.pyramidVersionId}::uuid
+      AND node_id = ${input.pyramidNodeId}
+    LIMIT 1
+  `);
+
+  return mapPyramidNearbyNodeRow(Array.from(rows)[0] ?? null, input.pyramidVersionId);
 }
 
 function parseBboxString(bbox: string) {
@@ -923,16 +1135,38 @@ export async function propertyRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { lon, lat, zoom } = request.query;
       const filters = parseMapFiltersQuery(request.query);
-      const result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters);
+      let result: NearbyGroupedContractResult | null = null;
+      if (hasPyramidNodeQueryPair(request.query) && areMapFiltersDefault(filters)) {
+        try {
+          result = await resolvePyramidNearbyNodeById({
+            lon,
+            lat,
+            pyramidVersionId: request.query.pyramidVersionId,
+            pyramidNodeId: request.query.pyramidNodeId,
+          });
+          if (!result) {
+            reply.header('X-HuisHype-Nearby-Status', 'pyramid-missing');
+          }
+        } catch (error) {
+          if (!isPyramidSchemaUnavailable(error)) {
+            throw error;
+          }
+          reply.header('X-HuisHype-Nearby-Status', 'pyramid-unavailable');
+        }
+      } else {
+        result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters) as NearbyGroupedContractResult | null;
+      }
       const viewer = resolvePropertyReadViewer(
         request.userId,
         request.headers['x-session-id'] as string | string[] | undefined,
       );
-      const readIds = result
+      const membershipComplete = result?.membershipComplete ?? true;
+      const readIds = result && membershipComplete
         ? await getReadPropertyIdSet(result.propertyIds, viewer)
         : new Set<string>();
       const isRead =
         result != null &&
+        membershipComplete &&
         result.propertyIds.length > 0 &&
         result.propertyIds.every((propertyId) => readIds.has(propertyId));
       return reply.send(mapNearbyGroupedResult(result, isRead));

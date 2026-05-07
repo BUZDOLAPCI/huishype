@@ -45,6 +45,8 @@ const GHOST_GROUPING_GAP_PX = GHOST_FOOTPRINT.groupingGapPx;
 const GHOST_SUPPRESSION_PADDING_PX = GHOST_FOOTPRINT.suppressionPaddingPx;
 const NEARBY_TAP_TOLERANCE_PX = PROPERTY_MAP_FOOTPRINTS.nearbyTapTolerancePx;
 const DEFAULT_SHARED_CANONICAL_BUDGET_MS = 3_000;
+const MVT_CLUSTER_PROPERTY_IDS_COMPLETE_MAX = PROPERTY_PREVIEW_MEMBER_LIMIT;
+const MVT_CLUSTER_PROPERTY_IDS_LOW_ZOOM_MAX = SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
 
 type NodeClass = 'active' | 'ghost';
 type GroupKind = 'single' | 'cluster';
@@ -146,6 +148,20 @@ type SinglePropertyDetail = {
   thumbnailUrl: string | null;
   hasActiveListing: boolean;
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
+};
+
+type MemberAggregateSummary = {
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  bbox: SerializedBbox | null;
+  activeListingCount: number;
+  completedListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
 };
 
 type SpatialHashEntry = {
@@ -691,13 +707,66 @@ function hasRecentActiveSocialSignal(candidate: GroupingCandidate): boolean {
   return candidate.recentSocialScore >= ACTIVE_SOCIAL_SCORE_THRESHOLD;
 }
 
-function serializeBbox(candidates: GroupingCandidate[]): SerializedBbox {
-  return [
-    Math.min(...candidates.map((candidate) => candidate.lon)),
-    Math.min(...candidates.map((candidate) => candidate.lat)),
-    Math.max(...candidates.map((candidate) => candidate.lon)),
-    Math.max(...candidates.map((candidate) => candidate.lat)),
-  ];
+function serializeBbox(candidates: readonly GroupingCandidate[]): SerializedBbox {
+  let minLon = Number.POSITIVE_INFINITY;
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLon = Number.NEGATIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+
+  for (const candidate of candidates) {
+    if (candidate.lon < minLon) minLon = candidate.lon;
+    if (candidate.lat < minLat) minLat = candidate.lat;
+    if (candidate.lon > maxLon) maxLon = candidate.lon;
+    if (candidate.lat > maxLat) maxLat = candidate.lat;
+  }
+
+  return [minLon, minLat, maxLon, maxLat];
+}
+
+function summarizeOrderedMembers(
+  orderedMembers: readonly GroupingCandidate[]
+): MemberAggregateSummary {
+  const propertyIds: string[] = [];
+  const previewPropertyIds: string[] = [];
+  let activeListingCount = 0;
+  let completedListingCount = 0;
+  let socialCount = 0;
+  let recentSocialCount = 0;
+  let socialScoreTotal = 0;
+  let socialScoreMax = Number.NEGATIVE_INFINITY;
+  let recentSocialScoreTotal = 0;
+  let commentCount = 0;
+
+  for (const member of orderedMembers) {
+    propertyIds.push(member.id);
+    if (previewPropertyIds.length < PROPERTY_PREVIEW_MEMBER_LIMIT) {
+      previewPropertyIds.push(member.id);
+    }
+    if (member.hasActiveListing) activeListingCount += 1;
+    if (member.hasCompletedListing) completedListingCount += 1;
+    if (hasActiveSocialSignal(member)) socialCount += 1;
+    if (hasRecentActiveSocialSignal(member)) recentSocialCount += 1;
+    socialScoreTotal += member.socialScore;
+    if (member.socialScore > socialScoreMax) {
+      socialScoreMax = member.socialScore;
+    }
+    recentSocialScoreTotal += member.recentSocialScore;
+    commentCount += member.commentCount;
+  }
+
+  return {
+    propertyIds,
+    previewPropertyIds,
+    bbox: orderedMembers.length > 1 ? serializeBbox(orderedMembers) : null,
+    activeListingCount,
+    completedListingCount,
+    socialCount,
+    recentSocialCount,
+    socialScoreTotal,
+    socialScoreMax: Number.isFinite(socialScoreMax) ? socialScoreMax : 0,
+    recentSocialScoreTotal,
+    commentCount,
+  };
 }
 
 function getCellKey(x: number, y: number, cellSize: number): string {
@@ -1164,7 +1233,7 @@ function buildCanonicalGroup(
   const orderedMembers = [...members].sort(compareCandidatePriority);
   const anchor = selectRepresentativeAnchor(orderedMembers);
   const ownerTile = worldToOwnerTile(anchor.worldX, anchor.worldY, zoom);
-  const bbox = members.length > 1 ? serializeBbox(members) : null;
+  const summary = summarizeOrderedMembers(orderedMembers);
   const primaryProperty = anchor;
 
   return {
@@ -1172,20 +1241,18 @@ function buildCanonicalGroup(
     groupKind: members.length > 1 ? 'cluster' : 'single',
     primaryPropertyId: primaryProperty.id,
     pointCount: members.length,
-    propertyIds: orderedMembers.map((member) => member.id),
-    previewPropertyIds: orderedMembers
-      .slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)
-      .map((member) => member.id),
+    propertyIds: summary.propertyIds,
+    previewPropertyIds: summary.previewPropertyIds,
     coordinate: [anchor.lon, anchor.lat],
-    bbox,
-    activeListingCount: members.filter((member) => member.hasActiveListing).length,
-    completedListingCount: members.filter((member) => member.hasCompletedListing).length,
-    socialCount: members.filter(hasActiveSocialSignal).length,
-    recentSocialCount: members.filter(hasRecentActiveSocialSignal).length,
-    socialScoreTotal: members.reduce((sum, member) => sum + member.socialScore, 0),
-    socialScoreMax: Math.max(...members.map((member) => member.socialScore)),
-    recentSocialScoreTotal: members.reduce((sum, member) => sum + member.recentSocialScore, 0),
-    commentCount: members.reduce((sum, member) => sum + member.commentCount, 0),
+    bbox: summary.bbox,
+    activeListingCount: summary.activeListingCount,
+    completedListingCount: summary.completedListingCount,
+    socialCount: summary.socialCount,
+    recentSocialCount: summary.recentSocialCount,
+    socialScoreTotal: summary.socialScoreTotal,
+    socialScoreMax: summary.socialScoreMax,
+    recentSocialScoreTotal: summary.recentSocialScoreTotal,
+    commentCount: summary.commentCount,
     address: null,
     city: null,
     askingPrice: null,
@@ -2457,6 +2524,25 @@ export async function buildCanonicalGroupsForTile(
   return waitForSharedCanonicalBuild(sharedBuild, options, 'shared canonical grouping');
 }
 
+export async function buildCanonicalGroupsForTileUncached(
+  tile: TileId,
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileBuildOptions
+): Promise<CanonicalPropertyGroup[]> {
+  const unhydratedGroups = await timeTileStage(
+    options,
+    'pyramid uncached canonical groups',
+    () => buildUnhydratedCanonicalGroupsForTile(tile, filters, options),
+    (result) => result.length
+  );
+  return timeTileStage(
+    options,
+    'pyramid single-property hydration',
+    () => hydrateSinglePropertyDetails(unhydratedGroups, options),
+    (result) => result.length
+  );
+}
+
 export async function buildFollowingCanonicalGroupsForTile(
   tile: TileId,
   viewerId: string,
@@ -2609,7 +2695,30 @@ export async function resolveNearbyFollowingGroupedFeature(
   return bestMatch;
 }
 
-export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransportFeature {
+function shouldOmitClusterPropertyIds(group: CanonicalPropertyGroup, tile?: TileId): boolean {
+  if (group.groupKind !== 'cluster') {
+    return false;
+  }
+  if (tile && tile.z <= MVT_CLUSTER_PROPERTY_IDS_LOW_ZOOM_MAX) {
+    return true;
+  }
+  return group.propertyIds.length > MVT_CLUSTER_PROPERTY_IDS_COMPLETE_MAX;
+}
+
+function serializePropertyIdsForTile(group: CanonicalPropertyGroup, tile?: TileId): string {
+  if (group.groupKind === 'single') {
+    return group.primaryPropertyId;
+  }
+  if (shouldOmitClusterPropertyIds(group, tile)) {
+    return '';
+  }
+  return group.propertyIds.join(',');
+}
+
+export function serializeGroupForTile(
+  group: CanonicalPropertyGroup,
+  tile?: TileId
+): TileTransportFeature {
   const bbox = group.bbox;
   return {
     lon: group.coordinate[0],
@@ -2618,7 +2727,7 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
     group_kind: group.groupKind,
     primary_property_id: group.primaryPropertyId,
     point_count: group.pointCount,
-    property_ids: group.propertyIds.join(','),
+    property_ids: serializePropertyIdsForTile(group, tile),
     preview_property_ids: group.previewPropertyIds.join(','),
     bbox_west: bbox?.[0] ?? null,
     bbox_south: bbox?.[1] ?? null,
@@ -2728,7 +2837,7 @@ export async function buildMvtForGroups(
     if (index % 128 === 0) {
       assertTileBuildCanContinue(options, startedAt, 'MVT feature construction');
     }
-    return serializeGroupForTile(group);
+    return serializeGroupForTile(group, tile);
   });
   recordTileStageTiming(options, 'MVT feature construction', startedAt, serializedFeatures.length);
   assertTileBuildCanContinue(options, startedAt, 'MVT SQL preparation');

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 import type { FastifyInstance } from 'fastify';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import {
@@ -16,8 +16,8 @@ import {
   listingSourceScopeWatermarks,
   priceHistory,
   properties,
-  propertyTileSnapshotRefreshState,
-  propertyTileSnapshotWatermarks,
+  propertyTilePyramidSourceWatermarks,
+  propertyTilePyramidVersions,
 } from '../../db/schema.js';
 import {
   acceptIngestBatch,
@@ -31,7 +31,6 @@ import {
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
 } from '../../services/ingest/index.js';
 import { persistMirrorObservationForIngest, upsertListingSourceAliases } from '../../services/listing-reconciliation.js';
-import { PROPERTY_TILE_SNAPSHOT_KEY } from '../../services/property-tile-snapshots.js';
 
 describe('Durable ingest API contract', () => {
   let app: FastifyInstance;
@@ -97,22 +96,30 @@ describe('Durable ingest API contract', () => {
     return propertyId as string;
   }
 
-  async function readPropertyTileSnapshotInvalidationState() {
-    const [watermark] = await db
+  async function readPropertyTilePyramidInvalidationState() {
+    const watermarks = await db
       .select()
-      .from(propertyTileSnapshotWatermarks)
-      .where(eq(propertyTileSnapshotWatermarks.key, PROPERTY_TILE_SNAPSHOT_KEY))
-      .limit(1);
-    const [refreshState] = await db
+      .from(propertyTilePyramidSourceWatermarks)
+      .where(inArray(propertyTilePyramidSourceWatermarks.scope, [
+        'ingest_source',
+        'listing_facts',
+        'property_status',
+      ]));
+    const [latestRecoveryBuild] = await db
       .select()
-      .from(propertyTileSnapshotRefreshState)
-      .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
+      .from(propertyTilePyramidVersions)
+      .where(eq(propertyTilePyramidVersions.requestReason, 'skipped-ingest-recovery'))
+      .orderBy(desc(propertyTilePyramidVersions.requestedAt))
       .limit(1);
 
     return {
-      listingWatermark: watermark?.listingWatermark ?? 0n,
-      propertyWatermark: watermark?.propertyWatermark ?? 0n,
-      refreshState: refreshState ?? null,
+      ingestSourceWatermark:
+        watermarks.find((row) => row.scope === 'ingest_source')?.watermarkValue ?? 0n,
+      listingFactsWatermark:
+        watermarks.find((row) => row.scope === 'listing_facts')?.watermarkValue ?? 0n,
+      propertyStatusWatermark:
+        watermarks.find((row) => row.scope === 'property_status')?.watermarkValue ?? 0n,
+      latestRecoveryBuild: latestRecoveryBuild ?? null,
     };
   }
 
@@ -4076,7 +4083,7 @@ describe('Durable ingest API contract', () => {
       .update(ingestBatches)
       .set({ skippedCount: 0 })
       .where(eq(ingestBatches.id, batchId));
-    const snapshotStateBefore = await readPropertyTileSnapshotInvalidationState();
+    const pyramidStateBefore = await readPropertyTilePyramidInvalidationState();
 
     await db.insert(canonicalListings).values({
       propertyId,
@@ -4140,13 +4147,13 @@ describe('Durable ingest API contract', () => {
     expect(recoveredBatch?.maintenanceRequestedAt).not.toBeNull();
     expect(recoveredBatch?.maintenanceCompletedAt).not.toBeNull();
 
-    const snapshotStateAfter = await readPropertyTileSnapshotInvalidationState();
-    expect(snapshotStateAfter.listingWatermark > snapshotStateBefore.listingWatermark).toBe(true);
-    expect(snapshotStateAfter.propertyWatermark > snapshotStateBefore.propertyWatermark).toBe(true);
-    expect(snapshotStateAfter.refreshState).toMatchObject({
+    const pyramidStateAfter = await readPropertyTilePyramidInvalidationState();
+    expect(pyramidStateAfter.ingestSourceWatermark > pyramidStateBefore.ingestSourceWatermark).toBe(true);
+    expect(pyramidStateAfter.listingFactsWatermark > pyramidStateBefore.listingFactsWatermark).toBe(true);
+    expect(pyramidStateAfter.propertyStatusWatermark > pyramidStateBefore.propertyStatusWatermark).toBe(true);
+    expect(pyramidStateAfter.latestRecoveryBuild).toMatchObject({
       requestReason: 'skipped-ingest-recovery',
-      requestedListingWatermark: snapshotStateAfter.listingWatermark,
-      requestedPropertyWatermark: snapshotStateAfter.propertyWatermark,
+      sourceWatermarkHash: expect.any(String),
     });
 
     const [sourceState] = await db

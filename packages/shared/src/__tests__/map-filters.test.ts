@@ -6,6 +6,7 @@ import {
   areMapFiltersEqual,
   buildFollowingNearbyGroupPath,
   buildFollowingPropertyTileTemplateUrl,
+  buildNearbyGroupPath,
   createDefaultMapFilters,
   getCanonicalMapFilterSignature,
   getMapFilterPillSummary,
@@ -254,6 +255,23 @@ describe('map filter query param helpers', () => {
     expect(buildFollowingNearbyGroupPath(5.47, 51.44, 14, filters)).toBe(
       '/properties/following-nearby?lon=5.47&lat=51.44&zoom=14&salePriceFrom=250000&salePriceTo=700000&marketState=for-sale%2Cnot-listed&activity=today'
     );
+  });
+
+  it('serializes exact pyramid node identity for public nearby lookup only as a pair', () => {
+    expect(
+      buildNearbyGroupPath(5.47, 51.44, 14, createDefaultMapFilters(), {
+        pyramidVersionId: '9007199254740993123',
+        pyramidNodeId: '9007199254740993999',
+      })
+    ).toBe(
+      '/properties/nearby?lon=5.47&lat=51.44&zoom=14&pyramidVersionId=9007199254740993123&pyramidNodeId=9007199254740993999'
+    );
+
+    expect(
+      buildNearbyGroupPath(5.47, 51.44, 14, createDefaultMapFilters(), {
+        pyramidVersionId: '9007199254740993123',
+      })
+    ).toBe('/properties/nearby?lon=5.47&lat=51.44&zoom=14');
   });
 });
 

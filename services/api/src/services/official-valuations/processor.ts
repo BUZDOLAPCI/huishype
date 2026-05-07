@@ -16,7 +16,7 @@ import {
   reserveOfficialValuationSourceRequest,
 } from './store.js';
 import { requestLatestListingsRefresh } from '../ingest/queue.js';
-import { requestPropertyTileSnapshotRefresh } from '../property-tile-snapshots.js';
+import { safeRequestPropertyTilePyramidBuild } from '../property-tile-pyramid.js';
 
 export type OfficialValuationProcessorLogger = {
   info(payload: Record<string, unknown>, message: string): void;
@@ -101,19 +101,15 @@ export async function processOfficialValuationHydrationJob(options: {
         'Failed to enqueue latest listings refresh after official valuation hydration',
       );
     }
-    try {
-      await requestPropertyTileSnapshotRefresh({ reason: 'official-valuation' });
-    } catch (error) {
-      options.logger?.warn(
-        {
-          jobId: claimed.id,
-          source: claimed.source,
-          maintenanceBatchId: maintenanceRequest.batchId,
-          error: errorMessage(error),
-        },
-        'Failed to request property tile snapshot refresh after official valuation hydration',
-      );
-    }
+    await safeRequestPropertyTilePyramidBuild(
+      { reason: 'official-valuation' },
+      options.logger ?? { warn: () => undefined },
+      {
+        jobId: claimed.id,
+        source: claimed.source,
+        maintenanceBatchId: maintenanceRequest.batchId,
+      },
+    );
     return {
       status: 'completed',
       valuation: result.valuation,

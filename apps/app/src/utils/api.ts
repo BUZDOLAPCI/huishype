@@ -372,6 +372,10 @@ export interface NearbyGroupedResult {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId?: string | null;
+  pyramidNodeId?: string | null;
+  membershipComplete?: boolean | null;
+  readStateCoverage?: 'complete' | 'partial' | null;
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -411,6 +415,10 @@ export interface NormalizedPropertyNodeGroup {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: 'complete' | 'partial';
   coordinate: [number, number];
   bbox: PropertyGroupBounds | null;
   activeListingCount: number;
@@ -446,6 +454,11 @@ export interface NormalizedPropertyNodeGroup {
 
 export interface NearbyPropertyGroup extends NormalizedPropertyNodeGroup {
   distanceMeters: number;
+}
+
+export interface NearbyGroupLookupOptions {
+  pyramidVersionId?: string | null;
+  pyramidNodeId?: string | null;
 }
 
 export function parseTransportPropertyIds(value: string | string[] | null | undefined): string[] {
@@ -493,6 +506,14 @@ function toNullableBoolean(value: unknown): boolean | null {
     }
   }
   return null;
+}
+
+function toBoolean(value: unknown, fallback: boolean): boolean {
+  return toNullableBoolean(value) ?? fallback;
+}
+
+function toReadStateCoverage(value: unknown, fallback: 'complete' | 'partial'): 'complete' | 'partial' {
+  return value === 'partial' || value === 'complete' ? value : fallback;
 }
 
 export interface OfficialValuationSourceFetchInput {
@@ -1019,14 +1040,30 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
   );
   const hasActiveListing =
     result.hasActiveListing ?? (activeListingCount > 0 ? true : false);
+  const membershipComplete = result.membershipComplete ?? true;
+  const readStateCoverage = result.readStateCoverage ?? (membershipComplete ? 'complete' : 'partial');
+  const propertyIds =
+    result.propertyIds.length > 0
+      ? result.propertyIds
+      : result.groupKind === 'single'
+        ? [result.primaryPropertyId]
+        : [];
+  const previewPropertyIds =
+    result.previewPropertyIds.length > 0 || !membershipComplete
+      ? result.previewPropertyIds
+      : propertyIds;
 
   return {
     nodeClass: result.nodeClass,
     groupKind: result.groupKind,
     primaryPropertyId: result.primaryPropertyId,
     pointCount: result.pointCount,
-    propertyIds: result.propertyIds,
-    previewPropertyIds: result.previewPropertyIds,
+    propertyIds,
+    previewPropertyIds,
+    pyramidVersionId: result.pyramidVersionId ?? null,
+    pyramidNodeId: result.pyramidNodeId ?? null,
+    membershipComplete,
+    readStateCoverage,
     coordinate: result.coordinate,
     bbox: normalizeBbox(result.bbox),
     activeListingCount,
@@ -1123,14 +1160,40 @@ export function normalizeRenderedPropertyGroup(
   const hasActiveListing =
     toNullableBoolean(getTransportValue(properties, 'hasActiveListing', 'has_active_listing')) ??
     (activeListingCount > 0 ? true : false);
+  const membershipComplete = toBoolean(
+    getTransportValue(properties, 'membershipComplete', 'membership_complete'),
+    true,
+  );
+  const readStateCoverage = toReadStateCoverage(
+    getTransportValue(properties, 'readStateCoverage', 'read_state_coverage'),
+    membershipComplete ? 'complete' : 'partial',
+  );
+  const normalizedPropertyIds =
+    propertyIds.length > 0
+      ? propertyIds
+      : groupKind === 'single'
+        ? [primaryPropertyId]
+        : [];
+  const normalizedPreviewPropertyIds =
+    previewPropertyIds.length > 0 || !membershipComplete || readStateCoverage === 'partial'
+      ? previewPropertyIds
+      : normalizedPropertyIds;
 
   return {
     nodeClass,
     groupKind,
     primaryPropertyId,
     pointCount: toNumber(properties.point_count, 1),
-    propertyIds,
-    previewPropertyIds: previewPropertyIds.length > 0 ? previewPropertyIds : propertyIds,
+    propertyIds: normalizedPropertyIds,
+    previewPropertyIds: normalizedPreviewPropertyIds,
+    pyramidVersionId: toNullableString(
+      getTransportValue(properties, 'pyramidVersionId', 'pyramid_version_id'),
+    ),
+    pyramidNodeId: toNullableString(
+      getTransportValue(properties, 'pyramidNodeId', 'pyramid_node_id'),
+    ),
+    membershipComplete,
+    readStateCoverage,
     coordinate: geometry.coordinates as [number, number],
     bbox:
       toNullableNumber(getTransportValue(properties, 'bbox_west')) != null &&
@@ -1190,10 +1253,11 @@ export async function fetchNearbyGroup(
   lat: number,
   zoom: number,
   filters: MapFilters = createDefaultMapFilters(),
+  options: NearbyGroupLookupOptions = {},
 ): Promise<NearbyPropertyGroup | null> {
   try {
     const result = await apiFetch<NearbyGroupedResult | null>(
-      buildNearbyGroupPath(lon, lat, zoom, filters),
+      buildNearbyGroupPath(lon, lat, zoom, filters, options),
     );
     return result ? normalizeNearbyPropertyGroup(result) : null;
   } catch (err) {
