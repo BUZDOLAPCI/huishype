@@ -35,7 +35,9 @@ function baseHealthSummary(overrides: Record<string, unknown> = {}) {
       statementTimeoutMs: 30_000,
       leaseSeconds: 600,
       maxHeapMb: 1024,
+      maxMemberRows: 5_000_000,
       maxWalBytesPerChunk: 10_000_000,
+      maxWalBytesPerBuild: 10_737_418_240,
     },
     ...overrides,
   };
@@ -220,7 +222,9 @@ describe('property tile pyramid health and ops contracts', () => {
         statementTimeoutMs: 30_000,
         leaseSeconds: 600,
         maxHeapMb: 1024,
+        maxMemberRows: 5_000_000,
         maxWalBytesPerChunk: 10_000_000,
+        maxWalBytesPerBuild: 10_737_418_240,
       },
     });
   });

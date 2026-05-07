@@ -55,7 +55,9 @@ const defaultBuildIdentityEnv = {
   PROPERTY_TILE_PYRAMID_STATEMENT_TIMEOUT_MS: undefined,
   PROPERTY_TILE_PYRAMID_LEASE_SECONDS: undefined,
   PROPERTY_TILE_PYRAMID_MAX_HEAP_MB: undefined,
+  PROPERTY_TILE_PYRAMID_MAX_MEMBER_ROWS: undefined,
   PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: undefined,
+  PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD: undefined,
 } satisfies Record<string, string | undefined>;
 
 describe('property tile pyramid service helpers', () => {
@@ -142,7 +144,9 @@ describe('property tile pyramid service helpers', () => {
         statementTimeoutMs: 30000,
         leaseSeconds: 900,
         maxHeapMb: 1024,
+        maxMemberRows: 5000000,
         maxWalBytesPerChunk: 1073741824,
+        maxWalBytesPerBuild: 10737418240,
       },
     });
     expect(baselineIdentity.groupingConstants).toMatchObject({
@@ -241,7 +245,9 @@ describe('property tile pyramid service helpers', () => {
       statementTimeoutMs: 30000,
       leaseSeconds: 900,
       maxHeapMb: 1024,
+      maxMemberRows: 5000000,
       maxWalBytesPerChunk: 1073741824,
+      maxWalBytesPerBuild: 10737418240,
     });
   });
 });

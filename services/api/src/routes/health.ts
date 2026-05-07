@@ -65,7 +65,9 @@ const opsPropertyTilePyramidResponseSchema = z.object({
     statementTimeoutMs: z.number(),
     leaseSeconds: z.number(),
     maxHeapMb: z.number(),
+    maxMemberRows: z.number(),
     maxWalBytesPerChunk: z.number(),
+    maxWalBytesPerBuild: z.number(),
   }),
 });
 

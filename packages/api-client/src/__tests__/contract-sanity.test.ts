@@ -198,7 +198,9 @@ type CanonicalOpsPropertyTilePyramidResponse = {
     statementTimeoutMs: number;
     leaseSeconds: number;
     maxHeapMb: number;
+    maxMemberRows: number;
     maxWalBytesPerChunk: number;
+    maxWalBytesPerBuild: number;
   };
 };
 type SavedPropertiesQueryFromOpenApi = NonNullable<

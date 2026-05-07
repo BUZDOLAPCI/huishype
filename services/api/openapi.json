@@ -665,7 +665,13 @@
                         "maxHeapMb": {
                           "type": "number"
                         },
+                        "maxMemberRows": {
+                          "type": "number"
+                        },
                         "maxWalBytesPerChunk": {
+                          "type": "number"
+                        },
+                        "maxWalBytesPerBuild": {
                           "type": "number"
                         }
                       },
@@ -675,7 +681,9 @@
                         "statementTimeoutMs",
                         "leaseSeconds",
                         "maxHeapMb",
-                        "maxWalBytesPerChunk"
+                        "maxMemberRows",
+                        "maxWalBytesPerChunk",
+                        "maxWalBytesPerBuild"
                       ],
                       "additionalProperties": false
                     }

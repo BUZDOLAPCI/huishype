@@ -38,6 +38,7 @@ DECLARE
   inconsistent_empty_count integer;
   invalid_node_count integer;
   invalid_payload_count integer;
+  retained_member_count bigint;
 BEGIN
   SELECT *
     INTO target_version
@@ -349,6 +350,21 @@ BEGIN
   IF invalid_payload_count <> 0 THEN
     RAISE EXCEPTION 'property tile pyramid version % has invalid encoded payload metadata',
       p_target_version_id;
+  END IF;
+
+  IF to_regclass('property_tile_pyramid_members') IS NULL THEN
+    retained_member_count = 0;
+  ELSE
+    EXECUTE 'SELECT count(*)::bigint FROM "property_tile_pyramid_members" WHERE "version_id" = $1'
+      INTO retained_member_count
+      USING p_target_version_id;
+  END IF;
+
+  IF target_version."member_row_count" <> retained_member_count THEN
+    RAISE EXCEPTION 'property tile pyramid version % member row count % does not match retained member rows %',
+      p_target_version_id,
+      target_version."member_row_count",
+      retained_member_count;
   END IF;
 END;
 $$;--> statement-breakpoint

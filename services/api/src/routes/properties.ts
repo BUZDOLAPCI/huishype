@@ -832,7 +832,6 @@ async function hasServeablePyramidTileManifest(input: {
 async function resolvePyramidNearbyNodeById(input: {
   lon: number;
   lat: number;
-  zoom: number;
   pyramidVersionId: string;
   pyramidNodeId: string;
 }): Promise<{
@@ -849,11 +848,6 @@ async function resolvePyramidNearbyNodeById(input: {
     return { result: null, status: 'pyramid-stale', versionId: current.version.versionId };
   }
 
-  const servingZoom = normalizePyramidNearbyServingZoom(
-    input.zoom,
-    current.version.coverage?.maxZoom ?? current.version.maxZoom
-  );
-  const searchRadiusMeters = pyramidNearbySearchRadiusMeters(input.lat, servingZoom);
   const rows = await db.execute<PyramidNearbyNodeRow>(sql`
     WITH tap AS (
       SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
@@ -900,13 +894,6 @@ async function resolvePyramidNearbyNodeById(input: {
      AND t.y = n.y
     WHERE n.version_id = ${input.pyramidVersionId}::uuid
       AND n.node_id = ${input.pyramidNodeId}
-      AND ST_DWithin(render_geometry::geography, tap.geom::geography, ${searchRadiusMeters})
-      AND ST_Distance(render_geometry::geography, tap.geom::geography) <=
-        CASE
-          WHEN n.group_kind = 'single'
-            THEN ${PYRAMID_NEARBY_SINGLE_TAP_RADIUS_PX}::double precision / ${PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX}::double precision * ${searchRadiusMeters}
-          ELSE ${searchRadiusMeters}
-        END
     LIMIT 1
   `);
 
@@ -1448,35 +1435,16 @@ export async function propertyRoutes(app: FastifyInstance) {
           const lookup = await resolvePyramidNearbyNodeById({
             lon,
             lat,
-            zoom,
             pyramidVersionId: request.query.pyramidVersionId,
             pyramidNodeId: request.query.pyramidNodeId,
           });
           result = lookup.result;
 
-          if (
-            !result &&
-            lookup.status === 'pyramid-stale' &&
-            isDefaultPyramidNearbyZoom(zoom, getPropertyTilePyramidMaxZoom())
-          ) {
-            const fallback = await resolvePyramidNearbyNodeAtPoint({
-              lon,
-              lat,
-              zoom,
-              logger: request.log,
-            });
-            result = fallback.result;
-            reply.header('X-HuisHype-Nearby-Status', result ? 'pyramid-promoted' : fallback.status);
-            if (fallback.versionId) {
-              reply.header('X-HuisHype-Pyramid-Version', fallback.versionId);
-            }
-          } else {
-            if (!result) {
-              reply.header('X-HuisHype-Nearby-Status', lookup.status);
-            }
-            if (!result && lookup.versionId) {
-              reply.header('X-HuisHype-Pyramid-Version', lookup.versionId);
-            }
+          if (!result) {
+            reply.header('X-HuisHype-Nearby-Status', lookup.status);
+          }
+          if (!result && lookup.versionId) {
+            reply.header('X-HuisHype-Pyramid-Version', lookup.versionId);
           }
         } catch (error) {
           if (!isPyramidSchemaUnavailable(error)) {

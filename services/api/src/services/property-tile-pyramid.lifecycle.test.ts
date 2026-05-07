@@ -249,6 +249,41 @@ describe('property tile pyramid build lifecycle', () => {
     expect(requestQuery).toContain('lease_until > now()');
   });
 
+  it('does not record pending replacement metadata for same comparable source watermarks', async () => {
+    executeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'active-version',
+          status: 'building',
+          next_retry_at: null,
+          queue_eligible: false,
+          pending_replacement: false,
+        },
+      ]);
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'source-watermark',
+      sourceWatermarkHash: 'same-watermarks',
+      sourceWatermarksJson: { sources: [{ source: 'unit' }] },
+      buildInputsHash: 'inputs',
+    });
+
+    expect(result).toMatchObject({
+      status: 'coalesced',
+      versionId: 'active-version',
+      existingStatus: 'building',
+    });
+    expect(result.reason).toBeUndefined();
+    expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+    const requestQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
+    expect(requestQuery).toContain('active_same');
+    expect(requestQuery).toContain('comparable_source_watermark_hash');
+    expect(requestQuery).toContain('pending_replacement_watermarks_json');
+    expect(requestQuery).toContain('IS DISTINCT FROM');
+  });
+
   it('supersedes a stale queued candidate before inserting newer queued inputs for the same slot', async () => {
     executeMock
       .mockResolvedValueOnce([])
@@ -453,6 +488,9 @@ describe('property tile pyramid build lifecycle', () => {
 
       expect(transactionMock).toHaveBeenCalledTimes(1);
       expect(txExecuteMock).toHaveBeenCalledTimes(3);
+      expect(JSON.stringify(txExecuteMock.mock.calls[2]?.[0])).toContain(
+        'promote_property_tile_pyramid_version',
+      );
       const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
       const failureIndex = executedQueries.findIndex((query) => query.includes('build_error'));
       const successorRequestIndex = executedQueries.findIndex((query) => query.includes('active_replacement'));
@@ -461,6 +499,7 @@ describe('property tile pyramid build lifecycle', () => {
       expect(successorRequestIndex).toBeGreaterThan(failureIndex);
       expect(failureQuery).toContain('failed_retryable');
       expect(failureQuery).toContain('build_error');
+      expect(failureQuery).not.toContain('source_watermark_advanced');
     });
   });
 

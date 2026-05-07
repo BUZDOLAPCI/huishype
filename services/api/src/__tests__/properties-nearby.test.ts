@@ -1097,8 +1097,8 @@ describe('GET /properties/nearby', () => {
       );
     });
 
-    it('does not expose exact pyramid nodes outside the nearby tap radius', async () => {
-      await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId }) => {
+    it('resolves exact current pyramid nodes outside the nearby tap radius', async () => {
+      await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId, propertyIds }) => {
         const response = await app.inject({
           method: 'GET',
           url:
@@ -1108,14 +1108,19 @@ describe('GET /properties/nearby', () => {
         });
 
         expect(response.statusCode).toBe(200);
-        expect(JSON.parse(response.body)).toBeNull();
-        expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-empty');
-        expect(response.headers['x-huishype-pyramid-version']).toBe(versionId);
+        expect(response.headers['x-huishype-nearby-status']).toBeUndefined();
+
+        const body = JSON.parse(response.body);
+        expect(body).not.toBeNull();
+        expect(body.pyramidNodeId).toBe(nodeId);
+        expect(body.pyramidVersionId).toBe(versionId);
+        expect(body.previewPropertyIds).toEqual(propertyIds);
+        expect(body.distanceMeters).toBeGreaterThan(1000);
       });
     });
 
-    it('recovers stale exact pyramid node identity through current coordinate lookup', async () => {
-      await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId, propertyIds }) => {
+    it('reports stale exact pyramid node identity without coordinate fallback', async () => {
+      await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId }) => {
         const staleVersionId = crypto.randomUUID();
         const response = await app.inject({
           method: 'GET',
@@ -1126,14 +1131,9 @@ describe('GET /properties/nearby', () => {
         });
 
         expect(response.statusCode).toBe(200);
-        expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-promoted');
+        expect(JSON.parse(response.body)).toBeNull();
+        expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-stale');
         expect(response.headers['x-huishype-pyramid-version']).toBe(versionId);
-
-        const body = JSON.parse(response.body);
-        expect(body).not.toBeNull();
-        expect(body.pyramidNodeId).toBe(nodeId);
-        expect(body.pyramidVersionId).toBe(versionId);
-        expect(body.previewPropertyIds).toEqual(propertyIds);
       });
     });
 
