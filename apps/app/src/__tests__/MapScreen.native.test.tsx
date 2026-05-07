@@ -4,7 +4,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 const mockGetBounds = jest.fn(async () => [4.8, 52.3, 5.0, 52.4]);
 const mockGetCenter = jest.fn(async () => [4.9, 52.37]);
 const mockProject = jest.fn(async () => [0, 0]);
-const mockQueryRenderedFeatures = jest.fn(async () => []);
+const mockQueryRenderedFeatures = jest.fn(async (): Promise<unknown[]> => []);
 const mockNetworkManagerAddRequestHeader = jest.fn();
 const mockNetworkManagerRemoveRequestHeader = jest.fn();
 
@@ -742,6 +742,114 @@ describe('MapScreen native grouped Following mode', () => {
 
     expect(screen.getByTestId('map-following-state-error')).toBeTruthy();
     expect(screen.queryByTestId('map-following-state-empty')).toBeNull();
+  });
+
+  it('passes pyramid node identity to public nearby fallback after unresolved feature taps', async () => {
+    const pyramidFeature = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [5.47, 51.44] },
+      properties: {
+        node_class: 'active',
+        group_kind: 'cluster',
+        primary_property_id: 'property-9',
+        point_count: 40,
+        property_ids: '',
+        preview_property_ids: '',
+        pyramid_version_id: '9007199254740993123',
+        pyramid_node_id: '9007199254740993999',
+        membership_complete: 'false',
+        read_state_coverage: 'partial',
+      },
+    };
+
+    mockQueryRenderedFeatures.mockResolvedValueOnce([pyramidFeature]);
+    mockFetchNearbyGroup.mockResolvedValue({
+      nodeClass: 'active',
+      groupKind: 'cluster',
+      primaryPropertyId: 'property-9',
+      pointCount: 40,
+      propertyIds: [],
+      previewPropertyIds: ['property-9'],
+      pyramidVersionId: '9007199254740993123',
+      pyramidNodeId: '9007199254740993999',
+      membershipComplete: false,
+      readStateCoverage: 'partial',
+      coordinate: [5.47, 51.44],
+      distanceMeters: 0,
+      bbox: {
+        west: 5.46,
+        south: 51.43,
+        east: 5.48,
+        north: 51.45,
+      },
+      activeListingCount: 1,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      commentCount: 0,
+      streetName: null,
+      houseNumber: null,
+      houseNumberAddition: null,
+      address: null,
+      city: null,
+      postalCode: null,
+      countryCode: null,
+      officialValuation: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      yearBuilt: null,
+      floorAreaM2: null,
+      hasActiveListing: false,
+      marketState: 'not-listed',
+      hasListing: false,
+      activityScore: 0,
+      activityScoreTotal: 0,
+      likeCount: 0,
+      guessCount: 0,
+    });
+
+    const screen = await renderMapScreen();
+
+    fireEvent(screen.getByTestId('native-map'), 'press', {
+      nativeEvent: {
+        point: [100, 200],
+        lngLat: [5.47, 51.44],
+      },
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockInteraction.handleFeaturePress).toHaveBeenCalledWith(
+      [pyramidFeature],
+      expect.any(Number),
+      expect.any(Object)
+    );
+    expect(mockFetchNearbyGroup).toHaveBeenCalledWith(
+      5.47,
+      51.44,
+      expect.any(Number),
+      expect.objectContaining({
+        marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+      }),
+      {
+        pyramidVersionId: '9007199254740993123',
+        pyramidNodeId: '9007199254740993999',
+      }
+    );
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        primaryPropertyId: 'property-9',
+        pyramidNodeId: '9007199254740993999',
+      }),
+      expect.any(Number),
+      expect.any(Object)
+    );
+    expect(mockInteraction.handleEmptyMapTap).not.toHaveBeenCalled();
   });
 
   it('falls back to /properties/following-nearby after local Following hit-testing misses', async () => {

@@ -42,6 +42,7 @@ interface RecoverySweepSummary {
   officialValuationHydrationJobIds: string[];
   propertyTilePyramidBuildRequested: boolean;
   propertyTilePyramidBuildStatus: string | null;
+  propertyTilePyramidRetentionStatus: string | null;
 }
 
 export type WorkerRuntimeModuleLoaders = {
@@ -612,6 +613,7 @@ export class WorkerRuntime {
 
     let propertyTilePyramidBuildRequested = false;
     let propertyTilePyramidBuildStatus: string | null = null;
+    let propertyTilePyramidRetentionStatus: string | null = null;
     try {
       const buildRequest = await propertyTilePyramid.requestPropertyTilePyramidBuild({
         reason: 'worker-recovery',
@@ -624,6 +626,21 @@ export class WorkerRuntime {
       });
     } catch (error) {
       this.logger.error('Recovery sweep failed to request property tile pyramid build', {
+        trigger,
+        error: serializeError(error),
+      });
+    }
+    try {
+      const retention = await propertyTilePyramid.runPropertyTilePyramidRetention();
+      propertyTilePyramidRetentionStatus = typeof retention.status === 'string'
+        ? retention.status
+        : 'completed';
+      this.logger.info('Property tile pyramid retention completed', {
+        trigger,
+        ...retention,
+      });
+    } catch (error) {
+      this.logger.error('Recovery sweep failed to run property tile pyramid retention', {
         trigger,
         error: serializeError(error),
       });
@@ -642,6 +659,7 @@ export class WorkerRuntime {
       officialValuationHydrationJobIds,
       propertyTilePyramidBuildRequested,
       propertyTilePyramidBuildStatus,
+      propertyTilePyramidRetentionStatus,
     };
 
     this.logger.info('Recovery sweep completed', {
@@ -657,6 +675,7 @@ export class WorkerRuntime {
       officialValuationHydrationDispatchedCount: officialValuationHydrationJobIds.length,
       propertyTilePyramidBuildRequested,
       propertyTilePyramidBuildStatus,
+      propertyTilePyramidRetentionStatus,
     });
 
     return summary;

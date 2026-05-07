@@ -91,6 +91,7 @@ import {
   buildPropertyTilePyramidCacheKey,
   getDefaultPropertyTilePyramidSlot,
   getPropertyTilePyramidMaxZoom,
+  isDefaultPropertyTilePyramidTileCovered,
   lookupCurrentPropertyTilePyramidVersion,
   lookupPromotedPropertyTilePyramidTile,
   markPropertyTilePyramidVersionDegraded,
@@ -211,6 +212,7 @@ type PropertyTilePyramidRouteService = {
   getMaxZoom: typeof getPropertyTilePyramidMaxZoom;
   lookupCurrentVersion: typeof lookupCurrentPropertyTilePyramidVersion;
   lookupTile: typeof lookupPromotedPropertyTilePyramidTile;
+  isTileCovered: typeof isDefaultPropertyTilePyramidTileCovered;
   markVersionDegraded: typeof markPropertyTilePyramidVersionDegraded;
   requestBuild: typeof requestPropertyTilePyramidBuild;
 };
@@ -219,6 +221,7 @@ const defaultPropertyTilePyramidRouteService: PropertyTilePyramidRouteService = 
   getMaxZoom: getPropertyTilePyramidMaxZoom,
   lookupCurrentVersion: lookupCurrentPropertyTilePyramidVersion,
   lookupTile: lookupPromotedPropertyTilePyramidTile,
+  isTileCovered: isDefaultPropertyTilePyramidTileCovered,
   markVersionDegraded: markPropertyTilePyramidVersionDegraded,
   requestBuild: requestPropertyTilePyramidBuild,
 };
@@ -421,6 +424,25 @@ function sendPyramidUnavailableTile(
     .send();
 }
 
+function sendPyramidUncoveredTile(
+  reply: FastifyReply,
+  runtime: Pick<
+    PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+    'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+  >,
+) {
+  return reply
+    .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
+    .header('X-HuisHype-Tile-Status', 'pyramid-uncovered')
+    .header('X-Tile-Generation-Time', tileHeaderValue(runtime.generationTimeMs))
+    .header('X-Tile-Cache', 'pyramid-uncovered')
+    .header('X-Tile-Coalesced', String(runtime.coalesced))
+    .header('X-Tile-Queue-Time', tileHeaderValue(runtime.queueTimeMs))
+    .header('X-Tile-Budget-Ms', String(runtime.budgetMs))
+    .status(204)
+    .send();
+}
+
 function sendPrivateTilePayload(
   reply: FastifyReply,
   payloadResult: PropertyTilePayloadBuildResult,
@@ -454,7 +476,8 @@ type TileCacheState =
   | 'precomputed'
   | 'timeout-empty'
   | 'pyramid-unavailable'
-  | 'pyramid-missing';
+  | 'pyramid-missing'
+  | 'pyramid-uncovered';
 type TileOutcomeResult =
   | 'fresh'
   | 'stale'
@@ -466,7 +489,8 @@ type TileOutcomeResult =
   | 'reattached'
   | 'error'
   | 'pyramid-unavailable'
-  | 'pyramid-missing';
+  | 'pyramid-missing'
+  | 'pyramid-uncovered';
 type TileErrorClassification =
   | 'budget_timeout'
   | 'queue_timeout'
@@ -2141,6 +2165,22 @@ export async function tileRoutes(app: FastifyInstance) {
         };
         const slot = getDefaultPropertyTilePyramidSlot();
         let current: PropertyTilePyramidCurrentLookup;
+
+        if (!propertyTilePyramidRouteService.isTileCovered({ z, x, y, maxZoom: slot.maxZoom })) {
+          pyramidRuntime.generationTimeMs = Date.now() - startedAt;
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'pyramid-uncovered',
+            result: 'pyramid-uncovered',
+            runtime: pyramidRuntime,
+          });
+          return sendPyramidUncoveredTile(reply, pyramidRuntime);
+        }
 
         try {
           current = await propertyTilePyramidRouteService.lookupCurrentVersion(slot);

@@ -776,7 +776,7 @@ describe('Tile routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: '/tiles/properties/10/0/0.pbf',
+        url: '/tiles/properties/10/527/340.pbf',
       });
 
       expect(response.statusCode).toBe(204);
@@ -813,7 +813,7 @@ describe('Tile routes', () => {
       try {
         const response = await app.inject({
           method: 'GET',
-          url: '/tiles/properties/10/0/0.pbf',
+          url: '/tiles/properties/10/527/340.pbf',
         });
 
         expect(response.statusCode).toBe(204);
@@ -980,8 +980,8 @@ describe('Tile routes', () => {
     });
 
     it('does not serve an old non-versioned stale cache entry for pyramid-covered misses', async () => {
-      const tileUrl = '/tiles/properties/10/0/0.pbf';
-      const cacheKey = '10/0/0:default';
+      const tileUrl = '/tiles/properties/10/527/340.pbf';
+      const cacheKey = '10/527/340:default';
       const payload = Buffer.from([0x1a, 0x05, 0x73, 0x74, 0x61, 0x6c, 0x65]);
       const staleNow = Date.now() - (PROPERTY_TILE_CACHE_TTL_SECONDS * 1000 + 1_000);
       publicPropertyTileCache.set(
@@ -1055,7 +1055,7 @@ describe('Tile routes', () => {
       try {
         const response = await app.inject({
           method: 'GET',
-          url: '/tiles/properties/10/0/0.pbf',
+          url: '/tiles/properties/10/527/340.pbf',
         });
 
         expect(response.statusCode).toBe(204);
@@ -1065,8 +1065,8 @@ describe('Tile routes', () => {
           reason: 'manifest-missing',
           details: {
             z: 10,
-            x: 0,
-            y: 0,
+            x: 527,
+            y: 340,
             tileStatus: 'pyramid-missing',
           },
           actor: 'tiles-route',
@@ -1085,8 +1085,65 @@ describe('Tile routes', () => {
       }
     });
 
+    it('serves outside-coverage low-zoom default tiles as valid empty without degrading the current pyramid', async () => {
+      const lookupCurrentVersion = jest.fn(async () => ({
+        state: 'current' as const,
+        version: {
+          versionId: '00000000-0000-0000-0000-0000000000dd',
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 10,
+          pyramidKind: 'public_default_low_zoom',
+          buildInputsHash: 'inputs',
+          sourceWatermarkHash: 'watermarks',
+          status: 'promoted' as const,
+          promotedAt: new Date().toISOString(),
+          degradedAt: null,
+          degradedReason: null,
+        },
+      }));
+      const lookupTile = jest.fn(async () => ({
+        state: 'missing' as const,
+        tileStatus: 'pyramid-missing' as const,
+        reason: 'manifest-missing',
+      }));
+      const markVersionDegraded = jest.fn(async () => undefined);
+      const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 10,
+        lookupCurrentVersion,
+        lookupTile,
+        markVersionDegraded,
+        requestBuild,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/10/0/0.pbf',
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['x-huishype-tile-status']).toBe('pyramid-uncovered');
+        expect(response.headers['x-tile-cache']).toBe('pyramid-uncovered');
+        expect(response.headers['cache-control']).toBe(
+          'public, max-age=300, stale-while-revalidate=300'
+        );
+        expect(lookupCurrentVersion).not.toHaveBeenCalled();
+        expect(lookupTile).not.toHaveBeenCalled();
+        expect(markVersionDegraded).not.toHaveBeenCalled();
+        expect(requestBuild).not.toHaveBeenCalled();
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
+      } finally {
+        runtimeRunSpy.mockRestore();
+        resetPropertyTileCacheForTests();
+      }
+    });
+
     it('returns a controlled 204 when current pyramid lookup has a recoverable error', async () => {
-      const tileUrl = '/tiles/properties/10/0/0.pbf';
+      const tileUrl = '/tiles/properties/10/527/340.pbf';
       const lookupError = Object.assign(
         new Error('terminating connection due to administrator command'),
         { code: '57P01' },

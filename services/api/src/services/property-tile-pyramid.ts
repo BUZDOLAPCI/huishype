@@ -165,6 +165,13 @@ export interface PropertyTilePyramidOpsSummary extends PropertyTilePyramidHealth
   lastAuditReason: string | null;
 }
 
+export type PropertyTilePyramidCoverageCheck = {
+  z: number;
+  x: number;
+  y: number;
+  maxZoom?: number;
+};
+
 type PropertyTilePyramidWatermarkExecutor =
   | Pick<typeof db, 'execute'>
   | Pick<DbTransaction, 'execute'>;
@@ -204,6 +211,56 @@ export function getDefaultPropertyTilePyramidSlot(): PropertyTilePyramidSlot {
     maxZoom: getPropertyTilePyramidMaxZoom(),
     pyramidKind: PROPERTY_TILE_PYRAMID_KIND,
   };
+}
+
+function clampPyramidTileCoordinate(value: number, zoom: number): number {
+  const max = 2 ** zoom - 1;
+  return Math.max(0, Math.min(max, value));
+}
+
+function lonToPyramidTileX(lon: number, zoom: number): number {
+  return Math.floor(((lon + 180) / 360) * 2 ** zoom);
+}
+
+function latToPyramidTileY(lat: number, zoom: number): number {
+  const latRad = (lat * Math.PI) / 180;
+  return Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * 2 ** zoom,
+  );
+}
+
+export function isDefaultPropertyTilePyramidPointCovered(input: {
+  lon: number;
+  lat: number;
+  zoom: number;
+  maxZoom?: number;
+}): boolean {
+  const coverage = getExpectedDefaultPropertyTileSnapshotCoverageDefinition();
+  const maxZoom = input.maxZoom ?? coverage.maxZoom;
+  return (
+    input.zoom <= maxZoom &&
+    input.lon >= coverage.minLon &&
+    input.lon <= coverage.maxLon &&
+    input.lat >= coverage.minLat &&
+    input.lat <= coverage.maxLat
+  );
+}
+
+export function isDefaultPropertyTilePyramidTileCovered(
+  input: PropertyTilePyramidCoverageCheck,
+): boolean {
+  const coverage = getExpectedDefaultPropertyTileSnapshotCoverageDefinition();
+  const maxZoom = input.maxZoom ?? coverage.maxZoom;
+  if (input.z > maxZoom) {
+    return false;
+  }
+
+  const minX = clampPyramidTileCoordinate(lonToPyramidTileX(coverage.minLon, input.z), input.z);
+  const maxX = clampPyramidTileCoordinate(lonToPyramidTileX(coverage.maxLon, input.z), input.z);
+  const minY = clampPyramidTileCoordinate(latToPyramidTileY(coverage.maxLat, input.z), input.z);
+  const maxY = clampPyramidTileCoordinate(latToPyramidTileY(coverage.minLat, input.z), input.z);
+
+  return input.x >= minX && input.x <= maxX && input.y >= minY && input.y <= maxY;
 }
 
 export function getPropertyTilePyramidResourceControls(): PropertyTilePyramidHealthSummary['resourceControls'] {
@@ -870,10 +927,18 @@ export async function requestPropertyTilePyramidBuild(input: {
   const { sourceWatermarkHash, sourceWatermarksJson } = sourceWatermarks;
 
   try {
+    await recoverStalePropertyTilePyramidBuildRequest({
+      slot,
+      buildInputsHash,
+      sourceWatermarkHash,
+      reason: String(input.reason),
+    });
+
     const rows = await db.execute<{
       id: string;
       status: PropertyTilePyramidStatus;
       next_retry_at: string | null;
+      queue_eligible: boolean;
     }>(sql`
       INSERT INTO property_tile_pyramid_versions (
         coverage_id,
@@ -920,12 +985,42 @@ export async function requestPropertyTilePyramidBuild(input: {
       DO UPDATE SET
         request_reason = EXCLUDED.request_reason,
         updated_at = now()
-      RETURNING id::text, status, next_retry_at::text
+      WHERE property_tile_pyramid_versions.status = 'queued'
+        OR (
+          property_tile_pyramid_versions.status = 'failed_retryable'
+          AND (
+            property_tile_pyramid_versions.next_retry_at IS NULL
+            OR property_tile_pyramid_versions.next_retry_at <= now()
+          )
+        )
+      RETURNING id::text, status, next_retry_at::text, true AS queue_eligible
     `);
 
-    const row = Array.from(rows)[0];
+    let row = Array.from(rows)[0];
     if (!row) {
-      return { status: 'unavailable', reason: 'build-request-not-returned' };
+      const existingRows = await db.execute<{
+        id: string;
+        status: PropertyTilePyramidStatus;
+        next_retry_at: string | null;
+      }>(sql`
+        SELECT id::text, status, next_retry_at::text
+        FROM property_tile_pyramid_versions
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          AND build_inputs_hash = ${buildInputsHash}
+          AND source_watermark_hash = ${sourceWatermarkHash}
+        LIMIT 1
+      `);
+      const existing = Array.from(existingRows)[0];
+      if (!existing) {
+        return { status: 'unavailable', reason: 'build-request-not-returned' };
+      }
+      row = {
+        ...existing,
+        queue_eligible: false,
+      };
     }
 
     if (row.status === 'failed_terminal') {
@@ -946,6 +1041,15 @@ export async function requestPropertyTilePyramidBuild(input: {
       };
     }
 
+    if (!row.queue_eligible) {
+      return {
+        status: 'coalesced',
+        versionId: row.id,
+        existingStatus: row.status,
+        nextRetryAt: row.next_retry_at,
+      };
+    }
+
     const queueJobId = buildPropertyTilePyramidQueueJobId({
       slot,
       buildInputsHash,
@@ -958,7 +1062,7 @@ export async function requestPropertyTilePyramidBuild(input: {
     });
 
     return {
-      status: row.status === 'queued' ? 'enqueued' : 'coalesced',
+      status: row.status === 'queued' || row.status === 'failed_retryable' ? 'enqueued' : 'coalesced',
       versionId: row.id,
       existingStatus: row.status,
       queueJobId,
@@ -970,6 +1074,52 @@ export async function requestPropertyTilePyramidBuild(input: {
     }
     throw error;
   }
+}
+
+async function recoverStalePropertyTilePyramidBuildRequest(input: {
+  slot: PropertyTilePyramidSlot;
+  buildInputsHash: string;
+  sourceWatermarkHash: string;
+  reason: string;
+}): Promise<void> {
+  await db.execute(sql`
+    UPDATE property_tile_pyramid_versions
+    SET
+      status = 'failed_retryable',
+      request_reason = ${input.reason},
+      failure_category = CASE
+        WHEN status = 'validated' THEN 'stale_validated'
+        ELSE 'lease_expired'
+      END,
+      failure_message = CASE
+        WHEN status = 'validated' THEN 'Validated property tile pyramid build was not promoted'
+        ELSE 'Property tile pyramid build lease expired before completion'
+      END,
+      failed_stage = status::text,
+      next_retry_at = now(),
+      lease_owner = NULL,
+      lease_token = NULL,
+      lease_until = NULL,
+      build_finished_at = COALESCE(build_finished_at, now()),
+      updated_at = now()
+    WHERE coverage_id = ${input.slot.coverageId}
+      AND filter_signature = ${input.slot.filterSignature}
+      AND max_zoom = ${input.slot.maxZoom}
+      AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
+      AND build_inputs_hash = ${input.buildInputsHash}
+      AND source_watermark_hash = ${input.sourceWatermarkHash}
+      AND (
+        (
+          status IN ('building', 'validating')
+          AND lease_until IS NOT NULL
+          AND lease_until <= now()
+        )
+        OR (
+          status = 'validated'
+          AND (lease_until IS NULL OR lease_until <= now())
+        )
+      )
+  `);
 }
 
 async function enqueuePropertyTilePyramidBuildSignal(input: {
@@ -1223,8 +1373,11 @@ async function upsertPropertyTilePyramidTileManifest(input: {
   `);
 }
 
-async function getCurrentVersionIdForSlot(slot: PropertyTilePyramidSlot): Promise<string | null> {
-  const rows = await db.execute<{ current_version_id: string | null }>(sql`
+async function getCurrentVersionIdForSlot(
+  slot: PropertyTilePyramidSlot,
+  executor: Pick<typeof db, 'execute'> = db,
+): Promise<string | null> {
+  const rows = await executor.execute<{ current_version_id: string | null }>(sql`
     SELECT current_version_id::text
     FROM property_tile_pyramid_current
     WHERE coverage_id = ${slot.coverageId}
@@ -1234,6 +1387,36 @@ async function getCurrentVersionIdForSlot(slot: PropertyTilePyramidSlot): Promis
     LIMIT 1
   `);
   return Array.from(rows)[0]?.current_version_id ?? null;
+}
+
+async function recoverExpiredPropertyTilePyramidBuildLeases(): Promise<{
+  retryableVersionCount: number;
+}> {
+  const rows = await db.execute<{ retryable_version_count: number | string }>(sql`
+    WITH recovered AS (
+      UPDATE property_tile_pyramid_versions
+      SET
+        status = 'failed_retryable',
+        failure_category = 'lease_expired',
+        failure_message = 'Property tile pyramid build lease expired before completion',
+        failed_stage = status::text,
+        next_retry_at = now(),
+        lease_owner = NULL,
+        lease_token = NULL,
+        lease_until = NULL,
+        build_finished_at = COALESCE(build_finished_at, now()),
+        updated_at = now()
+      WHERE status IN ('building', 'validating', 'validated')
+        AND lease_until IS NOT NULL
+        AND lease_until <= now()
+      RETURNING 1
+    )
+    SELECT count(*)::int AS retryable_version_count FROM recovered
+  `);
+
+  return {
+    retryableVersionCount: Number(Array.from(rows)[0]?.retryable_version_count ?? 0),
+  };
 }
 
 async function markPropertyTilePyramidBuildFailure(input: {
@@ -1283,6 +1466,14 @@ export async function executeDuePropertyTilePyramidBuild(options: {
 }): Promise<Record<string, unknown>> {
   let activeVersionId: string | null = null;
   try {
+    const recoveredLeases = await recoverExpiredPropertyTilePyramidBuildLeases();
+    if (recoveredLeases.retryableVersionCount > 0) {
+      options.logger?.warn?.(
+        { recoveredVersionCount: recoveredLeases.retryableVersionCount },
+        'Recovered expired property tile pyramid build leases',
+      );
+    }
+
     const rows = await db.execute<{
       id: string;
       status: PropertyTilePyramidStatus;
@@ -1422,11 +1613,11 @@ export async function executeDuePropertyTilePyramidBuild(options: {
     const heapBytes = nodeCount * 600 + tiles.length * 250 + encodedPayloadBytes;
     const indexBytes = Math.round(nodeCount * 160 + tiles.length * 80);
     const walBytes = Math.round((heapBytes + indexBytes) * 2.5);
-    if (walBytes > 10_000_000_000) {
+    if (walBytes > controls.maxWalBytesPerChunk) {
       await markPropertyTilePyramidBuildFailure({
         versionId: row.id,
         category: 'resource_limit',
-        message: `Estimated WAL ${walBytes} exceeds 10000000000 bytes`,
+        message: `Estimated WAL ${walBytes} exceeds ${controls.maxWalBytesPerChunk} bytes`,
         stage: 'resource-validation',
         retryDelayMinutes: 15,
       });
@@ -1461,33 +1652,43 @@ export async function executeDuePropertyTilePyramidBuild(options: {
           walBytes,
           wallClockMs: Date.now() - startedAt,
           chunkTileLimit: controls.chunkTileLimit,
+          maxWalBytesPerChunk: controls.maxWalBytesPerChunk,
         })}::jsonb,
         build_finished_at = now(),
         updated_at = now()
       WHERE id = ${row.id}::uuid
     `);
-    await db.execute(sql`
-      UPDATE property_tile_pyramid_versions
-      SET
-        status = 'validated',
-        validated_at = now(),
-        build_duration_ms = ${Date.now() - startedAt},
-        lease_owner = NULL,
-        lease_token = NULL,
-        lease_until = NULL,
-        updated_at = now()
-      WHERE id = ${row.id}::uuid
-    `);
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        UPDATE property_tile_pyramid_versions
+        SET
+          status = 'validated',
+          validated_at = now(),
+          build_duration_ms = ${Date.now() - startedAt},
+          updated_at = now()
+        WHERE id = ${row.id}::uuid
+      `);
 
-    const previousVersionId = await getCurrentVersionIdForSlot(slot);
-    await db.execute(sql`
-      SELECT promote_property_tile_pyramid_version(
-        ${row.id}::uuid,
-        ${previousVersionId}::uuid,
-        ${options.reason ?? 'worker-build'},
-        ${options.leaseOwner}
-      )
-    `);
+      const previousVersionId = await getCurrentVersionIdForSlot(slot, tx);
+      await tx.execute(sql`
+        SELECT promote_property_tile_pyramid_version(
+          ${row.id}::uuid,
+          ${previousVersionId}::uuid,
+          ${options.reason ?? 'worker-build'},
+          ${options.leaseOwner}
+        )
+      `);
+
+      await tx.execute(sql`
+        UPDATE property_tile_pyramid_versions
+        SET
+          lease_owner = NULL,
+          lease_token = NULL,
+          lease_until = NULL,
+          updated_at = now()
+        WHERE id = ${row.id}::uuid
+      `);
+    });
 
     return {
       status: 'promoted',
@@ -1736,23 +1937,18 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           SELECT current_version_id AS id
           FROM property_tile_pyramid_current
           UNION
+          SELECT previous_version_id AS id
+          FROM property_tile_pyramid_current
+          WHERE previous_version_id IS NOT NULL
+          UNION
           SELECT id
-          FROM (
-            SELECT
-              id,
-              row_number() OVER (
-                PARTITION BY coverage_id, filter_signature, max_zoom, pyramid_kind
-                ORDER BY promoted_at DESC NULLS LAST
-              ) AS retained_rank
-            FROM property_tile_pyramid_versions
-            WHERE status = 'promoted'
-          ) promoted
-          WHERE retained_rank <= 2
+          FROM property_tile_pyramid_versions
+          WHERE status IN ('queued', 'building', 'validating', 'validated')
         ),
         deleted AS (
           DELETE FROM property_tile_pyramid_versions v
           WHERE v.id NOT IN (SELECT id FROM retained)
-            AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+            AND v.status IN ('promoted', 'failed_retryable', 'failed_terminal', 'superseded')
             AND COALESCE(v.updated_at, now()) < now() - interval '24 hours'
             AND (v.lease_until IS NULL OR v.lease_until < now())
           RETURNING 1

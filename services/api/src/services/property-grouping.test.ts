@@ -1709,14 +1709,22 @@ describe('property-grouping', () => {
 
     expect(lowZoomFeature.property_ids).toBe('');
     expect(largeHighZoomFeature.property_ids).toBe('');
+    expect(lowZoomFeature.membership_complete).toBe(false);
+    expect(lowZoomFeature.read_state_coverage).toBe('partial');
+    expect(largeHighZoomFeature.membership_complete).toBe(false);
+    expect(largeHighZoomFeature.read_state_coverage).toBe('partial');
     expect(lowZoomFeature.preview_property_ids).toBe(
       propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
     );
     expect(boundedHighZoomFeature.property_ids).toBe(
       propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
     );
+    expect(boundedHighZoomFeature.membership_complete).toBe(true);
+    expect(boundedHighZoomFeature.read_state_coverage).toBe('complete');
     expect(singleFeature.property_ids).toBe(singleFeature.primary_property_id);
     expect(singleFeature.preview_property_ids).toBe(singleFeature.primary_property_id);
+    expect(singleFeature.membership_complete).toBe(true);
+    expect(singleFeature.read_state_coverage).toBe('complete');
   });
 
   it('encodes dense MVT feature sets through typed SQL values without JSONB expansion', async () => {

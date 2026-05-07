@@ -2227,11 +2227,6 @@ export async function processIngestBatch(
           'Maintenance refresh enqueue failed after ingest batch commit',
         );
       }
-      await safeRequestPropertyTilePyramidBuild(
-        { reason: 'ingest-batch' },
-        logger,
-        { batchId: claimed.id, sourceName: claimed.sourceName },
-      );
     }
 
     await finalizeRunLifecycle(claimed, logger);
@@ -2265,13 +2260,6 @@ export async function refreshLatestListingsMaintenance(
     refreshStartedAt,
     skippedBatchRecoveryLimit,
   );
-  if (recovery.propertyTilePyramidInvalidated) {
-    await safeRequestPropertyTilePyramidBuild(
-      { reason: 'skipped-ingest-recovery' },
-      logger,
-      {},
-    );
-  }
 
   const pendingRows = await db
     .select({ id: ingestBatches.id })
@@ -2299,6 +2287,12 @@ export async function refreshLatestListingsMaintenance(
     .update(ingestBatches)
     .set({ maintenanceCompletedAt: new Date() })
     .where(inArray(ingestBatches.id, pendingRows.map((row) => row.id)));
+
+  await safeRequestPropertyTilePyramidBuild(
+    { reason: recovery.propertyTilePyramidInvalidated ? 'skipped-ingest-recovery' : 'ingest-batch' },
+    logger,
+    { refreshedBatchCount: pendingRows.length },
+  );
 
   return pendingRows.length;
 }

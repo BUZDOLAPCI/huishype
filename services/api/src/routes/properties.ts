@@ -37,6 +37,8 @@ import {
 } from '../services/official-valuations/index.js';
 import {
   getDefaultPropertyTilePyramidSlot,
+  getPropertyTilePyramidMaxZoom,
+  isDefaultPropertyTilePyramidPointCovered,
   lookupCurrentPropertyTilePyramidVersion,
 } from '../services/property-tile-pyramid.js';
 
@@ -343,6 +345,9 @@ const followingNearbyQuerySchema = z.object({
   zoom: z.coerce.number().min(0).max(22).default(17),
   ...followingMapFiltersQuerySchema.shape,
 });
+
+const PYRAMID_NEARBY_SINGLE_TAP_RADIUS_PX = 24;
+const PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX = 36;
 
 type PropertyRow = {
   id: string;
@@ -790,6 +795,96 @@ async function resolvePyramidNearbyNodeById(input: {
   return mapPyramidNearbyNodeRow(Array.from(rows)[0] ?? null, input.pyramidVersionId);
 }
 
+function pyramidNearbySearchRadiusMeters(lat: number, zoom: number): number {
+  const metersPerPixel =
+    (40075016.686 * Math.max(Math.cos((lat * Math.PI) / 180), 0.000001)) /
+    (512 * 2 ** zoom);
+  return PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX * metersPerPixel;
+}
+
+function normalizePyramidNearbyServingZoom(zoom: number, maxZoom: number): number {
+  return Math.max(0, Math.min(maxZoom, Math.floor(zoom)));
+}
+
+function isDefaultPyramidNearbyZoom(zoom: number, maxZoom: number): boolean {
+  return Math.floor(zoom) <= maxZoom;
+}
+
+async function resolvePyramidNearbyNodeAtPoint(input: {
+  lon: number;
+  lat: number;
+  zoom: number;
+}): Promise<{
+  result: NearbyGroupedContractResult | null;
+  status: string;
+  versionId?: string;
+}> {
+  const slot = getDefaultPropertyTilePyramidSlot();
+  const maxZoom = getPropertyTilePyramidMaxZoom();
+  const servingZoom = normalizePyramidNearbyServingZoom(input.zoom, maxZoom);
+  if (!isDefaultPropertyTilePyramidPointCovered({ ...input, zoom: servingZoom, maxZoom })) {
+    return { result: null, status: 'pyramid-uncovered' };
+  }
+
+  const current = await lookupCurrentPropertyTilePyramidVersion(slot);
+  if (current.state !== 'current') {
+    return { result: null, status: current.tileStatus };
+  }
+
+  const searchRadiusMeters = pyramidNearbySearchRadiusMeters(input.lat, servingZoom);
+  const rows = await db.execute<PyramidNearbyNodeRow>(sql`
+    WITH tap AS (
+      SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
+    )
+    SELECT
+      node_id,
+      COALESCE(representative_property_id::text, preview_property_ids[1]::text) AS primary_property_id,
+      node_class,
+      group_kind,
+      point_count,
+      ARRAY(SELECT unnest(preview_property_ids)::text) AS preview_property_ids,
+      render_lon,
+      render_lat,
+      ST_Distance(render_geometry::geography, tap.geom::geography) AS distance_meters,
+      bbox_west,
+      bbox_south,
+      bbox_east,
+      bbox_north,
+      active_listing_count,
+      completed_listing_count,
+      social_count,
+      recent_social_count,
+      social_score_total,
+      social_score_max,
+      recent_social_score_total,
+      comment_count,
+      address,
+      city,
+      asking_price,
+      thumbnail_url,
+      has_active_listing,
+      market_state
+    FROM property_tile_pyramid_nodes, tap
+    WHERE version_id = ${current.version.versionId}::uuid
+      AND z = ${servingZoom}
+      AND ST_DWithin(render_geometry::geography, tap.geom::geography, ${searchRadiusMeters})
+      AND ST_Distance(render_geometry::geography, tap.geom::geography) <=
+        CASE
+          WHEN group_kind = 'single'
+            THEN ${PYRAMID_NEARBY_SINGLE_TAP_RADIUS_PX}::double precision / ${PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX}::double precision * ${searchRadiusMeters}
+          ELSE ${searchRadiusMeters}
+        END
+    ORDER BY ST_Distance(render_geometry::geography, tap.geom::geography), point_count DESC
+    LIMIT 1
+  `);
+
+  return {
+    result: mapPyramidNearbyNodeRow(Array.from(rows)[0] ?? null, current.version.versionId),
+    status: 'pyramid-empty',
+    versionId: current.version.versionId,
+  };
+}
+
 function parseBboxString(bbox: string) {
   const [minLon, minLat, maxLon, maxLat] = bbox.split(',').map(Number);
   if ([minLon, minLat, maxLon, maxLat].some((value) => value == null || Number.isNaN(value))) {
@@ -1146,6 +1241,23 @@ export async function propertyRoutes(app: FastifyInstance) {
           });
           if (!result) {
             reply.header('X-HuisHype-Nearby-Status', 'pyramid-missing');
+          }
+        } catch (error) {
+          if (!isPyramidSchemaUnavailable(error)) {
+            throw error;
+          }
+          reply.header('X-HuisHype-Nearby-Status', 'pyramid-unavailable');
+        }
+      } else if (
+        areMapFiltersDefault(filters) &&
+        isDefaultPyramidNearbyZoom(zoom, getPropertyTilePyramidMaxZoom())
+      ) {
+        try {
+          const lookup = await resolvePyramidNearbyNodeAtPoint({ lon, lat, zoom });
+          result = lookup.result;
+          reply.header('X-HuisHype-Nearby-Status', result ? 'pyramid-promoted' : lookup.status);
+          if (lookup.versionId) {
+            reply.header('X-HuisHype-Pyramid-Version', lookup.versionId);
           }
         } catch (error) {
           if (!isPyramidSchemaUnavailable(error)) {

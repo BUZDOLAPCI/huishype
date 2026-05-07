@@ -1026,6 +1026,7 @@ function normalizeBbox(
 }
 
 export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): NearbyPropertyGroup {
+  const transport = result as NearbyGroupedResult & Record<string, unknown>;
   const activeListingCount = toNumber(
     result.activeListingCount,
     result.hasActiveListing ? 1 : 0,
@@ -1040,17 +1041,35 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
   );
   const hasActiveListing =
     result.hasActiveListing ?? (activeListingCount > 0 ? true : false);
-  const membershipComplete = result.membershipComplete ?? true;
-  const readStateCoverage = result.readStateCoverage ?? (membershipComplete ? 'complete' : 'partial');
+  const membershipComplete = toBoolean(
+    getTransportValue(transport, 'membershipComplete', 'membership_complete'),
+    true,
+  );
+  const readStateCoverage = toReadStateCoverage(
+    getTransportValue(transport, 'readStateCoverage', 'read_state_coverage'),
+    membershipComplete ? 'complete' : 'partial',
+  );
+  const camelPropertyIds = parseTransportPropertyIds(result.propertyIds);
+  const snakePropertyIds = parseTransportPropertyIds(
+    transport.property_ids as string | string[] | null | undefined,
+  );
+  const camelPreviewPropertyIds = parseTransportPropertyIds(result.previewPropertyIds);
+  const snakePreviewPropertyIds = parseTransportPropertyIds(
+    transport.preview_property_ids as string | string[] | null | undefined,
+  );
+  const transportPropertyIds =
+    camelPropertyIds.length > 0 ? camelPropertyIds : snakePropertyIds;
+  const transportPreviewPropertyIds =
+    camelPreviewPropertyIds.length > 0 ? camelPreviewPropertyIds : snakePreviewPropertyIds;
   const propertyIds =
-    result.propertyIds.length > 0
-      ? result.propertyIds
+    transportPropertyIds.length > 0
+      ? transportPropertyIds
       : result.groupKind === 'single'
         ? [result.primaryPropertyId]
         : [];
   const previewPropertyIds =
-    result.previewPropertyIds.length > 0 || !membershipComplete
-      ? result.previewPropertyIds
+    transportPreviewPropertyIds.length > 0 || !membershipComplete || readStateCoverage === 'partial'
+      ? transportPreviewPropertyIds
       : propertyIds;
 
   return {

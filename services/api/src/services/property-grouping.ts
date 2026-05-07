@@ -238,6 +238,8 @@ export type TileTransportFeature = {
   point_count: number;
   property_ids: string;
   preview_property_ids: string;
+  membership_complete: boolean;
+  read_state_coverage: 'complete' | 'partial';
   bbox_west: number | null;
   bbox_south: number | null;
   bbox_east: number | null;
@@ -2715,11 +2717,16 @@ function serializePropertyIdsForTile(group: CanonicalPropertyGroup, tile?: TileI
   return group.propertyIds.join(',');
 }
 
+function isMembershipCompleteForTile(group: CanonicalPropertyGroup, tile?: TileId): boolean {
+  return group.groupKind === 'single' || !shouldOmitClusterPropertyIds(group, tile);
+}
+
 export function serializeGroupForTile(
   group: CanonicalPropertyGroup,
   tile?: TileId
 ): TileTransportFeature {
   const bbox = group.bbox;
+  const membershipComplete = isMembershipCompleteForTile(group, tile);
   return {
     lon: group.coordinate[0],
     lat: group.coordinate[1],
@@ -2729,6 +2736,8 @@ export function serializeGroupForTile(
     point_count: group.pointCount,
     property_ids: serializePropertyIdsForTile(group, tile),
     preview_property_ids: group.previewPropertyIds.join(','),
+    membership_complete: membershipComplete,
+    read_state_coverage: membershipComplete ? 'complete' : 'partial',
     bbox_west: bbox?.[0] ?? null,
     bbox_south: bbox?.[1] ?? null,
     bbox_east: bbox?.[2] ?? null,
@@ -2763,6 +2772,8 @@ function buildMvtFeatureRowsCte(features: TileTransportFeature[]): SQL {
         ${feature.point_count}::integer,
         ${feature.property_ids}::text,
         ${feature.preview_property_ids}::text,
+        ${feature.membership_complete}::boolean,
+        ${feature.read_state_coverage}::text,
         ${feature.bbox_west}::double precision,
         ${feature.bbox_south}::double precision,
         ${feature.bbox_east}::double precision,
@@ -2797,6 +2808,8 @@ function buildMvtFeatureRowsCte(features: TileTransportFeature[]): SQL {
       point_count,
       property_ids,
       preview_property_ids,
+      membership_complete,
+      read_state_coverage,
       bbox_west,
       bbox_south,
       bbox_east,
@@ -2866,6 +2879,8 @@ export async function buildMvtForGroups(
         point_count,
         property_ids,
         preview_property_ids,
+        membership_complete,
+        read_state_coverage,
         bbox_west,
         bbox_south,
         bbox_east,

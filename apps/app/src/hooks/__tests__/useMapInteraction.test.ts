@@ -859,7 +859,7 @@ describe('useMapInteraction', () => {
       });
     });
 
-    it('zooms into incomplete pyramid clusters with empty previews instead of using full ids', async () => {
+    it('defers incomplete pyramid clusters with empty previews to the nearby fallback', async () => {
       jest.useFakeTimers();
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
@@ -887,21 +887,15 @@ describe('useMapInteraction', () => {
         },
       };
 
+      let handled = true;
       await act(async () => {
-        await result.current.handleFeaturePress([feature], 10, camera);
+        handled = await result.current.handleFeaturePress([feature], 10, camera);
       });
 
+      expect(handled).toBe(false);
       expect(mockFetchBatchProperties).not.toHaveBeenCalled();
-      expect(camera.flyTo).not.toHaveBeenCalledWith({
-        center: [4.9, 52.37],
-        zoom: 10,
-        duration: 500,
-        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
-      });
-      expect(camera.fitBounds).toHaveBeenCalledWith([4.8, 52.3, 5.0, 52.4], {
-        padding: 80,
-        duration: 500,
-      });
+      expect(camera.flyTo).not.toHaveBeenCalled();
+      expect(camera.fitBounds).not.toHaveBeenCalled();
       expect(result.current.previewGroup).toBeNull();
     });
   });

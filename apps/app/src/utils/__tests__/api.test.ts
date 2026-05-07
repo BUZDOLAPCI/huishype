@@ -556,6 +556,94 @@ describe('grouped property normalization', () => {
     });
   });
 
+  it('honors incomplete nearby cluster metadata from snake_case transport fields', () => {
+    const result = normalizeNearbyPropertyGroup({
+      nodeClass: 'active',
+      groupKind: 'cluster',
+      primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+      pointCount: 12,
+      property_ids:
+        '11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222',
+      preview_property_ids: '',
+      pyramidVersionId: '9007199254740993123',
+      pyramidNodeId: '9007199254740993999',
+      membership_complete: 'false',
+      read_state_coverage: 'partial',
+      propertyIds: [],
+      previewPropertyIds: [],
+      coordinate: [5.4697, 51.4416],
+      distanceMeters: 12,
+      bbox: [5.46, 51.43, 5.48, 51.45],
+      activeListingCount: 2,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      commentCount: 0,
+      streetName: null,
+      houseNumber: null,
+      houseNumberAddition: null,
+      address: null,
+      city: null,
+      postalCode: null,
+      countryCode: null,
+      officialValuation: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+    } as unknown as Parameters<typeof normalizeNearbyPropertyGroup>[0]);
+
+    expect(result).toMatchObject({
+      membershipComplete: false,
+      readStateCoverage: 'partial',
+      propertyIds: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
+      previewPropertyIds: [],
+    });
+  });
+
+  it('does not expand partial nearby clusters to full property ids', () => {
+    const result = normalizeNearbyPropertyGroup({
+      nodeClass: 'active',
+      groupKind: 'cluster',
+      primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+      pointCount: 12,
+      propertyIds: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
+      previewPropertyIds: [],
+      pyramidVersionId: '9007199254740993123',
+      pyramidNodeId: '9007199254740993999',
+      membershipComplete: true,
+      readStateCoverage: 'partial',
+      coordinate: [5.4697, 51.4416],
+      distanceMeters: 12,
+      bbox: [5.46, 51.43, 5.48, 51.45],
+      activeListingCount: 2,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      commentCount: 0,
+      streetName: null,
+      houseNumber: null,
+      houseNumberAddition: null,
+      address: null,
+      city: null,
+      postalCode: null,
+      countryCode: null,
+      officialValuation: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+    });
+
+    expect(result.previewPropertyIds).toEqual([]);
+  });
+
   it('accepts missing property_ids when a primary property id is present', () => {
     const feature = {
       type: 'Feature',

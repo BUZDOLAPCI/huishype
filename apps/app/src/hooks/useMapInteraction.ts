@@ -343,6 +343,26 @@ function shouldUsePreviewIdsOnly(group: Pick<NearbyPropertyGroup, 'membershipCom
   return group.membershipComplete === false || group.readStateCoverage === 'partial';
 }
 
+function shouldResolvePyramidClusterOnServer(
+  group: Pick<
+    NearbyPropertyGroup,
+    | 'groupKind'
+    | 'pyramidVersionId'
+    | 'pyramidNodeId'
+    | 'membershipComplete'
+    | 'readStateCoverage'
+    | 'previewPropertyIds'
+  >,
+): boolean {
+  return (
+    group.groupKind === 'cluster' &&
+    group.pyramidVersionId != null &&
+    group.pyramidNodeId != null &&
+    shouldUsePreviewIdsOnly(group) &&
+    group.previewPropertyIds.length === 0
+  );
+}
+
 function mergeHydratedPreviewProperty(
   currentProperty: GroupPreviewProperty,
   selectedProperty: NonNullable<ReturnType<typeof useProperty>['data']>,
@@ -872,6 +892,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
       if (!group) return false;
 
       if (group.groupKind === 'cluster') {
+        if (shouldResolvePyramidClusterOnServer(group)) {
+          return false;
+        }
+
         const previewOnly = shouldUsePreviewIdsOnly(group);
         const previewPropertyIds = group.previewPropertyIds.length > 0 || previewOnly
           ? group.previewPropertyIds

@@ -12,6 +12,10 @@ import {
   lngLatToWorldUnits,
   resolveNearbyGroupedFeature,
 } from '../services/property-grouping.js';
+import {
+  getDefaultPropertyTilePyramidSlot,
+  getPropertyTilePyramidMaxZoom,
+} from '../services/property-tile-pyramid.js';
 
 const SEEDED_GHOST_CLUSTER_FIXTURE = {
   lon: 5.47123505671892,
@@ -21,12 +25,12 @@ const SEEDED_GHOST_CLUSTER_FIXTURE = {
 
 async function withHermeticNearbyActiveCluster(
   run: (fixture: { lon: number; lat: number; propertyIds: string[] }) => Promise<void>,
+  coordinates: { lon: number; lat: number } = { lon: -29.812345, lat: 0.123456 },
 ) {
   const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
   const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
   const viewIds = [crypto.randomUUID(), crypto.randomUUID()];
-  const lon = -29.812345;
-  const lat = 0.123456;
+  const { lon, lat } = coordinates;
 
   await db.execute(sql`
     INSERT INTO properties (
@@ -209,6 +213,170 @@ async function withHermeticNearbyListingOnlyProperty(
     await run({ lon, lat, propertyId });
   } finally {
     await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+  }
+}
+
+async function withHermeticCurrentPyramidNode(
+  run: (fixture: {
+    lon: number;
+    lat: number;
+    nodeId: string;
+    versionId: string;
+    propertyIds: string[];
+  }) => Promise<void>,
+) {
+  const slot = getDefaultPropertyTilePyramidSlot();
+  const versionId = crypto.randomUUID();
+  const nodeId = `nearby-fractional-${versionId}`;
+  const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
+  const lon = 5.812845;
+  const lat = 52.123956;
+  const tile = tileForCoordinate(lon, lat, getPropertyTilePyramidMaxZoom());
+  const previousRows = await db.execute<{
+    current_version_id: string;
+    previous_version_id: string | null;
+    current_promoted_at: Date;
+    promotion_reason: string | null;
+  }>(sql`
+    SELECT current_version_id::text, previous_version_id::text, current_promoted_at, promotion_reason
+    FROM property_tile_pyramid_current
+    WHERE coverage_id = ${slot.coverageId}
+      AND filter_signature = ${slot.filterSignature}
+      AND max_zoom = ${slot.maxZoom}
+      AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+  `);
+  const previousCurrent = Array.from(previousRows)[0] ?? null;
+
+  await db.execute(sql`
+    INSERT INTO property_tile_pyramid_versions (
+      id,
+      coverage_id,
+      filter_signature,
+      max_zoom,
+      pyramid_kind,
+      config_hash,
+      build_inputs_hash,
+      source_watermark_hash,
+      status,
+      promoted_at
+    )
+    VALUES (
+      ${versionId},
+      ${slot.coverageId},
+      ${slot.filterSignature},
+      ${slot.maxZoom},
+      ${slot.pyramidKind}::property_tile_pyramid_kind,
+      ${`nearby-fractional-config-${versionId}`},
+      ${`nearby-fractional-inputs-${versionId}`},
+      ${`nearby-fractional-watermark-${versionId}`},
+      'promoted',
+      NOW()
+    )
+  `);
+
+  await db.execute(sql`
+    INSERT INTO property_tile_pyramid_nodes (
+      version_id,
+      node_id,
+      z,
+      x,
+      y,
+      render_lon,
+      render_lat,
+      render_geometry,
+      anchor_world_x,
+      anchor_world_y,
+      node_class,
+      group_kind,
+      point_count,
+      preview_property_ids,
+      preview_count,
+      bbox_west,
+      bbox_south,
+      bbox_east,
+      bbox_north
+    )
+    VALUES (
+      ${versionId},
+      ${nodeId},
+      ${tile.z},
+      ${tile.x},
+      ${tile.y},
+      ${lon},
+      ${lat},
+      ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+      0,
+      0,
+      'ghost',
+      'cluster',
+      ${propertyIds.length},
+      ARRAY[${propertyIds[0]}::uuid, ${propertyIds[1]}::uuid],
+      ${propertyIds.length},
+      ${lon - 0.0001},
+      ${lat - 0.0001},
+      ${lon + 0.0001},
+      ${lat + 0.0001}
+    )
+  `);
+
+  await db.execute(sql`
+    INSERT INTO property_tile_pyramid_current (
+      coverage_id,
+      filter_signature,
+      max_zoom,
+      pyramid_kind,
+      current_version_id,
+      previous_version_id,
+      current_promoted_at,
+      promotion_reason
+    )
+    VALUES (
+      ${slot.coverageId},
+      ${slot.filterSignature},
+      ${slot.maxZoom},
+      ${slot.pyramidKind}::property_tile_pyramid_kind,
+      ${versionId},
+      ${previousCurrent?.current_version_id ?? null},
+      NOW(),
+      'nearby fractional zoom test'
+    )
+    ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
+    DO UPDATE SET
+      current_version_id = EXCLUDED.current_version_id,
+      previous_version_id = EXCLUDED.previous_version_id,
+      current_promoted_at = EXCLUDED.current_promoted_at,
+      promotion_reason = EXCLUDED.promotion_reason,
+      updated_at = NOW()
+  `);
+
+  try {
+    await run({ lon, lat, nodeId, versionId, propertyIds });
+  } finally {
+    if (previousCurrent) {
+      await db.execute(sql`
+        UPDATE property_tile_pyramid_current
+        SET
+          current_version_id = ${previousCurrent.current_version_id},
+          previous_version_id = ${previousCurrent.previous_version_id},
+          current_promoted_at = ${previousCurrent.current_promoted_at},
+          promotion_reason = ${previousCurrent.promotion_reason},
+          updated_at = NOW()
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      `);
+    } else {
+      await db.execute(sql`
+        DELETE FROM property_tile_pyramid_current
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      `);
+    }
+
+    await db.execute(sql`DELETE FROM property_tile_pyramid_versions WHERE id = ${versionId}`);
   }
 }
 
@@ -463,11 +631,47 @@ describe('GET /properties/nearby', () => {
   });
 
   describe('grouped nearby fallback', () => {
+    it('returns a pyramid null contract instead of dynamic grouping for default covered low-zoom nearby', async () => {
+      await withHermeticNearbyActiveCluster(
+        async ({ lon, lat }) => {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10`,
+          });
+
+          expect(response.statusCode).toBe(200);
+          expect(JSON.parse(response.body)).toBeNull();
+          expect(response.headers['x-huishype-nearby-status']).toMatch(/^pyramid-/);
+        },
+        { lon: 5.812345, lat: 52.123456 },
+      );
+    });
+
+    it('uses the integer pyramid serving zoom for fractional default low-zoom nearby', async () => {
+      await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId, propertyIds }) => {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10.75`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-promoted');
+        expect(response.headers['x-huishype-pyramid-version']).toBe(versionId);
+
+        const body = JSON.parse(response.body);
+        expect(body).not.toBeNull();
+        expect(body.pyramidNodeId).toBe(nodeId);
+        expect(body.pyramidVersionId).toBe(versionId);
+        expect(body.groupKind).toBe('cluster');
+        expect(body.previewPropertyIds).toEqual(propertyIds);
+      });
+    });
+
     it('should return a grouped feature in a populated area', async () => {
       await withHermeticNearbyActiveCluster(async ({ lon, lat, propertyIds }) => {
         const response = await app.inject({
           method: 'GET',
-          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10`,
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10&marketState=for-sale`,
         });
 
         expect(response.statusCode).toBe(200);
@@ -824,7 +1028,7 @@ describe('GET /properties/nearby', () => {
       await withHermeticNearbyActiveCluster(async ({ lon, lat, propertyIds }) => {
         const response = await app.inject({
           method: 'GET',
-          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10`,
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10&marketState=for-sale`,
         });
 
         expect(response.statusCode).toBe(200);

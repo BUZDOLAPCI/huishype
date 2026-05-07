@@ -67,6 +67,7 @@ export interface PropertyTilePyramidModule {
     queueJobId?: string;
     reason?: string;
   }>;
+  runPropertyTilePyramidRetention(): Promise<Record<string, unknown>>;
 }
 
 export interface OfficialValuationQueueModule {

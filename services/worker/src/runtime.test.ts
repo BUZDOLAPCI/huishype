@@ -6,6 +6,7 @@ import { loadWorkerConfig } from './config.js';
 type RecoverySweepResult = {
   propertyTilePyramidBuildRequested: boolean;
   propertyTilePyramidBuildStatus: string | null;
+  propertyTilePyramidRetentionStatus: string | null;
   candidateHandoffIds: string[];
   candidateHandoffDispatchedIds: string[];
   candidateHandoffFailedDispatchIds: string[];
@@ -119,6 +120,7 @@ function createModuleLoaders(
     loadPropertyTilePyramidModule: async () => ({
       executeDuePropertyTilePyramidBuild: async () => ({ status: 'noop' }),
       requestPropertyTilePyramidBuild: async () => ({ status: 'coalesced' }),
+      runPropertyTilePyramidRetention: async () => ({ status: 'completed', deletedVersions: 0 }),
     }),
     ...overrides,
   };
@@ -139,6 +141,7 @@ test('recovery sweep requests a property tile pyramid build through durable coal
       loadPropertyTilePyramidModule: async () => ({
         executeDuePropertyTilePyramidBuild: async () => ({ status: 'noop' }),
         requestPropertyTilePyramidBuild: requestBuild,
+        runPropertyTilePyramidRetention: async () => ({ status: 'completed', deletedVersions: 0 }),
       }),
     }),
   ) as unknown as RuntimeInternals;
@@ -163,6 +166,7 @@ test('recovery sweep reports unavailable pyramid schema without dispatching snap
       loadPropertyTilePyramidModule: async () => ({
         executeDuePropertyTilePyramidBuild: async () => ({ status: 'noop' }),
         requestPropertyTilePyramidBuild: requestBuild,
+        runPropertyTilePyramidRetention: async () => ({ status: 'completed', deletedVersions: 0 }),
       }),
     }),
   ) as unknown as RuntimeInternals;
@@ -172,6 +176,27 @@ test('recovery sweep reports unavailable pyramid schema without dispatching snap
   assert.equal(summary.propertyTilePyramidBuildRequested, false);
   assert.equal(summary.propertyTilePyramidBuildStatus, 'unavailable');
   assert.deepEqual(requestBuildCalls, [{ reason: 'worker-recovery' }]);
+});
+
+test('recovery sweep runs property tile pyramid retention', async () => {
+  const retentionCalls: string[] = [];
+  const runtime = createRuntime(
+    createModuleLoaders({
+      loadPropertyTilePyramidModule: async () => ({
+        executeDuePropertyTilePyramidBuild: async () => ({ status: 'noop' }),
+        requestPropertyTilePyramidBuild: async () => ({ status: 'coalesced' }),
+        runPropertyTilePyramidRetention: async () => {
+          retentionCalls.push('run');
+          return { status: 'completed', deletedVersions: 2 };
+        },
+      }),
+    }),
+  ) as unknown as RuntimeInternals;
+
+  const summary = await runtime.performRecoverySweep('unit');
+
+  assert.deepEqual(retentionCalls, ['run']);
+  assert.equal(summary.propertyTilePyramidRetentionStatus, 'completed');
 });
 
 test('recovery sweep dispatches due candidate handoffs', async () => {
@@ -245,6 +270,7 @@ test('property tile pyramid worker job delegates to durable pyramid build lease'
       loadPropertyTilePyramidModule: async () => ({
         executeDuePropertyTilePyramidBuild: executeBuild,
         requestPropertyTilePyramidBuild: async () => ({ status: 'coalesced' }),
+        runPropertyTilePyramidRetention: async () => ({ status: 'completed', deletedVersions: 0 }),
       }),
     }),
   ) as unknown as RuntimeInternals;
