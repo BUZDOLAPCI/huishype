@@ -2365,49 +2365,49 @@ async function insertPropertyTilePyramidNodes(input: {
     const bbox = group.bbox;
     return sql`(
       ${input.versionId}::uuid,
-      ${buildPyramidNodeId({ ...input, ordinal: index, group })},
-      ${input.z},
-      ${input.x},
-      ${input.y},
-      ${group.coordinate[0]},
-      ${group.coordinate[1]},
+      ${buildPyramidNodeId({ ...input, ordinal: index, group })}::text,
+      ${input.z}::int,
+      ${input.x}::int,
+      ${input.y}::int,
+      ${group.coordinate[0]}::double precision,
+      ${group.coordinate[1]}::double precision,
       ST_SetSRID(ST_MakePoint(${group.coordinate[0]}, ${group.coordinate[1]}), 4326),
-      ${group.anchorWorldX},
-      ${group.anchorWorldY},
+      ${group.anchorWorldX}::double precision,
+      ${group.anchorWorldY}::double precision,
       ${group.nodeClass}::property_tile_pyramid_node_class,
       ${group.groupKind}::property_tile_pyramid_group_kind,
-      ${group.pointCount},
+      ${group.pointCount}::int,
       ${group.primaryPropertyId}::uuid,
       ${uuidArraySql(group.previewPropertyIds)},
-      ${group.previewPropertyIds.length},
+      ${group.previewPropertyIds.length}::int,
       ${jsonSql({
         primaryPropertyId: group.primaryPropertyId,
         pointCount: group.pointCount,
         propertyIdsOmitted: group.groupKind === 'cluster',
       })},
       ${jsonSql([])},
-      ${bbox?.[0] ?? null},
-      ${bbox?.[1] ?? null},
-      ${bbox?.[2] ?? null},
-      ${bbox?.[3] ?? null},
-      ${group.activeListingCount},
-      ${group.completedListingCount},
-      ${group.socialCount},
-      ${group.recentSocialCount},
-      ${group.socialScoreTotal},
-      ${group.socialScoreMax},
-      ${group.recentSocialScoreTotal},
-      ${group.commentCount},
-      ${group.groupKind === 'single' ? group.address : null},
-      ${group.groupKind === 'single' ? group.city : null},
-      ${group.groupKind === 'single' ? group.askingPrice : null},
-      ${group.groupKind === 'single' ? group.thumbnailUrl : null},
-      ${group.groupKind === 'single' ? group.hasActiveListing : null},
-      ${group.groupKind === 'single' ? group.marketState : null},
+      ${bbox?.[0] ?? null}::double precision,
+      ${bbox?.[1] ?? null}::double precision,
+      ${bbox?.[2] ?? null}::double precision,
+      ${bbox?.[3] ?? null}::double precision,
+      ${group.activeListingCount}::int,
+      ${group.completedListingCount}::int,
+      ${group.socialCount}::int,
+      ${group.recentSocialCount}::int,
+      ${group.socialScoreTotal}::real,
+      ${group.socialScoreMax}::real,
+      ${group.recentSocialScoreTotal}::real,
+      ${group.commentCount}::int,
+      ${group.groupKind === 'single' ? group.address : null}::text,
+      ${group.groupKind === 'single' ? group.city : null}::text,
+      ${group.groupKind === 'single' ? group.askingPrice : null}::bigint,
+      ${group.groupKind === 'single' ? group.thumbnailUrl : null}::text,
+      ${group.groupKind === 'single' ? group.hasActiveListing : null}::boolean,
+      ${group.groupKind === 'single' ? group.marketState : null}::varchar(20),
       ${group.groupKind === 'cluster'
         ? PROPERTY_TILE_PYRAMID_CLUSTER_TAP_RADIUS_PX
-        : PROPERTY_TILE_PYRAMID_SINGLE_TAP_RADIUS_PX},
-      ${group.socialScoreMax}
+        : PROPERTY_TILE_PYRAMID_SINGLE_TAP_RADIUS_PX}::real,
+      ${group.socialScoreMax}::real
     )`;
   });
 
@@ -2882,7 +2882,7 @@ export async function executeDuePropertyTilePyramidBuild(options: {
         lock_gate.backfill_lock_required,
         lock_gate.backfill_lock_acquired
       FROM updated
-      JOIN lock_gate ON lock_gate.id = updated.id
+      JOIN lock_gate ON lock_gate.id::text = updated.id
     `);
     const row = Array.from(rows)[0];
     if (!row) {
