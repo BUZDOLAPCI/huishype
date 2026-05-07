@@ -77,6 +77,11 @@ tranche but still expected later. Keep it aligned with shipped code:
 
 ## Architecture Improvements
 
+### Materialized Property Tile Pyramid Rollout
+- **Status**: Deferred. Work exists on `dev/materialized-tile-pyramid-v0` to replace the old low-zoom snapshot path with a promoted materialized property tile pyramid.
+- **Current repo state**: The branch was not merged because testing exposed issues: worker SQL type mismatches needed fixes, local builds required a higher `PROPERTY_TILE_PYRAMID_MAX_MEMBER_ROWS` limit than the default, and low-zoom behavior needed closer parity review against `main` before rollout. The branch was pushed at commit `80d6852`.
+- **Deferred work**: Revisit the branch, decide whether the pyramid route should keep a dynamic fallback when no promoted pyramid exists, make worker resource limits durable, add regression coverage for the SQL fixes, and verify low-zoom cluster tap/read behavior before merging.
+
 ### Generated OpenAPI Runtime Client Adoption
 - **Status**: Partial. The OpenAPI pipeline exists and `packages/api-client/generated/api.ts` is generated from `services/api/openapi.json`, but the runtime client wrapper remains hand-authored.
 - **Deferred work**: Replace or reduce the manual request wrapper with a generated/runtime-assisted client if that starts paying for itself.
