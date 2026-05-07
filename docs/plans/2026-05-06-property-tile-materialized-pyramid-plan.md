@@ -551,8 +551,10 @@ App parser changes are part of this work:
 - Existing full-`propertyIds` preview fallback behavior is removed only for
   incomplete pyramid clusters. If `membershipComplete === false` or
   `readStateCoverage === 'partial'`, the app uses only `previewPropertyIds`;
-  when those are empty it treats the feature as non-previewable and uses
-  zoom/fly behavior or exact nearby lookup. Preserve fallback from
+  when those are empty it treats the feature as non-previewable and zooms/flies
+  into the cluster, using `bbox` when available and falling back to the cluster
+  coordinate. It must not silently no-op, open a partial preview, or use exact
+  nearby lookup as the primary interaction for this case. Preserve fallback from
   `previewPropertyIds` to complete `propertyIds` for singles and dynamic
   complete groups.
 - Tests cover comma-joined parsing, empty `property_ids`, capped previews, and
@@ -759,6 +761,9 @@ behavior, deferred TODO, or partial production state.
 - App cluster previews and native tap fallback do not use full `propertyIds` as
   a preview fallback for incomplete pyramid clusters, while preserving that
   fallback for singles and dynamic complete groups.
+- Incomplete pyramid clusters with empty `previewPropertyIds` trigger cluster
+  zoom/fly behavior using `bbox` when available and coordinate fallback
+  otherwise; they do not silently no-op or open a partial preview.
 - Read-state calculation does not treat capped preview IDs as complete cluster
   membership; pyramid clusters keep `isRead: false`,
   `membershipComplete: false`, and `readStateCoverage: 'partial'`.
@@ -802,8 +807,9 @@ behavior, deferred TODO, or partial production state.
   generated client type expectations, and native tap fallback behavior.
 - App tests cover comma-joined scalar parsing, missing/empty `property_ids`,
   capped `preview_property_ids`, removal of full-membership preview fallback
-  only for incomplete pyramid clusters, preservation of fallback for singles
-  and dynamic complete groups, and preview hydration. Decoded-MVT tests assert
+  only for incomplete pyramid clusters, zoom/fly behavior for incomplete
+  clusters with empty previews, preservation of fallback for singles and dynamic
+  complete groups, and preview hydration. Decoded-MVT tests assert
   `pyramid_version_id` and `pyramid_node_id` are string-valued.
 - Dynamic hardening tests create very large synthetic candidate/member arrays
   and verify bbox/max aggregation no longer throws `RangeError`. Route tests
