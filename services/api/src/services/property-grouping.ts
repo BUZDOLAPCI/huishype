@@ -211,6 +211,10 @@ type SharedCanonicalBuild = {
   uncancellableStage: boolean;
 };
 
+export type PropertyTileGroupingOptions = PropertyTileBuildOptions & {
+  clusterPropertyIdRetention?: 'complete' | 'preview-only';
+};
+
 const CANONICAL_GROUP_CACHE_TTL_MS = 30_000;
 const CANONICAL_GROUP_CACHE_MAX_ENTRIES = 1_024;
 const canonicalGroupCache = new Map<string, CanonicalGroupCacheEntry>();
@@ -726,7 +730,8 @@ function serializeBbox(candidates: readonly GroupingCandidate[]): SerializedBbox
 }
 
 function summarizeOrderedMembers(
-  orderedMembers: readonly GroupingCandidate[]
+  orderedMembers: readonly GroupingCandidate[],
+  propertyIdsLimit: number | null
 ): MemberAggregateSummary {
   const propertyIds: string[] = [];
   const previewPropertyIds: string[] = [];
@@ -740,7 +745,9 @@ function summarizeOrderedMembers(
   let commentCount = 0;
 
   for (const member of orderedMembers) {
-    propertyIds.push(member.id);
+    if (propertyIdsLimit == null || propertyIds.length < propertyIdsLimit) {
+      propertyIds.push(member.id);
+    }
     if (previewPropertyIds.length < PROPERTY_PREVIEW_MEMBER_LIMIT) {
       previewPropertyIds.push(member.id);
     }
@@ -940,19 +947,22 @@ function clusterCandidates(
   return groups;
 }
 
-function selectRepresentativeAnchor(members: GroupingCandidate[]): GroupingCandidate {
+function selectRepresentativeAnchor(members: readonly GroupingCandidate[]): GroupingCandidate {
   const centerX = members.reduce((sum, member) => sum + member.worldX, 0) / members.length;
   const centerY = members.reduce((sum, member) => sum + member.worldY, 0) / members.length;
-  const byPriority = [...members].sort(compareCandidatePriority);
-  const priorityRank = new Map(byPriority.map((member, index) => [member.id, index]));
+  let best = members[0];
+  let bestDistance = Math.hypot(best.worldX - centerX, best.worldY - centerY);
 
-  return [...members].sort((a, b) => {
-    const aDistance = Math.hypot(a.worldX - centerX, a.worldY - centerY);
-    const bDistance = Math.hypot(b.worldX - centerX, b.worldY - centerY);
-    const aScore = aDistance * 1000 + (priorityRank.get(a.id) ?? 0);
-    const bScore = bDistance * 1000 + (priorityRank.get(b.id) ?? 0);
-    return aScore - bScore || compareCandidatePriority(a, b);
-  })[0];
+  for (let index = 1; index < members.length; index += 1) {
+    const candidate = members[index];
+    const distance = Math.hypot(candidate.worldX - centerX, candidate.worldY - centerY);
+    if (distance < bestDistance || (distance === bestDistance && compareCandidatePriority(candidate, best) < 0)) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
 }
 
 function worldToOwnerTile(worldX: number, worldY: number, zoom: number): TileId {
@@ -1230,12 +1240,17 @@ async function fetchNearbyEmittedGroups(
 function buildCanonicalGroup(
   members: GroupingCandidate[],
   nodeClass: NodeClass,
-  zoom: number
+  zoom: number,
+  options?: PropertyTileGroupingOptions
 ): CanonicalPropertyGroup {
   const orderedMembers = [...members].sort(compareCandidatePriority);
   const anchor = selectRepresentativeAnchor(orderedMembers);
   const ownerTile = worldToOwnerTile(anchor.worldX, anchor.worldY, zoom);
-  const summary = summarizeOrderedMembers(orderedMembers);
+  const propertyIdsLimit =
+    options?.clusterPropertyIdRetention === 'preview-only' && members.length > 1
+      ? 0
+      : null;
+  const summary = summarizeOrderedMembers(orderedMembers, propertyIdsLimit);
   const primaryProperty = anchor;
 
   return {
@@ -2322,7 +2337,7 @@ async function filterReadGroupsWithTileOptions<TGroup extends { propertyIds: str
 function buildCanonicalGroupsFromCandidates(
   zoom: number,
   candidates: GroupingCandidate[],
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): CanonicalPropertyGroup[] {
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'canonical grouping preparation');
@@ -2349,7 +2364,7 @@ function buildCanonicalGroupsFromCandidates(
     },
     options,
     startedAt
-  ).map((members) => buildCanonicalGroup(members, 'active', zoom));
+  ).map((members) => buildCanonicalGroup(members, 'active', zoom, options));
 
   const activeOccupancies = activeGroups.map((group, index) => {
     if (index % 128 === 0) {
@@ -2392,7 +2407,7 @@ function buildCanonicalGroupsFromCandidates(
     },
     options,
     startedAt
-  ).map((members) => buildCanonicalGroup(members, 'ghost', zoom));
+  ).map((members) => buildCanonicalGroup(members, 'ghost', zoom, options));
 
   return [...activeGroups, ...ghostGroups];
 }
@@ -2400,7 +2415,7 @@ function buildCanonicalGroupsFromCandidates(
 export function groupCandidatesForTile(
   tile: TileId,
   candidates: GroupingCandidate[],
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): CanonicalPropertyGroup[] {
   const startedAt = Date.now();
   return buildCanonicalGroupsFromCandidates(tile.z, candidates, options).filter((group, index) => {
@@ -2414,7 +2429,7 @@ export function groupCandidatesForTile(
 async function buildUnhydratedCanonicalGroupsForTile(
   tile: TileId,
   filters: MapFilters,
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): Promise<CanonicalPropertyGroup[]> {
   const candidates = await timeTileStage(
     options,
@@ -2529,7 +2544,7 @@ export async function buildCanonicalGroupsForTile(
 export async function buildCanonicalGroupsForTileUncached(
   tile: TileId,
   filters: MapFilters = createDefaultMapFilters(),
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): Promise<CanonicalPropertyGroup[]> {
   const unhydratedGroups = await timeTileStage(
     options,

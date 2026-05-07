@@ -413,6 +413,7 @@ async function main() {
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
+    PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM || '10',
     API_URL: apiUrl,
     EXPO_PUBLIC_API_URL: apiUrl,
     PLAYWRIGHT_API_PORT: String(apiPort),
@@ -467,6 +468,23 @@ async function main() {
 
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
+
+  console.log('Ensuring Playwright property tile pyramid fixture ...');
+  execFileSync(
+    process.execPath,
+    [
+      '--require',
+      tsxPreflight,
+      '--import',
+      tsxLoader,
+      'scripts/ensure-playwright-property-tile-pyramid.ts',
+    ],
+    {
+      cwd: apiCwd,
+      env: childEnv,
+      stdio: 'inherit',
+    },
+  );
 
   console.log(`Starting API server on ${apiUrl} ...`);
   const apiRuntime = await startServiceWithRetry({

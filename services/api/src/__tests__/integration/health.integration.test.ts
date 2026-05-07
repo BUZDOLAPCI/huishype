@@ -1,26 +1,64 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import { buildApp } from '../../app.js';
+import { db } from '../../db/index.js';
+import { getDefaultPropertyTilePyramidSlot } from '../../services/property-tile-pyramid.js';
 import type { FastifyInstance } from 'fastify';
+
+type SavedCurrentPointer = {
+  coverage_id: string;
+  filter_signature: string;
+  max_zoom: number;
+  pyramid_kind: string;
+  current_version_id: string;
+  previous_version_id: string | null;
+  current_promoted_at: string;
+  promotion_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function lonLatToTile(lon: number, lat: number, zoom: number): { x: number; y: number } {
+  const scale = 2 ** zoom;
+  const x = Math.floor(((lon + 180) / 360) * scale);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * scale
+  );
+  return { x, y };
+}
 
 describe('GET /health', () => {
   let app: FastifyInstance | undefined;
+  let fixtureVersionId: string | undefined;
+  let savedCurrentPointer: SavedCurrentPointer | undefined;
+  let restoredTerminalFailureVersionIds: string[] = [];
 
   beforeAll(async () => {
+    await installPromotedPyramidFixture();
     app = await buildApp({ logger: false });
   });
 
   afterAll(async () => {
+    await restorePromotedPyramidFixture();
     if (app) {
       await app.close();
     }
   });
 
-  it('should return 200', async () => {
+  it('should pass required readiness only with a promoted property tile pyramid', async () => {
     const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });
+    const body = JSON.parse(response.body);
+
     expect(response.statusCode).toBe(200);
+    expect(body.status).toBe('ok');
+    expect(body.propertyTilePyramid.status).toBe('ok');
+    expect(body.propertyTilePyramid.currentVersionId).toEqual(expect.any(String));
+    expect(body.propertyTilePyramid.degradedReason).toBeNull();
   });
 
   it('should mirror property tile pyramid readiness in the canonical health status', async () => {
@@ -31,11 +69,23 @@ describe('GET /health', () => {
     const body = JSON.parse(response.body);
     expect(body.status).toBe(body.propertyTilePyramid.status);
 
-    if (body.status === 'ok') {
-      expect(body.propertyTilePyramid.currentVersionId).toEqual(expect.any(String));
-      expect(body.propertyTilePyramid.degradedReason).toBeNull();
-      expect(body.propertyTilePyramid.terminalFailureCount).toBe(0);
-    } else {
+    expect(response.statusCode).toBe(200);
+    expect(body.status).toBe('ok');
+    expect(body.propertyTilePyramid.currentVersionId).toEqual(expect.any(String));
+    expect(body.propertyTilePyramid.degradedReason).toBeNull();
+    expect(body.propertyTilePyramid.terminalFailureCount).toBe(0);
+  });
+
+  it('should expose an explicit non-gating degraded mode', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/health?allowDegraded=true',
+    });
+    const body = JSON.parse(response.body);
+
+    expect(response.statusCode).toBe(200);
+    expect(['ok', 'degraded']).toContain(body.status);
+    if (body.status === 'degraded') {
       expect(body.propertyTilePyramid.status).toBe('degraded');
       expect(
         body.propertyTilePyramid.degradedReason ||
@@ -86,4 +136,197 @@ describe('GET /health', () => {
     const body = JSON.parse(response.body);
     expect(body.uptime).toBeGreaterThan(0);
   });
+
+  async function installPromotedPyramidFixture(): Promise<void> {
+    const slot = getDefaultPropertyTilePyramidSlot();
+    fixtureVersionId = randomUUID();
+    const unique = randomUUID();
+    const fixtureCenter = { lon: 5.4697, lat: 51.4416 };
+    const fixtureTile = lonLatToTile(fixtureCenter.lon, fixtureCenter.lat, slot.maxZoom);
+    const coverageSnapshot = {
+      bounds: {
+        minLon: fixtureCenter.lon - 0.00001,
+        minLat: fixtureCenter.lat - 0.00001,
+        maxLon: fixtureCenter.lon + 0.00001,
+        maxLat: fixtureCenter.lat + 0.00001,
+      },
+      minZoom: slot.maxZoom,
+      maxZoom: slot.maxZoom,
+    };
+
+    const [currentPointer] = Array.from(
+      await db.execute<SavedCurrentPointer>(sql`
+        SELECT
+          coverage_id,
+          filter_signature,
+          max_zoom,
+          pyramid_kind::text AS pyramid_kind,
+          current_version_id::text AS current_version_id,
+          previous_version_id::text AS previous_version_id,
+          current_promoted_at::text AS current_promoted_at,
+          promotion_reason,
+          created_at::text AS created_at,
+          updated_at::text AS updated_at
+        FROM property_tile_pyramid_current
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+        LIMIT 1
+      `)
+    );
+    savedCurrentPointer = currentPointer;
+
+    restoredTerminalFailureVersionIds = Array.from(
+      await db.execute<{ id: string }>(sql`
+        SELECT id::text AS id
+        FROM property_tile_pyramid_versions
+        WHERE status = 'failed_terminal'
+      `)
+    ).map((row) => row.id);
+
+    if (restoredTerminalFailureVersionIds.length > 0) {
+      await db.execute(sql`
+        UPDATE property_tile_pyramid_versions
+        SET status = 'superseded', updated_at = now()
+        WHERE id = ANY(${restoredTerminalFailureVersionIds}::uuid[])
+      `);
+    }
+
+    await db.execute(sql`
+      INSERT INTO property_tile_pyramid_versions (
+        id,
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        config_hash,
+        build_inputs_hash,
+        source_watermark_hash,
+        coverage_snapshot_json,
+        status,
+        expected_tile_count,
+        validated_tile_count,
+        validation_summary,
+        validated_at
+      )
+      VALUES (
+        ${fixtureVersionId}::uuid,
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.maxZoom},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
+        ${`health-config-${unique}`},
+        ${`health-inputs-${unique}`},
+        ${`health-watermarks-${unique}`},
+        ${JSON.stringify(coverageSnapshot)}::jsonb,
+        'validated',
+        1,
+        1,
+        ${JSON.stringify({ expectedTileCount: 1, observedTileCount: 1 })}::jsonb,
+        now()
+      )
+    `);
+
+    await db.execute(sql`
+      INSERT INTO property_tile_pyramid_tiles (
+        version_id,
+        z,
+        x,
+        y,
+        tile_status,
+        validation_status,
+        node_count,
+        etag,
+        validated_at
+      )
+      VALUES (
+        ${fixtureVersionId}::uuid,
+        ${slot.maxZoom},
+        ${fixtureTile.x},
+        ${fixtureTile.y},
+        'valid_empty',
+        'validated',
+        0,
+        ${`health-${unique}`},
+        now()
+      )
+    `);
+
+    await db.execute(sql`
+      SELECT promote_property_tile_pyramid_version(
+        ${fixtureVersionId}::uuid,
+        ${savedCurrentPointer?.current_version_id ?? null}::uuid,
+        'health integration fixture',
+        'health.integration.test'
+      )
+    `);
+  }
+
+  async function restorePromotedPyramidFixture(): Promise<void> {
+    if (!fixtureVersionId) {
+      return;
+    }
+
+    const slot = getDefaultPropertyTilePyramidSlot();
+
+    if (savedCurrentPointer) {
+      await db.execute(sql`
+        UPDATE property_tile_pyramid_current
+        SET
+          current_version_id = ${savedCurrentPointer.current_version_id}::uuid,
+          previous_version_id = ${fixtureVersionId}::uuid,
+          current_promoted_at = ${savedCurrentPointer.current_promoted_at}::timestamptz,
+          promotion_reason = ${savedCurrentPointer.promotion_reason},
+          created_at = ${savedCurrentPointer.created_at}::timestamptz,
+          updated_at = now()
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      `);
+
+      await db.execute(sql`
+        UPDATE property_tile_pyramid_current
+        SET
+          previous_version_id = ${savedCurrentPointer.previous_version_id}::uuid,
+          updated_at = ${savedCurrentPointer.updated_at}::timestamptz
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      `);
+    } else {
+      await db.execute(sql`
+        DELETE FROM property_tile_pyramid_current
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          AND current_version_id = ${fixtureVersionId}::uuid
+      `);
+    }
+
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_audit
+      WHERE version_id = ${fixtureVersionId}::uuid
+        AND actor = 'health.integration.test'
+    `);
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_tiles
+      WHERE version_id = ${fixtureVersionId}::uuid
+    `);
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_versions
+      WHERE id = ${fixtureVersionId}::uuid
+    `);
+
+    if (restoredTerminalFailureVersionIds.length > 0) {
+      await db.execute(sql`
+        UPDATE property_tile_pyramid_versions
+        SET status = 'failed_terminal', updated_at = now()
+        WHERE id = ANY(${restoredTerminalFailureVersionIds}::uuid[])
+      `);
+    }
+  }
 });

@@ -37,6 +37,23 @@ BEGIN
     END IF;
 
     IF OLD."status" IS DISTINCT FROM 'promoted' AND NEW."status" = 'promoted' THEN
+      IF current_setting('huishype.property_tile_pyramid_promotion_version_id', true) IS DISTINCT FROM NEW."id"::text THEN
+        RAISE EXCEPTION 'direct promoted property tile pyramid version updates are not allowed; use promote_property_tile_pyramid_version';
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM "property_tile_pyramid_current" c
+        WHERE c."coverage_id" = NEW."coverage_id"
+          AND c."filter_signature" = NEW."filter_signature"
+          AND c."max_zoom" = NEW."max_zoom"
+          AND c."pyramid_kind" = NEW."pyramid_kind"
+          AND c."current_version_id" = NEW."id"
+      ) THEN
+        RAISE EXCEPTION 'promoted property tile pyramid version % must already be referenced by current pointer',
+          NEW."id";
+      END IF;
+
       PERFORM property_tile_pyramid_assert_promotable(
         NEW."id",
         NEW."expected_tile_count",

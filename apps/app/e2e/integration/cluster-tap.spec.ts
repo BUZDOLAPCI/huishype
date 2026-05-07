@@ -14,6 +14,13 @@ const API_BASE_URL = getPlaywrightApiUrl();
 
 // Eindhoven center for tile coordinate calculations
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
+const LOW_ZOOM_CLUSTER_TARGETS: Array<{ name: string; center: [number, number] }> = [
+  { name: 'Eindhoven', center: EINDHOVEN_CENTER },
+  { name: 'Amsterdam', center: [4.9041, 52.3676] },
+  { name: 'Rotterdam', center: [4.4777, 51.9244] },
+  { name: 'Utrecht', center: [5.1214, 52.0907] },
+  { name: 'The Hague', center: [4.3007, 52.0705] },
+];
 
 type PropertyListItem = {
   id: string;
@@ -30,8 +37,7 @@ function lonLatToTile(lon: number, lat: number, zoom: number): { x: number; y: n
   const x = Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
   const latRad = (lat * Math.PI) / 180;
   const y = Math.floor(
-    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
-      Math.pow(2, zoom)
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, zoom)
   );
   return { x, y };
 }
@@ -43,15 +49,13 @@ test.describe('Cluster Tap - API Integration', () => {
     expect(listResp.ok()).toBe(true);
 
     const listData = await listResp.json();
-    if (listData.data.length === 0) {
-      console.log('No Eindhoven properties found, skipping batch test');
-      return;
-    }
+    expect(
+      listData.data.length,
+      'Expected seeded Eindhoven properties for batch test'
+    ).toBeGreaterThan(0);
 
     const ids = listData.data.map((p: PropertyListItem) => p.id);
-    const batchResp = await request.get(
-      `${API_BASE_URL}/properties/batch?ids=${ids.join(',')}`
-    );
+    const batchResp = await request.get(`${API_BASE_URL}/properties/batch?ids=${ids.join(',')}`);
 
     expect(batchResp.ok()).toBe(true);
 
@@ -78,17 +82,15 @@ test.describe('Cluster Tap - API Integration', () => {
     expect(listResp.ok()).toBe(true);
 
     const listData = await listResp.json();
-    if (listData.data.length < 2) {
-      console.log('Not enough properties for order test');
-      return;
-    }
+    expect(
+      listData.data.length,
+      'Expected at least two seeded Eindhoven properties'
+    ).toBeGreaterThanOrEqual(2);
 
     const ids = listData.data.map((p: PropertyListItem) => p.id);
 
     // Request in original order
-    const resp1 = await request.get(
-      `${API_BASE_URL}/properties/batch?ids=${ids.join(',')}`
-    );
+    const resp1 = await request.get(`${API_BASE_URL}/properties/batch?ids=${ids.join(',')}`);
     const data1 = await resp1.json();
 
     // Request in reversed order
@@ -117,9 +119,7 @@ test.describe('Cluster Tap - API Integration', () => {
       (_, i) => `a0000000-0000-4000-a000-${String(i).padStart(12, '0')}`
     );
 
-    const resp = await request.get(
-      `${API_BASE_URL}/properties/batch?ids=${fakeIds.join(',')}`
-    );
+    const resp = await request.get(`${API_BASE_URL}/properties/batch?ids=${fakeIds.join(',')}`);
 
     // Should return 400 for exceeding max
     expect(resp.status()).toBe(400);
@@ -127,9 +127,7 @@ test.describe('Cluster Tap - API Integration', () => {
 
   test('batch endpoint handles non-existent IDs gracefully', async ({ request }) => {
     const fakeId = 'a0000000-0000-4000-a000-000000000099';
-    const resp = await request.get(
-      `${API_BASE_URL}/properties/batch?ids=${fakeId}`
-    );
+    const resp = await request.get(`${API_BASE_URL}/properties/batch?ids=${fakeId}`);
 
     expect(resp.ok()).toBe(true);
     const data = await resp.json();
@@ -139,9 +137,7 @@ test.describe('Cluster Tap - API Integration', () => {
   });
 
   test('batch endpoint rejects invalid UUID format', async ({ request }) => {
-    const resp = await request.get(
-      `${API_BASE_URL}/properties/batch?ids=not-a-uuid,also-invalid`
-    );
+    const resp = await request.get(`${API_BASE_URL}/properties/batch?ids=not-a-uuid,also-invalid`);
 
     // Should return 400 for invalid UUIDs
     expect(resp.status()).toBe(400);
@@ -167,9 +163,7 @@ test.describe('Cluster Tap - API Integration', () => {
 
     let foundTile = false;
     for (const [z, tx, ty] of tilesToTry) {
-      const resp = await request.get(
-        `${API_BASE_URL}/tiles/properties/${z}/${tx}/${ty}.pbf`
-      );
+      const resp = await request.get(`${API_BASE_URL}/tiles/properties/${z}/${tx}/${ty}.pbf`);
       if (resp.status() === 200) {
         const body = await resp.body();
         expect(body.length).toBeGreaterThan(0);
@@ -182,40 +176,80 @@ test.describe('Cluster Tap - API Integration', () => {
     expect(foundTile).toBe(true);
   });
 
-  test('nearby cluster response includes bbox', async ({ request }) => {
-    const resp = await request.get(
-      `${API_BASE_URL}/properties/nearby?lon=${EINDHOVEN_CENTER[0]}&lat=${EINDHOVEN_CENTER[1]}&zoom=13`
+  test('low-zoom public tiles are served from the promoted pyramid', async ({ request }) => {
+    const healthResp = await request.get(`${API_BASE_URL}/health`);
+    expect(healthResp.ok()).toBe(true);
+
+    const health = await healthResp.json();
+    expect(health).toMatchObject({
+      status: 'ok',
+      propertyTilePyramid: {
+        status: 'ok',
+        currentVersionId: expect.any(String),
+        degradedReason: null,
+      },
+    });
+
+    const tileResults = [];
+    for (const target of LOW_ZOOM_CLUSTER_TARGETS) {
+      const tile = lonLatToTile(target.center[0], target.center[1], 10);
+      const resp = await request.get(`${API_BASE_URL}/tiles/properties/10/${tile.x}/${tile.y}.pbf`);
+      tileResults.push({
+        target: target.name,
+        status: resp.status(),
+        xTileCache: resp.headers()['x-tile-cache'] ?? null,
+        tileStatus: resp.headers()['x-huishype-tile-status'] ?? null,
+        pyramidVersion: resp.headers()['x-huishype-pyramid-version'] ?? null,
+        bytes: (await resp.body()).length,
+      });
+    }
+
+    expect(tileResults, `Low-zoom tile results: ${JSON.stringify(tileResults)}`).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          xTileCache: 'precomputed',
+          pyramidVersion: health.propertyTilePyramid.currentVersionId,
+        }),
+      ])
     );
 
-    if (resp.ok()) {
-      const data = await resp.json();
-      if (data && data.groupKind === 'cluster') {
-        expect(data).toHaveProperty('bbox');
-        expect(data.bbox).toHaveLength(4);
-        const [west, south, east, north] = data.bbox;
-        expect(west).toBeLessThanOrEqual(east);
-        expect(south).toBeLessThanOrEqual(north);
-        // Verify bbox values are reasonable coordinates (WGS84 ranges)
-        expect(west).toBeGreaterThanOrEqual(-180);
-        expect(east).toBeLessThanOrEqual(180);
-        expect(south).toBeGreaterThanOrEqual(-90);
-        expect(north).toBeLessThanOrEqual(90);
-        console.log(`Cluster bbox: [${west}, ${south}, ${east}, ${north}]`);
-      } else if (data && data.groupKind === 'single') {
-        console.log('Nearby returned a single result, not a cluster — bbox test not applicable');
+    for (const result of tileResults) {
+      expect([200, 204]).toContain(result.status);
+      expect(result.xTileCache).toBe('precomputed');
+      expect(result.tileStatus).toMatch(/^pyramid-(promoted|empty)$/);
+      expect(result.pyramidVersion).toBe(health.propertyTilePyramid.currentVersionId);
+      if (result.status === 200) {
+        expect(result.bytes).toBeGreaterThan(0);
       }
-    } else {
-      console.log(`Nearby endpoint returned ${resp.status()} — may not have data in area`);
     }
+  });
+
+  test('nearby cluster response includes bbox', async ({ request }) => {
+    const resp = await request.get(
+      `${API_BASE_URL}/properties/nearby?lon=${EINDHOVEN_CENTER[0]}&lat=${EINDHOVEN_CENTER[1]}&zoom=10`
+    );
+
+    expect(resp.ok()).toBe(true);
+    const data = await resp.json();
+    expect(data?.groupKind, `Nearby response: ${JSON.stringify(data)}`).toBe('cluster');
+    expect(data).toHaveProperty('bbox');
+    expect(data.bbox).toHaveLength(4);
+    const [west, south, east, north] = data.bbox;
+    expect(west).toBeLessThanOrEqual(east);
+    expect(south).toBeLessThanOrEqual(north);
+    // Verify bbox values are reasonable coordinates (WGS84 ranges)
+    expect(west).toBeGreaterThanOrEqual(-180);
+    expect(east).toBeLessThanOrEqual(180);
+    expect(south).toBeGreaterThanOrEqual(-90);
+    expect(north).toBeLessThanOrEqual(90);
+    console.log(`Cluster bbox: [${west}, ${south}, ${east}, ${north}]`);
   });
 
   test('tiles at z18 return individual property data', async ({ request }) => {
     const { x, y } = lonLatToTile(EINDHOVEN_CENTER[0], EINDHOVEN_CENTER[1], 18);
 
     // At z18, individual properties should be in the tile
-    const resp = await request.get(
-      `${API_BASE_URL}/tiles/properties/18/${x}/${y}.pbf`
-    );
+    const resp = await request.get(`${API_BASE_URL}/tiles/properties/18/${x}/${y}.pbf`);
 
     // May be 200 or 204 depending on exact tile coverage
     expect([200, 204]).toContain(resp.status());

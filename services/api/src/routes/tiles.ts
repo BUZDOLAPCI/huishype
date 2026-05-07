@@ -92,6 +92,7 @@ import {
   getDefaultPropertyTilePyramidSlot,
   getPropertyTilePyramidMaxZoom,
   isDefaultPropertyTilePyramidTileCovered,
+  isPropertyTilePyramidTileCoveredByCoverage,
   lookupCurrentPropertyTilePyramidVersion,
   lookupPromotedPropertyTilePyramidTile,
   markPropertyTilePyramidVersionDegraded,
@@ -2278,7 +2279,7 @@ export async function tileRoutes(app: FastifyInstance) {
           });
         }
 
-        const isMutableCoverageCovered = propertyTilePyramidRouteService.isTileCovered({
+        const isRequestedTileCoveredByConfiguredSlot = propertyTilePyramidRouteService.isTileCovered({
           z,
           x,
           y,
@@ -2286,7 +2287,7 @@ export async function tileRoutes(app: FastifyInstance) {
         });
         pyramidRuntime.generationTimeMs = Date.now() - startedAt;
         if (current.state !== 'current') {
-          if (!isMutableCoverageCovered) {
+          if (!isRequestedTileCoveredByConfiguredSlot) {
             logTileOutcome({
               request,
               routeKind: 'public',
@@ -2410,7 +2411,20 @@ export async function tileRoutes(app: FastifyInstance) {
         }
 
         if (tile.state === 'missing') {
-          if (!isMutableCoverageCovered) {
+          const isCurrentVersionCoverageCovered = current.version.coverage
+            ? isPropertyTilePyramidTileCoveredByCoverage({
+              coverage: current.version.coverage,
+              z,
+              x,
+              y,
+            })
+            : propertyTilePyramidRouteService.isTileCovered({
+              z,
+              x,
+              y,
+              maxZoom: current.version.maxZoom,
+            });
+          if (!isCurrentVersionCoverageCovered) {
             logTileOutcome({
               request,
               routeKind: 'public',

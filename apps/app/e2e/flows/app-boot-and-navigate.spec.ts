@@ -33,10 +33,16 @@ test.describe('App Boot & Navigation', () => {
 
   async function isAnyVisible(
     page: import('@playwright/test').Page,
-    selectors: string[],
+    selectors: string[]
   ): Promise<boolean> {
     const visibilities = await Promise.all(
-      selectors.map((selector) => page.locator(selector).first().isVisible().catch(() => false)),
+      selectors.map((selector) =>
+        page
+          .locator(selector)
+          .first()
+          .isVisible()
+          .catch(() => false)
+      )
     );
     return visibilities.some(Boolean);
   }
@@ -131,13 +137,15 @@ test.describe('App Boot & Navigation', () => {
 
     // Find and click Feed tab - Expo Router renders tabs with title text
     // Tab layout uses title: 'Feed' so look for that text in tab bar
-    const feedTab = page.getByRole('tab', { name: /feed/i }).or(
-      page.locator('a[href*="feed"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Feed')
-    );
+    const feedTab = page
+      .getByRole('tab', { name: /feed/i })
+      .or(page.locator('a[href*="feed"]'))
+      .or(page.locator('[role="tablist"] >> text=Feed'));
 
-    const feedTabVisible = await feedTab.first().isVisible({ timeout: 10000 }).catch(() => false);
+    const feedTabVisible = await feedTab
+      .first()
+      .isVisible({ timeout: 10000 })
+      .catch(() => false);
     expect(feedTabVisible, 'Feed tab should be visible').toBe(true);
 
     await feedTab.first().click();
@@ -158,11 +166,10 @@ test.describe('App Boot & Navigation', () => {
     expect(onFeedPage, 'Should show feed content after clicking Feed tab').toBe(true);
 
     // Navigate back to Map tab
-    const mapTab = page.getByRole('tab', { name: /map/i }).or(
-      page.locator('a[href="/"]')
-    ).or(
-      page.locator('[role="tablist"] >> text=Map')
-    );
+    const mapTab = page
+      .getByRole('tab', { name: /map/i })
+      .or(page.locator('a[href="/"]'))
+      .or(page.locator('[role="tablist"] >> text=Map'));
 
     await mapTab.first().click();
     await page.waitForTimeout(2000);
@@ -179,16 +186,16 @@ test.describe('App Boot & Navigation', () => {
     expect(response.ok()).toBe(true);
 
     const body = await response.json();
-    expect(body).toHaveProperty('status');
-    expect(['ok', 'degraded']).toContain(body.status);
+    expect(body).toHaveProperty('status', 'ok');
     expect(body).toHaveProperty('timestamp');
     expect(body).toHaveProperty('version');
     expect(body).toHaveProperty('uptime');
-    if (body.status === 'degraded') {
-      expect(body).toHaveProperty('propertyTilePyramid');
-      expect(body.propertyTilePyramid).toHaveProperty('status', 'degraded');
-      expect(body.propertyTilePyramid).toHaveProperty('degradedReason');
-    }
+    expect(body).toHaveProperty('propertyTilePyramid');
+    expect(body.propertyTilePyramid).toMatchObject({
+      status: 'ok',
+      currentVersionId: expect.any(String),
+      degradedReason: null,
+    });
   });
 
   test('zoom level indicator is visible on map', async ({ page }) => {

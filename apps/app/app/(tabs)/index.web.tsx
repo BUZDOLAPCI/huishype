@@ -1583,7 +1583,13 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       const candidatePropertyIds = Array.from(
         new Set(
           (group.groupKind === 'cluster'
-            ? (group.previewPropertyIds.length > 0 ? group.previewPropertyIds : group.propertyIds)
+            ? (
+                group.previewPropertyIds.length > 0 ||
+                group.membershipComplete === false ||
+                group.readStateCoverage === 'partial'
+                  ? group.previewPropertyIds
+                  : group.propertyIds
+              )
             : [group.primaryPropertyId]
           ).filter(Boolean),
         ),

@@ -425,6 +425,70 @@ describe('fetchNearbyGroup', () => {
       'pyramidNodeId=pyramid-node-9007199254740993999',
     );
   });
+
+  it('retries stale pyramid node nearby lookups without node identity', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'x-huishype-nearby-status': 'pyramid-stale' }),
+        json: async () => null,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'x-huishype-nearby-status': 'pyramid-promoted' }),
+        json: async () => ({
+          nodeClass: 'active',
+          groupKind: 'cluster',
+          primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+          pointCount: 2,
+          propertyIds: [],
+          previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+          pyramidVersionId: '22222222-2222-4222-8222-222222222222',
+          pyramidNodeId: 'pyramid-node-current',
+          membershipComplete: false,
+          readStateCoverage: 'partial',
+          coordinate: [5.4697, 51.4416],
+          distanceMeters: 8,
+          bbox: [5.46, 51.43, 5.48, 51.45],
+          activeListingCount: 1,
+          socialCount: 0,
+          recentSocialCount: 0,
+          socialScoreTotal: 0,
+          socialScoreMax: 0,
+          recentSocialScoreTotal: 0,
+          commentCount: 0,
+          streetName: null,
+          houseNumber: null,
+          houseNumberAddition: null,
+          address: null,
+          city: null,
+          postalCode: null,
+          countryCode: null,
+          officialValuation: null,
+          askingPrice: null,
+          thumbnailUrl: null,
+          isRead: false,
+        }),
+      });
+
+    const result = await fetchNearbyGroup(5.4697, 51.4416, 10.75, undefined, {
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-stale',
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('pyramidVersionId=');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('pyramidNodeId=');
+    expect(mockFetch.mock.calls[1]?.[0]).not.toContain('pyramidVersionId=');
+    expect(mockFetch.mock.calls[1]?.[0]).not.toContain('pyramidNodeId=');
+    expect(result).toMatchObject({
+      pyramidVersionId: '22222222-2222-4222-8222-222222222222',
+      pyramidNodeId: 'pyramid-node-current',
+      previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+      membershipComplete: false,
+      readStateCoverage: 'partial',
+    });
+  });
 });
 
 describe('fetchFollowingNearbyGroup', () => {

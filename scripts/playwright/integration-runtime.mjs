@@ -229,6 +229,7 @@ async function main() {
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
+    PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM || '10',
   };
   // Detached service children do not keep the supervisor event loop alive by
   // themselves. Hold a lightweight interval open so this process remains the
@@ -239,6 +240,23 @@ async function main() {
   let apiChild = null;
   let webServerRuntime = null;
   let apiExit = Promise.resolve();
+
+  console.log('Ensuring Playwright property tile pyramid fixture ...');
+  execFileSync(
+    process.execPath,
+    [
+      '--require',
+      tsxPreflight,
+      '--import',
+      tsxLoader,
+      'scripts/ensure-playwright-property-tile-pyramid.ts',
+    ],
+    {
+      cwd: apiCwd,
+      env: childEnv,
+      stdio: 'inherit',
+    },
+  );
 
   console.log(`Waiting for API at ${apiUrl} ...`);
   const apiRuntime = await startServiceWithRetry({

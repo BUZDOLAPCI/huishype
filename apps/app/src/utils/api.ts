@@ -140,10 +140,10 @@ const getApiUrl = (): string => {
 export const API_URL = getApiUrl();
 
 // Base fetch wrapper with common configuration
-export async function apiFetch<T>(
+async function apiFetchWithResponse<T>(
   endpoint: string,
   options: RequestInit = {}
-): Promise<T> {
+): Promise<{ data: T; response: Response }> {
   const url = `${API_URL}${endpoint}`;
   const headers = new Headers(options.headers);
 
@@ -177,7 +177,18 @@ export async function apiFetch<T>(
     );
   }
 
-  return response.json();
+  return {
+    data: await response.json(),
+    response,
+  };
+}
+
+export async function apiFetch<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const { data } = await apiFetchWithResponse<T>(endpoint, options);
+  return data;
 }
 
 // --- Property resolve (imperative, not a hook) ---
@@ -461,6 +472,17 @@ export interface NearbyGroupLookupOptions {
   pyramidVersionId?: string | null;
   pyramidNodeId?: string | null;
 }
+
+type NearbyStatusHeader =
+  | 'pyramid-promoted'
+  | 'pyramid-empty'
+  | 'pyramid-missing'
+  | 'pyramid-stale'
+  | 'pyramid-unavailable'
+  | 'pyramid-build-active'
+  | 'pyramid-build-enqueued'
+  | 'pyramid-terminal'
+  | 'pyramid-uncovered';
 
 export function parseTransportPropertyIds(value: string | string[] | null | undefined): string[] {
   if (Array.isArray(value)) {
@@ -1276,9 +1298,23 @@ export async function fetchNearbyGroup(
   options: NearbyGroupLookupOptions = {},
 ): Promise<NearbyPropertyGroup | null> {
   try {
-    const result = await apiFetch<NearbyGroupedResult | null>(
-      buildNearbyGroupPath(lon, lat, zoom, filters, options),
-    );
+    const path = buildNearbyGroupPath(lon, lat, zoom, filters, options);
+    const { data: result, response } = await apiFetchWithResponse<NearbyGroupedResult | null>(path);
+    const nearbyStatus = response.headers?.get?.('x-huishype-nearby-status') as
+      | NearbyStatusHeader
+      | null
+      | undefined;
+    if (
+      !result &&
+      nearbyStatus === 'pyramid-stale' &&
+      options.pyramidVersionId &&
+      options.pyramidNodeId
+    ) {
+      const { data: retryResult } = await apiFetchWithResponse<NearbyGroupedResult | null>(
+        buildNearbyGroupPath(lon, lat, zoom, filters),
+      );
+      return retryResult ? normalizeNearbyPropertyGroup(retryResult) : null;
+    }
     return result ? normalizeNearbyPropertyGroup(result) : null;
   } catch (err) {
     console.warn('[HuisHype] fetchNearbyGroup failed:', err);

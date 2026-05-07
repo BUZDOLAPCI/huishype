@@ -26,12 +26,17 @@ const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 const DEFAULT_LEASE_SECONDS = 900;
 const DEFAULT_MAX_HEAP_MB = 1_024;
 const DEFAULT_MAX_WAL_BYTES_PER_CHUNK = 1_073_741_824;
-const PYRAMID_CURRENT_ADVISORY_LOCK = 'property_tile_pyramid_retention';
+const PYRAMID_RETENTION_ADVISORY_LOCK = 'property_tile_pyramid_retention';
+const PYRAMID_BACKFILL_ADVISORY_LOCK = 'property_tile_pyramid_backfill';
 const PROPERTY_TILE_PYRAMID_MIN_ZOOM = 0;
 const PROPERTY_TILE_PYRAMID_MVT_BUFFER = 256;
 const PROPERTY_TILE_PYRAMID_MVT_LAYER_NAME = 'properties';
 const PROPERTY_TILE_PYRAMID_SINGLE_TAP_RADIUS_PX = 24;
 const PROPERTY_TILE_PYRAMID_CLUSTER_TAP_RADIUS_PX = 36;
+const PROPERTY_TILE_PYRAMID_REPAIR_REASONS = new Set<string>([
+  'manifest-missing',
+  'payload-regeneration-error',
+]);
 
 export const PROPERTY_TILE_PYRAMID_KIND = 'public_default_low_zoom';
 export const DEFAULT_PROPERTY_TILE_PYRAMID_COVERAGE_ID = 'public_default_low_zoom';
@@ -88,6 +93,14 @@ export interface PropertyTilePyramidSlot {
   pyramidKind: string;
 }
 
+export type PropertyTilePyramidCoverageBounds = {
+  minLon: number;
+  minLat: number;
+  maxLon: number;
+  maxLat: number;
+  maxZoom: number;
+};
+
 export interface CurrentPropertyTilePyramidVersion extends PropertyTilePyramidSlot {
   versionId: string;
   buildInputsHash: string;
@@ -96,6 +109,7 @@ export interface CurrentPropertyTilePyramidVersion extends PropertyTilePyramidSl
   promotedAt: string | null;
   degradedAt: string | null;
   degradedReason: string | null;
+  coverage?: PropertyTilePyramidCoverageBounds;
 }
 
 export type PropertyTilePyramidCurrentLookup =
@@ -284,13 +298,32 @@ export function isDefaultPropertyTilePyramidPointCovered(input: {
   maxZoom?: number;
 }): boolean {
   const coverage = getExpectedDefaultPropertyTileSnapshotCoverageDefinition();
-  const maxZoom = input.maxZoom ?? coverage.maxZoom;
+  return isPropertyTilePyramidPointCoveredByCoverage({
+    coverage: {
+      minLon: coverage.minLon,
+      minLat: coverage.minLat,
+      maxLon: coverage.maxLon,
+      maxLat: coverage.maxLat,
+      maxZoom: input.maxZoom ?? coverage.maxZoom,
+    },
+    lon: input.lon,
+    lat: input.lat,
+    zoom: input.zoom,
+  });
+}
+
+export function isPropertyTilePyramidPointCoveredByCoverage(input: {
+  coverage: PropertyTilePyramidCoverageBounds;
+  lon: number;
+  lat: number;
+  zoom: number;
+}): boolean {
   return (
-    input.zoom <= maxZoom &&
-    input.lon >= coverage.minLon &&
-    input.lon <= coverage.maxLon &&
-    input.lat >= coverage.minLat &&
-    input.lat <= coverage.maxLat
+    input.zoom <= input.coverage.maxZoom &&
+    input.lon >= input.coverage.minLon &&
+    input.lon <= input.coverage.maxLon &&
+    input.lat >= input.coverage.minLat &&
+    input.lat <= input.coverage.maxLat
   );
 }
 
@@ -298,15 +331,34 @@ export function isDefaultPropertyTilePyramidTileCovered(
   input: PropertyTilePyramidCoverageCheck,
 ): boolean {
   const coverage = getExpectedDefaultPropertyTileSnapshotCoverageDefinition();
-  const maxZoom = input.maxZoom ?? coverage.maxZoom;
-  if (input.z > maxZoom) {
+  return isPropertyTilePyramidTileCoveredByCoverage({
+    coverage: {
+      minLon: coverage.minLon,
+      minLat: coverage.minLat,
+      maxLon: coverage.maxLon,
+      maxLat: coverage.maxLat,
+      maxZoom: input.maxZoom ?? coverage.maxZoom,
+    },
+    z: input.z,
+    x: input.x,
+    y: input.y,
+  });
+}
+
+export function isPropertyTilePyramidTileCoveredByCoverage(input: {
+  coverage: PropertyTilePyramidCoverageBounds;
+  z: number;
+  x: number;
+  y: number;
+}): boolean {
+  if (input.z > input.coverage.maxZoom) {
     return false;
   }
 
-  const minX = clampPyramidTileCoordinate(lonToPyramidTileX(coverage.minLon, input.z), input.z);
-  const maxX = clampPyramidTileCoordinate(lonToPyramidTileX(coverage.maxLon, input.z), input.z);
-  const minY = clampPyramidTileCoordinate(latToPyramidTileY(coverage.maxLat, input.z), input.z);
-  const maxY = clampPyramidTileCoordinate(latToPyramidTileY(coverage.minLat, input.z), input.z);
+  const minX = clampPyramidTileCoordinate(lonToPyramidTileX(input.coverage.minLon, input.z), input.z);
+  const maxX = clampPyramidTileCoordinate(lonToPyramidTileX(input.coverage.maxLon, input.z), input.z);
+  const minY = clampPyramidTileCoordinate(latToPyramidTileY(input.coverage.maxLat, input.z), input.z);
+  const maxY = clampPyramidTileCoordinate(latToPyramidTileY(input.coverage.minLat, input.z), input.z);
 
   return input.x >= minX && input.x <= maxX && input.y >= minY && input.y <= maxY;
 }
@@ -395,6 +447,45 @@ function stableJson(value: unknown): string {
 
 function stableSha256(value: unknown): string {
   return createHash('sha256').update(stableJson(value)).digest('hex');
+}
+
+function buildRepairSourceWatermarkSnapshot(input: {
+  baseSourceWatermarkHash: string;
+  baseSourceWatermarksJson: Record<string, unknown>;
+  reason: string;
+  slot: PropertyTilePyramidSlot;
+}): { sourceWatermarkHash: string; sourceWatermarksJson: Record<string, unknown> } {
+  const repair = {
+    baseSourceWatermarkHash: input.baseSourceWatermarkHash,
+    reason: input.reason,
+    repairId: randomUUID(),
+    requestedAt: new Date().toISOString(),
+    slot: input.slot,
+  };
+  return {
+    sourceWatermarkHash: stableSha256({
+      sourceWatermarkHash: input.baseSourceWatermarkHash,
+      repair,
+    }),
+    sourceWatermarksJson: {
+      ...input.baseSourceWatermarksJson,
+      propertyTilePyramidRepair: repair,
+    },
+  };
+}
+
+function comparableSourceWatermarkHash(input: {
+  sourceWatermarkHash: string;
+  sourceWatermarksJson: Record<string, unknown> | null;
+}): string {
+  const repair = input.sourceWatermarksJson?.propertyTilePyramidRepair;
+  if (repair && typeof repair === 'object' && !Array.isArray(repair)) {
+    const baseSourceWatermarkHash = (repair as Record<string, unknown>).baseSourceWatermarkHash;
+    if (typeof baseSourceWatermarkHash === 'string' && baseSourceWatermarkHash.length > 0) {
+      return baseSourceWatermarkHash;
+    }
+  }
+  return input.sourceWatermarkHash;
 }
 
 export function buildPropertyTilePyramidBuildIdentitySnapshots(
@@ -538,6 +629,18 @@ function readPositiveNumber(value: unknown, fieldName: string): number {
   }
 
   return numberValue;
+}
+
+function readCoverageBoundsFromSnapshot(value: unknown): PropertyTilePyramidCoverageBounds {
+  const coverageSnapshot = readRecord(value, 'coverage snapshot');
+  const bounds = readRecord(coverageSnapshot.bounds, 'coverage bounds');
+  return {
+    minLon: readNumber(bounds.minLon, 'coverage minLon'),
+    minLat: readNumber(bounds.minLat, 'coverage minLat'),
+    maxLon: readNumber(bounds.maxLon, 'coverage maxLon'),
+    maxLat: readNumber(bounds.maxLat, 'coverage maxLat'),
+    maxZoom: readNumber(coverageSnapshot.maxZoom, 'coverage maxZoom'),
+  };
 }
 
 function buildVersionBoundPropertyTilePyramidContext(input: {
@@ -1121,6 +1224,13 @@ function isMissingPyramidSchemaError(error: unknown): boolean {
   return code === '42P01' || code === '42703' || code === '42704' || code === '42883';
 }
 
+function isActiveSlotUniqueViolation(error: unknown): boolean {
+  const cause = (error as { cause?: { code?: unknown; constraint?: unknown } } | null)?.cause;
+  const code = (error as { code?: unknown } | null)?.code ?? cause?.code;
+  const constraint = (error as { constraint?: unknown } | null)?.constraint ?? cause?.constraint;
+  return code === '23505' && constraint === 'property_tile_pyramid_versions_active_slot_idx';
+}
+
 function maybeBuffer(value: unknown): Buffer | null {
   if (value == null) {
     return null;
@@ -1168,6 +1278,7 @@ export async function lookupCurrentPropertyTilePyramidVersion(
       promoted_at: string | null;
       degraded_at: string | null;
       degraded_reason: string | null;
+      coverage_snapshot_json: Record<string, unknown>;
     }>(sql`
       SELECT
         v.id::text AS version_id,
@@ -1179,7 +1290,8 @@ export async function lookupCurrentPropertyTilePyramidVersion(
         v.source_watermark_hash,
         v.promoted_at::text AS promoted_at,
         v.degraded_at::text AS degraded_at,
-        v.degraded_reason
+        v.degraded_reason,
+        v.coverage_snapshot_json
       FROM property_tile_pyramid_current c
       JOIN property_tile_pyramid_versions v
         ON v.id = c.current_version_id
@@ -1213,6 +1325,7 @@ export async function lookupCurrentPropertyTilePyramidVersion(
         promotedAt: row.promoted_at,
         degradedAt: row.degraded_at,
         degradedReason: row.degraded_reason,
+        coverage: readCoverageBoundsFromSnapshot(row.coverage_snapshot_json),
       },
     };
   } catch (error) {
@@ -1256,12 +1369,30 @@ export async function lookupPromotedPropertyTilePyramidTile(input: {
     }
 
     const nodeCount = Number(row.node_count ?? 0);
-    if (row.tile_status === 'pending' || row.tile_status === 'failed' || row.validation_status === 'failed') {
-      return { state: 'missing', tileStatus: 'pyramid-missing', reason: `tile-${row.tile_status}` };
+    if (
+      row.validation_status !== 'validated' ||
+      (
+        row.tile_status !== 'valid_empty' &&
+        row.tile_status !== 'valid_nodes' &&
+        row.tile_status !== 'valid_encoded'
+      )
+    ) {
+      return {
+        state: 'missing',
+        tileStatus: 'pyramid-missing',
+        reason: `tile-${row.tile_status ?? 'unknown'}-${row.validation_status ?? 'unknown'}`,
+      };
     }
 
     const existingPayload = maybeBuffer(row.payload);
     if (existingPayload && existingPayload.length > 0) {
+      if (row.tile_status !== 'valid_encoded') {
+        return {
+          state: 'missing',
+          tileStatus: 'pyramid-missing',
+          reason: `tile-payload-${row.tile_status ?? 'unknown'}`,
+        };
+      }
       const statusCode = statusCodeFromPayload(existingPayload, row.tile_status);
       return {
         state: 'hit',
@@ -1359,10 +1490,21 @@ export async function encodePropertyTilePyramidTileFromPromotedNodes(input: {
         AND z = ${input.z}
         AND x = ${input.x}
         AND y = ${input.y}
+    ),
+    ordered_node_rows AS (
+      SELECT *
+      FROM node_rows
+      WHERE geom IS NOT NULL
+      ORDER BY
+        node_class,
+        group_kind,
+        render_lon,
+        render_lat,
+        primary_property_id,
+        pyramid_node_id
     )
-    SELECT ST_AsMVT(node_rows, ${PROPERTY_TILE_PYRAMID_MVT_LAYER_NAME}, ${PROPERTY_TILE_EXTENT}, 'geom') AS mvt
-    FROM node_rows
-    WHERE geom IS NOT NULL
+    SELECT ST_AsMVT(ordered_node_rows, ${PROPERTY_TILE_PYRAMID_MVT_LAYER_NAME}, ${PROPERTY_TILE_EXTENT}, 'geom') AS mvt
+    FROM ordered_node_rows
   `);
 
   const payload = maybeBuffer(Array.from(result)[0]?.mvt);
@@ -1478,19 +1620,26 @@ export async function requestPropertyTilePyramidBuild(input: {
   const slot = input.slot ?? getDefaultPropertyTilePyramidSlot();
   const buildIdentity = buildPropertyTilePyramidBuildIdentitySnapshots(slot);
   const buildInputsHash = input.buildInputsHash ?? buildIdentity.buildInputsHash;
-  const sourceWatermarks = input.sourceWatermarkHash
+  let sourceWatermarks = input.sourceWatermarkHash
     ? {
         sourceWatermarkHash: input.sourceWatermarkHash,
         sourceWatermarksJson: input.sourceWatermarksJson ?? {},
       }
     : await readPropertyTilePyramidSourceWatermarkSnapshot();
+  if (PROPERTY_TILE_PYRAMID_REPAIR_REASONS.has(String(input.reason))) {
+    sourceWatermarks = buildRepairSourceWatermarkSnapshot({
+      baseSourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
+      baseSourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
+      reason: String(input.reason),
+      slot,
+    });
+  }
   const { sourceWatermarkHash, sourceWatermarksJson } = sourceWatermarks;
 
   try {
     await recoverStalePropertyTilePyramidBuildRequest({
       slot,
       buildInputsHash,
-      sourceWatermarkHash,
       reason: String(input.reason),
     });
 
@@ -1508,9 +1657,15 @@ export async function requestPropertyTilePyramidBuild(input: {
           AND filter_signature = ${slot.filterSignature}
           AND max_zoom = ${slot.maxZoom}
           AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
-          AND build_inputs_hash = ${buildInputsHash}
-          AND source_watermark_hash <> ${sourceWatermarkHash}
-          AND status IN ('queued', 'building', 'validating', 'validated')
+          AND status IN ('queued', 'building', 'validating')
+          AND (
+            status = 'queued'
+            OR (
+              status IN ('building', 'validating')
+              AND lease_until IS NOT NULL
+              AND lease_until > now()
+            )
+          )
         ORDER BY requested_at ASC NULLS LAST, updated_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -1681,6 +1836,33 @@ export async function requestPropertyTilePyramidBuild(input: {
     if (isMissingPyramidSchemaError(error)) {
       return { status: 'unavailable', reason: 'pyramid-schema-unavailable' };
     }
+    if (isActiveSlotUniqueViolation(error)) {
+      const activeRows = await db.execute<{
+        id: string;
+        status: PropertyTilePyramidStatus;
+        next_retry_at: string | null;
+      }>(sql`
+        SELECT id::text, status, next_retry_at::text
+        FROM property_tile_pyramid_versions
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          AND status IN ('queued', 'building', 'validating')
+        ORDER BY requested_at ASC NULLS LAST, updated_at ASC
+        LIMIT 1
+      `);
+      const active = Array.from(activeRows)[0];
+      if (active) {
+        return {
+          status: 'coalesced',
+          versionId: active.id,
+          existingStatus: active.status,
+          nextRetryAt: active.next_retry_at,
+          reason: 'active-slot-conflict',
+        };
+      }
+    }
     throw error;
   }
 }
@@ -1688,7 +1870,6 @@ export async function requestPropertyTilePyramidBuild(input: {
 async function recoverStalePropertyTilePyramidBuildRequest(input: {
   slot: PropertyTilePyramidSlot;
   buildInputsHash: string;
-  sourceWatermarkHash: string;
   reason: string;
 }): Promise<void> {
   await db.execute(sql`
@@ -1716,7 +1897,6 @@ async function recoverStalePropertyTilePyramidBuildRequest(input: {
       AND max_zoom = ${input.slot.maxZoom}
       AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
       AND build_inputs_hash = ${input.buildInputsHash}
-      AND source_watermark_hash = ${input.sourceWatermarkHash}
       AND (
         (
           status IN ('building', 'validating')
@@ -2217,8 +2397,8 @@ async function markPropertyTilePyramidBuildFailure(input: {
 
 async function requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced(input: {
   slot: PropertyTilePyramidSlot;
-  buildInputsHash: string;
   sourceWatermarkHash: string;
+  sourceWatermarksJson?: Record<string, unknown> | null;
   latestSourceWatermarks?: {
     sourceWatermarkHash: string;
     sourceWatermarksJson: Record<string, unknown>;
@@ -2241,10 +2421,14 @@ async function requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced(input
     }
   }
 
+  const comparableHash = comparableSourceWatermarkHash({
+    sourceWatermarkHash: input.sourceWatermarkHash,
+    sourceWatermarksJson: input.sourceWatermarksJson ?? null,
+  });
   const successorWatermarks =
-    latestSourceWatermarks?.sourceWatermarkHash && latestSourceWatermarks.sourceWatermarkHash !== input.sourceWatermarkHash
+    latestSourceWatermarks?.sourceWatermarkHash && latestSourceWatermarks.sourceWatermarkHash !== comparableHash
       ? latestSourceWatermarks
-      : input.pendingReplacementWatermarks?.sourceWatermarkHash !== input.sourceWatermarkHash
+      : input.pendingReplacementWatermarks?.sourceWatermarkHash !== comparableHash
         ? input.pendingReplacementWatermarks
         : null;
 
@@ -2256,7 +2440,6 @@ async function requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced(input
     return await requestPropertyTilePyramidBuild({
       reason: input.reason,
       slot: input.slot,
-      buildInputsHash: input.buildInputsHash,
       sourceWatermarkHash: successorWatermarks.sourceWatermarkHash,
       sourceWatermarksJson: successorWatermarks.sourceWatermarksJson,
     });
@@ -2280,10 +2463,11 @@ export async function executeDuePropertyTilePyramidBuild(options: {
 }): Promise<Record<string, unknown>> {
   let activeVersionId: string | null = null;
   let activeLease: PropertyTilePyramidBuildLease | null = null;
+  let backfillLockHeld = false;
   let activeBuild: {
     slot: PropertyTilePyramidSlot;
-    buildInputsHash: string;
     sourceWatermarkHash: string;
+    sourceWatermarksJson: Record<string, unknown> | null;
     pendingReplacementWatermarks?: {
       sourceWatermarkHash: string;
       sourceWatermarksJson: Record<string, unknown>;
@@ -2316,7 +2500,47 @@ export async function executeDuePropertyTilePyramidBuild(options: {
       pending_replacement_watermarks_json: Record<string, unknown> | null;
       requested_at: string | null;
       lease_token: string;
+      backfill_lock_required: boolean;
+      backfill_lock_acquired: boolean;
     }>(sql`
+      WITH candidate AS MATERIALIZED (
+        SELECT id
+        FROM property_tile_pyramid_versions
+        WHERE status IN ('queued', 'failed_retryable')
+          AND (next_retry_at IS NULL OR next_retry_at <= now())
+          AND (lease_until IS NULL OR lease_until <= now())
+          AND (${options.versionId ?? null}::uuid IS NULL OR id = ${options.versionId ?? null}::uuid)
+        ORDER BY requested_at ASC NULLS LAST, updated_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      ),
+      backfill_gate AS MATERIALIZED (
+        SELECT
+          c.id,
+          NOT EXISTS (
+            SELECT 1
+            FROM property_tile_pyramid_current current
+            JOIN property_tile_pyramid_versions candidate_version
+              ON candidate_version.id = c.id
+            WHERE current.coverage_id = candidate_version.coverage_id
+              AND current.filter_signature = candidate_version.filter_signature
+              AND current.max_zoom = candidate_version.max_zoom
+              AND current.pyramid_kind = candidate_version.pyramid_kind
+          ) AS backfill_lock_required
+        FROM candidate c
+      ),
+      lock_gate AS MATERIALIZED (
+        SELECT
+          id,
+          backfill_lock_required,
+          CASE
+            WHEN backfill_lock_required
+              THEN pg_try_advisory_lock(hashtext(${PYRAMID_BACKFILL_ADVISORY_LOCK}))
+            ELSE true
+          END AS backfill_lock_acquired
+        FROM backfill_gate
+      ),
+      updated AS (
       UPDATE property_tile_pyramid_versions
       SET
         status = 'building',
@@ -2330,17 +2554,7 @@ export async function executeDuePropertyTilePyramidBuild(options: {
         last_attempt_at = now(),
         build_started_at = COALESCE(build_started_at, now()),
         updated_at = now()
-      WHERE id = (
-        SELECT id
-        FROM property_tile_pyramid_versions
-        WHERE status IN ('queued', 'failed_retryable')
-          AND (next_retry_at IS NULL OR next_retry_at <= now())
-          AND (lease_until IS NULL OR lease_until <= now())
-          AND (${options.versionId ?? null}::uuid IS NULL OR id = ${options.versionId ?? null}::uuid)
-        ORDER BY requested_at ASC NULLS LAST, updated_at ASC
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      )
+      WHERE id = (SELECT id FROM lock_gate WHERE backfill_lock_acquired)
       RETURNING
         id::text,
         status,
@@ -2358,11 +2572,19 @@ export async function executeDuePropertyTilePyramidBuild(options: {
         pending_replacement_watermarks_json,
         requested_at::text,
         lease_token
+      )
+      SELECT
+        updated.*,
+        lock_gate.backfill_lock_required,
+        lock_gate.backfill_lock_acquired
+      FROM updated
+      JOIN lock_gate ON lock_gate.id = updated.id
     `);
     const row = Array.from(rows)[0];
     if (!row) {
       return { status: 'noop', reason: 'no-eligible-pyramid-version' };
     }
+    backfillLockHeld = row.backfill_lock_required && row.backfill_lock_acquired;
     activeVersionId = row.id;
 
     const slot: PropertyTilePyramidSlot = {
@@ -2382,8 +2604,8 @@ export async function executeDuePropertyTilePyramidBuild(options: {
     );
     activeBuild = {
       slot,
-      buildInputsHash: row.build_inputs_hash,
       sourceWatermarkHash: row.source_watermark_hash,
+      sourceWatermarksJson: row.source_watermarks_json,
       pendingReplacementWatermarks,
     };
     const buildContext = buildVersionBoundPropertyTilePyramidContext({
@@ -2415,8 +2637,8 @@ export async function executeDuePropertyTilePyramidBuild(options: {
       });
       await requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced({
         slot,
-        buildInputsHash: row.build_inputs_hash,
         sourceWatermarkHash: row.source_watermark_hash,
+        sourceWatermarksJson: row.source_watermarks_json,
         pendingReplacementWatermarks,
         reason: 'source-watermark',
       });
@@ -2481,6 +2703,7 @@ export async function executeDuePropertyTilePyramidBuild(options: {
         buildContext.filters,
         {
           statementTimeoutMs: controls.statementTimeoutMs,
+          clusterPropertyIdRetention: 'preview-only',
         },
       );
       nodeCount += groups.length;
@@ -2516,6 +2739,7 @@ export async function executeDuePropertyTilePyramidBuild(options: {
             promotedAt: null,
             degradedAt: null,
             degradedReason: null,
+            coverage: buildContext.coverage,
           },
           z: tile.z,
           x: tile.x,
@@ -2540,8 +2764,8 @@ export async function executeDuePropertyTilePyramidBuild(options: {
       });
       await requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced({
         slot,
-        buildInputsHash: row.build_inputs_hash,
         sourceWatermarkHash: row.source_watermark_hash,
+        sourceWatermarksJson: row.source_watermarks_json,
         pendingReplacementWatermarks,
         reason: 'source-watermark',
       });
@@ -2598,7 +2822,11 @@ export async function executeDuePropertyTilePyramidBuild(options: {
       `,
     });
     const latestSourceWatermarks = await readPropertyTilePyramidSourceWatermarkSnapshot();
-    const sourceWatermarkAdvanced = latestSourceWatermarks.sourceWatermarkHash !== row.source_watermark_hash;
+    const comparableClosedSourceWatermarkHash = comparableSourceWatermarkHash({
+      sourceWatermarkHash: row.source_watermark_hash,
+      sourceWatermarksJson: row.source_watermarks_json,
+    });
+    const sourceWatermarkAdvanced = latestSourceWatermarks.sourceWatermarkHash !== comparableClosedSourceWatermarkHash;
     const promotion = {
       status: 'promoted' as 'promoted' | 'superseded_by_current',
     };
@@ -2708,13 +2936,13 @@ export async function executeDuePropertyTilePyramidBuild(options: {
       };
     }
 
-    await requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced({
-      slot,
-      buildInputsHash: row.build_inputs_hash,
-      sourceWatermarkHash: row.source_watermark_hash,
-      latestSourceWatermarks,
-      pendingReplacementWatermarks,
-      reason: 'source-watermark',
+      await requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced({
+        slot,
+        sourceWatermarkHash: row.source_watermark_hash,
+        sourceWatermarksJson: row.source_watermarks_json,
+        latestSourceWatermarks,
+        pendingReplacementWatermarks,
+        reason: 'source-watermark',
     });
 
     return {
@@ -2746,6 +2974,10 @@ export async function executeDuePropertyTilePyramidBuild(options: {
       }
     }
     throw error;
+  } finally {
+    if (backfillLockHeld) {
+      await db.execute(sql`SELECT pg_advisory_unlock(hashtext(${PYRAMID_BACKFILL_ADVISORY_LOCK}))`);
+    }
   }
 }
 
@@ -2959,7 +3191,7 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
 export async function runPropertyTilePyramidRetention(): Promise<Record<string, unknown>> {
   try {
     const lock = await db.execute<{ locked: boolean }>(sql`
-      SELECT pg_try_advisory_lock(hashtext(${PYRAMID_CURRENT_ADVISORY_LOCK})) AS locked
+      SELECT pg_try_advisory_lock(hashtext(${PYRAMID_RETENTION_ADVISORY_LOCK})) AS locked
     `);
     if (!Array.from(lock)[0]?.locked) {
       return { status: 'skipped', reason: 'retention-lock-held' };
@@ -3191,7 +3423,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
         deletedVersions,
       };
     } finally {
-      await db.execute(sql`SELECT pg_advisory_unlock(hashtext(${PYRAMID_CURRENT_ADVISORY_LOCK}))`);
+      await db.execute(sql`SELECT pg_advisory_unlock(hashtext(${PYRAMID_RETENTION_ADVISORY_LOCK}))`);
     }
   } catch (error) {
     if (isMissingPyramidSchemaError(error)) {

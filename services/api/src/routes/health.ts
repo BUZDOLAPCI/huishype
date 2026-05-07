@@ -23,6 +23,10 @@ const healthResponseSchema = z.object({
   }),
 });
 
+const healthQuerySchema = z.object({
+  allowDegraded: z.preprocess((value) => value === true || value === 'true', z.boolean()),
+});
+
 const opsPropertyTilePyramidResponseSchema = z.object({
   status: z.enum(['ok', 'degraded']),
   currentVersionId: z.string().nullable(),
@@ -65,13 +69,18 @@ export async function healthRoutes(app: FastifyInstance) {
         description: 'Returns the health status of the API server',
         response: {
           200: healthResponseSchema,
+          503: healthResponseSchema,
         },
+        querystring: healthQuerySchema,
       },
     },
-    async (_request, reply) => {
+    async (request, reply) => {
       const pyramid = await getPropertyTilePyramidHealthSummary();
-      return reply.send({
-        status: pyramid.status === 'ok' ? 'ok' as const : 'degraded' as const,
+      const status = pyramid.status === 'ok' ? ('ok' as const) : ('degraded' as const);
+      const statusCode = status === 'ok' || request.query.allowDegraded ? 200 : 503;
+
+      return reply.code(statusCode).send({
+        status,
         timestamp: new Date().toISOString(),
         version: '0.1.0',
         uptime: process.uptime(),
@@ -104,7 +113,7 @@ export async function healthRoutes(app: FastifyInstance) {
     async (_request, reply) => {
       const summary = await getPropertyTilePyramidOpsSummary();
       return reply.send(summary);
-    },
+    }
   );
 }
 

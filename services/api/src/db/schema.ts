@@ -1400,6 +1400,9 @@ export const propertyTilePyramidVersions = pgTable(
       table.status,
       sql`created_at DESC`
     ),
+    uniqueIndex('property_tile_pyramid_versions_active_slot_idx')
+      .on(table.coverageId, table.filterSignature, table.maxZoom, table.pyramidKind)
+      .where(sql`status IN ('queued', 'building', 'validating')`),
     index('property_tile_pyramid_versions_eligible_idx')
       .on(table.status, table.nextRetryAt, table.requestedAt)
       .where(sql`status IN ('queued', 'failed_retryable')`),

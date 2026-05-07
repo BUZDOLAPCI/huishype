@@ -41,6 +41,7 @@ import {
   getDefaultPropertyTilePyramidSlot,
   getPropertyTilePyramidMaxZoom,
   isDefaultPropertyTilePyramidPointCovered,
+  isPropertyTilePyramidPointCoveredByCoverage,
   lookupCurrentPropertyTilePyramidVersion,
   safeRequestPropertyTilePyramidBuild,
 } from '../services/property-tile-pyramid.js';
@@ -815,30 +816,19 @@ function isServeablePyramidNearbyTile(row: {
 
 async function hasServeablePyramidTileManifest(input: {
   versionId: string;
-  tiles: Array<{ z: number; x: number; y: number }>;
+  tile: { z: number; x: number; y: number };
 }): Promise<boolean> {
-  if (input.tiles.length === 0) {
-    return false;
-  }
-
-  const tileRows = sql.join(
-    input.tiles.map((tile) => sql`(${tile.z}::integer, ${tile.x}::integer, ${tile.y}::integer)`),
-    sql`, `,
-  );
   const rows = await db.execute<{
     tile_status: string | null;
     validation_status: string | null;
   }>(sql`
-    WITH requested_tiles(z, x, y) AS (
-      VALUES ${tileRows}
-    )
     SELECT t.tile_status, t.validation_status
     FROM property_tile_pyramid_tiles t
-    JOIN requested_tiles rt
-      ON rt.z = t.z
-     AND rt.x = t.x
-     AND rt.y = t.y
     WHERE t.version_id = ${input.versionId}::uuid
+      AND t.z = ${input.tile.z}
+      AND t.x = ${input.tile.x}
+      AND t.y = ${input.tile.y}
+    LIMIT 1
   `);
   return Array.from(rows).some(isServeablePyramidNearbyTile);
 }
@@ -950,13 +940,13 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
 }> {
   const slot = getDefaultPropertyTilePyramidSlot();
   const maxZoom = getPropertyTilePyramidMaxZoom();
-  const servingZoom = normalizePyramidNearbyServingZoom(input.zoom, maxZoom);
-  if (!isDefaultPropertyTilePyramidPointCovered({ ...input, zoom: servingZoom, maxZoom })) {
-    return { result: null, status: 'pyramid-uncovered' };
-  }
-
   const current = await lookupCurrentPropertyTilePyramidVersion(slot);
   if (current.state !== 'current') {
+    const servingZoom = normalizePyramidNearbyServingZoom(input.zoom, maxZoom);
+    if (!isDefaultPropertyTilePyramidPointCovered({ ...input, zoom: servingZoom, maxZoom })) {
+      return { result: null, status: 'pyramid-uncovered' };
+    }
+
     await safeRequestPropertyTilePyramidBuild(
       {
         reason: 'nearby-fallback-miss',
@@ -973,11 +963,28 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
     return { result: null, status: current.tileStatus };
   }
 
+  const versionCoverage = current.version.coverage;
+  const servingZoom = normalizePyramidNearbyServingZoom(
+    input.zoom,
+    versionCoverage?.maxZoom ?? current.version.maxZoom,
+  );
+  if (
+    !versionCoverage ||
+    !isPropertyTilePyramidPointCoveredByCoverage({
+      coverage: versionCoverage,
+      lon: input.lon,
+      lat: input.lat,
+      zoom: servingZoom,
+    })
+  ) {
+    return { result: null, status: 'pyramid-uncovered', versionId: current.version.versionId };
+  }
+
   const tapOwnerTile = pyramidOwnerTileForCoordinate(input.lon, input.lat, servingZoom);
   const ownerTileNeighborhood = getPyramidOwnerTileNeighborhood(tapOwnerTile);
   const hasOwnerManifest = await hasServeablePyramidTileManifest({
     versionId: current.version.versionId,
-    tiles: ownerTileNeighborhood,
+    tile: tapOwnerTile,
   });
   if (!hasOwnerManifest) {
     await safeRequestPropertyTilePyramidBuild(
@@ -991,7 +998,7 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
         lat: input.lat,
         zoom: input.zoom,
         servingZoom,
-        missingTile: tapOwnerTile,
+        missingOwnerTile: tapOwnerTile,
       },
     );
     return { result: null, status: 'pyramid-missing', versionId: current.version.versionId };
@@ -1433,11 +1440,33 @@ export async function propertyRoutes(app: FastifyInstance) {
             pyramidNodeId: request.query.pyramidNodeId,
           });
           result = lookup.result;
-          if (!result) {
-            reply.header('X-HuisHype-Nearby-Status', lookup.status);
-          }
-          if (!result && lookup.versionId) {
-            reply.header('X-HuisHype-Pyramid-Version', lookup.versionId);
+
+          if (
+            !result &&
+            lookup.status === 'pyramid-stale' &&
+            isDefaultPyramidNearbyZoom(zoom, getPropertyTilePyramidMaxZoom())
+          ) {
+            const fallback = await resolvePyramidNearbyNodeAtPoint({
+              lon,
+              lat,
+              zoom,
+              logger: request.log,
+            });
+            result = fallback.result;
+            reply.header(
+              'X-HuisHype-Nearby-Status',
+              result ? 'pyramid-promoted' : fallback.status,
+            );
+            if (fallback.versionId) {
+              reply.header('X-HuisHype-Pyramid-Version', fallback.versionId);
+            }
+          } else {
+            if (!result) {
+              reply.header('X-HuisHype-Nearby-Status', lookup.status);
+            }
+            if (!result && lookup.versionId) {
+              reply.header('X-HuisHype-Pyramid-Version', lookup.versionId);
+            }
           }
         } catch (error) {
           if (!isPyramidSchemaUnavailable(error)) {

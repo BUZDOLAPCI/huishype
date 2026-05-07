@@ -26,6 +26,21 @@ async function insertPyramidVersion(input?: {
 }): Promise<string> {
   const versionId = crypto.randomUUID();
   const unique = crypto.randomUUID();
+  const coverageId = input?.coverageId ?? `${coveragePrefix}-${unique}`;
+  const expectedTileCount = input?.expectedTileCount ?? 2;
+  const validatedTileCount = input?.validatedTileCount ?? expectedTileCount;
+  const coverageSnapshot = {
+    coverageId,
+    filterSignature: 'public-default',
+    minZoom: 1,
+    maxZoom: 1,
+    bounds: {
+      minLon: -180,
+      minLat: 66,
+      maxLon: expectedTileCount === 1 ? -1 : 0,
+      maxLat: 85,
+    },
+  };
   await db.execute(sql`
     INSERT INTO property_tile_pyramid_versions (
       id,
@@ -39,12 +54,15 @@ async function insertPyramidVersion(input?: {
       status,
       expected_tile_count,
       validated_tile_count,
+      coverage_snapshot_json,
+      config_snapshot_json,
+      grouping_constants_json,
       validation_summary,
       validated_at
     )
     VALUES (
       ${versionId}::uuid,
-      ${input?.coverageId ?? `${coveragePrefix}-${unique}`},
+      ${coverageId},
       'public-default',
       1,
       'public_default_low_zoom',
@@ -52,11 +70,21 @@ async function insertPyramidVersion(input?: {
       ${`inputs-${unique}`},
       ${`watermarks-${unique}`},
       'validated',
-      ${input?.expectedTileCount ?? 2},
-      ${input?.validatedTileCount ?? input?.expectedTileCount ?? 2},
+      ${expectedTileCount},
+      ${validatedTileCount},
+      ${JSON.stringify(coverageSnapshot)}::jsonb,
       ${JSON.stringify({
-        expectedTileCount: input?.expectedTileCount ?? 2,
-        observedTileCount: input?.validatedTileCount ?? input?.expectedTileCount ?? 2,
+        servingSlot: {
+          coverageId,
+          filterSignature: 'public-default',
+          maxZoom: 1,
+          pyramidKind: 'public_default_low_zoom',
+        },
+      })}::jsonb,
+      ${JSON.stringify({ previewMemberLimit: 30 })}::jsonb,
+      ${JSON.stringify({
+        expectedTileCount,
+        observedTileCount: validatedTileCount,
       })}::jsonb,
       now()
     )
@@ -102,6 +130,72 @@ async function insertTileManifest(input: {
       ${payload ? sql`now()` : null},
       ${input.validationStatus === 'validated' ? sql`now()` : null},
       ${input.validationStatus === 'failed' ? 'failed validation' : null}
+    )
+  `);
+}
+
+async function insertPyramidNode(input: {
+  versionId: string;
+  x: number;
+  representativePropertyId?: string;
+}): Promise<void> {
+  const propertyId = input.representativePropertyId ?? crypto.randomUUID();
+  await db.execute(sql`
+    INSERT INTO property_tile_pyramid_nodes (
+      version_id,
+      node_id,
+      z,
+      x,
+      y,
+      render_lon,
+      render_lat,
+      render_geometry,
+      anchor_world_x,
+      anchor_world_y,
+      node_class,
+      group_kind,
+      point_count,
+      representative_property_id,
+      preview_property_ids,
+      preview_count,
+      active_listing_count,
+      completed_listing_count,
+      social_count,
+      recent_social_count,
+      social_score_total,
+      social_score_max,
+      recent_social_score_total,
+      comment_count,
+      tap_radius_px,
+      tap_priority_score
+    )
+    VALUES (
+      ${input.versionId}::uuid,
+      ${`node-${input.x}`},
+      1,
+      ${input.x},
+      0,
+      -1,
+      70,
+      ST_SetSRID(ST_MakePoint(-1, 70), 4326),
+      0,
+      0,
+      'active',
+      'single',
+      1,
+      ${propertyId}::uuid,
+      ARRAY[${propertyId}::uuid],
+      1,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      24,
+      1
     )
   `);
 }
@@ -170,6 +264,7 @@ describe('property tile pyramid schema safeguards', () => {
     `)).map((row) => row.indexname);
     expect(indexes).toEqual(expect.arrayContaining([
       'property_tile_pyramid_versions_build_identity_idx',
+      'property_tile_pyramid_versions_active_slot_idx',
       'property_tile_pyramid_versions_slot_status_idx',
       'property_tile_pyramid_current_version_idx',
       'property_tile_pyramid_tiles_status_idx',
@@ -271,6 +366,7 @@ describe('property tile pyramid schema safeguards', () => {
       validationStatus: 'validated',
       nodeCount: 1,
     });
+    await insertPyramidNode({ versionId, x: 1 });
 
     await promote(versionId);
 
@@ -344,6 +440,13 @@ describe('property tile pyramid schema safeguards', () => {
 
   it('blocks direct validated-to-promoted updates that bypass the promotion function', async () => {
     const versionId = await insertPyramidVersion({ expectedTileCount: 1, validatedTileCount: 1 });
+    await insertTileManifest({
+      versionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
 
     await expectDbFailure(
       () => db.execute(sql`
@@ -351,7 +454,7 @@ describe('property tile pyramid schema safeguards', () => {
         SET status = 'promoted'
         WHERE id = ${versionId}::uuid
       `),
-      /manifest coverage 0 does not match expected tile count 1/,
+      /direct promoted property tile pyramid version updates are not allowed/,
     );
   });
 

@@ -1535,6 +1535,33 @@ describe('property-grouping', () => {
     30_000
   );
 
+  it('can omit full cluster property id membership while retaining capped previews for pyramid builds', () => {
+    const zoom = 17;
+    const tile = { z: zoom, x: 100, y: 100 };
+    const worldX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const worldY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const candidates = Array.from({ length: PROPERTY_PREVIEW_MEMBER_LIMIT + 20 }, (_, index) =>
+      makeCandidateAtWorld(makePropertyId(index), worldX, worldY, zoom, {
+        socialScore: PROPERTY_PREVIEW_MEMBER_LIMIT + 20 - index,
+      })
+    );
+
+    const [group] = groupCandidatesForTile(tile, candidates, {
+      clusterPropertyIdRetention: 'preview-only',
+    });
+
+    expect(group.groupKind).toBe('cluster');
+    expect(group.pointCount).toBe(candidates.length);
+    expect(group.propertyIds).toEqual([]);
+    expect(group.previewPropertyIds).toHaveLength(PROPERTY_PREVIEW_MEMBER_LIMIT);
+    expect(group.previewPropertyIds).toEqual(
+      [...candidates]
+        .sort((a, b) => b.socialScore - a.socialScore || a.id.localeCompare(b.id))
+        .slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)
+        .map((candidate) => candidate.id)
+    );
+  });
+
   it('emits a cross-edge group from only the tile that owns the representative anchor', () => {
     const zoom = 17;
     const ownerTile = { z: zoom, x: 100, y: 100 };

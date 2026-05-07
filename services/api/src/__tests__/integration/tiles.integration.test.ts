@@ -773,6 +773,19 @@ describe('Tile routes', () => {
 
     it('returns the pyramid 204 miss contract for public default low-zoom when no current version exists', async () => {
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 10,
+        lookupCurrentVersion: async () => ({
+          state: 'none',
+          tileStatus: 'pyramid-unavailable',
+          reason: 'unit-no-current',
+        }),
+        requestBuild: async () => ({
+          status: 'enqueued',
+          versionId: '00000000-0000-0000-0000-000000000001',
+          queueJobId: 'property-tile-pyramid-unit',
+        }),
+      });
 
       const response = await app.inject({
         method: 'GET',

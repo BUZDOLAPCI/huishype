@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
-import {
-  serializerCompiler,
-  validatorCompiler,
-} from 'fastify-type-provider-zod';
+import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 
 const getPropertyTilePyramidHealthSummaryMock = jest.fn<() => Promise<unknown>>();
 const getPropertyTilePyramidOpsSummaryMock = jest.fn<() => Promise<unknown>>();
@@ -86,7 +83,7 @@ describe('property tile pyramid health and ops contracts', () => {
     });
   });
 
-  it('degrades /health when no current promoted pyramid exists', async () => {
+  it('fails required /health readiness when no current promoted pyramid exists', async () => {
     getPropertyTilePyramidHealthSummaryMock.mockResolvedValueOnce(
       baseHealthSummary({
         status: 'degraded',
@@ -95,13 +92,13 @@ describe('property tile pyramid health and ops contracts', () => {
         degradedReason: 'no-current-promoted-pyramid',
         encodedCoverageRatio: null,
         lastSuccessfulPromotionAt: null,
-      }),
+      })
     );
 
     const response = await app.inject({ method: 'GET', url: '/health' });
     const body = JSON.parse(response.body);
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(503);
     expect(body.status).toBe('degraded');
     expect(body.propertyTilePyramid).toMatchObject({
       status: 'degraded',
@@ -111,18 +108,45 @@ describe('property tile pyramid health and ops contracts', () => {
     });
   });
 
-  it('degrades /health when pyramid terminal failures are present', async () => {
+  it('allows degraded /health only when explicitly marked non-gating', async () => {
+    getPropertyTilePyramidHealthSummaryMock.mockResolvedValueOnce(
+      baseHealthSummary({
+        status: 'degraded',
+        currentVersionId: null,
+        currentPromotedAt: null,
+        degradedReason: 'no-current-promoted-pyramid',
+        encodedCoverageRatio: null,
+        lastSuccessfulPromotionAt: null,
+      })
+    );
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health?allowDegraded=true',
+    });
+    const body = JSON.parse(response.body);
+
+    expect(response.statusCode).toBe(200);
+    expect(body.status).toBe('degraded');
+    expect(body.propertyTilePyramid).toMatchObject({
+      status: 'degraded',
+      currentVersionId: null,
+      degradedReason: 'no-current-promoted-pyramid',
+    });
+  });
+
+  it('fails required /health readiness when pyramid terminal failures are present', async () => {
     getPropertyTilePyramidHealthSummaryMock.mockResolvedValueOnce(
       baseHealthSummary({
         status: 'degraded',
         terminalFailureCount: 2,
-      }),
+      })
     );
 
     const response = await app.inject({ method: 'GET', url: '/health' });
     const body = JSON.parse(response.body);
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(503);
     expect(body.status).toBe('degraded');
     expect(body.propertyTilePyramid).toMatchObject({
       status: 'degraded',

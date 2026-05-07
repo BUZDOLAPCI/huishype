@@ -27,6 +27,7 @@
     "db:import-buildings": "tsx src/scripts/import-osm-buildings.ts",
     "db:seed-overture": "tsx src/scripts/import-overture-addresses.ts",
     "ingest:recover": "tsx src/scripts/ingest-recovery.ts",
+    "pyramid:rollback": "tsx scripts/property-tile-pyramid-rollback.ts",
     "benchmark:property-tiles": "tsx scripts/benchmark-property-tiles.ts",
     "benchmark:property-tiles:gate": "tsx scripts/benchmark-property-tiles.ts --warm-passes 1 --fail-cold-gen-over-ms 2200 --fail-cold-p95-gen-over-ms 2000"
   },

@@ -146,6 +146,39 @@ describe('property tile pyramid build lifecycle', () => {
     expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
   });
 
+  it('creates a repair replacement when a promoted version has corrupt tile state but source watermarks are unchanged', async () => {
+    executeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'repair-version',
+          status: 'queued',
+          next_retry_at: null,
+          queue_eligible: true,
+          pending_replacement: false,
+        },
+      ]);
+    enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
+      status: 'enqueued',
+      jobId: 'job-1',
+    });
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'manifest-missing',
+      sourceWatermarkHash: 'watermarks',
+      sourceWatermarksJson: {},
+      buildInputsHash: 'inputs',
+    });
+
+    expect(result).toMatchObject({
+      status: 'enqueued',
+      versionId: 'repair-version',
+      existingStatus: 'queued',
+    });
+    expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+  });
+
   it('reports enqueue failure instead of claiming the durable request was enqueued', async () => {
     executeMock
       .mockResolvedValueOnce([])
@@ -212,7 +245,8 @@ describe('property tile pyramid build lifecycle', () => {
     const requestQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
     expect(requestQuery).toContain('active_replacement');
     expect(requestQuery).toContain('pending_replacement_watermarks_json');
-    expect(requestQuery).toContain("status IN ('queued', 'building', 'validating', 'validated')");
+    expect(requestQuery).toContain("status IN ('queued', 'building', 'validating')");
+    expect(requestQuery).toContain('lease_until > now()');
   });
 
   it.each([
@@ -253,6 +287,7 @@ describe('property tile pyramid build lifecycle', () => {
     expect(recoveryQuery).toContain("status IN ('building', 'validating')");
     expect(recoveryQuery).toContain("status = 'validated'");
     expect(recoveryQuery).toContain('lease_until IS NULL');
+    expect(recoveryQuery).not.toContain('source_watermark_hash =');
   });
 
   it('keeps validation and promotion in one transaction so promotion failure is recoverable', async () => {
@@ -331,6 +366,7 @@ describe('property tile pyramid build lifecycle', () => {
     const leaseQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
     expect(leaseQuery).toContain('id =');
     expect(leaseQuery).toContain('00000000-0000-0000-0000-000000000123');
+    expect(leaseQuery).toContain('property_tile_pyramid_backfill');
   });
 
   it('uses the configured WAL limit when validating build resources', async () => {
@@ -486,6 +522,13 @@ describe('property tile pyramid build lifecycle', () => {
       promotedAt: null,
       degradedAt: null,
       degradedReason: null,
+      coverage: {
+        minLon: -180,
+        minLat: -85,
+        maxLon: 180,
+        maxLat: 85,
+        maxZoom: 0,
+      },
     };
 
     const result = await lookupPromotedPropertyTilePyramidTile({
@@ -508,6 +551,52 @@ describe('property tile pyramid build lifecycle', () => {
       payload: Buffer.from('new-payload'),
     }));
     expect(result.state === 'hit' ? result.etag : null).not.toBe('"pyramid-old-empty-seed"');
+  });
+
+  it('does not serve promoted tile manifests unless their validation status is validated', async () => {
+    executeMock.mockResolvedValueOnce([
+      {
+        payload: Buffer.from('stale-payload'),
+        etag: '"pyramid-stale"',
+        node_count: 1,
+        tile_status: 'valid_encoded',
+        validation_status: 'pending',
+      },
+    ]);
+
+    const { lookupPromotedPropertyTilePyramidTile } = await import('./property-tile-pyramid.js');
+    const result = await lookupPromotedPropertyTilePyramidTile({
+      version: {
+        versionId: '00000000-0000-0000-0000-000000000001',
+        coverageId: 'public_default_low_zoom',
+        filterSignature: 'default',
+        maxZoom: 0,
+        pyramidKind: 'public_default_low_zoom',
+        buildInputsHash: 'inputs',
+        sourceWatermarkHash: 'watermarks',
+        status: 'promoted',
+        promotedAt: null,
+        degradedAt: null,
+        degradedReason: null,
+        coverage: {
+          minLon: -180,
+          minLat: -85,
+          maxLon: 180,
+          maxLat: 85,
+          maxZoom: 0,
+        },
+      },
+      z: 0,
+      x: 0,
+      y: 0,
+    });
+
+    expect(result).toMatchObject({
+      state: 'missing',
+      tileStatus: 'pyramid-missing',
+      reason: 'tile-valid_encoded-pending',
+    });
+    expect(executeMock).toHaveBeenCalledTimes(1);
   });
 
   it('runs retention through chunked child-table cleanup before deleting versions', async () => {
