@@ -204,6 +204,13 @@
       "when": 1778198400002,
       "tag": "0028_property_tile_pyramid_promoted_insert_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1778198400003,
+      "tag": "0029_property_tile_pyramid_integrity_preflight",
+      "breakpoints": true
     }
   ]
 }

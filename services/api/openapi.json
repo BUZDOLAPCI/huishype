@@ -27,6 +27,16 @@
           "health"
         ],
         "description": "Returns the health status of the API server",
+        "parameters": [
+          {
+            "schema": {
+              "type": "boolean"
+            },
+            "in": "query",
+            "name": "allowDegraded",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -118,6 +128,36 @@
                             }
                           ]
                         },
+                        "closedWatermarkMaxUpdatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "currentWatermarkMaxUpdatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "closedToCurrentWatermarkLagSeconds": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "lastSuccessfulPromotionAt": {
                           "anyOf": [
                             {
@@ -137,6 +177,168 @@
                         "retryableFailureDueAt",
                         "terminalFailureCount",
                         "encodedCoverageRatio",
+                        "closedWatermarkMaxUpdatedAt",
+                        "currentWatermarkMaxUpdatedAt",
+                        "closedToCurrentWatermarkLagSeconds",
+                        "lastSuccessfulPromotionAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "timestamp",
+                    "version",
+                    "uptime",
+                    "propertyTilePyramid"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "degraded",
+                        "error"
+                      ]
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "uptime": {
+                      "type": "number",
+                      "description": "Server uptime in seconds"
+                    },
+                    "propertyTilePyramid": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "ok",
+                            "degraded"
+                          ]
+                        },
+                        "currentVersionId": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "degradedReason": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "activeCandidateVersionId": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "retryableFailureDueAt": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "terminalFailureCount": {
+                          "type": "number"
+                        },
+                        "encodedCoverageRatio": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "closedWatermarkMaxUpdatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "currentWatermarkMaxUpdatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "closedToCurrentWatermarkLagSeconds": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastSuccessfulPromotionAt": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "currentVersionId",
+                        "degradedReason",
+                        "activeCandidateVersionId",
+                        "retryableFailureDueAt",
+                        "terminalFailureCount",
+                        "encodedCoverageRatio",
+                        "closedWatermarkMaxUpdatedAt",
+                        "currentWatermarkMaxUpdatedAt",
+                        "closedToCurrentWatermarkLagSeconds",
                         "lastSuccessfulPromotionAt"
                       ],
                       "additionalProperties": false
@@ -261,6 +463,36 @@
                         }
                       ]
                     },
+                    "closedWatermarkMaxUpdatedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "currentWatermarkMaxUpdatedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "closedToCurrentWatermarkLagSeconds": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "manifestTileCount": {
                       "anyOf": [
                         {
@@ -292,6 +524,70 @@
                       ]
                     },
                     "memberCount": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "currentBuildDurationMs": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "currentObservedWalBytes": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "activeCandidateStage": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "activeCandidateBuildDurationMs": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "activeCandidateChunkProgress": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "activeCandidateObservedWalBytes": {
                       "anyOf": [
                         {
                           "type": "number"
@@ -395,10 +691,19 @@
                     "retryableFailureDueAt",
                     "terminalFailureCount",
                     "encodedCoverageRatio",
+                    "closedWatermarkMaxUpdatedAt",
+                    "currentWatermarkMaxUpdatedAt",
+                    "closedToCurrentWatermarkLagSeconds",
                     "manifestTileCount",
                     "encodedTileCount",
                     "nodeCount",
                     "memberCount",
+                    "currentBuildDurationMs",
+                    "currentObservedWalBytes",
+                    "activeCandidateStage",
+                    "activeCandidateBuildDurationMs",
+                    "activeCandidateChunkProgress",
+                    "activeCandidateObservedWalBytes",
                     "activeLeaseOwner",
                     "activeLeaseAgeSeconds",
                     "lastSuccessfulPromotionAt",
@@ -1847,7 +2152,8 @@
           {
             "schema": {
               "type": "string",
-              "minLength": 1
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
             },
             "in": "query",
             "name": "pyramidVersionId",
@@ -2309,6 +2615,32 @@
                       "type": "null"
                     }
                   ]
+                }
+              }
+            },
+            "headers": {
+              "x-huishype-nearby-status": {
+                "description": "Pyramid nearby lookup status for promoted, stale, missing, or unavailable responses.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "pyramid-promoted",
+                    "pyramid-empty",
+                    "pyramid-missing",
+                    "pyramid-stale",
+                    "pyramid-unavailable",
+                    "pyramid-build-active",
+                    "pyramid-build-enqueued",
+                    "pyramid-terminal",
+                    "pyramid-uncovered"
+                  ]
+                }
+              },
+              "x-huishype-pyramid-version": {
+                "description": "Current pyramid version used by the nearby lookup when applicable.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
                 }
               }
             }

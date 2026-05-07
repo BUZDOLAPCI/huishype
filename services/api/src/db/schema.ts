@@ -1663,6 +1663,16 @@ export const propertyTilePyramidNodes = pgTable(
       table.versionId,
       table.representativePropertyId
     ),
+    foreignKey({
+      name: 'property_tile_pyramid_nodes_tile_fk',
+      columns: [table.versionId, table.z, table.x, table.y],
+      foreignColumns: [
+        propertyTilePyramidTiles.versionId,
+        propertyTilePyramidTiles.z,
+        propertyTilePyramidTiles.x,
+        propertyTilePyramidTiles.y,
+      ],
+    }).onDelete('cascade'),
     check(
       'property_tile_pyramid_nodes_coord_check',
       sql`${table.z} >= 0

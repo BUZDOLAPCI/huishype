@@ -19,12 +19,15 @@ const healthResponseSchema = z.object({
     retryableFailureDueAt: z.string().nullable(),
     terminalFailureCount: z.number(),
     encodedCoverageRatio: z.number().nullable(),
+    closedWatermarkMaxUpdatedAt: z.string().nullable(),
+    currentWatermarkMaxUpdatedAt: z.string().nullable(),
+    closedToCurrentWatermarkLagSeconds: z.number().nullable(),
     lastSuccessfulPromotionAt: z.string().nullable(),
   }),
 });
 
 const healthQuerySchema = z.object({
-  allowDegraded: z.preprocess((value) => value === true || value === 'true', z.boolean()),
+  allowDegraded: z.preprocess((value) => value === true || value === 'true', z.boolean()).optional(),
 });
 
 const opsPropertyTilePyramidResponseSchema = z.object({
@@ -38,10 +41,19 @@ const opsPropertyTilePyramidResponseSchema = z.object({
   retryableFailureDueAt: z.string().nullable(),
   terminalFailureCount: z.number(),
   encodedCoverageRatio: z.number().nullable(),
+  closedWatermarkMaxUpdatedAt: z.string().nullable(),
+  currentWatermarkMaxUpdatedAt: z.string().nullable(),
+  closedToCurrentWatermarkLagSeconds: z.number().nullable(),
   manifestTileCount: z.number().nullable(),
   encodedTileCount: z.number().nullable(),
   nodeCount: z.number().nullable(),
   memberCount: z.number().nullable(),
+  currentBuildDurationMs: z.number().nullable(),
+  currentObservedWalBytes: z.number().nullable(),
+  activeCandidateStage: z.string().nullable(),
+  activeCandidateBuildDurationMs: z.number().nullable(),
+  activeCandidateChunkProgress: z.record(z.string(), z.unknown()).nullable(),
+  activeCandidateObservedWalBytes: z.number().nullable(),
   activeLeaseOwner: z.string().nullable(),
   activeLeaseAgeSeconds: z.number().nullable(),
   lastSuccessfulPromotionAt: z.string().nullable(),
@@ -92,6 +104,9 @@ export async function healthRoutes(app: FastifyInstance) {
           retryableFailureDueAt: pyramid.retryableFailureDueAt,
           terminalFailureCount: pyramid.terminalFailureCount,
           encodedCoverageRatio: pyramid.encodedCoverageRatio,
+          closedWatermarkMaxUpdatedAt: pyramid.closedWatermarkMaxUpdatedAt,
+          currentWatermarkMaxUpdatedAt: pyramid.currentWatermarkMaxUpdatedAt,
+          closedToCurrentWatermarkLagSeconds: pyramid.closedToCurrentWatermarkLagSeconds,
           lastSuccessfulPromotionAt: pyramid.lastSuccessfulPromotionAt,
         },
       });

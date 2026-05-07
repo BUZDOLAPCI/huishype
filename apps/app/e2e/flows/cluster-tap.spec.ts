@@ -937,7 +937,10 @@ test.describe('Cluster Tap Flow', () => {
     );
   });
 
-  test('tile cluster payloads match membership completeness contract', async ({ page }) => {
+  test('tile cluster payloads match membership completeness contract', async ({
+    page,
+    request,
+  }) => {
     await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
@@ -1040,16 +1043,35 @@ test.describe('Cluster Tap Flow', () => {
               typeof feature.properties?.pyramid_node_id === 'string')
           );
         })
-        .slice(0, 5)
-        .map((feature) => ({
-          point_count: Number(feature.properties?.point_count ?? 0),
-          property_ids_length: parseIds(feature.properties?.property_ids).length,
-          preview_property_ids_length: parseIds(feature.properties?.preview_property_ids).length,
-          membership_complete: feature.properties?.membership_complete ?? null,
-          read_state_coverage: feature.properties?.read_state_coverage ?? null,
-          has_pyramid_version: typeof feature.properties?.pyramid_version_id === 'string',
-          has_pyramid_node: typeof feature.properties?.pyramid_node_id === 'string',
-        }));
+        .slice(0, 3)
+        .map((feature) => {
+          const coordinates =
+            feature.geometry?.type === 'Point' && Array.isArray(feature.geometry.coordinates)
+              ? feature.geometry.coordinates
+              : null;
+          const coordinate =
+            coordinates && typeof coordinates[0] === 'number' && typeof coordinates[1] === 'number'
+              ? ([coordinates[0], coordinates[1]] as [number, number])
+              : null;
+          const previewPropertyIds = parseIds(feature.properties?.preview_property_ids);
+          return {
+            point_count: Number(feature.properties?.point_count ?? 0),
+            property_ids_length: parseIds(feature.properties?.property_ids).length,
+            preview_property_ids: previewPropertyIds,
+            preview_property_ids_length: previewPropertyIds.length,
+            membership_complete: feature.properties?.membership_complete ?? null,
+            read_state_coverage: feature.properties?.read_state_coverage ?? null,
+            pyramid_version_id:
+              typeof feature.properties?.pyramid_version_id === 'string'
+                ? feature.properties.pyramid_version_id
+                : null,
+            pyramid_node_id:
+              typeof feature.properties?.pyramid_node_id === 'string'
+                ? feature.properties.pyramid_node_id
+                : null,
+            coordinate,
+          };
+        });
     });
 
     console.log(`Partial low-zoom cluster features found: ${partialLowZoomFeatures.length}`);
@@ -1059,17 +1081,48 @@ test.describe('Cluster Tap Flow', () => {
     ).toBeGreaterThan(0);
 
     for (const feature of partialLowZoomFeatures) {
-      expect(feature.has_pyramid_version).toBe(true);
-      expect(feature.has_pyramid_node).toBe(true);
+      expect(feature.pyramid_version_id).not.toBeNull();
+      expect(feature.pyramid_node_id).not.toBeNull();
+      expect(feature.coordinate).not.toBeNull();
       expect([true, 'true']).not.toContain(feature.membership_complete);
       expect(feature.read_state_coverage).toBe('partial');
-      expect(feature.property_ids_length).toBeLessThan(feature.point_count);
+      expect(feature.property_ids_length).toBe(0);
+      expect(feature.preview_property_ids_length).toBeGreaterThan(0);
       expect(feature.preview_property_ids_length).toBeLessThanOrEqual(
         PROPERTY_PREVIEW_MEMBER_LIMIT
       );
-      if (feature.preview_property_ids_length > 0) {
-        expect(feature.preview_property_ids_length).toBeLessThanOrEqual(feature.point_count);
-      }
+      expect(feature.preview_property_ids_length).toBeLessThanOrEqual(feature.point_count);
+
+      const [lon, lat] = feature.coordinate as [number, number];
+      const byCoordinate = await request.get(
+        `${API_BASE_URL}/properties/nearby?lon=${lon}&lat=${lat}&zoom=10`,
+        { timeout: 30_000 }
+      );
+      expect(byCoordinate.status()).toBe(200);
+      expect(byCoordinate.headers()['x-huishype-nearby-status']).toBe('pyramid-promoted');
+
+      const byCoordinateBody = await byCoordinate.json();
+      expect(byCoordinateBody).not.toBeNull();
+      expect(byCoordinateBody.pyramidVersionId).toBe(feature.pyramid_version_id);
+      expect(byCoordinateBody.pyramidNodeId).toBe(feature.pyramid_node_id);
+      expect(byCoordinateBody.propertyIds).toEqual([]);
+      expect(byCoordinateBody.previewPropertyIds).toEqual(feature.preview_property_ids);
+
+      const byExactNode = await request.get(
+        `${API_BASE_URL}/properties/nearby?lon=${lon}&lat=${lat}&zoom=10` +
+          `&pyramidVersionId=${encodeURIComponent(feature.pyramid_version_id as string)}` +
+          `&pyramidNodeId=${encodeURIComponent(feature.pyramid_node_id as string)}`,
+        { timeout: 30_000 }
+      );
+      expect(byExactNode.status()).toBe(200);
+      expect(byExactNode.headers()['x-huishype-nearby-status']).toBeUndefined();
+
+      const byExactNodeBody = await byExactNode.json();
+      expect(byExactNodeBody).not.toBeNull();
+      expect(byExactNodeBody.pyramidVersionId).toBe(feature.pyramid_version_id);
+      expect(byExactNodeBody.pyramidNodeId).toBe(feature.pyramid_node_id);
+      expect(byExactNodeBody.propertyIds).toEqual([]);
+      expect(byExactNodeBody.previewPropertyIds).toEqual(feature.preview_property_ids);
       console.log(
         `Partial low-zoom cluster: point_count=${feature.point_count}, property_ids=${feature.property_ids_length}, preview_ids=${feature.preview_property_ids_length}`
       );

@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import { closeConnection, db } from '../src/db/index.js';
 
@@ -30,6 +32,10 @@ type VersionRow = {
   pyramid_kind: string;
   status: string;
 };
+
+function isDirectRun(): boolean {
+  return process.argv[1] != null && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+}
 
 function printUsage(): void {
   console.log(`Usage:
@@ -170,6 +176,15 @@ async function findCurrentPointer(options: CliOptions): Promise<CurrentPointerRo
   return rows[0];
 }
 
+export async function validateRollbackTargetVersion(
+  targetVersionId: string,
+  executor: Pick<typeof db, 'execute'> = db,
+): Promise<void> {
+  await executor.execute(sql`
+    SELECT property_tile_pyramid_assert_promotable(${targetVersionId}::uuid)
+  `);
+}
+
 async function findTargetVersion(
   pointer: CurrentPointerRow,
   targetVersionId: string
@@ -200,6 +215,8 @@ async function findTargetVersion(
   if (target.status !== 'promoted') {
     throw new Error(`Target version ${targetVersionId} must be promoted, got ${target.status}`);
   }
+
+  await validateRollbackTargetVersion(targetVersionId);
 
   return target;
 }
@@ -232,6 +249,8 @@ async function applyRollback(
     if (!locked || locked.current_version_id !== pointer.current_version_id) {
       throw new Error('Current pointer changed before rollback could be applied');
     }
+
+    await validateRollbackTargetVersion(target.id, tx);
 
     await tx.execute(sql`
       UPDATE property_tile_pyramid_current
@@ -326,11 +345,13 @@ async function main(): Promise<void> {
   console.log('Property tile pyramid rollback applied.');
 }
 
-main()
-  .catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeConnection();
-  });
+if (isDirectRun()) {
+  main()
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await closeConnection();
+    });
+}

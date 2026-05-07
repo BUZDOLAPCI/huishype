@@ -23,12 +23,17 @@ async function insertPyramidVersion(input?: {
   coverageId?: string;
   expectedTileCount?: number;
   validatedTileCount?: number;
+  configFilterSignature?: string;
 }): Promise<string> {
   const versionId = crypto.randomUUID();
   const unique = crypto.randomUUID();
   const coverageId = input?.coverageId ?? `${coveragePrefix}-${unique}`;
   const expectedTileCount = input?.expectedTileCount ?? 2;
   const validatedTileCount = input?.validatedTileCount ?? expectedTileCount;
+  const configHash = crypto.createHash('sha256').update(`config-${unique}`).digest('hex');
+  const buildInputsHash = crypto.createHash('sha256').update(`inputs-${unique}`).digest('hex');
+  const sourceWatermarkHash = crypto.createHash('sha256').update(`watermarks-${unique}`).digest('hex');
+  const coverageConfigHash = crypto.createHash('sha256').update(`coverage-${unique}`).digest('hex');
   const coverageSnapshot = {
     coverageId,
     filterSignature: 'public-default',
@@ -41,6 +46,37 @@ async function insertPyramidVersion(input?: {
       maxLat: 85,
     },
   };
+  const configSnapshot = {
+    pipelineVersion: 'property-tile-pyramid:v1',
+    servingSlot: {
+      coverageId,
+      filterSignature: input?.configFilterSignature ?? 'public-default',
+      maxZoom: 1,
+      pyramidKind: 'public_default_low_zoom',
+    },
+    defaultFilter: {
+      signature: input?.configFilterSignature ?? 'public-default',
+      filters: {
+        salePriceFrom: null,
+        salePriceTo: null,
+        rentPriceFrom: null,
+        rentPriceTo: null,
+        marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+        activity: 'all',
+      },
+    },
+    coverageConfigHash,
+  };
+  const groupingConstants = {
+    pipelineVersion: 'property-tile-pyramid:v1',
+    canonicalGrouping: {
+      filterSignature: 'public-default',
+    },
+    mvtEncoding: {
+      layerName: 'properties',
+      extent: 4096,
+    },
+  };
   await db.execute(sql`
     INSERT INTO property_tile_pyramid_versions (
       id,
@@ -51,6 +87,7 @@ async function insertPyramidVersion(input?: {
       config_hash,
       build_inputs_hash,
       source_watermark_hash,
+      source_watermarks_json,
       status,
       expected_tile_count,
       validated_tile_count,
@@ -66,22 +103,23 @@ async function insertPyramidVersion(input?: {
       'public-default',
       1,
       'public_default_low_zoom',
-      ${`config-${unique}`},
-      ${`inputs-${unique}`},
-      ${`watermarks-${unique}`},
+      ${configHash},
+      ${buildInputsHash},
+      ${sourceWatermarkHash},
+      ${JSON.stringify({
+        sources: [
+          {
+            source: 'schema-integration-test',
+            watermarkValue: unique,
+          },
+        ],
+      })}::jsonb,
       'validated',
       ${expectedTileCount},
       ${validatedTileCount},
       ${JSON.stringify(coverageSnapshot)}::jsonb,
-      ${JSON.stringify({
-        servingSlot: {
-          coverageId,
-          filterSignature: 'public-default',
-          maxZoom: 1,
-          pyramidKind: 'public_default_low_zoom',
-        },
-      })}::jsonb,
-      ${JSON.stringify({ previewMemberLimit: 30 })}::jsonb,
+      ${JSON.stringify(configSnapshot)}::jsonb,
+      ${JSON.stringify(groupingConstants)}::jsonb,
       ${JSON.stringify({
         expectedTileCount,
         observedTileCount: validatedTileCount,
@@ -250,6 +288,7 @@ describe('property tile pyramid schema safeguards', () => {
       'property_tile_pyramid_tiles_pk',
       'property_tile_pyramid_tiles_validation_check',
       'property_tile_pyramid_nodes_pk',
+      'property_tile_pyramid_nodes_tile_fk',
     ]));
 
     const indexes = Array.from(await db.execute<{ indexname: string }>(sql`
@@ -346,6 +385,35 @@ describe('property tile pyramid schema safeguards', () => {
     await expectDbFailure(
       () => promote(versionId),
       /unvalidated or invalid tile manifest rows/,
+    );
+  });
+
+  it('rejects promotion when identity snapshots disagree with the serving slot', async () => {
+    const versionId = await insertPyramidVersion({
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+      configFilterSignature: 'corrupt-filter',
+    });
+    await insertTileManifest({
+      versionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+
+    await expectDbFailure(
+      () => promote(versionId),
+      /config snapshot does not match serving slot/,
+    );
+  });
+
+  it('rejects pyramid nodes that are not attached to a tile manifest row', async () => {
+    const versionId = await insertPyramidVersion({ expectedTileCount: 1, validatedTileCount: 1 });
+
+    await expectDbFailure(
+      () => insertPyramidNode({ versionId, x: 0 }),
+      /property_tile_pyramid_nodes_tile_fk|violates foreign key constraint/,
     );
   });
 

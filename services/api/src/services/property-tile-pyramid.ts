@@ -26,6 +26,11 @@ const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 const DEFAULT_LEASE_SECONDS = 900;
 const DEFAULT_MAX_HEAP_MB = 1_024;
 const DEFAULT_MAX_WAL_BYTES_PER_CHUNK = 1_073_741_824;
+const PROPERTY_TILE_PYRAMID_PREFLIGHT_TILE_HEAP_BYTES = 250;
+const PROPERTY_TILE_PYRAMID_PREFLIGHT_TILE_INDEX_BYTES = 80;
+const PROPERTY_TILE_PYRAMID_PREFLIGHT_MEMBER_HEAP_BYTES = 96;
+const PROPERTY_TILE_PYRAMID_PREFLIGHT_MEMBER_INDEX_BYTES = 32;
+const PROPERTY_TILE_PYRAMID_PREFLIGHT_SOURCE_PLAN_BYTES = 24;
 const PYRAMID_RETENTION_ADVISORY_LOCK = 'property_tile_pyramid_retention';
 const PYRAMID_BACKFILL_ADVISORY_LOCK = 'property_tile_pyramid_backfill';
 const PROPERTY_TILE_PYRAMID_MIN_ZOOM = 0;
@@ -158,6 +163,15 @@ const PROPERTY_TILE_PYRAMID_MUTATION_BUILD_POLICIES: Record<
   },
 };
 
+const PROPERTY_TILE_PYRAMID_WORKER_RECOVERY_MUTATION_POLICIES: Array<{
+  policy: PropertyTilePyramidMutationBuildPolicy;
+  scopes: PropertyTilePyramidSourceWatermarkScope[];
+}> = [
+  { policy: 'listing', scopes: ['listing_facts', 'property_status'] },
+  { policy: 'social', scopes: ['social_inputs'] },
+  { policy: 'views', scopes: ['views_engagement'] },
+];
+
 export interface PropertyTilePyramidBuildIdentitySnapshots {
   buildInputsHash: string;
   configHash: string;
@@ -177,6 +191,9 @@ export interface PropertyTilePyramidHealthSummary {
   retryableFailureDueAt: string | null;
   terminalFailureCount: number;
   encodedCoverageRatio: number | null;
+  closedWatermarkMaxUpdatedAt: string | null;
+  currentWatermarkMaxUpdatedAt: string | null;
+  closedToCurrentWatermarkLagSeconds: number | null;
   lastSuccessfulPromotionAt: string | null;
   resourceControls: {
     chunkTileLimit: number;
@@ -194,6 +211,12 @@ export interface PropertyTilePyramidOpsSummary extends PropertyTilePyramidHealth
   encodedTileCount: number | null;
   nodeCount: number | null;
   memberCount: number | null;
+  currentBuildDurationMs: number | null;
+  currentObservedWalBytes: number | null;
+  activeCandidateStage: string | null;
+  activeCandidateBuildDurationMs: number | null;
+  activeCandidateChunkProgress: Record<string, unknown> | null;
+  activeCandidateObservedWalBytes: number | null;
   activeLeaseOwner: string | null;
   activeLeaseAgeSeconds: number | null;
   lastAuditAction: string | null;
@@ -1178,6 +1201,62 @@ async function claimPropertyTilePyramidMutationBuildRequest(input: {
   }
 }
 
+async function hasPropertyTilePyramidRecoveryWorkInSlot(
+  slot: PropertyTilePyramidSlot,
+): Promise<boolean> {
+  const rows = await db.execute<{ has_recovery_work: boolean }>(sql`
+    SELECT (
+      EXISTS (
+        SELECT 1
+        FROM property_tile_pyramid_versions
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          AND (
+            status = 'queued'
+            OR (
+              status IN ('building', 'validating')
+              AND lease_until IS NOT NULL
+              AND lease_until > now()
+            )
+            OR (
+              status = 'failed_retryable'
+              AND (
+                next_retry_at IS NULL
+                OR next_retry_at <= now()
+              )
+            )
+          )
+        LIMIT 1
+      )
+      OR NOT EXISTS (
+        SELECT 1
+        FROM property_tile_pyramid_current
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      )
+    ) AS has_recovery_work
+  `);
+  return Array.from(rows)[0]?.has_recovery_work === true;
+}
+
+async function claimPropertyTilePyramidWorkerRecoveryBuildRequest(reason: string): Promise<boolean> {
+  let claimed = false;
+  for (const policy of PROPERTY_TILE_PYRAMID_WORKER_RECOVERY_MUTATION_POLICIES) {
+    if (await claimPropertyTilePyramidMutationBuildRequest({
+      reason,
+      policy: policy.policy,
+      scopes: policy.scopes,
+    })) {
+      claimed = true;
+    }
+  }
+  return claimed;
+}
+
 export async function safeRequestPropertyTilePyramidBuildAfterMutation(
   input: Parameters<typeof requestPropertyTilePyramidBuild>[0] & {
     policy: PropertyTilePyramidMutationBuildPolicy;
@@ -1620,28 +1699,40 @@ export async function requestPropertyTilePyramidBuild(input: {
   const slot = input.slot ?? getDefaultPropertyTilePyramidSlot();
   const buildIdentity = buildPropertyTilePyramidBuildIdentitySnapshots(slot);
   const buildInputsHash = input.buildInputsHash ?? buildIdentity.buildInputsHash;
-  let sourceWatermarks = input.sourceWatermarkHash
-    ? {
-        sourceWatermarkHash: input.sourceWatermarkHash,
-        sourceWatermarksJson: input.sourceWatermarksJson ?? {},
-      }
-    : await readPropertyTilePyramidSourceWatermarkSnapshot();
-  if (PROPERTY_TILE_PYRAMID_REPAIR_REASONS.has(String(input.reason))) {
-    sourceWatermarks = buildRepairSourceWatermarkSnapshot({
-      baseSourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
-      baseSourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
-      reason: String(input.reason),
-      slot,
-    });
-  }
-  const { sourceWatermarkHash, sourceWatermarksJson } = sourceWatermarks;
+  const reason = String(input.reason);
+  const useWorkerRecoveryMutationPolicy =
+    reason === 'worker-recovery' && input.sourceWatermarkHash == null && input.buildInputsHash == null;
 
   try {
-    await recoverStalePropertyTilePyramidBuildRequest({
+    const recoveredStaleBuildCount = await recoverStalePropertyTilePyramidBuildRequest({
       slot,
-      buildInputsHash,
-      reason: String(input.reason),
+      reason,
     });
+
+    if (
+      useWorkerRecoveryMutationPolicy
+      && recoveredStaleBuildCount === 0
+      && !(await hasPropertyTilePyramidRecoveryWorkInSlot(slot))
+      && !(await claimPropertyTilePyramidWorkerRecoveryBuildRequest(reason))
+    ) {
+      return { status: 'coalesced', reason: 'mutation-build-throttled' };
+    }
+
+    let sourceWatermarks = input.sourceWatermarkHash
+      ? {
+          sourceWatermarkHash: input.sourceWatermarkHash,
+          sourceWatermarksJson: input.sourceWatermarksJson ?? {},
+        }
+      : await readPropertyTilePyramidSourceWatermarkSnapshot();
+    if (PROPERTY_TILE_PYRAMID_REPAIR_REASONS.has(reason)) {
+      sourceWatermarks = buildRepairSourceWatermarkSnapshot({
+        baseSourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
+        baseSourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
+        reason,
+        slot,
+      });
+    }
+    const { sourceWatermarkHash, sourceWatermarksJson } = sourceWatermarks;
 
     const rows = await db.execute<{
       id: string;
@@ -1657,18 +1748,31 @@ export async function requestPropertyTilePyramidBuild(input: {
           AND filter_signature = ${slot.filterSignature}
           AND max_zoom = ${slot.maxZoom}
           AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
-          AND status IN ('queued', 'building', 'validating')
-          AND (
-            status = 'queued'
-            OR (
-              status IN ('building', 'validating')
-              AND lease_until IS NOT NULL
-              AND lease_until > now()
-            )
-          )
+          AND status IN ('building', 'validating')
+          AND lease_until IS NOT NULL
+          AND lease_until > now()
         ORDER BY requested_at ASC NULLS LAST, updated_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
+      ),
+      superseded_queued AS MATERIALIZED (
+        UPDATE property_tile_pyramid_versions
+        SET
+          status = 'superseded',
+          terminal_reason = 'Superseded by newer property tile pyramid build request before work started',
+          build_finished_at = COALESCE(build_finished_at, now()),
+          updated_at = now()
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          AND status = 'queued'
+          AND NOT (
+            build_inputs_hash = ${buildInputsHash}
+            AND source_watermark_hash = ${sourceWatermarkHash}
+          )
+          AND NOT EXISTS (SELECT 1 FROM active_replacement)
+        RETURNING id
       ),
       inserted AS (
         INSERT INTO property_tile_pyramid_versions (
@@ -1701,10 +1805,11 @@ export async function requestPropertyTilePyramidBuild(input: {
           ${stableJson(buildIdentity.configSnapshot)}::jsonb,
           ${stableJson(buildIdentity.groupingConstants)}::jsonb,
           'queued',
-          ${input.reason},
+          ${reason},
           now(),
           now()
         WHERE NOT EXISTS (SELECT 1 FROM active_replacement)
+          AND (SELECT count(*) FROM superseded_queued) >= 0
         ON CONFLICT (
           coverage_id,
           filter_signature,
@@ -1732,10 +1837,10 @@ export async function requestPropertyTilePyramidBuild(input: {
           pending_replacement_watermarks_json = jsonb_build_object(
             'sourceWatermarkHash', ${sourceWatermarkHash}::text,
             'sourceWatermarksJson', ${JSON.stringify(sourceWatermarksJson)}::jsonb,
-            'reason', ${input.reason}::text,
+            'reason', ${reason}::text,
             'requestedAt', now()
           ),
-          request_reason = ${input.reason}::text,
+          request_reason = ${reason}::text,
           updated_at = now()
         FROM active_replacement a
         WHERE v.id = a.id
@@ -1869,46 +1974,48 @@ export async function requestPropertyTilePyramidBuild(input: {
 
 async function recoverStalePropertyTilePyramidBuildRequest(input: {
   slot: PropertyTilePyramidSlot;
-  buildInputsHash: string;
   reason: string;
-}): Promise<void> {
-  await db.execute(sql`
-    UPDATE property_tile_pyramid_versions
-    SET
-      status = 'failed_retryable',
-      request_reason = ${input.reason},
-      failure_category = CASE
-        WHEN status = 'validated' THEN 'stale_validated'
-        ELSE 'lease_expired'
-      END,
-      failure_message = CASE
-        WHEN status = 'validated' THEN 'Validated property tile pyramid build was not promoted'
-        ELSE 'Property tile pyramid build lease expired before completion'
-      END,
-      failed_stage = status::text,
-      next_retry_at = now(),
-      lease_owner = NULL,
-      lease_token = NULL,
-      lease_until = NULL,
-      build_finished_at = COALESCE(build_finished_at, now()),
-      updated_at = now()
-    WHERE coverage_id = ${input.slot.coverageId}
-      AND filter_signature = ${input.slot.filterSignature}
-      AND max_zoom = ${input.slot.maxZoom}
-      AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
-      AND build_inputs_hash = ${input.buildInputsHash}
-      AND (
-        (
-          status IN ('building', 'validating')
-          AND lease_until IS NOT NULL
-          AND lease_until <= now()
+}): Promise<number> {
+  const rows = await db.execute<{ recovered_count: number | string }>(sql`
+    WITH recovered AS (
+      UPDATE property_tile_pyramid_versions
+      SET
+        status = 'failed_retryable',
+        request_reason = ${input.reason},
+        failure_category = CASE
+          WHEN status = 'validated' THEN 'stale_validated'
+          ELSE 'lease_expired'
+        END,
+        failure_message = CASE
+          WHEN status = 'validated' THEN 'Validated property tile pyramid build was not promoted'
+          ELSE 'Property tile pyramid build lease expired before completion'
+        END,
+        failed_stage = status::text,
+        next_retry_at = now(),
+        lease_owner = NULL,
+        lease_token = NULL,
+        lease_until = NULL,
+        build_finished_at = COALESCE(build_finished_at, now()),
+        updated_at = now()
+      WHERE coverage_id = ${input.slot.coverageId}
+        AND filter_signature = ${input.slot.filterSignature}
+        AND max_zoom = ${input.slot.maxZoom}
+        AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
+        AND (
+          (
+            status IN ('building', 'validating')
+            AND (lease_until IS NULL OR lease_until <= now())
+          )
+          OR (
+            status = 'validated'
+            AND (lease_until IS NULL OR lease_until <= now())
+          )
         )
-        OR (
-          status = 'validated'
-          AND (lease_until IS NULL OR lease_until <= now())
-        )
-      )
+      RETURNING 1
+    )
+    SELECT count(*)::int AS recovered_count FROM recovered
   `);
+  return Number(Array.from(rows)[0]?.recovered_count ?? 0);
 }
 
 async function enqueuePropertyTilePyramidBuildSignal(input: {
@@ -1987,6 +2094,124 @@ function readPendingReplacementWatermarkSnapshot(
   return {
     sourceWatermarkHash,
     sourceWatermarksJson: readRecord(value.sourceWatermarksJson ?? {}, 'pending replacement watermarks'),
+  };
+}
+
+function readExplainPlanRows(value: unknown): number | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const rows = readExplainPlanRows(item);
+      if (rows != null) {
+        return rows;
+      }
+    }
+    return null;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const planRows = record['Plan Rows'];
+  if (typeof planRows === 'number' && Number.isFinite(planRows) && planRows >= 0) {
+    return planRows;
+  }
+
+  const plan = readExplainPlanRows(record.Plan);
+  if (plan != null) {
+    return plan;
+  }
+
+  return readExplainPlanRows(record.Plans);
+}
+
+function readQueryPlanField(row: Record<string, unknown> | undefined): unknown {
+  if (!row) {
+    return null;
+  }
+  return row['QUERY PLAN'] ?? row['QUERY_PLAN'] ?? row['query plan'] ?? null;
+}
+
+async function estimatePropertyTilePyramidPlanRows(query: SQL): Promise<number | null> {
+  const rows = await db.execute<Record<string, unknown>>(query);
+  const planValue = readQueryPlanField(Array.from(rows)[0]);
+  if (typeof planValue === 'string') {
+    try {
+      return readExplainPlanRows(JSON.parse(planValue));
+    } catch {
+      return null;
+    }
+  }
+  return readExplainPlanRows(planValue);
+}
+
+async function estimatePropertyTilePyramidPreflight(input: {
+  coverage: VersionBoundPropertyTilePyramidCoverage;
+  tileCount: number;
+  controls: PropertyTilePyramidHealthSummary['resourceControls'];
+}): Promise<{
+  estimatedMemberRows: number;
+  estimatedPropertySourceRows: number;
+  estimatedListingCandidateRows: number;
+  estimatedHeapBytes: number;
+  estimatedIndexBytes: number;
+  estimatedWalBytes: number;
+}> {
+  const envelope = sql`ST_MakeEnvelope(
+    ${input.coverage.minLon},
+    ${input.coverage.minLat},
+    ${input.coverage.maxLon},
+    ${input.coverage.maxLat},
+    4326
+  )`;
+  const propertySourceRows = await estimatePropertyTilePyramidPlanRows(sql`
+    EXPLAIN (FORMAT JSON)
+    SELECT p.id
+    FROM properties p
+    WHERE p.geometry IS NOT NULL
+      AND p.status = 'active'
+      AND p.geometry && ${envelope}
+  `);
+  const listingCandidateRows = await estimatePropertyTilePyramidPlanRows(sql`
+    EXPLAIN (FORMAT JSON)
+    SELECT lpc.property_id
+    FROM property_tile_listing_candidates lpc
+    WHERE lpc.geometry && ${envelope}
+  `);
+  const estimatedPropertySourceRows = Math.max(0, Math.ceil(propertySourceRows ?? 0));
+  const estimatedListingCandidateRows = Math.max(0, Math.ceil(listingCandidateRows ?? 0));
+  const estimatedMemberRows = Math.max(estimatedPropertySourceRows, estimatedListingCandidateRows);
+  const estimatedHeapBytes = Math.round(
+    input.tileCount * PROPERTY_TILE_PYRAMID_PREFLIGHT_TILE_HEAP_BYTES
+    + estimatedMemberRows * PROPERTY_TILE_PYRAMID_PREFLIGHT_MEMBER_HEAP_BYTES
+    + estimatedPropertySourceRows * PROPERTY_TILE_PYRAMID_PREFLIGHT_SOURCE_PLAN_BYTES,
+  );
+  const estimatedIndexBytes = Math.round(
+    input.tileCount * PROPERTY_TILE_PYRAMID_PREFLIGHT_TILE_INDEX_BYTES
+    + estimatedMemberRows * PROPERTY_TILE_PYRAMID_PREFLIGHT_MEMBER_INDEX_BYTES,
+  );
+  const estimatedWalBytes = Math.round((estimatedHeapBytes + estimatedIndexBytes) * 2.5);
+  const maxHeapBytes = input.controls.maxHeapMb * 1024 * 1024;
+
+  if (estimatedHeapBytes > maxHeapBytes) {
+    throw new Error(
+      `Estimated preflight heap ${estimatedHeapBytes} exceeds ${maxHeapBytes} bytes`,
+    );
+  }
+  if (estimatedWalBytes > input.controls.maxWalBytesPerChunk) {
+    throw new Error(
+      `Estimated preflight WAL ${estimatedWalBytes} exceeds ${input.controls.maxWalBytesPerChunk} bytes`,
+    );
+  }
+
+  return {
+    estimatedMemberRows,
+    estimatedPropertySourceRows,
+    estimatedListingCandidateRows,
+    estimatedHeapBytes,
+    estimatedIndexBytes,
+    estimatedWalBytes,
   };
 }
 
@@ -2620,17 +2845,25 @@ export async function executeDuePropertyTilePyramidBuild(options: {
     const controls = buildContext.resourceControls;
     const startedAt = Date.now();
     let nodeCount = 0;
+    let memberRowCount = 0;
     let nonEmptyTileCount = 0;
     let encodedPayloadBytes = 0;
 
-    const preflightHeapBytes = tiles.length * 250;
-    const preflightIndexBytes = tiles.length * 80;
-    const preflightWalBytes = Math.round((preflightHeapBytes + preflightIndexBytes) * 2.5);
-    if (preflightWalBytes > controls.maxWalBytesPerChunk) {
+    let preflightEstimate: Awaited<ReturnType<typeof estimatePropertyTilePyramidPreflight>>;
+    try {
+      preflightEstimate = await estimatePropertyTilePyramidPreflight({
+        coverage: buildContext.coverage,
+        tileCount: tiles.length,
+        controls,
+      });
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'Property tile pyramid preflight resource estimate failed';
       await markPropertyTilePyramidBuildFailure({
         versionId: row.id,
         category: 'resource_limit',
-        message: `Estimated minimum WAL ${preflightWalBytes} exceeds ${controls.maxWalBytesPerChunk} bytes`,
+        message,
         stage: 'resource-validation-preflight',
         retryDelayMinutes: 15,
         lease,
@@ -2707,6 +2940,7 @@ export async function executeDuePropertyTilePyramidBuild(options: {
         },
       );
       nodeCount += groups.length;
+      memberRowCount += groups.reduce((sum, group) => sum + group.pointCount, 0);
       if (groups.length > 0) {
         nonEmptyTileCount += 1;
       }
@@ -2750,14 +2984,17 @@ export async function executeDuePropertyTilePyramidBuild(options: {
       }
     }
 
-    const heapBytes = nodeCount * 600 + tiles.length * 250 + encodedPayloadBytes;
-    const indexBytes = Math.round(nodeCount * 160 + tiles.length * 80);
+    const heapBytes = nodeCount * 600 + memberRowCount * 96 + tiles.length * 250 + encodedPayloadBytes;
+    const indexBytes = Math.round(nodeCount * 160 + memberRowCount * 32 + tiles.length * 80);
     const walBytes = Math.round((heapBytes + indexBytes) * 2.5);
-    if (walBytes > controls.maxWalBytesPerChunk) {
+    const maxHeapBytes = controls.maxHeapMb * 1024 * 1024;
+    if (heapBytes > maxHeapBytes || walBytes > controls.maxWalBytesPerChunk) {
       await markPropertyTilePyramidBuildFailure({
         versionId: row.id,
         category: 'resource_limit',
-        message: `Estimated WAL ${walBytes} exceeds ${controls.maxWalBytesPerChunk} bytes`,
+        message: heapBytes > maxHeapBytes
+          ? `Estimated heap ${heapBytes} exceeds ${maxHeapBytes} bytes`
+          : `Estimated WAL ${walBytes} exceeds ${controls.maxWalBytesPerChunk} bytes`,
         stage: 'resource-validation',
         retryDelayMinutes: 15,
         lease,
@@ -2788,6 +3025,7 @@ export async function executeDuePropertyTilePyramidBuild(options: {
             validated_tile_count = ${tiles.length},
             non_empty_tile_count = ${nonEmptyTileCount},
             node_count = ${nodeCount},
+            member_row_count = ${memberRowCount},
             encoded_payload_bytes = ${encodedPayloadBytes},
             heap_bytes = ${heapBytes},
             index_bytes = ${indexBytes},
@@ -2797,11 +3035,12 @@ export async function executeDuePropertyTilePyramidBuild(options: {
               observedTileCount: tiles.length,
               nonEmptyTileCount,
               nodeCount,
-              memberRowCount: 0,
+              memberRowCount,
               encodedPayloadBytes,
               heapBytes,
               indexBytes,
               walBytes,
+              preflight: preflightEstimate,
               wallClockMs: Date.now() - startedAt,
               chunkTileLimit: controls.chunkTileLimit,
               maxWalBytesPerChunk: controls.maxWalBytesPerChunk,
@@ -2827,6 +3066,32 @@ export async function executeDuePropertyTilePyramidBuild(options: {
       sourceWatermarksJson: row.source_watermarks_json,
     });
     const sourceWatermarkAdvanced = latestSourceWatermarks.sourceWatermarkHash !== comparableClosedSourceWatermarkHash;
+    const pendingReplacementAdvanced =
+      pendingReplacementWatermarks?.sourceWatermarkHash != null &&
+      pendingReplacementWatermarks.sourceWatermarkHash !== comparableClosedSourceWatermarkHash;
+    if (sourceWatermarkAdvanced || pendingReplacementAdvanced) {
+      await markPropertyTilePyramidBuildFailure({
+        versionId: row.id,
+        category: 'source_watermark_advanced',
+        message: 'Property tile pyramid source watermarks changed before promotion',
+        stage: 'source-watermark-validation',
+        retryDelayMinutes: 0,
+        lease,
+      });
+      await requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced({
+        slot,
+        sourceWatermarkHash: row.source_watermark_hash,
+        sourceWatermarksJson: row.source_watermarks_json,
+        latestSourceWatermarks,
+        pendingReplacementWatermarks,
+        reason: 'source-watermark',
+      });
+      return {
+        status: 'failed_retryable',
+        versionId: row.id,
+        failureCategory: 'source_watermark_advanced',
+      };
+    }
     const promotion = {
       status: 'promoted' as 'promoted' | 'superseded_by_current',
     };
@@ -2982,6 +3247,7 @@ export async function executeDuePropertyTilePyramidBuild(options: {
 }
 
 export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTilePyramidHealthSummary> {
+  const slot = getDefaultPropertyTilePyramidSlot();
   try {
     const rows = await db.execute<{
       current_version_id: string | null;
@@ -2992,28 +3258,53 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
       retryable_failure_due_at: string | null;
       terminal_failure_count: number | string | null;
       encoded_coverage_ratio: number | string | null;
+      closed_watermark_max_updated_at: string | null;
+      current_watermark_max_updated_at: string | null;
+      closed_to_current_watermark_lag_seconds: number | string | null;
       last_successful_promotion_at: string | null;
     }>(sql`
       WITH current_version AS (
         SELECT v.*
         FROM property_tile_pyramid_current c
         JOIN property_tile_pyramid_versions v ON v.id = c.current_version_id
-        WHERE c.coverage_id = ${getDefaultPropertyTilePyramidSlot().coverageId}
-          AND c.filter_signature = ${getDefaultPropertyTilePyramidSlot().filterSignature}
-          AND c.max_zoom = ${getDefaultPropertyTilePyramidSlot().maxZoom}
-          AND c.pyramid_kind = ${getDefaultPropertyTilePyramidSlot().pyramidKind}::property_tile_pyramid_kind
+        WHERE c.coverage_id = ${slot.coverageId}
+          AND c.filter_signature = ${slot.filterSignature}
+          AND c.max_zoom = ${slot.maxZoom}
+          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
         LIMIT 1
       ),
       active_candidate AS (
         SELECT id, status, next_retry_at
         FROM property_tile_pyramid_versions
-        WHERE coverage_id = ${getDefaultPropertyTilePyramidSlot().coverageId}
-          AND filter_signature = ${getDefaultPropertyTilePyramidSlot().filterSignature}
-          AND max_zoom = ${getDefaultPropertyTilePyramidSlot().maxZoom}
-          AND pyramid_kind = ${getDefaultPropertyTilePyramidSlot().pyramidKind}::property_tile_pyramid_kind
-          AND status IN ('queued', 'building', 'validating', 'failed_retryable')
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          AND (
+            status IN ('queued', 'building', 'validating', 'failed_retryable')
+            OR (
+              status = 'failed_terminal'
+              AND (
+                (SELECT id FROM current_version) IS NULL
+                OR requested_at >= (SELECT promoted_at FROM current_version)
+              )
+            )
+          )
         ORDER BY updated_at DESC NULLS LAST
         LIMIT 1
+      ),
+      active_terminal_failures AS (
+        SELECT count(*)::int AS count
+        FROM property_tile_pyramid_versions
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          AND status = 'failed_terminal'
+          AND (
+            (SELECT id FROM current_version) IS NULL
+            OR requested_at >= (SELECT promoted_at FROM current_version)
+          )
       ),
       encoded AS (
         SELECT
@@ -3023,6 +3314,19 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
           END AS ratio
         FROM property_tile_pyramid_tiles
         WHERE version_id = (SELECT id FROM current_version)
+      ),
+      closed_watermark AS (
+        SELECT max((entry->>'updatedAt')::timestamptz) AS max_updated_at
+        FROM current_version
+        CROSS JOIN LATERAL jsonb_array_elements(
+          COALESCE(source_watermarks_json->'sources', '[]'::jsonb)
+        ) AS entry
+        WHERE entry->>'source' = 'property_tile_pyramid_source_watermarks'
+          AND NULLIF(entry->>'updatedAt', '') IS NOT NULL
+      ),
+      current_watermark AS (
+        SELECT max(updated_at) AS max_updated_at
+        FROM property_tile_pyramid_source_watermarks
       )
       SELECT
         (SELECT id::text FROM current_version) AS current_version_id,
@@ -3031,16 +3335,29 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
         (SELECT id::text FROM active_candidate) AS active_candidate_version_id,
         (SELECT status FROM active_candidate) AS active_candidate_status,
         (SELECT next_retry_at::text FROM active_candidate WHERE status = 'failed_retryable') AS retryable_failure_due_at,
-        (
-          SELECT count(*)::int
-          FROM property_tile_pyramid_versions
-          WHERE status = 'failed_terminal'
-        ) AS terminal_failure_count,
+        (SELECT count FROM active_terminal_failures) AS terminal_failure_count,
         (SELECT ratio FROM encoded) AS encoded_coverage_ratio,
+        (SELECT max_updated_at::text FROM closed_watermark) AS closed_watermark_max_updated_at,
+        (SELECT max_updated_at::text FROM current_watermark) AS current_watermark_max_updated_at,
+        (
+          SELECT
+            CASE
+              WHEN closed_watermark.max_updated_at IS NULL OR current_watermark.max_updated_at IS NULL THEN NULL
+              ELSE GREATEST(
+                0,
+                EXTRACT(EPOCH FROM current_watermark.max_updated_at - closed_watermark.max_updated_at)
+              )
+            END
+          FROM closed_watermark, current_watermark
+        ) AS closed_to_current_watermark_lag_seconds,
         (
           SELECT max(promoted_at)::text
           FROM property_tile_pyramid_versions
-          WHERE status = 'promoted'
+          WHERE coverage_id = ${slot.coverageId}
+            AND filter_signature = ${slot.filterSignature}
+            AND max_zoom = ${slot.maxZoom}
+            AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+            AND status = 'promoted'
         ) AS last_successful_promotion_at
     `);
 
@@ -3059,6 +3376,11 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
       retryableFailureDueAt: row?.retryable_failure_due_at ?? null,
       terminalFailureCount,
       encodedCoverageRatio: row?.encoded_coverage_ratio == null ? null : Number(row.encoded_coverage_ratio),
+      closedWatermarkMaxUpdatedAt: row?.closed_watermark_max_updated_at ?? null,
+      currentWatermarkMaxUpdatedAt: row?.current_watermark_max_updated_at ?? null,
+      closedToCurrentWatermarkLagSeconds: row?.closed_to_current_watermark_lag_seconds == null
+        ? null
+        : Number(row.closed_to_current_watermark_lag_seconds),
       lastSuccessfulPromotionAt: row?.last_successful_promotion_at ?? null,
       resourceControls: getPropertyTilePyramidResourceControls(),
     };
@@ -3075,6 +3397,9 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
         retryableFailureDueAt: null,
         terminalFailureCount: 0,
         encodedCoverageRatio: null,
+        closedWatermarkMaxUpdatedAt: null,
+        currentWatermarkMaxUpdatedAt: null,
+        closedToCurrentWatermarkLagSeconds: null,
         lastSuccessfulPromotionAt: null,
         resourceControls: getPropertyTilePyramidResourceControls(),
       };
@@ -3085,6 +3410,7 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
 
 export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePyramidOpsSummary> {
   const health = await getPropertyTilePyramidHealthSummary();
+  const slot = getDefaultPropertyTilePyramidSlot();
   try {
     const rows = await db.execute<{
       previous_version_id: string | null;
@@ -3092,23 +3418,60 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
       encoded_tile_count: number | string | null;
       node_count: number | string | null;
       member_count: number | string | null;
+      current_build_duration_ms: number | string | null;
+      current_observed_wal_bytes: number | string | null;
+      active_candidate_stage: string | null;
+      active_candidate_build_duration_ms: number | string | null;
+      active_candidate_chunk_progress: Record<string, unknown> | null;
+      active_candidate_observed_wal_bytes: number | string | null;
       active_lease_owner: string | null;
       active_lease_age_seconds: number | string | null;
       last_audit_action: string | null;
       last_audit_reason: string | null;
     }>(sql`
       WITH current_version AS (
-        SELECT ${health.currentVersionId}::uuid AS id
-        WHERE ${health.currentVersionId} IS NOT NULL
+        SELECT v.*
+        FROM property_tile_pyramid_current c
+        JOIN property_tile_pyramid_versions v ON v.id = c.current_version_id
+        WHERE c.coverage_id = ${slot.coverageId}
+          AND c.filter_signature = ${slot.filterSignature}
+          AND c.max_zoom = ${slot.maxZoom}
+          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+        LIMIT 1
+      ),
+      current_pointer AS (
+        SELECT previous_version_id
+        FROM property_tile_pyramid_current
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+        LIMIT 1
+      ),
+      active_candidate AS (
+        SELECT *
+        FROM property_tile_pyramid_versions
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          AND (
+            status IN ('queued', 'building', 'validating', 'failed_retryable')
+            OR (
+              status = 'failed_terminal'
+              AND (
+                (SELECT id FROM current_version) IS NULL
+                OR requested_at >= (SELECT promoted_at FROM current_version)
+              )
+            )
+          )
+        ORDER BY updated_at DESC NULLS LAST
+        LIMIT 1
       )
       SELECT
         (
-          SELECT id::text
-          FROM property_tile_pyramid_versions
-          WHERE status = 'promoted'
-            AND id <> (SELECT id FROM current_version)
-          ORDER BY promoted_at DESC NULLS LAST
-          LIMIT 1
+          SELECT previous_version_id::text
+          FROM current_pointer
         ) AS previous_version_id,
         (
           SELECT count(*)::int
@@ -3127,18 +3490,50 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
           WHERE version_id = (SELECT id FROM current_version)
         ) AS node_count,
         (
-          SELECT to_regclass('property_tile_pyramid_members') IS NOT NULL
-        )::int AS member_count,
+          SELECT member_row_count::text
+          FROM current_version
+        ) AS member_count,
+        (
+          SELECT build_duration_ms
+          FROM current_version
+        ) AS current_build_duration_ms,
+        (
+          SELECT NULLIF(wal_bytes, 0)::text
+          FROM current_version
+        ) AS current_observed_wal_bytes,
+        (
+          SELECT COALESCE(failed_stage, status::text)
+          FROM active_candidate
+        ) AS active_candidate_stage,
+        (
+          SELECT COALESCE(
+            build_duration_ms,
+            CASE
+              WHEN build_started_at IS NULL THEN NULL
+              ELSE EXTRACT(EPOCH FROM COALESCE(build_finished_at, now()) - build_started_at) * 1000
+            END
+          )
+          FROM active_candidate
+        ) AS active_candidate_build_duration_ms,
+        (
+          SELECT validation_summary->'chunkProgress'
+          FROM active_candidate
+          WHERE jsonb_typeof(validation_summary->'chunkProgress') = 'object'
+        ) AS active_candidate_chunk_progress,
+        (
+          SELECT NULLIF(wal_bytes, 0)::text
+          FROM active_candidate
+        ) AS active_candidate_observed_wal_bytes,
         (
           SELECT lease_owner
-          FROM property_tile_pyramid_versions
+          FROM active_candidate
           WHERE status IN ('building', 'validating')
           ORDER BY updated_at DESC NULLS LAST
           LIMIT 1
         ) AS active_lease_owner,
         (
           SELECT EXTRACT(EPOCH FROM now() - lease_until + (${getPropertyTilePyramidResourceControls().leaseSeconds} || ' seconds')::interval)
-          FROM property_tile_pyramid_versions
+          FROM active_candidate
           WHERE status IN ('building', 'validating') AND lease_until IS NOT NULL
           ORDER BY updated_at DESC NULLS LAST
           LIMIT 1
@@ -3146,12 +3541,22 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
         (
           SELECT action
           FROM property_tile_pyramid_audit
+          WHERE coverage_id = ${slot.coverageId}
+            AND filter_signature = ${slot.filterSignature}
+            AND max_zoom = ${slot.maxZoom}
+            AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+            AND action IN ('promoted', 'rollback')
           ORDER BY created_at DESC
           LIMIT 1
         ) AS last_audit_action,
         (
           SELECT reason
           FROM property_tile_pyramid_audit
+          WHERE coverage_id = ${slot.coverageId}
+            AND filter_signature = ${slot.filterSignature}
+            AND max_zoom = ${slot.maxZoom}
+            AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+            AND action IN ('promoted', 'rollback')
           ORDER BY created_at DESC
           LIMIT 1
         ) AS last_audit_reason
@@ -3164,6 +3569,16 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
       encodedTileCount: row?.encoded_tile_count == null ? null : Number(row.encoded_tile_count),
       nodeCount: row?.node_count == null ? null : Number(row.node_count),
       memberCount: row?.member_count == null ? null : Number(row.member_count),
+      currentBuildDurationMs: row?.current_build_duration_ms == null ? null : Number(row.current_build_duration_ms),
+      currentObservedWalBytes: row?.current_observed_wal_bytes == null ? null : Number(row.current_observed_wal_bytes),
+      activeCandidateStage: row?.active_candidate_stage ?? null,
+      activeCandidateBuildDurationMs: row?.active_candidate_build_duration_ms == null
+        ? null
+        : Number(row.active_candidate_build_duration_ms),
+      activeCandidateChunkProgress: row?.active_candidate_chunk_progress ?? null,
+      activeCandidateObservedWalBytes: row?.active_candidate_observed_wal_bytes == null
+        ? null
+        : Number(row.active_candidate_observed_wal_bytes),
       activeLeaseOwner: row?.active_lease_owner ?? null,
       activeLeaseAgeSeconds: row?.active_lease_age_seconds == null ? null : Number(row.active_lease_age_seconds),
       lastAuditAction: row?.last_audit_action ?? null,
@@ -3178,6 +3593,12 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
         encodedTileCount: null,
         nodeCount: null,
         memberCount: null,
+        currentBuildDurationMs: null,
+        currentObservedWalBytes: null,
+        activeCandidateStage: null,
+        activeCandidateBuildDurationMs: null,
+        activeCandidateChunkProgress: null,
+        activeCandidateObservedWalBytes: null,
         activeLeaseOwner: null,
         activeLeaseAgeSeconds: null,
         lastAuditAction: null,

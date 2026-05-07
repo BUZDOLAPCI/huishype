@@ -602,16 +602,14 @@ function mapPublicPropertyRow(row: PropertyRow) {
   };
 }
 
-function mapNearbyGroupedResult(
-  result: NearbyGroupedContractResult | null,
-  isRead = false,
-) {
+function mapNearbyGroupedResult(result: NearbyGroupedContractResult | null, isRead = false) {
   if (!result) {
     return null;
   }
 
   const membershipComplete = result.membershipComplete ?? true;
-  const readStateCoverage = result.readStateCoverage ?? (membershipComplete ? 'complete' : 'partial');
+  const readStateCoverage =
+    result.readStateCoverage ?? (membershipComplete ? 'complete' : 'partial');
 
   const baseResult = {
     nodeClass: result.nodeClass,
@@ -722,7 +720,7 @@ function getPyramidOwnerTileNeighborhood(tile: { z: number; x: number; y: number
 
 function mapPyramidNearbyNodeRow(
   row: PyramidNearbyNodeRow | null,
-  versionId: string,
+  versionId: string
 ): NearbyGroupedContractResult | null {
   if (!row) {
     return null;
@@ -738,12 +736,12 @@ function mapPyramidNearbyNodeRow(
     row.bbox_south != null &&
     row.bbox_east != null &&
     row.bbox_north != null
-      ? [
+      ? ([
           Number(row.bbox_west),
           Number(row.bbox_south),
           Number(row.bbox_east),
           Number(row.bbox_north),
-        ] as [number, number, number, number]
+        ] as [number, number, number, number])
       : null;
 
   const baseResult = {
@@ -755,7 +753,7 @@ function mapPyramidNearbyNodeRow(
     pyramidVersionId: versionId,
     pyramidNodeId: row.node_id,
     membershipComplete: row.group_kind === 'single',
-    readStateCoverage: row.group_kind === 'single' ? 'complete' as const : 'partial' as const,
+    readStateCoverage: row.group_kind === 'single' ? ('complete' as const) : ('partial' as const),
     coordinate: [Number(row.render_lon), Number(row.render_lat)] as [number, number],
     distanceMeters: Number(row.distance_meters),
     bbox,
@@ -806,11 +804,9 @@ function isServeablePyramidNearbyTile(row: {
 }): boolean {
   return (
     row.validation_status === 'validated' &&
-    (
-      row.tile_status === 'valid_empty' ||
+    (row.tile_status === 'valid_empty' ||
       row.tile_status === 'valid_nodes' ||
-      row.tile_status === 'valid_encoded'
-    )
+      row.tile_status === 'valid_encoded')
   );
 }
 
@@ -836,6 +832,7 @@ async function hasServeablePyramidTileManifest(input: {
 async function resolvePyramidNearbyNodeById(input: {
   lon: number;
   lat: number;
+  zoom: number;
   pyramidVersionId: string;
   pyramidNodeId: string;
 }): Promise<{
@@ -852,7 +849,15 @@ async function resolvePyramidNearbyNodeById(input: {
     return { result: null, status: 'pyramid-stale', versionId: current.version.versionId };
   }
 
+  const servingZoom = normalizePyramidNearbyServingZoom(
+    input.zoom,
+    current.version.coverage?.maxZoom ?? current.version.maxZoom
+  );
+  const searchRadiusMeters = pyramidNearbySearchRadiusMeters(input.lat, servingZoom);
   const rows = await db.execute<PyramidNearbyNodeRow>(sql`
+    WITH tap AS (
+      SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
+    )
     SELECT
       node_id,
       COALESCE(representative_property_id::text, preview_property_ids[1]::text) AS primary_property_id,
@@ -864,7 +869,7 @@ async function resolvePyramidNearbyNodeById(input: {
       render_lat,
       ST_Distance(
         render_geometry::geography,
-        ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326)::geography
+        tap.geom::geography
       ) AS distance_meters,
       bbox_west,
       bbox_south,
@@ -887,6 +892,7 @@ async function resolvePyramidNearbyNodeById(input: {
       t.tile_status,
       t.validation_status
     FROM property_tile_pyramid_nodes n
+    CROSS JOIN tap
     LEFT JOIN property_tile_pyramid_tiles t
       ON t.version_id = n.version_id
      AND t.z = n.z
@@ -894,6 +900,13 @@ async function resolvePyramidNearbyNodeById(input: {
      AND t.y = n.y
     WHERE n.version_id = ${input.pyramidVersionId}::uuid
       AND n.node_id = ${input.pyramidNodeId}
+      AND ST_DWithin(render_geometry::geography, tap.geom::geography, ${searchRadiusMeters})
+      AND ST_Distance(render_geometry::geography, tap.geom::geography) <=
+        CASE
+          WHEN n.group_kind = 'single'
+            THEN ${PYRAMID_NEARBY_SINGLE_TAP_RADIUS_PX}::double precision / ${PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX}::double precision * ${searchRadiusMeters}
+          ELSE ${searchRadiusMeters}
+        END
     LIMIT 1
   `);
 
@@ -915,8 +928,7 @@ async function resolvePyramidNearbyNodeById(input: {
 
 function pyramidNearbySearchRadiusMeters(lat: number, zoom: number): number {
   const metersPerPixel =
-    (40075016.686 * Math.max(Math.cos((lat * Math.PI) / 180), 0.000001)) /
-    (512 * 2 ** zoom);
+    (40075016.686 * Math.max(Math.cos((lat * Math.PI) / 180), 0.000001)) / (512 * 2 ** zoom);
   return PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX * metersPerPixel;
 }
 
@@ -958,7 +970,7 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
         lat: input.lat,
         zoom: input.zoom,
         servingZoom,
-      },
+      }
     );
     return { result: null, status: current.tileStatus };
   }
@@ -966,7 +978,7 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
   const versionCoverage = current.version.coverage;
   const servingZoom = normalizePyramidNearbyServingZoom(
     input.zoom,
-    versionCoverage?.maxZoom ?? current.version.maxZoom,
+    versionCoverage?.maxZoom ?? current.version.maxZoom
   );
   if (
     !versionCoverage ||
@@ -999,7 +1011,7 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
         zoom: input.zoom,
         servingZoom,
         missingOwnerTile: tapOwnerTile,
-      },
+      }
     );
     return { result: null, status: 'pyramid-missing', versionId: current.version.versionId };
   }
@@ -1007,9 +1019,9 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
   const searchRadiusMeters = pyramidNearbySearchRadiusMeters(input.lat, servingZoom);
   const ownerTileRows = sql.join(
     ownerTileNeighborhood.map(
-      (tile) => sql`(${tile.z}::integer, ${tile.x}::integer, ${tile.y}::integer)`,
+      (tile) => sql`(${tile.z}::integer, ${tile.x}::integer, ${tile.y}::integer)`
     ),
-    sql`, `,
+    sql`, `
   );
   const rows = await db.execute<PyramidNearbyNodeRow>(sql`
     WITH tap AS (
@@ -1436,6 +1448,7 @@ export async function propertyRoutes(app: FastifyInstance) {
           const lookup = await resolvePyramidNearbyNodeById({
             lon,
             lat,
+            zoom,
             pyramidVersionId: request.query.pyramidVersionId,
             pyramidNodeId: request.query.pyramidNodeId,
           });
@@ -1453,10 +1466,7 @@ export async function propertyRoutes(app: FastifyInstance) {
               logger: request.log,
             });
             result = fallback.result;
-            reply.header(
-              'X-HuisHype-Nearby-Status',
-              result ? 'pyramid-promoted' : fallback.status,
-            );
+            reply.header('X-HuisHype-Nearby-Status', result ? 'pyramid-promoted' : fallback.status);
             if (fallback.versionId) {
               reply.header('X-HuisHype-Pyramid-Version', fallback.versionId);
             }
@@ -1497,16 +1507,22 @@ export async function propertyRoutes(app: FastifyInstance) {
           reply.header('X-HuisHype-Nearby-Status', 'pyramid-unavailable');
         }
       } else {
-        result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters) as NearbyGroupedContractResult | null;
+        result = (await resolveNearbyGroupedFeature(
+          lon,
+          lat,
+          zoom,
+          filters
+        )) as NearbyGroupedContractResult | null;
       }
       const viewer = resolvePropertyReadViewer(
         request.userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
       const membershipComplete = result?.membershipComplete ?? true;
-      const readIds = result && membershipComplete
-        ? await getReadPropertyIdSet(result.propertyIds, viewer)
-        : new Set<string>();
+      const readIds =
+        result && membershipComplete
+          ? await getReadPropertyIdSet(result.propertyIds, viewer)
+          : new Set<string>();
       const isRead =
         result != null &&
         membershipComplete &&
@@ -1540,7 +1556,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       const { ids } = request.query;
       const viewer = resolvePropertyReadViewer(
         request.userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
       const rows = await db.execute<PropertyRow>(sql`
         SELECT
@@ -1629,7 +1645,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       const effectiveUserId = request.userId ?? '00000000-0000-4000-a000-000000000000';
       const viewer = resolvePropertyReadViewer(
         request.userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
 
       const rows = await db.execute<PropertyDetailRow>(sql`

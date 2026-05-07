@@ -76,6 +76,66 @@ describe('GET /health', () => {
     expect(body.propertyTilePyramid.terminalFailureCount).toBe(0);
   });
 
+  it('should ignore stale terminal failures older than the current promoted pyramid', async () => {
+    const slot = getDefaultPropertyTilePyramidSlot();
+    const terminalVersionId = randomUUID();
+    const unique = randomUUID();
+
+    try {
+      await db.execute(sql`
+        INSERT INTO property_tile_pyramid_versions (
+          id,
+          coverage_id,
+          filter_signature,
+          max_zoom,
+          pyramid_kind,
+          config_hash,
+          build_inputs_hash,
+          source_watermark_hash,
+          status,
+          terminal_reason,
+          requested_at,
+          updated_at
+        )
+        SELECT
+          ${terminalVersionId}::uuid,
+          ${slot.coverageId},
+          ${slot.filterSignature},
+          ${slot.maxZoom},
+          ${slot.pyramidKind}::property_tile_pyramid_kind,
+          ${`health-stale-terminal-config-${unique}`},
+          ${`health-stale-terminal-inputs-${unique}`},
+          ${`health-stale-terminal-watermarks-${unique}`},
+          'failed_terminal',
+          'historical candidate failed before current promotion',
+          current_promoted_at - interval '1 hour',
+          now()
+        FROM property_tile_pyramid_current
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      `);
+
+      const response = await app!.inject({
+        method: 'GET',
+        url: '/health',
+      });
+      const body = JSON.parse(response.body);
+
+      expect(response.statusCode).toBe(200);
+      expect(body.status).toBe('ok');
+      expect(body.propertyTilePyramid.status).toBe('ok');
+      expect(body.propertyTilePyramid.currentVersionId).toEqual(expect.any(String));
+      expect(body.propertyTilePyramid.terminalFailureCount).toBe(0);
+    } finally {
+      await db.execute(sql`
+        DELETE FROM property_tile_pyramid_versions
+        WHERE id = ${terminalVersionId}::uuid
+      `);
+    }
+  });
+
   it('should expose an explicit non-gating degraded mode', async () => {
     const response = await app!.inject({
       method: 'GET',
