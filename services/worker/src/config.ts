@@ -9,6 +9,7 @@ const DEFAULT_RECOVERY_SWEEP_INTERVAL_MS = 30_000;
 const DEFAULT_HEALTH_LOG_INTERVAL_MS = 60_000;
 const DEFAULT_STALE_PROCESSING_AFTER_MS = 10 * 60_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15_000;
+const DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY = 3 * 60 + 20;
 
 export interface WorkerConfig {
   ingestConcurrency: number;
@@ -22,6 +23,7 @@ export interface WorkerConfig {
   healthLogIntervalMs: number;
   staleProcessingAfterMs: number;
   shutdownTimeoutMs: number;
+  propertyTilePyramidRetentionUtcMinuteOfDay: number;
 }
 
 export function ensureWorkerRuntimeEnv(env: NodeJS.ProcessEnv = process.env): void {
@@ -42,6 +44,23 @@ function parsePositiveInt(
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer, received "${value}"`);
+  }
+
+  return parsed;
+}
+
+function parseUtcMinuteOfDay(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (value == null || value.trim().length === 0) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1439) {
+    throw new Error(`${name} must be an integer between 0 and 1439, received "${value}"`);
   }
 
   return parsed;
@@ -103,6 +122,11 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
       env.WORKER_SHUTDOWN_TIMEOUT_MS,
       DEFAULT_SHUTDOWN_TIMEOUT_MS,
       'WORKER_SHUTDOWN_TIMEOUT_MS',
+    ),
+    propertyTilePyramidRetentionUtcMinuteOfDay: parseUtcMinuteOfDay(
+      env.WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY,
+      DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY,
+      'WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY',
     ),
   };
 }

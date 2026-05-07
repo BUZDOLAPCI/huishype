@@ -400,7 +400,7 @@ export interface NearbyGroupedResult {
   floorAreaM2?: number | null;
   hasActiveListing?: boolean | null;
   marketState?: MapMarketState | null;
-  isRead?: boolean | null;
+  isRead: boolean;
 
   // Temporary compatibility while backend tile payloads finish the cutover.
   activityScore?: number;
@@ -442,7 +442,7 @@ export interface NormalizedPropertyNodeGroup {
   floorAreaM2: number | null;
   hasActiveListing: boolean | null;
   marketState: MapMarketState | null;
-  isRead?: boolean | null;
+  isRead: boolean | null;
 
   // Legacy compatibility while downstream consumers finish the cutover.
   hasListing: boolean;
@@ -452,7 +452,8 @@ export interface NormalizedPropertyNodeGroup {
   guessCount: number;
 }
 
-export interface NearbyPropertyGroup extends NormalizedPropertyNodeGroup {
+export interface NearbyPropertyGroup extends Omit<NormalizedPropertyNodeGroup, 'isRead'> {
+  isRead: boolean;
   distanceMeters: number;
 }
 
@@ -1111,7 +1112,7 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     floorAreaM2: result.floorAreaM2 ?? null,
     hasActiveListing,
     marketState: result.marketState ?? null,
-    isRead: result.isRead ?? null,
+    isRead: result.isRead,
     distanceMeters: result.distanceMeters,
   };
 }

@@ -512,12 +512,8 @@ const feedContractAssertions = [
   true as Assert<IsExact<NearbyGroupedResponseFromOpenApi, CanonicalNearbyGroupedResponse>>,
   true as Assert<IsExact<NearbySingleFromOpenApi, CanonicalNearbySingle>>,
   true as Assert<IsExact<NearbyClusterFromOpenApi, CanonicalNearbyCluster>>,
-  true as Expect<
-    Equal<keyof FollowingNearbySharedSingle, Exclude<keyof CanonicalNearbySingle, 'isRead'>>
-  >,
-  true as Expect<
-    Equal<keyof FollowingNearbySharedCluster, Exclude<keyof CanonicalNearbyCluster, 'isRead'>>
-  >,
+  true as Expect<Equal<keyof FollowingNearbySharedSingle, keyof CanonicalNearbySingle>>,
+  true as Expect<Equal<keyof FollowingNearbySharedCluster, keyof CanonicalNearbyCluster>>,
   true as Expect<Equal<FollowingNearbySharedSingle['bbox'], CanonicalNearbySingle['bbox']>>,
   true as Expect<Equal<FollowingNearbySharedCluster['bbox'], CanonicalNearbyCluster['bbox']>>,
   true as Expect<

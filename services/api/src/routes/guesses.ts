@@ -9,7 +9,7 @@ import { advancePropertyChangeVersion } from '../services/property-read-state.js
 import { getPriceGuessStartForProperty } from '../services/price-guess-start.js';
 import {
   advancePropertyTilePyramidSourceWatermark,
-  safeRequestPropertyTilePyramidBuild,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
 } from '../services/property-tile-pyramid.js';
 
 // Schema definitions
@@ -300,8 +300,8 @@ export async function guessRoutes(app: FastifyInstance) {
         });
 
         const updatedGuess = updated[0];
-        await safeRequestPropertyTilePyramidBuild(
-          { reason: 'price-guess-update' },
+        await safeRequestPropertyTilePyramidBuildAfterMutation(
+          { reason: 'price-guess-update', policy: 'social', watermarkScopes: ['social_inputs'] },
           request.log,
           { propertyId, guessId: updatedGuess.id },
         );
@@ -333,8 +333,8 @@ export async function guessRoutes(app: FastifyInstance) {
       });
 
       const created = newGuess[0];
-      await safeRequestPropertyTilePyramidBuild(
-        { reason: 'price-guess-create' },
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'price-guess-create', policy: 'social', watermarkScopes: ['social_inputs'] },
         request.log,
         { propertyId, guessId: created.id },
       );

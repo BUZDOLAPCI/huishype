@@ -13,15 +13,42 @@ appId: nl.huishype.app
 - waitForAnimationToEnd
 - waitForAnimationToEnd
 
+- extendedWaitUntil:
+    visible:
+      id: 'feed-screen'
+    timeout: 15000
+
+- assertVisible:
+    id: 'filter-chip-trending'
+- assertVisible:
+    id: 'filter-chip-latest'
+
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-filter.png
+
+- extendedWaitUntil:
+    visible:
+      id: 'feed-list'
+    timeout: 15000
+
+- extendedWaitUntil:
+    visible:
+      id: 'property-feed-card'
+    timeout: 30000
 
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-cards-loaded.png
 
-# Switch back to Map tab through the visible app tab bar.
 - tapOn:
-    point: '6%,92%'
+    id: 'property-feed-card'
 - waitForAnimationToEnd
+
 - extendedWaitUntil:
     visible:
       id: 'search-bar-focus-target'
-    timeout: 10000
+    timeout: 15000
+
+- assertVisible:
+    id: 'tab-index'
+- assertVisible:
+    id: 'tab-feed'
+
+- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-card-navigated-to-map.png

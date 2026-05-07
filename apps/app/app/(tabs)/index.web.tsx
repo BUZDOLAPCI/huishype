@@ -29,6 +29,8 @@ import { useWelcomeModal } from '@/src/hooks/useWelcomeModal';
 import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import {
   API_URL,
+  fetchFollowingNearbyGroup,
+  fetchNearbyGroup,
   normalizeRenderedPropertyGroup,
   type PropertyResolveResult,
 } from '@/src/utils/api';
@@ -273,6 +275,18 @@ function emitFollowingFeatureClickAnalytics(
     pointCount: group.pointCount,
     propertyId: group.primaryPropertyId,
   });
+}
+
+function getWebClickCoordinate(
+  event: maplibregl.MapMouseEvent,
+  fallback?: [number, number],
+): [number, number] | null {
+  const lngLat = event.lngLat as { lng?: unknown; lat?: unknown } | undefined;
+  if (typeof lngLat?.lng === 'number' && typeof lngLat.lat === 'number') {
+    return [lngLat.lng, lngLat.lat];
+  }
+
+  return fallback ?? null;
 }
 
 const MAP_OVERLAY_STYLE: WebViewStyle = {
@@ -1010,6 +1024,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     bottomSheetRef,
     handleAuthRequired,
     handleFeaturePress,
+    handleNearbyResult,
     handleEmptyMapTap,
     resetTransientUI,
     highlightedCoordinate,
@@ -1024,6 +1039,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   } = interaction;
   const handleEmptyMapTapRef = useRef(handleEmptyMapTap);
   handleEmptyMapTapRef.current = handleEmptyMapTap;
+  const handleNearbyResultRef = useRef(handleNearbyResult);
+  handleNearbyResultRef.current = handleNearbyResult;
   const webViewportSize = {
     width:
       mapRef.current?.getContainer().clientWidth ??
@@ -1162,6 +1179,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   );
   const socialScopeRef = useRef(socialScope);
   socialScopeRef.current = socialScope;
+  const followingActivityRef = useRef(followingActivity);
+  followingActivityRef.current = followingActivity;
+  const appliedFiltersRef = useRef(filterController.appliedFilters);
+  appliedFiltersRef.current = filterController.appliedFilters;
   const followingTileAuthTokenRef = useRef(followingTileAuthToken);
   followingTileAuthTokenRef.current = followingTileAuthToken;
   const followingTileRequestPatternRef = useRef<RegExp | null>(followingTileRequestPattern);
@@ -2212,11 +2233,57 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           );
         }
 
-        await handleFeaturePressRef.current(
-          e.features as unknown as GeoJSON.Feature[],
+        const features = e.features as unknown as GeoJSON.Feature[];
+        const group = normalizeRenderedPropertyGroup(features[0]);
+        const handled = await handleFeaturePressRef.current(
+          features,
           map.getZoom(),
           cameraCommandsRef.current,
         );
+        if (handled) {
+          return;
+        }
+
+        const clickCoordinate = getWebClickCoordinate(e, group?.coordinate);
+        if (!clickCoordinate) {
+          handleEmptyMapTapRef.current();
+          return;
+        }
+
+        const currentZoom = map.getZoom();
+        const [lon, lat] = clickCoordinate;
+        try {
+          const nearby =
+            socialScopeRef.current === 'following'
+              ? await fetchFollowingNearbyGroup(
+                  lon,
+                  lat,
+                  currentZoom,
+                  appliedFiltersRef.current,
+                  followingActivityRef.current,
+                )
+              : await fetchNearbyGroup(
+                  lon,
+                  lat,
+                  currentZoom,
+                  appliedFiltersRef.current,
+                  group?.pyramidVersionId && group.pyramidNodeId
+                    ? {
+                        pyramidVersionId: group.pyramidVersionId,
+                        pyramidNodeId: group.pyramidNodeId,
+                      }
+                    : undefined,
+                );
+
+          if (nearby) {
+            handleNearbyResultRef.current(nearby, currentZoom, cameraCommandsRef.current);
+            return;
+          }
+        } catch (error) {
+          console.warn('[HuisHype] Nearby fallback failed:', error);
+        }
+
+        handleEmptyMapTapRef.current();
       };
 
       // Handle any unhandled map click as a background tap.

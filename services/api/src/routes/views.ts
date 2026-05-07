@@ -10,7 +10,7 @@ import {
 } from '../services/property-read-state.js';
 import {
   advancePropertyTilePyramidSourceWatermark,
-  safeRequestPropertyTilePyramidBuild,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
 } from '../services/property-tile-pyramid.js';
 import { propertyTileRuntime } from '../services/property-tile-runtime.js';
 
@@ -162,8 +162,10 @@ export async function viewRoutes(app: FastifyInstance) {
       );
 
       if (!alreadyViewed) {
-        await safeRequestPropertyTilePyramidBuild({
+        await safeRequestPropertyTilePyramidBuildAfterMutation({
           reason: 'property-view',
+          policy: 'views',
+          watermarkScopes: ['views_engagement'],
         }, request.log, { propertyId, viewerScope });
       }
 

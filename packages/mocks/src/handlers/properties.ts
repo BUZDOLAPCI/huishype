@@ -626,7 +626,7 @@ export const propertyHandlers = [
         pointCount: 6,
         propertyIds: [],
         previewPropertyIds: MOCK_NEARBY_CLUSTER_IDS.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
-        pyramidVersionId: 'mock-pyramid-version-public',
+        pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
         pyramidNodeId: 'mock-pyramid-node-public-cluster',
         membershipComplete: false,
         readStateCoverage: 'partial' as const,

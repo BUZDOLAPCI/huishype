@@ -297,10 +297,11 @@ export type PropertyNodeGroup =
     });
 
 /**
- * Nearby grouped node response adds the tap distance to the canonical grouped model.
+ * Nearby grouped node response adds tap distance and viewer read state to the canonical grouped model.
  */
 export type NearbyPropertyGroup = PropertyNodeGroup & {
   distanceMeters: number;
+  isRead: boolean;
 };
 
 /**

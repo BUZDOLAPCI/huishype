@@ -413,13 +413,17 @@ describe('fetchNearbyGroup', () => {
     });
 
     await fetchNearbyGroup(5.4697, 51.4416, 15, undefined, {
-      pyramidVersionId: '9007199254740993123',
-      pyramidNodeId: '9007199254740993999',
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0]?.[0]).toContain('pyramidVersionId=9007199254740993123');
-    expect(mockFetch.mock.calls[0]?.[0]).toContain('pyramidNodeId=9007199254740993999');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain(
+      'pyramidVersionId=9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+    );
+    expect(mockFetch.mock.calls[0]?.[0]).toContain(
+      'pyramidNodeId=pyramid-node-9007199254740993999',
+    );
   });
 });
 
@@ -565,8 +569,8 @@ describe('grouped property normalization', () => {
       property_ids:
         '11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222',
       preview_property_ids: '',
-      pyramidVersionId: '9007199254740993123',
-      pyramidNodeId: '9007199254740993999',
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
       membership_complete: 'false',
       read_state_coverage: 'partial',
       propertyIds: [],
@@ -591,6 +595,7 @@ describe('grouped property normalization', () => {
       officialValuation: null,
       askingPrice: null,
       thumbnailUrl: null,
+      isRead: false,
     } as unknown as Parameters<typeof normalizeNearbyPropertyGroup>[0]);
 
     expect(result).toMatchObject({
@@ -615,8 +620,8 @@ describe('grouped property normalization', () => {
         '22222222-2222-4222-8222-222222222222',
       ],
       previewPropertyIds: [],
-      pyramidVersionId: '9007199254740993123',
-      pyramidNodeId: '9007199254740993999',
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
       membershipComplete: true,
       readStateCoverage: 'partial',
       coordinate: [5.4697, 51.4416],
@@ -639,6 +644,7 @@ describe('grouped property normalization', () => {
       officialValuation: null,
       askingPrice: null,
       thumbnailUrl: null,
+      isRead: false,
     });
 
     expect(result.previewPropertyIds).toEqual([]);
@@ -689,8 +695,8 @@ describe('grouped property normalization', () => {
         point_count: 12,
         property_ids: '11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222',
         preview_property_ids: '',
-        pyramid_version_id: '9007199254740993123',
-        pyramid_node_id: '9007199254740993999',
+        pyramid_version_id: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+        pyramid_node_id: 'pyramid-node-9007199254740993999',
         membership_complete: 'false',
         read_state_coverage: 'partial',
         activeListingCount: 2,
@@ -704,8 +710,8 @@ describe('grouped property normalization', () => {
     } as const satisfies GeoJSON.Feature;
 
     expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
-      pyramidVersionId: '9007199254740993123',
-      pyramidNodeId: '9007199254740993999',
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
       membershipComplete: false,
       readStateCoverage: 'partial',
       propertyIds: [
@@ -796,6 +802,7 @@ describe('grouped property normalization', () => {
         activityScore: 99,
         activityScoreTotal: 99,
         hasListing: true,
+        isRead: false,
       })
     ).toMatchObject({
       activeListingCount: 0,

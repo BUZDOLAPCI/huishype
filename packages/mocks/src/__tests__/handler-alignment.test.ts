@@ -581,6 +581,7 @@ describe('Mock handler runtime parity', () => {
     expect(nearbyClusterResponse.status).toBe(200);
     expect(nearbyClusterBody).toHaveProperty('groupKind', 'cluster');
     expect(nearbyClusterBody).toHaveProperty('isRead', false);
+    expect(nearbyClusterBody.pyramidVersionId).toMatch(uuidShape);
     expect(nearbyClusterBody).toHaveProperty('membershipComplete', false);
     expect(nearbyClusterBody).toHaveProperty('readStateCoverage', 'partial');
     expect(nearbyClusterBody.propertyIds).toEqual([]);

@@ -126,6 +126,7 @@ const mockInteraction = {
   bottomSheetRef: { current: { close: jest.fn() } },
   handleAuthRequired: jest.fn(),
   handleFeaturePress: jest.fn(),
+  handleNearbyResult: jest.fn(),
   handleEmptyMapTap: jest.fn(),
   resetTransientUI: jest.fn(),
   highlightedCoordinate: null,
@@ -365,6 +366,8 @@ jest.mock('@/src/utils/api', () => ({
   ...jest.requireActual('@/src/utils/api'),
   API_URL: 'http://api.test',
   fetchBatchProperties: jest.fn(),
+  fetchFollowingNearbyGroup: jest.fn(),
+  fetchNearbyGroup: jest.fn(),
 }));
 
 jest.mock('@/src/lib/currentLocation', () => ({
@@ -558,6 +561,13 @@ const { Map: mockMapConstructor } = jest.requireMock('maplibre-gl') as {
 const { getCurrentLocation: mockGetCurrentLocation } = jest.requireMock('@/src/lib/currentLocation') as {
   getCurrentLocation: jest.Mock;
 };
+const {
+  fetchFollowingNearbyGroup: mockFetchFollowingNearbyGroup,
+  fetchNearbyGroup: mockFetchNearbyGroup,
+} = jest.requireMock('@/src/utils/api') as {
+  fetchFollowingNearbyGroup: jest.Mock;
+  fetchNearbyGroup: jest.Mock;
+};
 
 async function flushMicrotasks() {
   await act(async () => {
@@ -606,6 +616,11 @@ describe('MapScreen web grouped Following mode', () => {
     });
     mockInteraction.handleFeaturePress.mockReset();
     mockInteraction.handleFeaturePress.mockResolvedValue(false);
+    mockInteraction.handleNearbyResult.mockReset();
+    mockFetchNearbyGroup.mockReset();
+    mockFetchNearbyGroup.mockResolvedValue(null);
+    mockFetchFollowingNearbyGroup.mockReset();
+    mockFetchFollowingNearbyGroup.mockResolvedValue(null);
     mockGetCurrentLocation.mockReset();
     mockGetCurrentLocation.mockResolvedValue({
       longitude: 4.9041,
@@ -1400,6 +1415,131 @@ describe('MapScreen web grouped Following mode', () => {
         }),
       ])
     );
+  });
+
+  it('resolves declined incomplete pyramid clusters through public nearby fallback', async () => {
+    mockInteraction.handleFeaturePress.mockResolvedValue(false);
+    mockFetchNearbyGroup.mockResolvedValue({
+      nodeClass: 'active',
+      groupKind: 'cluster',
+      primaryPropertyId: 'property-9',
+      pointCount: 40,
+      propertyIds: [],
+      previewPropertyIds: ['property-9'],
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
+      membershipComplete: false,
+      readStateCoverage: 'partial',
+      coordinate: [5.47, 51.44],
+      distanceMeters: 0,
+      bbox: {
+        west: 5.46,
+        south: 51.43,
+        east: 5.48,
+        north: 51.45,
+      },
+      activeListingCount: 1,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      commentCount: 0,
+      streetName: null,
+      houseNumber: null,
+      houseNumberAddition: null,
+      address: null,
+      city: null,
+      postalCode: null,
+      countryCode: null,
+      officialValuation: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      yearBuilt: null,
+      floorAreaM2: null,
+      hasActiveListing: false,
+      marketState: 'not-listed',
+      hasListing: false,
+      activityScore: 0,
+      activityScoreTotal: 0,
+      likeCount: 0,
+      guessCount: 0,
+      isRead: false,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getLayer.mockReturnValue(true);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      map.trigger('sourcedata');
+    });
+
+    const groupedFeature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.47, 51.44],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'cluster',
+        primary_property_id: 'property-9',
+        point_count: 40,
+        property_ids: '',
+        preview_property_ids: '',
+        pyramid_version_id: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+        pyramid_node_id: 'pyramid-node-9007199254740993999',
+        membership_complete: 'false',
+        read_state_coverage: 'partial',
+      },
+    };
+
+    act(() => {
+      map.trigger(
+        'click',
+        {
+          features: [groupedFeature],
+          lngLat: { lng: 5.47, lat: 51.44 },
+        },
+        QUERYABLE_PROPERTY_LAYER_IDS[0],
+      );
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.handleFeaturePress).toHaveBeenCalledWith(
+      [groupedFeature],
+      14,
+      expect.any(Object),
+    );
+    expect(mockFetchNearbyGroup).toHaveBeenCalledWith(
+      5.47,
+      51.44,
+      14,
+      mockAppliedFilters,
+      {
+        pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+        pyramidNodeId: 'pyramid-node-9007199254740993999',
+      },
+    );
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        primaryPropertyId: 'property-9',
+        pyramidNodeId: 'pyramid-node-9007199254740993999',
+      }),
+      14,
+      expect.any(Object),
+    );
+    expect(mockInteraction.handleEmptyMapTap).not.toHaveBeenCalled();
   });
 
   it('shows the error state from Following tile source failures instead of the empty state', async () => {

@@ -126,8 +126,11 @@ function createModuleLoaders(
   };
 }
 
-function createRuntime(loaders: WorkerRuntimeModuleLoaders): WorkerRuntime {
-  return new WorkerRuntime(loadWorkerConfig({}), createLogger(), loaders);
+function createRuntime(
+  loaders: WorkerRuntimeModuleLoaders,
+  env: NodeJS.ProcessEnv = { WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY: '0' },
+): WorkerRuntime {
+  return new WorkerRuntime(loadWorkerConfig(env), createLogger(), loaders);
 }
 
 test('recovery sweep requests a property tile pyramid build through durable coalescing', async () => {
@@ -197,6 +200,33 @@ test('recovery sweep runs property tile pyramid retention', async () => {
 
   assert.deepEqual(retentionCalls, ['run']);
   assert.equal(summary.propertyTilePyramidRetentionStatus, 'completed');
+});
+
+test('recovery sweep skips property tile pyramid retention before the configured UTC minute', async () => {
+  mock.timers.enable({ apis: ['Date'], now: new Date('2026-05-07T03:19:00.000Z') });
+  const retentionCalls: string[] = [];
+  try {
+    const runtime = createRuntime(
+      createModuleLoaders({
+        loadPropertyTilePyramidModule: async () => ({
+          executeDuePropertyTilePyramidBuild: async () => ({ status: 'noop' }),
+          requestPropertyTilePyramidBuild: async () => ({ status: 'coalesced' }),
+          runPropertyTilePyramidRetention: async () => {
+            retentionCalls.push('run');
+            return { status: 'completed', deletedVersions: 0 };
+          },
+        }),
+      }),
+      { WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY: '200' },
+    ) as unknown as RuntimeInternals;
+
+    const summary = await runtime.performRecoverySweep('unit');
+
+    assert.deepEqual(retentionCalls, []);
+    assert.equal(summary.propertyTilePyramidRetentionStatus, null);
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test('recovery sweep dispatches due candidate handoffs', async () => {

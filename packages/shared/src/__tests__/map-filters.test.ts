@@ -260,16 +260,16 @@ describe('map filter query param helpers', () => {
   it('serializes exact pyramid node identity for public nearby lookup only as a pair', () => {
     expect(
       buildNearbyGroupPath(5.47, 51.44, 14, createDefaultMapFilters(), {
-        pyramidVersionId: '9007199254740993123',
-        pyramidNodeId: '9007199254740993999',
+        pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+        pyramidNodeId: 'pyramid-node-9007199254740993999',
       })
     ).toBe(
-      '/properties/nearby?lon=5.47&lat=51.44&zoom=14&pyramidVersionId=9007199254740993123&pyramidNodeId=9007199254740993999'
+      '/properties/nearby?lon=5.47&lat=51.44&zoom=14&pyramidVersionId=9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11&pyramidNodeId=pyramid-node-9007199254740993999'
     );
 
     expect(
       buildNearbyGroupPath(5.47, 51.44, 14, createDefaultMapFilters(), {
-        pyramidVersionId: '9007199254740993123',
+        pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
       })
     ).toBe('/properties/nearby?lon=5.47&lat=51.44&zoom=14');
   });

@@ -443,6 +443,85 @@ function sendPyramidUncoveredTile(
     .send();
 }
 
+async function requestPyramidBuildForTileRoute(
+  request: FastifyRequest,
+  input: {
+    reason: string;
+    slot: ReturnType<typeof getDefaultPropertyTilePyramidSlot>;
+    z: number;
+    x: number;
+    y: number;
+  },
+): Promise<PropertyTilePyramidBuildRequest | undefined> {
+  try {
+    return await propertyTilePyramidRouteService.requestBuild({
+      reason: input.reason,
+      slot: input.slot,
+    });
+  } catch (error) {
+    request.log.warn(
+      {
+        err: error,
+        reason: input.reason,
+        z: input.z,
+        x: input.x,
+        y: input.y,
+      },
+      'Failed to request replacement property tile pyramid build',
+    );
+    return undefined;
+  }
+}
+
+async function markPyramidVersionDegradedForTileRoute(
+  request: FastifyRequest,
+  input: {
+    version: CurrentPropertyTilePyramidVersion;
+    reason: string;
+    details: Record<string, unknown>;
+  },
+): Promise<void> {
+  try {
+    await propertyTilePyramidRouteService.markVersionDegraded({
+      version: input.version,
+      reason: input.reason,
+      details: input.details,
+      actor: 'tiles-route',
+    });
+  } catch (error) {
+    request.log.warn(
+      {
+        err: error,
+        versionId: input.version.versionId,
+        reason: input.reason,
+        details: input.details,
+      },
+      'Failed to mark property tile pyramid version degraded',
+    );
+  }
+}
+
+function isControlledPyramidTileLookupError(error: unknown): boolean {
+  if (isPropertyTileRecoverableError(error)) {
+    return true;
+  }
+
+  const code = (error as { code?: unknown } | null)?.code;
+  if (
+    code === '22001' ||
+    code === '22003' ||
+    code === '22P02' ||
+    code === '23502' ||
+    code === '23503' ||
+    code === '23514'
+  ) {
+    return true;
+  }
+
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  return Boolean(cause && cause !== error && isControlledPyramidTileLookupError(cause));
+}
+
 function sendPrivateTilePayload(
   reply: FastifyReply,
   payloadResult: PropertyTilePayloadBuildResult,
@@ -2166,22 +2245,6 @@ export async function tileRoutes(app: FastifyInstance) {
         const slot = getDefaultPropertyTilePyramidSlot();
         let current: PropertyTilePyramidCurrentLookup;
 
-        if (!propertyTilePyramidRouteService.isTileCovered({ z, x, y, maxZoom: slot.maxZoom })) {
-          pyramidRuntime.generationTimeMs = Date.now() - startedAt;
-          logTileOutcome({
-            request,
-            routeKind: 'public',
-            z,
-            x,
-            y,
-            filterSignature,
-            cacheState: 'pyramid-uncovered',
-            result: 'pyramid-uncovered',
-            runtime: pyramidRuntime,
-          });
-          return sendPyramidUncoveredTile(reply, pyramidRuntime);
-        }
-
         try {
           current = await propertyTilePyramidRouteService.lookupCurrentVersion(slot);
         } catch (error) {
@@ -2189,9 +2252,12 @@ export async function tileRoutes(app: FastifyInstance) {
             throw error;
           }
           pyramidRuntime.generationTimeMs = Date.now() - startedAt;
-          const buildRequest = await propertyTilePyramidRouteService.requestBuild({
+          const buildRequest = await requestPyramidBuildForTileRoute(request, {
             reason: 'tile-miss',
             slot,
+            z,
+            x,
+            y,
           });
           logTileOutcome({
             request,
@@ -2212,11 +2278,35 @@ export async function tileRoutes(app: FastifyInstance) {
           });
         }
 
+        const isMutableCoverageCovered = propertyTilePyramidRouteService.isTileCovered({
+          z,
+          x,
+          y,
+          maxZoom: slot.maxZoom,
+        });
         pyramidRuntime.generationTimeMs = Date.now() - startedAt;
         if (current.state !== 'current') {
-          const buildRequest = await propertyTilePyramidRouteService.requestBuild({
+          if (!isMutableCoverageCovered) {
+            logTileOutcome({
+              request,
+              routeKind: 'public',
+              z,
+              x,
+              y,
+              filterSignature,
+              cacheState: 'pyramid-uncovered',
+              result: 'pyramid-uncovered',
+              runtime: pyramidRuntime,
+            });
+            return sendPyramidUncoveredTile(reply, pyramidRuntime);
+          }
+
+          const buildRequest = await requestPyramidBuildForTileRoute(request, {
             reason: 'tile-miss',
             slot,
+            z,
+            x,
+            y,
           });
           logTileOutcome({
             request,
@@ -2279,11 +2369,11 @@ export async function tileRoutes(app: FastifyInstance) {
           });
           pyramidRuntime.generationTimeMs = Date.now() - startedAt;
         } catch (error) {
-          if (!isPropertyTileRecoverableError(error)) {
+          if (!isControlledPyramidTileLookupError(error)) {
             throw error;
           }
           pyramidRuntime.generationTimeMs = Date.now() - startedAt;
-          await propertyTilePyramidRouteService.markVersionDegraded({
+          await markPyramidVersionDegradedForTileRoute(request, {
             version: current.version as CurrentPropertyTilePyramidVersion,
             reason: 'payload-regeneration-error',
             details: {
@@ -2292,11 +2382,13 @@ export async function tileRoutes(app: FastifyInstance) {
               y,
               message: error instanceof Error ? error.message : 'Unknown payload regeneration error',
             },
-            actor: 'tiles-route',
           });
-          const buildRequest = await propertyTilePyramidRouteService.requestBuild({
+          const buildRequest = await requestPyramidBuildForTileRoute(request, {
             reason: 'payload-regeneration-error',
             slot,
+            z,
+            x,
+            y,
           });
           logTileOutcome({
             request,
@@ -2318,7 +2410,22 @@ export async function tileRoutes(app: FastifyInstance) {
         }
 
         if (tile.state === 'missing') {
-          await propertyTilePyramidRouteService.markVersionDegraded({
+          if (!isMutableCoverageCovered) {
+            logTileOutcome({
+              request,
+              routeKind: 'public',
+              z,
+              x,
+              y,
+              filterSignature,
+              cacheState: 'pyramid-uncovered',
+              result: 'pyramid-uncovered',
+              runtime: pyramidRuntime,
+            });
+            return sendPyramidUncoveredTile(reply, pyramidRuntime);
+          }
+
+          await markPyramidVersionDegradedForTileRoute(request, {
             version: current.version as CurrentPropertyTilePyramidVersion,
             reason: tile.reason,
             details: {
@@ -2327,11 +2434,13 @@ export async function tileRoutes(app: FastifyInstance) {
               y,
               tileStatus: tile.tileStatus,
             },
-            actor: 'tiles-route',
           });
-          const buildRequest = await propertyTilePyramidRouteService.requestBuild({
+          const buildRequest = await requestPyramidBuildForTileRoute(request, {
             reason: 'manifest-missing',
             slot,
+            z,
+            x,
+            y,
           });
           logTileOutcome({
             request,

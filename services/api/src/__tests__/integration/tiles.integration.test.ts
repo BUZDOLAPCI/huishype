@@ -1087,7 +1087,8 @@ describe('Tile routes', () => {
       }
     });
 
-    it('serves outside-coverage low-zoom default tiles as valid empty without degrading the current pyramid', async () => {
+    it('serves the current low-zoom pyramid tile before consulting mutable coverage', async () => {
+      const payload = Buffer.from([0x1a, 0x04, 0x6c, 0x6b, 0x67, 0x64]);
       const lookupCurrentVersion = jest.fn(async () => ({
         state: 'current' as const,
         version: {
@@ -1105,10 +1106,15 @@ describe('Tile routes', () => {
         },
       }));
       const lookupTile = jest.fn(async () => ({
-        state: 'missing' as const,
-        tileStatus: 'pyramid-missing' as const,
-        reason: 'manifest-missing',
+        state: 'hit' as const,
+        versionId: '00000000-0000-0000-0000-0000000000dd',
+        payload,
+        statusCode: 200 as const,
+        etag: '"pyramid-dd"',
+        nodeCount: 1,
+        encodedFromNodes: false,
       }));
+      const isTileCovered = jest.fn(() => false);
       const markVersionDegraded = jest.fn(async () => undefined);
       const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
@@ -1117,6 +1123,52 @@ describe('Tile routes', () => {
         getMaxZoom: () => 10,
         lookupCurrentVersion,
         lookupTile,
+        isTileCovered,
+        markVersionDegraded,
+        requestBuild,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/10/0/0.pbf',
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.rawPayload).toEqual(payload);
+        expect(response.headers['x-huishype-pyramid-version']).toBe(
+          '00000000-0000-0000-0000-0000000000dd',
+        );
+        expect(response.headers['x-tile-cache']).toBe('precomputed');
+        expect(response.headers['cache-control']).toBe(
+          'public, max-age=300, stale-while-revalidate=300'
+        );
+        expect(lookupCurrentVersion).toHaveBeenCalledTimes(1);
+        expect(lookupTile).toHaveBeenCalledTimes(1);
+        expect(isTileCovered).toHaveBeenCalledTimes(1);
+        expect(markVersionDegraded).not.toHaveBeenCalled();
+        expect(requestBuild).not.toHaveBeenCalled();
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
+      } finally {
+        runtimeRunSpy.mockRestore();
+        resetPropertyTileCacheForTests();
+      }
+    });
+
+    it('returns uncovered only after current lookup finds no promoted version', async () => {
+      const lookupCurrentVersion = jest.fn(async () => ({
+        state: 'none' as const,
+        tileStatus: 'pyramid-unavailable' as const,
+        reason: 'unit-no-current',
+      }));
+      const markVersionDegraded = jest.fn(async () => undefined);
+      const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 10,
+        lookupCurrentVersion,
+        isTileCovered: () => false,
         markVersionDegraded,
         requestBuild,
       });
@@ -1130,11 +1182,7 @@ describe('Tile routes', () => {
         expect(response.statusCode).toBe(204);
         expect(response.headers['x-huishype-tile-status']).toBe('pyramid-uncovered');
         expect(response.headers['x-tile-cache']).toBe('pyramid-uncovered');
-        expect(response.headers['cache-control']).toBe(
-          'public, max-age=300, stale-while-revalidate=300'
-        );
-        expect(lookupCurrentVersion).not.toHaveBeenCalled();
-        expect(lookupTile).not.toHaveBeenCalled();
+        expect(lookupCurrentVersion).toHaveBeenCalledTimes(1);
         expect(markVersionDegraded).not.toHaveBeenCalled();
         expect(requestBuild).not.toHaveBeenCalled();
         expect(runtimeRunSpy).not.toHaveBeenCalled();
@@ -1174,6 +1222,78 @@ describe('Tile routes', () => {
         expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-enqueued');
         expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
         expect(response.headers['x-tile-cache']).not.toBe('timeout-empty');
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
+      } finally {
+        resetPropertyTileCacheForTests();
+        runtimeRunSpy.mockRestore();
+      }
+    });
+
+    it('returns a controlled 204 and degrades the version when promoted tile regeneration hits a manifest constraint error', async () => {
+      const currentVersion = {
+        versionId: '00000000-0000-0000-0000-0000000000ee',
+        coverageId: 'public_default_low_zoom',
+        filterSignature: 'default',
+        maxZoom: 10,
+        pyramidKind: 'public_default_low_zoom',
+        buildInputsHash: 'inputs',
+        sourceWatermarkHash: 'watermarks',
+        status: 'promoted' as const,
+        promotedAt: new Date().toISOString(),
+        degradedAt: null,
+        degradedReason: null,
+      };
+      const lookupError = Object.assign(
+        new Error('new row for relation "property_tile_pyramid_tiles" violates check constraint'),
+        { code: '23514' },
+      );
+      const markVersionDegraded = jest.fn(async () => undefined);
+      const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 10,
+        lookupCurrentVersion: async () => ({
+          state: 'current',
+          version: currentVersion,
+        }),
+        lookupTile: async () => {
+          throw lookupError;
+        },
+        markVersionDegraded,
+        requestBuild,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/10/527/340.pbf',
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-active');
+        expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
+        expect(markVersionDegraded).toHaveBeenCalledWith({
+          version: currentVersion,
+          reason: 'payload-regeneration-error',
+          details: {
+            z: 10,
+            x: 527,
+            y: 340,
+            message: lookupError.message,
+          },
+          actor: 'tiles-route',
+        });
+        expect(requestBuild).toHaveBeenCalledWith({
+          reason: 'payload-regeneration-error',
+          slot: {
+            coverageId: 'public_default_low_zoom',
+            filterSignature: 'default',
+            maxZoom: 10,
+            pyramidKind: 'public_default_low_zoom',
+          },
+        });
         expect(runtimeRunSpy).not.toHaveBeenCalled();
       } finally {
         resetPropertyTileCacheForTests();

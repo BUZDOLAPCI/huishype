@@ -354,4 +354,43 @@ describe('property tile pyramid schema safeguards', () => {
       /manifest coverage 0 does not match expected tile count 1/,
     );
   });
+
+  it('blocks direct inserted promoted rows that bypass the promotion function', async () => {
+    const versionId = crypto.randomUUID();
+    const unique = crypto.randomUUID();
+
+    await expectDbFailure(
+      () => db.execute(sql`
+        INSERT INTO property_tile_pyramid_versions (
+          id,
+          coverage_id,
+          filter_signature,
+          max_zoom,
+          pyramid_kind,
+          config_hash,
+          build_inputs_hash,
+          source_watermark_hash,
+          status,
+          expected_tile_count,
+          validated_tile_count,
+          promoted_at
+        )
+        VALUES (
+          ${versionId}::uuid,
+          ${`${coveragePrefix}-direct-insert-${unique}`},
+          'public-default',
+          1,
+          'public_default_low_zoom',
+          ${`config-${unique}`},
+          ${`inputs-${unique}`},
+          ${`watermarks-${unique}`},
+          'promoted',
+          0,
+          0,
+          now()
+        )
+      `),
+      /direct inserted promoted property tile pyramid versions are not allowed/,
+    );
+  });
 });

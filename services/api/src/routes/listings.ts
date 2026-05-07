@@ -27,7 +27,7 @@ import {
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import {
   advancePropertyTilePyramidSourceWatermark,
-  safeRequestPropertyTilePyramidBuild,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
 } from '../services/property-tile-pyramid.js';
 import {
   consumeListingPreviewResult,
@@ -135,8 +135,12 @@ async function requestListingWriteRefreshes(input: {
 
   await Promise.all([
     latestListingsRefresh,
-    safeRequestPropertyTilePyramidBuild(
-      { reason: input.propertyTileReason },
+    safeRequestPropertyTilePyramidBuildAfterMutation(
+      {
+        reason: input.propertyTileReason,
+        policy: 'listing',
+        watermarkScopes: ['listing_facts', 'property_status'],
+      },
       input.logger,
       {
         maintenanceBatchId: input.maintenanceBatchId,

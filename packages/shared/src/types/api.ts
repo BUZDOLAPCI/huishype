@@ -594,6 +594,7 @@ export type FollowingNearbyPropertyGroupBase = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
 };
 
 export type FollowingNearbySinglePropertyResponse = {
@@ -616,6 +617,7 @@ export type FollowingNearbySinglePropertyResponse = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
   groupKind: 'single';
   address: string;
   city: string;
@@ -645,6 +647,7 @@ export type FollowingNearbyClusterPropertyResponse = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
   groupKind: 'cluster';
 };
 

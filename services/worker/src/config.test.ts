@@ -33,6 +33,7 @@ test('loadWorkerConfig uses defaults when env vars are missing', () => {
   assert.equal(config.healthLogIntervalMs, 60_000);
   assert.equal(config.staleProcessingAfterMs, 600_000);
   assert.equal(config.shutdownTimeoutMs, 15_000);
+  assert.equal(config.propertyTilePyramidRetentionUtcMinuteOfDay, 200);
 });
 
 test('loadWorkerConfig parses explicit overrides', () => {
@@ -48,6 +49,7 @@ test('loadWorkerConfig parses explicit overrides', () => {
     WORKER_HEALTH_LOG_INTERVAL_MS: '45000',
     WORKER_STALE_PROCESSING_AFTER_MS: '300000',
     WORKER_SHUTDOWN_TIMEOUT_MS: '9000',
+    WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY: '215',
   });
 
   assert.equal(config.ingestConcurrency, 8);
@@ -61,12 +63,17 @@ test('loadWorkerConfig parses explicit overrides', () => {
   assert.equal(config.healthLogIntervalMs, 45_000);
   assert.equal(config.staleProcessingAfterMs, 300_000);
   assert.equal(config.shutdownTimeoutMs, 9_000);
+  assert.equal(config.propertyTilePyramidRetentionUtcMinuteOfDay, 215);
 });
 
 test('loadWorkerConfig rejects invalid integers', () => {
   assert.throws(
     () => loadWorkerConfig({ WORKER_INGEST_CONCURRENCY: '0' }),
     /WORKER_INGEST_CONCURRENCY must be a positive integer/,
+  );
+  assert.throws(
+    () => loadWorkerConfig({ WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY: '1440' }),
+    /WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY must be an integer between 0 and 1439/,
   );
 });
 

@@ -6,7 +6,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import {
   advancePropertyTilePyramidSourceWatermark,
-  safeRequestPropertyTilePyramidBuild,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
 } from '../services/property-tile-pyramid.js';
 
 // Type for comment rows from raw SQL
@@ -423,8 +423,8 @@ export async function commentRoutes(app: FastifyInstance) {
       });
 
       const created = newComment[0];
-      await safeRequestPropertyTilePyramidBuild(
-        { reason: 'comment-create' },
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'comment-create', policy: 'social', watermarkScopes: ['social_inputs'] },
         request.log,
         { propertyId, commentId: created.id },
       );

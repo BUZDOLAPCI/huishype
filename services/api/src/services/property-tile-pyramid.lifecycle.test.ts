@@ -260,6 +260,13 @@ describe('property tile pyramid build lifecycle', () => {
       PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
       PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: '1000000',
     }, async () => {
+      const pyramid = await import('./property-tile-pyramid.js');
+      const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+        coverageId: 'public_default_low_zoom',
+        filterSignature: 'default',
+        maxZoom: 0,
+        pyramidKind: 'public_default_low_zoom',
+      });
       executeMock
         .mockResolvedValueOnce([{ retryable_version_count: 0 }])
         .mockResolvedValueOnce([
@@ -270,25 +277,36 @@ describe('property tile pyramid build lifecycle', () => {
             filter_signature: 'default',
             max_zoom: 0,
             pyramid_kind: 'public_default_low_zoom',
-            build_inputs_hash: 'inputs',
+            config_hash: identity.configHash,
+            build_inputs_hash: identity.buildInputsHash,
             source_watermark_hash: 'watermarks',
+            coverage_snapshot_json: identity.coverageSnapshot,
+            config_snapshot_json: identity.configSnapshot,
+            grouping_constants_json: identity.groupingConstants,
+            pending_replacement_watermarks_json: {},
+            lease_token: 'lease-token',
           },
         ])
-        .mockResolvedValue([]);
+        .mockResolvedValueOnce([{ ok: true }])
+        .mockResolvedValue([{ affected: 1 }]);
       txExecuteMock
-        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ affected: 1 }])
         .mockResolvedValueOnce([{ current_version_id: null }])
         .mockRejectedValueOnce(new Error('current pointer compare-and-swap failed'));
 
-      const { executeDuePropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
-      await expect(executeDuePropertyTilePyramidBuild({
+      await expect(pyramid.executeDuePropertyTilePyramidBuild({
         leaseOwner: 'unit-test',
         reason: 'worker-build',
       })).rejects.toThrow('current pointer compare-and-swap failed');
 
       expect(transactionMock).toHaveBeenCalledTimes(1);
       expect(txExecuteMock).toHaveBeenCalledTimes(3);
-      const failureQuery = JSON.stringify(executeMock.mock.calls.at(-1)?.[0]);
+      const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+      const failureIndex = executedQueries.findIndex((query) => query.includes('build_error'));
+      const successorRequestIndex = executedQueries.findIndex((query) => query.includes('active_replacement'));
+      const failureQuery = executedQueries[failureIndex] ?? '';
+      expect(failureIndex).toBeGreaterThanOrEqual(0);
+      expect(successorRequestIndex).toBeGreaterThan(failureIndex);
       expect(failureQuery).toContain('failed_retryable');
       expect(failureQuery).toContain('build_error');
     });
@@ -320,6 +338,13 @@ describe('property tile pyramid build lifecycle', () => {
       PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
       PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: '1',
     }, async () => {
+      const pyramid = await import('./property-tile-pyramid.js');
+      const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+        coverageId: 'public_default_low_zoom',
+        filterSignature: 'default',
+        maxZoom: 0,
+        pyramidKind: 'public_default_low_zoom',
+      });
       executeMock
         .mockResolvedValueOnce([{ retryable_version_count: 0 }])
         .mockResolvedValueOnce([
@@ -330,14 +355,19 @@ describe('property tile pyramid build lifecycle', () => {
             filter_signature: 'default',
             max_zoom: 0,
             pyramid_kind: 'public_default_low_zoom',
-            build_inputs_hash: 'inputs',
+            config_hash: identity.configHash,
+            build_inputs_hash: identity.buildInputsHash,
             source_watermark_hash: 'watermarks',
+            coverage_snapshot_json: identity.coverageSnapshot,
+            config_snapshot_json: identity.configSnapshot,
+            grouping_constants_json: identity.groupingConstants,
+            pending_replacement_watermarks_json: {},
+            lease_token: 'lease-token',
           },
         ])
-        .mockResolvedValue([]);
+        .mockResolvedValue([{ affected: 1 }]);
 
-      const { executeDuePropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
-      const result = await executeDuePropertyTilePyramidBuild({
+      const result = await pyramid.executeDuePropertyTilePyramidBuild({
         leaseOwner: 'unit-test',
         reason: 'worker-build',
       });

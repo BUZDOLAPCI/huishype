@@ -5,7 +5,7 @@ import { db, reactions, properties, comments } from '../db/index.js';
 import { eq, and, sql } from 'drizzle-orm';
 import {
   advancePropertyTilePyramidSourceWatermark,
-  safeRequestPropertyTilePyramidBuild,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
 } from '../services/property-tile-pyramid.js';
 
 // Schema definitions
@@ -169,8 +169,8 @@ export async function likeRoutes(app: FastifyInstance) {
         });
       }
 
-      await safeRequestPropertyTilePyramidBuild(
-        { reason: 'comment-like' },
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'comment-like', policy: 'social', watermarkScopes: ['social_inputs'] },
         request.log,
         { commentId },
       );
@@ -266,8 +266,8 @@ export async function likeRoutes(app: FastifyInstance) {
         });
       }
 
-      await safeRequestPropertyTilePyramidBuild(
-        { reason: 'comment-unlike' },
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'comment-unlike', policy: 'social', watermarkScopes: ['social_inputs'] },
         request.log,
         { commentId },
       );
@@ -380,8 +380,8 @@ export async function likeRoutes(app: FastifyInstance) {
         throw err;
       }
 
-      await safeRequestPropertyTilePyramidBuild(
-        { reason: 'property-like' },
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'property-like', policy: 'social', watermarkScopes: ['social_inputs'] },
         request.log,
         { propertyId },
       );
@@ -447,8 +447,8 @@ export async function likeRoutes(app: FastifyInstance) {
         });
       }
 
-      await safeRequestPropertyTilePyramidBuild(
-        { reason: 'property-unlike' },
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'property-unlike', policy: 'social', watermarkScopes: ['social_inputs'] },
         request.log,
         { propertyId },
       );

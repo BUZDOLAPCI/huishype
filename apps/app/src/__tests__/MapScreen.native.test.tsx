@@ -755,8 +755,8 @@ describe('MapScreen native grouped Following mode', () => {
         point_count: 40,
         property_ids: '',
         preview_property_ids: '',
-        pyramid_version_id: '9007199254740993123',
-        pyramid_node_id: '9007199254740993999',
+        pyramid_version_id: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+        pyramid_node_id: 'pyramid-node-9007199254740993999',
         membership_complete: 'false',
         read_state_coverage: 'partial',
       },
@@ -770,8 +770,8 @@ describe('MapScreen native grouped Following mode', () => {
       pointCount: 40,
       propertyIds: [],
       previewPropertyIds: ['property-9'],
-      pyramidVersionId: '9007199254740993123',
-      pyramidNodeId: '9007199254740993999',
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
       membershipComplete: false,
       readStateCoverage: 'partial',
       coordinate: [5.47, 51.44],
@@ -808,6 +808,7 @@ describe('MapScreen native grouped Following mode', () => {
       activityScoreTotal: 0,
       likeCount: 0,
       guessCount: 0,
+      isRead: false,
     });
 
     const screen = await renderMapScreen();
@@ -837,14 +838,14 @@ describe('MapScreen native grouped Following mode', () => {
         marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
       }),
       {
-        pyramidVersionId: '9007199254740993123',
-        pyramidNodeId: '9007199254740993999',
+        pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+        pyramidNodeId: 'pyramid-node-9007199254740993999',
       }
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       expect.objectContaining({
         primaryPropertyId: 'property-9',
-        pyramidNodeId: '9007199254740993999',
+        pyramidNodeId: 'pyramid-node-9007199254740993999',
       }),
       expect.any(Number),
       expect.any(Object)
@@ -890,6 +891,7 @@ describe('MapScreen native grouped Following mode', () => {
       activityScoreTotal: 14,
       likeCount: 0,
       guessCount: 0,
+      isRead: false,
     });
 
     const screen = await renderMapScreen();

@@ -127,6 +127,7 @@ export class WorkerRuntime {
   private readonly config: WorkerConfig;
   private readonly logger: WorkerLogger;
   private readonly startedAt = Date.now();
+  private lastPropertyTilePyramidRetentionUtcDay: string | null = null;
 
   private shuttingDown = false;
   private sweepInFlight: Promise<RecoverySweepSummary> | null = null;
@@ -290,6 +291,8 @@ export class WorkerRuntime {
       recoverySweepIntervalMs: this.config.recoverySweepIntervalMs,
       staleProcessingAfterMs: this.config.staleProcessingAfterMs,
       healthLogIntervalMs: this.config.healthLogIntervalMs,
+      propertyTilePyramidRetentionUtcMinuteOfDay:
+        this.config.propertyTilePyramidRetentionUtcMinuteOfDay,
     });
 
     await this.runRecoverySweep('startup');
@@ -631,20 +634,23 @@ export class WorkerRuntime {
         error: serializeError(error),
       });
     }
-    try {
-      const retention = await propertyTilePyramid.runPropertyTilePyramidRetention();
-      propertyTilePyramidRetentionStatus = typeof retention.status === 'string'
-        ? retention.status
-        : 'completed';
-      this.logger.info('Property tile pyramid retention completed', {
-        trigger,
-        ...retention,
-      });
-    } catch (error) {
-      this.logger.error('Recovery sweep failed to run property tile pyramid retention', {
-        trigger,
-        error: serializeError(error),
-      });
+    if (this.shouldRunPropertyTilePyramidRetention(new Date())) {
+      try {
+        const retention = await propertyTilePyramid.runPropertyTilePyramidRetention();
+        propertyTilePyramidRetentionStatus = typeof retention.status === 'string'
+          ? retention.status
+          : 'completed';
+        this.markPropertyTilePyramidRetentionAttempt(new Date());
+        this.logger.info('Property tile pyramid retention completed', {
+          trigger,
+          ...retention,
+        });
+      } catch (error) {
+        this.logger.error('Recovery sweep failed to run property tile pyramid retention', {
+          trigger,
+          error: serializeError(error),
+        });
+      }
     }
 
     const summary: RecoverySweepSummary = {
@@ -680,6 +686,19 @@ export class WorkerRuntime {
     });
 
     return summary;
+  }
+
+  private shouldRunPropertyTilePyramidRetention(now: Date): boolean {
+    const utcMinuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const utcDay = now.toISOString().slice(0, 10);
+    return (
+      utcMinuteOfDay >= this.config.propertyTilePyramidRetentionUtcMinuteOfDay &&
+      this.lastPropertyTilePyramidRetentionUtcDay !== utcDay
+    );
+  }
+
+  private markPropertyTilePyramidRetentionAttempt(now: Date): void {
+    this.lastPropertyTilePyramidRetentionUtcDay = now.toISOString().slice(0, 10);
   }
 
   private async logHealthSnapshot(trigger: string): Promise<void> {

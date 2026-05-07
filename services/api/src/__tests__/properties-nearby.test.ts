@@ -243,6 +243,10 @@ async function withHermeticCurrentPyramidNode(
   const lat = options.lat ?? 52.123956;
   const tile = options.tile ?? tileForCoordinate(lon, lat, getPropertyTilePyramidMaxZoom());
   const manifestTile = options.manifestTile ?? tile;
+  const fallbackManifestTile = tile.x > 0
+    ? { z: tile.z, x: tile.x - 1, y: tile.y }
+    : { z: tile.z, x: tile.x + 1, y: tile.y };
+  const insertedManifestTile = includeTileManifest ? manifestTile : fallbackManifestTile;
   const payload = tileStatus === 'valid_encoded' ? Buffer.from(`nearby-encoded-${versionId}`) : null;
   const previousRows = await db.execute<{
     current_version_id: string;
@@ -270,7 +274,10 @@ async function withHermeticCurrentPyramidNode(
       build_inputs_hash,
       source_watermark_hash,
       status,
-      promoted_at
+      expected_tile_count,
+      validated_tile_count,
+      validation_summary,
+      validated_at
     )
     VALUES (
       ${versionId},
@@ -281,7 +288,10 @@ async function withHermeticCurrentPyramidNode(
       ${`nearby-fractional-config-${versionId}`},
       ${`nearby-fractional-inputs-${versionId}`},
       ${`nearby-fractional-watermark-${versionId}`},
-      'promoted',
+      'validated',
+      1,
+      1,
+      ${JSON.stringify({ expectedTileCount: 1, observedTileCount: 1 })}::jsonb,
       NOW()
     )
   `);
@@ -331,67 +341,44 @@ async function withHermeticCurrentPyramidNode(
     )
   `);
 
-  if (includeTileManifest) {
-    await db.execute(sql`
-      INSERT INTO property_tile_pyramid_tiles (
-        version_id,
-        z,
-        x,
-        y,
-        tile_status,
-        validation_status,
-        node_count,
-        etag,
-        payload,
-        payload_sha256,
-        payload_generated_at,
-        validated_at
-      )
-      VALUES (
-        ${versionId},
-        ${manifestTile.z},
-        ${manifestTile.x},
-        ${manifestTile.y},
-        ${tileStatus}::property_tile_pyramid_tile_status,
-        'validated',
-        ${propertyIds.length},
-        ${`nearby-fractional-etag-${versionId}`},
-        ${payload},
-        ${payload ? crypto.createHash('sha256').update(payload).digest('hex') : null},
-        ${payload ? sql`NOW()` : null},
-        NOW()
-      )
-    `);
-  }
-
   await db.execute(sql`
-    INSERT INTO property_tile_pyramid_current (
-      coverage_id,
-      filter_signature,
-      max_zoom,
-      pyramid_kind,
-      current_version_id,
-      previous_version_id,
-      current_promoted_at,
-      promotion_reason
+    INSERT INTO property_tile_pyramid_tiles (
+      version_id,
+      z,
+      x,
+      y,
+      tile_status,
+      validation_status,
+      node_count,
+      etag,
+      payload,
+      payload_sha256,
+      payload_generated_at,
+      validated_at
     )
     VALUES (
-      ${slot.coverageId},
-      ${slot.filterSignature},
-      ${slot.maxZoom},
-      ${slot.pyramidKind}::property_tile_pyramid_kind,
       ${versionId},
-      ${previousCurrent?.current_version_id ?? null},
-      NOW(),
-      'nearby fractional zoom test'
+      ${insertedManifestTile.z},
+      ${insertedManifestTile.x},
+      ${insertedManifestTile.y},
+      ${includeTileManifest ? tileStatus : 'valid_empty'}::property_tile_pyramid_tile_status,
+      'validated',
+      ${includeTileManifest ? propertyIds.length : 0},
+      ${`nearby-fractional-etag-${versionId}`},
+      ${includeTileManifest ? payload : null},
+      ${includeTileManifest && payload ? crypto.createHash('sha256').update(payload).digest('hex') : null},
+      ${includeTileManifest && payload ? sql`NOW()` : null},
+      NOW()
     )
-    ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
-    DO UPDATE SET
-      current_version_id = EXCLUDED.current_version_id,
-      previous_version_id = EXCLUDED.previous_version_id,
-      current_promoted_at = EXCLUDED.current_promoted_at,
-      promotion_reason = EXCLUDED.promotion_reason,
-      updated_at = NOW()
+  `);
+
+  await db.execute(sql`
+    SELECT promote_property_tile_pyramid_version(
+      ${versionId}::uuid,
+      ${previousCurrent?.current_version_id ?? null}::uuid,
+      'nearby fractional zoom test',
+      'jest'
+    )
   `);
 
   try {
@@ -907,6 +894,40 @@ describe('GET /properties/nearby', () => {
       );
     });
 
+    it('reports stale exact pyramid node identity separately from missing nodes', async () => {
+      await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId }) => {
+        const staleVersionId = crypto.randomUUID();
+        const response = await app.inject({
+          method: 'GET',
+          url:
+            `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10.75` +
+            `&pyramidVersionId=${staleVersionId}` +
+            `&pyramidNodeId=${encodeURIComponent(nodeId)}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body)).toBeNull();
+        expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-stale');
+        expect(response.headers['x-huishype-pyramid-version']).toBe(versionId);
+      });
+    });
+
+    it('reports exact pyramid node lookup without a current version as unavailable', async () => {
+      await withTemporarilyNoCurrentPyramid(async () => {
+        const response = await app.inject({
+          method: 'GET',
+          url:
+            '/properties/nearby?lon=5.812345&lat=52.123456&zoom=10.75' +
+            `&pyramidVersionId=${crypto.randomUUID()}` +
+            '&pyramidNodeId=missing-current-node',
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body)).toBeNull();
+        expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-unavailable');
+      });
+    });
+
     it('finds promoted point nearby nodes in the tap tile neighborhood', async () => {
       const zoom = getPropertyTilePyramidMaxZoom();
       const baseTile = tileForCoordinate(5.812345, 52.123456, zoom);
@@ -959,6 +980,22 @@ describe('GET /properties/nearby', () => {
           expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-empty');
         },
         { lon: nodeLon, lat: nodeLat, tile: neighborTile, manifestTile: baseTile },
+      );
+    });
+
+    it('reports coordinate pyramid lookup with no serveable node manifest as empty', async () => {
+      await withHermeticCurrentPyramidNode(
+        async ({ lon, lat }) => {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10.75`,
+          });
+
+          expect(response.statusCode).toBe(200);
+          expect(JSON.parse(response.body)).toBeNull();
+          expect(response.headers['x-huishype-nearby-status']).toBe('pyramid-empty');
+        },
+        { includeTileManifest: false },
       );
     });
 

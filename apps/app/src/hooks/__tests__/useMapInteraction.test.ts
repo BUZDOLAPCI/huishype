@@ -948,6 +948,7 @@ describe('useMapInteraction', () => {
         distanceMeters: 10,
         yearBuilt: null,
         floorAreaM2: null,
+        isRead: false,
       };
 
       act(() => {
@@ -1048,6 +1049,7 @@ describe('useMapInteraction', () => {
         distanceMeters: 10,
         yearBuilt: null,
         floorAreaM2: null,
+        isRead: false,
       };
 
       await act(async () => {

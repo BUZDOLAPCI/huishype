@@ -1,89 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 import type { FastifyInstance } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { comments, reactions, users } from '../../db/schema.js';
 import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 
-const advancePropertyTilePyramidSourceWatermarkMock = jest.fn(async () => undefined);
-const safeRequestPropertyTilePyramidBuildMock = jest.fn(async () => ({ status: 'queued' }));
-
-jest.unstable_mockModule('../../services/property-tile-pyramid.js', () => ({
-  advancePropertyTilePyramidSourceWatermark: advancePropertyTilePyramidSourceWatermarkMock,
-  safeRequestPropertyTilePyramidBuild: safeRequestPropertyTilePyramidBuildMock,
-  getDefaultPropertyTilePyramidSlot: () => ({
-    coverageId: 'public_default_low_zoom',
-    filterSignature: 'default',
-    maxZoom: 14,
-    pyramidKind: 'public_default_low_zoom',
-  }),
-  getPropertyTilePyramidMaxZoom: () => 14,
-  isDefaultPropertyTilePyramidPointCovered: () => false,
-  isDefaultPropertyTilePyramidTileCovered: () => false,
-  buildPropertyTilePyramidCacheKey: () => 'pyramid:contract-test',
-  lookupCurrentPropertyTilePyramidVersion: async () => ({
-    state: 'none',
-    tileStatus: 'pyramid-unavailable',
-    reason: 'contract-test',
-  }),
-  lookupPromotedPropertyTilePyramidTile: async () => ({
-    state: 'missing',
-    tileStatus: 'pyramid-missing',
-    reason: 'contract-test',
-  }),
-  markPropertyTilePyramidVersionDegraded: async () => undefined,
-  requestPropertyTilePyramidBuild: async () => ({ status: 'queued' }),
-  getPropertyTilePyramidHealthSummary: async () => ({
-    enabled: true,
-    status: 'degraded',
-    currentVersionId: null,
-    currentPromotedAt: null,
-    degradedReason: 'no-current-promoted-pyramid',
-    activeCandidateVersionId: null,
-    activeCandidateStatus: null,
-    retryableFailureDueAt: null,
-    terminalFailureCount: 0,
-    encodedCoverageRatio: null,
-    lastSuccessfulPromotionAt: null,
-    resourceControls: {
-      chunkTileLimit: 128,
-      memberPageSize: 500,
-      statementTimeoutMs: 30_000,
-      leaseSeconds: 600,
-      maxHeapMb: 1024,
-      maxWalBytesPerChunk: 10_000_000,
-    },
-  }),
-  getPropertyTilePyramidOpsSummary: async () => ({
-    status: 'degraded',
-    currentVersionId: null,
-    currentPromotedAt: null,
-    previousVersionId: null,
-    degradedReason: 'no-current-promoted-pyramid',
-    activeCandidateVersionId: null,
-    activeCandidateStatus: null,
-    retryableFailureDueAt: null,
-    terminalFailureCount: 0,
-    encodedCoverageRatio: null,
-    manifestTileCount: null,
-    encodedTileCount: null,
-    nodeCount: null,
-    memberCount: null,
-    activeLeaseOwner: null,
-    activeLeaseAgeSeconds: null,
-    lastSuccessfulPromotionAt: null,
-    lastAuditAction: null,
-    lastAuditReason: null,
-    resourceControls: {
-      chunkTileLimit: 128,
-      memberPageSize: 500,
-      statementTimeoutMs: 30_000,
-      leaseSeconds: 600,
-      maxHeapMb: 1024,
-      maxWalBytesPerChunk: 10_000_000,
-    },
-  }),
-}));
+const TEST_COVERAGE_ID = `mutation_hooks_${Date.now()}`;
 
 describe('property tile pyramid mutation invalidation hooks', () => {
   let app: FastifyInstance;
@@ -91,8 +13,12 @@ describe('property tile pyramid mutation invalidation hooks', () => {
   let accessToken: string;
   let propertyId: string;
   let commentId: string;
+  let previousCoverageId: string | undefined;
 
   beforeAll(async () => {
+    previousCoverageId = process.env.PROPERTY_TILE_PYRAMID_COVERAGE_ID;
+    process.env.PROPERTY_TILE_PYRAMID_COVERAGE_ID = TEST_COVERAGE_ID;
+
     const { buildApp } = await import('../../app.js');
     app = await buildApp({ logger: false });
 
@@ -121,9 +47,19 @@ describe('property tile pyramid mutation invalidation hooks', () => {
     commentId = comment.id;
   });
 
-  beforeEach(() => {
-    advancePropertyTilePyramidSourceWatermarkMock.mockClear();
-    safeRequestPropertyTilePyramidBuildMock.mockClear();
+  beforeEach(async () => {
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_versions
+      WHERE coverage_id = ${TEST_COVERAGE_ID}
+    `);
+    await db.execute(sql`
+      UPDATE property_tile_pyramid_source_watermarks
+      SET watermark_json = watermark_json
+        - 'mutationBuildCoalescing:social'
+        - 'mutationBuildCoalescing:views'
+        - 'mutationBuildCoalescing:listing'
+      WHERE scope_key = 'global'
+    `);
   });
 
   afterAll(async () => {
@@ -138,106 +74,134 @@ describe('property tile pyramid mutation invalidation hooks', () => {
     if (userId) {
       await db.delete(users).where(eq(users.id, userId));
     }
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_versions
+      WHERE coverage_id = ${TEST_COVERAGE_ID}
+    `);
+    if (previousCoverageId == null) {
+      delete process.env.PROPERTY_TILE_PYRAMID_COVERAGE_ID;
+    } else {
+      process.env.PROPERTY_TILE_PYRAMID_COVERAGE_ID = previousCoverageId;
+    }
     if (app) {
       await app.close();
     }
   });
 
-  it('comments advance social pyramid inputs and request a comment-create rebuild', async () => {
-    const response = await app.inject({
+  async function readWatermark(scope: string, policy: string) {
+    const rows = await db.execute<{
+      watermark_value: string;
+      last_requested_watermark_value: string | null;
+    }>(sql`
+      SELECT
+        watermark_value::text,
+        watermark_json->${`mutationBuildCoalescing:${policy}`}->>'lastRequestedWatermarkValue'
+          AS last_requested_watermark_value
+      FROM property_tile_pyramid_source_watermarks
+      WHERE scope = ${scope}::property_tile_pyramid_watermark_scope
+        AND scope_key = 'global'
+      LIMIT 1
+    `);
+    const row = Array.from(rows)[0];
+    return {
+      value: BigInt(row?.watermark_value ?? '0'),
+      lastRequestedValue: BigInt(row?.last_requested_watermark_value ?? '0'),
+    };
+  }
+
+  async function countRequestedPyramidVersions() {
+    const rows = await db.execute<{ version_count: number }>(sql`
+      SELECT count(*)::int AS version_count
+      FROM property_tile_pyramid_versions
+      WHERE coverage_id = ${TEST_COVERAGE_ID}
+    `);
+    return Array.from(rows)[0]?.version_count ?? 0;
+  }
+
+  it('comments advance social inputs but immediate repeats coalesce before a second build request', async () => {
+    const before = await readWatermark('social_inputs', 'social');
+    const firstResponse = await app.inject({
       method: 'POST',
       url: `/properties/${propertyId}/comments`,
       headers: { authorization: `Bearer ${accessToken}` },
-      payload: { content: 'Route hook comment' },
+      payload: { content: 'Route hook comment one' },
     });
 
-    expect(response.statusCode).toBe(201);
-    const body = JSON.parse(response.body);
-    await db.delete(comments).where(eq(comments.id, body.id));
+    expect(firstResponse.statusCode).toBe(201);
+    const firstBody = JSON.parse(firstResponse.body);
+    await db.delete(comments).where(eq(comments.id, firstBody.id));
 
-    expect(advancePropertyTilePyramidSourceWatermarkMock).toHaveBeenCalledWith(
-      ['social_inputs'],
-      expect.anything(),
-    );
-    expect(safeRequestPropertyTilePyramidBuildMock).toHaveBeenCalledWith(
-      { reason: 'comment-create' },
-      expect.anything(),
-      expect.objectContaining({ propertyId, commentId: body.id }),
-    );
+    const afterFirst = await readWatermark('social_inputs', 'social');
+    expect(afterFirst.value > before.value).toBe(true);
+    expect(afterFirst.lastRequestedValue).toBe(afterFirst.value);
+    expect(await countRequestedPyramidVersions()).toBe(1);
+
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: `/properties/${propertyId}/comments`,
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { content: 'Route hook comment two' },
+    });
+
+    expect(secondResponse.statusCode).toBe(201);
+    const secondBody = JSON.parse(secondResponse.body);
+    await db.delete(comments).where(eq(comments.id, secondBody.id));
+
+    const afterSecond = await readWatermark('social_inputs', 'social');
+    expect(afterSecond.value > afterFirst.value).toBe(true);
+    expect(afterSecond.lastRequestedValue).toBe(afterFirst.lastRequestedValue);
+    expect(await countRequestedPyramidVersions()).toBe(1);
   });
 
-  it('property views advance view engagement inputs and request a property-view rebuild', async () => {
-    const response = await app.inject({
+  it('property views advance engagement inputs but keep the view coalescing floor', async () => {
+    const before = await readWatermark('views_engagement', 'views');
+    const firstResponse = await app.inject({
       method: 'POST',
       url: `/properties/${propertyId}/view`,
-      headers: { 'x-session-id': 'pyramid-mutation-hook-viewer' },
+      headers: { 'x-session-id': 'pyramid-mutation-hook-viewer-one' },
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(advancePropertyTilePyramidSourceWatermarkMock).toHaveBeenCalledWith(
-      ['views_engagement'],
-      expect.anything(),
-    );
-    expect(safeRequestPropertyTilePyramidBuildMock).toHaveBeenCalledWith(
-      { reason: 'property-view' },
-      expect.anything(),
-      expect.objectContaining({
-        propertyId,
-        viewerScope: expect.stringMatching(/^session-hash:/),
-      }),
-    );
+    expect(firstResponse.statusCode).toBe(200);
+    const afterFirst = await readWatermark('views_engagement', 'views');
+    expect(afterFirst.value > before.value).toBe(true);
+    expect(afterFirst.lastRequestedValue).toBe(afterFirst.value);
+    expect(await countRequestedPyramidVersions()).toBe(1);
+
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: `/properties/${propertyId}/view`,
+      headers: { 'x-session-id': 'pyramid-mutation-hook-viewer-two' },
+    });
+
+    expect(secondResponse.statusCode).toBe(200);
+    const afterSecond = await readWatermark('views_engagement', 'views');
+    expect(afterSecond.value > afterFirst.value).toBe(true);
+    expect(afterSecond.lastRequestedValue).toBe(afterFirst.lastRequestedValue);
+    expect(await countRequestedPyramidVersions()).toBe(1);
   });
 
-  it('property likes and unlikes advance social inputs and request rebuilds', async () => {
-    const likeResponse = await app.inject({
+  it('property and comment reactions advance social inputs through the same coalesced boundary', async () => {
+    const before = await readWatermark('social_inputs', 'social');
+    const propertyLikeResponse = await app.inject({
       method: 'POST',
       url: `/properties/${propertyId}/like`,
       headers: { authorization: `Bearer ${accessToken}` },
     });
-    expect(likeResponse.statusCode).toBe(201);
-    expect(advancePropertyTilePyramidSourceWatermarkMock).toHaveBeenLastCalledWith(
-      ['social_inputs'],
-      expect.anything(),
-    );
-    expect(safeRequestPropertyTilePyramidBuildMock).toHaveBeenLastCalledWith(
-      { reason: 'property-like' },
-      expect.anything(),
-      expect.objectContaining({ propertyId }),
-    );
+    expect(propertyLikeResponse.statusCode).toBe(201);
+    const afterPropertyLike = await readWatermark('social_inputs', 'social');
+    expect(afterPropertyLike.value > before.value).toBe(true);
+    expect(await countRequestedPyramidVersions()).toBe(1);
 
-    const unlikeResponse = await app.inject({
-      method: 'DELETE',
-      url: `/properties/${propertyId}/like`,
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
-    expect(unlikeResponse.statusCode).toBe(200);
-    expect(advancePropertyTilePyramidSourceWatermarkMock).toHaveBeenLastCalledWith(
-      ['social_inputs'],
-      expect.anything(),
-    );
-    expect(safeRequestPropertyTilePyramidBuildMock).toHaveBeenLastCalledWith(
-      { reason: 'property-unlike' },
-      expect.anything(),
-      expect.objectContaining({ propertyId }),
-    );
-  });
-
-  it('comment likes and unlikes advance social inputs and request rebuilds', async () => {
     const likeResponse = await app.inject({
       method: 'POST',
       url: `/comments/${commentId}/like`,
       headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(likeResponse.statusCode).toBe(201);
-    expect(advancePropertyTilePyramidSourceWatermarkMock).toHaveBeenLastCalledWith(
-      ['social_inputs'],
-      expect.anything(),
-    );
-    expect(safeRequestPropertyTilePyramidBuildMock).toHaveBeenLastCalledWith(
-      { reason: 'comment-like' },
-      expect.anything(),
-      expect.objectContaining({ commentId }),
-    );
+    const afterCommentLike = await readWatermark('social_inputs', 'social');
+    expect(afterCommentLike.value > afterPropertyLike.value).toBe(true);
+    expect(afterCommentLike.lastRequestedValue).toBe(afterPropertyLike.lastRequestedValue);
+    expect(await countRequestedPyramidVersions()).toBe(1);
 
     const unlikeResponse = await app.inject({
       method: 'DELETE',
@@ -245,14 +209,9 @@ describe('property tile pyramid mutation invalidation hooks', () => {
       headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(unlikeResponse.statusCode).toBe(200);
-    expect(advancePropertyTilePyramidSourceWatermarkMock).toHaveBeenLastCalledWith(
-      ['social_inputs'],
-      expect.anything(),
-    );
-    expect(safeRequestPropertyTilePyramidBuildMock).toHaveBeenLastCalledWith(
-      { reason: 'comment-unlike' },
-      expect.anything(),
-      expect.objectContaining({ commentId }),
-    );
+    const afterCommentUnlike = await readWatermark('social_inputs', 'social');
+    expect(afterCommentUnlike.value > afterCommentLike.value).toBe(true);
+    expect(afterCommentUnlike.lastRequestedValue).toBe(afterPropertyLike.lastRequestedValue);
+    expect(await countRequestedPyramidVersions()).toBe(1);
   });
 });
