@@ -145,8 +145,20 @@ function printSection(title: string): void {
   console.log('-'.repeat(title.length));
 }
 
-function formatDate(value: Date | null): string {
-  return value ? value.toISOString() : 'null';
+function formatDate(value: unknown): string {
+  if (value == null) {
+    return 'null';
+  }
+
+  const date = value instanceof Date || typeof value === 'string' || typeof value === 'number'
+    ? new Date(value)
+    : null;
+
+  if (date && Number.isFinite(date.getTime())) {
+    return date.toISOString();
+  }
+
+  return String(value);
 }
 
 function printJson(label: string, value: unknown): void {
@@ -682,4 +694,4 @@ if (isDirectRun) {
     });
 }
 
-export { parseArgs };
+export { formatDate, parseArgs };
