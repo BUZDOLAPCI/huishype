@@ -10,12 +10,12 @@ const TARGET_RUN_ID = 'f1dd6530-54ce-4a7e-ba4d-da6b55072f5e';
 const SOURCE_NAME = 'funda';
 const SCRIPT_NAME = 'reconcile-funda-f1dd-stale-observations';
 const PROJECTABLE_SOURCE_STATUSES = ['available', 'sold', 'rented', 'withdrawn', 'not_found'] as const;
-const FORCE_STARTED_PROCESSING_SEQUENCES = [8, 9, 18] as const;
 
 interface CliOptions {
   execute: boolean;
   confirmRun: string | null;
   forceSupersedeStartedProcessing: boolean;
+  forceStartedProcessingSequences: number[];
   confirmWorkerStopped: boolean;
   help: boolean;
 }
@@ -84,6 +84,12 @@ interface ActiveJobHandlingPlan {
   warnings: string[];
 }
 
+interface StartedProcessingForcePlan {
+  forced: ActiveBatchRow[];
+  unexpected: ActiveBatchRow[];
+  staleAllowedSequences: number[];
+}
+
 interface ReconcileCounts {
   inspected: number;
   updated: number;
@@ -107,6 +113,7 @@ function parseArgs(argv: string[]): CliOptions {
   let execute = false;
   let confirmRun: string | null = null;
   let forceSupersedeStartedProcessing = false;
+  let forceStartedProcessingSequences: number[] = [];
   let confirmWorkerStopped = false;
   let help = false;
 
@@ -132,6 +139,12 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (arg === '--force-processing-sequences' || arg === '--force-started-processing-sequences') {
+      forceStartedProcessingSequences = parseSequenceAllowlist(argv[index + 1] ?? null, arg);
+      index += 1;
+      continue;
+    }
+
     if (arg === '--confirm-worker-stopped') {
       confirmWorkerStopped = true;
       continue;
@@ -146,7 +159,45 @@ function parseArgs(argv: string[]): CliOptions {
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  return { execute, confirmRun, forceSupersedeStartedProcessing, confirmWorkerStopped, help };
+  return {
+    execute,
+    confirmRun,
+    forceSupersedeStartedProcessing,
+    forceStartedProcessingSequences,
+    confirmWorkerStopped,
+    help,
+  };
+}
+
+function parseSequenceAllowlist(value: string | null, optionName: string): number[] {
+  if (!value || value.startsWith('--')) {
+    throw new Error(`${optionName} requires a comma-separated sequence list`);
+  }
+
+  const seen = new Set<number>();
+  const sequences = value.split(',').map((part) => {
+    const trimmed = part.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      throw new Error(`${optionName} only accepts positive integer sequences`);
+    }
+
+    const sequence = Number(trimmed);
+    if (!Number.isSafeInteger(sequence) || sequence <= 0) {
+      throw new Error(`${optionName} only accepts positive integer sequences`);
+    }
+
+    if (seen.has(sequence)) {
+      throw new Error(`${optionName} contains duplicate sequence ${sequence}`);
+    }
+    seen.add(sequence);
+    return sequence;
+  });
+
+  if (sequences.length === 0) {
+    throw new Error(`${optionName} requires a comma-separated sequence list`);
+  }
+
+  return sequences;
 }
 
 function getExecuteGateErrors(options: CliOptions): string[] {
@@ -160,37 +211,43 @@ function getExecuteGateErrors(options: CliOptions): string[] {
     errors.push('--force-supersede-started-processing requires --confirm-worker-stopped');
   }
 
-  return errors;
-}
+  if (options.execute && options.forceSupersedeStartedProcessing && options.forceStartedProcessingSequences.length === 0) {
+    errors.push('--force-supersede-started-processing requires --force-started-processing-sequences with a non-empty exact allowlist');
+  }
 
-function isForceAllowedStartedSequence(sequence: number): boolean {
-  return FORCE_STARTED_PROCESSING_SEQUENCES.includes(
-    sequence as (typeof FORCE_STARTED_PROCESSING_SEQUENCES)[number],
-  );
+  return errors;
 }
 
 function planStartedProcessingForce(
   rows: ActiveBatchRow[],
   forceSupersedeStartedProcessing: boolean,
-): { forced: ActiveBatchRow[]; unexpected: ActiveBatchRow[] } {
+  allowedSequences: number[],
+): StartedProcessingForcePlan {
   if (!forceSupersedeStartedProcessing) {
-    return { forced: [], unexpected: rows };
+    return { forced: [], unexpected: rows, staleAllowedSequences: [] };
   }
 
-  return rows.reduce<{ forced: ActiveBatchRow[]; unexpected: ActiveBatchRow[] }>((plan, row) => {
-    if (isForceAllowedStartedSequence(row.batchSequence)) {
-      plan.forced.push(row);
+  const allowedSequenceSet = new Set(allowedSequences);
+  const presentSequenceSet = new Set(rows.map((row) => row.batchSequence));
+  const staleAllowedSequences = allowedSequences.filter((sequence) => !presentSequenceSet.has(sequence));
+
+  const plan = rows.reduce<StartedProcessingForcePlan>((accumulator, row) => {
+    if (allowedSequenceSet.has(row.batchSequence)) {
+      accumulator.forced.push(row);
     } else {
-      plan.unexpected.push(row);
+      accumulator.unexpected.push(row);
     }
-    return plan;
-  }, { forced: [], unexpected: [] });
+    return accumulator;
+  }, { forced: [], unexpected: [], staleAllowedSequences });
+
+  return plan;
 }
 
 function planActiveJobHandling(
   jobStates: JobStateRow[],
   forceSupersedeStartedProcessing: boolean,
   forcedStartedBatchIds: string[],
+  allowedSequences: number[],
 ): ActiveJobHandlingPlan {
   const activeJobs = jobStates.filter((row) => row.jobState === 'active');
   if (activeJobs.length === 0) {
@@ -225,7 +282,7 @@ function planActiveJobHandling(
       abortReasons: [
         [
           `Target run has ${activeStartedOutsideForce.length} active started-processing BullMQ jobs outside force allowlist`,
-          `allowed_sequences=${FORCE_STARTED_PROCESSING_SEQUENCES.join(',')}`,
+          `allowed_sequences=${formatSequenceList(allowedSequences)}`,
         ].join(' '),
       ],
       warnings: [],
@@ -242,20 +299,27 @@ function planActiveJobHandling(
   };
 }
 
+function formatSequenceList(sequences: number[]): string {
+  return sequences.length > 0 ? sequences.join(',') : 'none';
+}
+
 function printUsage(): void {
   console.log(`Usage:
   pnpm --filter @huishype/api exec tsx src/scripts/reconcile-funda-f1dd-stale-observations.ts
   pnpm --filter @huishype/api exec tsx src/scripts/reconcile-funda-f1dd-stale-observations.ts -- --execute --confirm-run ${TARGET_RUN_ID}
-  pnpm --filter @huishype/api exec tsx src/scripts/reconcile-funda-f1dd-stale-observations.ts -- --execute --confirm-run ${TARGET_RUN_ID} --force-supersede-started-processing --confirm-worker-stopped
+  pnpm --filter @huishype/api exec tsx src/scripts/reconcile-funda-f1dd-stale-observations.ts -- --force-supersede-started-processing --force-started-processing-sequences 4,6,19
+  pnpm --filter @huishype/api exec tsx src/scripts/reconcile-funda-f1dd-stale-observations.ts -- --execute --confirm-run ${TARGET_RUN_ID} --force-supersede-started-processing --confirm-worker-stopped --force-started-processing-sequences 4,6,19
 
 Options:
   --execute                              Apply the reconciliation and supersede queued f1dd batches.
   --confirm-run ${TARGET_RUN_ID}         Required together with --execute.
-  --force-supersede-started-processing  Also supersede pinned started processing sequences ${FORCE_STARTED_PROCESSING_SEQUENCES.join(', ')}.
+  --force-supersede-started-processing  Also supersede explicitly allowlisted started processing sequences.
+  --force-started-processing-sequences  Comma-separated exact allowlist for started processing sequences, e.g. 4,6,19.
+  --force-processing-sequences          Alias for --force-started-processing-sequences.
   --confirm-worker-stopped              Required with the force flag in execute mode.
   --help                                 Show this help.
 
-Default mode is a dry run. Passing the force flag in dry-run mode reports which pinned started processing rows would be included without mutating.`);
+Default mode is a dry run. Passing the force flag and sequence allowlist in dry-run mode reports whether current started processing rows exactly match without mutating.`);
 }
 
 function printSection(title: string): void {
@@ -557,11 +621,14 @@ function printStartedProcessingForcePlan(rows: ActiveBatchRow[], label: string):
   }
 }
 
-async function supersedeRemainingBatches(forcedStartedBatchIds: string[]): Promise<string[]> {
+async function supersedeRemainingBatches(
+  forcedStartedBatchIds: string[],
+  forcedStartedSequences: number[],
+): Promise<string[]> {
   const forcedStartedBatchIdFilter = forcedStartedBatchIds.length > 0
     ? sql`OR (
         id IN (${sql.join(forcedStartedBatchIds.map((id) => sql`${id}`), sql`, `)})
-        AND batch_sequence IN (${sql.join(FORCE_STARTED_PROCESSING_SEQUENCES.map((sequence) => sql`${sequence}`), sql`, `)})
+        AND batch_sequence IN (${sql.join(forcedStartedSequences.map((sequence) => sql`${sequence}`), sql`, `)})
         AND status = 'processing'
         AND started_at IS NOT NULL
       )`
@@ -747,6 +814,7 @@ async function main(): Promise<void> {
   console.log(`Mode: ${options.execute ? 'execute' : 'dry-run'}`);
   console.log(`Target run: ${TARGET_RUN_ID}`);
   console.log(`Force started processing: ${options.forceSupersedeStartedProcessing ? 'yes' : 'no'}`);
+  console.log(`Force started processing sequences: ${formatSequenceList(options.forceStartedProcessingSequences)}`);
   console.log(`Worker stopped confirmed: ${options.confirmWorkerStopped ? 'yes' : 'no'}`);
 
   const run = await getRunMetadata();
@@ -789,6 +857,7 @@ async function main(): Promise<void> {
   const startedProcessingForcePlan = planStartedProcessingForce(
     startedProcessingBatches,
     options.forceSupersedeStartedProcessing,
+    options.forceStartedProcessingSequences,
   );
 
   if (startedProcessingBatches.length > 0) {
@@ -797,7 +866,7 @@ async function main(): Promise<void> {
     } else if (startedProcessingForcePlan.unexpected.length > 0) {
       abortReasons.push([
         `Target run has ${startedProcessingForcePlan.unexpected.length} started processing batches outside force allowlist`,
-        `allowed_sequences=${FORCE_STARTED_PROCESSING_SEQUENCES.join(',')}`,
+        `allowed_sequences=${formatSequenceList(options.forceStartedProcessingSequences)}`,
       ].join(' '));
     }
 
@@ -805,12 +874,23 @@ async function main(): Promise<void> {
       warnings.push(`Started processing batch: ${batch.id} sequence=${batch.batchSequence} started_at=${formatDate(batch.startedAt)}`);
     }
   }
+  if (options.forceSupersedeStartedProcessing && options.forceStartedProcessingSequences.length === 0) {
+    abortReasons.push('Force started processing path requires a non-empty explicit sequence allowlist');
+  }
+  if (startedProcessingForcePlan.staleAllowedSequences.length > 0) {
+    abortReasons.push([
+      'Force started processing allowlist contains sequences not currently present as started processing',
+      `stale_sequences=${formatSequenceList(startedProcessingForcePlan.staleAllowedSequences)}`,
+    ].join(' '));
+  }
 
   printSection('Force Started Processing Plan');
-  printStartedProcessingForcePlan(startedProcessingForcePlan.forced, 'Pinned started processing rows included by force');
+  console.log(`Supplied force sequence allowlist: ${formatSequenceList(options.forceStartedProcessingSequences)}`);
+  console.log(`Stale allowlist sequences not currently started processing: ${formatSequenceList(startedProcessingForcePlan.staleAllowedSequences)}`);
+  printStartedProcessingForcePlan(startedProcessingForcePlan.forced, 'Allowlisted started processing rows included by force');
   printStartedProcessingForcePlan(startedProcessingForcePlan.unexpected, 'Started processing rows outside force allowlist');
   if (options.forceSupersedeStartedProcessing && !options.execute) {
-    warnings.push('Force flag is in dry-run mode only. Pinned started processing rows above would be included, but no mutation will be applied.');
+    warnings.push('Force flag is in dry-run mode only. Allowlisted started processing rows above would be included, but no mutation will be applied.');
   }
 
   const targetRunBatches = await getTargetRunBatches();
@@ -823,6 +903,7 @@ async function main(): Promise<void> {
     jobStates,
     options.forceSupersedeStartedProcessing,
     startedProcessingForcePlan.forced.map((batch) => batch.id),
+    options.forceStartedProcessingSequences,
   );
   abortReasons.push(...activeJobHandlingPlan.abortReasons);
   warnings.push(...activeJobHandlingPlan.warnings);
@@ -866,7 +947,10 @@ async function main(): Promise<void> {
   }
 
   printSection('Execute: Supersede Remaining Batches');
-  const supersededBatchIds = await supersedeRemainingBatches(startedProcessingForcePlan.forced.map((batch) => batch.id));
+  const supersededBatchIds = await supersedeRemainingBatches(
+    startedProcessingForcePlan.forced.map((batch) => batch.id),
+    options.forceStartedProcessingSequences,
+  );
   console.log(`Superseded batches: ${supersededBatchIds.length}`);
   for (const batchId of supersededBatchIds.slice(0, 25)) {
     console.log(`  - ${batchId}`);
@@ -907,7 +991,6 @@ if (isDirectRun) {
 }
 
 export {
-  FORCE_STARTED_PROCESSING_SEQUENCES,
   formatDate,
   getExecuteGateErrors,
   parseArgs,

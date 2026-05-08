@@ -1,6 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
 import {
-  FORCE_STARTED_PROCESSING_SEQUENCES,
   formatDate,
   getExecuteGateErrors,
   parseArgs,
@@ -31,14 +30,40 @@ describe('reconcile-funda-f1dd-stale-observations args', () => {
       '--confirm-run',
       targetRunId,
       '--force-supersede-started-processing',
+      '--force-started-processing-sequences',
+      '4,6,19',
       '--confirm-worker-stopped',
     ])).toEqual({
       execute: true,
       confirmRun: targetRunId,
       forceSupersedeStartedProcessing: true,
+      forceStartedProcessingSequences: [4, 6, 19],
       confirmWorkerStopped: true,
       help: false,
     });
+  });
+
+  it('parses the force processing sequence alias', () => {
+    expect(parseArgs([
+      '--force-supersede-started-processing',
+      '--force-processing-sequences',
+      '4,6,19',
+    ])).toMatchObject({
+      forceSupersedeStartedProcessing: true,
+      forceStartedProcessingSequences: [4, 6, 19],
+    });
+  });
+
+  it('rejects invalid force processing sequence lists', () => {
+    expect(() => parseArgs(['--force-started-processing-sequences'])).toThrow(
+      '--force-started-processing-sequences requires a comma-separated sequence list',
+    );
+    expect(() => parseArgs(['--force-started-processing-sequences', '4,,19'])).toThrow(
+      '--force-started-processing-sequences only accepts positive integer sequences',
+    );
+    expect(() => parseArgs(['--force-started-processing-sequences', '4,4'])).toThrow(
+      '--force-started-processing-sequences contains duplicate sequence 4',
+    );
   });
 
   it('rejects unknown arguments', () => {
@@ -59,8 +84,22 @@ describe('reconcile-funda-f1dd-stale-observations execute gates', () => {
       '--confirm-run',
       targetRunId,
       '--force-supersede-started-processing',
+      '--force-started-processing-sequences',
+      '4,6,19',
     ]))).toEqual([
       '--force-supersede-started-processing requires --confirm-worker-stopped',
+    ]);
+  });
+
+  it('requires an explicit force sequence allowlist for force execute mode', () => {
+    expect(getExecuteGateErrors(parseArgs([
+      '--execute',
+      '--confirm-run',
+      targetRunId,
+      '--force-supersede-started-processing',
+      '--confirm-worker-stopped',
+    ]))).toEqual([
+      '--force-supersede-started-processing requires --force-started-processing-sequences with a non-empty exact allowlist',
     ]);
   });
 
@@ -70,19 +109,17 @@ describe('reconcile-funda-f1dd-stale-observations execute gates', () => {
 });
 
 describe('reconcile-funda-f1dd-stale-observations started processing force plan', () => {
-  it('only includes pinned f1dd started processing sequences in the force path', () => {
-    expect(FORCE_STARTED_PROCESSING_SEQUENCES).toEqual([8, 9, 18]);
-
+  it('includes rows that match the explicit started processing sequence allowlist', () => {
     const rows = [
-      { id: 'batch-8', status: 'processing', batchSequence: 8, startedAt: new Date('2026-05-08T10:00:00Z') },
-      { id: 'batch-9', status: 'processing', batchSequence: 9, startedAt: new Date('2026-05-08T10:01:00Z') },
-      { id: 'batch-10', status: 'processing', batchSequence: 10, startedAt: new Date('2026-05-08T10:02:00Z') },
-      { id: 'batch-18', status: 'processing', batchSequence: 18, startedAt: new Date('2026-05-08T10:03:00Z') },
+      { id: 'batch-4', status: 'processing', batchSequence: 4, startedAt: new Date('2026-05-08T10:00:00Z') },
+      { id: 'batch-6', status: 'processing', batchSequence: 6, startedAt: new Date('2026-05-08T10:01:00Z') },
+      { id: 'batch-19', status: 'processing', batchSequence: 19, startedAt: new Date('2026-05-08T10:02:00Z') },
     ];
 
-    expect(planStartedProcessingForce(rows, true)).toEqual({
-      forced: [rows[0], rows[1], rows[3]],
-      unexpected: [rows[2]],
+    expect(planStartedProcessingForce(rows, true, [4, 6, 19])).toEqual({
+      forced: rows,
+      unexpected: [],
+      staleAllowedSequences: [],
     });
   });
 
@@ -91,9 +128,50 @@ describe('reconcile-funda-f1dd-stale-observations started processing force plan'
       { id: 'batch-8', status: 'processing', batchSequence: 8, startedAt: new Date('2026-05-08T10:00:00Z') },
     ];
 
-    expect(planStartedProcessingForce(rows, false)).toEqual({
+    expect(planStartedProcessingForce(rows, false, [8])).toEqual({
       forced: [],
       unexpected: rows,
+      staleAllowedSequences: [],
+    });
+  });
+
+  it('does not force any started processing row without an explicit allowlist', () => {
+    const rows = [
+      { id: 'batch-4', status: 'processing', batchSequence: 4, startedAt: new Date('2026-05-08T10:00:00Z') },
+      { id: 'batch-6', status: 'processing', batchSequence: 6, startedAt: new Date('2026-05-08T10:01:00Z') },
+    ];
+
+    expect(planStartedProcessingForce(rows, true, [])).toEqual({
+      forced: [],
+      unexpected: rows,
+      staleAllowedSequences: [],
+    });
+  });
+
+  it('reports started processing rows that are not in the explicit allowlist', () => {
+    const rows = [
+      { id: 'batch-4', status: 'processing', batchSequence: 4, startedAt: new Date('2026-05-08T10:00:00Z') },
+      { id: 'batch-6', status: 'processing', batchSequence: 6, startedAt: new Date('2026-05-08T10:01:00Z') },
+      { id: 'batch-19', status: 'processing', batchSequence: 19, startedAt: new Date('2026-05-08T10:02:00Z') },
+    ];
+
+    expect(planStartedProcessingForce(rows, true, [4, 6])).toEqual({
+      forced: [rows[0], rows[1]],
+      unexpected: [rows[2]],
+      staleAllowedSequences: [],
+    });
+  });
+
+  it('reports stale allowlist sequences that are not currently started processing', () => {
+    const rows = [
+      { id: 'batch-4', status: 'processing', batchSequence: 4, startedAt: new Date('2026-05-08T10:00:00Z') },
+      { id: 'batch-6', status: 'processing', batchSequence: 6, startedAt: new Date('2026-05-08T10:01:00Z') },
+    ];
+
+    expect(planStartedProcessingForce(rows, true, [4, 6, 19])).toEqual({
+      forced: rows,
+      unexpected: [],
+      staleAllowedSequences: [19],
     });
   });
 });
@@ -117,7 +195,7 @@ describe('reconcile-funda-f1dd-stale-observations active BullMQ job handling', (
       },
     ];
 
-    expect(planActiveJobHandling(rows, false, [])).toEqual({
+    expect(planActiveJobHandling(rows, false, [], [])).toEqual({
       activeJobs: [rows[0]],
       removableBeforeDbMutation: [],
       abortReasons: ['Target run has 1 active BullMQ ingest-batches jobs across f1dd batches'],
@@ -143,7 +221,7 @@ describe('reconcile-funda-f1dd-stale-observations active BullMQ job handling', (
       },
     ];
 
-    expect(planActiveJobHandling(rows, true, [])).toEqual({
+    expect(planActiveJobHandling(rows, true, [], [])).toEqual({
       activeJobs: rows,
       removableBeforeDbMutation: rows,
       abortReasons: [],
@@ -153,39 +231,39 @@ describe('reconcile-funda-f1dd-stale-observations active BullMQ job handling', (
     });
   });
 
-  it('does not allow force planning for started-processing active jobs outside the pinned force set', () => {
+  it('does not allow force planning for started-processing active jobs outside the explicit force set', () => {
     const rows = [
       {
-        id: 'batch-10',
+        id: 'batch-19',
         status: 'processing',
-        batchSequence: 10,
+        batchSequence: 19,
         startedAt: new Date('2026-05-08T10:00:00Z'),
         jobState: 'active',
       },
     ];
 
-    expect(planActiveJobHandling(rows, true, [])).toEqual({
+    expect(planActiveJobHandling(rows, true, [], [4, 6])).toEqual({
       activeJobs: rows,
       removableBeforeDbMutation: [],
       abortReasons: [
-        'Target run has 1 active started-processing BullMQ jobs outside force allowlist allowed_sequences=8,9,18',
+        'Target run has 1 active started-processing BullMQ jobs outside force allowlist allowed_sequences=4,6',
       ],
       warnings: [],
     });
   });
 
-  it('allows force planning for pinned started-processing active jobs', () => {
+  it('allows force planning for explicitly allowlisted started-processing active jobs', () => {
     const rows = [
       {
-        id: 'batch-8',
+        id: 'batch-4',
         status: 'processing',
-        batchSequence: 8,
+        batchSequence: 4,
         startedAt: new Date('2026-05-08T10:00:00Z'),
         jobState: 'active',
       },
     ];
 
-    expect(planActiveJobHandling(rows, true, ['batch-8'])).toEqual({
+    expect(planActiveJobHandling(rows, true, ['batch-4'], [4])).toEqual({
       activeJobs: rows,
       removableBeforeDbMutation: rows,
       abortReasons: [],
