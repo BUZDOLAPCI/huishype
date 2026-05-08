@@ -1,0 +1,685 @@
+import { fileURLToPath } from 'node:url';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import { closeConnection, db } from '../db/index.js';
+import * as schema from '../db/index.js';
+import { closeRedisConnection, getRedisConnection } from '../lib/redis.js';
+import { INGEST_BATCH_QUEUE } from '../services/ingest/index.js';
+import { reconcileListingObservation } from '../services/listing-reconciliation.js';
+
+const TARGET_RUN_ID = 'f1dd6530-54ce-4a7e-ba4d-da6b55072f5e';
+const SOURCE_NAME = 'funda';
+const SCRIPT_NAME = 'reconcile-funda-f1dd-stale-observations';
+const PROJECTABLE_SOURCE_STATUSES = ['available', 'sold', 'rented', 'withdrawn', 'not_found'] as const;
+
+interface CliOptions {
+  execute: boolean;
+  confirmRun: string | null;
+  help: boolean;
+}
+
+interface RunMetadataRow extends Record<string, unknown> {
+  id: string;
+  sourceName: string;
+  upstreamRunKey: string;
+  upstreamCursorStart: string | null;
+  upstreamCursorEnd: string | null;
+  startedAt: Date;
+  completedAt: Date | null;
+  status: string;
+  processedBatchCount: number;
+  errorSummary: Record<string, unknown> | null;
+}
+
+interface BatchCountRow extends Record<string, unknown> {
+  status: string;
+  started: boolean;
+  count: number;
+  minSequence: number | null;
+  maxSequence: number | null;
+  ingestedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+}
+
+interface CandidateGroupRow extends Record<string, unknown> {
+  origin: string;
+  sourceStatus: string;
+  propertyMatchKind: string;
+  sourceRunId: string | null;
+  count: number;
+  minBatchSequence: number;
+  maxBatchSequence: number;
+  minObservedAt: Date;
+  maxObservedAt: Date;
+}
+
+interface CandidateRow extends Record<string, unknown> {
+  id: string;
+  batchId: string;
+  batchSequence: number;
+  observedAt: Date;
+  sourceStatus: string;
+  propertyMatchKind: string;
+  sourceRunId: string | null;
+}
+
+interface ActiveBatchRow extends Record<string, unknown> {
+  id: string;
+  status: string;
+  batchSequence: number;
+  startedAt: Date | null;
+}
+
+interface JobStateRow extends ActiveBatchRow {
+  jobState: string | null;
+}
+
+interface ReconcileCounts {
+  inspected: number;
+  updated: number;
+  reconciled: number;
+  nullCanonical: number;
+  stillStale: number;
+  failures: number;
+}
+
+interface QueueJobLike {
+  getState(): Promise<string>;
+}
+
+interface QueueLike {
+  getJob(jobId: string): Promise<QueueJobLike | null>;
+  remove(jobId: string, options: { removeChildren: boolean }): Promise<unknown>;
+  close(): Promise<unknown>;
+}
+
+function parseArgs(argv: string[]): CliOptions {
+  let execute = false;
+  let confirmRun: string | null = null;
+  let help = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (arg === '--') {
+      continue;
+    }
+
+    if (arg === '--help' || arg === '-h') {
+      help = true;
+      continue;
+    }
+
+    if (arg === '--execute') {
+      execute = true;
+      continue;
+    }
+
+    if (arg === '--confirm-run') {
+      confirmRun = argv[index + 1] ?? null;
+      index += 1;
+      continue;
+    }
+
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+
+  return { execute, confirmRun, help };
+}
+
+function printUsage(): void {
+  console.log(`Usage:
+  pnpm --filter @huishype/api exec tsx src/scripts/reconcile-funda-f1dd-stale-observations.ts
+  pnpm --filter @huishype/api exec tsx src/scripts/reconcile-funda-f1dd-stale-observations.ts -- --execute --confirm-run ${TARGET_RUN_ID}
+
+Options:
+  --execute                         Apply the reconciliation and supersede queued f1dd batches.
+  --confirm-run ${TARGET_RUN_ID}    Required together with --execute.
+  --help                            Show this help.
+
+Default mode is a dry run.`);
+}
+
+function printSection(title: string): void {
+  console.log(`\n${title}`);
+  console.log('-'.repeat(title.length));
+}
+
+function formatDate(value: Date | null): string {
+  return value ? value.toISOString() : 'null';
+}
+
+function printJson(label: string, value: unknown): void {
+  console.log(`${label}: ${JSON.stringify(value, null, 2)}`);
+}
+
+async function getRunMetadata(): Promise<RunMetadataRow | null> {
+  const rows = await db.execute<RunMetadataRow>(sql`
+    SELECT
+      id,
+      source_name AS "sourceName",
+      upstream_run_key AS "upstreamRunKey",
+      upstream_cursor_start AS "upstreamCursorStart",
+      upstream_cursor_end AS "upstreamCursorEnd",
+      started_at AS "startedAt",
+      completed_at AS "completedAt",
+      status,
+      processed_batch_count AS "processedBatchCount",
+      error_summary AS "errorSummary"
+    FROM ingest_runs
+    WHERE id = ${TARGET_RUN_ID}
+  `);
+
+  return Array.from(rows)[0] ?? null;
+}
+
+async function getCompletedBatchCounts(): Promise<BatchCountRow[]> {
+  const rows = await db.execute<BatchCountRow>(sql`
+    SELECT
+      status,
+      started_at IS NOT NULL AS started,
+      COUNT(*)::int AS count,
+      MIN(batch_sequence)::int AS "minSequence",
+      MAX(batch_sequence)::int AS "maxSequence",
+      COALESCE(SUM(ingested_count), 0)::int AS "ingestedCount",
+      COALESCE(SUM(updated_count), 0)::int AS "updatedCount",
+      COALESCE(SUM(skipped_count), 0)::int AS "skippedCount"
+    FROM ingest_batches
+    WHERE run_id = ${TARGET_RUN_ID}
+      AND source_name = ${SOURCE_NAME}
+      AND status = 'completed'
+    GROUP BY status, started
+    ORDER BY status, started
+  `);
+
+  return Array.from(rows);
+}
+
+async function getActiveRemainingBatchCounts(): Promise<BatchCountRow[]> {
+  const rows = await db.execute<BatchCountRow>(sql`
+    SELECT
+      status,
+      started_at IS NOT NULL AS started,
+      COUNT(*)::int AS count,
+      MIN(batch_sequence)::int AS "minSequence",
+      MAX(batch_sequence)::int AS "maxSequence",
+      COALESCE(SUM(ingested_count), 0)::int AS "ingestedCount",
+      COALESCE(SUM(updated_count), 0)::int AS "updatedCount",
+      COALESCE(SUM(skipped_count), 0)::int AS "skippedCount"
+    FROM ingest_batches
+    WHERE run_id = ${TARGET_RUN_ID}
+      AND source_name = ${SOURCE_NAME}
+      AND status IN ('accepted', 'queued', 'retryable', 'processing')
+    GROUP BY status, started
+    ORDER BY status, started
+  `);
+
+  return Array.from(rows);
+}
+
+async function getCandidateGroups(): Promise<CandidateGroupRow[]> {
+  const rows = await db.execute<CandidateGroupRow>(sql`
+    SELECT
+      lo.origin,
+      lo.source_status AS "sourceStatus",
+      lo.property_match_kind AS "propertyMatchKind",
+      lo.source_run_id AS "sourceRunId",
+      COUNT(*)::int AS count,
+      MIN(b.batch_sequence)::int AS "minBatchSequence",
+      MAX(b.batch_sequence)::int AS "maxBatchSequence",
+      MIN(lo.observed_at) AS "minObservedAt",
+      MAX(lo.observed_at) AS "maxObservedAt"
+    FROM listing_observations lo
+    JOIN ingest_batches b ON b.id = lo.ingest_batch_id
+    WHERE b.run_id = ${TARGET_RUN_ID}
+      AND b.source_name = ${SOURCE_NAME}
+      AND lo.source_name = ${SOURCE_NAME}
+      AND b.status = 'completed'
+      AND lo.stale_for_projection = true
+      AND lo.origin = 'replay'
+      AND lo.diagnostic_status IS NULL
+      AND lo.source_status IN ('available', 'sold', 'rented', 'withdrawn', 'not_found')
+    GROUP BY lo.origin, lo.source_status, lo.property_match_kind, lo.source_run_id
+    ORDER BY lo.origin, lo.source_status, lo.property_match_kind, lo.source_run_id NULLS FIRST
+  `);
+
+  return Array.from(rows);
+}
+
+async function getCandidates(): Promise<CandidateRow[]> {
+  const rows = await db.execute<CandidateRow>(sql`
+    SELECT
+      lo.id,
+      b.id AS "batchId",
+      b.batch_sequence AS "batchSequence",
+      lo.observed_at AS "observedAt",
+      lo.source_status AS "sourceStatus",
+      lo.property_match_kind AS "propertyMatchKind",
+      lo.source_run_id AS "sourceRunId"
+    FROM listing_observations lo
+    JOIN ingest_batches b ON b.id = lo.ingest_batch_id
+    WHERE b.run_id = ${TARGET_RUN_ID}
+      AND b.source_name = ${SOURCE_NAME}
+      AND lo.source_name = ${SOURCE_NAME}
+      AND b.status = 'completed'
+      AND lo.stale_for_projection = true
+      AND lo.origin = 'replay'
+      AND lo.diagnostic_status IS NULL
+      AND lo.source_status IN ('available', 'sold', 'rented', 'withdrawn', 'not_found')
+    ORDER BY b.batch_sequence, lo.observed_at, lo.id
+  `);
+
+  return Array.from(rows);
+}
+
+async function getActiveRemainingBatches(): Promise<ActiveBatchRow[]> {
+  const rows = await db.execute<ActiveBatchRow>(sql`
+    SELECT
+      id,
+      status,
+      batch_sequence AS "batchSequence",
+      started_at AS "startedAt"
+    FROM ingest_batches
+    WHERE run_id = ${TARGET_RUN_ID}
+      AND source_name = ${SOURCE_NAME}
+      AND (
+        status IN ('accepted', 'queued', 'retryable')
+        OR (status = 'processing' AND started_at IS NULL)
+      )
+    ORDER BY batch_sequence, id
+  `);
+
+  return Array.from(rows);
+}
+
+async function getStartedProcessingBatches(): Promise<ActiveBatchRow[]> {
+  const rows = await db.execute<ActiveBatchRow>(sql`
+    SELECT
+      id,
+      status,
+      batch_sequence AS "batchSequence",
+      started_at AS "startedAt"
+    FROM ingest_batches
+    WHERE run_id = ${TARGET_RUN_ID}
+      AND source_name = ${SOURCE_NAME}
+      AND status = 'processing'
+      AND started_at IS NOT NULL
+    ORDER BY started_at, batch_sequence, id
+  `);
+
+  return Array.from(rows);
+}
+
+async function loadQueueConstructor(): Promise<new (name: string, options: Record<string, unknown>) => QueueLike> {
+  const bullmqModule = await import('bullmq');
+  return (bullmqModule.Queue ??
+    (bullmqModule.default as { Queue?: unknown } | undefined)?.Queue) as new (
+      name: string,
+      options: Record<string, unknown>,
+    ) => QueueLike;
+}
+
+async function createIngestBatchQueue(): Promise<QueueLike> {
+  const QueueConstructor = await loadQueueConstructor();
+  return new QueueConstructor(INGEST_BATCH_QUEUE, {
+    connection: await getRedisConnection(),
+  });
+}
+
+async function collectJobStates(batches: ActiveBatchRow[], warnings: string[]): Promise<JobStateRow[]> {
+  if (batches.length === 0) {
+    return [];
+  }
+
+  let queue: QueueLike | null = null;
+  try {
+    queue = await createIngestBatchQueue();
+    const states: JobStateRow[] = [];
+
+    for (const batch of batches) {
+      const job = await queue.getJob(batch.id);
+      const jobState = job ? await job.getState() : null;
+      states.push({ ...batch, jobState });
+    }
+
+    return states;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`Failed to read BullMQ job states: ${message}`);
+    return batches.map((batch) => ({ ...batch, jobState: null }));
+  } finally {
+    await queue?.close();
+  }
+}
+
+function summarizeJobStates(rows: JobStateRow[]): Record<string, number> {
+  return rows.reduce<Record<string, number>>((counts, row) => {
+    const key = row.jobState ?? 'missing';
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function printBatchCounts(rows: BatchCountRow[]): void {
+  if (rows.length === 0) {
+    console.log('No rows.');
+    return;
+  }
+
+  for (const row of rows) {
+    console.log([
+      `status=${row.status}`,
+      `started=${row.started}`,
+      `count=${row.count}`,
+      `sequence=${row.minSequence ?? 'null'}..${row.maxSequence ?? 'null'}`,
+      `ingested=${row.ingestedCount}`,
+      `updated=${row.updatedCount}`,
+      `skipped=${row.skippedCount}`,
+    ].join(' '));
+  }
+}
+
+function printCandidateGroups(rows: CandidateGroupRow[]): void {
+  if (rows.length === 0) {
+    console.log('No stale observation candidates.');
+    return;
+  }
+
+  for (const row of rows) {
+    console.log([
+      `origin=${row.origin}`,
+      `source_status=${row.sourceStatus}`,
+      `property_match_kind=${row.propertyMatchKind}`,
+      `source_run_id=${row.sourceRunId ?? 'null'}`,
+      `count=${row.count}`,
+      `batch_sequence=${row.minBatchSequence}..${row.maxBatchSequence}`,
+      `observed_at=${formatDate(row.minObservedAt)}..${formatDate(row.maxObservedAt)}`,
+    ].join(' '));
+  }
+}
+
+function printJobStates(rows: JobStateRow[]): void {
+  printJson('State counts', summarizeJobStates(rows));
+  for (const row of rows.slice(0, 25)) {
+    console.log([
+      `batch=${row.id}`,
+      `status=${row.status}`,
+      `sequence=${row.batchSequence}`,
+      `started_at=${formatDate(row.startedAt)}`,
+      `job_state=${row.jobState ?? 'missing'}`,
+    ].join(' '));
+  }
+  if (rows.length > 25) {
+    console.log(`... ${rows.length - 25} more active remaining batches omitted`);
+  }
+}
+
+async function supersedeRemainingBatches(): Promise<string[]> {
+  const rows = await db.execute<{ id: string }>(sql`
+    UPDATE ingest_batches
+    SET
+      status = 'superseded'::ingest_batch_status,
+      completed_at = COALESCE(completed_at, NOW()),
+      error_json = jsonb_build_object(
+        'message', 'Superseded by one-off f1dd stale observation reconciliation',
+        'runId', ${TARGET_RUN_ID},
+        'script', ${SCRIPT_NAME},
+        'previousStatus', status
+      )
+    WHERE run_id = ${TARGET_RUN_ID}
+      AND source_name = ${SOURCE_NAME}
+      AND (
+        status IN ('accepted', 'queued', 'retryable')
+        OR (status = 'processing' AND started_at IS NULL)
+      )
+    RETURNING id
+  `);
+
+  return Array.from(rows, (row) => row.id);
+}
+
+async function removeSupersededJobs(batchIds: string[]): Promise<{ removed: string[]; warnings: string[] }> {
+  const removed: string[] = [];
+  const warnings: string[] = [];
+  const queue = await createIngestBatchQueue();
+
+  try {
+    for (const batchId of batchIds) {
+      const job = await queue.getJob(batchId);
+      if (!job) {
+        warnings.push(`BullMQ job missing after DB supersede: ${batchId}`);
+        continue;
+      }
+
+      const state = await job.getState();
+      if (state === 'active') {
+        throw new Error(`Refusing to remove active BullMQ job after DB supersede: ${batchId}`);
+      }
+
+      await queue.remove(batchId, { removeChildren: true });
+      removed.push(batchId);
+    }
+  } finally {
+    await queue.close();
+  }
+
+  return { removed, warnings };
+}
+
+async function reconcileCandidate(candidate: CandidateRow): Promise<'reconciled' | 'null' | 'still-stale'> {
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(schema.listingObservations)
+      .set({
+        staleForProjection: false,
+        origin: 'mirror',
+      })
+      .where(and(
+        eq(schema.listingObservations.id, candidate.id),
+        eq(schema.listingObservations.sourceName, SOURCE_NAME),
+        eq(schema.listingObservations.staleForProjection, true),
+        eq(schema.listingObservations.origin, 'replay'),
+        isNull(schema.listingObservations.diagnosticStatus),
+        sql`${schema.listingObservations.sourceStatus} IN (${sql.join(
+          PROJECTABLE_SOURCE_STATUSES.map((status) => sql`${status}`),
+          sql`, `,
+        )})`,
+        sql`EXISTS (
+          SELECT 1
+          FROM ingest_batches b
+          WHERE b.id = ${schema.listingObservations.ingestBatchId}
+            AND b.run_id = ${TARGET_RUN_ID}
+            AND b.source_name = ${SOURCE_NAME}
+            AND b.status = 'completed'
+        )`,
+      ))
+      .returning({ id: schema.listingObservations.id });
+
+    if (!updated) {
+      throw new Error(`Candidate ${candidate.id} no longer matched guarded update predicates`);
+    }
+
+    const canonical = await reconcileListingObservation(updated.id, tx);
+    const [postReconcile] = await tx
+      .select({ staleForProjection: schema.listingObservations.staleForProjection })
+      .from(schema.listingObservations)
+      .where(eq(schema.listingObservations.id, updated.id))
+      .limit(1);
+
+    if (!postReconcile) {
+      throw new Error(`Candidate ${candidate.id} disappeared after reconciliation`);
+    }
+
+    if (postReconcile.staleForProjection) {
+      return 'still-stale';
+    }
+
+    return canonical ? 'reconciled' : 'null';
+  });
+}
+
+async function reconcileCandidates(candidates: CandidateRow[]): Promise<ReconcileCounts & { failureSamples: string[] }> {
+  const counts: ReconcileCounts & { failureSamples: string[] } = {
+    inspected: candidates.length,
+    updated: 0,
+    reconciled: 0,
+    nullCanonical: 0,
+    stillStale: 0,
+    failures: 0,
+    failureSamples: [],
+  };
+
+  for (const candidate of candidates) {
+    try {
+      const result = await reconcileCandidate(candidate);
+      counts.updated += 1;
+      if (result === 'reconciled') {
+        counts.reconciled += 1;
+      } else if (result === 'null') {
+        counts.nullCanonical += 1;
+      } else {
+        counts.stillStale += 1;
+      }
+    } catch (error) {
+      counts.failures += 1;
+      if (counts.failureSamples.length < 10) {
+        const message = error instanceof Error ? error.message : String(error);
+        counts.failureSamples.push(`${candidate.id}: ${message}`);
+      }
+    }
+  }
+
+  return counts;
+}
+
+async function main(): Promise<void> {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    printUsage();
+    return;
+  }
+
+  if (options.execute && options.confirmRun !== TARGET_RUN_ID) {
+    throw new Error(`--execute requires --confirm-run ${TARGET_RUN_ID}`);
+  }
+
+  const warnings: string[] = [];
+  const abortReasons: string[] = [];
+
+  console.log(`${SCRIPT_NAME}`);
+  console.log(`Mode: ${options.execute ? 'execute' : 'dry-run'}`);
+  console.log(`Target run: ${TARGET_RUN_ID}`);
+
+  const run = await getRunMetadata();
+  if (!run) {
+    throw new Error(`Target ingest_runs row not found: ${TARGET_RUN_ID}`);
+  }
+  if (run.sourceName !== SOURCE_NAME) {
+    throw new Error(`Target ingest_runs row has source_name=${run.sourceName}, expected ${SOURCE_NAME}`);
+  }
+
+  printSection('Run Metadata');
+  printJson('Run', {
+    id: run.id,
+    sourceName: run.sourceName,
+    upstreamRunKey: run.upstreamRunKey,
+    upstreamCursorStart: run.upstreamCursorStart,
+    upstreamCursorEnd: run.upstreamCursorEnd,
+    startedAt: formatDate(run.startedAt),
+    completedAt: formatDate(run.completedAt),
+    status: run.status,
+    processedBatchCount: run.processedBatchCount,
+    errorSummary: run.errorSummary,
+  });
+
+  const completedBatchCounts = await getCompletedBatchCounts();
+  printSection('Completed Batch Counts');
+  printBatchCounts(completedBatchCounts);
+
+  const candidateGroups = await getCandidateGroups();
+  const candidates = await getCandidates();
+  printSection('Stale Observation Candidates');
+  printCandidateGroups(candidateGroups);
+  console.log(`Candidate total: ${candidates.length}`);
+
+  const activeRemainingBatchCounts = await getActiveRemainingBatchCounts();
+  printSection('Active Remaining Batch Counts');
+  printBatchCounts(activeRemainingBatchCounts);
+
+  const activeRemainingBatches = await getActiveRemainingBatches();
+  const jobStates = await collectJobStates(activeRemainingBatches, warnings);
+  const jobStateReadFailed = warnings.some((warning) => warning.startsWith('Failed to read BullMQ job states:'));
+  printSection('BullMQ Job States For Active Remaining Batches');
+  printJobStates(jobStates);
+
+  const startedProcessingBatches = await getStartedProcessingBatches();
+  if (startedProcessingBatches.length > 0) {
+    abortReasons.push(`Target run has ${startedProcessingBatches.length} processing batches with started_at IS NOT NULL`);
+    for (const batch of startedProcessingBatches.slice(0, 10)) {
+      warnings.push(`Started processing batch: ${batch.id} sequence=${batch.batchSequence} started_at=${formatDate(batch.startedAt)}`);
+    }
+  }
+
+  const activeJobs = jobStates.filter((row) => row.jobState === 'active');
+  if (activeJobs.length > 0) {
+    abortReasons.push(`Target run has ${activeJobs.length} active BullMQ ingest-batches jobs`);
+  }
+  if (options.execute && jobStateReadFailed) {
+    abortReasons.push('BullMQ job states could not be read before execute');
+  }
+
+  if (!options.execute) {
+    warnings.push(`Dry run only. Pass --execute --confirm-run ${TARGET_RUN_ID} to mutate.`);
+  }
+
+  printSection('Abort And Warning Summary');
+  printJson('Abort reasons', abortReasons);
+  printJson('Warnings', warnings);
+
+  if (options.execute && abortReasons.length > 0) {
+    throw new Error('Refusing to execute because abort conditions are present');
+  }
+
+  if (!options.execute) {
+    return;
+  }
+
+  printSection('Execute: Supersede Remaining Batches');
+  const supersededBatchIds = await supersedeRemainingBatches();
+  console.log(`Superseded batches: ${supersededBatchIds.length}`);
+  for (const batchId of supersededBatchIds.slice(0, 25)) {
+    console.log(`  - ${batchId}`);
+  }
+  if (supersededBatchIds.length > 25) {
+    console.log(`  ... ${supersededBatchIds.length - 25} more`);
+  }
+
+  const removedJobs = await removeSupersededJobs(supersededBatchIds);
+  console.log(`Removed BullMQ jobs: ${removedJobs.removed.length}`);
+  if (removedJobs.warnings.length > 0) {
+    printJson('Job removal warnings', removedJobs.warnings);
+  }
+
+  printSection('Execute: Reconcile Candidates');
+  const reconcileCounts = await reconcileCandidates(candidates);
+  printJson('Reconcile counts', reconcileCounts);
+  if (reconcileCounts.failures > 0) {
+    throw new Error(`Reconciliation completed with ${reconcileCounts.failures} failures`);
+  }
+}
+
+const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (isDirectRun) {
+  main()
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await closeRedisConnection();
+      await closeConnection();
+    });
+}
+
+export { parseArgs };
