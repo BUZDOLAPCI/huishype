@@ -359,7 +359,7 @@ describe('Durable ingest API contract', () => {
   it('processes candidate callback batches independently from the source cursor', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
-    const street = 'Candidate Cursorlaan';
+    const street = `Candidate Cursorlaan ${stamp}`;
     await resetIngestSourceState(sourceName);
     const propertyId = await seedProperty({
       street,
@@ -576,7 +576,7 @@ describe('Durable ingest API contract', () => {
   it('keeps mixed candidate and mirror batches bound to the source cursor', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
-    const street = 'Mixed Candidate Cursorlaan';
+    const street = `Mixed Candidate Cursorlaan ${stamp}`;
     await resetIngestSourceState(sourceName);
     await seedProperty({
       street,
@@ -5475,15 +5475,20 @@ describe('Durable ingest API contract', () => {
   });
 
   it('tracks run lifecycle completion across multiple batches and links price history to listings', async () => {
-    const runKey = `fotocasa-run-${Date.now()}`;
-    const firstMirrorListingId = `fotocasa-listing-a-${Date.now()}`;
-    const secondMirrorListingId = `fotocasa-listing-b-${Date.now()}`;
+    const stamp = Date.now();
+    const runKey = `fotocasa-run-${stamp}`;
+    const alphaStreet = `Alphaweg ${stamp}`;
+    const betaStreet = `Betaweg ${stamp}`;
+    const alphaUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/alpha-${stamp}`;
+    const betaUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/beta-${stamp}`;
+    const firstMirrorListingId = `fotocasa-listing-a-${stamp}`;
+    const secondMirrorListingId = `fotocasa-listing-b-${stamp}`;
     const propertySeed = await db
       .insert(properties)
       .values([
         {
           countryCode: 'NL',
-          street: 'Alphaweg',
+          street: alphaStreet,
           houseNumber: 10,
           houseNumberAddition: null,
           city: 'Eindhoven',
@@ -5492,7 +5497,7 @@ describe('Durable ingest API contract', () => {
         },
         {
           countryCode: 'NL',
-          street: 'Betaweg',
+          street: betaStreet,
           houseNumber: 12,
           houseNumberAddition: null,
           city: 'Eindhoven',
@@ -5504,24 +5509,24 @@ describe('Durable ingest API contract', () => {
 
     cleanupPropertyIds.push(...propertySeed.map((row) => row.id));
 
-    const alphaProperty = propertySeed.find((row) => row.street === 'Alphaweg');
-    const betaProperty = propertySeed.find((row) => row.street === 'Betaweg');
+    const alphaProperty = propertySeed.find((row) => row.street === alphaStreet);
+    const betaProperty = propertySeed.find((row) => row.street === betaStreet);
     expect(alphaProperty).toBeDefined();
     expect(betaProperty).toBeDefined();
 
     const firstAccepted = await acceptIngestBatch({
       sourceName: 'fotocasa',
-      idempotencyKey: `fotocasa-first-${Date.now()}`,
+      idempotencyKey: `fotocasa-first-${stamp}`,
       batchSequence: 0,
       cursorStart: null,
       cursorEnd: encodeOpaqueIngestCursor({
         changedAt: '2026-04-06T15:00:00.000Z',
-        listingKey: 'fotocasa-1',
+        listingKey: `fotocasa-1-${stamp}`,
       }),
       upstreamRunKey: runKey,
       listings: [
         {
-          sourceUrl: 'https://www.fotocasa.es/es/comprar/vivienda/eindhoven/alpha',
+          sourceUrl: alphaUrl,
           mirrorListingId: firstMirrorListingId,
           askingPrice: 399000,
           priceType: 'sale',
@@ -5534,7 +5539,7 @@ describe('Durable ingest API contract', () => {
           mirrorLastSeenAt: '2026-04-06T15:10:00.000Z',
           address: {
             countryCode: 'NL',
-            street: 'Alphaweg',
+            street: alphaStreet,
             postalCode: '1234 AB',
             houseNumber: 10,
             houseNumberAddition: null,
@@ -5555,20 +5560,20 @@ describe('Durable ingest API contract', () => {
 
     const secondAccepted = await acceptIngestBatch({
       sourceName: 'fotocasa',
-      idempotencyKey: `fotocasa-second-${Date.now()}`,
+      idempotencyKey: `fotocasa-second-${stamp}`,
       batchSequence: 1,
       cursorStart: encodeOpaqueIngestCursor({
         changedAt: '2026-04-06T15:00:00.000Z',
-        listingKey: 'fotocasa-1',
+        listingKey: `fotocasa-1-${stamp}`,
       }),
       cursorEnd: encodeOpaqueIngestCursor({
         changedAt: '2026-04-06T15:30:00.000Z',
-        listingKey: 'fotocasa-2',
+        listingKey: `fotocasa-2-${stamp}`,
       }),
       upstreamRunKey: runKey,
       listings: [
         {
-          sourceUrl: 'https://www.fotocasa.es/es/comprar/vivienda/eindhoven/beta',
+          sourceUrl: betaUrl,
           mirrorListingId: secondMirrorListingId,
           askingPrice: 425000,
           priceType: 'sale',
@@ -5581,7 +5586,7 @@ describe('Durable ingest API contract', () => {
           mirrorLastSeenAt: '2026-04-06T16:10:00.000Z',
           address: {
             countryCode: 'NL',
-            street: 'Betaweg',
+            street: betaStreet,
             postalCode: '1234 AB',
             houseNumber: 12,
             houseNumberAddition: null,
@@ -5628,7 +5633,7 @@ describe('Durable ingest API contract', () => {
     expect(storedListing).toBeDefined();
     const matchedListing = storedListing;
     expect(matchedListing?.propertyId).toBe(alphaProperty?.id);
-    expect(matchedListing?.canonicalUrl).toBe('https://www.fotocasa.es/es/comprar/vivienda/eindhoven/alpha');
+    expect(matchedListing?.canonicalUrl).toBe(alphaUrl);
 
     const [legacyListing] = await db
       .select()
@@ -5640,7 +5645,10 @@ describe('Durable ingest API contract', () => {
     const [historyRow] = await db
       .select()
       .from(priceHistory)
-      .where(eq(priceHistory.source, 'fotocasa'))
+      .where(and(
+        eq(priceHistory.source, 'fotocasa'),
+        eq(priceHistory.propertyId, alphaProperty?.id ?? ''),
+      ))
       .limit(1);
 
     expect(historyRow).toBeDefined();
@@ -5669,7 +5677,7 @@ describe('Durable ingest API contract', () => {
       .limit(1);
 
     expect(midSourceState).toBeDefined();
-    expect(midSourceState?.lastCommittedListingKey).toBe('fotocasa-1');
+    expect(midSourceState?.lastCommittedListingKey).toBe(`fotocasa-1-${stamp}`);
     expect(midSourceState?.lastBatchId).toBe(firstAccepted.batchId);
     expect(midSourceState?.lastRunStatus).toBe('in_progress');
     expect(midSourceState?.lastRunCompletedAt).toBeNull();
@@ -5705,7 +5713,7 @@ describe('Durable ingest API contract', () => {
       .limit(1);
 
     expect(sourceState).toBeDefined();
-    expect(sourceState?.lastCommittedListingKey).toBe('fotocasa-2');
+    expect(sourceState?.lastCommittedListingKey).toBe(`fotocasa-2-${stamp}`);
     expect(sourceState?.lastBatchId).toBe(secondAccepted.batchId);
     expect(sourceState?.lastRunStatus).toBe('completed');
     expect(sourceState?.lastRunCompletedAt).not.toBeNull();
@@ -5724,7 +5732,8 @@ describe('Durable ingest API contract', () => {
 
   it('does not let listing-submit maintenance rows advance the committed ingest cursor', async () => {
     const sourceName = 'fotocasa';
-    const street = `Deltaweg-${Date.now()}`;
+    const stamp = Date.now();
+    const street = `Deltaweg-${stamp}`;
     const propertySeed = await db
       .insert(properties)
       .values({
@@ -5746,7 +5755,7 @@ describe('Durable ingest API contract', () => {
       await createMaintenanceRefreshRequest(tx, {
         sourceName,
         requestedBy: 'listing-submit',
-        idempotencyKey: `listing-submit-${Date.now()}`,
+        idempotencyKey: `listing-submit-${stamp}`,
         payload: {
           propertyId,
         },
@@ -5755,20 +5764,20 @@ describe('Durable ingest API contract', () => {
 
     const cursorEnd = encodeOpaqueIngestCursor({
       changedAt: '2026-04-06T18:00:00.000Z',
-      listingKey: 'fotocasa-real-1',
+      listingKey: `fotocasa-real-1-${stamp}`,
     });
 
     const accepted = await acceptIngestBatch({
       sourceName,
-      idempotencyKey: `fotocasa-real-${Date.now()}`,
+      idempotencyKey: `fotocasa-real-${stamp}`,
       batchSequence: 0,
       cursorStart: null,
       cursorEnd,
-      upstreamRunKey: `fotocasa-real-run-${Date.now()}`,
+      upstreamRunKey: `fotocasa-real-run-${stamp}`,
       listings: [
         {
-          sourceUrl: 'https://www.fotocasa.es/es/comprar/vivienda/eindhoven/delta',
-          mirrorListingId: `fotocasa-real-listing-${Date.now()}`,
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/delta-${stamp}`,
+          mirrorListingId: `fotocasa-real-listing-${stamp}`,
           askingPrice: 440000,
           priceType: 'sale',
           status: 'active' as const,
@@ -5795,14 +5804,14 @@ describe('Durable ingest API contract', () => {
       .limit(1);
 
     expect(sourceState?.lastCommittedCursor).toBe(cursorEnd);
-    expect(sourceState?.lastCommittedListingKey).toBe('fotocasa-real-1');
+    expect(sourceState?.lastCommittedListingKey).toBe(`fotocasa-real-1-${stamp}`);
     expect(sourceState?.lastBatchId).toBe(accepted.batchId);
   });
 
   it('skips listings with invalid source house numbers while completing the batch', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
-    const street = 'Invalid House Numberweg';
+    const street = `Invalid House Numberweg ${stamp}`;
     const debugLogs: Array<{ payload: Record<string, unknown>; message: string }> = [];
     const cursorEnd = encodeOpaqueIngestCursor({
       changedAt: '2026-04-06T18:30:00.000Z',
@@ -5968,7 +5977,7 @@ describe('Durable ingest API contract', () => {
   it('spatially matches listings with an empty source house number when coordinates are present', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
-    const street = 'Pararius Coordinateweg';
+    const street = `Pararius Coordinateweg ${stamp}`;
     const longitude = 5.223456;
     const latitude = 51.223456;
     const cursorEnd = encodeOpaqueIngestCursor({
@@ -6046,7 +6055,7 @@ describe('Durable ingest API contract', () => {
   it('keeps malformed unit-shaped source house numbers skipped until the source sends corrected fields', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
-    const street = 'Funda Unitvormweg';
+    const street = `Funda Unitvormweg ${stamp}`;
     const longitude = 5.323456;
     const latitude = 51.323456;
     const firstCursorEnd = encodeOpaqueIngestCursor({
@@ -6293,14 +6302,389 @@ describe('Durable ingest API contract', () => {
     });
   });
 
+  it('advances a raw exact cursor match beyond the old global page', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `CursorExactPageweg-${stamp}`;
+    await seedProperty({
+      street,
+      houseNumber: 26,
+    });
+    const currentCursor = encodeRawCursor({
+      changedAt: '2026-04-06T21:00:00.000000Z',
+      listingKey: `fotocasa-exact-page-current-${stamp}`,
+    });
+    const nextCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T21:30:00.000Z',
+      listingKey: `fotocasa-exact-page-next-${stamp}`,
+    });
+
+    await db.insert(ingestSources).values({
+      sourceName,
+      lastCommittedCursor: currentCursor,
+      lastCommittedChangedAt: new Date('2026-04-06T21:00:00.000Z'),
+      lastCommittedListingKey: `fotocasa-exact-page-current-${stamp}`,
+    });
+
+    const oldReceivedAt = new Date('2026-04-06T08:00:00.000Z').getTime();
+    const staleRows = Array.from({ length: 1005 }, (_, index) => {
+      const staleCursorEnd = encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T20:00:00.000Z',
+        listingKey: `fotocasa-exact-page-stale-${stamp}-${index}`,
+      });
+      const receivedAt = new Date(oldReceivedAt + index * 1000);
+
+      return {
+        sourceName,
+        batchSequence: index,
+        idempotencyKey: `fotocasa-exact-page-stale-${stamp}-${index}`,
+        cursorStart: currentCursor,
+        cursorEnd: staleCursorEnd,
+        payloadJson: {
+          sourceName,
+          idempotencyKey: `fotocasa-exact-page-stale-${stamp}-${index}`,
+          batchSequence: index,
+          cursorStart: currentCursor,
+          cursorEnd: staleCursorEnd,
+          upstreamRunKey: `fotocasa-exact-page-stale-run-${stamp}`,
+          listings: [],
+        },
+        status: 'completed' as const,
+        attemptCount: 1,
+        receivedAt,
+        startedAt: receivedAt,
+        completedAt: receivedAt,
+        ingestedCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+      };
+    });
+
+    for (let offset = 0; offset < staleRows.length; offset += 250) {
+      await db.insert(ingestBatches).values(staleRows.slice(offset, offset + 250));
+    }
+
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-exact-page-next-${stamp}`,
+      batchSequence: staleRows.length,
+      cursorStart: currentCursor,
+      cursorEnd: nextCursor,
+      upstreamRunKey: `fotocasa-exact-page-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/cursor-exact-page-${stamp}`,
+          mirrorListingId: `fotocasa-exact-page-listing-${stamp}`,
+          askingPrice: 475000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 26,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [sourceState] = await db
+      .select()
+      .from(ingestSources)
+      .where(eq(ingestSources.sourceName, sourceName))
+      .limit(1);
+
+    expect(sourceState?.lastCommittedCursor).toBe(nextCursor);
+    expect(sourceState?.lastCommittedListingKey).toBe(`fotocasa-exact-page-next-${stamp}`);
+    expect(sourceState?.lastBatchId).toBe(accepted.batchId);
+  });
+
+  it('prefers an earlier semantic cursor match over a later exact match', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `CursorSemanticPageweg-${stamp}`;
+    await seedProperty({
+      street,
+      houseNumber: 28,
+    });
+    const currentCursorPayload = {
+      changedAt: '2026-04-06T22:00:00.000Z',
+      listingKey: `fotocasa-semantic-page-current-${stamp}`,
+    };
+    const currentCursor = encodeOpaqueIngestCursor(currentCursorPayload);
+    const equivalentCurrentCursor = encodeRawCursor({
+      changedAt: '2026-04-06T22:00:00.000000Z',
+      listingKey: currentCursorPayload.listingKey,
+    });
+    const semanticNextCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T22:20:00.000Z',
+      listingKey: `fotocasa-semantic-page-next-${stamp}`,
+    });
+    const exactNextCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T22:30:00.000Z',
+      listingKey: `fotocasa-exact-page-next-${stamp}`,
+    });
+
+    await db.insert(ingestSources).values({
+      sourceName,
+      lastCommittedCursor: currentCursor,
+      lastCommittedChangedAt: new Date(currentCursorPayload.changedAt),
+      lastCommittedListingKey: currentCursorPayload.listingKey,
+    });
+
+    const receivedAt = new Date('2026-04-06T09:00:00.000Z');
+    const [semanticBatch] = await db
+      .insert(ingestBatches)
+      .values({
+        sourceName,
+        batchSequence: 0,
+        idempotencyKey: `fotocasa-semantic-page-next-${stamp}`,
+        cursorStart: equivalentCurrentCursor,
+        cursorEnd: semanticNextCursor,
+        payloadJson: {
+          sourceName,
+          idempotencyKey: `fotocasa-semantic-page-next-${stamp}`,
+          batchSequence: 0,
+          cursorStart: equivalentCurrentCursor,
+          cursorEnd: semanticNextCursor,
+          upstreamRunKey: `fotocasa-semantic-page-run-${stamp}`,
+          listings: [],
+        },
+        status: 'completed' as const,
+        attemptCount: 1,
+        receivedAt,
+        startedAt: receivedAt,
+        completedAt: receivedAt,
+        ingestedCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+      })
+      .returning({ id: ingestBatches.id });
+
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-exact-page-next-${stamp}`,
+      batchSequence: 1,
+      cursorStart: currentCursor,
+      cursorEnd: exactNextCursor,
+      upstreamRunKey: `fotocasa-semantic-page-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/cursor-semantic-page-${stamp}`,
+          mirrorListingId: `fotocasa-semantic-page-listing-${stamp}`,
+          askingPrice: 485000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 28,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [sourceState] = await db
+      .select()
+      .from(ingestSources)
+      .where(eq(ingestSources.sourceName, sourceName))
+      .limit(1);
+
+    expect(sourceState?.lastCommittedCursor).toBe(semanticNextCursor);
+    expect(sourceState?.lastCommittedListingKey).toBe(`fotocasa-semantic-page-next-${stamp}`);
+    expect(sourceState?.lastBatchId).toBe(semanticBatch?.id);
+  });
+
+  it('finds a semantic cursor match after the old bounded fallback scan limit', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `CursorSemanticDeepPageweg-${stamp}`;
+    await seedProperty({
+      street,
+      houseNumber: 30,
+    });
+    const currentCursorPayload = {
+      changedAt: '2026-04-06T23:00:00.000Z',
+      listingKey: `fotocasa-semantic-deep-current-${stamp}`,
+    };
+    const currentCursor = encodeOpaqueIngestCursor(currentCursorPayload);
+    const equivalentCurrentCursor = encodeRawCursor({
+      changedAt: '2026-04-06T23:00:00.000000Z',
+      listingKey: currentCursorPayload.listingKey,
+    });
+    const semanticNextCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T23:20:00.000Z',
+      listingKey: `fotocasa-semantic-deep-next-${stamp}`,
+    });
+    const exactNextCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T23:30:00.000Z',
+      listingKey: `fotocasa-exact-deep-next-${stamp}`,
+    });
+
+    await db.insert(ingestSources).values({
+      sourceName,
+      lastCommittedCursor: currentCursor,
+      lastCommittedChangedAt: new Date(currentCursorPayload.changedAt),
+      lastCommittedListingKey: currentCursorPayload.listingKey,
+    });
+
+    const oldReceivedAt = new Date('2026-04-06T10:00:00.000Z').getTime();
+    const nonMatchingRows = Array.from({ length: 2005 }, (_, index) => {
+      const nonMatchingCursorStart = encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T22:30:00.000Z',
+        listingKey: `fotocasa-semantic-deep-nonmatch-start-${stamp}-${index}`,
+      });
+      const nonMatchingCursorEnd = encodeOpaqueIngestCursor({
+        changedAt: '2026-04-06T22:45:00.000Z',
+        listingKey: `fotocasa-semantic-deep-nonmatch-end-${stamp}-${index}`,
+      });
+      const receivedAt = new Date(oldReceivedAt + index * 1000);
+
+      return {
+        sourceName,
+        batchSequence: index,
+        idempotencyKey: `fotocasa-semantic-deep-nonmatch-${stamp}-${index}`,
+        cursorStart: nonMatchingCursorStart,
+        cursorEnd: nonMatchingCursorEnd,
+        payloadJson: {
+          sourceName,
+          idempotencyKey: `fotocasa-semantic-deep-nonmatch-${stamp}-${index}`,
+          batchSequence: index,
+          cursorStart: nonMatchingCursorStart,
+          cursorEnd: nonMatchingCursorEnd,
+          upstreamRunKey: `fotocasa-semantic-deep-nonmatch-run-${stamp}`,
+          listings: [],
+        },
+        status: 'completed' as const,
+        attemptCount: 1,
+        receivedAt,
+        startedAt: receivedAt,
+        completedAt: receivedAt,
+        ingestedCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+      };
+    });
+
+    for (let offset = 0; offset < nonMatchingRows.length; offset += 500) {
+      await db.insert(ingestBatches).values(nonMatchingRows.slice(offset, offset + 500));
+    }
+
+    const semanticReceivedAt = new Date(oldReceivedAt + nonMatchingRows.length * 1000);
+    const [semanticBatch] = await db
+      .insert(ingestBatches)
+      .values({
+        sourceName,
+        batchSequence: nonMatchingRows.length,
+        idempotencyKey: `fotocasa-semantic-deep-next-${stamp}`,
+        cursorStart: equivalentCurrentCursor,
+        cursorEnd: semanticNextCursor,
+        payloadJson: {
+          sourceName,
+          idempotencyKey: `fotocasa-semantic-deep-next-${stamp}`,
+          batchSequence: nonMatchingRows.length,
+          cursorStart: equivalentCurrentCursor,
+          cursorEnd: semanticNextCursor,
+          upstreamRunKey: `fotocasa-semantic-deep-run-${stamp}`,
+          listings: [],
+        },
+        status: 'completed' as const,
+        attemptCount: 1,
+        receivedAt: semanticReceivedAt,
+        startedAt: semanticReceivedAt,
+        completedAt: semanticReceivedAt,
+        ingestedCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+      })
+      .returning({ id: ingestBatches.id });
+
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-exact-deep-next-${stamp}`,
+      batchSequence: nonMatchingRows.length + 1,
+      cursorStart: currentCursor,
+      cursorEnd: exactNextCursor,
+      upstreamRunKey: `fotocasa-semantic-deep-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/cursor-semantic-deep-${stamp}`,
+          mirrorListingId: `fotocasa-semantic-deep-listing-${stamp}`,
+          askingPrice: 495000,
+          priceType: 'sale',
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 30,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [sourceState] = await db
+      .select()
+      .from(ingestSources)
+      .where(eq(ingestSources.sourceName, sourceName))
+      .limit(1);
+
+    expect(sourceState?.lastCommittedCursor).toBe(semanticNextCursor);
+    expect(sourceState?.lastCommittedListingKey).toBe(`fotocasa-semantic-deep-next-${stamp}`);
+    expect(sourceState?.lastBatchId).toBe(semanticBatch?.id);
+  });
+
   it('merges duplicate mirror URL observations without writing legacy listings', async () => {
-    const runKey = `fotocasa-failure-run-${Date.now()}`;
+    const stamp = Date.now();
+    const runKey = `fotocasa-failure-run-${stamp}`;
+    const street = `Gammaweg ${stamp}`;
+    const sourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/failure-${stamp}`;
     const failureProperty = await db
       .insert(properties)
       .values([
         {
           countryCode: 'NL',
-          street: 'Gammaweg',
+          street,
           houseNumber: 14,
           houseNumberAddition: null,
           city: 'Eindhoven',
@@ -6314,40 +6698,40 @@ describe('Durable ingest API contract', () => {
 
     const accepted = await acceptIngestBatch({
       sourceName: 'fotocasa',
-      idempotencyKey: `fotocasa-failure-${Date.now()}`,
+      idempotencyKey: `fotocasa-failure-${stamp}`,
       batchSequence: 0,
       cursorStart: null,
       cursorEnd: encodeOpaqueIngestCursor({
         changedAt: '2026-04-06T17:00:00.000Z',
-        listingKey: 'fotocasa-failure-1',
+        listingKey: `fotocasa-failure-1-${stamp}`,
       }),
       upstreamRunKey: runKey,
       listings: [
         {
-          sourceUrl: 'https://www.fotocasa.es/es/comprar/vivienda/eindhoven/failure',
-          mirrorListingId: `fotocasa-failure-listing-${Date.now()}`,
+          sourceUrl,
+          mirrorListingId: `fotocasa-failure-listing-${stamp}`,
           askingPrice: 510000,
           priceType: 'sale' as const,
           status: 'active' as const,
           ogTitle: 'Failure path listing',
           address: {
             countryCode: 'NL',
-            street: 'Gammaweg',
+            street,
             postalCode: '1234 AB',
             houseNumber: 14,
             city: 'Eindhoven',
           },
         },
         {
-          sourceUrl: 'https://www.fotocasa.es/es/comprar/vivienda/eindhoven/failure',
-          mirrorListingId: `fotocasa-failure-listing-dup-${Date.now()}`,
+          sourceUrl,
+          mirrorListingId: `fotocasa-failure-listing-dup-${stamp}`,
           askingPrice: 515000,
           priceType: 'sale' as const,
           status: 'active' as const,
           ogTitle: 'Failure path duplicate listing',
           address: {
             countryCode: 'NL',
-            street: 'Gammaweg',
+            street,
             postalCode: '1234 AB',
             houseNumber: 14,
             city: 'Eindhoven',
@@ -6384,7 +6768,7 @@ describe('Durable ingest API contract', () => {
       .where(
         and(
           eq(canonicalListings.sourceName, 'fotocasa'),
-          eq(canonicalListings.canonicalUrl, 'https://www.fotocasa.es/es/comprar/vivienda/eindhoven/failure'),
+          eq(canonicalListings.canonicalUrl, sourceUrl),
         ),
       );
     expect(canonicalRows).toHaveLength(1);

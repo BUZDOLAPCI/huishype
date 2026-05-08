@@ -48,6 +48,9 @@ describe('Listing routes', () => {
   let testPropertyId: string;
   let otherPropertyId: string;
   let testAccessToken: string;
+  const listingFixtureRunId = `${Date.now()}-${process.pid}`;
+  const testPropertyStreet = `Listings Fixture Street ${listingFixtureRunId}`;
+  const otherPropertyStreet = `Listings Mismatch Street ${listingFixtureRunId}`;
   const testUserIds: string[] = [];
   const legacyListingIds: string[] = [];
   const originalFetch = global.fetch;
@@ -231,6 +234,126 @@ describe('Listing routes', () => {
     };
   }
 
+  async function cleanupListingRouteFixtureArtifacts() {
+    await db.execute(sql`
+      DELETE FROM listing_price_observations
+      WHERE property_id IN (
+        SELECT id FROM properties
+        WHERE street = 'Listings Fixture Street'
+          OR street = 'Listings Mismatch Street'
+          OR street LIKE 'Listings Fixture Street %'
+          OR street LIKE 'Listings Mismatch Street %'
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM listing_observation_links
+      WHERE canonical_listing_id IN (
+        SELECT id FROM canonical_listings
+        WHERE property_id IN (
+          SELECT id FROM properties
+          WHERE street = 'Listings Fixture Street'
+            OR street = 'Listings Mismatch Street'
+            OR street LIKE 'Listings Fixture Street %'
+            OR street LIKE 'Listings Mismatch Street %'
+        )
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM listing_candidate_handoffs
+      WHERE property_id IN (
+        SELECT id FROM properties
+        WHERE street = 'Listings Fixture Street'
+          OR street = 'Listings Mismatch Street'
+          OR street LIKE 'Listings Fixture Street %'
+          OR street LIKE 'Listings Mismatch Street %'
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM listing_preview_results
+      WHERE property_id IN (
+        SELECT id FROM properties
+        WHERE street = 'Listings Fixture Street'
+          OR street = 'Listings Mismatch Street'
+          OR street LIKE 'Listings Fixture Street %'
+          OR street LIKE 'Listings Mismatch Street %'
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM listing_observations
+      WHERE property_id IN (
+        SELECT id FROM properties
+        WHERE street = 'Listings Fixture Street'
+          OR street = 'Listings Mismatch Street'
+          OR street LIKE 'Listings Fixture Street %'
+          OR street LIKE 'Listings Mismatch Street %'
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM canonical_listings
+      WHERE property_id IN (
+        SELECT id FROM properties
+        WHERE street = 'Listings Fixture Street'
+          OR street = 'Listings Mismatch Street'
+          OR street LIKE 'Listings Fixture Street %'
+          OR street LIKE 'Listings Mismatch Street %'
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM price_history
+      WHERE property_id IN (
+        SELECT id FROM properties
+        WHERE street = 'Listings Fixture Street'
+          OR street = 'Listings Mismatch Street'
+          OR street LIKE 'Listings Fixture Street %'
+          OR street LIKE 'Listings Mismatch Street %'
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM listings
+      WHERE property_id IN (
+        SELECT id FROM properties
+        WHERE street = 'Listings Fixture Street'
+          OR street = 'Listings Mismatch Street'
+          OR street LIKE 'Listings Fixture Street %'
+          OR street LIKE 'Listings Mismatch Street %'
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM properties
+      WHERE street = 'Listings Fixture Street'
+        OR street = 'Listings Mismatch Street'
+        OR street LIKE 'Listings Fixture Street %'
+        OR street LIKE 'Listings Mismatch Street %'
+    `);
+    await db.execute(sql`
+      DELETE FROM ingest_sources
+      WHERE source_name IN ('funda', 'pararius')
+    `);
+    await db.execute(sql`
+      DELETE FROM ingest_batches
+      WHERE source_name IN ('funda', 'pararius')
+        AND (
+          idempotency_key LIKE 'funda-promotion-%'
+          OR idempotency_key LIKE 'funda-diagnostic-pushback-%'
+          OR idempotency_key LIKE 'funda-source-candidate-%'
+          OR idempotency_key LIKE 'funda-addressless-candidate-outcomes-%'
+          OR idempotency_key LIKE 'funda-existing-scraper-%'
+          OR idempotency_key LIKE 'listing-submit:%'
+        )
+    `);
+    await db.execute(sql`
+      DELETE FROM ingest_runs
+      WHERE source_name IN ('funda', 'pararius')
+        AND (
+          upstream_run_key LIKE 'funda-promotion-run-%'
+          OR upstream_run_key LIKE 'funda-diagnostic-pushback-run-%'
+          OR upstream_run_key LIKE 'funda-source-candidate-run-%'
+          OR upstream_run_key LIKE 'funda-addressless-candidate-outcomes-run-%'
+          OR upstream_run_key LIKE 'funda-existing-scraper-run-%'
+        )
+    `);
+  }
+
   beforeAll(async () => {
     process.env.INGEST_API_KEY = 'test-ingest-api-key';
     sourceServicesConfig.fundaApiKey = 'test-funda-source-service-key';
@@ -238,9 +361,10 @@ describe('Listing routes', () => {
     mockFetchFn = jest.fn() as jest.Mock<typeof global.fetch>;
     global.fetch = mockFetchFn;
     app = await buildApp({ logger: false });
+    await cleanupListingRouteFixtureArtifacts();
 
     const property = await createIntegrationProperty({
-      street: 'Listings Fixture Street',
+      street: testPropertyStreet,
       houseNumber: 1,
       city: 'Listings City',
       postalCode: '9100AA',
@@ -250,7 +374,7 @@ describe('Listing routes', () => {
     testPropertyId = property.id;
 
     const otherProperty = await createIntegrationProperty({
-      street: 'Listings Mismatch Street',
+      street: otherPropertyStreet,
       houseNumber: 2,
       city: 'Listings City',
       postalCode: '9100AB',
@@ -334,30 +458,7 @@ describe('Listing routes', () => {
       }
     }
     try {
-      await db.execute(sql`DELETE FROM ingest_sources WHERE source_name = 'funda'`);
-      await db.execute(sql`
-        DELETE FROM ingest_batches
-        WHERE source_name = 'funda'
-          AND (
-            idempotency_key LIKE 'funda-promotion-%'
-            OR idempotency_key LIKE 'funda-diagnostic-pushback-%'
-            OR idempotency_key LIKE 'funda-source-candidate-%'
-            OR idempotency_key LIKE 'funda-addressless-candidate-outcomes-%'
-            OR idempotency_key LIKE 'funda-existing-scraper-%'
-            OR idempotency_key LIKE 'listing-submit:%'
-          )
-      `);
-      await db.execute(sql`
-        DELETE FROM ingest_runs
-        WHERE source_name = 'funda'
-          AND (
-            upstream_run_key LIKE 'funda-promotion-run-%'
-            OR upstream_run_key LIKE 'funda-diagnostic-pushback-run-%'
-            OR upstream_run_key LIKE 'funda-source-candidate-run-%'
-            OR upstream_run_key LIKE 'funda-addressless-candidate-outcomes-run-%'
-            OR upstream_run_key LIKE 'funda-existing-scraper-run-%'
-          )
-      `);
+      await cleanupListingRouteFixtureArtifacts();
     } catch {
       // Ignore cleanup errors
     }
@@ -518,31 +619,35 @@ describe('Listing routes', () => {
 
   describe('POST /listings/preview', () => {
     it('should allow unauthenticated requests and use source-service validation', async () => {
+      const sourceListingId = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const rawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture-${sourceListingId}/${sourceListingId}/`;
+      const canonicalUrl = `https://www.funda.nl/detail/${sourceListingId}/`;
+
       mockFetchFn
         .mockResolvedValueOnce(jsonResponse({
           supported: true,
           sourceName: 'funda',
-          rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
-          canonicalUrl: 'https://www.funda.nl/detail/89779872/',
-          sourceListingId: '89779872',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
           sourceListingIdKind: 'tiny_id',
           aliases: [
-            { kind: 'tiny_id', value: '89779872' },
-            { kind: 'detail_id', value: '89779872' },
+            { kind: 'tiny_id', value: sourceListingId },
+            { kind: 'detail_id', value: sourceListingId },
           ],
-          listingPath: '/detail/89779872/',
+          listingPath: `/detail/${sourceListingId}/`,
           reasonCode: null,
         }))
         .mockResolvedValueOnce(jsonResponse({
           state: 'matched',
           sourceName: 'funda',
-          rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
-          canonicalUrl: 'https://www.funda.nl/detail/89779872/',
-          sourceListingId: '89779872',
+          rawUrl,
+          canonicalUrl,
+          sourceListingId,
           sourceListingIdKind: 'tiny_id',
           aliases: [
-            { kind: 'tiny_id', value: '89779872' },
-            { kind: 'detail_id', value: '89779872' },
+            { kind: 'tiny_id', value: sourceListingId },
+            { kind: 'detail_id', value: sourceListingId },
           ],
           sourceStatus: 'available',
           matchedPropertyEvidence: {
@@ -559,7 +664,7 @@ describe('Listing routes', () => {
         method: 'POST',
         url: '/listings/preview',
         payload: {
-          url: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
+          url: rawUrl,
           propertyId: testPropertyId,
           title: 'Caller supplied title',
           description: 'Caller supplied description',
@@ -571,9 +676,9 @@ describe('Listing routes', () => {
       const body = JSON.parse(response.body);
       expect(body).toMatchObject({
         sourceName: 'funda',
-        rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
-        canonicalUrl: 'https://www.funda.nl/detail/89779872/',
-        sourceListingId: '89779872',
+        rawUrl,
+        canonicalUrl,
+        sourceListingId,
         sourceListingIdKind: 'tiny_id',
         validationState: 'valid',
         matchState: 'matched',
@@ -600,8 +705,8 @@ describe('Listing routes', () => {
       expect(storedPreview).toMatchObject({
         sourceName: 'funda',
         propertyId: testPropertyId,
-        sourceUrlCanonical: 'https://www.funda.nl/detail/89779872/',
-        sourceListingId: '89779872',
+        sourceUrlCanonical: canonicalUrl,
+        sourceListingId,
         validationState: 'valid',
         matchState: 'matched',
         reasonCode: 'source_identity_match',
@@ -609,16 +714,16 @@ describe('Listing routes', () => {
       expect(mockFetchFn).toHaveBeenCalledTimes(2);
       expect(JSON.parse(String(mockFetchFn.mock.calls[0]?.[1]?.body))).toEqual({
         sourceName: 'funda',
-        rawUrl: 'https://www.funda.nl/detail/koop/eindhoven/huis-listings-fixture/89779872/',
+        rawUrl,
       });
       expect(JSON.parse(String(mockFetchFn.mock.calls[1]?.[1]?.body))).toMatchObject({
         sourceName: 'funda',
-        sourceListingId: '89779872',
+        sourceListingId,
         sourceListingIdKind: 'tiny_id',
         property: {
           id: testPropertyId,
           countryCode: 'NL',
-          street: 'Listings Fixture Street',
+          street: testPropertyStreet,
           postalCode: '9100AA',
           houseNumber: 1,
           houseNumberAddition: null,
@@ -1488,7 +1593,7 @@ describe('Listing routes', () => {
             mirrorLastSeenAt: '2026-04-07T10:05:00.000Z',
             address: {
               countryCode: 'NL',
-              street: 'Listings Fixture Street',
+              street: testPropertyStreet,
               postalCode: '9100AA',
               houseNumber: 1,
               city: 'Listings City',
@@ -1607,9 +1712,10 @@ describe('Listing routes', () => {
     });
 
     it('should create a provisional listing and queued candidate for temporary source failures', async () => {
-      const rawUrl = 'https://www.pararius.com/apartment-for-rent/eindhoven/87a48057/kathodelaan';
+      const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const rawUrl = `https://www.pararius.com/apartment-for-rent/eindhoven/${suffix}/kathodelaan`;
       const canonicalUrl = rawUrl;
-      const sourceListingId = '/apartment-for-rent/eindhoven/87a48057/kathodelaan';
+      const sourceListingId = `/apartment-for-rent/eindhoven/${suffix}/kathodelaan`;
 
       mockFetchFn
         .mockResolvedValueOnce(jsonResponse({
@@ -2113,7 +2219,7 @@ describe('Listing routes', () => {
             mirrorLastSeenAt: '2026-04-09T10:05:00.000Z',
             address: {
               countryCode: 'NL',
-              street: 'Listings Fixture Street',
+              street: testPropertyStreet,
               postalCode: '9100AA',
               houseNumber: 1,
               city: 'Listings City',
@@ -2268,7 +2374,7 @@ describe('Listing routes', () => {
             ogTitle: 'Source candidate updated title',
             address: {
               countryCode: 'NL',
-              street: 'Listings Fixture Street',
+              street: testPropertyStreet,
               postalCode: '9100AA',
               houseNumber: 1,
               city: 'Listings City',
@@ -2394,7 +2500,7 @@ describe('Listing routes', () => {
             ogTitle: 'Corrected property listing',
             address: {
               countryCode: 'NL',
-              street: 'Listings Mismatch Street',
+              street: otherPropertyStreet,
               postalCode: '9100AB',
               houseNumber: 2,
               city: 'Listings City',

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   canonicalListings,
   db,
@@ -92,6 +92,13 @@ interface SourceProjectionState {
   staleForProjection: boolean;
 }
 
+interface SourceCursorCandidateRow {
+  id: string;
+  runId: string | null;
+  cursorStart: string | null;
+  cursorEnd: string;
+}
+
 interface ClaimedBatch {
   id: string;
   sourceName: string;
@@ -114,6 +121,8 @@ function sourceCursorBoundBatchPredicate(): ReturnType<typeof sql> {
     AND COALESCE(${ingestBatches.payloadJson}->>'scopeKey', '') <> 'candidate'
   `;
 }
+
+const CURSOR_ADVANCEMENT_PAGE_SIZE = 500;
 
 export interface IngestProcessResult {
   status: 'completed' | 'noop';
@@ -1970,7 +1979,10 @@ export async function forceRecoverSkippedCompletedIngestBatches(
   };
 }
 
-async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: string): Promise<void> {
+async function advanceCommittedSourceCursor(
+  tx: DbTransaction,
+  sourceName: string,
+): Promise<void> {
   const sourceRows = await tx
     .select()
     .from(ingestSources)
@@ -1980,40 +1992,20 @@ async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: strin
   let currentCursor = sourceRows[0]?.lastCommittedCursor ?? null;
 
   for (;;) {
-    const cursorCondition =
-      currentCursor === null
-        ? sql`${ingestBatches.cursorStart} IS NULL`
-        : sql`${ingestBatches.cursorStart} IS NOT NULL`;
+    let next: SourceCursorCandidateRow | undefined;
+    if (currentCursor === null) {
+      next = (await selectSourceCursorCandidatePage(tx, sourceName, sql`${ingestBatches.cursorStart} IS NULL`))[0];
+    } else {
+      const exactNext = await findExactCursorCandidate(tx, sourceName, currentCursor);
+      const semanticNext = await findSemanticEquivalentCursorCandidate(
+        tx,
+        sourceName,
+        currentCursor,
+        exactNext ?? null,
+      );
+      next = semanticNext ?? exactNext;
+    }
 
-    const candidateRows = await tx
-      .select({
-        id: ingestBatches.id,
-        runId: ingestBatches.runId,
-        cursorStart: ingestBatches.cursorStart,
-        cursorEnd: ingestBatches.cursorEnd,
-      })
-      .from(ingestBatches)
-      .where(
-        and(
-          eq(ingestBatches.sourceName, sourceName),
-          eq(ingestBatches.status, 'completed'),
-          sourceCursorBoundBatchPredicate(),
-          cursorCondition,
-        ),
-      )
-      .orderBy(asc(ingestBatches.receivedAt), asc(ingestBatches.batchSequence))
-      .limit(1000);
-
-    const next = candidateRows.find((row) =>
-      (
-        currentCursor === null
-        || (
-          row.cursorStart !== null
-          && opaqueIngestCursorsEqual(row.cursorStart, currentCursor)
-        )
-      )
-      && (currentCursor === null || compareOpaqueIngestCursors(row.cursorEnd, currentCursor) > 0)
-    );
     if (!next) {
       break;
     }
@@ -2030,6 +2022,108 @@ async function advanceCommittedSourceCursor(tx: DbTransaction, sourceName: strin
       .where(eq(ingestSources.sourceName, sourceName));
 
     currentCursor = next.cursorEnd;
+  }
+}
+
+function cursorCandidateBeforeId(id: string): SQL {
+  return sql`
+    (${ingestBatches.receivedAt}, ${ingestBatches.batchSequence}, ${ingestBatches.id}) < (
+      SELECT boundary.received_at, boundary.batch_sequence, boundary.id
+      FROM ingest_batches boundary
+      WHERE boundary.id = ${id}::uuid
+    )
+  `;
+}
+
+async function selectSourceCursorCandidatePage(
+  tx: DbTransaction,
+  sourceName: string,
+  cursorCondition: SQL,
+  options: {
+    beforeId?: string | null;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<SourceCursorCandidateRow[]> {
+  return tx
+    .select({
+      id: ingestBatches.id,
+      runId: ingestBatches.runId,
+      cursorStart: ingestBatches.cursorStart,
+      cursorEnd: ingestBatches.cursorEnd,
+    })
+    .from(ingestBatches)
+    .where(
+      and(
+        eq(ingestBatches.sourceName, sourceName),
+        eq(ingestBatches.status, 'completed'),
+        sourceCursorBoundBatchPredicate(),
+        cursorCondition,
+        options.beforeId ? cursorCandidateBeforeId(options.beforeId) : undefined,
+      ),
+    )
+    .orderBy(asc(ingestBatches.receivedAt), asc(ingestBatches.batchSequence), asc(ingestBatches.id))
+    .limit(options.limit ?? CURSOR_ADVANCEMENT_PAGE_SIZE)
+    .offset(options.offset ?? 0);
+}
+
+async function findExactCursorCandidate(
+  tx: DbTransaction,
+  sourceName: string,
+  currentCursor: string,
+): Promise<SourceCursorCandidateRow | undefined> {
+  for (let offset = 0;;) {
+    const page = await selectSourceCursorCandidatePage(
+      tx,
+      sourceName,
+      eq(ingestBatches.cursorStart, currentCursor),
+      { offset },
+    );
+
+    if (page.length === 0) {
+      return undefined;
+    }
+
+    const next = page.find((row) => compareOpaqueIngestCursors(row.cursorEnd, currentCursor) > 0);
+    if (next) {
+      return next;
+    }
+
+    offset += page.length;
+  }
+}
+
+async function findSemanticEquivalentCursorCandidate(
+  tx: DbTransaction,
+  sourceName: string,
+  currentCursor: string,
+  exactBoundary: SourceCursorCandidateRow | null,
+): Promise<SourceCursorCandidateRow | undefined> {
+  for (let offset = 0;;) {
+    const page = await selectSourceCursorCandidatePage(
+      tx,
+      sourceName,
+      sql`${ingestBatches.cursorStart} IS NOT NULL AND ${ingestBatches.cursorStart} <> ${currentCursor}`,
+      {
+        beforeId: exactBoundary?.id ?? null,
+        offset,
+      },
+    );
+
+    if (page.length === 0) {
+      return undefined;
+    }
+
+    const next = page.find((row) =>
+      row.cursorStart !== null
+      && opaqueIngestCursorsEqual(row.cursorStart, currentCursor)
+      && compareOpaqueIngestCursors(row.cursorEnd, currentCursor) > 0
+    );
+    if (next) {
+      return next;
+    }
+
+    offset += page.length;
   }
 }
 
