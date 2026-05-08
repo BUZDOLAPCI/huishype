@@ -152,7 +152,7 @@ const STYLE_URL = `${API_URL}/tiles/style.json?platform=native`;
 /**
  * Hook to fetch the merged MapLibre style from the API.
  * The API's /tiles/style.json already contains:
- *   - OpenFreeMap base style
+ *   - HuisHype base style over OpenFreeMap vector tiles
  *   - Property vector tile source + layers (with activity-score styling)
  *   - 3D buildings layer
  *   - Self-hosted font glyphs

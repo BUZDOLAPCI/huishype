@@ -51,6 +51,7 @@ import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateTreeCandidates } from '../services/tree-scatter.js';
+import huishypeBaseStyle from '../styles/huishype-base-style.json' with { type: 'json' };
 import {
   buildFollowingMvtForTile,
   buildMvtForTile,
@@ -804,6 +805,7 @@ function filterLayersForMissingSprites(
 }
 
 const SHIELD_REF_LENGTH_LAYER_IDS = new Set([
+  'highway-shield',
   'highway-shield-non-us',
   'highway-shield-us-interstate',
   'road_shield_us',
@@ -929,52 +931,23 @@ function normalizeCssColors(obj: unknown): void {
   }
 }
 
-/**
- * Positron fill color replacements.
- *
- * Positron uses extremely muted fill colors (2-5 units channel deviation from pure gray).
- * These are perceptible on WebGL with proper gamma correction but indistinguishable from
- * gray on MapLibre Native's OpenGL ES renderer (especially on OLED phone screens).
- *
- * We replace them with clearly visible alternatives from OpenFreeMap Bright style,
- * keeping the overall clean/minimal Positron aesthetic for lines and labels.
- */
-const FILL_COLOR_OVERRIDES: Record<string, string> = {
-  park: '#d8e8c8', // Bright green (was #e6e9e5 — barely perceptible)
-  water: '#aad0e6', // Soft blue (was #c2c8ca — barely perceptible)
-  landcover_wood: '#c5d8b5', // Forest green (was #dce0dc — barely perceptible)
-};
-
-/**
- * Layers that should use a fill-pattern sprite instead of (or in addition to) fill-color.
- * fill-pattern takes precedence when the sprite is available; fill-color remains as fallback.
- */
-const FILL_PATTERN_OVERRIDES: Record<string, string> = {
-  water: 'water-pattern',
-};
-
-/**
- * Replace near-gray Positron fill colors with visible alternatives.
- * Only modifies layers with known near-gray fills — leaves other layers untouched.
- * Also applies fill-pattern overrides (e.g. water wave texture).
- */
-function enhanceFillColors(layers: Array<Record<string, unknown>>): void {
+function normalizeTextFontStacks(layers: Array<Record<string, unknown>>): void {
   for (const layer of layers) {
-    if (layer.type !== 'fill') continue;
-    const colorOverride = FILL_COLOR_OVERRIDES[layer.id as string];
-    if (colorOverride) {
-      const paint = layer.paint as Record<string, unknown> | undefined;
-      if (paint) {
-        paint['fill-color'] = colorOverride;
-      }
-    }
-    const patternOverride = FILL_PATTERN_OVERRIDES[layer.id as string];
-    if (patternOverride) {
-      const paint = layer.paint as Record<string, unknown> | undefined;
-      if (paint) {
-        paint['fill-pattern'] = patternOverride;
-      }
-    }
+    if (layer.type !== 'symbol') continue;
+    const layout = layer.layout as Record<string, unknown> | undefined;
+    if (!layout || !Array.isArray(layout['text-font'])) continue;
+
+    const fontStack = layout['text-font'] as unknown[];
+    const normalized = fontStack
+      .map((font) => {
+        if (typeof font !== 'string') return font;
+        if (font.includes('Italic')) return 'Noto Sans Italic';
+        if (font.includes('Bold') || font.includes('Medium')) return 'Noto Sans Bold';
+        return 'Noto Sans Regular';
+      })
+      .filter((font, index, fonts) => fonts.indexOf(font) === index);
+
+    layout['text-font'] = normalized;
   }
 }
 
@@ -1609,7 +1582,11 @@ export async function tileRoutes(app: FastifyInstance) {
       const { fontstack, range } = request.params;
 
       // Sanitise path components to prevent directory traversal
-      const safeFontstack = fontstack.replace(/[^a-zA-Z0-9 _-]/g, '');
+      const requestedFontstacks = fontstack
+        .split(',')
+        .map((font) => font.replace(/[^a-zA-Z0-9 _-]/g, '').trim())
+        .filter(Boolean);
+      const safeFontstack = requestedFontstacks.join(',');
       const safeRange = range.replace(/[^0-9-.pbf]/g, '');
 
       const filePath = join(FONTS_DIR, safeFontstack, safeRange);
@@ -1621,11 +1598,10 @@ export async function tileRoutes(app: FastifyInstance) {
           .header('Cache-Control', 'public, max-age=604800, immutable')
           .send(data);
       } catch {
-        // Try fallback: if a composite fontstack was requested (e.g. "Noto Sans Regular,Arial Unicode MS Regular"),
-        // try just the first font in the comma-separated list
-        if (safeFontstack.includes(',')) {
-          const firstFont = safeFontstack.split(',')[0].trim();
-          const fallbackPath = join(FONTS_DIR, firstFont, safeRange);
+        // Try each member of a composite fontstack in order.
+        for (const fallbackFont of requestedFontstacks) {
+          if (fallbackFont === safeFontstack) continue;
+          const fallbackPath = join(FONTS_DIR, fallbackFont, safeRange);
           try {
             const data = await readFile(fallbackPath);
             return reply
@@ -1633,7 +1609,7 @@ export async function tileRoutes(app: FastifyInstance) {
               .header('Cache-Control', 'public, max-age=604800, immutable')
               .send(data);
           } catch {
-            // Fall through to 404
+            // Try the next font in the stack.
           }
         }
         return reply.status(404).send({ error: 'Font range not found' });
@@ -1678,7 +1654,7 @@ export async function tileRoutes(app: FastifyInstance) {
   /**
    * GET /tiles/style.json
    *
-   * Returns a MapLibre style JSON that merges the OpenFreeMap Positron base style
+   * Returns a MapLibre style JSON that merges the vendored HuisHype base style
    * with our property vector tile source, property layers, and 3D buildings.
    * This is the SINGLE SOURCE OF TRUTH for map styling — both web and native
    * clients consume this endpoint.
@@ -1724,9 +1700,10 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       try {
-        // Fetch base style from OpenFreeMap
-        const resp = await fetch('https://tiles.openfreemap.org/styles/positron');
-        const baseStyle = (await resp.json()) as Record<string, unknown>;
+        const baseStyle = JSON.parse(JSON.stringify(huishypeBaseStyle)) as Record<
+          string,
+          unknown
+        >;
 
         const sources = { ...(baseStyle.sources as Record<string, unknown>) };
         const layers = [...(baseStyle.layers as Array<Record<string, unknown>>)];
@@ -1864,10 +1841,7 @@ export async function tileRoutes(app: FastifyInstance) {
         // on height/base/opacity cause the layer to not render at all.
         flattenFillExtrusionZoomExpressions(filteredLayers);
 
-        // Replace Positron's near-gray fill colors with visible alternatives.
-        // Positron uses fills that deviate only 2-5 units from pure gray, which
-        // are perceptible on WebGL but invisible on mobile GPU renderers.
-        enhanceFillColors(filteredLayers);
+        normalizeTextFontStacks(filteredLayers);
 
         // Add paper-trees symbol layer AFTER sprite filtering to preserve
         // the raw concat expression (coalesce+image wrapper breaks on native).
@@ -1903,7 +1877,7 @@ export async function tileRoutes(app: FastifyInstance) {
 
         return reply.header('Cache-Control', 'public, max-age=60').send(merged);
       } catch (err) {
-        app.log.error(err, 'Failed to fetch base style');
+        app.log.error(err, 'Failed to build base style');
         return reply.status(502).send({ error: 'Failed to build merged style' });
       }
     }

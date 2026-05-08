@@ -103,7 +103,8 @@ import {
   serializeCanonicalCameraPath,
 } from '@huishype/shared';
 
-// Style URL — served by our API, merging OpenFreeMap base + property layers + 3D buildings + self-hosted fonts
+// Style URL — served by our API, merging the HuisHype base style,
+// property layers, 3D buildings, and self-hosted fonts.
 const STYLE_URL = `${API_URL}/tiles/style.json`;
 const FLOATING_ZOOM_CONTROL_RIGHT = 18;
 const FLOATING_ZOOM_CONTROL_TOP = 118;
@@ -458,91 +459,6 @@ function getExplicitCanonicalReplaceHref(
   }
 
   return buildCanonicalRouteHref(resolvedRoute.canonicalPath, returnTo);
-}
-
-const ENHANCED_GREEN_COLORS = {
-  park: '#D4F5D4',
-  grass: '#E2F5E2',
-  forest: '#A8D8A8',
-};
-
-const ENHANCED_BASE_COLORS = {
-  ground: '#F5F3EF',
-  road: '#FFFFFF',
-  water: '#B8D4E8',
-};
-
-/**
- * Enhance vegetation colors
- */
-function enhanceVegetationColors(map: maplibregl.Map) {
-  const existingLayers = map.getStyle()?.layers || [];
-
-  existingLayers.forEach((layer: maplibregl.LayerSpecification) => {
-    if (layer.type === 'fill') {
-      if (layer.id === 'park' || layer.id.includes('park')) {
-        try {
-          map.setPaintProperty(layer.id, 'fill-color', ENHANCED_GREEN_COLORS.park);
-        } catch {
-          // Ignore
-        }
-      }
-      if (layer.id.includes('grass') || layer.id === 'landcover-grass') {
-        try {
-          map.setPaintProperty(layer.id, 'fill-color', ENHANCED_GREEN_COLORS.grass);
-        } catch {
-          // Ignore
-        }
-      }
-      if (layer.id.includes('wood') || layer.id.includes('forest')) {
-        try {
-          map.setPaintProperty(layer.id, 'fill-color', ENHANCED_GREEN_COLORS.forest);
-        } catch {
-          // Ignore
-        }
-      }
-    }
-  });
-}
-
-/**
- * Enhance base map colors
- */
-function enhanceBaseMapColors(map: maplibregl.Map) {
-  const existingLayers = map.getStyle()?.layers || [];
-
-  existingLayers.forEach((layer: maplibregl.LayerSpecification) => {
-    try {
-      if (layer.id === 'background' || layer.id.includes('background')) {
-        if (layer.type === 'background') {
-          map.setPaintProperty(layer.id, 'background-color', ENHANCED_BASE_COLORS.ground);
-        }
-      }
-
-      if (layer.id.includes('landuse') && layer.type === 'fill') {
-        if (layer.id.includes('residential')) {
-          map.setPaintProperty(layer.id, 'fill-color', '#F8F6F2');
-        }
-      }
-
-      if (layer.type === 'line' && (layer.id.includes('road') || layer.id.includes('street'))) {
-        if (layer.id.includes('casing')) {
-          map.setPaintProperty(layer.id, 'line-color', '#E8E6E2');
-        }
-      }
-
-      // Water layers use fill-pattern (wave texture) from server-side style.
-      // Only override fill-color as fallback when no fill-pattern is set.
-      if (layer.id.includes('water') && layer.type === 'fill') {
-        const currentPattern = map.getPaintProperty(layer.id, 'fill-pattern');
-        if (!currentPattern) {
-          map.setPaintProperty(layer.id, 'fill-color', ENHANCED_BASE_COLORS.water);
-        }
-      }
-    } catch {
-      // Ignore
-    }
-  });
 }
 
 // Inject CSS for pulsing animation on selected node and preview card
@@ -2070,9 +1986,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         setMapFirstFullRenderReady(true);
         markMapLoaded();
 
-        // Enhance base map colors (imperative overrides on top of server-provided style)
-        enhanceBaseMapColors(map);
-        enhanceVegetationColors(map);
         hideStaticActivityPulseLayers(map);
         scheduleActivityPulseUpdate();
 

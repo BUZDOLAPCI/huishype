@@ -239,6 +239,29 @@ describe('Tile routes', () => {
       expect(Array.isArray(style.layers)).toBe(true);
     });
 
+    it('should expose the HuisHype base style with water texture baked into the style', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/style.json',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const style = JSON.parse(response.body) as StyleJson;
+      const waterLayer = requireValue(
+        style.layers.find((layer) => layer.id === 'water'),
+        'water layer missing from style.json'
+      );
+      const waterIntermittentLayer = requireValue(
+        style.layers.find((layer) => layer.id === 'water_intermittent'),
+        'water_intermittent layer missing from style.json'
+      );
+
+      expect(style).toHaveProperty('id', 'huishype-base-style');
+      expect(style).toHaveProperty('name', 'HuisHype Base');
+      expect(waterLayer.paint).toHaveProperty('fill-pattern', 'water-pattern');
+      expect(waterIntermittentLayer.paint).toHaveProperty('fill-pattern', 'water-pattern');
+    });
+
     it('should include properties-source in sources', async () => {
       const response = await app.inject({
         method: 'GET',
@@ -2019,15 +2042,15 @@ describe('Tile routes', () => {
       expect(response.statusCode).toBe(404);
     });
 
-    it('should return 404 for composite fontstack (comma stripped by sanitizer)', async () => {
+    it('should serve the first available font from a composite fontstack', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/fonts/Noto Sans Regular,Arial Unicode MS Regular/0-255.pbf',
       });
 
-      // Comma is stripped by sanitizer before fallback logic, so the combined
-      // string "Noto Sans RegularArial Unicode MS Regular" doesn't match any font
-      expect(response.statusCode).toBe(404);
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toBe('application/x-protobuf');
+      expect(response.rawPayload.length).toBeGreaterThan(0);
     });
   });
 
