@@ -761,30 +761,25 @@ function formatErrorForSample(error: unknown): string {
   return parts.length > 0 ? `${message} cause(${parts.join(' ')})` : message;
 }
 
-async function reconcileCandidate(candidate: CandidateRow): Promise<'reconciled' | 'null' | 'still-stale' | 'duplicate-fallback'> {
+async function reconcileCandidateWithMode(
+  candidate: CandidateRow,
+  mode: 'promote-to-mirror' | 'clear-stale-only',
+): Promise<'reconciled' | 'null' | 'still-stale' | 'duplicate-fallback'> {
   return db.transaction(async (tx) => {
-    let usedDuplicateFallback = false;
-    let [updated] = await tx
-      .update(schema.listingObservations)
-      .set({
-        staleForProjection: false,
-        origin: 'mirror',
-      })
-      .where(candidateGuard(candidate))
-      .returning({ id: schema.listingObservations.id })
-      .catch(async (error: unknown) => {
-        if (!isDuplicateMirrorObservationError(error)) {
-          throw error;
+    const set = mode === 'promote-to-mirror'
+      ? {
+          staleForProjection: false,
+          origin: 'mirror' as const,
         }
+      : {
+          staleForProjection: false,
+        };
 
-        usedDuplicateFallback = true;
-        const [fallbackUpdated] = await tx
-          .update(schema.listingObservations)
-          .set({ staleForProjection: false })
-          .where(candidateGuard(candidate))
-          .returning({ id: schema.listingObservations.id });
-        return [fallbackUpdated];
-      });
+    const [updated] = await tx
+      .update(schema.listingObservations)
+      .set(set)
+      .where(candidateGuard(candidate))
+      .returning({ id: schema.listingObservations.id });
 
     if (!updated) {
       throw new Error(`Candidate ${candidate.id} no longer matched guarded update predicates`);
@@ -805,12 +800,24 @@ async function reconcileCandidate(candidate: CandidateRow): Promise<'reconciled'
       return 'still-stale';
     }
 
-    if (usedDuplicateFallback) {
+    if (mode === 'clear-stale-only') {
       return 'duplicate-fallback';
     }
 
     return canonical ? 'reconciled' : 'null';
   });
+}
+
+async function reconcileCandidate(candidate: CandidateRow): Promise<'reconciled' | 'null' | 'still-stale' | 'duplicate-fallback'> {
+  try {
+    return await reconcileCandidateWithMode(candidate, 'promote-to-mirror');
+  } catch (error) {
+    if (!isDuplicateMirrorObservationError(error)) {
+      throw error;
+    }
+
+    return reconcileCandidateWithMode(candidate, 'clear-stale-only');
+  }
 }
 
 async function reconcileCandidates(candidates: CandidateRow[]): Promise<ReconcileCounts & { failureSamples: string[] }> {
