@@ -43,6 +43,13 @@ describe('Durable ingest API contract', () => {
     return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   }
 
+  function fullMirrorReplayCursor(sourceName: string, sequence: number, offset: number): string {
+    return encodeOpaqueIngestCursor({
+      changedAt: '2026-04-09T08:00:00.000Z',
+      listingKey: `${sourceName}:full-mirror:${sequence}:${offset}`,
+    });
+  }
+
   async function resetIngestSourceState(sourceName: string) {
     await db.delete(priceHistory).where(eq(priceHistory.source, sourceName));
     await db.delete(listings).where(eq(listings.sourceName, sourceName));
@@ -3972,6 +3979,111 @@ describe('Durable ingest API contract', () => {
     expect(runState?.errorSummary).toBeNull();
   });
 
+  it('does not dispatch future full-mirror replay batches as stale evidence during recovery', async () => {
+    const sourceName = 'idealista';
+    const stamp = Date.now();
+    const committedCursor = fullMirrorReplayCursor('funda', 2, 3000);
+    const futureStartCursor = fullMirrorReplayCursor('funda', 9, 10000);
+    const batchTenCursor = fullMirrorReplayCursor('funda', 10, 11000);
+    const coveredEndCursor = fullMirrorReplayCursor('funda', 1, 1000);
+
+    const batchTenAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-full-mirror-recovery-ten-${stamp}`,
+      batchSequence: 10,
+      cursorStart: futureStartCursor,
+      cursorEnd: batchTenCursor,
+      upstreamRunKey: `idealista-full-mirror-recovery-ten-run-${stamp}`,
+      batchKind: 'observations_and_completion',
+      sourceHighWatermark: '2026-04-09T08:00:00.000Z',
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/full-mirror-recovery-ten-${stamp}/`,
+          mirrorListingId: `idealista-full-mirror-recovery-ten-${stamp}`,
+          scopeKey: 'full-mirror',
+          askingPrice: 520000,
+          priceType: 'sale',
+          status: 'active' as const,
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-09T08:00:00.000Z',
+          sourceHighWatermark: '2026-04-09T08:00:00.000Z',
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Recovery Future',
+            postalCode: '28013',
+            houseNumber: 10,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+
+    const futureStartCoveredEndAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-full-mirror-recovery-covered-${stamp}`,
+      batchSequence: 11,
+      cursorStart: batchTenCursor,
+      cursorEnd: coveredEndCursor,
+      upstreamRunKey: `idealista-full-mirror-recovery-covered-run-${stamp}`,
+      batchKind: 'observations_and_completion',
+      sourceHighWatermark: '2026-04-09T08:00:00.000Z',
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/full-mirror-recovery-covered-${stamp}/`,
+          mirrorListingId: `idealista-full-mirror-recovery-covered-${stamp}`,
+          scopeKey: 'full-mirror',
+          askingPrice: 525000,
+          priceType: 'sale',
+          status: 'active' as const,
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-09T08:00:00.000Z',
+          sourceHighWatermark: '2026-04-09T08:00:00.000Z',
+          address: {
+            countryCode: 'ES',
+            street: 'Calle Recovery Future',
+            postalCode: '28013',
+            houseNumber: 11,
+            city: 'Madrid',
+          },
+        },
+      ],
+    });
+
+    await db
+      .update(ingestSources)
+      .set({
+        lastCommittedCursor: committedCursor,
+        lastCommittedChangedAt: new Date('2026-04-09T08:00:00.000Z'),
+        lastCommittedListingKey: 'funda:full-mirror:2:3000',
+      })
+      .where(eq(ingestSources.sourceName, sourceName));
+
+    const result = await collectRecoveryDispatchWork(new Date('2026-04-09T09:00:00.000Z'));
+
+    expect(result.recoverableBatchIds).not.toContain(batchTenAccepted.batchId);
+    expect(result.recoverableBatchIds).not.toContain(futureStartCoveredEndAccepted.batchId);
+
+    const batchRows = await db
+      .select({
+        id: ingestBatches.id,
+        status: ingestBatches.status,
+        completedAt: ingestBatches.completedAt,
+        errorJson: ingestBatches.errorJson,
+      })
+      .from(ingestBatches)
+      .where(inArray(ingestBatches.id, [
+        batchTenAccepted.batchId,
+        futureStartCoveredEndAccepted.batchId,
+      ]));
+
+    expect(batchRows).toHaveLength(2);
+    for (const batch of batchRows) {
+      expect(batch.status).toBe('accepted');
+      expect(batch.completedAt).toBeNull();
+      expect(batch.errorJson).toBeNull();
+    }
+  });
+
   it('rejects conflicting idempotency replays before mutating run or source state', async () => {
     const runKey = `idealista-conflict-run-${Date.now()}`;
     const idempotencyKey = `idealista-conflict-${Date.now()}`;
@@ -6300,6 +6412,124 @@ describe('Durable ingest API contract', () => {
       updated: 0,
       skipped: 0,
     });
+  });
+
+  it('does not process future full-mirror replay batches as stale evidence at the same changedAt watermark', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const committedCursor = fullMirrorReplayCursor('funda', 2, 3000);
+    const futureStartCursor = fullMirrorReplayCursor('funda', 9, 10000);
+    const batchTenCursor = fullMirrorReplayCursor('funda', 10, 11000);
+    const coveredEndCursor = fullMirrorReplayCursor('funda', 1, 1000);
+
+    const batchTenAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-full-mirror-batch-ten-${stamp}`,
+      batchSequence: 10,
+      cursorStart: futureStartCursor,
+      cursorEnd: batchTenCursor,
+      upstreamRunKey: `fotocasa-full-mirror-batch-ten-run-${stamp}`,
+      batchKind: 'observations_and_completion',
+      sourceHighWatermark: '2026-04-09T08:00:00.000Z',
+      listings: [
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/full-mirror-ten-${stamp}`,
+          mirrorListingId: `fotocasa-full-mirror-ten-${stamp}`,
+          scopeKey: 'full-mirror',
+          askingPrice: 510000,
+          priceType: 'sale',
+          status: 'active' as const,
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-09T08:00:00.000Z',
+          sourceHighWatermark: '2026-04-09T08:00:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street: `Full Mirror Ten Street ${stamp}`,
+            postalCode: '1234 AB',
+            houseNumber: 10,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    const futureStartCoveredEndAccepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-full-mirror-future-start-covered-end-${stamp}`,
+      batchSequence: 11,
+      cursorStart: batchTenCursor,
+      cursorEnd: coveredEndCursor,
+      upstreamRunKey: `fotocasa-full-mirror-future-start-covered-end-run-${stamp}`,
+      batchKind: 'observations_and_completion',
+      sourceHighWatermark: '2026-04-09T08:00:00.000Z',
+      listings: [
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/full-mirror-covered-${stamp}`,
+          mirrorListingId: `fotocasa-full-mirror-covered-${stamp}`,
+          scopeKey: 'full-mirror',
+          askingPrice: 515000,
+          priceType: 'sale',
+          status: 'active' as const,
+          sourceStatus: 'available',
+          mirrorLastChangedAt: '2026-04-09T08:00:00.000Z',
+          sourceHighWatermark: '2026-04-09T08:00:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street: `Full Mirror Covered Street ${stamp}`,
+            postalCode: '1234 AB',
+            houseNumber: 11,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await db
+      .update(ingestSources)
+      .set({
+        lastCommittedCursor: committedCursor,
+        lastCommittedChangedAt: new Date('2026-04-09T08:00:00.000Z'),
+        lastCommittedListingKey: 'funda:full-mirror:2:3000',
+      })
+      .where(eq(ingestSources.sourceName, sourceName));
+
+    await expect(processIngestBatch({
+      batchId: batchTenAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    })).resolves.toEqual({
+      status: 'noop',
+      ingested: 0,
+      updated: 0,
+      skipped: 0,
+    });
+
+    await expect(processIngestBatch({
+      batchId: futureStartCoveredEndAccepted.batchId,
+      enqueueMaintenanceRefresh: async () => {},
+    })).resolves.toEqual({
+      status: 'noop',
+      ingested: 0,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const deferredRows = await db
+      .select({
+        id: ingestBatches.id,
+        status: ingestBatches.status,
+        attemptCount: ingestBatches.attemptCount,
+      })
+      .from(ingestBatches)
+      .where(inArray(ingestBatches.id, [
+        batchTenAccepted.batchId,
+        futureStartCoveredEndAccepted.batchId,
+      ]));
+
+    expect(deferredRows).toHaveLength(2);
+    for (const row of deferredRows) {
+      expect(row.status).toBe('accepted');
+      expect(row.attemptCount).toBe(0);
+    }
   });
 
   it('advances a raw exact cursor match beyond the old global page', async () => {

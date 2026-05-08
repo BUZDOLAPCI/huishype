@@ -3,7 +3,7 @@ import { db, ingestBatches, ingestRuns, ingestSources, type DbTransaction } from
 import { ingestBatchRequestSchema, type IngestBatchRequest, type IngestWatermarkResponse } from './contracts.js';
 import {
   encodeOpaqueIngestCursor,
-  isOpaqueIngestCursorAtOrBefore,
+  isOpaqueIngestCursorRangeAtOrBefore,
   opaqueIngestCursorsEqual,
 } from './cursor.js';
 import { IngestIdempotencyConflictError } from './errors.js';
@@ -70,6 +70,7 @@ export interface BlockedSourceBatchAtWatermark {
 interface SupersededBatchCandidate {
   [key: string]: unknown;
   id: string;
+  cursor_start: string | null;
   cursor_end: string;
   last_committed_cursor: string | null;
   last_committed_changed_at: Date | string | null;
@@ -189,12 +190,14 @@ function isCursorAtOrBeforeCommittedWatermark(candidate: SupersededBatchCandidat
     return false;
   }
 
-  if (candidate.cursor_end === candidate.last_committed_cursor) {
-    return true;
-  }
-
   try {
-    return isOpaqueIngestCursorAtOrBefore(candidate.cursor_end, candidate.last_committed_cursor);
+    return isOpaqueIngestCursorRangeAtOrBefore(
+      {
+        cursorStart: candidate.cursor_start,
+        cursorEnd: candidate.cursor_end,
+      },
+      candidate.last_committed_cursor,
+    );
   } catch {
     return false;
   }
@@ -463,6 +466,7 @@ async function markSupersededBatchesAfterWatermark(limit: number): Promise<Super
   const candidates = await db.execute<SupersededBatchCandidate>(sql`
     SELECT
       b.id,
+      b.cursor_start,
       b.cursor_end,
       s.last_committed_cursor,
       s.last_committed_changed_at,
@@ -507,6 +511,7 @@ async function listStaleEvidenceBatchIdsAfterWatermark(limit: number): Promise<s
   const candidates = await db.execute<SupersededBatchCandidate>(sql`
     SELECT
       b.id,
+      b.cursor_start,
       b.cursor_end,
       s.last_committed_cursor,
       s.last_committed_changed_at,

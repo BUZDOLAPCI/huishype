@@ -23,6 +23,7 @@ import {
   compareOpaqueIngestCursors,
   decodeOpaqueIngestCursor,
   isOpaqueIngestCursorAtOrBefore,
+  isOpaqueIngestCursorRangeAtOrBefore,
   opaqueIngestCursorsEqual,
 } from './cursor.js';
 import { requestLatestListingsRefresh } from './queue.js';
@@ -392,7 +393,7 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
       isSourceCursorBoundBatch(payload)
       && !payload.repairMode
       && lastCommittedCursor !== null
-      && isOpaqueIngestCursorAtOrBefore(candidate.cursorEnd, lastCommittedCursor);
+      && isOpaqueIngestCursorRangeAtOrBefore(candidate, lastCommittedCursor);
     const isNextBatch =
       !isSourceCursorBoundBatch(payload)
       || (candidate.cursorStart == null && lastCommittedCursor == null)

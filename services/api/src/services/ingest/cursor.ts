@@ -43,6 +43,11 @@ export function compareIngestCursorPayloads(left: IngestCursorPayload, right: In
     return 0;
   }
 
+  const replayComparison = compareGeneratedFullMirrorReplayKeys(left.listingKey, right.listingKey);
+  if (replayComparison !== null) {
+    return replayComparison;
+  }
+
   return left.listingKey < right.listingKey ? -1 : 1;
 }
 
@@ -67,6 +72,16 @@ export function isOpaqueIngestCursorAtOrBefore(candidate: string, watermark: str
   return compareOpaqueIngestCursors(candidate, watermark) <= 0;
 }
 
+export function isOpaqueIngestCursorRangeAtOrBefore(
+  candidate: { cursorStart: string | null; cursorEnd: string },
+  watermark: string,
+): boolean {
+  return (
+    (candidate.cursorStart === null || isOpaqueIngestCursorAtOrBefore(candidate.cursorStart, watermark))
+    && isOpaqueIngestCursorAtOrBefore(candidate.cursorEnd, watermark)
+  );
+}
+
 export function isOpaqueIngestCursor(cursor: string): boolean {
   try {
     decodeOpaqueIngestCursor(cursor);
@@ -74,4 +89,29 @@ export function isOpaqueIngestCursor(cursor: string): boolean {
   } catch {
     return false;
   }
+}
+
+const generatedFullMirrorReplayKeyPattern = /^([^:]+):full-mirror:(\d+):(\d+)$/;
+
+function compareGeneratedFullMirrorReplayKeys(left: string, right: string): number | null {
+  const leftMatch = generatedFullMirrorReplayKeyPattern.exec(left);
+  const rightMatch = generatedFullMirrorReplayKeyPattern.exec(right);
+
+  if (!leftMatch || !rightMatch || leftMatch[1] !== rightMatch[1]) {
+    return null;
+  }
+
+  const leftSequence = BigInt(leftMatch[2] as string);
+  const rightSequence = BigInt(rightMatch[2] as string);
+  if (leftSequence !== rightSequence) {
+    return leftSequence < rightSequence ? -1 : 1;
+  }
+
+  const leftOffset = BigInt(leftMatch[3] as string);
+  const rightOffset = BigInt(rightMatch[3] as string);
+  if (leftOffset !== rightOffset) {
+    return leftOffset < rightOffset ? -1 : 1;
+  }
+
+  return 0;
 }
