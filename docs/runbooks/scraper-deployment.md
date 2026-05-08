@@ -49,6 +49,10 @@ The scraper firewall allows:
 - TCP `8100-8101` only from `10.42.0.10/32`.
 - ICMP from the operator workstation, app/prod public IP, and `10.42.0.0/16`.
 
+The scraper VM also runs UFW with matching inbound restrictions for SSH and
+source-service ports. When operator SSH access changes, keep the Hetzner
+firewall and the VM-local UFW `22/tcp` allow list in sync.
+
 No third-party outbound proxy is configured in the checked env files. Scraper
 upstream egress currently leaves through `178.104.119.167`, not through the
 HuisHype app/prod public IP.
