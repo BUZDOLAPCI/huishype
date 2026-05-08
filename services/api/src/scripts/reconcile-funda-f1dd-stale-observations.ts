@@ -641,8 +641,8 @@ async function supersedeRemainingBatches(
       completed_at = COALESCE(completed_at, NOW()),
       error_json = jsonb_build_object(
         'message', 'Superseded by one-off f1dd stale observation reconciliation',
-        'runId', ${TARGET_RUN_ID},
-        'script', ${SCRIPT_NAME},
+        'runId', ${TARGET_RUN_ID}::text,
+        'script', ${SCRIPT_NAME}::text,
         'previousStatus', status,
         'sequence', batch_sequence,
         'previousStartedAt', started_at,
@@ -982,6 +982,9 @@ if (isDirectRun) {
   main()
     .catch((error) => {
       console.error(error instanceof Error ? error.message : error);
+      if (error instanceof Error && 'cause' in error && error.cause) {
+        console.error('Cause:', error.cause);
+      }
       process.exitCode = 1;
     })
     .finally(async () => {
