@@ -96,6 +96,7 @@ interface ReconcileCounts {
   reconciled: number;
   nullCanonical: number;
   stillStale: number;
+  duplicateMirrorFallbacks: number;
   failures: number;
 }
 
@@ -709,34 +710,81 @@ async function removeJobsByExactId(
   return { removed, warnings };
 }
 
-async function reconcileCandidate(candidate: CandidateRow): Promise<'reconciled' | 'null' | 'still-stale'> {
+function candidateGuard(candidate: CandidateRow) {
+  return and(
+    eq(schema.listingObservations.id, candidate.id),
+    eq(schema.listingObservations.sourceName, SOURCE_NAME),
+    eq(schema.listingObservations.staleForProjection, true),
+    eq(schema.listingObservations.origin, 'replay'),
+    isNull(schema.listingObservations.diagnosticStatus),
+    sql`${schema.listingObservations.sourceStatus} IN (${sql.join(
+      PROJECTABLE_SOURCE_STATUSES.map((status) => sql`${status}`),
+      sql`, `,
+    )})`,
+    sql`EXISTS (
+      SELECT 1
+      FROM ingest_batches b
+      WHERE b.id = ${schema.listingObservations.ingestBatchId}
+        AND b.run_id = ${TARGET_RUN_ID}
+        AND b.source_name = ${SOURCE_NAME}
+        AND b.status = 'completed'
+    )`,
+  );
+}
+
+function errorCause(error: unknown): unknown {
+  return error instanceof Error && 'cause' in error ? error.cause : null;
+}
+
+function isDuplicateMirrorObservationError(error: unknown): boolean {
+  const cause = errorCause(error);
+  if (!cause || typeof cause !== 'object') return false;
+
+  const constraintName = (cause as { constraint_name?: unknown }).constraint_name;
+  return constraintName === 'listing_observations_mirror_idempotency_idx'
+    || constraintName === 'listing_observations_source_url_evidence_idx';
+}
+
+function formatErrorForSample(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = errorCause(error);
+  if (!cause || typeof cause !== 'object') return message;
+
+  const parts: string[] = [];
+  const code = (cause as { code?: unknown }).code;
+  const constraintName = (cause as { constraint_name?: unknown }).constraint_name;
+  const detail = (cause as { detail?: unknown }).detail;
+  if (typeof code === 'string') parts.push(`code=${code}`);
+  if (typeof constraintName === 'string') parts.push(`constraint=${constraintName}`);
+  if (typeof detail === 'string') parts.push(`detail=${detail}`);
+
+  return parts.length > 0 ? `${message} cause(${parts.join(' ')})` : message;
+}
+
+async function reconcileCandidate(candidate: CandidateRow): Promise<'reconciled' | 'null' | 'still-stale' | 'duplicate-fallback'> {
   return db.transaction(async (tx) => {
-    const [updated] = await tx
+    let usedDuplicateFallback = false;
+    let [updated] = await tx
       .update(schema.listingObservations)
       .set({
         staleForProjection: false,
         origin: 'mirror',
       })
-      .where(and(
-        eq(schema.listingObservations.id, candidate.id),
-        eq(schema.listingObservations.sourceName, SOURCE_NAME),
-        eq(schema.listingObservations.staleForProjection, true),
-        eq(schema.listingObservations.origin, 'replay'),
-        isNull(schema.listingObservations.diagnosticStatus),
-        sql`${schema.listingObservations.sourceStatus} IN (${sql.join(
-          PROJECTABLE_SOURCE_STATUSES.map((status) => sql`${status}`),
-          sql`, `,
-        )})`,
-        sql`EXISTS (
-          SELECT 1
-          FROM ingest_batches b
-          WHERE b.id = ${schema.listingObservations.ingestBatchId}
-            AND b.run_id = ${TARGET_RUN_ID}
-            AND b.source_name = ${SOURCE_NAME}
-            AND b.status = 'completed'
-        )`,
-      ))
-      .returning({ id: schema.listingObservations.id });
+      .where(candidateGuard(candidate))
+      .returning({ id: schema.listingObservations.id })
+      .catch(async (error: unknown) => {
+        if (!isDuplicateMirrorObservationError(error)) {
+          throw error;
+        }
+
+        usedDuplicateFallback = true;
+        const [fallbackUpdated] = await tx
+          .update(schema.listingObservations)
+          .set({ staleForProjection: false })
+          .where(candidateGuard(candidate))
+          .returning({ id: schema.listingObservations.id });
+        return [fallbackUpdated];
+      });
 
     if (!updated) {
       throw new Error(`Candidate ${candidate.id} no longer matched guarded update predicates`);
@@ -757,6 +805,10 @@ async function reconcileCandidate(candidate: CandidateRow): Promise<'reconciled'
       return 'still-stale';
     }
 
+    if (usedDuplicateFallback) {
+      return 'duplicate-fallback';
+    }
+
     return canonical ? 'reconciled' : 'null';
   });
 }
@@ -768,6 +820,7 @@ async function reconcileCandidates(candidates: CandidateRow[]): Promise<Reconcil
     reconciled: 0,
     nullCanonical: 0,
     stillStale: 0,
+    duplicateMirrorFallbacks: 0,
     failures: 0,
     failureSamples: [],
   };
@@ -780,14 +833,16 @@ async function reconcileCandidates(candidates: CandidateRow[]): Promise<Reconcil
         counts.reconciled += 1;
       } else if (result === 'null') {
         counts.nullCanonical += 1;
+      } else if (result === 'duplicate-fallback') {
+        counts.duplicateMirrorFallbacks += 1;
+        counts.reconciled += 1;
       } else {
         counts.stillStale += 1;
       }
     } catch (error) {
       counts.failures += 1;
       if (counts.failureSamples.length < 10) {
-        const message = error instanceof Error ? error.message : String(error);
-        counts.failureSamples.push(`${candidate.id}: ${message}`);
+        counts.failureSamples.push(`${candidate.id}: ${formatErrorForSample(error)}`);
       }
     }
   }
