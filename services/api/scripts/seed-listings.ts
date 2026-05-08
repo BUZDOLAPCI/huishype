@@ -14,7 +14,7 @@
 import dotenv from 'dotenv';
 import postgres from 'postgres';
 import { pathToFileURL } from 'node:url';
-import type { IngestListing } from '../src/services/ingest/contracts.js';
+import type { IngestListing, IngestProcessResult } from '../src/services/ingest/index.js';
 import {
   acceptIngestBatch,
   encodeOpaqueIngestCursor,
@@ -169,6 +169,15 @@ interface ReplayIdentityEstimateSets {
   terminalCanonicalUrls: Set<string>;
 }
 
+interface ReplayBatchExecutionContext {
+  source: SourceName;
+  sourceRunId: string;
+  batchSequence: number;
+  batchId: string;
+  cursorStart: string | null;
+  cursorEnd: string;
+}
+
 const MAIN_DB_URL = process.env.DATABASE_URL || 'postgresql://huishype:huishype_dev@localhost:5440/huishype';
 const FUNDA_DB_URL = process.env.FUNDA_MIRROR_URL || 'postgresql://scraper:secret@localhost:5441/funda_mirror';
 const PARARIUS_DB_URL = process.env.PARARIUS_MIRROR_URL || 'postgresql://scraper:secret@localhost:5442/pararius_mirror';
@@ -239,6 +248,23 @@ function parseOptions(): CliOptions {
 
 function selectedSources(source: SourceFilter): SourceName[] {
   return source === 'both' ? ['funda', 'pararius'] : [source];
+}
+
+function assertCompletedReplayBatchResult(
+  result: IngestProcessResult,
+  context: ReplayBatchExecutionContext,
+): asserts result is IngestProcessResult & { status: 'completed' } {
+  if (result.status === 'completed') return;
+
+  throw new Error(
+    [
+      `Seed listings replay batch ${context.batchSequence} for ${context.source} did not complete`,
+      `(run ${context.sourceRunId}, batch ${context.batchId}, status ${result.status}).`,
+      'The accepted batch was likely not claimable; refusing to advance the local replay cursor or accept later batches.',
+      `cursorStart=${context.cursorStart ?? '<null>'}`,
+      `cursorEnd=${context.cursorEnd}`,
+    ].join(' '),
+  );
 }
 
 function normalizePriceType(value: string | null | undefined, source: SourceName): 'sale' | 'rent' | 'unknown' {
@@ -971,7 +997,16 @@ async function executeSource(
       enqueueMaintenanceRefresh: async () => {},
     });
 
-    resultSummary.processedBatchCount += result.status === 'completed' ? 1 : 0;
+    assertCompletedReplayBatchResult(result, {
+      source,
+      sourceRunId: summary.sourceRunId,
+      batchSequence,
+      batchId: accepted.batchId,
+      cursorStart,
+      cursorEnd,
+    });
+
+    resultSummary.processedBatchCount += 1;
     resultSummary.ingestedCount += result.ingested;
     resultSummary.updatedCount += result.updated;
     resultSummary.skippedByProcessorCount += result.skipped;
@@ -1081,3 +1116,8 @@ if (import.meta.url === directRunUrl) {
     process.exit(1);
   });
 }
+
+export const __seedListingsTest = {
+  assertCompletedReplayBatchResult,
+  executeSource,
+};
