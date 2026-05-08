@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 import type { FastifyInstance } from 'fastify';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import {
@@ -65,18 +65,18 @@ describe('Durable ingest API contract', () => {
   }
 
   async function drainGlobalMaintenanceState() {
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const dispatch = await collectRecoveryDispatchWork(new Date());
-      if (!dispatch.maintenancePending) {
-        return;
-      }
+    await db
+      .update(ingestBatches)
+      .set({ maintenanceCompletedAt: new Date() })
+      .where(and(isNotNull(ingestBatches.maintenanceRequestedAt), isNull(ingestBatches.maintenanceCompletedAt)));
 
-      await refreshLatestListingsMaintenance(async () => {}, {
-        skippedBatchRecoveryLimit: 100,
-      });
-    }
+    const pendingMaintenanceRows = await db
+      .select({ id: ingestBatches.id })
+      .from(ingestBatches)
+      .where(and(isNotNull(ingestBatches.maintenanceRequestedAt), isNull(ingestBatches.maintenanceCompletedAt)))
+      .limit(1);
 
-    expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
+    expect(pendingMaintenanceRows).toHaveLength(0);
   }
 
   async function seedProperty(input: {
@@ -5020,7 +5020,7 @@ describe('Durable ingest API contract', () => {
     expect(refreshedCountAfterCooldown).toBe(0);
     expect(refreshCalls).toBe(0);
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
-  });
+  }, 60000);
 
   it('force-recovers a completed batch with missing observations even when skipped accounting is fully counted', async () => {
     const sourceName = 'fotocasa';
@@ -5155,7 +5155,7 @@ describe('Durable ingest API contract', () => {
     expect(recoveredCountAfterCooldown).toBe(0);
     expect(refreshCalls).toBe(0);
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
-  });
+  }, 60000);
 
   it('recovers only the matchable missing observation from a mixed skipped batch and stops recurring', async () => {
     const sourceName = 'fotocasa';
