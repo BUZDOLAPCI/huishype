@@ -752,6 +752,122 @@ describe('Durable ingest API contract', () => {
     expect(scopeWatermark).toBeUndefined();
   });
 
+  it('keeps serial replay runs in progress until an explicit completion batch is processed', async () => {
+    const stamp = Date.now();
+    const sourceName = 'idealista';
+    const runKey = `idealista-serial-replay-run-${stamp}`;
+    const scopeKey = 'full-mirror';
+    const street = `Serial Replaylaan ${stamp}`;
+    const observationCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T14:00:00.000Z',
+      listingKey: `idealista-serial-replay-observation-${stamp}`,
+    });
+    const completionCursor = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T14:00:00.000Z',
+      listingKey: `idealista-serial-replay-completion-${stamp}`,
+    });
+    await seedProperty({ street, houseNumber: 19 });
+
+    const observationBatch = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-serial-replay-observation-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: observationCursor,
+      upstreamRunKey: runKey,
+      batchKind: 'observations',
+      scopeKey,
+      sourceHighWatermark: '2026-04-06T14:00:00.000Z',
+      sourceProvenance: 'import',
+      listings: [
+        {
+          sourceUrl: `https://www.idealista.com/inmueble/serial-replay-${stamp}/`,
+          mirrorListingId: `idealista-serial-replay-${stamp}`,
+          askingPrice: 450000,
+          priceType: 'sale',
+          status: 'active',
+          scopeKey,
+          sourceHighWatermark: '2026-04-06T14:00:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: 19,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: observationBatch.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [runAfterObservation] = await db
+      .select()
+      .from(ingestRuns)
+      .where(eq(ingestRuns.id, observationBatch.runId as string))
+      .limit(1);
+
+    expect(runAfterObservation?.status).toBe('in_progress');
+    expect(runAfterObservation?.processedBatchCount).toBe(1);
+    expect(runAfterObservation?.completedAt).toBeNull();
+
+    const completionBatch = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `idealista-serial-replay-completion-${stamp}`,
+      batchSequence: 1,
+      cursorStart: observationCursor,
+      cursorEnd: completionCursor,
+      upstreamRunKey: runKey,
+      batchKind: 'completion',
+      scopeKey,
+      sourceHighWatermark: '2026-04-06T14:00:00.000Z',
+      sourceProvenance: 'import',
+      completions: [
+        {
+          scopeKey,
+          listingType: 'sale',
+          sourceRunId: runKey,
+          sourceRunCompletedAt: '2026-04-06T14:00:00.000Z',
+          coverageStatus: 'complete',
+          observedListingCount: 1,
+          sourceHighWatermark: '2026-04-06T14:00:00.000Z',
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: completionBatch.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 0,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [runAfterCompletion] = await db
+      .select()
+      .from(ingestRuns)
+      .where(eq(ingestRuns.id, observationBatch.runId as string))
+      .limit(1);
+
+    expect(runAfterCompletion?.status).toBe('completed');
+    expect(runAfterCompletion?.processedBatchCount).toBe(2);
+    expect(runAfterCompletion?.completedAt).not.toBeNull();
+  });
+
   it('persists separate scope completions for the same run and watermark with different normalized filters', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();

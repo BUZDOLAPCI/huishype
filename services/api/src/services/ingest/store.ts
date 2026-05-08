@@ -317,13 +317,29 @@ export async function finalizeIngestRunLifecycle(
     superseded_batch_count: number;
     failed_batch_count: number;
     active_batch_count: number;
+    completion_required_batch_count: number;
+    terminal_completed_batch_count: number;
   }>(sql`
     SELECT
       COUNT(*)::int AS total_batch_count,
       COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_batch_count,
       COUNT(*) FILTER (WHERE status = 'superseded')::int AS superseded_batch_count,
       COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_batch_count,
-      COUNT(*) FILTER (WHERE status IN ('accepted', 'queued', 'processing', 'retryable'))::int AS active_batch_count
+      COUNT(*) FILTER (WHERE status IN ('accepted', 'queued', 'processing', 'retryable'))::int AS active_batch_count,
+      COUNT(*) FILTER (
+        WHERE payload_json->>'batchKind' = 'observations'
+          AND COALESCE(payload_json->>'scopeKey', '') <> 'candidate'
+      )::int AS completion_required_batch_count,
+      COUNT(*) FILTER (
+        WHERE status = 'completed'
+          AND (
+            payload_json->>'batchKind' IN ('completion', 'observations_and_completion')
+            OR (
+              jsonb_typeof(payload_json->'completions') = 'array'
+              AND jsonb_array_length(payload_json->'completions') > 0
+            )
+          )
+      )::int AS terminal_completed_batch_count
     FROM ingest_batches
     WHERE run_id = ${run.runId}
   `);
@@ -334,16 +350,21 @@ export async function finalizeIngestRunLifecycle(
     superseded_batch_count: 0,
     failed_batch_count: 0,
     active_batch_count: 0,
+    completion_required_batch_count: 0,
+    terminal_completed_batch_count: 0,
   };
 
   const processedBatchCount =
     batchCounts.completed_batch_count +
     batchCounts.superseded_batch_count +
     batchCounts.failed_batch_count;
+  const hasRequiredCompletionSignal =
+    batchCounts.completion_required_batch_count === 0
+    || batchCounts.terminal_completed_batch_count > 0;
   const nextStatus: RunStatus =
     batchCounts.failed_batch_count > 0
       ? 'failed'
-      : batchCounts.active_batch_count === 0
+      : batchCounts.active_batch_count === 0 && hasRequiredCompletionSignal
         ? 'completed'
         : 'in_progress';
   const now = new Date();

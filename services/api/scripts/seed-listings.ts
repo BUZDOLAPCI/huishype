@@ -27,13 +27,13 @@ import {
   refreshPriceGuessStartMarketSummaries,
 } from '../src/services/listings-view.js';
 import { closeConnection } from '../src/db/index.js';
-import type { ListingSourceAlias } from '../src/services/listing-source-resolution.js';
 import {
   buildListingReplayExecutionAssessment,
   buildListingReplayThresholds,
   collectListingReplayThresholdViolations,
   computePlannedListingReplayBatchCount,
   hasCompleteMirrorAddress,
+  resolveListingReplaySourceIdentity,
   shouldPreserveMirrorRowForIngest,
 } from '../src/scripts/seed-listings-safety.js';
 
@@ -70,7 +70,7 @@ interface MirrorListing {
   id: number;
   funda_id?: string | null;
   pararius_id?: string | null;
-  listing_url: string;
+  listing_url: string | null;
   price_type: string | null;
   asking_price_cents: string | null;
   living_area_m2: number | null;
@@ -309,56 +309,6 @@ function mapStatus(status: string): {
   return { publicStatus: 'active', lifecycleStatus: undefined, diagnosticStatus: 'unknown' };
 }
 
-function uniqueAliases(aliases: ListingSourceAlias[]): ListingSourceAlias[] {
-  const seen = new Set<string>();
-  return aliases.filter((alias) => {
-    const key = `${alias.kind}:${alias.value}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function resolveIdentity(source: SourceName, rawUrl: string, mirrorId: string | null | undefined) {
-  const aliases: ListingSourceAlias[] = [];
-  const canonicalUrl = rawUrl.trim().replace(/[?#].*$/, '').replace(/\/+$/, '/');
-  let sourceListingId = mirrorId?.trim() || '';
-  let sourceListingIdKind: 'tiny_id' | 'canonical_path' | 'url_path' | 'unknown' = mirrorId
-    ? source === 'funda' ? 'tiny_id' : 'url_path'
-    : 'unknown';
-
-  try {
-    const parsed = new URL(canonicalUrl);
-    if (source === 'funda') {
-      const match = parsed.pathname.match(/(\d{6,})(?:\/)?$/);
-      if (match?.[1]) {
-        sourceListingId = match[1];
-        sourceListingIdKind = 'tiny_id';
-        aliases.push({ kind: 'tiny_id', value: match[1] });
-      }
-    } else {
-      sourceListingId = parsed.pathname.replace(/\/+$/, '');
-      sourceListingIdKind = 'canonical_path';
-      aliases.push({ kind: 'url_path', value: sourceListingId });
-    }
-  } catch {
-    // Keep the mirror id/raw URL fallback below.
-  }
-
-  if (mirrorId && !aliases.some((alias) => alias.value === mirrorId)) {
-    aliases.push({ kind: source === 'funda' ? 'tiny_id' : 'url_path', value: mirrorId });
-  }
-
-  const fallbackId = sourceListingId || mirrorId?.trim() || rawUrl.trim();
-  aliases.push({ kind: 'canonical_url', value: rawUrl.trim() });
-  return {
-    sourceListingId: fallbackId,
-    sourceListingIdKind,
-    canonicalUrl,
-    aliases: uniqueAliases(aliases),
-  };
-}
-
 function toIngestListing(
   row: MirrorListing,
   source: SourceName,
@@ -366,19 +316,21 @@ function toIngestListing(
   sourceHighWatermark: string,
 ): IngestListing | null {
   const status = mapStatus(row.status);
+  const mirrorId = source === 'funda' ? row.funda_id : row.pararius_id;
+  const identity = resolveListingReplaySourceIdentity(source, row.listing_url, mirrorId);
   const preparationEvidence = {
-    listingUrl: row.listing_url,
+    listingUrl: identity?.sourceUrl ?? row.listing_url,
+    sourceName: source,
+    sourceListingId: mirrorId,
     street: row.street,
     postalCode: row.postal_code,
     houseNumber: row.house_number,
     diagnosticStatus: status.diagnosticStatus,
   };
-  if (!shouldPreserveMirrorRowForIngest(preparationEvidence)) {
+  if (!identity || !shouldPreserveMirrorRowForIngest(preparationEvidence)) {
     return null;
   }
 
-  const mirrorId = source === 'funda' ? row.funda_id : row.pararius_id;
-  const identity = resolveIdentity(source, row.listing_url, mirrorId);
   const priceType = normalizePriceType(row.price_type, source);
   const diagnosticStatus = status.diagnosticStatus
     ?? (hasCompleteMirrorAddress(preparationEvidence) ? undefined : 'unknown');
@@ -396,7 +348,7 @@ function toIngestListing(
     : undefined;
 
   return {
-    sourceUrl: row.listing_url,
+    sourceUrl: identity.sourceUrl,
     mirrorListingId: String(mirrorId ?? row.id),
     scopeKey,
     sourceListingId: identity.sourceListingId,

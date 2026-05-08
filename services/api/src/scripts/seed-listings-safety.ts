@@ -1,3 +1,5 @@
+import type { ListingSourceAlias } from '../services/listing-source-resolution.js';
+
 export interface ListingReplaySafetyOptions {
   maxSkipped: number;
   maxSkipRatio: number;
@@ -22,6 +24,8 @@ export interface ListingReplaySafetySummary {
 
 export interface ListingReplayPreparationEvidence {
   listingUrl: string | null | undefined;
+  sourceName?: 'funda' | 'pararius';
+  sourceListingId?: string | null | undefined;
   street: string | null | undefined;
   postalCode: string | null | undefined;
   houseNumber: string | number | null | undefined;
@@ -29,6 +33,87 @@ export interface ListingReplayPreparationEvidence {
 }
 
 export type ListingReplayTransitionClass = 'projectable' | 'diagnostic' | 'skipped';
+export type ListingReplaySourceName = 'funda' | 'pararius';
+export type ListingReplaySourceListingIdKind = 'tiny_id' | 'canonical_path' | 'url_path' | 'unknown';
+
+export interface ListingReplaySourceIdentity {
+  sourceUrl: string;
+  sourceListingId: string;
+  sourceListingIdKind: ListingReplaySourceListingIdKind;
+  canonicalUrl: string;
+  aliases: ListingSourceAlias[];
+}
+
+function uniqueAliases(aliases: ListingSourceAlias[]): ListingSourceAlias[] {
+  const seen = new Set<string>();
+  return aliases.filter((alias) => {
+    const key = `${alias.kind}:${alias.value}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function normalizeFundaMirrorId(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? '';
+  return /^\d{6,}$/.test(normalized) ? normalized : null;
+}
+
+export function buildCanonicalFundaDetailUrl(fundaId: string | null | undefined): string | null {
+  const normalized = normalizeFundaMirrorId(fundaId);
+  return normalized ? `https://www.funda.nl/detail/${normalized}/` : null;
+}
+
+export function resolveListingReplaySourceIdentity(
+  source: ListingReplaySourceName,
+  rawUrl: string | null | undefined,
+  mirrorId: string | null | undefined,
+): ListingReplaySourceIdentity | null {
+  const trimmedUrl = rawUrl?.trim() ?? '';
+  const trimmedMirrorId = mirrorId?.trim() ?? '';
+  const synthesizedFundaUrl = source === 'funda' ? buildCanonicalFundaDetailUrl(trimmedMirrorId) : null;
+  const sourceUrl = trimmedUrl || synthesizedFundaUrl;
+  if (!sourceUrl) return null;
+
+  const aliases: ListingSourceAlias[] = [];
+  const canonicalUrl = sourceUrl.replace(/[?#].*$/, '').replace(/\/+$/, '/');
+  let sourceListingId = trimmedMirrorId;
+  let sourceListingIdKind: ListingReplaySourceListingIdKind = trimmedMirrorId
+    ? source === 'funda' ? 'tiny_id' : 'url_path'
+    : 'unknown';
+
+  try {
+    const parsed = new URL(canonicalUrl);
+    if (source === 'funda') {
+      const match = parsed.pathname.match(/(\d{6,})(?:\/)?$/);
+      if (match?.[1]) {
+        sourceListingId = match[1];
+        sourceListingIdKind = 'tiny_id';
+        aliases.push({ kind: 'tiny_id', value: match[1] });
+      }
+    } else {
+      sourceListingId = parsed.pathname.replace(/\/+$/, '');
+      sourceListingIdKind = 'canonical_path';
+      aliases.push({ kind: 'url_path', value: sourceListingId });
+    }
+  } catch {
+    // Keep the mirror id/raw URL fallback below.
+  }
+
+  if (trimmedMirrorId && !aliases.some((alias) => alias.value === trimmedMirrorId)) {
+    aliases.push({ kind: source === 'funda' ? 'tiny_id' : 'url_path', value: trimmedMirrorId });
+  }
+
+  const fallbackId = sourceListingId || trimmedMirrorId || sourceUrl;
+  aliases.push({ kind: 'canonical_url', value: sourceUrl });
+  return {
+    sourceUrl,
+    sourceListingId: fallbackId,
+    sourceListingIdKind,
+    canonicalUrl,
+    aliases: uniqueAliases(aliases),
+  };
+}
 
 export interface ListingReplayExecutionAssessment {
   executeAllowed: boolean;
@@ -49,7 +134,16 @@ export function hasCompleteMirrorAddress(evidence: ListingReplayPreparationEvide
 export function classifyListingReplayPreparation(
   evidence: ListingReplayPreparationEvidence,
 ): ListingReplayTransitionClass {
-  if (!evidence.listingUrl?.trim()) {
+  const hasListingSourceIdentity = Boolean(resolveListingReplaySourceIdentity(
+    evidence.sourceName ?? 'pararius',
+    evidence.listingUrl,
+    evidence.sourceListingId,
+  ));
+
+  if (
+    !evidence.listingUrl?.trim()
+    && !hasListingSourceIdentity
+  ) {
     return 'skipped';
   }
 

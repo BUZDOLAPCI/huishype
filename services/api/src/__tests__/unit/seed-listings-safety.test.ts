@@ -5,6 +5,7 @@ import {
   classifyListingReplayPreparation,
   collectListingReplayThresholdViolations,
   computePlannedListingReplayBatchCount,
+  resolveListingReplaySourceIdentity,
   shouldPreserveMirrorRowForIngest,
 } from '../../scripts/seed-listings-safety.js';
 
@@ -141,10 +142,72 @@ describe('seed listings replay safety', () => {
     expect(
       shouldPreserveMirrorRowForIngest({
         listingUrl: '',
+        sourceName: 'pararius',
+        sourceListingId: null,
         street: null,
         postalCode: null,
         houseNumber: null,
         diagnosticStatus: 'blocked',
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts Funda mirror rows with a blank URL when funda_id can produce stable identity', () => {
+    const identity = resolveListingReplaySourceIdentity('funda', '  ', '12345678');
+
+    expect(identity).toEqual({
+      sourceUrl: 'https://www.funda.nl/detail/12345678/',
+      sourceListingId: '12345678',
+      sourceListingIdKind: 'tiny_id',
+      canonicalUrl: 'https://www.funda.nl/detail/12345678/',
+      aliases: [
+        { kind: 'tiny_id', value: '12345678' },
+        { kind: 'canonical_url', value: 'https://www.funda.nl/detail/12345678/' },
+      ],
+    });
+
+    expect(
+      shouldPreserveMirrorRowForIngest({
+        listingUrl: '',
+        sourceName: 'funda',
+        sourceListingId: '12345678',
+        street: 'Vestdijk',
+        postalCode: '5611 CA',
+        houseNumber: '1',
+        diagnosticStatus: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('still skips rows without a URL and without a usable source identity', () => {
+    expect(resolveListingReplaySourceIdentity('funda', '', null)).toBeNull();
+    expect(resolveListingReplaySourceIdentity('funda', '', 'not-a-funda-id')).toBeNull();
+
+    expect(
+      shouldPreserveMirrorRowForIngest({
+        listingUrl: '',
+        sourceName: 'funda',
+        sourceListingId: 'not-a-funda-id',
+        street: 'Vestdijk',
+        postalCode: '5611 CA',
+        houseNumber: '1',
+        diagnosticStatus: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('does not weaken non-Funda blank URL skipping even when a mirror id is present', () => {
+    expect(resolveListingReplaySourceIdentity('pararius', '', '12345678')).toBeNull();
+
+    expect(
+      shouldPreserveMirrorRowForIngest({
+        listingUrl: '',
+        sourceName: 'pararius',
+        sourceListingId: '12345678',
+        street: 'Vestdijk',
+        postalCode: '5611 CA',
+        houseNumber: '1',
+        diagnosticStatus: null,
       }),
     ).toBe(false);
   });
