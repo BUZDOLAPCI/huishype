@@ -261,7 +261,15 @@ function hasBlankHouseNumber(item: IngestListing): boolean {
   return typeof item.address?.houseNumber === 'string' && item.address.houseNumber.trim() === '';
 }
 
+function isExplicitSpatialProjectionFlow(batch: Pick<IngestBatchRequest, 'scopeKey'>, item: IngestListing): boolean {
+  return batch.scopeKey === 'candidate'
+    || item.scopeKey === 'candidate'
+    || Boolean(item.sourceCandidateId)
+    || Boolean(item.previewResultId);
+}
+
 function canUseSpatialOnlyForCanonicalizationFailure(
+  batch: Pick<IngestBatchRequest, 'scopeKey'>,
   item: IngestListing,
   failureReason: CanonicalizeAddressFailureReason | null,
   spatialCandidate: CanonicalizedListing['spatialCandidate'],
@@ -271,6 +279,7 @@ function canUseSpatialOnlyForCanonicalizationFailure(
     && hasBlankHouseNumber(item)
     && (item.address?.street?.trim().length ?? 0) > 0
     && spatialCandidate !== null
+    && isExplicitSpatialProjectionFlow(batch, item)
   );
 }
 
@@ -439,7 +448,7 @@ async function claimBatchForProcessing(batchId: string): Promise<ClaimedBatch | 
   });
 }
 
-function canonicalizeListings(listings: IngestListing[]): {
+function canonicalizeListings(payload: Pick<IngestBatchRequest, 'scopeKey' | 'listings'>): {
   canonicalized: CanonicalizedListing[];
   skippedCount: number;
   skipDiagnostics: IngestSkipDiagnostic[];
@@ -448,7 +457,7 @@ function canonicalizeListings(listings: IngestListing[]): {
   const skipDiagnostics: IngestSkipDiagnostic[] = [];
   let skippedCount = 0;
 
-  for (const item of listings) {
+  for (const item of payload.listings ?? []) {
     if (!item.address) {
       if (
         toDiagnosticStatus(item)
@@ -475,6 +484,7 @@ function canonicalizeListings(listings: IngestListing[]): {
     const spatialCandidate = getSpatialCandidate(item);
     const canonical = canonicalResult.canonical;
     const canUseSpatialOnly = canUseSpatialOnlyForCanonicalizationFailure(
+      payload,
       item,
       canonicalResult.failureReason,
       spatialCandidate,
@@ -1859,7 +1869,7 @@ async function recoverSkippedCompletedBatch(
     const {
       canonicalized,
       skippedCount: canonicalizationSkips,
-    } = canonicalizeListings(claimed.payload.listings ?? []);
+    } = canonicalizeListings(claimed.payload);
     const exactMatches = await exactMatchProperties(tx, canonicalized);
     const propertyIdsByListingIndex = mapExactMatchesToListings(canonicalized, exactMatches);
     await spatialMatchProperties(tx, canonicalized, propertyIdsByListingIndex);
@@ -2216,7 +2226,7 @@ export async function processIngestBatch(
         canonicalized,
         skippedCount: canonicalizationSkips,
         skipDiagnostics: canonicalizationSkipDiagnostics,
-      } = canonicalizeListings(claimed.payload.listings ?? []);
+      } = canonicalizeListings(claimed.payload);
       const exactMatches = await exactMatchProperties(tx, canonicalized);
       const propertyIdsByListingIndex = mapExactMatchesToListings(canonicalized, exactMatches);
       await spatialMatchProperties(tx, canonicalized, propertyIdsByListingIndex);

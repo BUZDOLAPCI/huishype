@@ -10,6 +10,7 @@ import {
   canonicalListings,
   listingCandidateHandoffs,
   listings,
+  listingObservationLinks,
   listingObservations,
   listingPriceObservations,
   listingScopeCompletions,
@@ -2143,6 +2144,18 @@ describe('Durable ingest API contract', () => {
       payload: { priceType: 'sale' },
     });
 
+    const [survivorBeforeMerge] = await db
+      .select()
+      .from(canonicalListings)
+      .where(
+        and(
+          eq(canonicalListings.sourceName, sourceName),
+          eq(canonicalListings.primarySourceListingId, primaryListingId),
+        ),
+      )
+      .limit(1);
+    expect(survivorBeforeMerge?.id).toBeTruthy();
+
     const [legacyCanonical] = await db
       .insert(canonicalListings)
       .values({
@@ -2165,6 +2178,59 @@ describe('Durable ingest API contract', () => {
         updatedAt: new Date('2026-04-06T20:35:00.000Z'),
       })
       .returning({ id: canonicalListings.id });
+    expect(legacyCanonical?.id).toBeTruthy();
+
+    const [legacyObservation] = await db
+      .insert(listingObservations)
+      .values({
+        sourceName,
+        sourceListingId: legacyListingId,
+        sourceListingIdKind: 'tiny_id',
+        sourceUrlRaw: legacyUrl,
+        sourceUrlCanonical: legacyUrl,
+        origin: 'mirror',
+        propertyId,
+        propertyMatchKind: 'source_exact',
+        sourceStatus: 'available',
+        askingPrice: 490000,
+        priceCurrency: 'EUR',
+        observedAt: new Date('2026-04-06T20:35:00.000Z'),
+      })
+      .returning({ id: listingObservations.id });
+    expect(legacyObservation?.id).toBeTruthy();
+
+    await db.insert(listingObservationLinks).values({
+      canonicalListingId: legacyCanonical?.id as string,
+      listingObservationId: legacyObservation?.id as string,
+      linkReason: 'source_identity',
+    });
+    await db.insert(listingPriceObservations).values({
+      canonicalListingId: legacyCanonical?.id as string,
+      listingObservationId: legacyObservation?.id as string,
+      propertyId,
+      sourceName,
+      sourceListingId: legacyListingId,
+      origin: 'mirror',
+      price: 490000,
+      currency: 'EUR',
+      eventType: 'mirror_refresh',
+      priceDate: '2026-04-06',
+      observedAt: new Date('2026-04-06T20:35:00.000Z'),
+    });
+    const [legacyHandoff] = await db
+      .insert(listingCandidateHandoffs)
+      .values({
+        canonicalListingId: legacyCanonical?.id as string,
+        observationId: legacyObservation?.id as string,
+        sourceName,
+        propertyId,
+        sourceUrlRaw: legacyUrl,
+        sourceUrlCanonical: legacyUrl,
+        sourceListingId: legacyListingId,
+        state: 'delivered',
+      })
+      .returning({ id: listingCandidateHandoffs.id });
+    expect(legacyHandoff?.id).toBeTruthy();
 
     await upsertListingSourceAliases(sourceName, primaryListingId, [
       { kind: 'tiny_id', value: primaryListingId },
@@ -2216,16 +2282,35 @@ describe('Durable ingest API contract', () => {
       .where(eq(canonicalListings.propertyId, propertyId))
       .orderBy(canonicalListings.primarySourceListingId);
 
-    expect(canonicalRows).toHaveLength(2);
-    expect(canonicalRows.find((row) => row.primarySourceListingId === primaryListingId)).toMatchObject({
+    expect(canonicalRows).toHaveLength(1);
+    expect(canonicalRows[0]).toMatchObject({
+      id: survivorBeforeMerge?.id,
+      primarySourceListingId: primaryListingId,
       canonicalUrl: primaryUrl,
       askingPrice: 510000,
     });
-    expect(canonicalRows.find((row) => row.id === legacyCanonical?.id)).toMatchObject({
-      primarySourceListingId: legacyListingId,
-      canonicalUrl: legacyUrl,
-      askingPrice: 490000,
-    });
+
+    const [legacyLink] = await db
+      .select()
+      .from(listingObservationLinks)
+      .where(eq(listingObservationLinks.listingObservationId, legacyObservation?.id as string))
+      .limit(1);
+    expect(legacyLink?.canonicalListingId).toBe(survivorBeforeMerge?.id);
+
+    const [legacyPrice] = await db
+      .select()
+      .from(listingPriceObservations)
+      .where(eq(listingPriceObservations.listingObservationId, legacyObservation?.id as string))
+      .limit(1);
+    expect(legacyPrice?.canonicalListingId).toBe(survivorBeforeMerge?.id);
+
+    const [handoff] = await db
+      .select()
+      .from(listingCandidateHandoffs)
+      .where(eq(listingCandidateHandoffs.id, legacyHandoff?.id as string))
+      .limit(1);
+    expect(handoff?.canonicalListingId).toBe(survivorBeforeMerge?.id);
+    expect(handoff?.propertyId).toBe(propertyId);
   });
 
   it('appends stale replay evidence without mutating prior projected observations', async () => {
@@ -3454,6 +3539,91 @@ describe('Durable ingest API contract', () => {
       sourceProvenance: 'import',
       mirrorListingId,
     }));
+  });
+
+  it('reuses idempotent replay observations when only derived projection fields differ', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `Projection Compatible Replay Street ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 47 });
+    const mirrorListingId = `fotocasa-projection-compatible-${stamp}`;
+    const sourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/projection-compatible-${stamp}`;
+    const observedAt = '2026-04-06T16:42:00.000Z';
+    const firstBatchId = await seedCompletedBatchRecord({
+      sourceName,
+      stamp,
+      suffix: 'projection-compatible-first',
+      completedAt: observedAt,
+    });
+    const replayBatchId = await seedCompletedBatchRecord({
+      sourceName,
+      stamp,
+      suffix: 'projection-compatible-replay',
+      completedAt: '2026-04-06T16:52:00.000Z',
+    });
+    const address = {
+      countryCode: 'NL',
+      street,
+      postalCode: '1234 AB',
+      houseNumber: 47,
+      city: 'Eindhoven',
+    };
+
+    const first = await persistMirrorObservationForIngest(db, {
+      batchId: firstBatchId,
+      sourceName,
+      sourceUrl,
+      sourceListingId: mirrorListingId,
+      sourceListingIdKind: 'unknown',
+      propertyId,
+      propertyMatchKind: 'source_exact',
+      sourceStatus: 'available',
+      askingPrice: 405000,
+      priceCurrency: 'EUR',
+      address,
+      observedAt,
+      lastSeenAt: observedAt,
+      sourceUpdatedAt: observedAt,
+      sourceProvenance: 'replay',
+      payload: { priceType: 'sale' },
+    });
+    const replay = await persistMirrorObservationForIngest(db, {
+      batchId: replayBatchId,
+      sourceName,
+      sourceUrl,
+      sourceListingId: mirrorListingId,
+      sourceListingIdKind: 'unknown',
+      propertyId: null,
+      propertyMatchKind: 'source_unmatched',
+      sourceStatus: 'available',
+      askingPrice: 405000,
+      priceCurrency: 'EUR',
+      address,
+      observedAt,
+      lastSeenAt: observedAt,
+      sourceUpdatedAt: observedAt,
+      sourceProvenance: 'replay',
+      payload: { priceType: 'sale' },
+    });
+
+    expect(replay.observationId).toBe(first.observationId);
+    const observations = await db
+      .select()
+      .from(listingObservations)
+      .where(
+        and(
+          eq(listingObservations.sourceName, sourceName),
+          eq(listingObservations.sourceListingId, mirrorListingId),
+        ),
+      );
+
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      id: first.observationId,
+      propertyId,
+      propertyMatchKind: 'source_exact',
+      ingestBatchId: replayBatchId,
+    });
   });
 
   it('reuses compatible URL-only source observations for idempotent replay', async () => {
@@ -6086,7 +6256,7 @@ describe('Durable ingest API contract', () => {
     expect(sourceState?.lastBatchId).toBe(accepted.batchId);
   });
 
-  it('spatially matches listings with an empty source house number when coordinates are present', async () => {
+  it('does not spatially match normal mirror listings with an empty source house number', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
     const street = `Pararius Coordinateweg ${stamp}`;
@@ -6149,6 +6319,84 @@ describe('Durable ingest API contract', () => {
       }),
     ).resolves.toEqual({
       status: 'completed',
+      ingested: 0,
+      updated: 0,
+      skipped: 1,
+    });
+
+    const canonicalRows = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.sourceName, sourceName));
+
+    expect(canonicalRows).toHaveLength(0);
+  });
+
+  it('spatially matches candidate-scoped listings with an empty source house number when coordinates are present', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `Fotocasa Candidate Coordinateweg ${stamp}`;
+    const longitude = 5.233456;
+    const latitude = 51.233456;
+    const cursorEnd = encodeOpaqueIngestCursor({
+      changedAt: '2026-04-06T18:50:00.000Z',
+      listingKey: `fotocasa-empty-house-number-candidate-spatial-${stamp}`,
+    });
+    const propertySeed = await db
+      .insert(properties)
+      .values({
+        countryCode: 'NL',
+        street,
+        houseNumber: 89,
+        houseNumberAddition: null,
+        city: 'Eindhoven',
+        postalCode: '1234AB',
+        geometry: { type: 'Point', coordinates: [longitude, latitude] },
+        status: 'active',
+      })
+      .returning({ id: properties.id });
+
+    const propertyId = propertySeed[0]?.id;
+    expect(propertyId).toBeTruthy();
+    cleanupPropertyIds.push(propertyId as string);
+
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-empty-house-number-candidate-spatial-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd,
+      upstreamRunKey: `fotocasa-empty-house-number-candidate-spatial-run-${stamp}`,
+      scopeKey: 'candidate',
+      listings: [
+        {
+          scopeKey: 'candidate',
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/empty-candidate-spatial-${stamp}`,
+          mirrorListingId: `fotocasa-empty-house-number-candidate-spatial-${stamp}`,
+          askingPrice: 481000,
+          priceType: 'sale' as const,
+          status: 'active' as const,
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '1234 AB',
+            houseNumber: '',
+            city: 'Eindhoven',
+            latitude,
+            longitude,
+          },
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        maxAttempts: 1,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
       ingested: 1,
       updated: 0,
       skipped: 0,
@@ -6161,7 +6409,7 @@ describe('Durable ingest API contract', () => {
 
     expect(canonicalRows).toHaveLength(1);
     expect(canonicalRows[0]?.propertyId).toBe(propertyId);
-    expect(canonicalRows[0]?.primarySourceListingId).toBe(`fotocasa-empty-house-number-spatial-${stamp}`);
+    expect(canonicalRows[0]?.primarySourceListingId).toBe(`fotocasa-empty-house-number-candidate-spatial-${stamp}`);
   });
 
   it('keeps malformed unit-shaped source house numbers skipped until the source sends corrected fields', async () => {

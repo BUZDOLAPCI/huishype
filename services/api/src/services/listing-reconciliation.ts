@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { IngestIdempotencyConflictError } from './ingest/errors.js';
 import {
   canonicalListings,
@@ -360,8 +360,6 @@ function observationCompatibilityPayload(
     sourceUrlCanonical: normalizeUrlForObservationCompatibility(observation.sourceUrlCanonical),
     submittedBy: observation.submittedBy ?? null,
     origin: sourceEvidenceOriginForCompatibility(observation.origin),
-    propertyId: observation.propertyId ?? null,
-    propertyMatchKind: observation.propertyMatchKind,
     sourceStatus: observation.sourceStatus ?? null,
     diagnosticStatus: observation.diagnosticStatus ?? null,
     askingPrice: observation.askingPrice ?? null,
@@ -694,47 +692,52 @@ function sourceIdentityAliasesForCanonicalLookup(observation: ListingObservation
   return aliases;
 }
 
-async function findCanonicalListing(
+async function findCanonicalListingMatches(
   observation: ListingObservation,
   primarySourceListingId: string | null,
   executor: ReconciliationDb,
-): Promise<CanonicalListing | null> {
-  if (observation.candidateHandoffId) {
-    const [row] = await executor
-      .select({ canonical: canonicalListings })
-      .from(listingCandidateHandoffs)
-      .innerJoin(canonicalListings, eq(canonicalListings.id, listingCandidateHandoffs.canonicalListingId))
-      .where(eq(listingCandidateHandoffs.id, observation.candidateHandoffId))
-      .limit(1);
+): Promise<CanonicalListing[]> {
+  const matches: CanonicalListing[] = [];
+  const seenIds = new Set<string>();
+  const pushMatches = (rows: CanonicalListing[]) => {
+    for (const row of rows) {
+      if (seenIds.has(row.id)) continue;
+      seenIds.add(row.id);
+      matches.push(row);
+    }
+  };
 
-    if (row?.canonical) return row.canonical;
-  }
-
-  const findFirst = async (predicate: ReturnType<typeof and>): Promise<CanonicalListing | null> => {
-    if (!predicate) return null;
-    const [canonical] = await executor
+  const findAll = async (predicate: SQL | undefined): Promise<CanonicalListing[]> => {
+    if (!predicate) return [];
+    return executor
       .select()
       .from(canonicalListings)
       .where(predicate)
-      .orderBy(desc(canonicalListings.updatedAt))
-      .limit(1);
-    return canonical ?? null;
+      .orderBy(desc(canonicalListings.updatedAt));
   };
 
+  if (observation.candidateHandoffId) {
+    const rows = await executor
+      .select({ canonical: canonicalListings })
+      .from(listingCandidateHandoffs)
+      .innerJoin(canonicalListings, eq(canonicalListings.id, listingCandidateHandoffs.canonicalListingId))
+      .where(eq(listingCandidateHandoffs.id, observation.candidateHandoffId));
+
+    pushMatches(rows.map((row) => row.canonical));
+  }
+
   if (primarySourceListingId) {
-    const canonical = await findFirst(and(
+    pushMatches(await findAll(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       eq(canonicalListings.primarySourceListingId, primarySourceListingId),
-    ));
-    if (canonical) return canonical;
+    )));
   }
 
   if (observation.sourceUrlCanonical) {
-    const canonical = await findFirst(and(
+    pushMatches(await findAll(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
-    ));
-    if (canonical) return canonical;
+    )));
   }
 
   const lookupAliases = sourceIdentityAliasesForCanonicalLookup(observation);
@@ -745,31 +748,113 @@ async function findCanonicalListing(
     .filter((alias) => alias.kind === 'canonical_url')
     .map((alias) => alias.value);
   if (sourceIdAliases.length > 0) {
-    const canonical = await findFirst(and(
+    pushMatches(await findAll(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       inArray(canonicalListings.primarySourceListingId, sourceIdAliases),
-    ));
-    if (canonical) return canonical;
+    )));
   }
 
   if (canonicalUrlAliases.length > 0) {
-    const canonical = await findFirst(and(
+    pushMatches(await findAll(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       inArray(canonicalListings.canonicalUrl, canonicalUrlAliases),
-    ));
-    if (canonical) return canonical;
+    )));
   }
 
   if (observation.propertyId && observation.sourceUrlCanonical) {
-    const canonical = await findFirst(and(
+    pushMatches(await findAll(and(
       eq(canonicalListings.sourceName, observation.sourceName),
       eq(canonicalListings.propertyId, observation.propertyId),
       eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
-    ));
-    if (canonical) return canonical;
+    )));
   }
 
-  return null;
+  return matches;
+}
+
+async function mergeCanonicalListingMatches(
+  matches: CanonicalListing[],
+  executor: ReconciliationDb,
+): Promise<CanonicalListing | null> {
+  const survivor = matches[0];
+  if (!survivor) return null;
+  const loserIds = matches.slice(1).map((match) => match.id);
+  if (loserIds.length === 0) return survivor;
+
+  const loserIdList = sql.join(loserIds.map((id) => sql`${id}`), sql`, `);
+
+  await executor.execute(sql`
+    DELETE FROM listing_observation_links loser_link
+    WHERE loser_link.canonical_listing_id IN (${loserIdList})
+      AND EXISTS (
+        SELECT 1
+        FROM listing_observation_links existing_link
+        WHERE existing_link.listing_observation_id = loser_link.listing_observation_id
+          AND existing_link.id <> loser_link.id
+      )
+  `);
+
+  await executor.execute(sql`
+    UPDATE listing_observation_links
+    SET canonical_listing_id = ${survivor.id}
+    WHERE canonical_listing_id IN (${loserIdList})
+  `);
+
+  await executor.execute(sql`
+    DELETE FROM listing_price_observations loser_price
+    WHERE loser_price.canonical_listing_id IN (${loserIdList})
+      AND loser_price.source_listing_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM listing_price_observations survivor_price
+        WHERE survivor_price.canonical_listing_id = ${survivor.id}
+          AND survivor_price.source_name = loser_price.source_name
+          AND survivor_price.source_listing_id = loser_price.source_listing_id
+          AND survivor_price.price_date = loser_price.price_date
+          AND survivor_price.price = loser_price.price
+          AND survivor_price.event_type = loser_price.event_type
+      )
+  `);
+
+  await executor.execute(sql`
+    UPDATE listing_price_observations
+    SET
+      canonical_listing_id = ${survivor.id},
+      property_id = ${survivor.propertyId}
+    WHERE canonical_listing_id IN (${loserIdList})
+  `);
+
+  await executor.execute(sql`
+    UPDATE listing_candidate_handoffs
+    SET
+      canonical_listing_id = ${survivor.id},
+      property_id = ${survivor.propertyId},
+      updated_at = NOW()
+    WHERE canonical_listing_id IN (${loserIdList})
+  `);
+
+  await executor
+    .delete(canonicalListings)
+    .where(inArray(canonicalListings.id, loserIds));
+
+  const [refreshed] = await executor
+    .select()
+    .from(canonicalListings)
+    .where(eq(canonicalListings.id, survivor.id))
+    .limit(1);
+
+  return refreshed ?? survivor;
+}
+
+async function findCanonicalListing(
+  observation: ListingObservation,
+  primarySourceListingId: string | null,
+  executor: ReconciliationDb,
+): Promise<CanonicalListing | null> {
+  return mergeCanonicalListingMatches(
+    await findCanonicalListingMatches(observation, primarySourceListingId, executor),
+    executor,
+  );
 }
 
 function canProjectObservation(observation: ListingObservation): observation is ListingObservation & { sourceStatus: ListingSourceStatus } {
@@ -1178,7 +1263,10 @@ export async function reconcileListingObservation(
   if (!observation) throw new Error(`Listing observation ${observationId} not found`);
 
   const primarySourceListingId = await resolvePrimarySourceListingId(observation, database);
-  const existingCanonical = await findCanonicalListing(observation, primarySourceListingId, database);
+  const existingCanonical = await mergeCanonicalListingMatches(
+    await findCanonicalListingMatches(observation, primarySourceListingId, database),
+    database,
+  );
 
   if (!canProjectObservation(observation)) {
     if (existingCanonical) {
