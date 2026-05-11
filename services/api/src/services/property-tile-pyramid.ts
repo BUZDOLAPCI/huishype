@@ -2221,13 +2221,66 @@ async function estimatePropertyTilePyramidPreflight(input: {
     ${input.coverage.maxLat},
     4326
   )`;
-  const propertySourceRows = await estimatePropertyTilePyramidPlanRows(sql`
+  const visibleCandidateRows = await estimatePropertyTilePyramidPlanRows(sql`
     EXPLAIN (FORMAT JSON)
-    SELECT p.id
-    FROM properties p
-    WHERE p.geometry IS NOT NULL
-      AND p.status = 'active'
-      AND p.geometry && ${envelope}
+    SELECT visible.property_id
+    FROM (
+      SELECT lpc.property_id
+      FROM property_tile_listing_candidates lpc
+      WHERE lpc.geometry && ${envelope}
+
+      UNION
+
+      SELECT c.property_id
+      FROM comments c
+      INNER JOIN properties p ON p.id = c.property_id
+      WHERE p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND p.geometry && ${envelope}
+
+      UNION
+
+      SELECT r.target_id AS property_id
+      FROM reactions r
+      INNER JOIN properties p ON p.id = r.target_id
+      WHERE r.target_type = 'property'
+        AND r.reaction_type = 'like'
+        AND p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND p.geometry && ${envelope}
+
+      UNION
+
+      SELECT c.property_id
+      FROM reactions r
+      INNER JOIN comments c ON c.id = r.target_id
+      INNER JOIN properties p ON p.id = c.property_id
+      WHERE r.target_type = 'comment'
+        AND r.reaction_type = 'like'
+        AND p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND p.geometry && ${envelope}
+
+      UNION
+
+      SELECT pg.property_id
+      FROM price_guesses pg
+      INNER JOIN properties p ON p.id = pg.property_id
+      WHERE p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND p.geometry && ${envelope}
+
+      UNION
+
+      SELECT pv.property_id
+      FROM property_views pv
+      INNER JOIN properties p ON p.id = pv.property_id
+      WHERE p.geometry IS NOT NULL
+        AND p.status = 'active'
+        AND p.geometry && ${envelope}
+      GROUP BY pv.property_id
+      HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
+    ) visible
   `);
   const listingCandidateRows = await estimatePropertyTilePyramidPlanRows(sql`
     EXPLAIN (FORMAT JSON)
@@ -2235,7 +2288,7 @@ async function estimatePropertyTilePyramidPreflight(input: {
     FROM property_tile_listing_candidates lpc
     WHERE lpc.geometry && ${envelope}
   `);
-  const estimatedPropertySourceRows = Math.max(0, Math.ceil(propertySourceRows ?? 0));
+  const estimatedPropertySourceRows = Math.max(0, Math.ceil(visibleCandidateRows ?? 0));
   const estimatedListingCandidateRows = Math.max(0, Math.ceil(listingCandidateRows ?? 0));
   const estimatedMemberRows = Math.max(estimatedPropertySourceRows, estimatedListingCandidateRows);
   const retainedMemberRows = 0;
@@ -2856,7 +2909,14 @@ export async function executeDuePropertyTilePyramidBuild(options: {
         )::interval,
         attempt_count = COALESCE(attempt_count, 0) + 1,
         last_attempt_at = now(),
-        build_started_at = COALESCE(build_started_at, now()),
+        build_started_at = now(),
+        build_finished_at = NULL,
+        failure_category = NULL,
+        failure_message = NULL,
+        failure_stack_summary = NULL,
+        failed_stage = NULL,
+        terminal_reason = NULL,
+        next_retry_at = NULL,
         updated_at = now()
       WHERE id = (SELECT id FROM lock_gate WHERE backfill_lock_acquired)
       RETURNING
