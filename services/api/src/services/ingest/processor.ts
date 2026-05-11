@@ -151,6 +151,7 @@ export interface ProcessIngestBatchOptions {
 export interface RefreshMaintenanceOptions {
   logger?: IngestLogger;
   skippedBatchRecoveryLimit?: number;
+  skippedBatchRecoverySourceNames?: readonly string[];
 }
 
 function normalizeStreetForMatch(street: string): string {
@@ -1931,8 +1932,9 @@ async function recoverSkippedCompletedBatch(
 async function recoverSkippedCompletedIngestBatches(
   recoveryStartedAt: Date,
   limit = 100,
+  sourceNames?: readonly string[],
 ): Promise<SkippedBatchRecoveryResult> {
-  const candidates = await listSkippedBatchRecoveryCandidates(recoveryStartedAt, limit);
+  const candidates = await listSkippedBatchRecoveryCandidates(recoveryStartedAt, limit, sourceNames);
   let recoveredObservationCount = 0;
   let propertyTilePyramidInvalidated = false;
 
@@ -2259,6 +2261,7 @@ export async function refreshLatestListingsMaintenance(
   const recovery = await recoverSkippedCompletedIngestBatches(
     refreshStartedAt,
     skippedBatchRecoveryLimit,
+    options.skippedBatchRecoverySourceNames,
   );
 
   const pendingRows = await db

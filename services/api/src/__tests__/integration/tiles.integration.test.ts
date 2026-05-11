@@ -167,6 +167,34 @@ describe('Tile routes', () => {
   });
 
   describe('GET /tiles/style.json', () => {
+    it('builds style.json from bundled source metadata without external fetches', async () => {
+      const fetchSpy = jest.spyOn(globalThis, 'fetch');
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/style.json',
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(fetchSpy).not.toHaveBeenCalled();
+
+        const style = JSON.parse(response.body) as StyleJson;
+        const openMapTiles = requireValue(
+          style.sources.openmaptiles,
+          'openmaptiles source missing from style.json'
+        );
+        const tiles = requireValue(
+          openMapTiles.tiles,
+          'openmaptiles tiles missing from style.json'
+        );
+        expect(openMapTiles).not.toHaveProperty('url');
+        expect(tiles[0]).toContain('https://tiles.openfreemap.org/planet/');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
     it('should return a valid MapLibre style JSON', async () => {
       const response = await app.inject({
         method: 'GET',
@@ -182,6 +210,29 @@ describe('Tile routes', () => {
       expect(style).toHaveProperty('glyphs');
       expect(style).toHaveProperty('sprite');
       expect(Array.isArray(style.layers)).toBe(true);
+    });
+
+    it('should expose the HuisHype base style with water texture baked into the style', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/style.json',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const style = JSON.parse(response.body) as StyleJson;
+      const waterLayer = requireValue(
+        style.layers.find((layer) => layer.id === 'water'),
+        'water layer missing from style.json'
+      );
+      const waterIntermittentLayer = requireValue(
+        style.layers.find((layer) => layer.id === 'water_intermittent'),
+        'water_intermittent layer missing from style.json'
+      );
+
+      expect(style).toHaveProperty('id', 'huishype-base-style');
+      expect(style).toHaveProperty('name', 'HuisHype Base');
+      expect(waterLayer.paint).toHaveProperty('fill-pattern', 'water-pattern');
+      expect(waterIntermittentLayer.paint).toHaveProperty('fill-pattern', 'water-pattern');
     });
 
     it('should include properties-source in sources', async () => {
@@ -593,7 +644,7 @@ describe('Tile routes', () => {
             key: `read-scope:session-hash:${sessionScope}`,
             budgetMs: expect.any(Number),
             statementTimeoutMs: expect.any(Number),
-          }),
+          })
         );
       } finally {
         runtimeRunSpy.mockRestore();
@@ -674,7 +725,7 @@ describe('Tile routes', () => {
           return new Promise((resolve, reject) => {
             const timer = setTimeout(
               () => resolve({ hasReadState: false, scope: 'stale-empty' }),
-              10_000,
+              10_000
             );
             options.signal?.addEventListener(
               'abort',
@@ -682,7 +733,7 @@ describe('Tile routes', () => {
                 clearTimeout(timer);
                 reject(options.signal?.reason ?? new Error('read scope lookup aborted'));
               },
-              { once: true },
+              { once: true }
             );
           });
         },
@@ -697,9 +748,7 @@ describe('Tile routes', () => {
           headers: { 'x-session-id': sessionId },
         });
         expect(viewResponse.statusCode).toBe(200);
-        await expect(staleLookup).resolves.toEqual(
-          expect.objectContaining({ state: 'aborted' }),
-        );
+        await expect(staleLookup).resolves.toEqual(expect.objectContaining({ state: 'aborted' }));
 
         const response = await app.inject({
           method: 'GET',
@@ -707,7 +756,9 @@ describe('Tile routes', () => {
           headers: { 'x-session-id': sessionId },
         });
         expect(response.statusCode).toBe(200);
-        expect(JSON.parse(response.body).tiles[0]).toContain('/tiles/properties/read/{z}/{x}/{y}.pbf');
+        expect(JSON.parse(response.body).tiles[0]).toContain(
+          '/tiles/properties/read/{z}/{x}/{y}.pbf'
+        );
       } finally {
         propertyTileRuntime.resetForTests();
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
@@ -795,7 +846,7 @@ describe('Tile routes', () => {
       expect(response.statusCode).toBe(204);
       expect(response.headers['cache-control']).toBe('no-store');
       expect(['pyramid-build-enqueued', 'pyramid-build-active']).toContain(
-        response.headers['x-huishype-tile-status'],
+        response.headers['x-huishype-tile-status']
       );
       expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
       expect(response.headers['x-tile-cache']).not.toBe('timeout-empty');
@@ -834,7 +885,7 @@ describe('Tile routes', () => {
         expect(response.statusCode).toBe(204);
         expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-enqueued');
         expect(response.headers['x-huishype-pyramid-candidate-version']).toBe(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-0000-0000-000000000001'
         );
         expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
         expect(runtimeRunSpy).not.toHaveBeenCalled();
@@ -893,7 +944,7 @@ describe('Tile routes', () => {
         );
         expect(response.headers['x-tile-cache']).toBe('precomputed');
         expect(response.headers['x-huishype-pyramid-version']).toBe(
-          '00000000-0000-0000-0000-0000000000aa',
+          '00000000-0000-0000-0000-0000000000aa'
         );
         expect(response.headers['x-tile-coalesced']).toBe('false');
         expect(response.headers['x-tile-generation-time']).toMatch(/^\d+ms$/);
@@ -983,7 +1034,7 @@ describe('Tile routes', () => {
         expect(response.rawPayload).toEqual(pyramidPayload);
         expect(response.headers['x-tile-cache']).toBe('precomputed');
         expect(response.headers['x-huishype-pyramid-version']).toBe(
-          '00000000-0000-0000-0000-0000000000bb',
+          '00000000-0000-0000-0000-0000000000bb'
         );
         expect(runtimeRunSpy).not.toHaveBeenCalled();
       } finally {
@@ -1037,7 +1088,10 @@ describe('Tile routes', () => {
 
     it('marks the promoted pyramid degraded when a current tile manifest is missing', async () => {
       const markVersionDegraded = jest.fn(async () => undefined);
-      const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
+      const requestBuild = jest.fn(async () => ({
+        status: 'coalesced' as const,
+        versionId: 'candidate',
+      }));
       const currentVersion = {
         versionId: '00000000-0000-0000-0000-0000000000cc',
         coverageId: 'public_default_low_zoom',
@@ -1129,7 +1183,10 @@ describe('Tile routes', () => {
       }));
       const isTileCovered = jest.fn(() => false);
       const markVersionDegraded = jest.fn(async () => undefined);
-      const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
+      const requestBuild = jest.fn(async () => ({
+        status: 'coalesced' as const,
+        versionId: 'candidate',
+      }));
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
 
       setPropertyTilePyramidServiceForTests({
@@ -1150,7 +1207,7 @@ describe('Tile routes', () => {
         expect(response.statusCode).toBe(200);
         expect(response.rawPayload).toEqual(payload);
         expect(response.headers['x-huishype-pyramid-version']).toBe(
-          '00000000-0000-0000-0000-0000000000dd',
+          '00000000-0000-0000-0000-0000000000dd'
         );
         expect(response.headers['x-tile-cache']).toBe('precomputed');
         expect(response.headers['cache-control']).toBe(
@@ -1175,7 +1232,10 @@ describe('Tile routes', () => {
         reason: 'unit-no-current',
       }));
       const markVersionDegraded = jest.fn(async () => undefined);
-      const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
+      const requestBuild = jest.fn(async () => ({
+        status: 'coalesced' as const,
+        versionId: 'candidate',
+      }));
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
 
       setPropertyTilePyramidServiceForTests({
@@ -1209,7 +1269,7 @@ describe('Tile routes', () => {
       const tileUrl = '/tiles/properties/10/527/340.pbf';
       const lookupError = Object.assign(
         new Error('terminating connection due to administrator command'),
-        { code: '57P01' },
+        { code: '57P01' }
       );
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
       setPropertyTilePyramidServiceForTests({
@@ -1258,10 +1318,13 @@ describe('Tile routes', () => {
       };
       const lookupError = Object.assign(
         new Error('new row for relation "property_tile_pyramid_tiles" violates check constraint'),
-        { code: '23514' },
+        { code: '23514' }
       );
       const markVersionDegraded = jest.fn(async () => undefined);
-      const requestBuild = jest.fn(async () => ({ status: 'coalesced' as const, versionId: 'candidate' }));
+      const requestBuild = jest.fn(async () => ({
+        status: 'coalesced' as const,
+        versionId: 'candidate',
+      }));
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
 
       setPropertyTilePyramidServiceForTests({
@@ -1333,6 +1396,80 @@ describe('Tile routes', () => {
         expect(runtimeRunSpy.mock.calls.map(([options]) => options.key)).toEqual([
           'public:10/0/0:marketState=for-rent',
           'public:11/0/0:default',
+        ]);
+      } finally {
+        runtimeRunSpy.mockRestore();
+      }
+    });
+
+    it('routes public default z11-z17 tiles through dynamic runtime cache, not the pyramid', async () => {
+      const lookupCurrentVersion = jest.fn(async () => ({
+        state: 'current' as const,
+        version: {
+          versionId: '00000000-0000-0000-0000-0000000000ab',
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 17,
+          pyramidKind: 'public_default_low_zoom',
+          buildInputsHash: 'test-build-inputs',
+          sourceWatermarkHash: 'test-watermark',
+          status: 'promoted' as const,
+          promotedAt: new Date().toISOString(),
+          degradedAt: null,
+          degradedReason: null,
+        },
+      }));
+      const lookupTile = jest.fn(async () => ({
+        state: 'hit' as const,
+        versionId: '00000000-0000-0000-0000-0000000000ab',
+        payload: Buffer.from([0x1a, 0x03, 0x70, 0x79, 0x72]),
+        statusCode: 200 as const,
+        etag: '"pyramid-ab"',
+        nodeCount: 1,
+        encodedFromNodes: false,
+      }));
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run').mockResolvedValue({
+        state: 'completed',
+        result: { payload: null, statusCode: 204 },
+        publishable: true,
+        coalesced: false,
+        runtimeEvent: 'started',
+        queueTimeMs: 0,
+        generationTimeMs: 7,
+        budgetMs: 3_000,
+      });
+
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 17,
+        lookupCurrentVersion,
+        lookupTile,
+      });
+
+      try {
+        for (let z = 11; z <= 17; z += 1) {
+          const response = await app.inject({
+            method: 'GET',
+            url: `/tiles/properties/${z}/0/0.pbf`,
+          });
+
+          expect(response.statusCode).toBe(204);
+          expect(response.headers['x-tile-cache']).toBe('miss');
+          expect(response.headers['cache-control']).toContain('public');
+          expect(response.headers['x-huishype-pyramid-version']).toBeUndefined();
+          expect(response.headers['x-huishype-tile-status']).toBeUndefined();
+        }
+
+        expect(lookupCurrentVersion).not.toHaveBeenCalled();
+        expect(lookupTile).not.toHaveBeenCalled();
+        expect(runtimeRunSpy).toHaveBeenCalledTimes(7);
+        expect(runtimeRunSpy.mock.calls.map(([options]) => options.key)).toEqual([
+          'public:11/0/0:default',
+          'public:12/0/0:default',
+          'public:13/0/0:default',
+          'public:14/0/0:default',
+          'public:15/0/0:default',
+          'public:16/0/0:default',
+          'public:17/0/0:default',
         ]);
       } finally {
         runtimeRunSpy.mockRestore();
@@ -1859,7 +1996,7 @@ describe('Tile routes', () => {
           statusCode: 200,
           etag: buildPropertyTileEtag(cacheKey, stalePayload),
         },
-        Date.now() - (PROPERTY_TILE_CACHE_TTL_SECONDS * 1000 + 1_000),
+        Date.now() - (PROPERTY_TILE_CACHE_TTL_SECONDS * 1000 + 1_000)
       );
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run').mockResolvedValue({
         state: 'timeout',
@@ -2178,15 +2315,15 @@ describe('Tile routes', () => {
       expect(response.statusCode).toBe(404);
     });
 
-    it('should return 404 for composite fontstack (comma stripped by sanitizer)', async () => {
+    it('should serve the first available font from a composite fontstack', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/fonts/Noto Sans Regular,Arial Unicode MS Regular/0-255.pbf',
       });
 
-      // Comma is stripped by sanitizer before fallback logic, so the combined
-      // string "Noto Sans RegularArial Unicode MS Regular" doesn't match any font
-      expect(response.statusCode).toBe(404);
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toBe('application/x-protobuf');
+      expect(response.rawPayload.length).toBeGreaterThan(0);
     });
   });
 

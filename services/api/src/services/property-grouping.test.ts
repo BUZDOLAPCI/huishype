@@ -220,12 +220,56 @@ describe('property-grouping', () => {
     );
   });
 
-  it('scopes z14 non-ghost tile candidate discovery to bounded active properties before source scans', () => {
+  it('discovers z14 non-ghost listing candidates from the maintained tile projection', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       createDefaultMapFilters(),
       14
+    );
+    const text = renderSql(query).replace(/\s+/g, ' ').trim();
+
+    expect(text).not.toContain('bounded_properties AS MATERIALIZED');
+    expect(text).toContain('listing_candidate_properties AS MATERIALIZED');
+    expect(text.indexOf('listing_candidate_properties AS MATERIALIZED')).toBeLessThan(
+      text.indexOf('candidate_properties AS MATERIALIZED')
+    );
+    expect(text).toContain(
+      'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
+    );
+    expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
+    expect(text).toContain('bounded_social_properties AS MATERIALIZED');
+    expect(text).toContain(
+      'SELECT p.id, p.geometry, p.official_valuation FROM properties p WHERE p.geometry IS NOT NULL'
+    );
+    expect(text).toContain('FROM comments c INNER JOIN bounded_social_properties p ON p.id = c.property_id');
+    expect(text).toContain('INNER JOIN bounded_social_properties p ON p.id = r.target_id');
+    expect(text).toContain(
+      'INNER JOIN comments c ON c.id = r.target_id INNER JOIN bounded_social_properties p ON p.id = c.property_id'
+    );
+    expect(text).toContain(
+      'FROM price_guesses pg INNER JOIN bounded_social_properties p ON p.id = pg.property_id'
+    );
+    expect(text).toContain(
+      'FROM property_views pv INNER JOIN bounded_social_properties p ON p.id = pv.property_id'
+    );
+    expect(text).toContain(
+      'social_only_candidate_ids AS MATERIALIZED ( SELECT DISTINCT social_activity_candidate_ids.property_id'
+    );
+    expect(text).toContain('FROM listing_candidate_properties lcp');
+    expect(text).toContain('WHERE lcp.id = social_activity_candidate_ids.property_id');
+    expect(text).toContain(
+      'FROM social_only_candidate_ids soci INNER JOIN bounded_social_properties p ON p.id = soci.property_id'
+    );
+    expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
+  });
+
+  it('scopes z15 non-ghost tile candidate discovery to bounded active properties before source scans', () => {
+    const query = buildGroupingCandidateScopeCtes(
+      [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
+      false,
+      createDefaultMapFilters(),
+      15
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -1719,6 +1763,7 @@ describe('property-grouping', () => {
       marketState: null,
     });
     const lowZoomFeature = serializeGroupForTile(cluster, { z: 10, x: 511, y: 340 });
+    const transitionFeature = serializeGroupForTile(cluster, { z: 14, x: 8418, y: 5428 });
     const largeHighZoomFeature = serializeGroupForTile(cluster, { z: 17, x: 67478, y: 43551 });
     const boundedHighZoomFeature = serializeGroupForTile(
       {
@@ -1735,12 +1780,18 @@ describe('property-grouping', () => {
     });
 
     expect(lowZoomFeature.property_ids).toBe('');
+    expect(transitionFeature.property_ids).toBe('');
     expect(largeHighZoomFeature.property_ids).toBe('');
     expect(lowZoomFeature.membership_complete).toBe(false);
     expect(lowZoomFeature.read_state_coverage).toBe('partial');
+    expect(transitionFeature.membership_complete).toBe(false);
+    expect(transitionFeature.read_state_coverage).toBe('partial');
     expect(largeHighZoomFeature.membership_complete).toBe(false);
     expect(largeHighZoomFeature.read_state_coverage).toBe('partial');
     expect(lowZoomFeature.preview_property_ids).toBe(
+      propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
+    );
+    expect(transitionFeature.preview_property_ids).toBe(
       propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
     );
     expect(boundedHighZoomFeature.property_ids).toBe(

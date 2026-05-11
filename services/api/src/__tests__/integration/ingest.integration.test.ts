@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import {
@@ -21,12 +21,12 @@ import {
 } from '../../db/schema.js';
 import {
   acceptIngestBatch,
-  collectRecoveryDispatchWork,
+  collectRecoveryDispatchWork as collectRecoveryDispatchWorkForAllSources,
   encodeOpaqueIngestCursor,
   processIngestBatch,
   createMaintenanceRefreshRequest,
   forceRecoverSkippedCompletedIngestBatches,
-  refreshLatestListingsMaintenance,
+  refreshLatestListingsMaintenance as refreshLatestListingsMaintenanceForAllSources,
   requeueBlockedSourceBatchesAtWatermark,
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
 } from '../../services/ingest/index.js';
@@ -37,6 +37,41 @@ describe('Durable ingest API contract', () => {
   const originalIngestApiKey = process.env.INGEST_API_KEY;
   const cleanupPropertyIds: string[] = [];
   const cleanupSourceNames = ['idealista', 'fotocasa'];
+  const cleanupPropertyExactStreets = [
+    'Candidate Cursorlaan',
+    'Mixed Candidate Cursorlaan',
+    'Calle Mayor',
+    'Calle Operator',
+    'Calle Recovery',
+    'Calle Precision',
+    'Calle Superseded',
+    'Calle del Conflict',
+    'Alphaweg',
+    'Betaweg',
+    'Invalid House Numberweg',
+    'Pararius Coordinateweg',
+    'Funda Unitvormweg',
+    'Gammaweg',
+  ];
+
+  function collectRecoveryDispatchWork(
+    staleProcessingBefore: Date,
+    limit?: number,
+  ) {
+    return collectRecoveryDispatchWorkForAllSources(staleProcessingBefore, limit, {
+      sourceNames: cleanupSourceNames,
+    });
+  }
+
+  function refreshLatestListingsMaintenance(
+    refreshViews: (() => Promise<void>) | Array<() => Promise<void>>,
+    options: Parameters<typeof refreshLatestListingsMaintenanceForAllSources>[1] = {},
+  ) {
+    return refreshLatestListingsMaintenanceForAllSources(refreshViews, {
+      ...options,
+      skippedBatchRecoverySourceNames: cleanupSourceNames,
+    });
+  }
 
   function encodeRawCursor(payload: { changedAt: string; listingKey: string }): string {
     return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
@@ -54,6 +89,24 @@ describe('Durable ingest API contract', () => {
     await db.delete(ingestBatches).where(eq(ingestBatches.sourceName, sourceName));
     await db.delete(ingestRuns).where(eq(ingestRuns.sourceName, sourceName));
     await db.delete(ingestSources).where(eq(ingestSources.sourceName, sourceName));
+  }
+
+  async function cleanupCreatedProperties() {
+    if (cleanupPropertyIds.length > 0) {
+      await db.delete(properties).where(inArray(properties.id, cleanupPropertyIds));
+      cleanupPropertyIds.length = 0;
+    }
+  }
+
+  async function resetTestPropertyState() {
+    await cleanupCreatedProperties();
+    await db.delete(properties).where(sql`
+      ${properties.countryCode} IN ('NL', 'ES')
+      AND ${properties.street} IN (${sql.join(
+        cleanupPropertyExactStreets.map((street) => sql`${street}`),
+        sql`, `,
+      )})
+    `);
   }
 
   async function drainGlobalMaintenanceState() {
@@ -221,6 +274,7 @@ describe('Durable ingest API contract', () => {
     for (const sourceName of cleanupSourceNames) {
       await resetIngestSourceState(sourceName);
     }
+    await resetTestPropertyState();
     await drainGlobalMaintenanceState();
   });
 
@@ -237,9 +291,7 @@ describe('Durable ingest API contract', () => {
       await db.delete(ingestBatches).where(inArray(ingestBatches.sourceName, cleanupSourceNames));
       await db.delete(ingestRuns).where(inArray(ingestRuns.sourceName, cleanupSourceNames));
 
-      if (cleanupPropertyIds.length > 0) {
-        await db.delete(properties).where(inArray(properties.id, cleanupPropertyIds));
-      }
+      await resetTestPropertyState();
     } finally {
       process.env.INGEST_API_KEY = originalIngestApiKey;
       await app.close();
@@ -436,7 +488,7 @@ describe('Durable ingest API contract', () => {
       batchSequence: 0,
       cursorStart: null,
       cursorEnd: candidateCursor,
-      runId: scraperRunId,
+      upstreamRunKey: scraperRunId,
       batchKind: 'observations' as const,
       scopeKey: 'candidate',
       listings: [
@@ -445,7 +497,7 @@ describe('Durable ingest API contract', () => {
           mirrorListingId: `idealista-candidate-partial-${stamp}`,
           sourceCandidateId: 'candidate-partial',
           askingPrice: null,
-          listingType: 'unknown' as const,
+          priceType: 'unknown' as const,
           diagnosticStatus: 'unknown' as const,
           status: 'active' as const,
           address: {
@@ -465,17 +517,7 @@ describe('Durable ingest API contract', () => {
       ],
     };
 
-    const candidateResponse = await app.inject({
-      method: 'POST',
-      url: '/api/ingest/listings',
-      headers: {
-        'x-api-key': 'test-ingest-api-key',
-      },
-      payload: candidatePayload,
-    });
-
-    expect(candidateResponse.statusCode).toBe(202);
-    const candidateAccepted = JSON.parse(candidateResponse.body);
+    const candidateAccepted = await acceptIngestBatch(candidatePayload);
     expect(candidateAccepted.runId).toBeTruthy();
 
     await expect(

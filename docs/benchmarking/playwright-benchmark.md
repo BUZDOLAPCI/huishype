@@ -14,6 +14,13 @@ cache runs:
 - `/@52.3626765,5.3574841,6.29z`
 - `/@52.1247641,5.0314279,4.98z`
 - `/@51.0394976,4.4103663,3.92z`
+- `/@51.4416000,5.4697000,11z`
+- `/@51.4416000,5.4697000,12z`
+- `/@51.4416000,5.4697000,13z`
+- `/@51.4416000,5.4697000,14z`
+- `/@51.4416000,5.4697000,15z`
+- `/@51.4416000,5.4697000,16z`
+- `/@51.4416000,5.4697000,17z`
 - `/feed`
 
 Default execution uses `1` warmup run and `5` measured runs per route. Each
@@ -29,7 +36,14 @@ BENCHMARK_MEASURED_RUNS=5 \
 pnpm test:e2e:benchmark
 ```
 
-Each run writes timestamped and `latest-*` artifacts under `test-results/benchmark/`:
+Set `BENCHMARK_BACKEND_COLD=1` to add a third `backend-cold` cache mode. The
+Playwright wrapper exposes a local restart control URL to the benchmark process,
+and the benchmark restarts the wrapper-owned API before every measured
+`backend-cold` sample while still using a fresh browser context per sample.
+Default cold and warm modes are unchanged.
+
+Each run writes timestamped and `latest-*` artifacts under
+`BENCHMARK_RESULT_DIR`, defaulting to `test-results/benchmark/`:
 
 - JSON with raw metrics and run metadata
 - Markdown summary with medians and min/max ranges
@@ -46,6 +60,11 @@ Captured metrics:
 - feed post-ready scroll settle timing before synthetic scroll starts
 - main-thread long-task count, duration, and blocking time where supported by the browser
 - gated web render probe counts for the map and feed surfaces during benchmark runs
+
+Tile `net::ERR_ABORTED` events are recorded under tile abort details because
+MapLibre can cancel superseded tile requests during viewport changes. Non-tile
+`net::ERR_ABORTED` events remain failed requests and fail the benchmark post-run
+health gate.
 
 Feed scroll measurement waits for the feed route to reach its ready state, then
 uses a bounded browser quiet check before starting the synthetic scroll:

@@ -24,6 +24,7 @@ import { acceptIngestBatch, encodeOpaqueIngestCursor, getIngestWatermark, proces
 import {
   claimCandidateHandoff,
   processCandidateHandoffJob,
+  setCandidateHandoffEnqueueOverrideForTests,
 } from '../../services/candidate-handoffs/index.js';
 import {
   createIntegrationListing,
@@ -238,6 +239,7 @@ describe('Listing routes', () => {
     sourceServicesConfig.parariusApiKey = 'test-pararius-source-service-key';
     mockFetchFn = jest.fn() as jest.Mock<typeof global.fetch>;
     global.fetch = mockFetchFn;
+    setCandidateHandoffEnqueueOverrideForTests(async () => {});
     app = await buildApp({ logger: false });
 
     const property = await createIntegrationProperty({
@@ -364,6 +366,7 @@ describe('Listing routes', () => {
     }
 
     global.fetch = originalFetch;
+    setCandidateHandoffEnqueueOverrideForTests(null);
     process.env.INGEST_API_KEY = originalIngestApiKey;
     sourceServicesConfig.fundaApiKey = originalSourceServiceKeys.fundaApiKey;
     sourceServicesConfig.parariusApiKey = originalSourceServiceKeys.parariusApiKey;

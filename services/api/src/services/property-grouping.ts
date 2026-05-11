@@ -36,7 +36,7 @@ export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
 const TILE_UNITS_PER_PX = PROPERTY_TILE_EXTENT / TILE_SIZE_PX;
 export const GHOST_NODE_REVEAL_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
-const SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM = 13;
+const SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM = 14;
 
 const ACTIVE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active;
 const GHOST_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost;
@@ -46,7 +46,7 @@ const GHOST_SUPPRESSION_PADDING_PX = GHOST_FOOTPRINT.suppressionPaddingPx;
 const NEARBY_TAP_TOLERANCE_PX = PROPERTY_MAP_FOOTPRINTS.nearbyTapTolerancePx;
 const DEFAULT_SHARED_CANONICAL_BUDGET_MS = 3_000;
 const MVT_CLUSTER_PROPERTY_IDS_COMPLETE_MAX = PROPERTY_PREVIEW_MEMBER_LIMIT;
-const MVT_CLUSTER_PROPERTY_IDS_LOW_ZOOM_MAX = SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
+const MVT_CLUSTER_PROPERTY_IDS_LOW_ZOOM_MAX = 14;
 
 type NodeClass = 'active' | 'ghost';
 type GroupKind = 'single' | 'cluster';
@@ -956,7 +956,10 @@ function selectRepresentativeAnchor(members: readonly GroupingCandidate[]): Grou
   for (let index = 1; index < members.length; index += 1) {
     const candidate = members[index];
     const distance = Math.hypot(candidate.worldX - centerX, candidate.worldY - centerY);
-    if (distance < bestDistance || (distance === bestDistance && compareCandidatePriority(candidate, best) < 0)) {
+    if (
+      distance < bestDistance ||
+      (distance === bestDistance && compareCandidatePriority(candidate, best) < 0)
+    ) {
       best = candidate;
       bestDistance = distance;
     }
@@ -1247,9 +1250,7 @@ function buildCanonicalGroup(
   const anchor = selectRepresentativeAnchor(orderedMembers);
   const ownerTile = worldToOwnerTile(anchor.worldX, anchor.worldY, zoom);
   const propertyIdsLimit =
-    options?.clusterPropertyIdRetention === 'preview-only' && members.length > 1
-      ? 0
-      : null;
+    options?.clusterPropertyIdRetention === 'preview-only' && members.length > 1 ? 0 : null;
   const summary = summarizeOrderedMembers(orderedMembers, propertyIdsLimit);
   const primaryProperty = anchor;
 
@@ -1420,6 +1421,7 @@ export function buildGroupingCandidateScopeCtes(
   const canIncludeSocialOnlyCandidates = filters.marketState.includes('not-listed');
   const useSourceFirstCandidateScope =
     !includeGhostCandidates && zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
+  const useBoundedSocialCandidateScope = useSourceFirstCandidateScope && zoom >= 14;
 
   if (includeGhostCandidates) {
     return sql`
@@ -1550,6 +1552,19 @@ export function buildGroupingCandidateScopeCtes(
           WHERE ${listingCandidateBboxFilter}
         )
         ${
+          canIncludeSocialOnlyCandidates && useBoundedSocialCandidateScope
+            ? sql`,
+        bounded_social_properties AS MATERIALIZED (
+          SELECT
+            p.id,
+            p.geometry,
+            p.official_valuation
+          FROM properties p
+          WHERE ${activeBoundedPropertyFilter}
+        )`
+            : sql``
+        }
+        ${
           canIncludeSocialOnlyCandidates
             ? sql`,
         social_activity_candidate_ids AS MATERIALIZED (
@@ -1559,8 +1574,12 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT c.property_id, c.created_at AS activity_at
               FROM comments c
-              INNER JOIN properties p ON p.id = c.property_id
-              WHERE ${activeBoundedPropertyFilter}
+              ${
+                useBoundedSocialCandidateScope
+                  ? sql`INNER JOIN bounded_social_properties p ON p.id = c.property_id`
+                  : sql`INNER JOIN properties p ON p.id = c.property_id
+              WHERE ${activeBoundedPropertyFilter}`
+              }
             ) c
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1568,8 +1587,12 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT r.target_id AS property_id, r.created_at AS activity_at
               FROM reactions r
-              INNER JOIN properties p ON p.id = r.target_id
-              WHERE ${activeBoundedPropertyFilter}
+              ${
+                useBoundedSocialCandidateScope
+                  ? sql`INNER JOIN bounded_social_properties p ON p.id = r.target_id`
+                  : sql`INNER JOIN properties p ON p.id = r.target_id
+              WHERE ${activeBoundedPropertyFilter}`
+              }
                 AND r.target_type = 'property'
                 AND r.reaction_type = 'like'
             ) r
@@ -1580,8 +1603,12 @@ export function buildGroupingCandidateScopeCtes(
                 SELECT c.property_id, r.created_at AS activity_at
                 FROM reactions r
                 INNER JOIN comments c ON c.id = r.target_id
-                INNER JOIN properties p ON p.id = c.property_id
-                WHERE ${activeBoundedPropertyFilter}
+                ${
+                  useBoundedSocialCandidateScope
+                    ? sql`INNER JOIN bounded_social_properties p ON p.id = c.property_id`
+                    : sql`INNER JOIN properties p ON p.id = c.property_id
+                WHERE ${activeBoundedPropertyFilter}`
+                }
                   AND r.target_type = 'comment'
                   AND r.reaction_type = 'like'
               ) rc
@@ -1593,8 +1620,12 @@ export function buildGroupingCandidateScopeCtes(
                 pg.property_id,
                 GREATEST(pg.created_at, pg.updated_at) AS activity_at
               FROM price_guesses pg
-              INNER JOIN properties p ON p.id = pg.property_id
-              WHERE ${activeBoundedPropertyFilter}
+              ${
+                useBoundedSocialCandidateScope
+                  ? sql`INNER JOIN bounded_social_properties p ON p.id = pg.property_id`
+                  : sql`INNER JOIN properties p ON p.id = pg.property_id
+              WHERE ${activeBoundedPropertyFilter}`
+              }
             ) pg
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1604,8 +1635,12 @@ export function buildGroupingCandidateScopeCtes(
                 pv.property_id,
                 MAX(pv.viewed_at) AS activity_at
               FROM property_views pv
-              INNER JOIN properties p ON p.id = pv.property_id
-              WHERE ${activeBoundedPropertyFilter}
+              ${
+                useBoundedSocialCandidateScope
+                  ? sql`INNER JOIN bounded_social_properties p ON p.id = pv.property_id`
+                  : sql`INNER JOIN properties p ON p.id = pv.property_id
+              WHERE ${activeBoundedPropertyFilter}`
+              }
               GROUP BY pv.property_id
               HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
             ) pv
@@ -1638,8 +1673,12 @@ export function buildGroupingCandidateScopeCtes(
             p.geometry,
             p.official_valuation
           FROM social_only_candidate_ids soci
-          INNER JOIN properties p ON p.id = soci.property_id
+          ${
+            useBoundedSocialCandidateScope
+              ? sql`INNER JOIN bounded_social_properties p ON p.id = soci.property_id`
+              : sql`INNER JOIN properties p ON p.id = soci.property_id
           WHERE ${activeBoundedPropertyFilter}`
+          }`
               : sql`
           SELECT
             lcp.id,
@@ -2476,9 +2515,7 @@ async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
   return waitForSharedCanonicalBuild(sharedBuild, options, 'shared unhydrated canonical grouping');
 }
 
-function getViablePendingCanonicalBuild(
-  cacheKey: string
-): SharedCanonicalBuild | null {
+function getViablePendingCanonicalBuild(cacheKey: string): SharedCanonicalBuild | null {
   const pendingBuild = pendingCanonicalGroupBuilds.get(cacheKey);
   if (!pendingBuild) {
     return null;

@@ -1,14 +1,15 @@
 import { performance } from 'node:perf_hooks';
 import { writeFile } from 'node:fs/promises';
+import {
+  buildRepresentativePropertyTileSamples,
+  propertyTilePath,
+  type PropertyTileSample,
+} from '../src/scripts/property-tile-benchmark-samples.js';
 
 type Phase = 'cold' | 'warm';
+type ZoomBand = 'z4-z10' | 'z11-z13' | 'z14-z17';
 
-type TileRequest = {
-  city: string;
-  z: number;
-  x: number;
-  y: number;
-};
+type TileRequest = PropertyTileSample;
 
 type BenchmarkOptions = {
   baseUrl: string;
@@ -51,6 +52,10 @@ type PhaseSummary = {
   };
 };
 
+type ColdZoomBandSummary = Omit<PhaseSummary, 'phase'> & {
+  zoomBand: ZoomBand;
+};
+
 type BenchmarkSummary = {
   generatedAt: string;
   baseUrl: string;
@@ -61,6 +66,7 @@ type BenchmarkSummary = {
   };
   rows: BenchmarkRow[];
   byPhase: PhaseSummary[];
+  byColdZoomBand: ColdZoomBandSummary[];
   unexpectedStatuses: BenchmarkRow[];
   failures: string[];
 };
@@ -68,19 +74,6 @@ type BenchmarkSummary = {
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3100';
 const DEFAULT_WARM_PASSES = 2;
 const DEFAULT_TIMEOUT_MS = 60_000;
-
-const REPRESENTATIVE_HEAVY_PUBLIC_TILES: TileRequest[] = [
-  { city: 'Amsterdam dense z13', z: 13, x: 4206, y: 2692 },
-  { city: 'Utrecht dense z13', z: 13, x: 4212, y: 2702 },
-  { city: 'Rotterdam dense z13', z: 13, x: 4197, y: 2708 },
-  { city: 'Randstad country z8', z: 8, x: 131, y: 84 },
-  { city: 'Amsterdam low z9', z: 9, x: 262, y: 168 },
-  { city: 'Utrecht low z9', z: 9, x: 263, y: 168 },
-  { city: 'Rotterdam low z9', z: 9, x: 262, y: 169 },
-  { city: 'Amsterdam ghost reveal z17', z: 17, x: 67321, y: 43076 },
-  { city: 'Utrecht ghost reveal z17', z: 17, x: 67400, y: 43241 },
-  { city: 'Rotterdam ghost reveal z17', z: 17, x: 67166, y: 43339 },
-];
 
 const CSV_COLUMNS = [
   'city',
@@ -122,14 +115,17 @@ Options:
 
 Notes:
   The benchmark uses representative heavy public tiles: dense z13
-  Amsterdam/Utrecht/Rotterdam, low-zoom Randstad/city tiles, and z17
-  ghost-reveal city tiles.
+  Amsterdam/Utrecht/Rotterdam, low-zoom Randstad/city tiles, z10 pyramid edge,
+  z11-z13 transition tiles, z14-z16 detail tiles, and z17 ghost-reveal city
+  tiles.
 
   The benchmark uses /tiles/properties/:z/:x/:y.pbf with no cache-busting query
   parameter. To approximate a cold server memory cache, restart the API before
-  running this script. The server cache key is tile plus normalized filter
-  signature, so a unique query parameter would not create a distinct server
-  tile-cache key and can obscure filter semantics.`);
+  running this script. The cold pass measures dynamic zoom bands first
+  (z14-z17, then z11-z13, then z4-z10) so main is not warmed by large dynamic
+  low-zoom requests before high-zoom dynamic samples. The server cache key is
+  tile plus normalized filter signature, so a unique query parameter would not
+  create a distinct server tile-cache key and can obscure filter semantics.`);
 }
 
 function parsePositiveInteger(value: string, flag: string): number {
@@ -240,10 +236,7 @@ function parseArgs(argv: string[]): BenchmarkOptions {
     if (arg === '--fail-cold-p95-gen-over-ms') {
       const value = argv[index + 1];
       if (!value) throw new Error('--fail-cold-p95-gen-over-ms requires a value');
-      options.failColdP95GenOverMs = parseNonNegativeNumber(
-        value,
-        '--fail-cold-p95-gen-over-ms'
-      );
+      options.failColdP95GenOverMs = parseNonNegativeNumber(value, '--fail-cold-p95-gen-over-ms');
       index += 1;
       continue;
     }
@@ -268,12 +261,25 @@ function parseArgs(argv: string[]): BenchmarkOptions {
 }
 
 function buildTileRequests(): TileRequest[] {
-  const seen = new Set<string>();
-  return REPRESENTATIVE_HEAVY_PUBLIC_TILES.filter((tile) => {
-    const key = `${tile.z}/${tile.x}/${tile.y}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+  return buildRepresentativePropertyTileSamples();
+}
+
+function getZoomBand(tile: Pick<TileRequest, 'z'>): ZoomBand | null {
+  if (tile.z >= 4 && tile.z <= 10) return 'z4-z10';
+  if (tile.z >= 11 && tile.z <= 13) return 'z11-z13';
+  if (tile.z >= 14 && tile.z <= 17) return 'z14-z17';
+  return null;
+}
+
+function buildColdTileRequests(requests: TileRequest[]): TileRequest[] {
+  const order: Array<ZoomBand | null> = ['z14-z17', 'z11-z13', 'z4-z10', null];
+  const originalIndex = new Map(requests.map((request, index) => [request, index]));
+
+  return [...requests].sort((left, right) => {
+    const leftOrder = order.indexOf(getZoomBand(left));
+    const rightOrder = order.indexOf(getZoomBand(right));
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return (originalIndex.get(left) ?? 0) - (originalIndex.get(right) ?? 0);
   });
 }
 
@@ -315,7 +321,7 @@ async function fetchTile(
 ): Promise<BenchmarkRow> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const url = `${baseUrl}/tiles/properties/${request.z}/${request.x}/${request.y}.pbf`;
+  const url = `${baseUrl}${propertyTilePath(request)}`;
   const startedAt = performance.now();
 
   try {
@@ -389,6 +395,18 @@ function isExpectedStatus(row: BenchmarkRow): boolean {
 
 function buildPhaseSummary(rows: BenchmarkRow[], phase: Phase): PhaseSummary {
   const phaseRows = rows.filter((row) => row.phase === phase);
+  return summarizePhaseRows(phaseRows, { phase });
+}
+
+function buildColdZoomBandSummary(rows: BenchmarkRow[], zoomBand: ZoomBand): ColdZoomBandSummary {
+  const bandRows = rows.filter((row) => row.phase === 'cold' && getZoomBand(row) === zoomBand);
+  return summarizePhaseRows(bandRows, { zoomBand });
+}
+
+function summarizePhaseRows<TIdentity extends { phase: Phase } | { zoomBand: ZoomBand }>(
+  phaseRows: BenchmarkRow[],
+  identity: TIdentity
+): TIdentity & Omit<PhaseSummary, 'phase'> {
   const expectedRows = phaseRows.filter(isExpectedStatus);
   const clientTimes = expectedRows.map((row) => row.elapsedClientMs);
   const generationTimes = expectedRows
@@ -396,7 +414,7 @@ function buildPhaseSummary(rows: BenchmarkRow[], phase: Phase): PhaseSummary {
     .filter((value): value is number => value !== null);
 
   return {
-    phase,
+    ...identity,
     requests: phaseRows.length,
     okStatuses: expectedRows.length,
     unexpectedStatuses: phaseRows.filter(
@@ -415,11 +433,14 @@ function buildPhaseSummary(rows: BenchmarkRow[], phase: Phase): PhaseSummary {
       p95: percentile(generationTimes, 95),
       max: max(generationTimes),
     },
-  };
+  } as TIdentity & Omit<PhaseSummary, 'phase'>;
 }
 
 function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): BenchmarkSummary {
   const byPhase = (['cold', 'warm'] as const).map((phase) => buildPhaseSummary(rows, phase));
+  const byColdZoomBand = (['z4-z10', 'z11-z13', 'z14-z17'] as const).map((zoomBand) =>
+    buildColdZoomBandSummary(rows, zoomBand)
+  );
   const unexpectedStatuses = rows.filter((row) => !isExpectedStatus(row));
   const failures = unexpectedStatuses.map(
     (row) => `${row.city} ${row.z}/${row.x}/${row.y} ${row.phase} returned status ${row.status}`
@@ -473,6 +494,7 @@ function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): Benchmar
     },
     rows,
     byPhase,
+    byColdZoomBand,
     unexpectedStatuses,
     failures,
   };
@@ -503,6 +525,26 @@ function printSummary(summary: BenchmarkSummary): void {
     );
   }
 
+  console.error('');
+  console.error('Cold zoom bands');
+  for (const bandSummary of summary.byColdZoomBand) {
+    console.error(
+      `${bandSummary.zoomBand}: requests=${bandSummary.requests}, ok_statuses=${
+        bandSummary.okStatuses
+      }, unexpected_statuses=${bandSummary.unexpectedStatuses}, errors=${
+        bandSummary.errors
+      }, avg_client_ms=${formatMs(bandSummary.avgClientMs)}, p50_client_ms=${formatMs(
+        bandSummary.p50ClientMs
+      )}, p95_client_ms=${formatMs(bandSummary.p95ClientMs)}, max_client_ms=${formatMs(
+        bandSummary.maxClientMs
+      )}, avg_bytes=${bandSummary.avgBytes}, gen_count=${
+        bandSummary.generationTimeMs.count
+      }, p50_gen_ms=${formatMs(bandSummary.generationTimeMs.p50)}, p95_gen_ms=${formatMs(
+        bandSummary.generationTimeMs.p95
+      )}, max_gen_ms=${formatMs(bandSummary.generationTimeMs.max)}`
+    );
+  }
+
   if (summary.unexpectedStatuses.length > 0) {
     console.error('');
     console.error('Unexpected statuses');
@@ -525,6 +567,7 @@ function printSummary(summary: BenchmarkSummary): void {
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const requests = buildTileRequests();
+  const coldRequests = buildColdTileRequests(requests);
   const rows: BenchmarkRow[] = [];
 
   console.error(`Base URL: ${options.baseUrl}`);
@@ -533,9 +576,10 @@ async function main(): Promise<void> {
   console.error(
     'Cold-cache method: restart the API before running; this script does not clear caches or add cache-busting query params.'
   );
+  console.error('Cold request order: z14-z17, z11-z13, z4-z10.');
   console.log(CSV_COLUMNS.join(','));
 
-  for (const request of requests) {
+  for (const request of coldRequests) {
     const row = await fetchTile(options.baseUrl, request, 'cold', options.timeoutMs);
     rows.push(row);
     console.log(rowToCsv(row));

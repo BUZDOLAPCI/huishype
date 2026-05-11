@@ -29,6 +29,10 @@ export interface SweepDispatchResult {
   maintenancePending: boolean;
 }
 
+export interface CollectRecoveryDispatchOptions {
+  sourceNames?: readonly string[];
+}
+
 export interface IngestRunLifecycleResult {
   runId: string;
   sourceName: string;
@@ -438,7 +442,18 @@ export async function finalizeIngestRunLifecycle(
   };
 }
 
-async function markSupersededBatchesAfterWatermark(limit: number): Promise<SupersededBatchRow[]> {
+function sourceNameSqlFilter(columnSql: ReturnType<typeof sql>, sourceNames: readonly string[] | undefined) {
+  if (!sourceNames || sourceNames.length === 0) {
+    return sql``;
+  }
+
+  return sql`AND ${columnSql} IN (${sql.join(sourceNames.map((sourceName) => sql`${sourceName}`), sql`, `)})`;
+}
+
+async function markSupersededBatchesAfterWatermark(
+  limit: number,
+  sourceNames?: readonly string[],
+): Promise<SupersededBatchRow[]> {
   const candidates = await db.execute<SupersededBatchCandidate>(sql`
     SELECT
       b.id,
@@ -455,6 +470,7 @@ async function markSupersededBatchesAfterWatermark(limit: number): Promise<Super
       AND s.last_committed_cursor IS NOT NULL
       AND ${sourceCursorBoundBatchPredicate()}
       AND NOT ${hasProjectionEvidencePredicate()}
+      ${sourceNameSqlFilter(sql`b.source_name`, sourceNames)}
     ORDER BY b.received_at, b.batch_sequence, b.id
     LIMIT ${limit}
   `);
@@ -482,7 +498,10 @@ async function markSupersededBatchesAfterWatermark(limit: number): Promise<Super
   `));
 }
 
-async function listStaleEvidenceBatchIdsAfterWatermark(limit: number): Promise<string[]> {
+async function listStaleEvidenceBatchIdsAfterWatermark(
+  limit: number,
+  sourceNames?: readonly string[],
+): Promise<string[]> {
   const candidates = await db.execute<SupersededBatchCandidate>(sql`
     SELECT
       b.id,
@@ -499,6 +518,7 @@ async function listStaleEvidenceBatchIdsAfterWatermark(limit: number): Promise<s
       AND s.last_committed_cursor IS NOT NULL
       AND ${sourceCursorBoundBatchPredicate()}
       AND ${hasProjectionEvidencePredicate()}
+      ${sourceNameSqlFilter(sql`b.source_name`, sourceNames)}
     ORDER BY b.received_at, b.batch_sequence, b.id
     LIMIT ${Math.max(limit * 10, 100)}
   `);
@@ -743,6 +763,7 @@ export async function markMaintenanceRequestsCompletedBefore(cutoff: Date): Prom
 export async function listSkippedBatchRecoveryCandidates(
   referenceTime: Date,
   limit = 100,
+  sourceNames?: readonly string[],
 ): Promise<SkippedBatchRecoveryCandidate[]> {
   const dueBefore = new Date(referenceTime.getTime() - SKIPPED_BATCH_RECOVERY_COOLDOWN_MS).toISOString();
   const rows = await db.execute<SkippedBatchRecoveryCandidateRow>(sql`
@@ -757,6 +778,7 @@ export async function listSkippedBatchRecoveryCandidates(
       maintenance_completed_at
     FROM ingest_batches
     WHERE status = 'completed'
+      ${sourceNameSqlFilter(sql`source_name`, sourceNames)}
       AND jsonb_typeof(payload_json->'listings') = 'array'
       AND jsonb_array_length(payload_json->'listings') > 0
       AND (
@@ -987,8 +1009,10 @@ export async function requeueBlockedSourceBatchesAtWatermark(
 export async function collectRecoveryDispatchWork(
   staleProcessingBefore: Date,
   limit = 100,
+  options: CollectRecoveryDispatchOptions = {},
 ): Promise<SweepDispatchResult> {
   const staleProcessingBeforeIso = staleProcessingBefore.toISOString();
+  const sourceNames = options.sourceNames;
   const staleRows = await db.execute<{ id: string }>(sql`
     UPDATE ingest_batches
     SET
@@ -998,12 +1022,13 @@ export async function collectRecoveryDispatchWork(
     WHERE status = 'processing'
       AND started_at IS NOT NULL
       AND started_at < ${staleProcessingBeforeIso}
+      ${sourceNameSqlFilter(sql`source_name`, sourceNames)}
     RETURNING id
   `);
 
-  const supersededRows = await markSupersededBatchesAfterWatermark(Math.max(limit * 10, 100));
+  const supersededRows = await markSupersededBatchesAfterWatermark(Math.max(limit * 10, 100), sourceNames);
   await finalizeSupersededRunLifecycles(supersededRows);
-  const staleEvidenceBatchIds = await listStaleEvidenceBatchIdsAfterWatermark(limit);
+  const staleEvidenceBatchIds = await listStaleEvidenceBatchIdsAfterWatermark(limit, sourceNames);
 
   const recoverableCandidates = await db.execute<{
     id: string;
@@ -1026,6 +1051,7 @@ export async function collectRecoveryDispatchWork(
         (b.cursor_start IS NULL AND s.last_committed_cursor IS NULL)
         OR b.cursor_start IS NOT NULL
       )
+      ${sourceNameSqlFilter(sql`b.source_name`, sourceNames)}
     ORDER BY b.source_name, b.received_at DESC, b.batch_sequence DESC, b.id DESC
     LIMIT ${Math.max(limit * 10, 100)}
   `);
@@ -1055,11 +1081,14 @@ export async function collectRecoveryDispatchWork(
       and(
         isNull(ingestBatches.maintenanceCompletedAt),
         sql`${ingestBatches.maintenanceRequestedAt} IS NOT NULL`,
+        sourceNames && sourceNames.length > 0
+          ? inArray(ingestBatches.sourceName, [...sourceNames])
+          : undefined,
       ),
     )
     .limit(1);
 
-  const skippedRecoveryRows = await listSkippedBatchRecoveryCandidates(new Date(), 1);
+  const skippedRecoveryRows = await listSkippedBatchRecoveryCandidates(new Date(), 1, sourceNames);
   const skippedRecoveryPending = skippedRecoveryRows.length > 0;
 
   return {

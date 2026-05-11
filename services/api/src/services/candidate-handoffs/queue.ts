@@ -20,6 +20,7 @@ type ExistingJobLike = {
 };
 
 let candidateHandoffQueue: QueueLike<CandidateHandoffJobData> | null = null;
+let enqueueCandidateHandoffOverrideForTests: ((handoffId: string) => Promise<void>) | null = null;
 
 async function loadQueueConstructor<T>(): Promise<
   new (name: string, options: Record<string, unknown>) => QueueLike<T>
@@ -51,6 +52,11 @@ async function getCandidateHandoffQueue(): Promise<QueueLike<CandidateHandoffJob
 }
 
 export async function enqueueCandidateHandoff(handoffId: string): Promise<void> {
+  if (enqueueCandidateHandoffOverrideForTests) {
+    await enqueueCandidateHandoffOverrideForTests(handoffId);
+    return;
+  }
+
   const queue = await getCandidateHandoffQueue();
   const existingJob = await queue.getJob(handoffId) as ExistingJobLike | null;
 
@@ -76,7 +82,18 @@ export async function enqueueCandidateHandoff(handoffId: string): Promise<void> 
   );
 }
 
+export function setCandidateHandoffEnqueueOverrideForTests(
+  override: ((handoffId: string) => Promise<void>) | null,
+): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('Candidate handoff enqueue override is only available in tests');
+  }
+
+  enqueueCandidateHandoffOverrideForTests = override;
+}
+
 export async function closeCandidateHandoffQueues(): Promise<void> {
   await candidateHandoffQueue?.close();
   candidateHandoffQueue = null;
+  enqueueCandidateHandoffOverrideForTests = null;
 }

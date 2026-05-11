@@ -51,6 +51,7 @@ import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateTreeCandidates } from '../services/tree-scatter.js';
+import huishypeBaseStyle from '../styles/huishype-base-style.json' with { type: 'json' };
 import {
   buildFollowingMvtForTile,
   buildMvtForTile,
@@ -207,6 +208,16 @@ const tileJsonResponseSchema = z.object({
 
 const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
+const PROPERTY_TILE_PYRAMID_ROUTE_MAX_ZOOM = 10;
+const OPENFREEMAP_VECTOR_SOURCE = {
+  type: 'vector',
+  tiles: ['https://tiles.openfreemap.org/planet/20260506_001001_pt/{z}/{x}/{y}.pbf'],
+  minzoom: 0,
+  maxzoom: 14,
+  bounds: [-180, -85.05113, 180, 85.05113],
+  attribution:
+    '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+} satisfies Record<string, unknown>;
 const pendingDefaultPropertyTileSnapshotRefreshes = new Set<Promise<unknown>>();
 
 type PropertyTilePyramidRouteService = {
@@ -249,7 +260,7 @@ export function resetPropertyTileCacheForTests(): void {
 }
 
 export function setPropertyTilePyramidServiceForTests(
-  service: Partial<PropertyTilePyramidRouteService>,
+  service: Partial<PropertyTilePyramidRouteService>
 ): void {
   if (process.env.NODE_ENV !== 'test') {
     return;
@@ -395,11 +406,14 @@ function sendPyramidUnavailableTile(
       'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
     >;
     buildRequest?: PropertyTilePyramidBuildRequest;
-  },
+  }
 ) {
   if (input.buildRequest?.status === 'enqueued') {
     reply.header('X-HuisHype-Tile-Status', 'pyramid-build-enqueued');
-  } else if (input.buildRequest?.status === 'coalesced' || input.buildRequest?.status === 'backoff') {
+  } else if (
+    input.buildRequest?.status === 'coalesced' ||
+    input.buildRequest?.status === 'backoff'
+  ) {
     reply.header('X-HuisHype-Tile-Status', 'pyramid-build-active');
   } else if (input.buildRequest?.status === 'terminal') {
     reply.header('X-HuisHype-Tile-Status', 'pyramid-terminal');
@@ -430,7 +444,7 @@ function sendPyramidUncoveredTile(
   runtime: Pick<
     PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
     'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
-  >,
+  >
 ) {
   return reply
     .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
@@ -452,7 +466,7 @@ async function requestPyramidBuildForTileRoute(
     z: number;
     x: number;
     y: number;
-  },
+  }
 ): Promise<PropertyTilePyramidBuildRequest | undefined> {
   try {
     return await propertyTilePyramidRouteService.requestBuild({
@@ -468,7 +482,7 @@ async function requestPyramidBuildForTileRoute(
         x: input.x,
         y: input.y,
       },
-      'Failed to request replacement property tile pyramid build',
+      'Failed to request replacement property tile pyramid build'
     );
     return undefined;
   }
@@ -480,7 +494,7 @@ async function markPyramidVersionDegradedForTileRoute(
     version: CurrentPropertyTilePyramidVersion;
     reason: string;
     details: Record<string, unknown>;
-  },
+  }
 ): Promise<void> {
   try {
     await propertyTilePyramidRouteService.markVersionDegraded({
@@ -497,7 +511,7 @@ async function markPyramidVersionDegradedForTileRoute(
         reason: input.reason,
         details: input.details,
       },
-      'Failed to mark property tile pyramid version degraded',
+      'Failed to mark property tile pyramid version degraded'
     );
   }
 }
@@ -647,7 +661,7 @@ function logTileOutcome(input: {
       viewerId: input.viewerId,
       stageTimings: input.stageTimings,
     },
-    'Property tile outcome',
+    'Property tile outcome'
   );
 }
 
@@ -811,10 +825,7 @@ function readStateScopeRuntimeKey(viewerScope: string): string {
 function isRecoverableRuntimeResult<TResult>(
   runtimeResult: PropertyTileRuntimeResult<TResult>
 ): boolean {
-  return (
-    runtimeResult.state !== 'error' ||
-    isPropertyTileRecoverableError(runtimeResult.error)
-  );
+  return runtimeResult.state !== 'error' || isPropertyTileRecoverableError(runtimeResult.error);
 }
 
 async function runReadStateScopeLookup(input: {
@@ -1080,6 +1091,26 @@ function normalizeCssColors(obj: unknown): void {
         normalizeCssColors(val);
       }
     }
+  }
+}
+
+function normalizeTextFontStacks(layers: Array<Record<string, unknown>>): void {
+  for (const layer of layers) {
+    if (layer.type !== 'symbol') continue;
+    const layout = layer.layout as Record<string, unknown> | undefined;
+    if (!layout || !Array.isArray(layout['text-font'])) continue;
+
+    const fontStack = layout['text-font'] as unknown[];
+    const normalized = fontStack
+      .map((font) => {
+        if (typeof font !== 'string') return font;
+        if (font.includes('Italic')) return 'Noto Sans Italic';
+        if (font.includes('Bold') || font.includes('Medium')) return 'Noto Sans Bold';
+        return 'Noto Sans Regular';
+      })
+      .filter((font, index, fonts) => fonts.indexOf(font) === index);
+
+    layout['text-font'] = normalized;
   }
 }
 
@@ -1763,7 +1794,11 @@ export async function tileRoutes(app: FastifyInstance) {
       const { fontstack, range } = request.params;
 
       // Sanitise path components to prevent directory traversal
-      const safeFontstack = fontstack.replace(/[^a-zA-Z0-9 _-]/g, '');
+      const requestedFontstacks = fontstack
+        .split(',')
+        .map((font) => font.replace(/[^a-zA-Z0-9 _-]/g, '').trim())
+        .filter(Boolean);
+      const safeFontstack = requestedFontstacks.join(',');
       const safeRange = range.replace(/[^0-9-.pbf]/g, '');
 
       const filePath = join(FONTS_DIR, safeFontstack, safeRange);
@@ -1775,11 +1810,10 @@ export async function tileRoutes(app: FastifyInstance) {
           .header('Cache-Control', 'public, max-age=604800, immutable')
           .send(data);
       } catch {
-        // Try fallback: if a composite fontstack was requested (e.g. "Noto Sans Regular,Arial Unicode MS Regular"),
-        // try just the first font in the comma-separated list
-        if (safeFontstack.includes(',')) {
-          const firstFont = safeFontstack.split(',')[0].trim();
-          const fallbackPath = join(FONTS_DIR, firstFont, safeRange);
+        // Try each member of a composite fontstack in order.
+        for (const fallbackFont of requestedFontstacks) {
+          if (fallbackFont === safeFontstack) continue;
+          const fallbackPath = join(FONTS_DIR, fallbackFont, safeRange);
           try {
             const data = await readFile(fallbackPath);
             return reply
@@ -1787,7 +1821,7 @@ export async function tileRoutes(app: FastifyInstance) {
               .header('Cache-Control', 'public, max-age=604800, immutable')
               .send(data);
           } catch {
-            // Fall through to 404
+            // Try the next font in the stack.
           }
         }
         return reply.status(404).send({ error: 'Font range not found' });
@@ -1878,9 +1912,7 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       try {
-        // Fetch base style from OpenFreeMap
-        const resp = await fetch('https://tiles.openfreemap.org/styles/positron');
-        const baseStyle = (await resp.json()) as Record<string, unknown>;
+        const baseStyle = JSON.parse(JSON.stringify(huishypeBaseStyle)) as Record<string, unknown>;
 
         const sources = { ...(baseStyle.sources as Record<string, unknown>) };
         const layers = [...(baseStyle.layers as Array<Record<string, unknown>>)];
@@ -1899,33 +1931,13 @@ export async function tileRoutes(app: FastifyInstance) {
           }
         }
 
-        // Resolve TileJSON URL references into inline tile arrays.
-        // MapLibre React Native doesn't resolve `"url"` (TileJSON) references in
-        // style-defined vector sources, so the entire base map fails to render.
-        // We fetch the TileJSON server-side and inline the result.
+        // Resolve bundled TileJSON URL references into inline tile arrays. MapLibre
+        // React Native does not resolve style-defined `"url"` sources reliably, and
+        // the benchmark path must not fetch external style metadata on request.
         for (const [name, src] of Object.entries(sources)) {
           const source = src as Record<string, unknown>;
           if (source.type === 'vector' && typeof source.url === 'string' && !source.tiles) {
-            try {
-              const tjResp = await fetch(source.url as string);
-              const tileJson = (await tjResp.json()) as Record<string, unknown>;
-              // Only keep essential TileJSON fields — large metadata like vector_layers
-              // bloats the style JSON and may cause issues with MapLibre Native's
-              // Fabric bridge serialization.
-              sources[name] = {
-                type: source.type,
-                tiles: tileJson.tiles,
-                ...(tileJson.minzoom != null && { minzoom: tileJson.minzoom }),
-                ...(tileJson.maxzoom != null && { maxzoom: tileJson.maxzoom }),
-                ...(tileJson.bounds ? { bounds: tileJson.bounds } : {}),
-                ...(tileJson.attribution ? { attribution: tileJson.attribution } : {}),
-              };
-            } catch (tjErr) {
-              app.log.warn(
-                tjErr,
-                `Failed to resolve TileJSON for source "${name}" — keeping url reference`
-              );
-            }
+            sources[name] = { ...OPENFREEMAP_VECTOR_SOURCE };
           }
         }
 
@@ -2018,6 +2030,8 @@ export async function tileRoutes(app: FastifyInstance) {
         // on height/base/opacity cause the layer to not render at all.
         flattenFillExtrusionZoomExpressions(filteredLayers);
 
+        normalizeTextFontStacks(filteredLayers);
+
         // Replace Positron's near-gray fill colors with visible alternatives.
         // Positron uses fills that deviate only 2-5 units from pure gray, which
         // are perceptible on WebGL but invisible on mobile GPU renderers.
@@ -2057,7 +2071,7 @@ export async function tileRoutes(app: FastifyInstance) {
 
         return reply.header('Cache-Control', 'public, max-age=60').send(merged);
       } catch (err) {
-        app.log.error(err, 'Failed to fetch base style');
+        app.log.error(err, 'Failed to build base style');
         return reply.status(502).send({ error: 'Failed to build merged style' });
       }
     }
@@ -2232,8 +2246,12 @@ export async function tileRoutes(app: FastifyInstance) {
       const filterSignature = getMapFilterSignature(filters);
       const cacheKey = `${z}/${x}/${y}:${filterSignature}`;
       const runtimeConfig = getPropertyTileRuntimeConfig();
+      const pyramidRouteMaxZoom = Math.min(
+        propertyTilePyramidRouteService.getMaxZoom(),
+        PROPERTY_TILE_PYRAMID_ROUTE_MAX_ZOOM
+      );
       const isPyramidCoveredPublicDefaultTile =
-        filterSignature === 'default' && z <= propertyTilePyramidRouteService.getMaxZoom();
+        filterSignature === 'default' && z <= pyramidRouteMaxZoom;
 
       if (isPyramidCoveredPublicDefaultTile) {
         const startedAt = Date.now();
@@ -2279,12 +2297,13 @@ export async function tileRoutes(app: FastifyInstance) {
           });
         }
 
-        const isRequestedTileCoveredByConfiguredSlot = propertyTilePyramidRouteService.isTileCovered({
-          z,
-          x,
-          y,
-          maxZoom: slot.maxZoom,
-        });
+        const isRequestedTileCoveredByConfiguredSlot =
+          propertyTilePyramidRouteService.isTileCovered({
+            z,
+            x,
+            y,
+            maxZoom: slot.maxZoom,
+          });
         pyramidRuntime.generationTimeMs = Date.now() - startedAt;
         if (current.state !== 'current') {
           if (!isRequestedTileCoveredByConfiguredSlot) {
@@ -2381,7 +2400,8 @@ export async function tileRoutes(app: FastifyInstance) {
               z,
               x,
               y,
-              message: error instanceof Error ? error.message : 'Unknown payload regeneration error',
+              message:
+                error instanceof Error ? error.message : 'Unknown payload regeneration error',
             },
           });
           const buildRequest = await requestPyramidBuildForTileRoute(request, {
@@ -2413,17 +2433,17 @@ export async function tileRoutes(app: FastifyInstance) {
         if (tile.state === 'missing') {
           const isCurrentVersionCoverageCovered = current.version.coverage
             ? isPropertyTilePyramidTileCoveredByCoverage({
-              coverage: current.version.coverage,
-              z,
-              x,
-              y,
-            })
+                coverage: current.version.coverage,
+                z,
+                x,
+                y,
+              })
             : propertyTilePyramidRouteService.isTileCovered({
-              z,
-              x,
-              y,
-              maxZoom: current.version.maxZoom,
-            });
+                z,
+                x,
+                y,
+                maxZoom: current.version.maxZoom,
+              });
           if (!isCurrentVersionCoverageCovered) {
             logTileOutcome({
               request,
@@ -2480,7 +2500,10 @@ export async function tileRoutes(app: FastifyInstance) {
           etag: tile.etag,
         });
         reply.header('X-HuisHype-Pyramid-Version', current.version.versionId);
-        reply.header('X-HuisHype-Tile-Status', tile.statusCode === 204 ? 'pyramid-empty' : 'pyramid-promoted');
+        reply.header(
+          'X-HuisHype-Tile-Status',
+          tile.statusCode === 204 ? 'pyramid-empty' : 'pyramid-promoted'
+        );
         logTileOutcome({
           request,
           routeKind: 'public',

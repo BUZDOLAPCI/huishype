@@ -2,6 +2,7 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -229,7 +230,7 @@ function waitForExit(child, name, stopping) {
   });
 }
 
-function watchRuntimeDeaths({ apiChild, webRuntime, stopping }) {
+function watchRuntimeDeaths({ apiChild, webRuntime, stopping, apiRestarting = { current: false } }) {
   return new Promise((resolve, reject) => {
     const fail = (message) => {
       if (stopping.current) {
@@ -247,6 +248,9 @@ function watchRuntimeDeaths({ apiChild, webRuntime, stopping }) {
       }
 
       apiChild.once('exit', (code, signal) => {
+        if (apiRestarting.current) {
+          return;
+        }
         fail(`API server exited unexpectedly with code ${code} and signal ${signal}`);
       });
     }
@@ -263,6 +267,85 @@ function watchRuntimeDeaths({ apiChild, webRuntime, stopping }) {
       });
     }
   });
+}
+
+function createApiDeathMonitor({ stopping, apiRestarting }) {
+  let rejectPromise;
+  const promise = new Promise((_, reject) => {
+    rejectPromise = reject;
+  });
+
+  return {
+    promise,
+    watch(child) {
+      if (!child) {
+        return;
+      }
+
+      if (child.exitCode !== null || child.signalCode !== null) {
+        if (!stopping.current && !apiRestarting.current) {
+          rejectPromise(
+            new Error(
+              `API server exited unexpectedly with code ${child.exitCode} and signal ${child.signalCode} while Playwright was running`,
+            ),
+          );
+        }
+        return;
+      }
+
+      child.once('exit', (code, signal) => {
+        if (stopping.current || apiRestarting.current) {
+          return;
+        }
+        rejectPromise(
+          new Error(
+            `API server exited unexpectedly with code ${code} and signal ${signal} while Playwright was running`,
+          ),
+        );
+      });
+    },
+  };
+}
+
+async function startApiRestartControlServer({ restartApi }) {
+  const server = createHttpServer((request, response) => {
+    if (request.method !== 'POST' || request.url !== '/restart-api') {
+      response.writeHead(404, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: 'not_found' }));
+      return;
+    }
+
+    Promise.resolve()
+      .then(() => restartApi())
+      .then(() => {
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: true }));
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'restart_failed', message }));
+      });
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address !== 'object') {
+    throw new Error('Unable to bind benchmark API restart control server');
+  }
+
+  return {
+    server,
+    url: `http://127.0.0.1:${address.port}/restart-api`,
+    close: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
 }
 
 async function waitForFile(filePath, label, timeoutMs = READY_TIMEOUT_MS) {
@@ -409,6 +492,7 @@ async function main() {
 
   syncRuntimeEnvironment(process.env);
 
+  let apiRestartUrl = null;
   const createChildEnv = () => ({
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
@@ -421,6 +505,7 @@ async function main() {
     PLAYWRIGHT_WEB_URL: webUrl,
     PLAYWRIGHT_DISABLE_WEBSERVER: '1',
     PLAYWRIGHT_REPO_ROOT: repoRoot,
+    ...(apiRestartUrl ? { BENCHMARK_API_RESTART_URL: apiRestartUrl } : {}),
   });
 
   let childEnv = createChildEnv();
@@ -429,9 +514,14 @@ async function main() {
   let apiExitPromise = Promise.resolve();
   let webRuntime = null;
   let staticWebRoot = null;
+  let apiRestartControl = null;
   let playwrightChild = null;
   let playwrightExitPromise = Promise.resolve(0);
   const stopping = { current: false };
+  const apiRestarting = { current: false };
+  const enableApiRestartControl = process.env.BENCHMARK_BACKEND_COLD === '1';
+  const apiDeathMonitor = createApiDeathMonitor({ stopping, apiRestarting });
+  apiDeathMonitor.promise.catch(() => {});
 
   const stop = async (signal) => {
     if (stopping.current) {
@@ -446,6 +536,9 @@ async function main() {
       waitForChildExit(apiChild, 'API server').catch(() => {}),
       Promise.resolve()
         .then(() => webRuntime?.stop?.())
+        .catch(() => {}),
+      Promise.resolve()
+        .then(() => apiRestartControl?.close?.())
         .catch(() => {}),
       Promise.resolve().then(() => {
         if (staticWebRoot) {
@@ -486,24 +579,52 @@ async function main() {
     },
   );
 
-  console.log(`Starting API server on ${apiUrl} ...`);
-  const apiRuntime = await startServiceWithRetry({
-    label: 'API server',
-    command: process.execPath,
-    args: ['--require', tsxPreflight, '--import', tsxLoader, 'src/index.ts'],
-    env: {
-      ...childEnv,
-      PORT: String(apiPort),
-    },
-    cwd: apiCwd,
-    port: apiPort,
-    readyUrl: `${apiUrl}/health`,
-    stopping,
-    spawnServiceImpl: (command, args, env, cwd) =>
-      spawnService(command, args, env, cwd, ['ignore', 'ignore', 'ignore']),
-  });
-  apiChild = apiRuntime.child;
-  apiExitPromise = apiRuntime.exitPromise;
+  const startApiServer = async () => {
+    console.log(`Starting API server on ${apiUrl} ...`);
+    const apiRuntime = await startServiceWithRetry({
+      label: 'API server',
+      command: process.execPath,
+      args: ['--require', tsxPreflight, '--import', tsxLoader, 'src/index.ts'],
+      env: {
+        ...childEnv,
+        PORT: String(apiPort),
+      },
+      cwd: apiCwd,
+      port: apiPort,
+      readyUrl: `${apiUrl}/health`,
+      stopping,
+      spawnServiceImpl: (command, args, env, cwd) =>
+        spawnService(command, args, env, cwd, ['ignore', 'ignore', 'ignore']),
+    });
+    apiChild = apiRuntime.child;
+    apiExitPromise = apiRuntime.exitPromise.catch(() => {});
+    apiDeathMonitor.watch(apiChild);
+  };
+
+  await startApiServer();
+
+  if (enableApiRestartControl) {
+    let restartChain = Promise.resolve();
+    apiRestartControl = await startApiRestartControlServer({
+      restartApi: async () => {
+        restartChain = restartChain.then(async () => {
+          apiRestarting.current = true;
+          try {
+            stopService(apiChild, 'SIGTERM');
+            await waitForChildExit(apiChild, 'API server');
+            childEnv = createChildEnv();
+            await startApiServer();
+          } finally {
+            apiRestarting.current = false;
+          }
+        });
+        await restartChain;
+      },
+    });
+    apiRestartUrl = apiRestartControl.url;
+    childEnv = createChildEnv();
+    console.log(`Benchmark API restart control ready at ${apiRestartUrl}`);
+  }
 
   console.log('Building Expo web bundle for Playwright runtime ...');
   const exportStartedAtMs = Date.now();
@@ -579,7 +700,6 @@ async function main() {
 
   console.log(`Runtime ready: ${apiUrl} and ${webUrl}`);
   const runtimeDeathPromise = watchRuntimeDeaths({
-    apiChild,
     webRuntime,
     stopping,
   });
@@ -609,6 +729,7 @@ async function main() {
   const exitCode = await Promise.race([
     playwrightExitPromise,
     runtimeDeathPromise,
+    apiDeathMonitor.promise,
   ]);
 
   await stop('SIGTERM');
@@ -616,7 +737,9 @@ async function main() {
 }
 
 export {
+  createApiDeathMonitor,
   resolveRuntimePort,
+  startApiRestartControlServer,
   startServiceWithRetry,
   waitForChildExit,
   waitForExit,
