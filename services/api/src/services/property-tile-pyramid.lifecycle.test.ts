@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 type ExecuteMock = (...args: unknown[]) => Promise<unknown>;
 type TransactionMock = (
-  run: (tx: { execute: ExecuteMock }) => Promise<unknown>,
+  run: (tx: { execute: ExecuteMock }) => Promise<unknown>
 ) => Promise<unknown>;
 
 const executeMock = jest.fn<ExecuteMock>();
@@ -13,13 +13,13 @@ const buildGroupsMock = jest.fn<(...args: unknown[]) => Promise<unknown[]>>();
 const reserveDbConnectionMock = jest.fn<() => Promise<unknown>>();
 
 jest.unstable_mockModule('../db/index.js', () => ({
-	  db: {
-	    execute: executeMock,
-	    transaction: transactionMock,
-	  },
-	  reserveDbConnection: reserveDbConnectionMock,
-	  closeConnection: async () => undefined,
-	}));
+  db: {
+    execute: executeMock,
+    transaction: transactionMock,
+  },
+  reserveDbConnection: reserveDbConnectionMock,
+  closeConnection: async () => undefined,
+}));
 
 jest.unstable_mockModule('./ingest/queue.js', () => ({
   enqueuePropertyTilePyramidBuild: enqueuePropertyTilePyramidBuildMock,
@@ -50,11 +50,9 @@ jest.unstable_mockModule('./property-tile-snapshots.js', () => ({
 
 function withTemporaryEnv<T>(
   updates: Record<string, string | undefined>,
-  run: () => Promise<T>,
+  run: () => Promise<T>
 ): Promise<T> {
-  const previous = new Map(
-    Object.keys(updates).map((key) => [key, process.env[key]] as const),
-  );
+  const previous = new Map(Object.keys(updates).map((key) => [key, process.env[key]] as const));
 
   for (const [key, value] of Object.entries(updates)) {
     if (value === undefined) {
@@ -85,10 +83,9 @@ describe('property tile pyramid build lifecycle', () => {
     buildGroupsMock.mockReset();
     reserveDbConnectionMock.mockReset();
     buildGroupsMock.mockResolvedValue([]);
-    reserveDbConnectionMock.mockResolvedValue(Object.assign(
-      async () => [{ locked: true, required: false }],
-      { release: jest.fn() },
-    ));
+    reserveDbConnectionMock.mockResolvedValue(
+      Object.assign(async () => [{ locked: true, required: false }], { release: jest.fn() })
+    );
     transactionMock.mockImplementation(async (run) => run({ execute: txExecuteMock }));
   });
 
@@ -365,165 +362,171 @@ describe('property tile pyramid build lifecycle', () => {
     expect(executeMock).toHaveBeenCalledTimes(2);
   });
 
-  it.each([
-    ['expired active'],
-    ['legacy validated'],
-  ])('enqueues a recovered %s build identity instead of coalescing', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: 'recovered-version',
-          status: 'failed_retryable',
-          next_retry_at: null,
-          queue_eligible: true,
-        },
-      ]);
-    enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
-      status: 'enqueued',
-      jobId: 'job-1',
-    });
+  it.each([['expired active'], ['legacy validated']])(
+    'enqueues a recovered %s build identity instead of coalescing',
+    async () => {
+      executeMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'recovered-version',
+            status: 'failed_retryable',
+            next_retry_at: null,
+            queue_eligible: true,
+          },
+        ]);
+      enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
+        status: 'enqueued',
+        jobId: 'job-1',
+      });
 
-    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
-    const result = await requestPropertyTilePyramidBuild({
-      reason: 'worker-recovery',
-      sourceWatermarkHash: 'watermarks',
-      sourceWatermarksJson: {},
-      buildInputsHash: 'inputs',
-    });
+      const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+      const result = await requestPropertyTilePyramidBuild({
+        reason: 'worker-recovery',
+        sourceWatermarkHash: 'watermarks',
+        sourceWatermarksJson: {},
+        buildInputsHash: 'inputs',
+      });
 
-    expect(result).toMatchObject({
-      status: 'enqueued',
-      versionId: 'recovered-version',
-      existingStatus: 'failed_retryable',
-      queueJobId: expect.stringMatching(/^property-tile-pyramid-[a-f0-9]{40}$/),
-    });
-    expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
-    const recoveryQuery = JSON.stringify(executeMock.mock.calls[0]?.[0]);
-    expect(recoveryQuery).toContain("status IN ('building', 'validating')");
-    expect(recoveryQuery).toContain("status = 'validated'");
-    expect(recoveryQuery).toContain('lease_until IS NULL');
-    expect(recoveryQuery).not.toContain('build_inputs_hash =');
-    expect(recoveryQuery).not.toContain('source_watermark_hash =');
-  });
+      expect(result).toMatchObject({
+        status: 'enqueued',
+        versionId: 'recovered-version',
+        existingStatus: 'failed_retryable',
+        queueJobId: expect.stringMatching(/^property-tile-pyramid-[a-f0-9]{40}$/),
+      });
+      expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+      const recoveryQuery = JSON.stringify(executeMock.mock.calls[0]?.[0]);
+      expect(recoveryQuery).toContain("status IN ('building', 'validating')");
+      expect(recoveryQuery).toContain("status = 'validated'");
+      expect(recoveryQuery).toContain('lease_until IS NULL');
+      expect(recoveryQuery).not.toContain('build_inputs_hash =');
+      expect(recoveryQuery).not.toContain('source_watermark_hash =');
+    }
+  );
 
   it('keeps validation and promotion in one transaction so promotion failure is recoverable', async () => {
-    await withTemporaryEnv({
-      PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
-      PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: '1000000',
-    }, async () => {
-      const pyramid = await import('./property-tile-pyramid.js');
-      executeMock.mockResolvedValue([]);
-      const emptySourceWatermarks = await pyramid.readPropertyTilePyramidSourceWatermarkSnapshot();
-      executeMock.mockReset();
-      const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
-        coverageId: 'public_default_low_zoom',
-        filterSignature: 'default',
-        maxZoom: 0,
-        pyramidKind: 'public_default_low_zoom',
-      });
-      let callIndex = 0;
-      let sourceWatermarkSnapshotCount = 0;
-      executeMock.mockImplementation(async (query) => {
-        callIndex += 1;
-        if (callIndex === 1) {
-          return [{ retryable_version_count: 0 }];
-        }
-        if (callIndex === 2) {
-          return [
-            {
-              id: 'build-version',
-              status: 'building',
-              coverage_id: 'public_default_low_zoom',
-              filter_signature: 'default',
-              max_zoom: 0,
-              pyramid_kind: 'public_default_low_zoom',
-              config_hash: identity.configHash,
-              build_inputs_hash: identity.buildInputsHash,
-              source_watermark_hash: emptySourceWatermarks.sourceWatermarkHash,
-              source_watermarks_json: emptySourceWatermarks.sourceWatermarksJson,
-              coverage_snapshot_json: identity.coverageSnapshot,
-              config_snapshot_json: identity.configSnapshot,
-              grouping_constants_json: identity.groupingConstants,
-              pending_replacement_watermarks_json: {},
-              lease_token: 'lease-token',
-            },
-          ];
-        }
-        const queryText = JSON.stringify(query);
-        if (
-          queryText.includes('EXPLAIN (FORMAT JSON)')
-          || queryText.includes('FROM property_tile_snapshot_watermarks')
-          || queryText.includes('FROM ingest_sources')
-          || queryText.includes('FROM listing_source_scope_watermarks')
-          || queryText.includes('FROM listing_scope_completions')
-          || queryText.includes('FROM property_tile_listing_candidates')
-          || queryText.includes('FROM property_tile_listing_facts')
-        ) {
-          return [];
-        }
-        if (queryText.includes('FROM property_tile_pyramid_source_watermarks')) {
-          sourceWatermarkSnapshotCount += 1;
-          return sourceWatermarkSnapshotCount === 1
-            ? []
-            : [
-                {
-                  scope: 'listing_facts',
-                  scope_key: 'global',
-                  watermark_value: '2',
-                  watermark_timestamp: '2026-05-07T10:00:00.000Z',
-                  updated_at: '2026-05-07T10:00:00.000Z',
-                },
-              ];
-        }
-        if (queryText.includes(' AS ok')) {
-          return [{ ok: true }];
-        }
-        if (queryText.includes('active_replacement')) {
-          return [
-            {
-              id: 'successor-version',
-              status: 'queued',
-              next_retry_at: null,
-              queue_eligible: true,
-              pending_replacement: false,
-            },
-          ];
-        }
-        return [{ affected: 1 }];
-      });
-      txExecuteMock
-        .mockResolvedValueOnce([{ affected: 1 }])
-        .mockResolvedValueOnce([{ current_version_id: null }])
-        .mockRejectedValueOnce(new Error('current pointer compare-and-swap failed'));
+    await withTemporaryEnv(
+      {
+        PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
+        PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: '1000000',
+      },
+      async () => {
+        const pyramid = await import('./property-tile-pyramid.js');
+        executeMock.mockResolvedValue([]);
+        const emptySourceWatermarks =
+          await pyramid.readPropertyTilePyramidSourceWatermarkSnapshot();
+        executeMock.mockReset();
+        const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 0,
+          pyramidKind: 'public_default_low_zoom',
+        });
+        let callIndex = 0;
+        let sourceWatermarkSnapshotCount = 0;
+        executeMock.mockImplementation(async (query) => {
+          callIndex += 1;
+          if (callIndex === 1) {
+            return [{ retryable_version_count: 0 }];
+          }
+          if (callIndex === 2) {
+            return [
+              {
+                id: 'build-version',
+                status: 'building',
+                coverage_id: 'public_default_low_zoom',
+                filter_signature: 'default',
+                max_zoom: 0,
+                pyramid_kind: 'public_default_low_zoom',
+                config_hash: identity.configHash,
+                build_inputs_hash: identity.buildInputsHash,
+                source_watermark_hash: emptySourceWatermarks.sourceWatermarkHash,
+                source_watermarks_json: emptySourceWatermarks.sourceWatermarksJson,
+                coverage_snapshot_json: identity.coverageSnapshot,
+                config_snapshot_json: identity.configSnapshot,
+                grouping_constants_json: identity.groupingConstants,
+                pending_replacement_watermarks_json: {},
+                lease_token: 'lease-token',
+              },
+            ];
+          }
+          const queryText = JSON.stringify(query);
+          if (
+            queryText.includes('EXPLAIN (FORMAT JSON)') ||
+            queryText.includes('FROM property_tile_snapshot_watermarks') ||
+            queryText.includes('FROM ingest_sources') ||
+            queryText.includes('FROM listing_source_scope_watermarks') ||
+            queryText.includes('FROM listing_scope_completions') ||
+            queryText.includes('FROM property_tile_listing_candidates') ||
+            queryText.includes('FROM property_tile_listing_facts')
+          ) {
+            return [];
+          }
+          if (queryText.includes('FROM property_tile_pyramid_source_watermarks')) {
+            sourceWatermarkSnapshotCount += 1;
+            return sourceWatermarkSnapshotCount === 1
+              ? []
+              : [
+                  {
+                    scope: 'listing_facts',
+                    scope_key: 'global',
+                    watermark_value: '2',
+                    watermark_timestamp: '2026-05-07T10:00:00.000Z',
+                    updated_at: '2026-05-07T10:00:00.000Z',
+                  },
+                ];
+          }
+          if (queryText.includes(' AS ok')) {
+            return [{ ok: true }];
+          }
+          if (queryText.includes('active_replacement')) {
+            return [
+              {
+                id: 'successor-version',
+                status: 'queued',
+                next_retry_at: null,
+                queue_eligible: true,
+                pending_replacement: false,
+              },
+            ];
+          }
+          return [{ affected: 1 }];
+        });
+        txExecuteMock
+          .mockResolvedValueOnce([{ affected: 1 }])
+          .mockResolvedValueOnce([{ current_version_id: null }])
+          .mockRejectedValueOnce(new Error('current pointer compare-and-swap failed'));
 
-      await expect(pyramid.executeDuePropertyTilePyramidBuild({
-        leaseOwner: 'unit-test',
-        reason: 'worker-build',
-      })).rejects.toThrow('current pointer compare-and-swap failed');
+        await expect(
+          pyramid.executeDuePropertyTilePyramidBuild({
+            leaseOwner: 'unit-test',
+            reason: 'worker-build',
+          })
+        ).rejects.toThrow('current pointer compare-and-swap failed');
 
-      expect(transactionMock).toHaveBeenCalledTimes(1);
-      expect(txExecuteMock).toHaveBeenCalledTimes(3);
-      expect(JSON.stringify(txExecuteMock.mock.calls[2]?.[0])).toContain(
-        'promote_property_tile_pyramid_version',
-      );
-      const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
-      const failureIndex = executedQueries.findIndex((query) => query.includes('build_error'));
-      const successorRequestIndex = executedQueries.findIndex((query) => query.includes('active_replacement'));
-      const failureQuery = executedQueries[failureIndex] ?? '';
-      expect(failureIndex).toBeGreaterThanOrEqual(0);
-      expect(successorRequestIndex).toBeGreaterThan(failureIndex);
-      expect(failureQuery).toContain('failed_retryable');
-      expect(failureQuery).toContain('build_error');
-      expect(failureQuery).not.toContain('source_watermark_advanced');
-    });
+        expect(transactionMock).toHaveBeenCalledTimes(1);
+        expect(txExecuteMock).toHaveBeenCalledTimes(3);
+        expect(JSON.stringify(txExecuteMock.mock.calls[2]?.[0])).toContain(
+          'promote_property_tile_pyramid_version'
+        );
+        const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        const failureIndex = executedQueries.findIndex((query) => query.includes('build_error'));
+        const successorRequestIndex = executedQueries.findIndex((query) =>
+          query.includes('active_replacement')
+        );
+        const failureQuery = executedQueries[failureIndex] ?? '';
+        expect(failureIndex).toBeGreaterThanOrEqual(0);
+        expect(successorRequestIndex).toBeGreaterThan(failureIndex);
+        expect(failureQuery).toContain('failed_retryable');
+        expect(failureQuery).toContain('build_error');
+        expect(failureQuery).not.toContain('source_watermark_advanced');
+      }
+    );
   });
 
   it('restricts a worker job to the intended version id when provided', async () => {
-    executeMock
-      .mockResolvedValueOnce([{ retryable_version_count: 0 }])
-      .mockResolvedValueOnce([]);
+    executeMock.mockResolvedValueOnce([{ retryable_version_count: 0 }]).mockResolvedValueOnce([]);
 
     const { executeDuePropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
     const result = await executeDuePropertyTilePyramidBuild({
@@ -542,56 +545,155 @@ describe('property tile pyramid build lifecycle', () => {
     expect(reserveDbConnectionMock).toHaveBeenCalled();
   });
 
+  it('closes candidate source snapshots inside one repeatable-read transaction', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-07T10:30:00.000Z'));
+    await withTemporaryEnv(
+      {
+        PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
+        PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: '1',
+      },
+      async () => {
+        const pyramid = await import('./property-tile-pyramid.js');
+        executeMock.mockResolvedValue([]);
+        const sourceWatermarks = await pyramid.readPropertyTilePyramidSourceWatermarkSnapshot();
+        executeMock.mockReset();
+        const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 0,
+          pyramidKind: 'public_default_low_zoom',
+        });
+        let executeCallIndex = 0;
+        executeMock.mockImplementation(async (query) => {
+          executeCallIndex += 1;
+          const queryText = JSON.stringify(query);
+          if (executeCallIndex === 1) {
+            return [{ retryable_version_count: 0 }];
+          }
+          if (executeCallIndex === 2) {
+            return [
+              {
+                id: 'build-version',
+                status: 'building',
+                coverage_id: 'public_default_low_zoom',
+                filter_signature: 'default',
+                max_zoom: 0,
+                pyramid_kind: 'public_default_low_zoom',
+                config_hash: identity.configHash,
+                build_inputs_hash: identity.buildInputsHash,
+                source_watermark_hash: sourceWatermarks.sourceWatermarkHash,
+                source_watermarks_json: sourceWatermarks.sourceWatermarksJson,
+                candidate_snapshot_id: null,
+                coverage_snapshot_json: identity.coverageSnapshot,
+                config_snapshot_json: identity.configSnapshot,
+                grouping_constants_json: identity.groupingConstants,
+                pending_replacement_watermarks_json: {},
+                lease_token: 'lease-token',
+              },
+            ];
+          }
+          if (
+            queryText.includes('FROM property_tile_candidate_source_snapshots') ||
+            queryText.includes('FROM property_tile_pyramid_source_watermarks') ||
+            queryText.includes('FROM property_tile_snapshot_watermarks') ||
+            queryText.includes('FROM ingest_sources') ||
+            queryText.includes('FROM listing_source_scope_watermarks') ||
+            queryText.includes('FROM listing_scope_completions') ||
+            queryText.includes('EXPLAIN (FORMAT JSON)')
+          ) {
+            return [];
+          }
+          return [{ affected: 1 }];
+        });
+        txExecuteMock.mockImplementation(async (query) => {
+          const queryText = JSON.stringify(query);
+          if (queryText.includes('INSERT INTO property_tile_candidate_source_snapshots')) {
+            return [{ id: '00000000-0000-0000-0000-0000000000c1' }];
+          }
+          if (queryText.includes('candidate_count')) {
+            return [{ candidate_count: '0', fact_count: '0' }];
+          }
+          return [];
+        });
+
+        const result = await pyramid.executeDuePropertyTilePyramidBuild({
+          leaseOwner: 'unit-test',
+          reason: 'worker-build',
+        });
+
+        expect(result).toMatchObject({
+          status: 'failed_retryable',
+          versionId: 'build-version',
+          failureCategory: 'resource_limit',
+        });
+        expect(transactionMock).toHaveBeenCalledTimes(1);
+        const txQueries = txExecuteMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        const joinedTxQueries = txQueries.join('\n');
+        expect(txQueries[0]).toContain('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        expect(joinedTxQueries).toContain('FROM property_tile_pyramid_source_watermarks');
+        expect(joinedTxQueries).toContain('INSERT INTO property_tile_candidate_source_snapshots');
+        expect(joinedTxQueries).toContain('INSERT INTO property_tile_listing_candidates');
+        expect(joinedTxQueries).toContain('INSERT INTO property_tile_listing_facts');
+        expect(joinedTxQueries).toContain('property_tile_candidate_source_current');
+      }
+    );
+  });
+
   it('uses the configured WAL limit when validating build resources', async () => {
-    await withTemporaryEnv({
-      PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
-      PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: '1',
-    }, async () => {
-      const pyramid = await import('./property-tile-pyramid.js');
-      const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
-        coverageId: 'public_default_low_zoom',
-        filterSignature: 'default',
-        maxZoom: 0,
-        pyramidKind: 'public_default_low_zoom',
-      });
-      executeMock
-        .mockResolvedValueOnce([{ retryable_version_count: 0 }])
-        .mockResolvedValueOnce([
-          {
-            id: 'build-version',
-            status: 'building',
-            coverage_id: 'public_default_low_zoom',
-            filter_signature: 'default',
-            max_zoom: 0,
-            pyramid_kind: 'public_default_low_zoom',
-            config_hash: identity.configHash,
-            build_inputs_hash: identity.buildInputsHash,
-            source_watermark_hash: 'watermarks',
-            coverage_snapshot_json: identity.coverageSnapshot,
-            config_snapshot_json: identity.configSnapshot,
-            grouping_constants_json: identity.groupingConstants,
-            pending_replacement_watermarks_json: {},
-            lease_token: 'lease-token',
-          },
-        ])
-        .mockResolvedValue([{ affected: 1 }]);
+    await withTemporaryEnv(
+      {
+        PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
+        PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: '1',
+      },
+      async () => {
+        const pyramid = await import('./property-tile-pyramid.js');
+        const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 0,
+          pyramidKind: 'public_default_low_zoom',
+        });
+        executeMock
+          .mockResolvedValueOnce([{ retryable_version_count: 0 }])
+          .mockResolvedValueOnce([
+            {
+              id: 'build-version',
+              status: 'building',
+              coverage_id: 'public_default_low_zoom',
+              filter_signature: 'default',
+              max_zoom: 0,
+              pyramid_kind: 'public_default_low_zoom',
+              config_hash: identity.configHash,
+              build_inputs_hash: identity.buildInputsHash,
+              source_watermark_hash: 'watermarks',
+              coverage_snapshot_json: identity.coverageSnapshot,
+              config_snapshot_json: identity.configSnapshot,
+              grouping_constants_json: identity.groupingConstants,
+              pending_replacement_watermarks_json: {},
+              lease_token: 'lease-token',
+            },
+          ])
+          .mockResolvedValue([{ affected: 1 }]);
 
-      const result = await pyramid.executeDuePropertyTilePyramidBuild({
-        leaseOwner: 'unit-test',
-        reason: 'worker-build',
-      });
+        const result = await pyramid.executeDuePropertyTilePyramidBuild({
+          leaseOwner: 'unit-test',
+          reason: 'worker-build',
+        });
 
-      expect(result).toMatchObject({
-        status: 'failed_retryable',
-        versionId: 'build-version',
-        failureCategory: 'resource_limit',
-      });
-      expect(transactionMock).not.toHaveBeenCalled();
-      expect(buildGroupsMock).not.toHaveBeenCalled();
-      const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
-      expect(executedQueries.some((query) => query.includes('EXPLAIN (FORMAT JSON)'))).toBe(true);
-      expect(executedQueries.some((query) => query.includes('DELETE FROM property_tile_pyramid_nodes'))).toBe(false);
-    });
+        expect(result).toMatchObject({
+          status: 'failed_retryable',
+          versionId: 'build-version',
+          failureCategory: 'resource_limit',
+        });
+        expect(transactionMock).not.toHaveBeenCalled();
+        expect(buildGroupsMock).not.toHaveBeenCalled();
+        const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        expect(executedQueries.some((query) => query.includes('EXPLAIN (FORMAT JSON)'))).toBe(true);
+        expect(
+          executedQueries.some((query) => query.includes('DELETE FROM property_tile_pyramid_nodes'))
+        ).toBe(false);
+      }
+    );
   });
 
   it('builds source watermark snapshots from named durable sources', async () => {
@@ -651,18 +753,21 @@ describe('property tile pyramid build lifecycle', () => {
         },
       ]);
 
-    const { readPropertyTilePyramidSourceWatermarkSnapshot } = await import('./property-tile-pyramid.js');
+    const { readPropertyTilePyramidSourceWatermarkSnapshot } =
+      await import('./property-tile-pyramid.js');
     const snapshot = await readPropertyTilePyramidSourceWatermarkSnapshot();
     const sources = (snapshot.sourceWatermarksJson as { sources: unknown[] }).sources;
 
     expect(snapshot.sourceWatermarkHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(sources).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: 'property_tile_snapshot_watermarks' }),
-      expect.objectContaining({ source: 'ingest_sources' }),
-      expect.objectContaining({ source: 'listing_source_scope_watermarks' }),
-      expect.objectContaining({ source: 'listing_scope_completions' }),
-      expect.objectContaining({ source: 'rolling_social_window', bucket: 493930 }),
-    ]));
+    expect(sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'property_tile_snapshot_watermarks' }),
+        expect.objectContaining({ source: 'ingest_sources' }),
+        expect.objectContaining({ source: 'listing_source_scope_watermarks' }),
+        expect.objectContaining({ source: 'listing_scope_completions' }),
+        expect.objectContaining({ source: 'rolling_social_window', bucket: 493930 }),
+      ])
+    );
   });
 
   it('uses the regenerated payload etag when a promoted tile payload is rebuilt from nodes', async () => {
@@ -679,10 +784,8 @@ describe('property tile pyramid build lifecycle', () => {
       .mockResolvedValueOnce([{ mvt: Buffer.from('new-payload') }])
       .mockResolvedValueOnce([]);
 
-    const {
-      buildPropertyTilePyramidEtag,
-      lookupPromotedPropertyTilePyramidTile,
-    } = await import('./property-tile-pyramid.js');
+    const { buildPropertyTilePyramidEtag, lookupPromotedPropertyTilePyramidTile } =
+      await import('./property-tile-pyramid.js');
     const version = {
       versionId: '00000000-0000-0000-0000-000000000001',
       coverageId: 'public_default_low_zoom',
@@ -716,13 +819,15 @@ describe('property tile pyramid build lifecycle', () => {
       encodedFromNodes: true,
       statusCode: 200,
     });
-    expect(result.state === 'hit' ? result.etag : null).toBe(buildPropertyTilePyramidEtag({
-      versionId: version.versionId,
-      z: 0,
-      x: 0,
-      y: 0,
-      payload: Buffer.from('new-payload'),
-    }));
+    expect(result.state === 'hit' ? result.etag : null).toBe(
+      buildPropertyTilePyramidEtag({
+        versionId: version.versionId,
+        z: 0,
+        x: 0,
+        y: 0,
+        payload: Buffer.from('new-payload'),
+      })
+    );
     expect(result.state === 'hit' ? result.etag : null).not.toBe('"pyramid-old-empty-seed"');
   });
 
@@ -772,8 +877,11 @@ describe('property tile pyramid build lifecycle', () => {
     expect(executeMock).toHaveBeenCalledTimes(1);
   });
 
-  it('runs retention through chunked child-table cleanup before deleting versions', async () => {
+  it('runs retention through chunked pyramid and candidate snapshot cleanup', async () => {
     executeMock
+      .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }])
@@ -790,6 +898,9 @@ describe('property tile pyramid build lifecycle', () => {
       deletedNodes: 0,
       deletedTiles: 0,
       deletedVersions: 0,
+      deletedCandidateListingCandidates: 0,
+      deletedCandidateListingFacts: 0,
+      deletedCandidateSourceSnapshots: 0,
     });
     const retentionQueries = executeMock.mock.calls
       .map((call) => JSON.stringify(call[0]))
@@ -800,5 +911,10 @@ describe('property tile pyramid build lifecycle', () => {
     expect(retentionQueries).toContain('previous_version_id');
     expect(retentionQueries).toContain("interval '7 days'");
     expect(retentionQueries).toContain('property_tile_pyramid_audit');
+    expect(retentionQueries).toContain('property_tile_candidate_source_snapshots');
+    expect(retentionQueries).toContain('property_tile_candidate_source_current');
+    expect(retentionQueries).toContain('candidate_snapshot_id');
+    expect(retentionQueries).toContain('property_tile_listing_candidates');
+    expect(retentionQueries).toContain('property_tile_listing_facts');
   });
 });

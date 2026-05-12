@@ -32,7 +32,10 @@ async function insertPyramidVersion(input?: {
   const validatedTileCount = input?.validatedTileCount ?? expectedTileCount;
   const configHash = crypto.createHash('sha256').update(`config-${unique}`).digest('hex');
   const buildInputsHash = crypto.createHash('sha256').update(`inputs-${unique}`).digest('hex');
-  const sourceWatermarkHash = crypto.createHash('sha256').update(`watermarks-${unique}`).digest('hex');
+  const sourceWatermarkHash = crypto
+    .createHash('sha256')
+    .update(`watermarks-${unique}`)
+    .digest('hex');
   const coverageConfigHash = crypto.createHash('sha256').update(`coverage-${unique}`).digest('hex');
   const coverageSnapshot = {
     coverageId,
@@ -238,7 +241,10 @@ async function insertPyramidNode(input: {
   `);
 }
 
-async function promote(versionId: string, expectedPreviousVersionId: string | null = null): Promise<void> {
+async function promote(
+  versionId: string,
+  expectedPreviousVersionId: string | null = null
+): Promise<void> {
   await db.execute(sql`
     SELECT promote_property_tile_pyramid_version(
       ${versionId}::uuid,
@@ -254,11 +260,11 @@ async function expectDbFailure(action: () => Promise<unknown>, pattern: RegExp):
     await action();
   } catch (error) {
     const cause = (error as { cause?: { message?: string; detail?: string } }).cause;
-    expect([
-      error instanceof Error ? error.message : String(error),
-      cause?.message,
-      cause?.detail,
-    ].filter(Boolean).join('\n')).toMatch(pattern);
+    expect(
+      [error instanceof Error ? error.message : String(error), cause?.message, cause?.detail]
+        .filter(Boolean)
+        .join('\n')
+    ).toMatch(pattern);
     return;
   }
 
@@ -271,48 +277,75 @@ describe('property tile pyramid schema safeguards', () => {
   });
 
   it('exposes the expected catalog constraints, indexes, functions, and triggers', async () => {
-    const constraints = Array.from(await db.execute<{ conname: string }>(sql`
+    const constraints = Array.from(
+      await db.execute<{ conname: string }>(sql`
       SELECT conname
       FROM pg_constraint
       WHERE conrelid IN (
         'property_tile_pyramid_versions'::regclass,
         'property_tile_pyramid_current'::regclass,
         'property_tile_pyramid_tiles'::regclass,
-        'property_tile_pyramid_nodes'::regclass
+        'property_tile_pyramid_nodes'::regclass,
+        'property_tile_candidate_source_snapshots'::regclass,
+        'property_tile_candidate_source_current'::regclass,
+        'property_tile_listing_candidates'::regclass,
+        'property_tile_listing_facts'::regclass
       )
-    `)).map((row) => row.conname);
-    expect(constraints).toEqual(expect.arrayContaining([
-      'property_tile_pyramid_versions_zoom_check',
-      'property_tile_pyramid_current_pk',
-      'property_tile_pyramid_current_version_fk',
-      'property_tile_pyramid_tiles_pk',
-      'property_tile_pyramid_tiles_validation_check',
-      'property_tile_pyramid_nodes_pk',
-      'property_tile_pyramid_nodes_tile_fk',
-    ]));
+    `)
+    ).map((row) => row.conname);
+    expect(constraints).toEqual(
+      expect.arrayContaining([
+        'property_tile_pyramid_versions_zoom_check',
+        'property_tile_pyramid_current_pk',
+        'property_tile_pyramid_current_version_fk',
+        'property_tile_pyramid_tiles_pk',
+        'property_tile_pyramid_tiles_validation_check',
+        'property_tile_pyramid_nodes_pk',
+        'property_tile_pyramid_nodes_tile_fk',
+        'property_tile_candidate_source_snapshots_status_check',
+        'property_tile_candidate_source_snapshots_counts_check',
+        'property_tile_candidate_source_current_pk',
+        'property_tile_listing_candidates_pkey',
+        'property_tile_listing_facts_pkey',
+      ])
+    );
 
-    const indexes = Array.from(await db.execute<{ indexname: string }>(sql`
+    const indexes = Array.from(
+      await db.execute<{ indexname: string }>(sql`
       SELECT indexname
       FROM pg_indexes
       WHERE tablename IN (
         'property_tile_pyramid_versions',
         'property_tile_pyramid_current',
         'property_tile_pyramid_tiles',
-        'property_tile_pyramid_nodes'
+        'property_tile_pyramid_nodes',
+        'property_tile_candidate_source_snapshots',
+        'property_tile_listing_candidates',
+        'property_tile_listing_facts'
       )
-    `)).map((row) => row.indexname);
-    expect(indexes).toEqual(expect.arrayContaining([
-      'property_tile_pyramid_versions_build_identity_idx',
-      'property_tile_pyramid_versions_active_slot_idx',
-      'property_tile_pyramid_versions_slot_status_idx',
-      'property_tile_pyramid_current_version_idx',
-      'property_tile_pyramid_tiles_status_idx',
-      'property_tile_pyramid_tiles_promotion_invalid_idx',
-      'property_tile_pyramid_nodes_tile_idx',
-      'property_tile_pyramid_nodes_render_geometry_idx',
-    ]));
+    `)
+    ).map((row) => row.indexname);
+    expect(indexes).toEqual(
+      expect.arrayContaining([
+        'property_tile_pyramid_versions_build_identity_idx',
+        'property_tile_pyramid_versions_active_slot_idx',
+        'property_tile_pyramid_versions_slot_status_idx',
+        'property_tile_pyramid_current_version_idx',
+        'property_tile_pyramid_tiles_status_idx',
+        'property_tile_pyramid_tiles_promotion_invalid_idx',
+        'property_tile_pyramid_nodes_tile_idx',
+        'property_tile_pyramid_nodes_render_geometry_idx',
+        'property_tile_pyramid_versions_candidate_snapshot_idx',
+        'property_tile_candidate_source_snapshots_ready_idx',
+        'property_tile_candidate_source_snapshots_status_idx',
+        'property_tile_listing_candidates_snapshot_id_idx',
+        'property_tile_listing_candidates_snapshot_geometry_gist_idx',
+        'property_tile_listing_facts_snapshot_market_state_idx',
+      ])
+    );
 
-    const functions = Array.from(await db.execute<{ proname: string }>(sql`
+    const functions = Array.from(
+      await db.execute<{ proname: string }>(sql`
       SELECT proname
       FROM pg_proc
       WHERE proname IN (
@@ -322,16 +355,20 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_pyramid_current_guard',
         'property_tile_pyramid_current_promoted_constraint'
       )
-    `)).map((row) => row.proname);
-    expect(functions).toEqual(expect.arrayContaining([
-      'property_tile_pyramid_assert_promotable',
-      'promote_property_tile_pyramid_version',
-      'property_tile_pyramid_versions_guard',
-      'property_tile_pyramid_current_guard',
-      'property_tile_pyramid_current_promoted_constraint',
-    ]));
+    `)
+    ).map((row) => row.proname);
+    expect(functions).toEqual(
+      expect.arrayContaining([
+        'property_tile_pyramid_assert_promotable',
+        'promote_property_tile_pyramid_version',
+        'property_tile_pyramid_versions_guard',
+        'property_tile_pyramid_current_guard',
+        'property_tile_pyramid_current_promoted_constraint',
+      ])
+    );
 
-    const triggers = Array.from(await db.execute<{ tgname: string }>(sql`
+    const triggers = Array.from(
+      await db.execute<{ tgname: string }>(sql`
       SELECT tgname
       FROM pg_trigger
       WHERE tgrelid IN (
@@ -340,13 +377,16 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_pyramid_source_watermarks'::regclass
       )
         AND NOT tgisinternal
-    `)).map((row) => row.tgname);
-    expect(triggers).toEqual(expect.arrayContaining([
-      'property_tile_pyramid_versions_guard',
-      'property_tile_pyramid_current_guard',
-      'property_tile_pyramid_current_promoted_constraint',
-      'property_tile_pyramid_source_watermarks_guard',
-    ]));
+    `)
+    ).map((row) => row.tgname);
+    expect(triggers).toEqual(
+      expect.arrayContaining([
+        'property_tile_pyramid_versions_guard',
+        'property_tile_pyramid_current_guard',
+        'property_tile_pyramid_current_promoted_constraint',
+        'property_tile_pyramid_source_watermarks_guard',
+      ])
+    );
   });
 
   it('rejects promotion when expected manifest coverage is missing', async () => {
@@ -361,7 +401,7 @@ describe('property tile pyramid schema safeguards', () => {
 
     await expectDbFailure(
       () => promote(versionId),
-      /manifest coverage 1 does not match expected tile count 2/,
+      /manifest coverage 1 does not match expected tile count 2/
     );
   });
 
@@ -382,10 +422,7 @@ describe('property tile pyramid schema safeguards', () => {
       nodeCount: 0,
     });
 
-    await expectDbFailure(
-      () => promote(versionId),
-      /unvalidated or invalid tile manifest rows/,
-    );
+    await expectDbFailure(() => promote(versionId), /unvalidated or invalid tile manifest rows/);
   });
 
   it('rejects promotion when identity snapshots disagree with the serving slot', async () => {
@@ -402,10 +439,7 @@ describe('property tile pyramid schema safeguards', () => {
       nodeCount: 0,
     });
 
-    await expectDbFailure(
-      () => promote(versionId),
-      /config snapshot does not match serving slot/,
-    );
+    await expectDbFailure(() => promote(versionId), /config snapshot does not match serving slot/);
   });
 
   it('rejects pyramid nodes that are not attached to a tile manifest row', async () => {
@@ -413,13 +447,17 @@ describe('property tile pyramid schema safeguards', () => {
 
     await expectDbFailure(
       () => insertPyramidNode({ versionId, x: 0 }),
-      /property_tile_pyramid_nodes_tile_fk|violates foreign key constraint/,
+      /property_tile_pyramid_nodes_tile_fk|violates foreign key constraint/
     );
   });
 
   it('promotes complete validated manifest coverage and preserves the stable serving slot', async () => {
     const coverageId = `${coveragePrefix}-complete`;
-    const versionId = await insertPyramidVersion({ coverageId, expectedTileCount: 2, validatedTileCount: 2 });
+    const versionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 2,
+      validatedTileCount: 2,
+    });
     await insertTileManifest({
       versionId,
       x: 0,
@@ -438,11 +476,12 @@ describe('property tile pyramid schema safeguards', () => {
 
     await promote(versionId);
 
-    const rows = Array.from(await db.execute<{
-      status: string;
-      current_version_id: string;
-      config_hash_in_pointer: string | null;
-    }>(sql`
+    const rows = Array.from(
+      await db.execute<{
+        status: string;
+        current_version_id: string;
+        config_hash_in_pointer: string | null;
+      }>(sql`
       SELECT
         v.status::text,
         c.current_version_id::text,
@@ -454,7 +493,8 @@ describe('property tile pyramid schema safeguards', () => {
         ON cols.table_name = 'property_tile_pyramid_current'
        AND cols.column_name = 'config_hash'
       WHERE v.id = ${versionId}::uuid
-    `));
+    `)
+    );
 
     expect(rows[0]).toEqual({
       status: 'promoted',
@@ -465,7 +505,11 @@ describe('property tile pyramid schema safeguards', () => {
 
   it('keeps compare-and-swap promotion failures from advancing the target version', async () => {
     const coverageId = `${coveragePrefix}-cas`;
-    const firstVersionId = await insertPyramidVersion({ coverageId, expectedTileCount: 1, validatedTileCount: 1 });
+    const firstVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
     await insertTileManifest({
       versionId: firstVersionId,
       x: 0,
@@ -475,7 +519,11 @@ describe('property tile pyramid schema safeguards', () => {
     });
     await promote(firstVersionId);
 
-    const secondVersionId = await insertPyramidVersion({ coverageId, expectedTileCount: 1, validatedTileCount: 1 });
+    const secondVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
     await insertTileManifest({
       versionId: secondVersionId,
       x: 0,
@@ -486,10 +534,11 @@ describe('property tile pyramid schema safeguards', () => {
 
     await expectDbFailure(
       () => promote(secondVersionId, crypto.randomUUID()),
-      /compare-and-swap failed/,
+      /compare-and-swap failed/
     );
 
-    const rows = Array.from(await db.execute<{ status: string; current_version_id: string }>(sql`
+    const rows = Array.from(
+      await db.execute<{ status: string; current_version_id: string }>(sql`
       SELECT v.status::text, c.current_version_id::text
       FROM property_tile_pyramid_versions v
       CROSS JOIN property_tile_pyramid_current c
@@ -498,7 +547,8 @@ describe('property tile pyramid schema safeguards', () => {
         AND c.filter_signature = 'public-default'
         AND c.max_zoom = 1
         AND c.pyramid_kind = 'public_default_low_zoom'
-    `));
+    `)
+    );
 
     expect(rows[0]).toEqual({
       status: 'validated',
@@ -517,12 +567,13 @@ describe('property tile pyramid schema safeguards', () => {
     });
 
     await expectDbFailure(
-      () => db.execute(sql`
+      () =>
+        db.execute(sql`
         UPDATE property_tile_pyramid_versions
         SET status = 'promoted'
         WHERE id = ${versionId}::uuid
       `),
-      /direct promoted property tile pyramid version updates are not allowed/,
+      /direct promoted property tile pyramid version updates are not allowed/
     );
   });
 
@@ -531,7 +582,8 @@ describe('property tile pyramid schema safeguards', () => {
     const unique = crypto.randomUUID();
 
     await expectDbFailure(
-      () => db.execute(sql`
+      () =>
+        db.execute(sql`
         INSERT INTO property_tile_pyramid_versions (
           id,
           coverage_id,
@@ -561,7 +613,7 @@ describe('property tile pyramid schema safeguards', () => {
           now()
         )
       `),
-      /direct inserted promoted property tile pyramid versions are not allowed/,
+      /direct inserted promoted property tile pyramid versions are not allowed/
     );
   });
 });
