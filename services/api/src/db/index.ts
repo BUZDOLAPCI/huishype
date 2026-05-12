@@ -31,6 +31,11 @@ const queryClient = postgres(config.database.url, {
 // Create the drizzle database instance with schema
 export const db = drizzle(queryClient, { schema });
 export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type ReservedQueryClient = Awaited<ReturnType<typeof queryClient.reserve>>;
+
+export async function reserveDbConnection(): Promise<ReservedQueryClient> {
+  return queryClient.reserve();
+}
 
 // Export for use in tests or graceful shutdown.
 // Idempotent: safe to call multiple times (e.g. app.close() + jest teardown).

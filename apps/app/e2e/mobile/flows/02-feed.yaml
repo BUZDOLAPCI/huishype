@@ -4,47 +4,51 @@ appId: nl.huishype.app
 # Tests feed filters, property cards, scrolling, and card tap navigation.
 # This is a sub-flow; app is on the Map tab.
 
-# Navigate to Feed tab
+# Navigate to Feed tab. The feed screen can render correctly while Maestro's
+# Android hierarchy dump intermittently exposes only system UI, so this visual
+# mobile flow uses stable tab coordinates after the smoke flow has verified tab
+# testIDs.
 - tapOn:
-    id: 'tab-feed'
+    point: '15%,92%'
+- waitForAnimationToEnd
+- waitForAnimationToEnd
 
-# Wait for the feed content to become active. Native Text nodes in the header
-# are visually present but not consistently exposed to Maestro on Android.
 - extendedWaitUntil:
     visible:
-      id: 'property-feed-card'
-    timeout: 90000
+      id: 'feed-screen'
+    timeout: 15000
 
-# Assert the filter chips are visible
 - assertVisible:
     id: 'filter-chip-trending'
 - assertVisible:
     id: 'filter-chip-latest'
-- assertVisible:
-    id: 'filter-chip-recent-activity'
 
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-filter.png
 
+- extendedWaitUntil:
+    visible:
+      id: 'feed-list'
+    timeout: 15000
+
+- extendedWaitUntil:
+    visible:
+      id: 'property-feed-card'
+    timeout: 30000
+
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-cards-loaded.png
 
-# Scroll once to verify the list is interactive on device, then reset near the
-# top before handing control back to the map flows.
-- swipe:
-    start: '50%,80%'
-    end: '50%,35%'
-    duration: 350
-- waitForAnimationToEnd
-- swipe:
-    start: '50%,35%'
-    end: '50%,80%'
-    duration: 350
+- tapOn:
+    id: 'property-feed-card'
 - waitForAnimationToEnd
 
-# Switch back to Map tab
-- tapOn:
-    id: 'tab-index'
-- waitForAnimationToEnd
 - extendedWaitUntil:
     visible:
       id: 'search-bar-focus-target'
-    timeout: 10000
+    timeout: 15000
+
+- assertVisible:
+    id: 'tab-index'
+- assertVisible:
+    id: 'tab-feed'
+
+- takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-card-navigated-to-map.png

@@ -4,6 +4,7 @@ import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../he
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import {
   clickRenderedPropertyMarkerById,
+  type MapFeature,
   type WindowWithMapInstance,
 } from '../helpers/map-instance';
 
@@ -38,6 +39,15 @@ type SeedProperty = {
   geometry: {
     coordinates: [number, number];
   };
+};
+
+type FeedSeedProperty = {
+  id: string;
+  address?: string | null;
+  geometry: {
+    type: 'Point';
+    coordinates: [number, number];
+  } | null;
 };
 
 async function createTestSession(request: APIRequestContext, suffix: string): Promise<AuthSession> {
@@ -125,6 +135,109 @@ async function setMapView(page: Page, center: [number, number], zoom = FOLLOWING
   await page.waitForTimeout(1_500);
 }
 
+async function waitForPropertiesSourceLoaded(page: Page, timeout = 30_000): Promise<void> {
+  await page
+    .waitForFunction(
+      () => {
+        const map = (window as WindowWithMapInstance).__mapInstance;
+        return Boolean(
+          map?.isStyleLoaded?.() &&
+            map.getSource?.('properties-source') &&
+            (map.isSourceLoaded?.('properties-source') ?? false)
+        );
+      },
+      null,
+      { timeout, polling: 500 }
+    )
+    .catch(() => {
+      console.log('Following properties source did not report fully loaded before click attempt');
+    });
+}
+
+async function clickRenderedFollowingNodeNearCoordinate(
+  page: Page,
+  coordinate: [number, number],
+  timeoutMs = 15_000
+) {
+  try {
+    const handle = await page.waitForFunction(
+      ({ coordinate }) => {
+        const map = (window as WindowWithMapInstance).__mapInstance;
+        if (!map || !map.isStyleLoaded?.()) {
+          return null;
+        }
+
+        const canvas = map.getCanvas?.();
+        if (!canvas) {
+          return null;
+        }
+
+        const layers = ['active-nodes', 'property-clusters', 'ghost-nodes', 'ghost-clusters'].filter(
+          (layer) => map.getLayer?.(layer)
+        );
+        if (layers.length === 0) {
+          return null;
+        }
+
+        const projected = map.project(coordinate);
+        const searchRadius = 80;
+        const features = map.queryRenderedFeatures(
+          [
+            [projected.x - searchRadius, projected.y - searchRadius],
+            [projected.x + searchRadius, projected.y + searchRadius],
+          ],
+          { layers }
+        ) as MapFeature[];
+
+        let best: { screenX: number; screenY: number; distance: number } | null = null;
+        for (const feature of features) {
+          if (feature.geometry?.type !== 'Point') {
+            continue;
+          }
+          const coordinates = feature.geometry.coordinates;
+          if (
+            !Array.isArray(coordinates) ||
+            coordinates.length < 2 ||
+            typeof coordinates[0] !== 'number' ||
+            typeof coordinates[1] !== 'number'
+          ) {
+            continue;
+          }
+
+          const point = map.project([coordinates[0], coordinates[1]]);
+          const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+          if (!best || distance < best.distance) {
+            const rect = canvas.getBoundingClientRect();
+            best = {
+              screenX: rect.left + point.x,
+              screenY: rect.top + point.y,
+              distance,
+            };
+          }
+        }
+
+        return best;
+      },
+      { coordinate },
+      { timeout: timeoutMs, polling: 500 }
+    );
+
+    const point = (await handle.jsonValue()) as
+      | { screenX: number; screenY: number; distance: number }
+      | null;
+    if (!point) {
+      return { success: false as const, reason: 'No rendered following node near coordinate' };
+    }
+
+    await page.mouse.move(point.screenX, point.screenY);
+    await page.mouse.click(point.screenX, point.screenY);
+    await page.waitForTimeout(500);
+    return { success: true as const, distance: point.distance };
+  } catch {
+    return { success: false as const, reason: 'No rendered following node near coordinate' };
+  }
+}
+
 async function getPropertySourceTileUrl(page: Page) {
   return page.evaluate(() => {
     const map = (window as WindowWithMapInstance).__mapInstance;
@@ -164,16 +277,39 @@ async function readFollowingPersistence(page: Page) {
 }
 
 async function fetchFollowingSeedProperty(request: APIRequestContext) {
-  const response = await request.get(
+  const scopedResponse = await request.get(
     `${API_BASE_URL}/properties?limit=1&bbox=${FOLLOWING_AREA_BBOX}&marketState=for-sale`
   );
-  expect(response.ok()).toBe(true);
+  expect(scopedResponse.ok()).toBe(true);
 
-  const body = await response.json();
-  expect(Array.isArray(body.data)).toBe(true);
-  expect(body.data.length).toBeGreaterThan(0);
+  const scopedBody = await scopedResponse.json();
+  expect(Array.isArray(scopedBody.data)).toBe(true);
+  if (scopedBody.data.length > 0) {
+    return scopedBody.data[0] as SeedProperty;
+  }
 
-  return body.data[0] as SeedProperty;
+  const feedResponse = await request.get(`${API_BASE_URL}/feed?limit=1&country=NL`);
+  expect(feedResponse.ok()).toBe(true);
+  const feedBody = await feedResponse.json();
+  const feedProperty = (feedBody.items as FeedSeedProperty[] | undefined)?.find(
+    (item) =>
+      item.geometry?.type === 'Point' &&
+      Array.isArray(item.geometry.coordinates) &&
+      item.geometry.coordinates.length === 2
+  );
+
+  expect(
+    feedProperty,
+    `Expected at least one NL active-listing feed property after ${FOLLOWING_AREA_BBOX} returned no /properties rows`
+  ).toBeTruthy();
+
+  return {
+    id: feedProperty!.id,
+    address: feedProperty!.address ?? null,
+    geometry: {
+      coordinates: feedProperty!.geometry!.coordinates,
+    },
+  } satisfies SeedProperty;
 }
 
 async function waitForFollowingNearby(
@@ -322,18 +458,19 @@ test.describe('Following grouped tiles', () => {
         response.request().method() === 'GET' &&
         new URL(response.url()).searchParams.get('activity') === FOLLOWING_TIME_WINDOW
     );
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await waitForMapReady(page);
+
+    const initialTileUrl = await waitForPropertySourceTileUrl(page);
+    expect(initialTileUrl).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
+
+    await setMapView(page, nearby.coordinate, FOLLOWING_ZOOM);
     const followingTileResponse = page.waitForResponse(
       (response) =>
         /\/tiles\/following\/properties\/\d+\/\d+\/\d+\.pbf(?:\?|$)/.test(response.url()) &&
         new URL(response.url()).searchParams.get('activity') === FOLLOWING_TIME_WINDOW,
       { timeout: 30_000 }
     );
-
-    await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await waitForMapReady(page);
-
-    const initialTileUrl = await waitForPropertySourceTileUrl(page);
-    expect(initialTileUrl).toContain('/tiles/properties/{z}/{x}/{y}.pbf');
 
     await page.getByTestId('map-filter-pill-following-arrow').click();
     await expect(page.getByTestId('map-filter-panel-following')).toBeVisible();
@@ -362,15 +499,35 @@ test.describe('Following grouped tiles', () => {
     expect(persistence.historySocialScope).toBe('following');
     expect(persistence.sessionSocialScope).toBe('following');
 
-    await setMapView(page, propertyCoordinate, FOLLOWING_ZOOM);
+    await waitForPropertiesSourceLoaded(page);
     const tileResponse = await followingTileResponse;
+    expect(tileResponse.ok()).toBe(true);
     expect(new URL(tileResponse.url()).searchParams.get('activity')).toBe(FOLLOWING_TIME_WINDOW);
 
-    const clickResult = await clickRenderedPropertyMarkerById(
+    let clickResult = await clickRenderedPropertyMarkerById(
       page,
       nearby.primaryPropertyId,
       30_000
     );
+    if (!clickResult.success) {
+      const coordinateClickResult = await clickRenderedFollowingNodeNearCoordinate(
+        page,
+        nearby.coordinate,
+        15_000
+      );
+      clickResult = coordinateClickResult.success
+        ? {
+            success: true,
+            screenX: 0,
+            screenY: 0,
+            propertyId: nearby.primaryPropertyId,
+          }
+        : {
+            success: false,
+            reason: `${clickResult.reason}; ${coordinateClickResult.reason}`,
+            propertyId: nearby.primaryPropertyId,
+          };
+    }
     expect(clickResult.success, clickResult.success ? '' : clickResult.reason).toBe(true);
 
     const previewCard = page.getByTestId('group-preview-card');

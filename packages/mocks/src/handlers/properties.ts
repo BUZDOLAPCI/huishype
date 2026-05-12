@@ -7,6 +7,7 @@
 
 import { http, HttpResponse } from 'msw';
 import {
+  PROPERTY_PREVIEW_MEMBER_LIMIT,
   buildFollowingPropertyTileTemplateUrl,
   getMapFilterSearchString,
   isMapActivityFilter,
@@ -456,6 +457,10 @@ function buildNearbySingleResponse({
     pointCount: 1,
     propertyIds: [id],
     previewPropertyIds: [id],
+    pyramidVersionId: null,
+    pyramidNodeId: null,
+    membershipComplete: true,
+    readStateCoverage: 'complete' as const,
     coordinate: [property.coordinates.lon, property.coordinates.lat] as [number, number],
     bbox: null,
     address: property.address,
@@ -619,8 +624,12 @@ export const propertyHandlers = [
         groupKind: 'cluster' as const,
         primaryPropertyId: MOCK_NEARBY_CLUSTER_IDS[0],
         pointCount: 6,
-        propertyIds: MOCK_NEARBY_CLUSTER_IDS,
-        previewPropertyIds: MOCK_NEARBY_CLUSTER_IDS,
+        propertyIds: [],
+        previewPropertyIds: MOCK_NEARBY_CLUSTER_IDS.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+        pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+        pyramidNodeId: 'mock-pyramid-node-public-cluster',
+        membershipComplete: false,
+        readStateCoverage: 'partial' as const,
         coordinate: [4.884, 52.3752] as [number, number],
         bbox: [4.8836, 52.3748, 4.8844, 52.3756] as [number, number, number, number],
         activeListingCount: 3,
@@ -631,7 +640,7 @@ export const propertyHandlers = [
         recentSocialScoreTotal: 94,
         commentCount: 4,
         distanceMeters: 12,
-        isRead: areAllMockPropertiesRead(MOCK_NEARBY_CLUSTER_IDS, viewerKey),
+        isRead: false,
       });
     }
 
@@ -791,6 +800,10 @@ export const propertyHandlers = [
         pointCount: clustered.length,
         propertyIds,
         previewPropertyIds: clustered.slice(0, 3).map(({ property }) => property.id),
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete' as const,
         coordinate: [primary.coordinates.lon, primary.coordinates.lat] as [number, number],
         bbox: [
           Math.min(...clustered.map(({ property }) => property.coordinates.lon)),

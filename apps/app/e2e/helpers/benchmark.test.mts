@@ -1,16 +1,20 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import benchmarkModule from './benchmark.ts';
-import type {
-  RequestMetric,
-  RouteBenchmarkSample,
-} from './benchmark.ts';
+import type { BenchmarkRun, RequestMetric, RouteBenchmarkSample } from './benchmark.ts';
 
 const {
+  BENCHMARK_ROUTES,
   aggregateRouteBenchmark,
+  getBenchmarkCacheModes,
+  getBenchmarkResultDir,
   summarizeCriticalRequests,
   summarizeRequests,
   summarizeTileRequests,
+  writeBenchmarkArtifacts,
 } = benchmarkModule as typeof import('./benchmark.ts');
 
 const baseHeaders: RequestMetric['headers'] = {
@@ -73,6 +77,112 @@ function requestMetric(overrides: RequestMetricOverrides): RequestMetric {
   };
 }
 
+test('BENCHMARK_ROUTES covers low, transition, high zoom, and feed benchmark surfaces', () => {
+  assert.deepEqual(Object.keys(BENCHMARK_ROUTES), [
+    'lowZoom795',
+    'lowZoom629',
+    'lowZoom498',
+    'lowZoom392',
+    'transitionZoom11',
+    'transitionZoom12',
+    'transitionZoom13',
+    'highZoom14',
+    'highZoom15',
+    'highZoom16',
+    'highZoom17',
+    'feedTrending',
+  ]);
+
+  for (const [routeKey, routeConfig] of Object.entries(BENCHMARK_ROUTES)) {
+    if (routeKey === 'feedTrending') {
+      assert.equal(routeConfig.surface, 'feed');
+      assert.equal(routeConfig.route, '/feed?hhBenchmark=1');
+      continue;
+    }
+
+    assert.equal(routeConfig.surface, 'map');
+    assert.match(routeConfig.route, /^\/@[-0-9.]+,[-0-9.]+,[0-9.]+z\?hhBenchmark=1$/);
+  }
+});
+
+test('getBenchmarkCacheModes preserves default modes and opt-in backend-cold mode', () => {
+  const previousBackendCold = process.env.BENCHMARK_BACKEND_COLD;
+
+  try {
+    delete process.env.BENCHMARK_BACKEND_COLD;
+    assert.deepEqual(getBenchmarkCacheModes(), ['cold-cache', 'warm-cache']);
+
+    process.env.BENCHMARK_BACKEND_COLD = '1';
+    assert.deepEqual(getBenchmarkCacheModes(), ['cold-cache', 'warm-cache', 'backend-cold']);
+  } finally {
+    if (previousBackendCold === undefined) {
+      delete process.env.BENCHMARK_BACKEND_COLD;
+    } else {
+      process.env.BENCHMARK_BACKEND_COLD = previousBackendCold;
+    }
+  }
+});
+
+test('writeBenchmarkArtifacts honors BENCHMARK_RESULT_DIR and writes timestamped plus latest artifacts', async () => {
+  const previousResultDir = process.env.BENCHMARK_RESULT_DIR;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'huishype-benchmark-artifacts-'));
+  const customResultDir = path.join(tempRoot, 'custom-results');
+
+  process.env.BENCHMARK_RESULT_DIR = customResultDir;
+
+  try {
+    const benchmarkRun: BenchmarkRun = {
+      metadata: {
+        benchmarkLabel: 'custom-root',
+        command: 'unit test',
+        dirtyTree: false,
+        generatedAt: '2026-05-11T09:08:07.006Z',
+        gitHead: 'abc123',
+        hostname: 'test-host',
+        measuredRuns: 1,
+        warmupRuns: 1,
+      },
+      routes: {},
+    };
+
+    const artifacts = await writeBenchmarkArtifacts('unit-artifact', benchmarkRun);
+    const latestJsonPath = path.join(customResultDir, 'latest-unit-artifact-custom-root.json');
+    const latestMarkdownPath = path.join(customResultDir, 'latest-unit-artifact-custom-root.md');
+
+    assert.equal(path.resolve(getBenchmarkResultDir()), path.resolve(customResultDir));
+    assert.equal(path.dirname(artifacts.jsonPath), customResultDir);
+    assert.equal(path.dirname(artifacts.markdownPath), customResultDir);
+    assert.equal(
+      path.basename(artifacts.jsonPath),
+      '2026-05-11T09-08-07-006Z-unit-artifact-custom-root.json'
+    );
+    assert.equal(
+      path.basename(artifacts.markdownPath),
+      '2026-05-11T09-08-07-006Z-unit-artifact-custom-root.md'
+    );
+
+    await stat(artifacts.jsonPath);
+    await stat(artifacts.markdownPath);
+    await stat(latestJsonPath);
+    await stat(latestMarkdownPath);
+    assert.equal(
+      await readFile(latestJsonPath, 'utf8'),
+      await readFile(artifacts.jsonPath, 'utf8')
+    );
+    assert.equal(
+      await readFile(latestMarkdownPath, 'utf8'),
+      await readFile(artifacts.markdownPath, 'utf8')
+    );
+  } finally {
+    if (previousResultDir === undefined) {
+      delete process.env.BENCHMARK_RESULT_DIR;
+    } else {
+      process.env.BENCHMARK_RESULT_DIR = previousResultDir;
+    }
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('summarizeRequests serializes requestfailed and HTTP error diagnostics', () => {
   const failedNetworkRequest = requestMetric({
     url: 'http://localhost:8081/tiles/12/2048/1365.pbf?access_token=secret',
@@ -114,6 +224,18 @@ test('summarizeRequests serializes requestfailed and HTTP error diagnostics', ()
     durationMs: 14,
     responseBytes: null,
   });
+  const expectedFetchAbort = requestMetric({
+    url: 'http://localhost:8081/properties/19f90c95-625a-4d87-886e-c322cf9b3b34/comments?limit=4&sort=popular',
+    normalizedUrl: '/properties/19f90c95-625a-4d87-886e-c322cf9b3b34/comments?limit=4&sort=popular',
+    normalizedEndpoint: '/properties/19f90c95-625a-4d87-886e-c322cf9b3b34/comments',
+    resourceType: 'fetch',
+    status: null,
+    ok: false,
+    failed: true,
+    failureText: 'net::ERR_ABORTED',
+    durationMs: 12,
+    responseBytes: null,
+  });
   const httpErrorRequest = requestMetric({
     status: 500,
     ok: false,
@@ -139,13 +261,14 @@ test('summarizeRequests serializes requestfailed and HTTP error diagnostics', ()
     failedNetworkRequest,
     expectedTileAbort,
     expectedTileAbortAfterHeaders,
+    expectedFetchAbort,
     httpErrorRequest,
     okRequest,
   ]);
 
-  assert.equal(summary.total, 5);
-  assert.equal(summary.failed, 2);
-  assert.equal(summary.failedDetails.length, 2);
+  assert.equal(summary.total, 6);
+  assert.equal(summary.failed, 3);
+  assert.equal(summary.failedDetails.length, 3);
   assert.deepEqual(
     summary.failedDetails.map((detail) => ({
       routeKey: detail.routeKey,
@@ -193,6 +316,29 @@ test('summarizeRequests serializes requestfailed and HTTP error diagnostics', ()
       {
         routeKey: 'lowZoom795',
         cacheMode: 'warm-cache',
+        rawUrl:
+          'http://localhost:8081/properties/19f90c95-625a-4d87-886e-c322cf9b3b34/comments?limit=4&sort=popular',
+        normalizedUrl:
+          '/properties/19f90c95-625a-4d87-886e-c322cf9b3b34/comments?limit=4&sort=popular',
+        normalizedEndpoint: '/properties/19f90c95-625a-4d87-886e-c322cf9b3b34/comments',
+        method: 'GET',
+        resourceType: 'fetch',
+        status: null,
+        ok: false,
+        failed: true,
+        failureText: 'net::ERR_ABORTED',
+        durationMs: 12,
+        responseBytes: null,
+        browserCacheHit: false,
+        cacheControl: null,
+        contentType: null,
+        server: null,
+        xCache: null,
+        startedAt: '2026-04-23T10:00:00.000Z',
+      },
+      {
+        routeKey: 'lowZoom795',
+        cacheMode: 'warm-cache',
         rawUrl: 'http://localhost:8081/api/properties?cursor=abc&token=secret',
         normalizedUrl: '/api/properties?cursor=abc',
         normalizedEndpoint: '/api/properties',
@@ -211,23 +357,21 @@ test('summarizeRequests serializes requestfailed and HTTP error diagnostics', ()
         xCache: 'MISS',
         startedAt: '2026-04-23T10:00:00.000Z',
       },
-    ],
+    ]
   );
 
   const tileSummary = summarizeTileRequests([
     failedNetworkRequest,
     expectedTileAbort,
     expectedTileAbortAfterHeaders,
+    expectedFetchAbort,
     httpErrorRequest,
     okRequest,
   ]);
   assert.equal(tileSummary.abortedRequestCount, 2);
   assert.equal(tileSummary.abortedRequestDetails[0]?.rawUrl, expectedTileAbort.url);
   assert.equal(tileSummary.abortedRequestDetails[0]?.failureText, 'net::ERR_ABORTED');
-  assert.equal(
-    tileSummary.abortedRequestDetails[1]?.rawUrl,
-    expectedTileAbortAfterHeaders.url,
-  );
+  assert.equal(tileSummary.abortedRequestDetails[1]?.rawUrl, expectedTileAbortAfterHeaders.url);
 });
 
 test('aggregateRouteBenchmark carries route key and failed details into result summary', () => {
@@ -290,7 +434,7 @@ test('aggregateRouteBenchmark carries route key and failed details into result s
     'cold-cache',
     [sample],
     1,
-    1,
+    1
   );
 
   assert.equal(result.routeKey, 'lowZoom392');
@@ -306,8 +450,11 @@ test('aggregateRouteBenchmark carries route key and failed details into result s
   assert.equal(result.summary.renderProbes['map-screen']?.commitCount.median, 3);
   const removedGapKey = 'maxCommit' + 'GapMs';
   assert.equal(
-    Object.prototype.hasOwnProperty.call(result.summary.renderProbes['map-screen'] || {}, removedGapKey),
-    false,
+    Object.prototype.hasOwnProperty.call(
+      result.summary.renderProbes['map-screen'] || {},
+      removedGapKey
+    ),
+    false
   );
 });
 
@@ -374,7 +521,7 @@ test('aggregateRouteBenchmark summarizes feed scroll settle before scripted scro
     'cold-cache',
     [sample],
     1,
-    1,
+    1
   );
 
   assert.equal(result.summary.feed?.scrollSettle?.elapsedMs.median, 425);

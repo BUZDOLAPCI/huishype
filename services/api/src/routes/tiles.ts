@@ -89,10 +89,21 @@ import {
   type PropertyTileStageTiming,
 } from '../services/property-tile-runtime.js';
 import {
-  getPropertyTilePrecomputeMaxZoom,
-  lookupCurrentPropertyTileSnapshot,
-  safeRequestPropertyTileSnapshotRefresh,
-} from '../services/property-tile-snapshots.js';
+  buildPropertyTilePyramidCacheKey,
+  getDefaultPropertyTilePyramidSlot,
+  getPropertyTilePyramidMaxZoom,
+  isDefaultPropertyTilePyramidTileCovered,
+  isPropertyTilePyramidTileCoveredByCoverage,
+  lookupCurrentPropertyTilePyramidVersion,
+  lookupPromotedPropertyTilePyramidTile,
+  markPropertyTilePyramidVersionDegraded,
+  requestPropertyTilePyramidBuild,
+  type CurrentPropertyTilePyramidVersion,
+  type PropertyTilePyramidBuildRequest,
+  type PropertyTilePyramidCurrentLookup,
+  type PropertyTilePyramidTileLookup,
+  type PropertyTilePyramidUnavailableStatus,
+} from '../services/property-tile-pyramid.js';
 
 /**
  * Vector Tile Route for Density-Aware Property Grouping
@@ -197,9 +208,37 @@ const tileJsonResponseSchema = z.object({
 
 const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
-const PROPERTY_TILE_SNAPSHOT_LOOKUP_REFRESH_THROTTLE_MS = 60_000;
+const OPENFREEMAP_VECTOR_SOURCE = {
+  type: 'vector',
+  tiles: ['https://tiles.openfreemap.org/planet/20260506_001001_pt/{z}/{x}/{y}.pbf'],
+  minzoom: 0,
+  maxzoom: 14,
+  bounds: [-180, -85.05113, 180, 85.05113],
+  attribution:
+    '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+} satisfies Record<string, unknown>;
 const pendingDefaultPropertyTileSnapshotRefreshes = new Set<Promise<unknown>>();
-let lookupCurrentPropertyTileSnapshotForRoute = lookupCurrentPropertyTileSnapshot;
+
+type PropertyTilePyramidRouteService = {
+  getMaxZoom: typeof getPropertyTilePyramidMaxZoom;
+  lookupCurrentVersion: typeof lookupCurrentPropertyTilePyramidVersion;
+  lookupTile: typeof lookupPromotedPropertyTilePyramidTile;
+  isTileCovered: typeof isDefaultPropertyTilePyramidTileCovered;
+  markVersionDegraded: typeof markPropertyTilePyramidVersionDegraded;
+  requestBuild: typeof requestPropertyTilePyramidBuild;
+};
+
+const defaultPropertyTilePyramidRouteService: PropertyTilePyramidRouteService = {
+  getMaxZoom: getPropertyTilePyramidMaxZoom,
+  lookupCurrentVersion: lookupCurrentPropertyTilePyramidVersion,
+  lookupTile: lookupPromotedPropertyTilePyramidTile,
+  isTileCovered: isDefaultPropertyTilePyramidTileCovered,
+  markVersionDegraded: markPropertyTilePyramidVersionDegraded,
+  requestBuild: requestPropertyTilePyramidBuild,
+};
+
+let propertyTilePyramidRouteService: PropertyTilePyramidRouteService =
+  defaultPropertyTilePyramidRouteService;
 
 export async function waitForPendingDefaultPropertyTileSnapshotRefreshesForTests(): Promise<void> {
   if (process.env.NODE_ENV !== 'test') {
@@ -216,17 +255,20 @@ export async function waitForPendingDefaultPropertyTileSnapshotRefreshesForTests
 export function resetPropertyTileCacheForTests(): void {
   publicPropertyTileCache.clear();
   propertyTileRuntime.resetForTests();
-  lookupCurrentPropertyTileSnapshotForRoute = lookupCurrentPropertyTileSnapshot;
+  propertyTilePyramidRouteService = defaultPropertyTilePyramidRouteService;
 }
 
-export function setPropertyTileSnapshotLookupForTests(
-  lookup: typeof lookupCurrentPropertyTileSnapshot,
+export function setPropertyTilePyramidServiceForTests(
+  service: Partial<PropertyTilePyramidRouteService>
 ): void {
   if (process.env.NODE_ENV !== 'test') {
     return;
   }
 
-  lookupCurrentPropertyTileSnapshotForRoute = lookup;
+  propertyTilePyramidRouteService = {
+    ...defaultPropertyTilePyramidRouteService,
+    ...service,
+  };
 }
 
 function buildReadPropertyTileTemplateUrl(
@@ -255,33 +297,6 @@ function createRequestAbortSignal(request: FastifyRequest, reply: FastifyReply):
     { once: true }
   );
   return controller.signal;
-}
-
-function requestDefaultPropertyTileSnapshotRefreshAfterLookupFallback(input: {
-  request: FastifyRequest;
-  z: number;
-  x: number;
-  y: number;
-  reason: 'snapshot-lookup-miss' | 'snapshot-lookup-error';
-}): void {
-  const scheduled = setImmediate(() => {
-    const refresh = safeRequestPropertyTileSnapshotRefresh(
-      {
-        reason: input.reason,
-        throttleMs: PROPERTY_TILE_SNAPSHOT_LOOKUP_REFRESH_THROTTLE_MS,
-      },
-      input.request.log,
-      {
-        z: input.z,
-        x: input.x,
-        y: input.y,
-      },
-    ).finally(() => {
-      pendingDefaultPropertyTileSnapshotRefreshes.delete(refresh);
-    });
-    pendingDefaultPropertyTileSnapshotRefreshes.add(refresh);
-  });
-  scheduled.unref?.();
 }
 
 function tileHeaderValue(ms: number): string {
@@ -357,10 +372,12 @@ function sendPublicTileEntry(
   runtime: Pick<
     PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
     'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
-  >
+  >,
+  options: { honorConditional?: boolean } = {}
 ) {
   const cacheControl =
     source === 'stale' ? PROPERTY_TILE_STALE_CACHE_CONTROL : PROPERTY_TILE_CACHE_CONTROL;
+  const honorConditional = options.honorConditional ?? true;
   const baseReply = reply
     .header('Cache-Control', cacheControl)
     .header('ETag', entry.etag)
@@ -370,7 +387,7 @@ function sendPublicTileEntry(
     .header('X-Tile-Queue-Time', tileHeaderValue(runtime.queueTimeMs))
     .header('X-Tile-Budget-Ms', String(runtime.budgetMs));
 
-  if (isConditionalMatch(request, entry.etag)) {
+  if (honorConditional && isConditionalMatch(request, entry.etag)) {
     return baseReply.status(304).send();
   }
 
@@ -379,6 +396,167 @@ function sendPublicTileEntry(
   }
 
   return baseReply.header('Content-Type', 'application/x-protobuf').send(entry.payload);
+}
+
+async function shouldHonorCurrentPyramidConditionalRequest(input: {
+  request: FastifyRequest;
+  entry: PublicPropertyTileCacheEntry;
+  slot: ReturnType<typeof getDefaultPropertyTilePyramidSlot>;
+  versionId: string;
+}): Promise<boolean> {
+  if (!isConditionalMatch(input.request, input.entry.etag)) {
+    return true;
+  }
+
+  try {
+    const current = await propertyTilePyramidRouteService.lookupCurrentVersion(input.slot);
+    return current.state === 'current' && current.version.versionId === input.versionId;
+  } catch (error) {
+    if (isPropertyTileRecoverableError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function sendPyramidUnavailableTile(
+  reply: FastifyReply,
+  input: {
+    tileStatus: PropertyTilePyramidUnavailableStatus;
+    runtime: Pick<
+      PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+      'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+    >;
+    buildRequest?: PropertyTilePyramidBuildRequest;
+  }
+) {
+  if (input.buildRequest?.status === 'enqueued') {
+    reply.header('X-HuisHype-Tile-Status', 'pyramid-build-enqueued');
+  } else if (
+    input.buildRequest?.status === 'coalesced' ||
+    input.buildRequest?.status === 'backoff'
+  ) {
+    reply.header('X-HuisHype-Tile-Status', 'pyramid-build-active');
+  } else if (input.buildRequest?.status === 'terminal') {
+    reply.header('X-HuisHype-Tile-Status', 'pyramid-terminal');
+  } else {
+    reply.header('X-HuisHype-Tile-Status', input.tileStatus);
+  }
+
+  if (input.buildRequest?.versionId) {
+    reply.header('X-HuisHype-Pyramid-Candidate-Version', input.buildRequest.versionId);
+  }
+  if (input.buildRequest?.queueJobId) {
+    reply.header('X-HuisHype-Pyramid-Job', input.buildRequest.queueJobId);
+  }
+
+  return reply
+    .header('Cache-Control', 'no-store')
+    .header('X-Tile-Generation-Time', tileHeaderValue(input.runtime.generationTimeMs))
+    .header('X-Tile-Cache', 'pyramid-unavailable')
+    .header('X-Tile-Coalesced', String(input.runtime.coalesced))
+    .header('X-Tile-Queue-Time', tileHeaderValue(input.runtime.queueTimeMs))
+    .header('X-Tile-Budget-Ms', String(input.runtime.budgetMs))
+    .status(204)
+    .send();
+}
+
+function sendPyramidUncoveredTile(
+  reply: FastifyReply,
+  runtime: Pick<
+    PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+    'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+  >
+) {
+  return reply
+    .header('Cache-Control', PROPERTY_TILE_CACHE_CONTROL)
+    .header('X-HuisHype-Tile-Status', 'pyramid-uncovered')
+    .header('X-Tile-Generation-Time', tileHeaderValue(runtime.generationTimeMs))
+    .header('X-Tile-Cache', 'pyramid-uncovered')
+    .header('X-Tile-Coalesced', String(runtime.coalesced))
+    .header('X-Tile-Queue-Time', tileHeaderValue(runtime.queueTimeMs))
+    .header('X-Tile-Budget-Ms', String(runtime.budgetMs))
+    .status(204)
+    .send();
+}
+
+async function requestPyramidBuildForTileRoute(
+  request: FastifyRequest,
+  input: {
+    reason: string;
+    slot: ReturnType<typeof getDefaultPropertyTilePyramidSlot>;
+    z: number;
+    x: number;
+    y: number;
+  }
+): Promise<PropertyTilePyramidBuildRequest | undefined> {
+  try {
+    return await propertyTilePyramidRouteService.requestBuild({
+      reason: input.reason,
+      slot: input.slot,
+    });
+  } catch (error) {
+    request.log.warn(
+      {
+        err: error,
+        reason: input.reason,
+        z: input.z,
+        x: input.x,
+        y: input.y,
+      },
+      'Failed to request replacement property tile pyramid build'
+    );
+    return undefined;
+  }
+}
+
+async function markPyramidVersionDegradedForTileRoute(
+  request: FastifyRequest,
+  input: {
+    version: CurrentPropertyTilePyramidVersion;
+    reason: string;
+    details: Record<string, unknown>;
+  }
+): Promise<void> {
+  try {
+    await propertyTilePyramidRouteService.markVersionDegraded({
+      version: input.version,
+      reason: input.reason,
+      details: input.details,
+      actor: 'tiles-route',
+    });
+  } catch (error) {
+    request.log.warn(
+      {
+        err: error,
+        versionId: input.version.versionId,
+        reason: input.reason,
+        details: input.details,
+      },
+      'Failed to mark property tile pyramid version degraded'
+    );
+  }
+}
+
+function isControlledPyramidTileLookupError(error: unknown): boolean {
+  if (isPropertyTileRecoverableError(error)) {
+    return true;
+  }
+
+  const code = (error as { code?: unknown } | null)?.code;
+  if (
+    code === '22001' ||
+    code === '22003' ||
+    code === '22P02' ||
+    code === '23502' ||
+    code === '23503' ||
+    code === '23514'
+  ) {
+    return true;
+  }
+
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  return Boolean(cause && cause !== error && isControlledPyramidTileLookupError(cause));
 }
 
 function sendPrivateTilePayload(
@@ -407,7 +585,15 @@ function sendPrivateTilePayload(
 }
 
 type TileRouteKind = 'public' | 'read' | 'following';
-type TileCacheState = 'hit' | 'miss' | 'stale' | 'precomputed' | 'timeout-empty';
+type TileCacheState =
+  | 'hit'
+  | 'miss'
+  | 'stale'
+  | 'precomputed'
+  | 'timeout-empty'
+  | 'pyramid-unavailable'
+  | 'pyramid-missing'
+  | 'pyramid-uncovered';
 type TileOutcomeResult =
   | 'fresh'
   | 'stale'
@@ -417,7 +603,10 @@ type TileOutcomeResult =
   | 'dropped'
   | 'detached-draining'
   | 'reattached'
-  | 'error';
+  | 'error'
+  | 'pyramid-unavailable'
+  | 'pyramid-missing'
+  | 'pyramid-uncovered';
 type TileErrorClassification =
   | 'budget_timeout'
   | 'queue_timeout'
@@ -494,7 +683,7 @@ function logTileOutcome(input: {
       viewerId: input.viewerId,
       stageTimings: input.stageTimings,
     },
-    'Property tile outcome',
+    'Property tile outcome'
   );
 }
 
@@ -658,10 +847,7 @@ function readStateScopeRuntimeKey(viewerScope: string): string {
 function isRecoverableRuntimeResult<TResult>(
   runtimeResult: PropertyTileRuntimeResult<TResult>
 ): boolean {
-  return (
-    runtimeResult.state !== 'error' ||
-    isPropertyTileRecoverableError(runtimeResult.error)
-  );
+  return runtimeResult.state !== 'error' || isPropertyTileRecoverableError(runtimeResult.error);
 }
 
 async function runReadStateScopeLookup(input: {
@@ -948,6 +1134,55 @@ function normalizeTextFontStacks(layers: Array<Record<string, unknown>>): void {
       .filter((font, index, fonts) => fonts.indexOf(font) === index);
 
     layout['text-font'] = normalized;
+  }
+}
+
+/**
+ * Positron fill color replacements.
+ *
+ * Positron uses extremely muted fill colors (2-5 units channel deviation from pure gray).
+ * These are perceptible on WebGL with proper gamma correction but indistinguishable from
+ * gray on MapLibre Native's OpenGL ES renderer (especially on OLED phone screens).
+ *
+ * We replace them with clearly visible alternatives from OpenFreeMap Bright style,
+ * keeping the overall clean/minimal Positron aesthetic for lines and labels.
+ */
+const FILL_COLOR_OVERRIDES: Record<string, string> = {
+  park: '#d8e8c8', // Bright green (was #e6e9e5 — barely perceptible)
+  water: '#aad0e6', // Soft blue (was #c2c8ca — barely perceptible)
+  landcover_wood: '#c5d8b5', // Forest green (was #dce0dc — barely perceptible)
+};
+
+/**
+ * Layers that should use a fill-pattern sprite instead of (or in addition to) fill-color.
+ * fill-pattern takes precedence when the sprite is available; fill-color remains as fallback.
+ */
+const FILL_PATTERN_OVERRIDES: Record<string, string> = {
+  water: 'water-pattern',
+};
+
+/**
+ * Replace near-gray Positron fill colors with visible alternatives.
+ * Only modifies layers with known near-gray fills — leaves other layers untouched.
+ * Also applies fill-pattern overrides (e.g. water wave texture).
+ */
+function enhanceFillColors(layers: Array<Record<string, unknown>>): void {
+  for (const layer of layers) {
+    if (layer.type !== 'fill') continue;
+    const colorOverride = FILL_COLOR_OVERRIDES[layer.id as string];
+    if (colorOverride) {
+      const paint = layer.paint as Record<string, unknown> | undefined;
+      if (paint) {
+        paint['fill-color'] = colorOverride;
+      }
+    }
+    const patternOverride = FILL_PATTERN_OVERRIDES[layer.id as string];
+    if (patternOverride) {
+      const paint = layer.paint as Record<string, unknown> | undefined;
+      if (paint) {
+        paint['fill-pattern'] = patternOverride;
+      }
+    }
   }
 }
 
@@ -1700,10 +1935,7 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       try {
-        const baseStyle = JSON.parse(JSON.stringify(huishypeBaseStyle)) as Record<
-          string,
-          unknown
-        >;
+        const baseStyle = JSON.parse(JSON.stringify(huishypeBaseStyle)) as Record<string, unknown>;
 
         const sources = { ...(baseStyle.sources as Record<string, unknown>) };
         const layers = [...(baseStyle.layers as Array<Record<string, unknown>>)];
@@ -1722,33 +1954,13 @@ export async function tileRoutes(app: FastifyInstance) {
           }
         }
 
-        // Resolve TileJSON URL references into inline tile arrays.
-        // MapLibre React Native doesn't resolve `"url"` (TileJSON) references in
-        // style-defined vector sources, so the entire base map fails to render.
-        // We fetch the TileJSON server-side and inline the result.
+        // Resolve bundled TileJSON URL references into inline tile arrays. MapLibre
+        // React Native does not resolve style-defined `"url"` sources reliably, and
+        // the benchmark path must not fetch external style metadata on request.
         for (const [name, src] of Object.entries(sources)) {
           const source = src as Record<string, unknown>;
           if (source.type === 'vector' && typeof source.url === 'string' && !source.tiles) {
-            try {
-              const tjResp = await fetch(source.url as string);
-              const tileJson = (await tjResp.json()) as Record<string, unknown>;
-              // Only keep essential TileJSON fields — large metadata like vector_layers
-              // bloats the style JSON and may cause issues with MapLibre Native's
-              // Fabric bridge serialization.
-              sources[name] = {
-                type: source.type,
-                tiles: tileJson.tiles,
-                ...(tileJson.minzoom != null && { minzoom: tileJson.minzoom }),
-                ...(tileJson.maxzoom != null && { maxzoom: tileJson.maxzoom }),
-                ...(tileJson.bounds ? { bounds: tileJson.bounds } : {}),
-                ...(tileJson.attribution ? { attribution: tileJson.attribution } : {}),
-              };
-            } catch (tjErr) {
-              app.log.warn(
-                tjErr,
-                `Failed to resolve TileJSON for source "${name}" — keeping url reference`
-              );
-            }
+            sources[name] = { ...OPENFREEMAP_VECTOR_SOURCE };
           }
         }
 
@@ -1842,6 +2054,11 @@ export async function tileRoutes(app: FastifyInstance) {
         flattenFillExtrusionZoomExpressions(filteredLayers);
 
         normalizeTextFontStacks(filteredLayers);
+
+        // Replace Positron's near-gray fill colors with visible alternatives.
+        // Positron uses fills that deviate only 2-5 units from pure gray, which
+        // are perceptible on WebGL but invisible on mobile GPU renderers.
+        enhanceFillColors(filteredLayers);
 
         // Add paper-trees symbol layer AFTER sprite filtering to preserve
         // the raw concat expression (coalesce+image wrapper breaks on native).
@@ -2052,6 +2269,295 @@ export async function tileRoutes(app: FastifyInstance) {
       const filterSignature = getMapFilterSignature(filters);
       const cacheKey = `${z}/${x}/${y}:${filterSignature}`;
       const runtimeConfig = getPropertyTileRuntimeConfig();
+      const pyramidRouteMaxZoom = propertyTilePyramidRouteService.getMaxZoom();
+      const isPyramidCoveredPublicDefaultTile =
+        filterSignature === 'default' && z <= pyramidRouteMaxZoom;
+
+      if (isPyramidCoveredPublicDefaultTile) {
+        const startedAt = Date.now();
+        const pyramidRuntime = {
+          coalesced: false,
+          queueTimeMs: 0,
+          generationTimeMs: 0,
+          budgetMs: runtimeConfig.publicBudgetMs,
+        };
+        const slot = {
+          ...getDefaultPropertyTilePyramidSlot(),
+          maxZoom: pyramidRouteMaxZoom,
+        };
+        let current: PropertyTilePyramidCurrentLookup;
+
+        try {
+          current = await propertyTilePyramidRouteService.lookupCurrentVersion(slot);
+        } catch (error) {
+          if (!isPropertyTileRecoverableError(error)) {
+            throw error;
+          }
+          pyramidRuntime.generationTimeMs = Date.now() - startedAt;
+          const buildRequest = await requestPyramidBuildForTileRoute(request, {
+            reason: 'tile-miss',
+            slot,
+            z,
+            x,
+            y,
+          });
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'pyramid-unavailable',
+            result: 'pyramid-unavailable',
+            runtime: pyramidRuntime,
+            errorClassification: 'transient_db',
+          });
+          return sendPyramidUnavailableTile(reply, {
+            tileStatus: 'pyramid-unavailable',
+            runtime: pyramidRuntime,
+            buildRequest,
+          });
+        }
+
+        const isRequestedTileCoveredByConfiguredSlot =
+          propertyTilePyramidRouteService.isTileCovered({
+            z,
+            x,
+            y,
+            maxZoom: slot.maxZoom,
+          });
+        pyramidRuntime.generationTimeMs = Date.now() - startedAt;
+        if (current.state !== 'current') {
+          if (!isRequestedTileCoveredByConfiguredSlot) {
+            logTileOutcome({
+              request,
+              routeKind: 'public',
+              z,
+              x,
+              y,
+              filterSignature,
+              cacheState: 'pyramid-uncovered',
+              result: 'pyramid-uncovered',
+              runtime: pyramidRuntime,
+            });
+            return sendPyramidUncoveredTile(reply, pyramidRuntime);
+          }
+
+          const buildRequest = await requestPyramidBuildForTileRoute(request, {
+            reason: 'tile-miss',
+            slot,
+            z,
+            x,
+            y,
+          });
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'pyramid-unavailable',
+            result: 'pyramid-unavailable',
+            runtime: pyramidRuntime,
+          });
+          return sendPyramidUnavailableTile(reply, {
+            tileStatus: current.tileStatus,
+            runtime: pyramidRuntime,
+            buildRequest,
+          });
+        }
+
+        const pyramidCacheKey = buildPropertyTilePyramidCacheKey({
+          versionId: current.version.versionId,
+          z,
+          x,
+          y,
+        });
+        const cachedPyramidTile = publicPropertyTileCache.get(pyramidCacheKey);
+        if (cachedPyramidTile.state === 'fresh') {
+          const honorConditional = await shouldHonorCurrentPyramidConditionalRequest({
+            request,
+            entry: cachedPyramidTile.entry,
+            slot,
+            versionId: current.version.versionId,
+          });
+          reply.header('X-HuisHype-Pyramid-Version', current.version.versionId);
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'hit',
+            result: 'fresh',
+            runtime: {
+              coalesced: false,
+              queueTimeMs: 0,
+              generationTimeMs: 0,
+              budgetMs: runtimeConfig.publicBudgetMs,
+            },
+          });
+          return sendPublicTileEntry(
+            request,
+            reply,
+            cachedPyramidTile.entry,
+            'hit',
+            {
+              coalesced: false,
+              queueTimeMs: 0,
+              generationTimeMs: 0,
+              budgetMs: runtimeConfig.publicBudgetMs,
+            },
+            {
+              honorConditional,
+            }
+          );
+        }
+
+        let tile: PropertyTilePyramidTileLookup;
+        try {
+          tile = await propertyTilePyramidRouteService.lookupTile({
+            version: current.version as CurrentPropertyTilePyramidVersion,
+            z,
+            x,
+            y,
+          });
+          pyramidRuntime.generationTimeMs = Date.now() - startedAt;
+        } catch (error) {
+          if (!isControlledPyramidTileLookupError(error)) {
+            throw error;
+          }
+          pyramidRuntime.generationTimeMs = Date.now() - startedAt;
+          await markPyramidVersionDegradedForTileRoute(request, {
+            version: current.version as CurrentPropertyTilePyramidVersion,
+            reason: 'payload-regeneration-error',
+            details: {
+              z,
+              x,
+              y,
+              message:
+                error instanceof Error ? error.message : 'Unknown payload regeneration error',
+            },
+          });
+          const buildRequest = await requestPyramidBuildForTileRoute(request, {
+            reason: 'payload-regeneration-error',
+            slot,
+            z,
+            x,
+            y,
+          });
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'pyramid-missing',
+            result: 'pyramid-missing',
+            runtime: pyramidRuntime,
+            errorClassification: 'transient_db',
+          });
+          return sendPyramidUnavailableTile(reply, {
+            tileStatus: 'pyramid-missing',
+            runtime: pyramidRuntime,
+            buildRequest,
+          });
+        }
+
+        if (tile.state === 'missing') {
+          const isCurrentVersionCoverageCovered = current.version.coverage
+            ? isPropertyTilePyramidTileCoveredByCoverage({
+                coverage: current.version.coverage,
+                z,
+                x,
+                y,
+              })
+            : propertyTilePyramidRouteService.isTileCovered({
+                z,
+                x,
+                y,
+                maxZoom: current.version.maxZoom,
+              });
+          if (!isCurrentVersionCoverageCovered) {
+            logTileOutcome({
+              request,
+              routeKind: 'public',
+              z,
+              x,
+              y,
+              filterSignature,
+              cacheState: 'pyramid-uncovered',
+              result: 'pyramid-uncovered',
+              runtime: pyramidRuntime,
+            });
+            return sendPyramidUncoveredTile(reply, pyramidRuntime);
+          }
+
+          await markPyramidVersionDegradedForTileRoute(request, {
+            version: current.version as CurrentPropertyTilePyramidVersion,
+            reason: tile.reason,
+            details: {
+              z,
+              x,
+              y,
+              tileStatus: tile.tileStatus,
+            },
+          });
+          const buildRequest = await requestPyramidBuildForTileRoute(request, {
+            reason: 'manifest-missing',
+            slot,
+            z,
+            x,
+            y,
+          });
+          logTileOutcome({
+            request,
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+            cacheState: 'pyramid-missing',
+            result: 'pyramid-missing',
+            runtime: pyramidRuntime,
+          });
+          return sendPyramidUnavailableTile(reply, {
+            tileStatus: tile.tileStatus,
+            runtime: pyramidRuntime,
+            buildRequest,
+          });
+        }
+
+        const entry = publicPropertyTileCache.set(pyramidCacheKey, {
+          payload: tile.payload,
+          statusCode: tile.statusCode,
+          etag: tile.etag,
+        });
+        reply.header('X-HuisHype-Pyramid-Version', current.version.versionId);
+        reply.header(
+          'X-HuisHype-Tile-Status',
+          tile.statusCode === 204 ? 'pyramid-empty' : 'pyramid-promoted'
+        );
+        logTileOutcome({
+          request,
+          routeKind: 'public',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'precomputed',
+          result: 'precomputed',
+          runtime: pyramidRuntime,
+        });
+        return sendPublicTileEntry(request, reply, entry, 'precomputed', {
+          ...pyramidRuntime,
+        });
+      }
+
       const cachedTile = publicPropertyTileCache.get(cacheKey);
 
       if (cachedTile.state === 'fresh') {
@@ -2080,101 +2586,6 @@ export async function tileRoutes(app: FastifyInstance) {
       }
 
       const signal = createRequestAbortSignal(request, reply);
-
-      if (filterSignature === 'default' && z <= getPropertyTilePrecomputeMaxZoom()) {
-        const snapshotStartedAt = Date.now();
-        const snapshotRuntime = {
-          coalesced: false,
-          queueTimeMs: 0,
-          generationTimeMs: 0,
-          budgetMs: runtimeConfig.publicBudgetMs,
-        };
-        let snapshot: Awaited<ReturnType<typeof lookupCurrentPropertyTileSnapshot>> = null;
-        try {
-          if (signal.aborted) {
-            throw new PropertyTileBuildAbortedError('Property tile snapshot lookup aborted');
-          }
-          snapshot = await lookupCurrentPropertyTileSnapshotForRoute({ z, x, y, filterSignature });
-          snapshotRuntime.generationTimeMs = Date.now() - snapshotStartedAt;
-        } catch (error) {
-          if (!isPropertyTileRecoverableError(error)) {
-            throw error;
-          }
-
-          requestDefaultPropertyTileSnapshotRefreshAfterLookupFallback({
-            request,
-            z,
-            x,
-            y,
-            reason: 'snapshot-lookup-error',
-          });
-          snapshotRuntime.generationTimeMs = Date.now() - snapshotStartedAt;
-          if (cachedTile.state === 'stale') {
-            reply.header('X-Tile-Snapshot', 'error');
-            logTileOutcome({
-              request,
-              routeKind: 'public',
-              z,
-              x,
-              y,
-              filterSignature,
-              cacheState: 'stale',
-              result: 'stale',
-              runtime: snapshotRuntime,
-              errorClassification: 'transient_db',
-            });
-            return sendPublicTileEntry(request, reply, cachedTile.entry, 'stale', {
-              ...snapshotRuntime,
-            });
-          }
-
-          reply.header('X-Tile-Snapshot', 'error');
-          logTileOutcome({
-            request,
-            routeKind: 'public',
-            z,
-            x,
-            y,
-            filterSignature,
-            cacheState: 'timeout-empty',
-            result: 'timeout-empty',
-            runtime: snapshotRuntime,
-            errorClassification: 'transient_db',
-          });
-          return sendTimeoutEmptyTile(reply, snapshotRuntime);
-        }
-        if (snapshot) {
-          const entry = publicPropertyTileCache.set(cacheKey, {
-            payload: snapshot.payload,
-            statusCode: snapshot.statusCode,
-            etag: snapshot.etag,
-          });
-          reply.header('X-Tile-Snapshot', 'hit');
-          logTileOutcome({
-            request,
-            routeKind: 'public',
-            z,
-            x,
-            y,
-            filterSignature,
-            cacheState: 'precomputed',
-            result: 'precomputed',
-            runtime: snapshotRuntime,
-          });
-          return sendPublicTileEntry(request, reply, entry, 'precomputed', {
-            ...snapshotRuntime,
-          });
-        }
-
-        requestDefaultPropertyTileSnapshotRefreshAfterLookupFallback({
-          request,
-          z,
-          x,
-          y,
-          reason: 'snapshot-lookup-miss',
-        });
-        reply.header('X-Tile-Snapshot', 'miss');
-      }
 
       const stageTimings: PropertyTileStageTiming[] = [];
       const runtimeResult = await propertyTileRuntime.run<PropertyTilePayloadBuildResult>({

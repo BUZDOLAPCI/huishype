@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 import type { FastifyInstance } from 'fastify';
-import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import {
@@ -17,28 +17,62 @@ import {
   listingSourceScopeWatermarks,
   priceHistory,
   properties,
-  propertyTileSnapshotRefreshState,
-  propertyTileSnapshotWatermarks,
+  propertyTilePyramidSourceWatermarks,
+  propertyTilePyramidVersions,
 } from '../../db/schema.js';
 import {
   acceptIngestBatch,
-  collectRecoveryDispatchWork,
+  collectRecoveryDispatchWork as collectRecoveryDispatchWorkForAllSources,
   encodeOpaqueIngestCursor,
   processIngestBatch,
   createMaintenanceRefreshRequest,
   forceRecoverSkippedCompletedIngestBatches,
-  refreshLatestListingsMaintenance,
+  refreshLatestListingsMaintenance as refreshLatestListingsMaintenanceForAllSources,
   requeueBlockedSourceBatchesAtWatermark,
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
 } from '../../services/ingest/index.js';
 import { persistMirrorObservationForIngest, upsertListingSourceAliases } from '../../services/listing-reconciliation.js';
-import { PROPERTY_TILE_SNAPSHOT_KEY } from '../../services/property-tile-snapshots.js';
 
 describe('Durable ingest API contract', () => {
   let app: FastifyInstance;
   const originalIngestApiKey = process.env.INGEST_API_KEY;
   const cleanupPropertyIds: string[] = [];
   const cleanupSourceNames = ['idealista', 'fotocasa'];
+  const cleanupPropertyExactStreets = [
+    'Candidate Cursorlaan',
+    'Mixed Candidate Cursorlaan',
+    'Calle Mayor',
+    'Calle Operator',
+    'Calle Recovery',
+    'Calle Precision',
+    'Calle Superseded',
+    'Calle del Conflict',
+    'Alphaweg',
+    'Betaweg',
+    'Invalid House Numberweg',
+    'Pararius Coordinateweg',
+    'Funda Unitvormweg',
+    'Gammaweg',
+  ];
+
+  function collectRecoveryDispatchWork(
+    staleProcessingBefore: Date,
+    limit?: number,
+  ) {
+    return collectRecoveryDispatchWorkForAllSources(staleProcessingBefore, limit, {
+      sourceNames: cleanupSourceNames,
+    });
+  }
+
+  function refreshLatestListingsMaintenance(
+    refreshViews: (() => Promise<void>) | Array<() => Promise<void>>,
+    options: Parameters<typeof refreshLatestListingsMaintenanceForAllSources>[1] = {},
+  ) {
+    return refreshLatestListingsMaintenanceForAllSources(refreshViews, {
+      ...options,
+      skippedBatchRecoverySourceNames: cleanupSourceNames,
+    });
+  }
 
   function encodeRawCursor(payload: { changedAt: string; listingKey: string }): string {
     return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
@@ -63,6 +97,24 @@ describe('Durable ingest API contract', () => {
     await db.delete(ingestBatches).where(eq(ingestBatches.sourceName, sourceName));
     await db.delete(ingestRuns).where(eq(ingestRuns.sourceName, sourceName));
     await db.delete(ingestSources).where(eq(ingestSources.sourceName, sourceName));
+  }
+
+  async function cleanupCreatedProperties() {
+    if (cleanupPropertyIds.length > 0) {
+      await db.delete(properties).where(inArray(properties.id, cleanupPropertyIds));
+      cleanupPropertyIds.length = 0;
+    }
+  }
+
+  async function resetTestPropertyState() {
+    await cleanupCreatedProperties();
+    await db.delete(properties).where(sql`
+      ${properties.countryCode} IN ('NL', 'ES')
+      AND ${properties.street} IN (${sql.join(
+        cleanupPropertyExactStreets.map((street) => sql`${street}`),
+        sql`, `,
+      )})
+    `);
   }
 
   async function drainGlobalMaintenanceState() {
@@ -105,22 +157,30 @@ describe('Durable ingest API contract', () => {
     return propertyId as string;
   }
 
-  async function readPropertyTileSnapshotInvalidationState() {
-    const [watermark] = await db
+  async function readPropertyTilePyramidInvalidationState() {
+    const watermarks = await db
       .select()
-      .from(propertyTileSnapshotWatermarks)
-      .where(eq(propertyTileSnapshotWatermarks.key, PROPERTY_TILE_SNAPSHOT_KEY))
-      .limit(1);
-    const [refreshState] = await db
+      .from(propertyTilePyramidSourceWatermarks)
+      .where(inArray(propertyTilePyramidSourceWatermarks.scope, [
+        'ingest_source',
+        'listing_facts',
+        'property_status',
+      ]));
+    const [latestRecoveryBuild] = await db
       .select()
-      .from(propertyTileSnapshotRefreshState)
-      .where(eq(propertyTileSnapshotRefreshState.key, PROPERTY_TILE_SNAPSHOT_KEY))
+      .from(propertyTilePyramidVersions)
+      .where(eq(propertyTilePyramidVersions.requestReason, 'skipped-ingest-recovery'))
+      .orderBy(desc(propertyTilePyramidVersions.requestedAt))
       .limit(1);
 
     return {
-      listingWatermark: watermark?.listingWatermark ?? 0n,
-      propertyWatermark: watermark?.propertyWatermark ?? 0n,
-      refreshState: refreshState ?? null,
+      ingestSourceWatermark:
+        watermarks.find((row) => row.scope === 'ingest_source')?.watermarkValue ?? 0n,
+      listingFactsWatermark:
+        watermarks.find((row) => row.scope === 'listing_facts')?.watermarkValue ?? 0n,
+      propertyStatusWatermark:
+        watermarks.find((row) => row.scope === 'property_status')?.watermarkValue ?? 0n,
+      latestRecoveryBuild: latestRecoveryBuild ?? null,
     };
   }
 
@@ -222,6 +282,7 @@ describe('Durable ingest API contract', () => {
     for (const sourceName of cleanupSourceNames) {
       await resetIngestSourceState(sourceName);
     }
+    await resetTestPropertyState();
     await drainGlobalMaintenanceState();
   });
 
@@ -238,9 +299,7 @@ describe('Durable ingest API contract', () => {
       await db.delete(ingestBatches).where(inArray(ingestBatches.sourceName, cleanupSourceNames));
       await db.delete(ingestRuns).where(inArray(ingestRuns.sourceName, cleanupSourceNames));
 
-      if (cleanupPropertyIds.length > 0) {
-        await db.delete(properties).where(inArray(properties.id, cleanupPropertyIds));
-      }
+      await resetTestPropertyState();
     } finally {
       process.env.INGEST_API_KEY = originalIngestApiKey;
       await app.close();
@@ -437,7 +496,7 @@ describe('Durable ingest API contract', () => {
       batchSequence: 0,
       cursorStart: null,
       cursorEnd: candidateCursor,
-      runId: scraperRunId,
+      upstreamRunKey: scraperRunId,
       batchKind: 'observations' as const,
       scopeKey: 'candidate',
       listings: [
@@ -446,7 +505,7 @@ describe('Durable ingest API contract', () => {
           mirrorListingId: `idealista-candidate-partial-${stamp}`,
           sourceCandidateId: 'candidate-partial',
           askingPrice: null,
-          listingType: 'unknown' as const,
+          priceType: 'unknown' as const,
           diagnosticStatus: 'unknown' as const,
           status: 'active' as const,
           address: {
@@ -466,17 +525,7 @@ describe('Durable ingest API contract', () => {
       ],
     };
 
-    const candidateResponse = await app.inject({
-      method: 'POST',
-      url: '/api/ingest/listings',
-      headers: {
-        'x-api-key': 'test-ingest-api-key',
-      },
-      payload: candidatePayload,
-    });
-
-    expect(candidateResponse.statusCode).toBe(202);
-    const candidateAccepted = JSON.parse(candidateResponse.body);
+    const candidateAccepted = await acceptIngestBatch(candidatePayload);
     expect(candidateAccepted.runId).toBeTruthy();
 
     await expect(
@@ -4474,7 +4523,7 @@ describe('Durable ingest API contract', () => {
       .update(ingestBatches)
       .set({ skippedCount: 0 })
       .where(eq(ingestBatches.id, batchId));
-    const snapshotStateBefore = await readPropertyTileSnapshotInvalidationState();
+    const pyramidStateBefore = await readPropertyTilePyramidInvalidationState();
 
     await db.insert(canonicalListings).values({
       propertyId,
@@ -4538,13 +4587,13 @@ describe('Durable ingest API contract', () => {
     expect(recoveredBatch?.maintenanceRequestedAt).not.toBeNull();
     expect(recoveredBatch?.maintenanceCompletedAt).not.toBeNull();
 
-    const snapshotStateAfter = await readPropertyTileSnapshotInvalidationState();
-    expect(snapshotStateAfter.listingWatermark > snapshotStateBefore.listingWatermark).toBe(true);
-    expect(snapshotStateAfter.propertyWatermark > snapshotStateBefore.propertyWatermark).toBe(true);
-    expect(snapshotStateAfter.refreshState).toMatchObject({
+    const pyramidStateAfter = await readPropertyTilePyramidInvalidationState();
+    expect(pyramidStateAfter.ingestSourceWatermark > pyramidStateBefore.ingestSourceWatermark).toBe(true);
+    expect(pyramidStateAfter.listingFactsWatermark > pyramidStateBefore.listingFactsWatermark).toBe(true);
+    expect(pyramidStateAfter.propertyStatusWatermark > pyramidStateBefore.propertyStatusWatermark).toBe(true);
+    expect(pyramidStateAfter.latestRecoveryBuild).toMatchObject({
       requestReason: 'skipped-ingest-recovery',
-      requestedListingWatermark: snapshotStateAfter.listingWatermark,
-      requestedPropertyWatermark: snapshotStateAfter.propertyWatermark,
+      sourceWatermarkHash: expect.any(String),
     });
 
     const [sourceState] = await db

@@ -9,8 +9,10 @@ import {
   DEFAULT_PLAYWRIGHT_API_PORT,
   DEFAULT_PLAYWRIGHT_WEB_PORT,
   PLAYWRIGHT_APP_ROOT,
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
   PLAYWRIGHT_REPO_ROOT,
   applyPlaywrightRuntimeEnvironment,
+  assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe,
   resolveLatestWebDistDir,
 } from './runtime-config.mjs';
 import { startStaticWebServer } from './static-web-server.mjs';
@@ -30,7 +32,7 @@ function resolveTsxRuntimePaths() {
     tsxEntryPoint = require.resolve('tsx');
   } catch {
     throw new Error(
-      'Unable to resolve tsx from the current workspace. Run pnpm install before Playwright.',
+      'Unable to resolve tsx from the current workspace. Run pnpm install before Playwright.'
     );
   }
 
@@ -50,8 +52,14 @@ function resolveTsxRuntimePaths() {
 
 const { tsxPreflight, tsxLoader } = resolveTsxRuntimePaths();
 
-const apiPort = Number.parseInt(process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_PLAYWRIGHT_API_PORT), 10);
-const webPort = Number.parseInt(process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_PLAYWRIGHT_WEB_PORT), 10);
+const apiPort = Number.parseInt(
+  process.env.PLAYWRIGHT_API_PORT || String(DEFAULT_PLAYWRIGHT_API_PORT),
+  10
+);
+const webPort = Number.parseInt(
+  process.env.PLAYWRIGHT_WEB_PORT || String(DEFAULT_PLAYWRIGHT_WEB_PORT),
+  10
+);
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const webUrl = `http://127.0.0.1:${webPort}`;
 const runtimeNodeEnv = process.env.NODE_ENV || 'development';
@@ -66,22 +74,23 @@ function assertPositivePort(value, name) {
 
 function getListeningPids(port) {
   try {
-    const output = execFileSync(
-      'lsof',
-      [`-tiTCP:${port}`, '-sTCP:LISTEN'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
+    const output = execFileSync('lsof', [`-tiTCP:${port}`, '-sTCP:LISTEN'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
 
     if (!output) {
       return [];
     }
 
-    return [...new Set(
-      output
-        .split(/\s+/)
-        .map((value) => Number.parseInt(value, 10))
-        .filter((value) => Number.isInteger(value) && value > 0 && value !== process.pid),
-    )];
+    return [
+      ...new Set(
+        output
+          .split(/\s+/)
+          .map((value) => Number.parseInt(value, 10))
+          .filter((value) => Number.isInteger(value) && value > 0 && value !== process.pid)
+      ),
+    ];
   } catch {
     return [];
   }
@@ -95,7 +104,7 @@ async function ensurePortAvailable(port, label) {
 
   throw new Error(
     `${label} port ${port} is already in use by PID(s) ${pids.join(', ')}. ` +
-    'Stop the existing process or choose a different port.',
+      'Stop the existing process or choose a different port.'
   );
 }
 
@@ -207,7 +216,7 @@ async function startServiceWithRetry({
       }
 
       console.warn(
-        `${label} failed to start on attempt ${attempt}/${attempts}: ${lastError.message}. Retrying...`,
+        `${label} failed to start on attempt ${attempt}/${attempts}: ${lastError.message}. Retrying...`
       );
     }
   }
@@ -229,7 +238,12 @@ async function main() {
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
+    PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM || '10',
   };
+  const fixtureTarget = assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe(childEnv, {
+    requireExplicitAllow: false,
+  });
+  childEnv[PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV] = '1';
   // Detached service children do not keep the supervisor event loop alive by
   // themselves. Hold a lightweight interval open so this process remains the
   // lifetime owner until Playwright signals shutdown.
@@ -239,6 +253,25 @@ async function main() {
   let apiChild = null;
   let webServerRuntime = null;
   let apiExit = Promise.resolve();
+
+  console.log(
+    `Ensuring Playwright property tile pyramid fixture in ${fixtureTarget.databaseName} on ${fixtureTarget.host}:${fixtureTarget.port} ...`
+  );
+  execFileSync(
+    process.execPath,
+    [
+      '--require',
+      tsxPreflight,
+      '--import',
+      tsxLoader,
+      'scripts/ensure-playwright-property-tile-pyramid.ts',
+    ],
+    {
+      cwd: apiCwd,
+      env: childEnv,
+      stdio: 'inherit',
+    }
+  );
 
   console.log(`Waiting for API at ${apiUrl} ...`);
   const apiRuntime = await startServiceWithRetry({
@@ -294,19 +327,18 @@ async function main() {
 
   console.log('Building Expo web bundle for Playwright runtime ...');
   const exportStartedAtMs = Date.now();
-  execFileSync(
-    expoBin,
-    ['export', '--platform', 'web', '--clear'],
-    {
-      cwd: appCwd,
-      env: withNodeOption({
+  execFileSync(expoBin, ['export', '--platform', 'web', '--clear'], {
+    cwd: appCwd,
+    env: withNodeOption(
+      {
         ...childEnv,
         NODE_ENV: webExportNodeEnv,
         EXPO_PUBLIC_API_URL: apiUrl,
-      }, `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`),
-      stdio: 'inherit',
-    },
-  );
+      },
+      `--max-old-space-size=${EXPO_WEB_NODE_HEAP_MB}`
+    ),
+    stdio: 'inherit',
+  });
   const exportedWebRoot = resolveLatestWebDistDir({ startedAtMs: exportStartedAtMs });
 
   console.log(`Waiting for static web server at ${webUrl} ...`);

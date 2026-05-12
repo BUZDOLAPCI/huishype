@@ -8,7 +8,7 @@ import {
   getClientObservedValuation,
   type HydrateOfficialValuationRequest,
 } from './contracts.js';
-import { requestPropertyTileSnapshotRefresh } from '../property-tile-snapshots.js';
+import { safeRequestPropertyTilePyramidBuild } from '../property-tile-pyramid.js';
 
 export async function requestOfficialValuationHydration(input: {
   propertyId: string;
@@ -42,19 +42,15 @@ export async function requestOfficialValuationHydration(input: {
         'Failed to enqueue latest listings refresh after official valuation cache update',
       );
     }
-    try {
-      await requestPropertyTileSnapshotRefresh({ reason: 'official-valuation' });
-    } catch (error) {
-      input.logger?.warn(
-        {
-          err: error,
-          propertyId: result.propertyId,
-          source: result.source,
-          maintenanceBatchId: result.maintenanceRequest.batchId,
-        },
-        'Failed to request property tile snapshot refresh after official valuation cache update',
-      );
-    }
+    await safeRequestPropertyTilePyramidBuild(
+      { reason: 'official-valuation' },
+      input.logger ?? { warn: () => undefined },
+      {
+        propertyId: result.propertyId,
+        source: result.source,
+        maintenanceBatchId: result.maintenanceRequest.batchId,
+      },
+    );
   }
 
   if (result?.dispatchJob) {

@@ -8,9 +8,9 @@ import { calculateFmvForProperty } from '../services/fmv.js';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import { getPriceGuessStartForProperty } from '../services/price-guess-start.js';
 import {
-  advancePropertyTileSnapshotWatermark,
-  safeRequestPropertyTileSnapshotRefresh,
-} from '../services/property-tile-snapshots.js';
+  advancePropertyTilePyramidSourceWatermark,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
+} from '../services/property-tile-pyramid.js';
 
 // Schema definitions
 const priceGuessSchema = z.object({
@@ -295,13 +295,13 @@ export async function guessRoutes(app: FastifyInstance) {
             .returning();
 
           await advancePropertyChangeVersion(propertyId, tx);
-          await advancePropertyTileSnapshotWatermark(['social'], tx);
+          await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
           return rows;
         });
 
         const updatedGuess = updated[0];
-        await safeRequestPropertyTileSnapshotRefresh(
-          { reason: 'price-guess-update' },
+        await safeRequestPropertyTilePyramidBuildAfterMutation(
+          { reason: 'price-guess-update', policy: 'social', watermarkScopes: ['social_inputs'] },
           request.log,
           { propertyId, guessId: updatedGuess.id },
         );
@@ -328,13 +328,13 @@ export async function guessRoutes(app: FastifyInstance) {
           .returning();
 
         await advancePropertyChangeVersion(propertyId, tx);
-        await advancePropertyTileSnapshotWatermark(['social'], tx);
+        await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
         return rows;
       });
 
       const created = newGuess[0];
-      await safeRequestPropertyTileSnapshotRefresh(
-        { reason: 'price-guess-create' },
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'price-guess-create', policy: 'social', watermarkScopes: ['social_inputs'] },
         request.log,
         { propertyId, guessId: created.id },
       );

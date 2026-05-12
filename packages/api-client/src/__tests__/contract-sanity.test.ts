@@ -49,6 +49,8 @@ type Expand<T> = { [K in keyof T]: T[K] };
 type FeedQueryFromOpenApi = NonNullable<paths['/feed']['get']['parameters']['query']>;
 type FeedResponseFromOpenApi =
   paths['/feed']['get']['responses'][200]['content']['application/json'];
+type OpsPropertyTilePyramidResponseFromOpenApi =
+  paths['/ops/property-tile-pyramid']['get']['responses'][200]['content']['application/json'];
 type ListingPreviewRequestFromOpenApi =
   paths['/listings/preview']['post']['requestBody']['content']['application/json'];
 type ListingPreviewResponseFromOpenApi =
@@ -161,6 +163,46 @@ type CanonicalPropertyListingReadItem = {
 type CanonicalPropertyListingsResponse = {
   data: CanonicalPropertyListingReadItem[];
 };
+type CanonicalOpsPropertyTilePyramidResponse = {
+  status: 'ok' | 'degraded';
+  currentVersionId: string | null;
+  currentPromotedAt: string | null;
+  previousVersionId: string | null;
+  degradedReason: string | null;
+  activeCandidateVersionId: string | null;
+  activeCandidateStatus: string | null;
+  retryableFailureDueAt: string | null;
+  terminalFailureCount: number;
+  encodedCoverageRatio: number | null;
+  closedWatermarkMaxUpdatedAt: string | null;
+  currentWatermarkMaxUpdatedAt: string | null;
+  closedToCurrentWatermarkLagSeconds: number | null;
+  manifestTileCount: number | null;
+  encodedTileCount: number | null;
+  nodeCount: number | null;
+  memberCount: number | null;
+  currentBuildDurationMs: number | null;
+  currentObservedWalBytes: number | null;
+  activeCandidateStage: string | null;
+  activeCandidateBuildDurationMs: number | null;
+  activeCandidateChunkProgress: Record<string, unknown> | null;
+  activeCandidateObservedWalBytes: number | null;
+  activeLeaseOwner: string | null;
+  activeLeaseAgeSeconds: number | null;
+  lastSuccessfulPromotionAt: string | null;
+  lastAuditAction: string | null;
+  lastAuditReason: string | null;
+  resourceControls: {
+    chunkTileLimit: number;
+    memberPageSize: number;
+    statementTimeoutMs: number;
+    leaseSeconds: number;
+    maxHeapMb: number;
+    maxMemberRows: number;
+    maxWalBytesPerChunk: number;
+    maxWalBytesPerBuild: number;
+  };
+};
 type SavedPropertiesQueryFromOpenApi = NonNullable<
   paths['/saved-properties']['get']['parameters']['query']
 >;
@@ -222,6 +264,11 @@ type ReadPropertyTilesResponseFromOpenApi =
 type FollowingNearbyQueryFromOpenApi = NonNullable<
   paths['/properties/following-nearby']['get']['parameters']['query']
 >;
+type PublicNearbyQueryFromOpenApi = NonNullable<
+  paths['/properties/nearby']['get']['parameters']['query']
+>;
+type PublicNearbyResponseHeadersFromOpenApi =
+  paths['/properties/nearby']['get']['responses'][200]['headers'];
 type NearbyGroupedResponseFromOpenApi =
   paths['/properties/nearby']['get']['responses'][200]['content']['application/json'];
 type NearbySingleFromOpenApi = Extract<
@@ -247,6 +294,10 @@ type CanonicalNearbySingle = {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: 'complete' | 'partial';
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -272,6 +323,10 @@ type CanonicalNearbyCluster = {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: 'complete' | 'partial';
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -285,6 +340,17 @@ type CanonicalNearbyCluster = {
   isRead: boolean;
 };
 type CanonicalNearbyGroupedResponse = CanonicalNearbySingle | CanonicalNearbyCluster | null;
+type CanonicalPyramidNearbyStatusHeader =
+  | 'pyramid-promoted'
+  | 'pyramid-empty'
+  | 'pyramid-missing'
+  | 'pyramid-stale'
+  | 'pyramid-unavailable'
+  | 'pyramid-build-active'
+  | 'pyramid-build-enqueued'
+  | 'pyramid-terminal'
+  | 'pyramid-uncovered'
+  | undefined;
 type HasStaleMapMethod = 'getMapProperties' extends keyof HuisHypeApiClient ? true : false;
 type HasGeneratedUserSearchPath = Extract<PathKeys, '/users/search'>;
 type ResolvePropertyMethodRequest = Parameters<HuisHypeApiClient['resolveProperty']>[0];
@@ -451,6 +517,23 @@ const feedContractAssertions = [
     Equal<keyof FollowingNearbyQueryFromOpenApi, keyof GetFollowingNearbyPropertyRequest>
   >,
   true as Expect<
+    Equal<
+      Exclude<keyof PublicNearbyQueryFromOpenApi, 'pyramidVersionId' | 'pyramidNodeId'>,
+      keyof FollowingNearbyQueryFromOpenApi
+    >
+  >,
+  true as Expect<Equal<PublicNearbyQueryFromOpenApi['pyramidVersionId'], string | undefined>>,
+  true as Expect<Equal<PublicNearbyQueryFromOpenApi['pyramidNodeId'], string | undefined>>,
+  true as Expect<
+    Equal<
+      PublicNearbyResponseHeadersFromOpenApi['x-huishype-nearby-status'],
+      CanonicalPyramidNearbyStatusHeader
+    >
+  >,
+  true as Expect<
+    Equal<PublicNearbyResponseHeadersFromOpenApi['x-huishype-pyramid-version'], string | undefined>
+  >,
+  true as Expect<
     Equal<Extract<keyof FollowingNearbyQueryFromOpenApi, 'bbox' | 'socialScope'>, never>
   >,
   true as Expect<
@@ -462,12 +545,8 @@ const feedContractAssertions = [
   true as Assert<IsExact<NearbyGroupedResponseFromOpenApi, CanonicalNearbyGroupedResponse>>,
   true as Assert<IsExact<NearbySingleFromOpenApi, CanonicalNearbySingle>>,
   true as Assert<IsExact<NearbyClusterFromOpenApi, CanonicalNearbyCluster>>,
-  true as Expect<
-    Equal<keyof FollowingNearbySharedSingle, Exclude<keyof CanonicalNearbySingle, 'isRead'>>
-  >,
-  true as Expect<
-    Equal<keyof FollowingNearbySharedCluster, Exclude<keyof CanonicalNearbyCluster, 'isRead'>>
-  >,
+  true as Expect<Equal<keyof FollowingNearbySharedSingle, keyof CanonicalNearbySingle>>,
+  true as Expect<Equal<keyof FollowingNearbySharedCluster, keyof CanonicalNearbyCluster>>,
   true as Expect<Equal<FollowingNearbySharedSingle['bbox'], CanonicalNearbySingle['bbox']>>,
   true as Expect<Equal<FollowingNearbySharedCluster['bbox'], CanonicalNearbyCluster['bbox']>>,
   true as Expect<
@@ -480,6 +559,9 @@ const feedContractAssertions = [
   true as Expect<Equal<UserSearchQueryFromOpenApi['q'], string | undefined>>,
   true as Assert<IsExact<UserSearchResponseFromOpenApi, SearchUsersResponse>>,
   true as Assert<IsExact<UserSearchErrorFromOpenApi, { error: string; message: string }>>,
+  true as Assert<
+    IsExact<OpsPropertyTilePyramidResponseFromOpenApi, CanonicalOpsPropertyTilePyramidResponse>
+  >,
 ] as const;
 
 describe('Generated OpenAPI types', () => {
@@ -492,6 +574,7 @@ describe('Generated OpenAPI types', () => {
     // The runtime check is a bonus.
     const expectedPaths: PathKeys[] = [
       '/health',
+      '/ops/property-tile-pyramid',
       '/auth/google',
       '/auth/email/request',
       '/auth/email/verify',
@@ -825,6 +908,72 @@ describe('HuisHypeApiClient', () => {
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             Authorization: 'Bearer mock-token',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes public nearby requests against the canonical route', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          nodeClass: 'active',
+          groupKind: 'cluster',
+          primaryPropertyId: 'a0000000-0000-4000-a000-000000000001',
+          pointCount: 2,
+          propertyIds: [],
+          previewPropertyIds: ['a0000000-0000-4000-a000-000000000001'],
+          pyramidVersionId: 'b0000000-0000-4000-a000-000000000001',
+          pyramidNodeId: 'fixture-node',
+          membershipComplete: false,
+          readStateCoverage: 'partial',
+          coordinate: [4.89, 52.37],
+          distanceMeters: 12,
+          bbox: [4.88, 52.36, 4.9, 52.38],
+          activeListingCount: 1,
+          socialCount: 1,
+          recentSocialCount: 1,
+          socialScoreTotal: 10,
+          socialScoreMax: 10,
+          recentSocialScoreTotal: 4,
+          commentCount: 2,
+          isRead: false,
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-huishype-nearby-status': 'pyramid-promoted',
+          },
+        }
+      )
+    );
+
+    try {
+      await expect(
+        client.getNearbyProperty({
+          lon: 4.8952,
+          lat: 52.3702,
+          zoom: 10.75,
+          marketState: ['for-sale', 'sold'],
+          activity: '10d',
+          pyramidVersionId: 'b0000000-0000-4000-a000-000000000001',
+          pyramidNodeId: 'fixture-node',
+        })
+      ).resolves.toHaveProperty('groupKind', 'cluster');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/properties/nearby?lon=4.8952&lat=52.3702&zoom=10.75&pyramidVersionId=b0000000-0000-4000-a000-000000000001&pyramidNodeId=fixture-node&marketState=for-sale%2Csold&activity=10d',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
           }),
         })
       );

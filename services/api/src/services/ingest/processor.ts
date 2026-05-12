@@ -37,9 +37,9 @@ import {
 } from './store.js';
 import { advancePropertyChangeVersion } from '../property-read-state.js';
 import {
-  advancePropertyTileSnapshotWatermark,
-  requestPropertyTileSnapshotRefresh,
-} from '../property-tile-snapshots.js';
+  advancePropertyTilePyramidSourceWatermark,
+  safeRequestPropertyTilePyramidBuild,
+} from '../property-tile-pyramid.js';
 import {
   persistMirrorObservationForIngest,
   type ListingSourceStatus,
@@ -141,7 +141,7 @@ export interface ForcedSkippedBatchRecoveryResult {
 
 interface SkippedBatchRecoveryResult {
   recoveredObservationCount: number;
-  propertyTileSnapshotInvalidated: boolean;
+  propertyTilePyramidInvalidated: boolean;
 }
 
 export interface IngestLogger {
@@ -161,6 +161,7 @@ export interface ProcessIngestBatchOptions {
 export interface RefreshMaintenanceOptions {
   logger?: IngestLogger;
   skippedBatchRecoveryLimit?: number;
+  skippedBatchRecoverySourceNames?: readonly string[];
 }
 
 function normalizeStreetForMatch(street: string): string {
@@ -1861,7 +1862,7 @@ async function recoverSkippedCompletedBatch(
   return db.transaction(async (tx) => {
     const claimed = await lockSkippedBatchRecoveryCandidate(tx, candidateId, recoveryStartedAt, options);
     if (!claimed) {
-      return { recoveredObservationCount: 0, propertyTileSnapshotInvalidated: false };
+      return { recoveredObservationCount: 0, propertyTilePyramidInvalidated: false };
     }
 
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${claimed.sourceName}))`);
@@ -1902,7 +1903,7 @@ async function recoverSkippedCompletedBatch(
       }
 
       await tx.update(ingestBatches).set(update).where(eq(ingestBatches.id, claimed.id));
-      return { recoveredObservationCount: 0, propertyTileSnapshotInvalidated: false };
+      return { recoveredObservationCount: 0, propertyTilePyramidInvalidated: false };
     }
 
     const listingWrites = await persistMatchedListingObservations(
@@ -1924,7 +1925,7 @@ async function recoverSkippedCompletedBatch(
       .filter((propertyId): propertyId is string => propertyId !== null);
     await advancePropertyChangeVersion(changedPropertyIds, tx);
     if (changedPropertyIds.length > 0) {
-      await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
+      await advancePropertyTilePyramidSourceWatermark(['ingest_source', 'listing_facts', 'property_status'], tx);
     }
 
     const insertedCount = listingWrites.filter((row) => row.inserted).length;
@@ -1943,7 +1944,7 @@ async function recoverSkippedCompletedBatch(
 
     return {
       recoveredObservationCount: listingWrites.length,
-      propertyTileSnapshotInvalidated: changedPropertyIds.length > 0,
+      propertyTilePyramidInvalidated: changedPropertyIds.length > 0,
     };
   });
 }
@@ -1951,18 +1952,19 @@ async function recoverSkippedCompletedBatch(
 async function recoverSkippedCompletedIngestBatches(
   recoveryStartedAt: Date,
   limit = 100,
+  sourceNames?: readonly string[],
 ): Promise<SkippedBatchRecoveryResult> {
-  const candidates = await listSkippedBatchRecoveryCandidates(recoveryStartedAt, limit);
+  const candidates = await listSkippedBatchRecoveryCandidates(recoveryStartedAt, limit, sourceNames);
   let recoveredObservationCount = 0;
-  let propertyTileSnapshotInvalidated = false;
+  let propertyTilePyramidInvalidated = false;
 
   for (const candidate of candidates) {
     const recovered = await recoverSkippedCompletedBatch(candidate.id, recoveryStartedAt);
     recoveredObservationCount += recovered.recoveredObservationCount;
-    propertyTileSnapshotInvalidated ||= recovered.propertyTileSnapshotInvalidated;
+    propertyTilePyramidInvalidated ||= recovered.propertyTilePyramidInvalidated;
   }
 
-  return { recoveredObservationCount, propertyTileSnapshotInvalidated };
+  return { recoveredObservationCount, propertyTilePyramidInvalidated };
 }
 
 export async function forceRecoverSkippedCompletedIngestBatches(
@@ -2285,7 +2287,7 @@ export async function processIngestBatch(
         tx,
       );
       if (allListingWrites.some((row) => row.inserted || row.changed)) {
-        await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
+        await advancePropertyTilePyramidSourceWatermark(['ingest_source', 'listing_facts', 'property_status'], tx);
       }
 
       const ingestedCount = allListingWrites.filter((row) => row.inserted).length;
@@ -2332,18 +2334,6 @@ export async function processIngestBatch(
           'Maintenance refresh enqueue failed after ingest batch commit',
         );
       }
-      try {
-        await requestPropertyTileSnapshotRefresh({ reason: 'ingest-batch' });
-      } catch (error) {
-        logger.warn(
-          {
-            batchId: claimed.id,
-            sourceName: claimed.sourceName,
-            error: serializeError(error),
-          },
-          'Property tile snapshot refresh enqueue failed after ingest batch commit',
-        );
-      }
     }
 
     await finalizeRunLifecycle(claimed, logger);
@@ -2376,17 +2366,8 @@ export async function refreshLatestListingsMaintenance(
   const recovery = await recoverSkippedCompletedIngestBatches(
     refreshStartedAt,
     skippedBatchRecoveryLimit,
+    options.skippedBatchRecoverySourceNames,
   );
-  if (recovery.propertyTileSnapshotInvalidated) {
-    try {
-      await requestPropertyTileSnapshotRefresh({ reason: 'skipped-ingest-recovery' });
-    } catch (error) {
-      logger.warn(
-        { error: serializeError(error) },
-        'Property tile snapshot refresh enqueue failed after skipped ingest recovery',
-      );
-    }
-  }
 
   const pendingRows = await db
     .select({ id: ingestBatches.id })
@@ -2414,6 +2395,12 @@ export async function refreshLatestListingsMaintenance(
     .update(ingestBatches)
     .set({ maintenanceCompletedAt: new Date() })
     .where(inArray(ingestBatches.id, pendingRows.map((row) => row.id)));
+
+  await safeRequestPropertyTilePyramidBuild(
+    { reason: recovery.propertyTilePyramidInvalidated ? 'skipped-ingest-recovery' : 'ingest-batch' },
+    logger,
+    { refreshedBatchCount: pendingRows.length },
+  );
 
   return pendingRows.length;
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
-import { users } from '../../db/schema.js';
+import { users, propertyTilePyramidSourceWatermarks } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 import {
@@ -27,6 +27,17 @@ describe('Property view routes', () => {
   const testUserIds: string[] = [];
   // Use unique session IDs per test run to avoid collisions
   const sessionPrefix = `test-${Date.now()}`;
+
+  async function readPyramidViewState() {
+    const [watermark] = await db
+      .select({ watermarkValue: propertyTilePyramidSourceWatermarks.watermarkValue })
+      .from(propertyTilePyramidSourceWatermarks)
+      .where(eq(propertyTilePyramidSourceWatermarks.scope, 'views_engagement'))
+      .limit(1);
+    return {
+      viewsEngagementWatermark: watermark?.watermarkValue ?? 0n,
+    };
+  }
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
@@ -82,6 +93,7 @@ describe('Property view routes', () => {
         SELECT COUNT(*)::int AS cnt FROM property_views WHERE property_id = ${propertyId}
       `);
       const baseCount = Array.from(baseline)[0]?.cnt ?? 0;
+      const pyramidBefore = await readPyramidViewState();
 
       const response = await app.inject({
         method: 'POST',
@@ -93,6 +105,11 @@ describe('Property view routes', () => {
       const body = JSON.parse(response.body);
       expect(body.viewCount).toBe(baseCount + 1);
       expect(body.uniqueViewers).toBeGreaterThanOrEqual(1);
+
+      const pyramidAfter = await readPyramidViewState();
+      expect(pyramidAfter.viewsEngagementWatermark > pyramidBefore.viewsEngagementWatermark).toBe(
+        true,
+      );
     });
 
     it('should record an authenticated view and increment count', async () => {

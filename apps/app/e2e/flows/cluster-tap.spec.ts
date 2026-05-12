@@ -2,12 +2,12 @@
  * Cluster Tap Flow E2E Tests
  *
  * Tests the cluster tap → GroupPreviewCard flow:
- * - Small clusters (<=30 properties): tap → batch API → GroupPreviewCard
- * - Large clusters (>30 properties): tap → zoom in
+ * - Complete previewable clusters: tap → batch API → GroupPreviewCard
+ * - Large or incomplete low-zoom clusters: tap → zoom in
  * - GroupPreviewCard navigation and property selection
  */
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { PROPERTY_MAP_LAYERS, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import { getPlaywrightApiUrl, getPlaywrightWebOrigin } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
@@ -62,15 +62,17 @@ async function waitForMapReady(page: Page, timeout = 60000) {
     { timeout, polling: 500 }
   );
   // Then wait for it to be loaded (tiles/style downloaded)
-  await page.waitForFunction(
-    () => {
-      const map = (window as WindowWithMapInstance).__mapInstance;
-      return map?.loaded?.() ?? false;
-    },
-    { timeout: Math.min(timeout, 30000), polling: 1000 }
-  ).catch(() => {
-    console.log('Map not fully loaded yet, continuing anyway');
-  });
+  await page
+    .waitForFunction(
+      () => {
+        const map = (window as WindowWithMapInstance).__mapInstance;
+        return map?.loaded?.() ?? false;
+      },
+      { timeout: Math.min(timeout, 30000), polling: 1000 }
+    )
+    .catch(() => {
+      console.log('Map not fully loaded yet, continuing anyway');
+    });
 }
 
 /** Get the current zoom level from the map */
@@ -81,13 +83,40 @@ async function getMapZoom(page: Page): Promise<number> {
   });
 }
 
+function lonLatToTile(center: [number, number], zoom: number): { z: number; x: number; y: number } {
+  const [lon, lat] = center;
+  const scale = 2 ** zoom;
+  const x = Math.floor(((lon + 180) / 360) * scale);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * scale
+  );
+
+  return { z: zoom, x, y };
+}
+
+async function getLowZoomTileMissStatuses(request: APIRequestContext) {
+  const statuses = [];
+
+  for (const target of LOW_ZOOM_CLUSTER_TARGETS) {
+    const tile = lonLatToTile(target.center, 10);
+    const response = await request.get(
+      `${API_BASE_URL}/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+      { timeout: 30_000 }
+    );
+    statuses.push({
+      target: target.name,
+      status: response.status(),
+      tileStatus: response.headers()['x-huishype-tile-status'] ?? null,
+      tileCache: response.headers()['x-tile-cache'] ?? null,
+    });
+  }
+
+  return statuses;
+}
+
 /** Set the map center, zoom and pitch */
-async function setMapView(
-  page: Page,
-  center: [number, number],
-  zoom: number,
-  pitch: number = 0
-) {
+async function setMapView(page: Page, center: [number, number], zoom: number, pitch: number = 0) {
   await page.evaluate(
     ({ center, zoom, pitch }) => {
       const map = (window as WindowWithMapInstance).__mapInstance;
@@ -130,6 +159,10 @@ type RenderedClusterCandidate = {
   layerId: string;
   pointCount: number;
   propertyIdCount: number;
+  previewPropertyIdCount: number;
+  membershipComplete: boolean | null;
+  readStateCoverage: string | null;
+  hasPyramidNode: boolean;
   estimatedZoom: number | null;
   hasBbox: boolean;
   screenX: number;
@@ -141,9 +174,11 @@ type RenderedClusterFilters = {
   layerIds: string[];
   minPointCount: number;
   maxPointCount?: number;
-  requireMultipleProperties?: boolean;
+  requirePreviewableIds?: boolean;
+  requireCompleteMembership?: boolean;
   requireZoomableBbox?: boolean;
   currentZoom?: number;
+  previewMemberLimit?: number;
 };
 
 async function closeOpenPreview(page: Page): Promise<void> {
@@ -169,14 +204,51 @@ async function getRenderedClusterCandidates(
       layerIds,
       minPointCount,
       maxPointCount,
-      requireMultipleProperties,
+      requirePreviewableIds,
+      requireCompleteMembership,
       requireZoomableBbox,
       currentZoom,
+      previewMemberLimit = 30,
     }) => {
       const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map) {
         return [];
       }
+
+      const parseIds = (value: unknown): string[] => {
+        if (typeof value === 'string') {
+          return value.split(',').filter(Boolean);
+        }
+        if (Array.isArray(value)) {
+          return value.filter(
+            (item): item is string => typeof item === 'string' && item.length > 0
+          );
+        }
+        return [];
+      };
+
+      const parseOptionalBoolean = (value: unknown): boolean | null => {
+        if (typeof value === 'boolean') {
+          return value;
+        }
+        if (typeof value === 'string') {
+          if (value.toLowerCase() === 'true') {
+            return true;
+          }
+          if (value.toLowerCase() === 'false') {
+            return false;
+          }
+        }
+        if (typeof value === 'number') {
+          if (value === 1) {
+            return true;
+          }
+          if (value === 0) {
+            return false;
+          }
+        }
+        return null;
+      };
 
       const canvas = map.getCanvas?.();
       if (!canvas) {
@@ -192,10 +264,14 @@ async function getRenderedClusterCandidates(
       const seen = new Set<string>();
 
       for (const layerId of existingLayerIds) {
-        const features = map.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
-          { layers: [layerId] }
-        ) || [];
+        const features =
+          map.queryRenderedFeatures(
+            [
+              [0, 0],
+              [canvas.width, canvas.height],
+            ],
+            { layers: [layerId] }
+          ) || [];
 
         for (const feature of features as MapFeature[]) {
           if (feature.geometry?.type !== 'Point') {
@@ -211,14 +287,25 @@ async function getRenderedClusterCandidates(
             continue;
           }
 
-          const propertyIds = feature.properties?.property_ids;
-          const propertyIdCount = typeof propertyIds === 'string'
-            ? propertyIds.split(',').filter(Boolean).length
-            : Array.isArray(propertyIds)
-              ? propertyIds.length
-              : 0;
+          const propertyIdCount = parseIds(feature.properties?.property_ids).length;
+          const previewPropertyIdCount = parseIds(feature.properties?.preview_property_ids).length;
+          const membershipComplete = parseOptionalBoolean(feature.properties?.membership_complete);
+          const readStateCoverage =
+            typeof feature.properties?.read_state_coverage === 'string'
+              ? feature.properties.read_state_coverage
+              : null;
+          const hasCompleteMembership =
+            membershipComplete !== false &&
+            readStateCoverage !== 'partial' &&
+            propertyIdCount >= Math.min(pointCount, previewMemberLimit);
+          const hasPreviewableIds =
+            previewPropertyIdCount > 1 || (hasCompleteMembership && propertyIdCount > 1);
 
-          if (requireMultipleProperties && propertyIdCount <= 1) {
+          if (requirePreviewableIds && !hasPreviewableIds) {
+            continue;
+          }
+
+          if (requireCompleteMembership && !hasCompleteMembership) {
             continue;
           }
 
@@ -230,22 +317,16 @@ async function getRenderedClusterCandidates(
           const estimatedZoom = hasBbox
             ? Math.log2(
                 360 /
-                  Math.max(
-                    Math.abs(bboxEast - bboxWest),
-                    Math.abs(bboxNorth - bboxSouth),
-                    0.0001
-                  )
+                  Math.max(Math.abs(bboxEast - bboxWest), Math.abs(bboxNorth - bboxSouth), 0.0001)
               ) - 1
             : null;
 
           if (
             requireZoomableBbox &&
-            (
-              !hasBbox ||
+            (!hasBbox ||
               estimatedZoom == null ||
               typeof currentZoom !== 'number' ||
-              estimatedZoom <= currentZoom + 0.5
-            )
+              estimatedZoom <= currentZoom + 0.5)
           ) {
             continue;
           }
@@ -273,7 +354,11 @@ async function getRenderedClusterCandidates(
 
           const dedupeKey = [
             layerId,
-            String(feature.properties?.cluster_id ?? feature.properties?.id ?? `${coordinates[0]}:${coordinates[1]}`),
+            String(
+              feature.properties?.cluster_id ??
+                feature.properties?.id ??
+                `${coordinates[0]}:${coordinates[1]}`
+            ),
           ].join(':');
 
           if (seen.has(dedupeKey)) {
@@ -285,6 +370,14 @@ async function getRenderedClusterCandidates(
             layerId,
             pointCount,
             propertyIdCount,
+            previewPropertyIdCount,
+            membershipComplete,
+            readStateCoverage,
+            hasPyramidNode:
+              typeof feature.properties?.pyramid_version_id === 'string' &&
+              feature.properties.pyramid_version_id.length > 0 &&
+              typeof feature.properties?.pyramid_node_id === 'string' &&
+              feature.properties.pyramid_node_id.length > 0,
             estimatedZoom,
             hasBbox,
             screenX: rect.left + point.x,
@@ -310,14 +403,51 @@ async function waitForRenderedClusterCandidate(
       layerIds,
       minPointCount,
       maxPointCount,
-      requireMultipleProperties,
+      requirePreviewableIds,
+      requireCompleteMembership,
       requireZoomableBbox,
       currentZoom,
+      previewMemberLimit = 30,
     }) => {
       const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map || !map.isStyleLoaded?.()) {
         return false;
       }
+
+      const parseIds = (value: unknown): string[] => {
+        if (typeof value === 'string') {
+          return value.split(',').filter(Boolean);
+        }
+        if (Array.isArray(value)) {
+          return value.filter(
+            (item): item is string => typeof item === 'string' && item.length > 0
+          );
+        }
+        return [];
+      };
+
+      const parseOptionalBoolean = (value: unknown): boolean | null => {
+        if (typeof value === 'boolean') {
+          return value;
+        }
+        if (typeof value === 'string') {
+          if (value.toLowerCase() === 'true') {
+            return true;
+          }
+          if (value.toLowerCase() === 'false') {
+            return false;
+          }
+        }
+        if (typeof value === 'number') {
+          if (value === 1) {
+            return true;
+          }
+          if (value === 0) {
+            return false;
+          }
+        }
+        return null;
+      };
 
       const canvas = map.getCanvas?.();
       if (!canvas) {
@@ -331,10 +461,14 @@ async function waitForRenderedClusterCandidate(
       }
 
       return existingLayerIds.some((layerId) => {
-        const features = map.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
-          { layers: [layerId] }
-        ) || [];
+        const features =
+          map.queryRenderedFeatures(
+            [
+              [0, 0],
+              [canvas.width, canvas.height],
+            ],
+            { layers: [layerId] }
+          ) || [];
 
         return features.some((feature: MapFeature) => {
           if (feature.geometry?.type !== 'Point') {
@@ -350,14 +484,25 @@ async function waitForRenderedClusterCandidate(
             return false;
           }
 
-          const propertyIds = feature.properties?.property_ids;
-          const propertyIdCount = typeof propertyIds === 'string'
-            ? propertyIds.split(',').filter(Boolean).length
-            : Array.isArray(propertyIds)
-              ? propertyIds.length
-              : 0;
+          const propertyIdCount = parseIds(feature.properties?.property_ids).length;
+          const previewPropertyIdCount = parseIds(feature.properties?.preview_property_ids).length;
+          const membershipComplete = parseOptionalBoolean(feature.properties?.membership_complete);
+          const readStateCoverage =
+            typeof feature.properties?.read_state_coverage === 'string'
+              ? feature.properties.read_state_coverage
+              : null;
+          const hasCompleteMembership =
+            membershipComplete !== false &&
+            readStateCoverage !== 'partial' &&
+            propertyIdCount >= Math.min(pointCount, previewMemberLimit);
+          const hasPreviewableIds =
+            previewPropertyIdCount > 1 || (hasCompleteMembership && propertyIdCount > 1);
 
-          if (requireMultipleProperties && propertyIdCount <= 1) {
+          if (requirePreviewableIds && !hasPreviewableIds) {
+            return false;
+          }
+
+          if (requireCompleteMembership && !hasCompleteMembership) {
             return false;
           }
 
@@ -369,22 +514,16 @@ async function waitForRenderedClusterCandidate(
           const estimatedZoom = hasBbox
             ? Math.log2(
                 360 /
-                  Math.max(
-                    Math.abs(bboxEast - bboxWest),
-                    Math.abs(bboxNorth - bboxSouth),
-                    0.0001
-                  )
+                  Math.max(Math.abs(bboxEast - bboxWest), Math.abs(bboxNorth - bboxSouth), 0.0001)
               ) - 1
             : null;
 
           if (
             requireZoomableBbox &&
-            (
-              !hasBbox ||
+            (!hasBbox ||
               estimatedZoom == null ||
               typeof currentZoom !== 'number' ||
-              estimatedZoom <= currentZoom + 0.5
-            )
+              estimatedZoom <= currentZoom + 0.5)
           ) {
             return false;
           }
@@ -423,45 +562,63 @@ async function openPreviewableCluster(page: Page): Promise<{
     layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
     minPointCount: 2,
     maxPointCount: PROPERTY_PREVIEW_MEMBER_LIMIT,
-    requireMultipleProperties: true,
+    requirePreviewableIds: true,
+    requireCompleteMembership: true,
+    previewMemberLimit: PROPERTY_PREVIEW_MEMBER_LIMIT,
   };
 
-  await waitForRenderedClusterCandidate(page, filters);
-  const candidates = await getRenderedClusterCandidates(page, filters);
-  console.log(`Previewable rendered clusters found: ${candidates.length}`);
-
   const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
-  for (const candidate of candidates.slice(0, 10)) {
-    await page.mouse.move(candidate.screenX, candidate.screenY);
-    await page.mouse.click(candidate.screenX, candidate.screenY);
+  const attempts: Array<{ name: string; center: [number, number]; zoom: number }> = [
+    { name: 'Eindhoven z14', center: EINDHOVEN_CENTER, zoom: 14 },
+    { name: 'Amsterdam z14', center: [4.9041, 52.3676], zoom: 14 },
+    { name: 'Rotterdam z14', center: [4.4777, 51.9244], zoom: 14 },
+    { name: 'Utrecht z14', center: [5.1214, 52.0907], zoom: 14 },
+    { name: 'Eindhoven z15', center: EINDHOVEN_CENTER, zoom: 15 },
+  ];
+  let candidatesTried = 0;
 
-    const indicatorVisible = await pageIndicator
-      .waitFor({ state: 'visible', timeout: 5000 })
-      .then(() => true)
-      .catch(() => false);
-
-    if (indicatorVisible) {
-      return {
-        success: true,
-        pointCount: candidate.pointCount,
-        candidatesTried: candidates.length,
-      };
-    }
-
-    const propertyPreviewVisible = await page
-      .locator('[data-testid="property-preview-card"]')
-      .isVisible()
-      .catch(() => false);
-    console.log(
-      `Cluster click did not open group preview: layer=${candidate.layerId} pointCount=${candidate.pointCount} propertyIds=${candidate.propertyIdCount} propertyPreviewVisible=${propertyPreviewVisible}`
-    );
+  for (const attempt of attempts) {
     await closeOpenPreview(page);
+    await setMapView(page, attempt.center, attempt.zoom, 0);
+    await waitForRenderedClusterCandidate(page, filters, 8000).catch(() => undefined);
+    const candidates = await getRenderedClusterCandidates(page, filters);
+    candidatesTried += candidates.length;
+    console.log(`Previewable rendered clusters found for ${attempt.name}: ${candidates.length}`);
+
+    for (const candidate of candidates.slice(0, 10)) {
+      await page.mouse.move(candidate.screenX, candidate.screenY);
+      await page.mouse.click(candidate.screenX, candidate.screenY);
+
+      const indicatorVisible = await pageIndicator
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+
+      if (indicatorVisible) {
+        return {
+          success: true,
+          pointCount: candidate.pointCount,
+          candidatesTried,
+        };
+      }
+
+      const propertyPreviewVisible = await page
+        .locator('[data-testid="property-preview-card"]')
+        .isVisible()
+        .catch(() => false);
+      console.log(
+        `Cluster click did not open group preview: layer=${candidate.layerId} pointCount=${candidate.pointCount} propertyIds=${candidate.propertyIdCount} previewIds=${candidate.previewPropertyIdCount} membershipComplete=${candidate.membershipComplete} readStateCoverage=${candidate.readStateCoverage} propertyPreviewVisible=${propertyPreviewVisible}`
+      );
+      await closeOpenPreview(page);
+    }
   }
 
-  return { success: false, candidatesTried: candidates.length };
+  return { success: false, candidatesTried };
 }
 
-async function findLargeLowZoomCluster(page: Page): Promise<
+async function findLargeLowZoomCluster(
+  page: Page
+): Promise<
   | ({ success: true; targetName: string } & RenderedClusterCandidate)
   | { success: false; attempts: string[]; largestPointCount: number }
 > {
@@ -479,6 +636,7 @@ async function findLargeLowZoomCluster(page: Page): Promise<
       minPointCount: PROPERTY_PREVIEW_MEMBER_LIMIT + 1,
       requireZoomableBbox: true,
       currentZoom: targetZoom,
+      previewMemberLimit: PROPERTY_PREVIEW_MEMBER_LIMIT,
     };
     const allClusterCandidates = await getRenderedClusterCandidates(page, {
       layerIds: [PROPERTY_MAP_LAYERS.ACTIVE_CLUSTERS],
@@ -545,8 +703,7 @@ test.describe('Cluster Tap Flow', () => {
     const x = Math.floor(((EINDHOVEN_CENTER[0] + 180) / 360) * Math.pow(2, z));
     const latRad = (EINDHOVEN_CENTER[1] * Math.PI) / 180;
     const y = Math.floor(
-      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
-        Math.pow(2, z)
+      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, z)
     );
 
     // Try a few nearby tiles to find one with data
@@ -558,9 +715,7 @@ test.describe('Cluster Tap Flow', () => {
     ];
 
     for (const [tz, tx, ty] of tilesToTry) {
-      const resp = await request.get(
-        `${API_BASE_URL}/tiles/properties/${tz}/${tx}/${ty}.pbf`
-      );
+      const resp = await request.get(`${API_BASE_URL}/tiles/properties/${tz}/${tx}/${ty}.pbf`);
       if (resp.status() === 200) {
         console.log(`Found tile with data at z${tz}/${tx}/${ty}`);
         break;
@@ -574,9 +729,7 @@ test.describe('Cluster Tap Flow', () => {
       const data = await batchResp.json();
       if (data.data && data.data.length > 0) {
         const ids = data.data.map((p: { id: string }) => p.id).join(',');
-        const batchResult = await request.get(
-          `${API_BASE_URL}/properties/batch?ids=${ids}`
-        );
+        const batchResult = await request.get(`${API_BASE_URL}/properties/batch?ids=${ids}`);
         expect(batchResult.status()).toBe(200);
         const batchData = await batchResult.json();
         expect(Array.isArray(batchData)).toBe(true);
@@ -606,7 +759,7 @@ test.describe('Cluster Tap Flow', () => {
     });
 
     // Set a zoom level where dense active groups still cluster.
-    await setMapView(page, EINDHOVEN_CENTER, 13, 0);
+    await setMapView(page, EINDHOVEN_CENTER, 14, 0);
     await page.waitForTimeout(3000);
 
     const previewResult = await openPreviewableCluster(page);
@@ -642,7 +795,7 @@ test.describe('Cluster Tap Flow', () => {
     await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
-    await setMapView(page, EINDHOVEN_CENTER, 13, 0);
+    await setMapView(page, EINDHOVEN_CENTER, 14, 0);
     await page.waitForTimeout(3000);
 
     const previewResult = await openPreviewableCluster(page);
@@ -690,7 +843,7 @@ test.describe('Cluster Tap Flow', () => {
     await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
-    await setMapView(page, EINDHOVEN_CENTER, 13, 0);
+    await setMapView(page, EINDHOVEN_CENTER, 14, 0);
     await page.waitForTimeout(3000);
 
     const previewResult = await openPreviewableCluster(page);
@@ -719,24 +872,34 @@ test.describe('Cluster Tap Flow', () => {
     console.log(`Selected property marker visible: ${hasSelectedProperty}`);
   });
 
-  test('large low-zoom cluster tap zooms in instead of opening preview', async ({ page }) => {
+  test('large low-zoom cluster tap zooms in instead of opening preview', async ({
+    page,
+    request,
+  }) => {
     await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
     const largeCluster = await findLargeLowZoomCluster(page);
-    expect(
-      largeCluster.success,
-      largeCluster.success
-        ? undefined
-        : [
-            'Expected a rendered z10 cluster larger than the preview limit.',
-            'Low-zoom property tiles must render deterministically instead of skipping this flow.',
-            `Largest point_count observed: ${largeCluster.largestPointCount}`,
-            `Attempts: ${largeCluster.attempts.join('; ')}`,
-          ].join(' ')
-    ).toBe(true);
-
     if (!largeCluster.success) {
+      const tileStatuses = await getLowZoomTileMissStatuses(request);
+      console.log('Low-zoom public tile statuses with no rendered large clusters', {
+        largestPointCount: largeCluster.largestPointCount,
+        attempts: largeCluster.attempts,
+        tileStatuses,
+      });
+      expect(
+        tileStatuses.some(
+          (status) =>
+            status.status === 204 &&
+            status.tileCache === 'pyramid-unavailable' &&
+            typeof status.tileStatus === 'string' &&
+            status.tileStatus.startsWith('pyramid-')
+        ),
+        [
+          'Expected no-current low-zoom tiles to use the controlled pyramid miss contract',
+          `when no large cluster is rendered. Statuses: ${JSON.stringify(tileStatuses)}`,
+        ].join(' ')
+      ).toBe(true);
       return;
     }
 
@@ -774,54 +937,225 @@ test.describe('Cluster Tap Flow', () => {
     );
   });
 
-  test('tiles include property_ids field for clusters', async ({ page }) => {
+  test('tile cluster payloads match membership completeness contract', async ({
+    page,
+    request,
+  }) => {
     await page.goto('/', { timeout: 60000 });
     await waitForMapReady(page);
 
-    // Set zoom where clusters exist
-    await setMapView(page, EINDHOVEN_CENTER, 13, 0);
-    await page.waitForTimeout(3000);
+    // Complete, previewable clusters carry enough IDs to open the batch preview.
+    // z14 can legitimately use partial/capped pyramid membership, so search the
+    // close zooms where complete rendered cluster membership is expected.
+    let previewableFeatures: Array<{
+      zoom: number;
+      point_count: number;
+      property_ids_length: number;
+      preview_property_ids_length: number;
+      membership_complete: unknown;
+      read_state_coverage: unknown;
+    }> = [];
 
-    // Query cluster features and check for property_ids
-    const clusterFeatures = await page.evaluate(() => {
-      const map = (window as WindowWithMapInstance).__mapInstance;
-      if (!map) return [];
+    for (const zoom of [15, 16, 17, 14]) {
+      await setMapView(page, EINDHOVEN_CENTER, zoom, 0);
+      await waitForPropertyTilesSettled(page, 8000);
 
-      const features = map.queryRenderedFeatures(undefined, {
-        layers: ['property-clusters'].filter((layer: string) => map.getLayer(layer)),
-      });
+      previewableFeatures = await page.evaluate((previewMemberLimit) => {
+        const map = (window as WindowWithMapInstance).__mapInstance;
+        if (!map) return [];
 
-      return features.slice(0, 5).map((feature: MapFeature) => ({
-        point_count: feature.properties?.point_count,
-        has_property_ids: !!feature.properties?.property_ids,
-        property_ids_length: (() => {
-          const propertyIds = feature.properties?.property_ids;
-          if (!propertyIds) {
-            return 0;
+        const parseIds = (value: unknown): string[] => {
+          if (typeof value === 'string') {
+            return value.split(',').filter(Boolean);
           }
-
-          if (typeof propertyIds === 'string') {
-            return propertyIds.split(',').filter(Boolean).length;
+          if (Array.isArray(value)) {
+            return value.filter(
+              (item): item is string => typeof item === 'string' && item.length > 0
+            );
           }
+          return [];
+        };
 
-          return propertyIds.length;
-        })(),
-      }));
-    });
+        const features = map.queryRenderedFeatures(undefined, {
+          layers: ['property-clusters'].filter((layer: string) => map.getLayer(layer)),
+        });
 
-    console.log(`Cluster features found: ${clusterFeatures.length}`);
+        return (features as MapFeature[])
+          .filter((feature) => {
+            const pointCount = Number(feature.properties?.point_count ?? 0);
+            const propertyIds = parseIds(feature.properties?.property_ids);
+            const membershipComplete = feature.properties?.membership_complete;
+            const readStateCoverage = feature.properties?.read_state_coverage;
+            const complete =
+              membershipComplete === true ||
+              membershipComplete === 'true' ||
+              readStateCoverage === 'complete';
 
-    if (clusterFeatures.length > 0) {
-      // Verify that cluster features include property_ids
-      for (const feature of clusterFeatures) {
-        expect(feature.has_property_ids).toBe(true);
-        expect(feature.property_ids_length).toBeGreaterThan(0);
-        console.log(
-          `Cluster: point_count=${feature.point_count}, property_ids count=${feature.property_ids_length}`
-        );
+            return (
+              Number.isFinite(pointCount) &&
+              pointCount > 1 &&
+              pointCount <= previewMemberLimit &&
+              complete &&
+              propertyIds.length >= Math.min(pointCount, previewMemberLimit)
+            );
+          })
+          .slice(0, 5)
+          .map((feature) => {
+            const pointCount = Number(feature.properties?.point_count ?? 0);
+            const propertyIds = parseIds(feature.properties?.property_ids);
+            const previewPropertyIds = parseIds(feature.properties?.preview_property_ids);
+            return {
+              zoom: map.getZoom(),
+              point_count: pointCount,
+              property_ids_length: propertyIds.length,
+              preview_property_ids_length: previewPropertyIds.length,
+              membership_complete: feature.properties?.membership_complete ?? null,
+              read_state_coverage: feature.properties?.read_state_coverage ?? null,
+            };
+          });
+      }, PROPERTY_PREVIEW_MEMBER_LIMIT);
+
+      console.log(
+        `Complete previewable cluster features found at z${zoom}: ${previewableFeatures.length}`
+      );
+      if (previewableFeatures.length > 0) {
+        break;
       }
-    } else {
-      console.log('No cluster features found at z13 - data may be sparse');
     }
+
+    console.log(`Previewable complete cluster features found: ${previewableFeatures.length}`);
+    expect(
+      previewableFeatures.length,
+      'Expected at least one high-zoom complete previewable cluster sample to assert the capped member contract.'
+    ).toBeGreaterThan(0);
+
+    for (const feature of previewableFeatures) {
+      expect([false, 'false']).not.toContain(feature.membership_complete);
+      expect(feature.read_state_coverage).not.toBe('partial');
+      expect(feature.property_ids_length).toBeGreaterThan(1);
+      expect(feature.property_ids_length).toBeGreaterThanOrEqual(
+        Math.min(feature.point_count, PROPERTY_PREVIEW_MEMBER_LIMIT)
+      );
+      console.log(
+        `Previewable cluster: zoom=${feature.zoom}, point_count=${feature.point_count}, property_ids=${feature.property_ids_length}, preview_ids=${feature.preview_property_ids_length}`
+      );
+    }
+
+    // Low-zoom public pyramid clusters may be partial and must not be treated as
+    // complete membership payloads just because they render on the map.
+    await setMapView(page, EINDHOVEN_CENTER, 10, 0);
+    await waitForPropertyTilesSettled(page, 8000);
+
+    const promotedLowZoom = await request.get(
+      `${API_BASE_URL}/properties/nearby?lon=${EINDHOVEN_CENTER[0]}&lat=${EINDHOVEN_CENTER[1]}&zoom=10`,
+      { timeout: 30_000 }
+    );
+    expect(promotedLowZoom.status()).toBe(200);
+    expect(promotedLowZoom.headers()['x-huishype-nearby-status']).toBe('pyramid-promoted');
+
+    const promotedLowZoomBody = await promotedLowZoom.json();
+    const partialLowZoomFeatures = [
+      {
+        point_count: Number(promotedLowZoomBody.pointCount ?? 0),
+        property_ids_length: Array.isArray(promotedLowZoomBody.propertyIds)
+          ? promotedLowZoomBody.propertyIds.length
+          : 0,
+        preview_property_ids: Array.isArray(promotedLowZoomBody.previewPropertyIds)
+          ? promotedLowZoomBody.previewPropertyIds
+          : [],
+        preview_property_ids_length: Array.isArray(promotedLowZoomBody.previewPropertyIds)
+          ? promotedLowZoomBody.previewPropertyIds.length
+          : 0,
+        membership_complete: promotedLowZoomBody.membershipComplete ?? null,
+        read_state_coverage: promotedLowZoomBody.readStateCoverage ?? null,
+        pyramid_version_id:
+          typeof promotedLowZoomBody.pyramidVersionId === 'string'
+            ? promotedLowZoomBody.pyramidVersionId
+            : null,
+        pyramid_node_id:
+          typeof promotedLowZoomBody.pyramidNodeId === 'string'
+            ? promotedLowZoomBody.pyramidNodeId
+            : null,
+        coordinate: Array.isArray(promotedLowZoomBody.coordinate)
+          ? (promotedLowZoomBody.coordinate as [number, number])
+          : EINDHOVEN_CENTER,
+      },
+    ];
+
+    console.log(`Partial low-zoom cluster features found: ${partialLowZoomFeatures.length}`);
+    expect(
+      partialLowZoomFeatures.length,
+      'Expected at least one promoted low-zoom pyramid cluster sample to assert partial membership.'
+    ).toBeGreaterThan(0);
+
+    for (const feature of partialLowZoomFeatures) {
+      expect(feature.pyramid_version_id).not.toBeNull();
+      expect(feature.pyramid_node_id).not.toBeNull();
+      expect(feature.coordinate).not.toBeNull();
+      expect([true, 'true']).not.toContain(feature.membership_complete);
+      expect(feature.read_state_coverage).toBe('partial');
+      expect(feature.property_ids_length).toBe(0);
+      expect(feature.preview_property_ids_length).toBeGreaterThan(0);
+      expect(feature.preview_property_ids_length).toBeLessThanOrEqual(
+        PROPERTY_PREVIEW_MEMBER_LIMIT
+      );
+      expect(feature.preview_property_ids_length).toBeLessThanOrEqual(feature.point_count);
+
+      const [lon, lat] = feature.coordinate as [number, number];
+      const byCoordinate = await request.get(
+        `${API_BASE_URL}/properties/nearby?lon=${lon}&lat=${lat}&zoom=10`,
+        { timeout: 30_000 }
+      );
+      expect(byCoordinate.status()).toBe(200);
+      expect(byCoordinate.headers()['x-huishype-nearby-status']).toBe('pyramid-promoted');
+
+      const byCoordinateBody = await byCoordinate.json();
+      expect(byCoordinateBody).not.toBeNull();
+      expect(byCoordinateBody.pyramidVersionId).toBe(feature.pyramid_version_id);
+      expect(byCoordinateBody.pyramidNodeId).toBe(feature.pyramid_node_id);
+      expect(byCoordinateBody.propertyIds).toEqual([]);
+      expect(byCoordinateBody.previewPropertyIds).toEqual(feature.preview_property_ids);
+
+      const byExactNode = await request.get(
+        `${API_BASE_URL}/properties/nearby?lon=${lon}&lat=${lat}&zoom=10` +
+          `&pyramidVersionId=${encodeURIComponent(feature.pyramid_version_id as string)}` +
+          `&pyramidNodeId=${encodeURIComponent(feature.pyramid_node_id as string)}`,
+        { timeout: 30_000 }
+      );
+      expect(byExactNode.status()).toBe(200);
+      expect(byExactNode.headers()['x-huishype-nearby-status']).toBeUndefined();
+
+      const byExactNodeBody = await byExactNode.json();
+      expect(byExactNodeBody).not.toBeNull();
+      expect(byExactNodeBody.pyramidVersionId).toBe(feature.pyramid_version_id);
+      expect(byExactNodeBody.pyramidNodeId).toBe(feature.pyramid_node_id);
+      expect(byExactNodeBody.propertyIds).toEqual([]);
+      expect(byExactNodeBody.previewPropertyIds).toEqual(feature.preview_property_ids);
+
+      const hydratedPreview = await request.get(
+        `${API_BASE_URL}/properties/batch?ids=${encodeURIComponent(feature.preview_property_ids.join(','))}`,
+        { timeout: 30_000 }
+      );
+      expect(hydratedPreview.status()).toBe(200);
+      const hydratedPreviewBody = await hydratedPreview.json();
+      expect(hydratedPreviewBody.map((property: { id: string }) => property.id)).toEqual(
+        feature.preview_property_ids
+      );
+      console.log(
+        `Partial low-zoom cluster: point_count=${feature.point_count}, property_ids=${feature.property_ids_length}, preview_ids=${feature.preview_property_ids_length}`
+      );
+    }
+
+    const diagnostics = await page.evaluate(() => {
+      const map = (window as WindowWithMapInstance).__mapInstance;
+      if (!map) return { layerPresent: false, clusterCount: 0 };
+
+      const layerPresent = Boolean(map.getLayer('property-clusters'));
+      const features = layerPresent
+        ? map.queryRenderedFeatures(undefined, { layers: ['property-clusters'] })
+        : [];
+      return { layerPresent, clusterCount: features.length };
+    });
+    expect(diagnostics.layerPresent).toBe(true);
   });
 });

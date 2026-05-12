@@ -71,6 +71,9 @@ type TrackViewResponse =
 type ResolvePropertyQuery = paths['/properties/resolve']['get']['parameters']['query'];
 type PropertyResponse =
   paths['/properties/{id}']['get']['responses'][200]['content']['application/json'];
+type NearbyPropertyQuery = NonNullable<paths['/properties/nearby']['get']['parameters']['query']>;
+type NearbyPropertyResponse =
+  paths['/properties/nearby']['get']['responses'][200]['content']['application/json'];
 type SavedPropertiesQuery =
   NonNullable<paths['/saved-properties']['get']['parameters']['query']>;
 type SavedPropertiesResponse =
@@ -386,6 +389,27 @@ export class HuisHypeApiClient {
 
   async getProperty(propertyId: string): Promise<PropertyResponse> {
     return this.request<PropertyResponse>('GET', `/properties/${propertyId}`);
+  }
+
+  async getNearbyProperty(request: NearbyPropertyQuery): Promise<NearbyPropertyResponse> {
+    const marketState =
+      Array.isArray(request.marketState) ? request.marketState.join(',') : request.marketState;
+
+    return this.request<NearbyPropertyResponse>('GET', '/properties/nearby', {
+      query: {
+        lon: request.lon,
+        lat: request.lat,
+        zoom: request.zoom,
+        pyramidVersionId: request.pyramidVersionId,
+        pyramidNodeId: request.pyramidNodeId,
+        salePriceFrom: request.salePriceFrom ?? undefined,
+        salePriceTo: request.salePriceTo ?? undefined,
+        rentPriceFrom: request.rentPriceFrom ?? undefined,
+        rentPriceTo: request.rentPriceTo ?? undefined,
+        marketState,
+        activity: request.activity,
+      },
+    });
   }
 
   async getFollowingPropertyTiles(

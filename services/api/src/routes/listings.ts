@@ -26,9 +26,9 @@ import {
 } from '../services/ingest/index.js';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import {
-  advancePropertyTileSnapshotWatermark,
-  safeRequestPropertyTileSnapshotRefresh,
-} from '../services/property-tile-snapshots.js';
+  advancePropertyTilePyramidSourceWatermark,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
+} from '../services/property-tile-pyramid.js';
 import {
   consumeListingPreviewResult,
   createUserListingSubmission,
@@ -135,8 +135,12 @@ async function requestListingWriteRefreshes(input: {
 
   await Promise.all([
     latestListingsRefresh,
-    safeRequestPropertyTileSnapshotRefresh(
-      { reason: input.propertyTileReason },
+    safeRequestPropertyTilePyramidBuildAfterMutation(
+      {
+        reason: input.propertyTileReason,
+        policy: 'listing',
+        watermarkScopes: ['listing_facts', 'property_status'],
+      },
       input.logger,
       {
         maintenanceBatchId: input.maintenanceBatchId,
@@ -644,7 +648,7 @@ export async function listingRoutes(app: FastifyInstance) {
             preview,
           });
           await advancePropertyChangeVersion(createdSubmission.canonicalListing.propertyId, tx);
-          await advancePropertyTileSnapshotWatermark(['listing', 'property'], tx);
+          await advancePropertyTilePyramidSourceWatermark(['listing_facts', 'property_status'], tx);
 
           const maintenance = await createMaintenanceRefreshRequest(tx, {
             sourceName: preview.sourceName,

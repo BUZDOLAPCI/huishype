@@ -858,6 +858,122 @@ describe('useMapInteraction', () => {
         activityLevel: 'warm',
       });
     });
+
+    it('uses only preview IDs for partial-membership pyramid clusters with full IDs present', async () => {
+      jest.useFakeTimers();
+      mockFetchBatchProperties.mockResolvedValue([
+        {
+          id: 'preview-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: 'Preview One',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          yearBuilt: 1998,
+          floorAreaM2: 118,
+          status: 'active',
+          officialValuation: 250000,
+          hasListing: true,
+          hasActiveListing: true,
+          marketState: 'for-sale',
+          askingPrice: 300000,
+          socialScore: 7,
+          recentSocialScore: 0,
+          likeCount: 3,
+          commentCount: 5,
+          guessCount: 2,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const camera = createMockCamera();
+      const feature: GeoJSON.Feature = {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+        properties: {
+          node_class: 'active',
+          group_kind: 'cluster',
+          primary_property_id: 'preview-1',
+          point_count: 50,
+          property_ids: 'full-1,full-2,full-3,full-4',
+          preview_property_ids: 'preview-1,preview-2',
+          membership_complete: 'false',
+          read_state_coverage: 'partial',
+          pyramid_version_id: 'v1',
+          pyramid_node_id: 'n1',
+        },
+      };
+
+      let handled = false;
+      await act(async () => {
+        handled = await result.current.handleFeaturePress([feature], 10, camera);
+      });
+
+      expect(handled).toBe(true);
+      expect(camera.flyTo).toHaveBeenCalledWith({
+        center: [4.9, 52.37],
+        zoom: 10,
+        duration: 500,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+      });
+
+      await flushPreviewFlight();
+
+      expect(mockFetchBatchProperties).toHaveBeenCalledWith(['preview-1', 'preview-2']);
+      expect(mockFetchBatchProperties).not.toHaveBeenCalledWith([
+        'full-1',
+        'full-2',
+        'full-3',
+        'full-4',
+      ]);
+      expect(result.current.previewGroup?.properties[0]?.id).toBe('preview-1');
+    });
+
+    it('defers incomplete pyramid clusters with empty previews to the nearby fallback', async () => {
+      jest.useFakeTimers();
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const camera = createMockCamera();
+      const feature: GeoJSON.Feature = {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+        properties: {
+          node_class: 'active',
+          group_kind: 'cluster',
+          primary_property_id: 'p1',
+          point_count: 50,
+          property_ids: 'p1,p2,p3',
+          preview_property_ids: '',
+          membership_complete: 'false',
+          read_state_coverage: 'partial',
+          pyramid_version_id: 'v1',
+          pyramid_node_id: 'n1',
+          bbox_west: 4.8,
+          bbox_south: 52.3,
+          bbox_east: 5.0,
+          bbox_north: 52.4,
+        },
+      };
+
+      let handled = true;
+      await act(async () => {
+        handled = await result.current.handleFeaturePress([feature], 10, camera);
+      });
+
+      expect(handled).toBe(false);
+      expect(mockFetchBatchProperties).not.toHaveBeenCalled();
+      expect(camera.flyTo).not.toHaveBeenCalled();
+      expect(camera.fitBounds).not.toHaveBeenCalled();
+      expect(result.current.previewGroup).toBeNull();
+    });
   });
 
   describe('handleNearbyResult', () => {
@@ -875,6 +991,10 @@ describe('useMapInteraction', () => {
         pointCount: 1,
         propertyIds: ['prop-1'],
         previewPropertyIds: ['prop-1'],
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete',
         coordinate: [4.9, 52.37],
         bbox: null,
         activeListingCount: 1,
@@ -904,6 +1024,7 @@ describe('useMapInteraction', () => {
         distanceMeters: 10,
         yearBuilt: null,
         floorAreaM2: null,
+        isRead: false,
       };
 
       act(() => {
@@ -971,6 +1092,10 @@ describe('useMapInteraction', () => {
         pointCount: 50,
         propertyIds: ['p1', 'p2', 'p3'],
         previewPropertyIds: ['p1', 'p2', 'p3'],
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete',
         coordinate: [4.9, 52.37],
         bbox: { west: 4.8, south: 52.3, east: 5.0, north: 52.4 },
         activeListingCount: 2,
@@ -1000,6 +1125,7 @@ describe('useMapInteraction', () => {
         distanceMeters: 10,
         yearBuilt: null,
         floorAreaM2: null,
+        isRead: false,
       };
 
       await act(async () => {
@@ -1027,6 +1153,106 @@ describe('useMapInteraction', () => {
         activityScore: 7,
         activityLevel: 'warm',
       });
+    });
+
+    it('uses only preview IDs for partial-membership nearby clusters with full IDs present', async () => {
+      jest.useFakeTimers();
+      mockFetchBatchProperties.mockResolvedValue([
+        {
+          id: 'preview-1',
+          nationalId: null,
+          countryCode: 'NL',
+          address: 'Preview One',
+          city: 'Amsterdam',
+          postalCode: '1012AB',
+          geometry: { type: 'Point', coordinates: [4.9, 52.37] },
+          yearBuilt: 1998,
+          floorAreaM2: 118,
+          status: 'active',
+          officialValuation: 250000,
+          hasListing: true,
+          hasActiveListing: true,
+          marketState: 'for-sale',
+          askingPrice: 300000,
+          socialScore: 7,
+          recentSocialScore: 0,
+          likeCount: 3,
+          commentCount: 5,
+          guessCount: 2,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const camera = createMockCamera();
+      const nearby: NearbyPropertyGroup = {
+        nodeClass: 'active',
+        groupKind: 'cluster',
+        primaryPropertyId: 'preview-1',
+        pointCount: 50,
+        propertyIds: ['full-1', 'full-2', 'full-3', 'full-4'],
+        previewPropertyIds: ['preview-1', 'preview-2'],
+        pyramidVersionId: 'v1',
+        pyramidNodeId: 'n1',
+        membershipComplete: false,
+        readStateCoverage: 'partial',
+        coordinate: [4.9, 52.37],
+        bbox: null,
+        activeListingCount: 2,
+        socialCount: 5,
+        recentSocialCount: 3,
+        socialScoreTotal: 60,
+        socialScoreMax: 30,
+        recentSocialScoreTotal: 18,
+        hasActiveListing: true,
+        marketState: null,
+        hasListing: true,
+        activityScore: 60,
+        activityScoreTotal: 60,
+        likeCount: 0,
+        commentCount: 0,
+        guessCount: 0,
+        streetName: null,
+        houseNumber: null,
+        houseNumberAddition: null,
+        address: null,
+        city: null,
+        postalCode: null,
+        countryCode: null,
+        officialValuation: null,
+        askingPrice: null,
+        thumbnailUrl: null,
+        distanceMeters: 10,
+        yearBuilt: null,
+        floorAreaM2: null,
+        isRead: false,
+      };
+
+      act(() => {
+        result.current.handleNearbyResult(nearby, 10, camera);
+      });
+
+      expect(camera.flyTo).toHaveBeenCalledWith({
+        center: [4.9, 52.37],
+        zoom: 10,
+        duration: 500,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+      });
+
+      await flushPreviewFlight();
+
+      expect(mockFetchBatchProperties).toHaveBeenCalledWith(['preview-1', 'preview-2']);
+      expect(mockFetchBatchProperties).not.toHaveBeenCalledWith([
+        'full-1',
+        'full-2',
+        'full-3',
+        'full-4',
+      ]);
+      expect(result.current.previewGroup?.properties[0]?.id).toBe('preview-1');
     });
   });
 

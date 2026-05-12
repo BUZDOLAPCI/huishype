@@ -2,7 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
-import { users, comments, reactions } from '../../db/schema.js';
+import {
+  users,
+  comments,
+  reactions,
+  propertyTilePyramidSourceWatermarks,
+} from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 
@@ -20,6 +25,17 @@ describe('Comment routes', () => {
   let propertyId: string;
   const createdCommentIds: string[] = [];
   const testUserIds: string[] = [];
+
+  async function readPyramidMutationState() {
+    const [watermark] = await db
+      .select({ watermarkValue: propertyTilePyramidSourceWatermarks.watermarkValue })
+      .from(propertyTilePyramidSourceWatermarks)
+      .where(eq(propertyTilePyramidSourceWatermarks.scope, 'social_inputs'))
+      .limit(1);
+    return {
+      socialInputsWatermark: watermark?.watermarkValue ?? 0n,
+    };
+  }
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
@@ -74,6 +90,7 @@ describe('Comment routes', () => {
 
   describe('POST /properties/:id/comments', () => {
     it('should create a comment with auth', async () => {
+      const before = await readPyramidMutationState();
       const response = await app.inject({
         method: 'POST',
         url: `/properties/${propertyId}/comments`,
@@ -95,6 +112,9 @@ describe('Comment routes', () => {
       expect(body.message).toBe('Comment added successfully');
 
       createdCommentIds.push(body.id);
+
+      const after = await readPyramidMutationState();
+      expect(after.socialInputsWatermark > before.socialInputsWatermark).toBe(true);
     });
 
     it('should return 401 without auth', async () => {

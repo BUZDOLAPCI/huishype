@@ -7,8 +7,24 @@ appId: nl.huishype.app
 - tapOn:
     text: 'Continue'
     optional: true
+- tapOn:
+    text: 'While using the app'
+    optional: true
+- tapOn:
+    text: 'Only this time'
+    optional: true
 - waitForAnimationToEnd
 - pressKey: Back
+- waitForAnimationToEnd
+- tapOn:
+    text: 'Continue'
+    optional: true
+- tapOn:
+    text: 'Close'
+    optional: true
+- tapOn:
+    point: '88%,11%'
+    optional: true
 - waitForAnimationToEnd
 - tapOn:
     id: 'tab-index'

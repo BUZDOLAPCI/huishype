@@ -14,12 +14,9 @@
 import { test, expect, Page } from '@playwright/test';
 import * as path from 'path';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
-import { waitForMapIdle } from './helpers/visual-test-helpers';
+import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import type { VisualMapFeatureLike } from './helpers/visual-map-types';
-import {
-  clickOnPropertyMarker,
-  clickPreviewAction,
-} from './helpers/screenshot-harness';
+import { clickOnPropertyMarker, clickPreviewAction } from './helpers/screenshot-harness';
 import * as fs from 'fs';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
@@ -36,6 +33,13 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 // Map view configuration - use Eindhoven center where properties and listings exist.
 const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 const ZOOM_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM;
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
+const PREVIEWABLE_PROPERTY_LAYERS = [
+  'ghost-nodes',
+  'active-nodes',
+  'property-clusters',
+  'ghost-clusters',
+] as const;
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
@@ -53,37 +57,18 @@ async function waitForMapReady(page: Page): Promise<void> {
     console.log('Loading indicator not found or already hidden');
   });
 
-  // Wait for map to fully initialize, style to load, layers to exist, and features to render
+  await waitForMapStyleLoaded(page);
+
+  // Wait for the property style layers to exist. Rendered features are only
+  // required after the test moves the map to the seeded Eindhoven center.
   await page.waitForFunction(
-    () => {
+    (propertyLayers) => {
       const mapInstance = window.__mapInstance;
       if (!mapInstance || !mapInstance.isStyleLoaded()) return false;
 
-      // Check if property layers exist
-      const hasGhostLayer = mapInstance.getLayer('ghost-nodes');
-      const hasActiveLayer = mapInstance.getLayer('active-nodes');
-      const hasClusters = mapInstance.getLayer('property-clusters');
-      const hasGhostClusterLayer = mapInstance.getLayer('ghost-clusters');
-
-      if (!hasGhostLayer && !hasActiveLayer && !hasClusters && !hasGhostClusterLayer) return false;
-
-      // Also check that there are actually features rendered
-      const canvas = mapInstance.getCanvas();
-      if (!canvas) return false;
-
-      let featureCount = 0;
-      try {
-        const features = mapInstance.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
-          { layers: ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters'].filter(l => mapInstance.getLayer(l)) }
-        );
-        featureCount = features?.length || 0;
-      } catch {
-        // Ignore errors during query
-      }
-
-      return featureCount > 0;
+      return propertyLayers.some((layer) => !!mapInstance.getLayer(layer));
     },
+    PREVIEWABLE_PROPERTY_LAYERS,
     { timeout: 45000, polling: 500 }
   );
 
@@ -121,22 +106,29 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
       const canvas = mapInstance.getCanvas();
       if (!canvas) return false;
 
-      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
-        .filter(l => mapInstance.getLayer(l));
+      const layerIds = [
+        'ghost-nodes',
+        'active-nodes',
+        'property-clusters',
+        'ghost-clusters',
+      ].filter((l) => mapInstance.getLayer(l));
       if (layerIds.length === 0) return false;
 
       try {
         const features = mapInstance.queryRenderedFeatures(
-          [[0, 0], [canvas.width, canvas.height]],
+          [
+            [0, 0],
+            [canvas.width, canvas.height],
+          ],
           { layers: layerIds }
         );
         return (features?.length || 0) > 0;
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     },
     { timeout: 30000, polling: 500 }
-  ).catch(() => {
-    console.log('Warning: Timed out waiting for property features after zoom');
-  });
+  );
 
   return result;
 }
@@ -155,6 +147,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
+
     // Reset console collections
     consoleErrors = [];
     consoleWarnings = [];
@@ -211,9 +207,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const zoomSuccess = await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
     console.log(`Map zoom configured: ${zoomSuccess}`);
 
-    // Wait for tiles to load after zoom
-    await page.waitForTimeout(2000);
-
     // Get map state for debugging
     let mapState = await page.evaluate(() => {
       const mapInstance = window.__mapInstance;
@@ -221,11 +214,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const canvas = mapInstance.getCanvas();
         let features: VisualMapFeatureLike[] = [];
         try {
-          features = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-nodes', 'active-nodes', 'property-clusters'] }
-          ) || [];
-        } catch { /* ignore */ }
+          features =
+            mapInstance.queryRenderedFeatures(
+              [
+                [0, 0],
+                [canvas.width, canvas.height],
+              ],
+              { layers: ['ghost-nodes', 'active-nodes', 'property-clusters'] }
+            ) || [];
+        } catch {
+          /* ignore */
+        }
         return {
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
@@ -250,7 +249,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // First, try to find and click on a marker using the map's fire event
     const clickResult = await clickOnPropertyMarker(page);
-    console.log(`Marker click attempt: success=${clickResult.success}, features=${clickResult.featureCount}`);
+    console.log(
+      `Marker click attempt: success=${clickResult.success}, features=${clickResult.featureCount}`
+    );
 
     await page.waitForTimeout(800);
     previewVisible = await previewCard.isVisible().catch(() => false);
@@ -266,47 +267,70 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         let allFeatures: VisualMapFeatureLike[] = [];
 
         try {
-          const ghostFeatures = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-nodes'] }
-          ) || [];
+          const ghostFeatures =
+            mapInstance.queryRenderedFeatures(
+              [
+                [0, 0],
+                [canvas.width, canvas.height],
+              ],
+              { layers: ['ghost-nodes'] }
+            ) || [];
           allFeatures = allFeatures.concat(ghostFeatures);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
 
         try {
-          const activeFeatures = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['active-nodes'] }
-          ) || [];
+          const activeFeatures =
+            mapInstance.queryRenderedFeatures(
+              [
+                [0, 0],
+                [canvas.width, canvas.height],
+              ],
+              { layers: ['active-nodes'] }
+            ) || [];
           allFeatures = allFeatures.concat(activeFeatures);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
 
         try {
-          const clusterFeatures = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['property-clusters'] }
-          ) || [];
+          const clusterFeatures =
+            mapInstance.queryRenderedFeatures(
+              [
+                [0, 0],
+                [canvas.width, canvas.height],
+              ],
+              { layers: ['property-clusters'] }
+            ) || [];
           allFeatures = allFeatures.concat(clusterFeatures);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
 
-        return allFeatures.slice(0, 10).map((f) => {
-          if (f.geometry?.type === 'Point') {
-            const point = mapInstance.project(f.geometry.coordinates);
-            const rect = canvas.getBoundingClientRect();
-            return {
-              x: rect.left + point.x,
-              y: rect.top + point.y,
-              id: f.properties?.id
-            };
-          }
-          return null;
-        }).filter(Boolean);
+        return allFeatures
+          .slice(0, 10)
+          .map((f) => {
+            if (f.geometry?.type === 'Point') {
+              const point = mapInstance.project(f.geometry.coordinates);
+              const rect = canvas.getBoundingClientRect();
+              return {
+                x: rect.left + point.x,
+                y: rect.top + point.y,
+                id: f.properties?.id,
+              };
+            }
+            return null;
+          })
+          .filter(Boolean);
       });
 
       console.log(`Found ${markerPositions.length} marker positions for Playwright clicks`);
 
       for (const pos of markerPositions) {
-        console.log(`Clicking at screen position (${Math.round(pos!.x)}, ${Math.round(pos!.y)})...`);
+        console.log(
+          `Clicking at screen position (${Math.round(pos!.x)}, ${Math.round(pos!.y)})...`
+        );
         await page.mouse.click(pos!.x, pos!.y);
         await page.waitForTimeout(800);
 
@@ -352,9 +376,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         // Find elements containing the button text
         const allElements = Array.from(card.querySelectorAll('*'));
-        const likeEl = allElements.find(el => el.textContent === 'Like');
-        const commentEl = allElements.find(el => el.textContent === 'Comment');
-        const guessEl = allElements.find(el => el.textContent === 'Guess');
+        const likeEl = allElements.find((el) => el.textContent === 'Like');
+        const commentEl = allElements.find((el) => el.textContent === 'Comment');
+        const guessEl = allElements.find((el) => el.textContent === 'Guess');
 
         if (!likeEl || !commentEl || !guessEl) return null;
 
@@ -366,8 +390,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           likeTop: likeRect.top,
           commentTop: commentRect.top,
           guessTop: guessRect.top,
-          areHorizontal: Math.abs(likeRect.top - commentRect.top) < 20 &&
-                         Math.abs(commentRect.top - guessRect.top) < 20,
+          areHorizontal:
+            Math.abs(likeRect.top - commentRect.top) < 20 &&
+            Math.abs(commentRect.top - guessRect.top) < 20,
         };
       });
 
@@ -382,14 +407,20 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!card) return false;
         // Find the actions container: it's a flex-row element with border-top (inline or class)
         const allChildren = Array.from(card.querySelectorAll('*'));
-        return allChildren.some(el => {
+        return allChildren.some((el) => {
           const style = window.getComputedStyle(el);
-          return style.borderTopWidth !== '0px' && style.borderTopStyle !== 'none' &&
-                 style.flexDirection === 'row' && el.children.length >= 3;
+          return (
+            style.borderTopWidth !== '0px' &&
+            style.borderTopStyle !== 'none' &&
+            style.flexDirection === 'row' &&
+            el.children.length >= 3
+          );
         });
       });
       console.log(`Has border separator: ${hasBorderSeparator}`);
-      expect(hasBorderSeparator, 'Should have border separator between info and actions').toBe(true);
+      expect(hasBorderSeparator, 'Should have border separator between info and actions').toBe(
+        true
+      );
     }
 
     // Take final screenshot (the main one for visual comparison)
@@ -406,11 +437,17 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const canvas = mapInstance.getCanvas();
         let features: VisualMapFeatureLike[] = [];
         try {
-          features = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-nodes', 'active-nodes', 'property-clusters'] }
-          ) || [];
-        } catch { /* ignore */ }
+          features =
+            mapInstance.queryRenderedFeatures(
+              [
+                [0, 0],
+                [canvas.width, canvas.height],
+              ],
+              { layers: ['ghost-nodes', 'active-nodes', 'property-clusters'] }
+            ) || [];
+        } catch {
+          /* ignore */
+        }
         return {
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
@@ -432,10 +469,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(canvas).toBeVisible({ timeout: 10000 });
 
     // Assert that preview card appeared (this is the main requirement)
-    expect(previewVisible, 'Preview card should be visible after clicking on a property marker').toBe(true);
+    expect(
+      previewVisible,
+      'Preview card should be visible after clicking on a property marker'
+    ).toBe(true);
   });
 
-  test('verify all three quick action buttons are present with correct styling', async ({ page }) => {
+  test('verify all three quick action buttons are present with correct styling', async ({
+    page,
+  }) => {
     // Navigate to the app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -445,7 +487,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Zoom to appropriate level
     await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
-    await page.waitForTimeout(2000);
 
     // Find and click on a property marker
     const previewCard = page.locator('[data-testid="group-preview-card"]');
@@ -453,7 +494,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Use the reliable click helper
     const clickResult = await clickOnPropertyMarker(page);
-    console.log(`Marker click: success=${clickResult.success}, features=${clickResult.featureCount}`);
+    console.log(
+      `Marker click: success=${clickResult.success}, features=${clickResult.featureCount}`
+    );
 
     await page.waitForTimeout(800);
     previewVisible = await previewCard.isVisible().catch(() => false);
@@ -468,39 +511,56 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         let allFeatures: VisualMapFeatureLike[] = [];
 
         try {
-          const ghostFeatures = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-nodes'] }
-          ) || [];
+          const ghostFeatures =
+            mapInstance.queryRenderedFeatures(
+              [
+                [0, 0],
+                [canvas.width, canvas.height],
+              ],
+              { layers: ['ghost-nodes'] }
+            ) || [];
           allFeatures = allFeatures.concat(ghostFeatures);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
 
         try {
-          const activeFeatures = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['active-nodes'] }
-          ) || [];
+          const activeFeatures =
+            mapInstance.queryRenderedFeatures(
+              [
+                [0, 0],
+                [canvas.width, canvas.height],
+              ],
+              { layers: ['active-nodes'] }
+            ) || [];
           allFeatures = allFeatures.concat(activeFeatures);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
 
-        return allFeatures.slice(0, 10).map((f) => {
-          if (f.geometry?.type === 'Point') {
-            const point = mapInstance.project(f.geometry.coordinates);
-            const rect = canvas.getBoundingClientRect();
-            return {
-              x: rect.left + point.x,
-              y: rect.top + point.y,
-              id: f.properties?.id
-            };
-          }
-          return null;
-        }).filter(Boolean);
+        return allFeatures
+          .slice(0, 10)
+          .map((f) => {
+            if (f.geometry?.type === 'Point') {
+              const point = mapInstance.project(f.geometry.coordinates);
+              const rect = canvas.getBoundingClientRect();
+              return {
+                x: rect.left + point.x,
+                y: rect.top + point.y,
+                id: f.properties?.id,
+              };
+            }
+            return null;
+          })
+          .filter(Boolean);
       });
 
       console.log(`Found ${markerPositions.length} marker positions for Playwright clicks`);
 
       for (const pos of markerPositions) {
-        console.log(`Clicking at screen position (${Math.round(pos!.x)}, ${Math.round(pos!.y)})...`);
+        console.log(
+          `Clicking at screen position (${Math.round(pos!.x)}, ${Math.round(pos!.y)})...`
+        );
         await page.mouse.click(pos!.x, pos!.y);
         await page.waitForTimeout(800);
 
@@ -515,19 +575,28 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     if (previewVisible) {
       // Verify Like button with heart icon
       const likeButton = page.locator('[data-testid="group-preview-like-button"]').first();
-      const hasLike = await likeButton.first().isVisible().catch(() => false);
+      const hasLike = await likeButton
+        .first()
+        .isVisible()
+        .catch(() => false);
       console.log(`Like button visible: ${hasLike}`);
       expect(hasLike, 'Like button should be visible').toBe(true);
 
       // Verify Comment button with chat bubble icon
       const commentButton = page.locator('[data-testid="group-preview-comment-button"]').first();
-      const hasComment = await commentButton.first().isVisible().catch(() => false);
+      const hasComment = await commentButton
+        .first()
+        .isVisible()
+        .catch(() => false);
       console.log(`Comment button visible: ${hasComment}`);
       expect(hasComment, 'Comment button should be visible').toBe(true);
 
       // Verify Guess button with price tag icon
       const guessButton = page.locator('[data-testid="group-preview-guess-button"]').first();
-      const hasGuess = await guessButton.first().isVisible().catch(() => false);
+      const hasGuess = await guessButton
+        .first()
+        .isVisible()
+        .catch(() => false);
       console.log(`Guess button visible: ${hasGuess}`);
       expect(hasGuess, 'Guess button should be visible').toBe(true);
 
@@ -556,7 +625,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Zoom to appropriate level
     await zoomMapTo(page, CENTER_COORDINATES, ZOOM_LEVEL);
-    await page.waitForTimeout(2000);
 
     // Find and click on a property marker
     const previewCard = page.locator('[data-testid="group-preview-card"]');
@@ -564,7 +632,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Use the reliable click helper
     const clickResult = await clickOnPropertyMarker(page);
-    console.log(`Marker click: success=${clickResult.success}, features=${clickResult.featureCount}`);
+    console.log(
+      `Marker click: success=${clickResult.success}, features=${clickResult.featureCount}`
+    );
 
     await page.waitForTimeout(800);
     previewVisible = await previewCard.isVisible().catch(() => false);
@@ -599,6 +669,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(canvas).toBeVisible({ timeout: 10000 });
 
     // At minimum, verify we have markers on the map
-    expect(previewVisible || clickResult.featureCount > 0, 'Should have property markers on map').toBe(true);
+    expect(
+      previewVisible || clickResult.featureCount > 0,
+      'Should have property markers on map'
+    ).toBe(true);
   });
 });

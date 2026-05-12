@@ -572,12 +572,18 @@ export interface GetFollowingNearbyPropertyRequest extends FollowingPropertyTile
   zoom?: number;
 }
 
+export type NearbyReadStateCoverage = 'complete' | 'partial';
+
 export type FollowingNearbyPropertyGroupBase = {
   nodeClass: 'active' | 'ghost';
   primaryPropertyId: string;
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: NearbyReadStateCoverage;
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -588,6 +594,7 @@ export type FollowingNearbyPropertyGroupBase = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
 };
 
 export type FollowingNearbySinglePropertyResponse = {
@@ -596,6 +603,10 @@ export type FollowingNearbySinglePropertyResponse = {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: NearbyReadStateCoverage;
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -606,6 +617,7 @@ export type FollowingNearbySinglePropertyResponse = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
   groupKind: 'single';
   address: string;
   city: string;
@@ -621,6 +633,10 @@ export type FollowingNearbyClusterPropertyResponse = {
   pointCount: number;
   propertyIds: string[];
   previewPropertyIds: string[];
+  pyramidVersionId: string | null;
+  pyramidNodeId: string | null;
+  membershipComplete: boolean;
+  readStateCoverage: NearbyReadStateCoverage;
   coordinate: [number, number];
   distanceMeters: number;
   bbox: [number, number, number, number] | null;
@@ -631,6 +647,7 @@ export type FollowingNearbyClusterPropertyResponse = {
   socialScoreMax: number;
   recentSocialScoreTotal: number;
   commentCount: number;
+  isRead: boolean;
   groupKind: 'cluster';
 };
 

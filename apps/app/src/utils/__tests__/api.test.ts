@@ -405,6 +405,90 @@ describe('fetchNearbyGroup', () => {
     expect(mockFetch.mock.calls[0]?.[0]).toContain('marketState=for-sale');
     expect(mockFetch.mock.calls[0]?.[0]).toContain('activity=today');
   });
+
+  it('threads pyramid node identity into the nearby request URL as a pair', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => null,
+    });
+
+    await fetchNearbyGroup(5.4697, 51.4416, 15, undefined, {
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]?.[0]).toContain(
+      'pyramidVersionId=9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+    );
+    expect(mockFetch.mock.calls[0]?.[0]).toContain(
+      'pyramidNodeId=pyramid-node-9007199254740993999',
+    );
+  });
+
+  it('retries stale pyramid node nearby lookups without node identity', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'x-huishype-nearby-status': 'pyramid-stale' }),
+        json: async () => null,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'x-huishype-nearby-status': 'pyramid-promoted' }),
+        json: async () => ({
+          nodeClass: 'active',
+          groupKind: 'cluster',
+          primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+          pointCount: 2,
+          propertyIds: [],
+          previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+          pyramidVersionId: '22222222-2222-4222-8222-222222222222',
+          pyramidNodeId: 'pyramid-node-current',
+          membershipComplete: false,
+          readStateCoverage: 'partial',
+          coordinate: [5.4697, 51.4416],
+          distanceMeters: 8,
+          bbox: [5.46, 51.43, 5.48, 51.45],
+          activeListingCount: 1,
+          socialCount: 0,
+          recentSocialCount: 0,
+          socialScoreTotal: 0,
+          socialScoreMax: 0,
+          recentSocialScoreTotal: 0,
+          commentCount: 0,
+          streetName: null,
+          houseNumber: null,
+          houseNumberAddition: null,
+          address: null,
+          city: null,
+          postalCode: null,
+          countryCode: null,
+          officialValuation: null,
+          askingPrice: null,
+          thumbnailUrl: null,
+          isRead: false,
+        }),
+      });
+
+    const result = await fetchNearbyGroup(5.4697, 51.4416, 10.75, undefined, {
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-stale',
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('pyramidVersionId=');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('pyramidNodeId=');
+    expect(mockFetch.mock.calls[1]?.[0]).not.toContain('pyramidVersionId=');
+    expect(mockFetch.mock.calls[1]?.[0]).not.toContain('pyramidNodeId=');
+    expect(result).toMatchObject({
+      pyramidVersionId: '22222222-2222-4222-8222-222222222222',
+      pyramidNodeId: 'pyramid-node-current',
+      previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+      membershipComplete: false,
+      readStateCoverage: 'partial',
+    });
+  });
 });
 
 describe('fetchFollowingNearbyGroup', () => {
@@ -495,6 +579,10 @@ describe('grouped property normalization', () => {
         pointCount: 1,
         propertyIds: ['11111111-1111-4111-8111-111111111111'],
         previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete',
         coordinate: [5.4697, 51.4416],
         distanceMeters: 12,
         bbox: null,
@@ -531,6 +619,170 @@ describe('grouped property normalization', () => {
       hasActiveListing: true,
       marketState: 'for-sale',
       isRead: true,
+      membershipComplete: true,
+      readStateCoverage: 'complete',
+    });
+  });
+
+  it('honors incomplete nearby cluster metadata from snake_case transport fields', () => {
+    const result = normalizeNearbyPropertyGroup({
+      nodeClass: 'active',
+      groupKind: 'cluster',
+      primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+      pointCount: 12,
+      property_ids:
+        '11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222',
+      preview_property_ids: '',
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
+      membership_complete: 'false',
+      read_state_coverage: 'partial',
+      propertyIds: [],
+      previewPropertyIds: [],
+      coordinate: [5.4697, 51.4416],
+      distanceMeters: 12,
+      bbox: [5.46, 51.43, 5.48, 51.45],
+      activeListingCount: 2,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      commentCount: 0,
+      streetName: null,
+      houseNumber: null,
+      houseNumberAddition: null,
+      address: null,
+      city: null,
+      postalCode: null,
+      countryCode: null,
+      officialValuation: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      isRead: false,
+    } as unknown as Parameters<typeof normalizeNearbyPropertyGroup>[0]);
+
+    expect(result).toMatchObject({
+      membershipComplete: false,
+      readStateCoverage: 'partial',
+      propertyIds: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
+      previewPropertyIds: [],
+    });
+  });
+
+  it('does not expand partial nearby clusters to full property ids', () => {
+    const result = normalizeNearbyPropertyGroup({
+      nodeClass: 'active',
+      groupKind: 'cluster',
+      primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+      pointCount: 12,
+      propertyIds: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
+      previewPropertyIds: [],
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
+      membershipComplete: true,
+      readStateCoverage: 'partial',
+      coordinate: [5.4697, 51.4416],
+      distanceMeters: 12,
+      bbox: [5.46, 51.43, 5.48, 51.45],
+      activeListingCount: 2,
+      socialCount: 0,
+      recentSocialCount: 0,
+      socialScoreTotal: 0,
+      socialScoreMax: 0,
+      recentSocialScoreTotal: 0,
+      commentCount: 0,
+      streetName: null,
+      houseNumber: null,
+      houseNumberAddition: null,
+      address: null,
+      city: null,
+      postalCode: null,
+      countryCode: null,
+      officialValuation: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      isRead: false,
+    });
+
+    expect(result.previewPropertyIds).toEqual([]);
+  });
+
+  it('accepts missing property_ids when a primary property id is present', () => {
+    const feature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.4697, 51.4416],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: '11111111-1111-4111-8111-111111111111',
+        point_count: 1,
+        activeListingCount: 1,
+        socialCount: 0,
+        recentSocialCount: 0,
+        socialScoreTotal: 0,
+        socialScoreMax: 0,
+        recentSocialScoreTotal: 0,
+        commentCount: 0,
+      },
+    } as const satisfies GeoJSON.Feature;
+
+    expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
+      primaryPropertyId: '11111111-1111-4111-8111-111111111111',
+      propertyIds: ['11111111-1111-4111-8111-111111111111'],
+      previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+      membershipComplete: true,
+      readStateCoverage: 'complete',
+    });
+  });
+
+  it('does not fall back to full property_ids for incomplete pyramid clusters', () => {
+    const feature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.4697, 51.4416],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'cluster',
+        primary_property_id: '11111111-1111-4111-8111-111111111111',
+        point_count: 12,
+        property_ids: '11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222',
+        preview_property_ids: '',
+        pyramid_version_id: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+        pyramid_node_id: 'pyramid-node-9007199254740993999',
+        membership_complete: 'false',
+        read_state_coverage: 'partial',
+        activeListingCount: 2,
+        socialCount: 0,
+        recentSocialCount: 0,
+        socialScoreTotal: 0,
+        socialScoreMax: 0,
+        recentSocialScoreTotal: 0,
+        commentCount: 0,
+      },
+    } as const satisfies GeoJSON.Feature;
+
+    expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
+      pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
+      pyramidNodeId: 'pyramid-node-9007199254740993999',
+      membershipComplete: false,
+      readStateCoverage: 'partial',
+      propertyIds: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
+      previewPropertyIds: [],
     });
   });
 
@@ -583,6 +835,10 @@ describe('grouped property normalization', () => {
         pointCount: 1,
         propertyIds: ['11111111-1111-4111-8111-111111111111'],
         previewPropertyIds: ['11111111-1111-4111-8111-111111111111'],
+        pyramidVersionId: null,
+        pyramidNodeId: null,
+        membershipComplete: true,
+        readStateCoverage: 'complete',
         coordinate: [5.4697, 51.4416],
         distanceMeters: 12,
         bbox: null,
@@ -610,6 +866,7 @@ describe('grouped property normalization', () => {
         activityScore: 99,
         activityScoreTotal: 99,
         hasListing: true,
+        isRead: false,
       })
     ).toMatchObject({
       activeListingCount: 0,

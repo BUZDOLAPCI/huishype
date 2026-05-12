@@ -1,16 +1,18 @@
 import { performance } from 'node:perf_hooks';
 import { writeFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+import {
+  buildRepresentativePropertyTileSamples,
+  propertyTilePath,
+  type PropertyTileSample,
+} from '../src/scripts/property-tile-benchmark-samples.js';
 
 type Phase = 'cold' | 'warm';
+type ZoomBand = 'z4-z10' | 'z11-z13' | 'z14-z17';
 
-type TileRequest = {
-  city: string;
-  z: number;
-  x: number;
-  y: number;
-};
+type TileRequest = PropertyTileSample;
 
-type BenchmarkOptions = {
+export type BenchmarkOptions = {
   baseUrl: string;
   warmPasses: number;
   timeoutMs: number;
@@ -19,7 +21,7 @@ type BenchmarkOptions = {
   failColdP95GenOverMs?: number;
 };
 
-type BenchmarkRow = TileRequest & {
+export type BenchmarkRow = TileRequest & {
   phase: Phase;
   status: number | 'error';
   bytes: number;
@@ -29,6 +31,7 @@ type BenchmarkRow = TileRequest & {
   xTileQueueTime: string;
   xTileCoalesced: string;
   xTileBudgetMs: string;
+  xHuisHypeTileStatus: string;
 };
 
 type PhaseSummary = {
@@ -51,7 +54,11 @@ type PhaseSummary = {
   };
 };
 
-type BenchmarkSummary = {
+type ColdZoomBandSummary = Omit<PhaseSummary, 'phase'> & {
+  zoomBand: ZoomBand;
+};
+
+export type BenchmarkSummary = {
   generatedAt: string;
   baseUrl: string;
   tiles: number;
@@ -61,6 +68,7 @@ type BenchmarkSummary = {
   };
   rows: BenchmarkRow[];
   byPhase: PhaseSummary[];
+  byColdZoomBand: ColdZoomBandSummary[];
   unexpectedStatuses: BenchmarkRow[];
   failures: string[];
 };
@@ -68,19 +76,6 @@ type BenchmarkSummary = {
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3100';
 const DEFAULT_WARM_PASSES = 2;
 const DEFAULT_TIMEOUT_MS = 60_000;
-
-const REPRESENTATIVE_HEAVY_PUBLIC_TILES: TileRequest[] = [
-  { city: 'Amsterdam dense z13', z: 13, x: 4206, y: 2692 },
-  { city: 'Utrecht dense z13', z: 13, x: 4212, y: 2702 },
-  { city: 'Rotterdam dense z13', z: 13, x: 4197, y: 2708 },
-  { city: 'Randstad country z8', z: 8, x: 131, y: 84 },
-  { city: 'Amsterdam low z9', z: 9, x: 262, y: 168 },
-  { city: 'Utrecht low z9', z: 9, x: 263, y: 168 },
-  { city: 'Rotterdam low z9', z: 9, x: 262, y: 169 },
-  { city: 'Amsterdam ghost reveal z17', z: 17, x: 67321, y: 43076 },
-  { city: 'Utrecht ghost reveal z17', z: 17, x: 67400, y: 43241 },
-  { city: 'Rotterdam ghost reveal z17', z: 17, x: 67166, y: 43339 },
-];
 
 const CSV_COLUMNS = [
   'city',
@@ -96,6 +91,7 @@ const CSV_COLUMNS = [
   'x_tile_queue_time',
   'x_tile_coalesced',
   'x_tile_budget_ms',
+  'x_huishype_tile_status',
 ] as const;
 
 function printUsage(): void {
@@ -122,14 +118,17 @@ Options:
 
 Notes:
   The benchmark uses representative heavy public tiles: dense z13
-  Amsterdam/Utrecht/Rotterdam, low-zoom Randstad/city tiles, and z17
-  ghost-reveal city tiles.
+  Amsterdam/Utrecht/Rotterdam, low-zoom Randstad/city tiles, z10 pyramid edge,
+  z11-z13 transition tiles, z14-z16 detail tiles, and z17 ghost-reveal city
+  tiles.
 
   The benchmark uses /tiles/properties/:z/:x/:y.pbf with no cache-busting query
   parameter. To approximate a cold server memory cache, restart the API before
-  running this script. The server cache key is tile plus normalized filter
-  signature, so a unique query parameter would not create a distinct server
-  tile-cache key and can obscure filter semantics.`);
+  running this script. The cold pass measures dynamic zoom bands first
+  (z14-z17, then z11-z13, then z4-z10) so main is not warmed by large dynamic
+  low-zoom requests before high-zoom dynamic samples. The server cache key is
+  tile plus normalized filter signature, so a unique query parameter would not
+  create a distinct server tile-cache key and can obscure filter semantics.`);
 }
 
 function parsePositiveInteger(value: string, flag: string): number {
@@ -240,10 +239,7 @@ function parseArgs(argv: string[]): BenchmarkOptions {
     if (arg === '--fail-cold-p95-gen-over-ms') {
       const value = argv[index + 1];
       if (!value) throw new Error('--fail-cold-p95-gen-over-ms requires a value');
-      options.failColdP95GenOverMs = parseNonNegativeNumber(
-        value,
-        '--fail-cold-p95-gen-over-ms'
-      );
+      options.failColdP95GenOverMs = parseNonNegativeNumber(value, '--fail-cold-p95-gen-over-ms');
       index += 1;
       continue;
     }
@@ -268,12 +264,25 @@ function parseArgs(argv: string[]): BenchmarkOptions {
 }
 
 function buildTileRequests(): TileRequest[] {
-  const seen = new Set<string>();
-  return REPRESENTATIVE_HEAVY_PUBLIC_TILES.filter((tile) => {
-    const key = `${tile.z}/${tile.x}/${tile.y}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+  return buildRepresentativePropertyTileSamples();
+}
+
+function getZoomBand(tile: Pick<TileRequest, 'z'>): ZoomBand | null {
+  if (tile.z >= 4 && tile.z <= 10) return 'z4-z10';
+  if (tile.z >= 11 && tile.z <= 13) return 'z11-z13';
+  if (tile.z >= 14 && tile.z <= 17) return 'z14-z17';
+  return null;
+}
+
+function buildColdTileRequests(requests: TileRequest[]): TileRequest[] {
+  const order: Array<ZoomBand | null> = ['z14-z17', 'z11-z13', 'z4-z10', null];
+  const originalIndex = new Map(requests.map((request, index) => [request, index]));
+
+  return [...requests].sort((left, right) => {
+    const leftOrder = order.indexOf(getZoomBand(left));
+    const rightOrder = order.indexOf(getZoomBand(right));
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return (originalIndex.get(left) ?? 0) - (originalIndex.get(right) ?? 0);
   });
 }
 
@@ -298,6 +307,7 @@ function rowToCsv(row: BenchmarkRow): string {
     row.xTileQueueTime,
     row.xTileCoalesced,
     row.xTileBudgetMs,
+    row.xHuisHypeTileStatus,
   ]
     .map(csvEscape)
     .join(',');
@@ -315,7 +325,7 @@ async function fetchTile(
 ): Promise<BenchmarkRow> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const url = `${baseUrl}/tiles/properties/${request.z}/${request.x}/${request.y}.pbf`;
+  const url = `${baseUrl}${propertyTilePath(request)}`;
   const startedAt = performance.now();
 
   try {
@@ -334,6 +344,7 @@ async function fetchTile(
       xTileQueueTime: getHeader(response.headers, 'x-tile-queue-time'),
       xTileCoalesced: getHeader(response.headers, 'x-tile-coalesced'),
       xTileBudgetMs: getHeader(response.headers, 'x-tile-budget-ms'),
+      xHuisHypeTileStatus: getHeader(response.headers, 'x-huishype-tile-status'),
     };
   } catch (error) {
     const elapsedClientMs = performance.now() - startedAt;
@@ -349,6 +360,7 @@ async function fetchTile(
       xTileQueueTime: '',
       xTileCoalesced: '',
       xTileBudgetMs: '',
+      xHuisHypeTileStatus: '',
     };
   } finally {
     clearTimeout(timeout);
@@ -383,12 +395,54 @@ function parseDurationMs(value: string): number | null {
   return Number(match[1]);
 }
 
-function isExpectedStatus(row: BenchmarkRow): boolean {
-  return row.status === 200 || row.status === 204;
+function isUnavailablePyramidTile(row: BenchmarkRow): boolean {
+  return row.xTileCache === 'pyramid-unavailable';
+}
+
+function buildPyramidUnavailablePreconditionFailure(
+  rows: BenchmarkRow[],
+  baseUrl: string
+): string | null {
+  const unavailableRows = rows.filter(isUnavailablePyramidTile);
+  if (unavailableRows.length === 0) {
+    return null;
+  }
+
+  const statuses = Array.from(
+    new Set(unavailableRows.map((row) => row.xHuisHypeTileStatus || 'unknown'))
+  ).join(', ');
+  const probe = unavailableRows[0];
+
+  return (
+    `Low-zoom pyramid benchmark precondition failed: ${unavailableRows.length} tile request(s) ` +
+    `returned X-Tile-Cache=pyramid-unavailable (tile statuses: ${statuses}). ` +
+    `benchmark:property-tiles:gate requires a promoted current property tile pyramid before ` +
+    `measuring low-zoom public tiles. If status is pyramid-build-active or pyramid-build-enqueued, ` +
+    `start/verify the worker with "docker compose --profile worker up -d worker" or ` +
+    `"pnpm --filter @huishype/worker dev", wait for promotion, then rerun. ` +
+    `Readiness probe: curl -I ${baseUrl}${propertyTilePath(probe)} should report ` +
+    `X-Tile-Cache=precomputed.`
+  );
+}
+
+export function isExpectedStatus(row: BenchmarkRow): boolean {
+  return (row.status === 200 || row.status === 204) && !isUnavailablePyramidTile(row);
 }
 
 function buildPhaseSummary(rows: BenchmarkRow[], phase: Phase): PhaseSummary {
   const phaseRows = rows.filter((row) => row.phase === phase);
+  return summarizePhaseRows(phaseRows, { phase });
+}
+
+function buildColdZoomBandSummary(rows: BenchmarkRow[], zoomBand: ZoomBand): ColdZoomBandSummary {
+  const bandRows = rows.filter((row) => row.phase === 'cold' && getZoomBand(row) === zoomBand);
+  return summarizePhaseRows(bandRows, { zoomBand });
+}
+
+function summarizePhaseRows<TIdentity extends { phase: Phase } | { zoomBand: ZoomBand }>(
+  phaseRows: BenchmarkRow[],
+  identity: TIdentity
+): TIdentity & Omit<PhaseSummary, 'phase'> {
   const expectedRows = phaseRows.filter(isExpectedStatus);
   const clientTimes = expectedRows.map((row) => row.elapsedClientMs);
   const generationTimes = expectedRows
@@ -396,7 +450,7 @@ function buildPhaseSummary(rows: BenchmarkRow[], phase: Phase): PhaseSummary {
     .filter((value): value is number => value !== null);
 
   return {
-    phase,
+    ...identity,
     requests: phaseRows.length,
     okStatuses: expectedRows.length,
     unexpectedStatuses: phaseRows.filter(
@@ -415,15 +469,27 @@ function buildPhaseSummary(rows: BenchmarkRow[], phase: Phase): PhaseSummary {
       p95: percentile(generationTimes, 95),
       max: max(generationTimes),
     },
-  };
+  } as TIdentity & Omit<PhaseSummary, 'phase'>;
 }
 
-function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): BenchmarkSummary {
+export function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): BenchmarkSummary {
   const byPhase = (['cold', 'warm'] as const).map((phase) => buildPhaseSummary(rows, phase));
-  const unexpectedStatuses = rows.filter((row) => !isExpectedStatus(row));
-  const failures = unexpectedStatuses.map(
-    (row) => `${row.city} ${row.z}/${row.x}/${row.y} ${row.phase} returned status ${row.status}`
+  const byColdZoomBand = (['z4-z10', 'z11-z13', 'z14-z17'] as const).map((zoomBand) =>
+    buildColdZoomBandSummary(rows, zoomBand)
   );
+  const unexpectedStatuses = rows.filter((row) => !isExpectedStatus(row));
+  const failures = unexpectedStatuses.map((row) =>
+    isUnavailablePyramidTile(row)
+      ? `${row.city} ${row.z}/${row.x}/${row.y} ${row.phase} unavailable pyramid tile status=${row.status} tile_status=${row.xHuisHypeTileStatus || 'unknown'}`
+      : `${row.city} ${row.z}/${row.x}/${row.y} ${row.phase} returned status ${row.status}`
+  );
+  const pyramidUnavailablePreconditionFailure = buildPyramidUnavailablePreconditionFailure(
+    rows,
+    options.baseUrl
+  );
+  if (pyramidUnavailablePreconditionFailure) {
+    failures.push(pyramidUnavailablePreconditionFailure);
+  }
 
   const failColdGenOverMs = options.failColdGenOverMs;
   if (failColdGenOverMs !== undefined) {
@@ -473,6 +539,7 @@ function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): Benchmar
     },
     rows,
     byPhase,
+    byColdZoomBand,
     unexpectedStatuses,
     failures,
   };
@@ -503,12 +570,32 @@ function printSummary(summary: BenchmarkSummary): void {
     );
   }
 
+  console.error('');
+  console.error('Cold zoom bands');
+  for (const bandSummary of summary.byColdZoomBand) {
+    console.error(
+      `${bandSummary.zoomBand}: requests=${bandSummary.requests}, ok_statuses=${
+        bandSummary.okStatuses
+      }, unexpected_statuses=${bandSummary.unexpectedStatuses}, errors=${
+        bandSummary.errors
+      }, avg_client_ms=${formatMs(bandSummary.avgClientMs)}, p50_client_ms=${formatMs(
+        bandSummary.p50ClientMs
+      )}, p95_client_ms=${formatMs(bandSummary.p95ClientMs)}, max_client_ms=${formatMs(
+        bandSummary.maxClientMs
+      )}, avg_bytes=${bandSummary.avgBytes}, gen_count=${
+        bandSummary.generationTimeMs.count
+      }, p50_gen_ms=${formatMs(bandSummary.generationTimeMs.p50)}, p95_gen_ms=${formatMs(
+        bandSummary.generationTimeMs.p95
+      )}, max_gen_ms=${formatMs(bandSummary.generationTimeMs.max)}`
+    );
+  }
+
   if (summary.unexpectedStatuses.length > 0) {
     console.error('');
     console.error('Unexpected statuses');
     for (const row of summary.unexpectedStatuses) {
       console.error(
-        `${row.phase} ${row.city} ${row.z}/${row.x}/${row.y}: status=${row.status}, cache=${row.xTileCache}`
+        `${row.phase} ${row.city} ${row.z}/${row.x}/${row.y}: status=${row.status}, cache=${row.xTileCache}, tile_status=${row.xHuisHypeTileStatus || 'unknown'}`
       );
     }
   }
@@ -525,6 +612,7 @@ function printSummary(summary: BenchmarkSummary): void {
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const requests = buildTileRequests();
+  const coldRequests = buildColdTileRequests(requests);
   const rows: BenchmarkRow[] = [];
 
   console.error(`Base URL: ${options.baseUrl}`);
@@ -533,9 +621,10 @@ async function main(): Promise<void> {
   console.error(
     'Cold-cache method: restart the API before running; this script does not clear caches or add cache-busting query params.'
   );
+  console.error('Cold request order: z14-z17, z11-z13, z4-z10.');
   console.log(CSV_COLUMNS.join(','));
 
-  for (const request of requests) {
+  for (const request of coldRequests) {
     const row = await fetchTile(options.baseUrl, request, 'cold', options.timeoutMs);
     rows.push(row);
     console.log(rowToCsv(row));
@@ -562,7 +651,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

@@ -12,6 +12,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import { MAP_LAYER_NAMES } from './helpers/map-layer-names';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
@@ -114,28 +115,83 @@ test.describe('Map Clusters Visual Tests', () => {
     );
 
     expect(layerInfo).not.toBeNull();
-    console.log(`Z12 layers: clusters=${layerInfo?.hasClusters}, counts=${layerInfo?.hasClusterCount}, ghostClusters=${layerInfo?.hasGhostClusters}`);
+    console.log(
+      `Z12 layers: clusters=${layerInfo?.hasClusters}, counts=${layerInfo?.hasClusterCount}, ghostClusters=${layerInfo?.hasGhostClusters}`
+    );
 
     // Query rendered cluster features
     const clusterFeatures = await page.evaluate(
-      ({ layer }) => {
+      ({ layer, previewLimit }) => {
         const map = window.__mapInstance;
         if (!map || !map.getLayer(layer)) return [];
+        const parseIds = (value: unknown): string[] => {
+          if (typeof value === 'string') {
+            return value.split(',').filter(Boolean);
+          }
+          if (Array.isArray(value)) {
+            return value.filter(
+              (item): item is string => typeof item === 'string' && item.length > 0
+            );
+          }
+          return [];
+        };
+        const parseOptionalBoolean = (value: unknown): boolean | null => {
+          if (typeof value === 'boolean') return value;
+          if (typeof value === 'string') {
+            if (value.toLowerCase() === 'true') return true;
+            if (value.toLowerCase() === 'false') return false;
+          }
+          if (typeof value === 'number') {
+            if (value === 1) return true;
+            if (value === 0) return false;
+          }
+          return null;
+        };
         const features = map.queryRenderedFeatures(undefined, { layers: [layer] });
-        return features.slice(0, 10).map((f) => ({
-          point_count: f.properties?.point_count,
-          has_property_ids: !!f.properties?.property_ids,
-        }));
+        return features.slice(0, 10).map((f) => {
+          const pointCount = Number(f.properties?.point_count ?? 0);
+          const membershipComplete = parseOptionalBoolean(f.properties?.membership_complete);
+          const readStateCoverage =
+            typeof f.properties?.read_state_coverage === 'string'
+              ? f.properties.read_state_coverage
+              : membershipComplete === true
+                ? 'complete'
+                : 'partial';
+          return {
+            node_class: f.properties?.node_class,
+            group_kind: f.properties?.group_kind,
+            primary_property_id: f.properties?.primary_property_id,
+            point_count: pointCount,
+            property_ids_length: parseIds(f.properties?.property_ids).length,
+            preview_property_ids_length: parseIds(f.properties?.preview_property_ids).length,
+            membership_complete: membershipComplete ?? readStateCoverage === 'complete',
+            read_state_coverage: readStateCoverage,
+            is_previewable: pointCount > 1 && pointCount <= previewLimit,
+          };
+        });
       },
-      { layer: MAP_LAYER_NAMES.CLUSTERS }
+      { layer: MAP_LAYER_NAMES.CLUSTERS, previewLimit: PROPERTY_PREVIEW_MEMBER_LIMIT }
     );
 
     console.log(`Z12: ${clusterFeatures.length} cluster features rendered`);
     if (clusterFeatures.length > 0) {
-      // Verify clusters have property_ids field
+      // Public low-zoom pyramid clusters may expose only preview IDs plus
+      // partial membership metadata; full property_ids are not guaranteed.
       for (const feat of clusterFeatures) {
-        expect(feat.has_property_ids).toBe(true);
+        expect(feat.node_class).toBe('active');
+        expect(feat.group_kind).toBe('cluster');
+        expect(feat.primary_property_id).toBeTruthy();
         expect(feat.point_count).toBeGreaterThan(1);
+        expect(['complete', 'partial']).toContain(feat.read_state_coverage);
+
+        if (feat.is_previewable) {
+          expect(feat.preview_property_ids_length).toBeGreaterThan(1);
+          expect(feat.preview_property_ids_length).toBeLessThanOrEqual(feat.point_count);
+        }
+
+        if (feat.membership_complete === true || feat.read_state_coverage === 'complete') {
+          expect(feat.property_ids_length).toBeGreaterThan(1);
+        }
       }
     }
 
@@ -248,9 +304,7 @@ test.describe('Map Clusters Visual Tests', () => {
     );
 
     expect(nodeInfo).not.toBeNull();
-    console.log(
-      `Z18: activeNodes=${nodeInfo?.activeCount}, ghostNodes=${nodeInfo?.ghostCount}`
-    );
+    console.log(`Z18: activeNodes=${nodeInfo?.activeCount}, ghostNodes=${nodeInfo?.ghostCount}`);
 
     // At z18, the high-zoom layers should exist
     if (nodeInfo) {
@@ -284,20 +338,56 @@ test.describe('Map Clusters Visual Tests', () => {
 
     // Verify cluster features expose the canonical grouped metadata contract.
     const clusterData = await page.evaluate(
-      ({ layer }) => {
+      ({ layer, previewLimit }) => {
         const map = window.__mapInstance;
         if (!map || !map.getLayer(layer)) return [];
+        const parseIds = (value: unknown): string[] => {
+          if (typeof value === 'string') {
+            return value.split(',').filter(Boolean);
+          }
+          if (Array.isArray(value)) {
+            return value.filter(
+              (item): item is string => typeof item === 'string' && item.length > 0
+            );
+          }
+          return [];
+        };
+        const parseOptionalBoolean = (value: unknown): boolean | null => {
+          if (typeof value === 'boolean') return value;
+          if (typeof value === 'string') {
+            if (value.toLowerCase() === 'true') return true;
+            if (value.toLowerCase() === 'false') return false;
+          }
+          if (typeof value === 'number') {
+            if (value === 1) return true;
+            if (value === 0) return false;
+          }
+          return null;
+        };
         const features = map.queryRenderedFeatures(undefined, { layers: [layer] });
-        return features.slice(0, 5).map((f) => ({
-          node_class: f.properties?.node_class,
-          group_kind: f.properties?.group_kind,
-          primary_property_id: f.properties?.primary_property_id,
-          point_count: f.properties?.point_count,
-          property_ids: f.properties?.property_ids,
-          preview_property_ids: f.properties?.preview_property_ids,
-        }));
+        return features.slice(0, 5).map((f) => {
+          const pointCount = Number(f.properties?.point_count ?? 0);
+          const membershipComplete = parseOptionalBoolean(f.properties?.membership_complete);
+          const readStateCoverage =
+            typeof f.properties?.read_state_coverage === 'string'
+              ? f.properties.read_state_coverage
+              : membershipComplete === true
+                ? 'complete'
+                : 'partial';
+          return {
+            node_class: f.properties?.node_class,
+            group_kind: f.properties?.group_kind,
+            primary_property_id: f.properties?.primary_property_id,
+            point_count: pointCount,
+            property_ids_length: parseIds(f.properties?.property_ids).length,
+            preview_property_ids_length: parseIds(f.properties?.preview_property_ids).length,
+            membership_complete: membershipComplete ?? readStateCoverage === 'complete',
+            read_state_coverage: readStateCoverage,
+            is_previewable: pointCount > 1 && pointCount <= previewLimit,
+          };
+        });
       },
-      { layer: MAP_LAYER_NAMES.CLUSTERS }
+      { layer: MAP_LAYER_NAMES.CLUSTERS, previewLimit: PROPERTY_PREVIEW_MEMBER_LIMIT }
     );
 
     console.log(`Z13: ${clusterData.length} clusters queried`);
@@ -307,12 +397,20 @@ test.describe('Map Clusters Visual Tests', () => {
         expect(cluster.node_class).toBe('active');
         expect(cluster.group_kind).toBe('cluster');
         expect(cluster.primary_property_id).toBeTruthy();
-        expect(cluster.property_ids).toBeTruthy();
-        const ids = String(cluster.property_ids || '').split(',');
-        expect(ids.length).toBeGreaterThan(0);
-        expect(cluster.preview_property_ids).toBeTruthy();
+        expect(cluster.point_count).toBeGreaterThan(1);
+        expect(['complete', 'partial']).toContain(cluster.read_state_coverage);
+
+        if (cluster.is_previewable) {
+          expect(cluster.preview_property_ids_length).toBeGreaterThan(1);
+          expect(cluster.preview_property_ids_length).toBeLessThanOrEqual(cluster.point_count);
+        }
+
+        if (cluster.membership_complete === true || cluster.read_state_coverage === 'complete') {
+          expect(cluster.property_ids_length).toBeGreaterThan(1);
+        }
+
         console.log(
-          `  Cluster: point_count=${cluster.point_count}, ids=${ids.length}, primary=${cluster.primary_property_id}`
+          `  Cluster: point_count=${cluster.point_count}, property_ids=${cluster.property_ids_length}, preview_ids=${cluster.preview_property_ids_length}, membership_complete=${cluster.membership_complete}, read_state_coverage=${cluster.read_state_coverage}, primary=${cluster.primary_property_id}`
         );
       }
     }

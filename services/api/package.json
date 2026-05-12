@@ -27,8 +27,10 @@
     "db:import-buildings": "tsx src/scripts/import-osm-buildings.ts",
     "db:seed-overture": "tsx src/scripts/import-overture-addresses.ts",
     "ingest:recover": "tsx src/scripts/ingest-recovery.ts",
+    "pyramid:rollback": "tsx scripts/property-tile-pyramid-rollback.ts",
     "benchmark:property-tiles": "tsx scripts/benchmark-property-tiles.ts",
-    "benchmark:property-tiles:gate": "tsx scripts/benchmark-property-tiles.ts --warm-passes 1 --fail-cold-gen-over-ms 2200 --fail-cold-p95-gen-over-ms 2000"
+    "benchmark:property-tiles:gate": "tsx scripts/benchmark-property-tiles.ts --warm-passes 1 --fail-cold-gen-over-ms 2200 --fail-cold-p95-gen-over-ms 2000",
+    "validate:property-tiles": "tsx scripts/validate-property-tile-semantics.ts"
   },
   "dependencies": {
     "@fastify/compress": "^8.3.1",
@@ -54,11 +56,13 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@mapbox/vector-tile": "^2.0.4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "drizzle-kit": "^0.31.8",
     "jest": "^29.7.0",
+    "pbf": "^4.0.1",
     "ts-jest": "^29.4.6",
     "tsx": "^4.21.0",
     "typescript": "^5.7.3"

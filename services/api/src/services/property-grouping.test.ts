@@ -15,6 +15,7 @@ import {
   getGhostClusterRadiusPx,
   getGhostSingleRadiusPx,
   buildCanonicalGroupsForTile,
+  buildCanonicalGroupsForTileUncached,
   groupCandidatesForTile,
   lngLatToWorldUnits,
   serializeGroupForTile,
@@ -33,9 +34,19 @@ import {
 } from './property-tile-runtime.js';
 
 const dialect = new PgDialect();
+const TEST_CANDIDATE_SNAPSHOT_ID = '00000000-0000-0000-0000-00000000c001';
 
 function renderSql(query: SQL) {
   return dialect.sqlToQuery(query).sql;
+}
+
+function renderSqlQuery(query: SQL) {
+  return dialect.sqlToQuery(query);
+}
+
+function makePropertyId(index: number): string {
+  const suffix = index.toString(16).padStart(12, '0');
+  return `00000000-0000-4000-a000-${suffix}`;
 }
 
 function worldUnitsToLngLat(worldX: number, worldY: number, zoom: number): [number, number] {
@@ -113,8 +124,7 @@ function makeCanonicalGroup(
   index: number,
   overrides: Partial<CanonicalPropertyGroup> = {}
 ): CanonicalPropertyGroup {
-  const suffix = index.toString(16).padStart(12, '0');
-  const id = `00000000-0000-4000-a000-${suffix}`;
+  const id = makePropertyId(index);
   return {
     nodeClass: 'active',
     groupKind: 'single',
@@ -161,7 +171,8 @@ describe('property-grouping', () => {
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       createDefaultMapFilters(),
-      13
+      13,
+      { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -174,6 +185,7 @@ describe('property-grouping', () => {
       'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
     );
     expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
+    expect(text).toContain('lpc.snapshot_id = $');
     expect(text).not.toContain('FROM canonical_listings cl INNER JOIN properties p');
     expect(text).toContain('FROM comments c INNER JOIN properties p ON p.id = c.property_id');
     expect(text).toContain('INNER JOIN properties p ON p.id = r.target_id');
@@ -212,12 +224,58 @@ describe('property-grouping', () => {
     );
   });
 
-  it('scopes z14 non-ghost tile candidate discovery to bounded active properties before source scans', () => {
+  it('discovers z14 non-ghost listing candidates from the maintained tile projection', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       createDefaultMapFilters(),
-      14
+      14,
+      { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
+    );
+    const text = renderSql(query).replace(/\s+/g, ' ').trim();
+
+    expect(text).not.toContain('bounded_properties AS MATERIALIZED');
+    expect(text).toContain('listing_candidate_properties AS MATERIALIZED');
+    expect(text.indexOf('listing_candidate_properties AS MATERIALIZED')).toBeLessThan(
+      text.indexOf('candidate_properties AS MATERIALIZED')
+    );
+    expect(text).toContain(
+      'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
+    );
+    expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
+    expect(text).toContain('lpc.snapshot_id = $');
+    expect(text).toContain('bounded_social_properties AS MATERIALIZED');
+    expect(text).toContain(
+      'SELECT p.id, p.geometry, p.official_valuation FROM properties p WHERE p.geometry IS NOT NULL'
+    );
+    expect(text).toContain('FROM comments c INNER JOIN bounded_social_properties p ON p.id = c.property_id');
+    expect(text).toContain('INNER JOIN bounded_social_properties p ON p.id = r.target_id');
+    expect(text).toContain(
+      'INNER JOIN comments c ON c.id = r.target_id INNER JOIN bounded_social_properties p ON p.id = c.property_id'
+    );
+    expect(text).toContain(
+      'FROM price_guesses pg INNER JOIN bounded_social_properties p ON p.id = pg.property_id'
+    );
+    expect(text).toContain(
+      'FROM property_views pv INNER JOIN bounded_social_properties p ON p.id = pv.property_id'
+    );
+    expect(text).toContain(
+      'social_only_candidate_ids AS MATERIALIZED ( SELECT DISTINCT social_activity_candidate_ids.property_id'
+    );
+    expect(text).toContain('FROM listing_candidate_properties lcp');
+    expect(text).toContain('WHERE lcp.id = social_activity_candidate_ids.property_id');
+    expect(text).toContain(
+      'FROM social_only_candidate_ids soci INNER JOIN bounded_social_properties p ON p.id = soci.property_id'
+    );
+    expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
+  });
+
+  it('scopes z15 non-ghost tile candidate discovery to bounded active properties before source scans', () => {
+    const query = buildGroupingCandidateScopeCtes(
+      [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
+      false,
+      createDefaultMapFilters(),
+      15
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -279,7 +337,8 @@ describe('property-grouping', () => {
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       normalizeMapFilters({ marketState: ['for-sale', 'for-rent', 'sold', 'rented'] }),
-      10
+      10,
+      { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -289,6 +348,7 @@ describe('property-grouping', () => {
       'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
     );
     expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
+    expect(text).toContain('lpc.snapshot_id = $');
     expect(text).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
     expect(text).toContain('FROM listing_candidate_properties lcp');
@@ -362,7 +422,11 @@ describe('property-grouping', () => {
       .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
 
     await expect(
-      buildCanonicalGroupsForTile({ z: 13, x: 4206, y: 2692 }, createDefaultMapFilters())
+      buildCanonicalGroupsForTile(
+        { z: 13, x: 4206, y: 2692 },
+        createDefaultMapFilters(),
+        { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID },
+      )
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((text) =>
@@ -373,6 +437,7 @@ describe('property-grouping', () => {
     expect(candidateQuery).toContain(
       'FROM candidate_properties cp LEFT JOIN property_tile_listing_facts ptlf ON ptlf.property_id = cp.id'
     );
+    expect(candidateQuery).toContain('ptlf.snapshot_id = $');
     expect(candidateQuery).toContain('COALESCE(ptlf.has_active_listing, FALSE)');
     expect(candidateQuery).toContain('COALESCE(ptlf.has_completed_listing, FALSE)');
     expect(candidateQuery).toContain("COALESCE(ptlf.market_state, 'not-listed')");
@@ -381,6 +446,38 @@ describe('property-grouping', () => {
     expect(candidateQuery).not.toContain('tile_listing_facts AS MATERIALIZED');
     expect(candidateQuery).not.toContain('FROM tile_listing_facts l');
     expect(transactionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a bound closed timestamp for candidate snapshot social windows', async () => {
+    const closedSocialActivityCutoffAt = '2026-05-07T10:00:00.000Z';
+    const renderedQueries: ReturnType<typeof renderSqlQuery>[] = [];
+    const txExecuteMock = jest.fn(async (query: SQL) => {
+      renderedQueries.push(renderSqlQuery(query));
+      return [] as never;
+    });
+    jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+
+    await expect(
+      buildCanonicalGroupsForTileUncached(
+        { z: 13, x: 4206, y: 2692 },
+        createDefaultMapFilters(),
+        {
+          candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID,
+          closedSocialActivityCutoffAt,
+        }
+      )
+    ).resolves.toEqual([]);
+
+    const candidateQuery = renderedQueries.find((query) =>
+      query.sql.includes('latest_public_guesses AS MATERIALIZED')
+    );
+    expect(candidateQuery).toBeDefined();
+    expect(candidateQuery?.sql).toContain("::timestamptz - INTERVAL '7 days'");
+    expect(candidateQuery?.sql).toContain('<= $');
+    expect(candidateQuery?.sql).not.toContain("NOW() - INTERVAL '7 days'");
+    expect(candidateQuery?.params).toContain(closedSocialActivityCutoffAt);
   });
 
   it('hydrates single-property tile details with a set-based listing fact batch query', async () => {
@@ -1487,6 +1584,73 @@ describe('property-grouping', () => {
     );
   });
 
+  it(
+    'aggregates very large active clusters without spread argument overflow',
+    () => {
+      const zoom = 17;
+      const tile = { z: zoom, x: 100, y: 100 };
+      const worldX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+      const worldY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+      const memberCount = 140_000;
+      const candidates = Array.from({ length: memberCount }, (_, index) =>
+        makeCandidateAtWorld(makePropertyId(index), worldX, worldY, zoom, {
+          socialScore: index % 97,
+          recentSocialScore: index % 53,
+          commentCount: 1,
+          hasActiveListing: index % 2 === 0,
+          hasCompletedListing: index % 2 !== 0,
+          marketState: index % 2 === 0 ? 'for-sale' : 'sold',
+        })
+      );
+
+      const groups = groupCandidatesForTile(tile, candidates);
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0].groupKind).toBe('cluster');
+      expect(groups[0].pointCount).toBe(memberCount);
+      expect(groups[0].propertyIds).toHaveLength(memberCount);
+      expect(groups[0].previewPropertyIds).toHaveLength(PROPERTY_PREVIEW_MEMBER_LIMIT);
+      expect(groups[0].activeListingCount).toBe(memberCount / 2);
+      expect(groups[0].completedListingCount).toBe(memberCount / 2);
+      expect(groups[0].socialScoreMax).toBe(96);
+      expect(groups[0].commentCount).toBe(memberCount);
+      expect(groups[0].bbox).toEqual([
+        groups[0].coordinate[0],
+        groups[0].coordinate[1],
+        groups[0].coordinate[0],
+        groups[0].coordinate[1],
+      ]);
+    },
+    30_000
+  );
+
+  it('can omit full cluster property id membership while retaining capped previews for pyramid builds', () => {
+    const zoom = 17;
+    const tile = { z: zoom, x: 100, y: 100 };
+    const worldX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const worldY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const candidates = Array.from({ length: PROPERTY_PREVIEW_MEMBER_LIMIT + 20 }, (_, index) =>
+      makeCandidateAtWorld(makePropertyId(index), worldX, worldY, zoom, {
+        socialScore: PROPERTY_PREVIEW_MEMBER_LIMIT + 20 - index,
+      })
+    );
+
+    const [group] = groupCandidatesForTile(tile, candidates, {
+      clusterPropertyIdRetention: 'preview-only',
+    });
+
+    expect(group.groupKind).toBe('cluster');
+    expect(group.pointCount).toBe(candidates.length);
+    expect(group.propertyIds).toEqual([]);
+    expect(group.previewPropertyIds).toHaveLength(PROPERTY_PREVIEW_MEMBER_LIMIT);
+    expect(group.previewPropertyIds).toEqual(
+      [...candidates]
+        .sort((a, b) => b.socialScore - a.socialScore || a.id.localeCompare(b.id))
+        .slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)
+        .map((candidate) => candidate.id)
+    );
+  });
+
   it('emits a cross-edge group from only the tile that owns the representative anchor', () => {
     const zoom = 17;
     const ownerTile = { z: zoom, x: 100, y: 100 };
@@ -1626,6 +1790,66 @@ describe('property-grouping', () => {
     expect(feature).not.toHaveProperty('floorAreaM2');
   });
 
+  it('omits incomplete cluster property ids from low-zoom and large MVT transport', () => {
+    const propertyIds = Array.from({ length: PROPERTY_PREVIEW_MEMBER_LIMIT + 2 }, (_, index) =>
+      makePropertyId(index + 10_000)
+    );
+    const cluster = makeCanonicalGroup(10_000, {
+      groupKind: 'cluster',
+      pointCount: propertyIds.length,
+      primaryPropertyId: propertyIds[0],
+      propertyIds,
+      previewPropertyIds: propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+      address: null,
+      city: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      hasActiveListing: null,
+      marketState: null,
+    });
+    const lowZoomFeature = serializeGroupForTile(cluster, { z: 10, x: 511, y: 340 });
+    const transitionFeature = serializeGroupForTile(cluster, { z: 14, x: 8418, y: 5428 });
+    const largeHighZoomFeature = serializeGroupForTile(cluster, { z: 17, x: 67478, y: 43551 });
+    const boundedHighZoomFeature = serializeGroupForTile(
+      {
+        ...cluster,
+        pointCount: PROPERTY_PREVIEW_MEMBER_LIMIT,
+        propertyIds: propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+      },
+      { z: 17, x: 67478, y: 43551 }
+    );
+    const singleFeature = serializeGroupForTile(makeCanonicalGroup(10_100), {
+      z: 10,
+      x: 511,
+      y: 340,
+    });
+
+    expect(lowZoomFeature.property_ids).toBe('');
+    expect(transitionFeature.property_ids).toBe('');
+    expect(largeHighZoomFeature.property_ids).toBe('');
+    expect(lowZoomFeature.membership_complete).toBe(false);
+    expect(lowZoomFeature.read_state_coverage).toBe('partial');
+    expect(transitionFeature.membership_complete).toBe(false);
+    expect(transitionFeature.read_state_coverage).toBe('partial');
+    expect(largeHighZoomFeature.membership_complete).toBe(false);
+    expect(largeHighZoomFeature.read_state_coverage).toBe('partial');
+    expect(lowZoomFeature.preview_property_ids).toBe(
+      propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
+    );
+    expect(transitionFeature.preview_property_ids).toBe(
+      propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
+    );
+    expect(boundedHighZoomFeature.property_ids).toBe(
+      propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
+    );
+    expect(boundedHighZoomFeature.membership_complete).toBe(true);
+    expect(boundedHighZoomFeature.read_state_coverage).toBe('complete');
+    expect(singleFeature.property_ids).toBe(singleFeature.primary_property_id);
+    expect(singleFeature.preview_property_ids).toBe(singleFeature.primary_property_id);
+    expect(singleFeature.membership_complete).toBe(true);
+    expect(singleFeature.read_state_coverage).toBe('complete');
+  });
+
   it('encodes dense MVT feature sets through typed SQL values without JSONB expansion', async () => {
     const groups = Array.from({ length: 192 }, (_, index) => makeCanonicalGroup(index));
     const timings: Array<{ stage: string; itemCount?: number }> = [];
@@ -1658,6 +1882,45 @@ describe('property-grouping', () => {
         { stage: 'MVT SQL encoding', itemCount: 1 },
       ])
     );
+  });
+
+  it('does not place unbounded low-zoom cluster membership into MVT VALUES params', async () => {
+    const propertyIds = Array.from({ length: 140_000 }, (_, index) =>
+      makePropertyId(index + 20_000)
+    );
+    const omittedMemberId = propertyIds[PROPERTY_PREVIEW_MEMBER_LIMIT + 1];
+    const cluster = makeCanonicalGroup(20_000, {
+      groupKind: 'cluster',
+      pointCount: propertyIds.length,
+      primaryPropertyId: propertyIds[0],
+      propertyIds,
+      previewPropertyIds: propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+      address: null,
+      city: null,
+      askingPrice: null,
+      thumbnailUrl: null,
+      hasActiveListing: null,
+      marketState: null,
+    });
+    let renderedMvtParams: unknown[] = [];
+    const executeSpy = jest.spyOn(db, 'execute').mockImplementation((async (query: unknown) => {
+      renderedMvtParams = renderSqlQuery(query as SQL).params;
+      return [{ mvt: Buffer.from('bounded-mvt') }] as never;
+    }) as never);
+
+    const result = await buildMvtForGroups({ z: 10, x: 511, y: 340 }, [cluster]);
+
+    expect(result.toString()).toBe('bounded-mvt');
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(renderedMvtParams).toContain('');
+    expect(renderedMvtParams).toContain(
+      propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT).join(',')
+    );
+    expect(
+      renderedMvtParams.some(
+        (param) => typeof param === 'string' && param.includes(omittedMemberId)
+      )
+    ).toBe(false);
   });
 
   it('applies map filters before grouping clustered active sale candidates', async () => {

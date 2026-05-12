@@ -8,6 +8,7 @@ import {
   type Request,
   type Response,
 } from '@playwright/test';
+import path from 'node:path';
 import {
   BENCHMARK_ROUTES,
   aggregateRouteBenchmark,
@@ -16,7 +17,9 @@ import {
   captureGitMetadata,
   type FeedScrollSummary,
   type FeedScrollSettleSummary,
+  getBenchmarkCacheModes,
   getBenchmarkMeasuredRuns,
+  getBenchmarkResultDir,
   getBenchmarkWarmupRuns,
   type MainThreadLongTaskSummary,
   normalizeEndpointUrl,
@@ -49,8 +52,11 @@ test.describe('Web performance benchmark harness', () => {
     const warmupRuns = getBenchmarkWarmupRuns();
     const measuredRuns = getBenchmarkMeasuredRuns();
     const routeEntries = Object.entries(BENCHMARK_ROUTES);
+    const cacheModes = getBenchmarkCacheModes();
 
-    test.setTimeout(Math.max(600_000, routeEntries.length * 2 * (warmupRuns + measuredRuns) * 60_000));
+    test.setTimeout(
+      Math.max(600_000, routeEntries.length * cacheModes.length * (warmupRuns + measuredRuns) * 60_000),
+    );
 
     const benchmarkRun: BenchmarkRun = {
       metadata: captureGitMetadata(),
@@ -58,32 +64,36 @@ test.describe('Web performance benchmark harness', () => {
     };
 
     for (const [routeKey, routeConfig] of routeEntries) {
-      benchmarkRun.routes[`${routeKey}:cold-cache`] = await benchmarkRouteSeries(
-        browser,
-        routeKey,
-        routeConfig,
-        'cold-cache',
-        warmupRuns,
-        measuredRuns,
-      );
-      benchmarkRun.routes[`${routeKey}:warm-cache`] = await benchmarkRouteSeries(
-        browser,
-        routeKey,
-        routeConfig,
-        'warm-cache',
-        warmupRuns,
-        measuredRuns,
-      );
+      for (const cacheMode of cacheModes) {
+        benchmarkRun.routes[`${routeKey}:${cacheMode}`] = await benchmarkRouteSeries(
+          browser,
+          routeKey,
+          routeConfig,
+          cacheMode,
+          warmupRuns,
+          measuredRuns,
+        );
+      }
     }
 
     const artifacts = await writeBenchmarkArtifacts('web-performance-benchmark', benchmarkRun);
     const postRunFailures = collectPostRunFailures(benchmarkRun);
 
-    expect(artifacts.jsonPath).toContain('test-results/benchmark/');
-    expect(artifacts.markdownPath).toContain('test-results/benchmark/');
+    expectPathInsideBenchmarkResultDir(artifacts.jsonPath);
+    expectPathInsideBenchmarkResultDir(artifacts.markdownPath);
     expect(postRunFailures).toEqual([]);
   });
 });
+
+function expectPathInsideBenchmarkResultDir(artifactPath: string): void {
+  const resultDir = path.resolve(getBenchmarkResultDir());
+  const resolvedArtifactPath = path.resolve(artifactPath);
+  const relativeArtifactPath = path.relative(resultDir, resolvedArtifactPath);
+
+  expect(relativeArtifactPath).not.toBe('');
+  expect(relativeArtifactPath.startsWith('..')).toBe(false);
+  expect(path.isAbsolute(relativeArtifactPath)).toBe(false);
+}
 
 async function benchmarkRouteSeries(
   browser: Browser,
@@ -99,11 +109,31 @@ async function benchmarkRouteSeries(
 
   const samples: RouteBenchmarkSample[] = [];
   for (let index = 0; index < measuredRuns; index += 1) {
+    if (cacheMode === 'backend-cold') {
+      await restartBenchmarkBackend();
+    }
     const sample = await benchmarkRouteSample(browser, routeKey, routeConfig, cacheMode);
     samples.push(sample);
   }
 
   return aggregateRouteBenchmark(routeKey, routeConfig.route, cacheMode, samples, warmupRuns, measuredRuns);
+}
+
+async function restartBenchmarkBackend(): Promise<void> {
+  const restartUrl = process.env.BENCHMARK_API_RESTART_URL;
+  if (!restartUrl) {
+    throw new Error(
+      'BENCHMARK_BACKEND_COLD=1 requires BENCHMARK_API_RESTART_URL from the Playwright runtime wrapper',
+    );
+  }
+
+  const response = await fetch(restartUrl, { method: 'POST' });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(
+      `Benchmark API restart failed with ${response.status}${body ? `: ${body}` : ''}`,
+    );
+  }
 }
 
 async function runInIsolatedPage<T>(
@@ -177,6 +207,7 @@ async function primeWarmMapRoute(page: Page, route: string): Promise<void> {
   const startedAt = performance.now();
   await waitForMapUsable(page, startedAt);
   await waitForInitialMapIdle(page, startedAt);
+  await waitForWarmupNetworkSettled(page);
   await page.waitForTimeout(500);
 }
 
@@ -184,7 +215,17 @@ async function primeWarmFeedRoute(page: Page, route: string): Promise<void> {
   await page.goto(route, { waitUntil: 'domcontentloaded' });
   const startedAt = performance.now();
   await waitForFeedReady(page, startedAt);
+  await waitForWarmupNetworkSettled(page);
   await page.waitForTimeout(500);
+}
+
+async function waitForWarmupNetworkSettled(page: Page): Promise<void> {
+  await page.waitForTimeout(1200);
+  await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch((error: unknown) => {
+    if (!isPlaywrightTimeoutError(error)) {
+      throw error;
+    }
+  });
 }
 
 async function benchmarkMapRoute(

@@ -2,26 +2,28 @@ const DEFAULT_INGEST_CONCURRENCY = 4;
 const DEFAULT_MAINTENANCE_CONCURRENCY = 1;
 const DEFAULT_CANDIDATE_HANDOFF_CONCURRENCY = 2;
 const DEFAULT_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY = 1;
-const DEFAULT_PROPERTY_TILE_SNAPSHOT_CONCURRENCY = 1;
+const DEFAULT_PROPERTY_TILE_PYRAMID_CONCURRENCY = 1;
 const DEFAULT_RECOVERY_BATCH_LIMIT = 100;
 const DEFAULT_SKIPPED_BATCH_RECOVERY_LIMIT = 1;
 const DEFAULT_RECOVERY_SWEEP_INTERVAL_MS = 30_000;
 const DEFAULT_HEALTH_LOG_INTERVAL_MS = 60_000;
 const DEFAULT_STALE_PROCESSING_AFTER_MS = 10 * 60_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15_000;
+const DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY = 3 * 60 + 20;
 
 export interface WorkerConfig {
   ingestConcurrency: number;
   maintenanceConcurrency: number;
   candidateHandoffConcurrency: number;
   officialValuationHydrationConcurrency: number;
-  propertyTileSnapshotConcurrency: number;
+  propertyTilePyramidConcurrency: number;
   recoveryBatchLimit: number;
   skippedBatchRecoveryLimit: number;
   recoverySweepIntervalMs: number;
   healthLogIntervalMs: number;
   staleProcessingAfterMs: number;
   shutdownTimeoutMs: number;
+  propertyTilePyramidRetentionUtcMinuteOfDay: number;
 }
 
 export function ensureWorkerRuntimeEnv(env: NodeJS.ProcessEnv = process.env): void {
@@ -39,9 +41,28 @@ function parsePositiveInt(
     return fallback;
   }
 
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  if (!/^\d+$/.test(trimmed) || !Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer, received "${value}"`);
+  }
+
+  return parsed;
+}
+
+function parseUtcMinuteOfDay(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (value == null || value.trim().length === 0) {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  if (!/^\d+$/.test(trimmed) || !Number.isSafeInteger(parsed) || parsed < 0 || parsed > 1439) {
+    throw new Error(`${name} must be an integer between 0 and 1439, received "${value}"`);
   }
 
   return parsed;
@@ -69,10 +90,10 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
       DEFAULT_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY,
       'WORKER_OFFICIAL_VALUATION_HYDRATION_CONCURRENCY',
     ),
-    propertyTileSnapshotConcurrency: parsePositiveInt(
-      env.WORKER_PROPERTY_TILE_SNAPSHOT_CONCURRENCY,
-      DEFAULT_PROPERTY_TILE_SNAPSHOT_CONCURRENCY,
-      'WORKER_PROPERTY_TILE_SNAPSHOT_CONCURRENCY',
+    propertyTilePyramidConcurrency: parsePositiveInt(
+      env.WORKER_PROPERTY_TILE_PYRAMID_CONCURRENCY,
+      DEFAULT_PROPERTY_TILE_PYRAMID_CONCURRENCY,
+      'WORKER_PROPERTY_TILE_PYRAMID_CONCURRENCY',
     ),
     recoveryBatchLimit: parsePositiveInt(
       env.WORKER_RECOVERY_BATCH_LIMIT,
@@ -103,6 +124,11 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
       env.WORKER_SHUTDOWN_TIMEOUT_MS,
       DEFAULT_SHUTDOWN_TIMEOUT_MS,
       'WORKER_SHUTDOWN_TIMEOUT_MS',
+    ),
+    propertyTilePyramidRetentionUtcMinuteOfDay: parseUtcMinuteOfDay(
+      env.WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY,
+      DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY,
+      'WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY',
     ),
   };
 }

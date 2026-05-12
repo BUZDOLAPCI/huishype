@@ -5,9 +5,9 @@ import { db, comments, properties, reactions, users } from '../db/index.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { advancePropertyChangeVersion } from '../services/property-read-state.js';
 import {
-  advancePropertyTileSnapshotWatermark,
-  safeRequestPropertyTileSnapshotRefresh,
-} from '../services/property-tile-snapshots.js';
+  advancePropertyTilePyramidSourceWatermark,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
+} from '../services/property-tile-pyramid.js';
 
 // Type for comment rows from raw SQL
 type CommentRow = {
@@ -418,13 +418,13 @@ export async function commentRoutes(app: FastifyInstance) {
           .returning();
 
         await advancePropertyChangeVersion(propertyId, tx);
-        await advancePropertyTileSnapshotWatermark(['social'], tx);
+        await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
         return inserted;
       });
 
       const created = newComment[0];
-      await safeRequestPropertyTileSnapshotRefresh(
-        { reason: 'comment-create' },
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'comment-create', policy: 'social', watermarkScopes: ['social_inputs'] },
         request.log,
         { propertyId, commentId: created.id },
       );

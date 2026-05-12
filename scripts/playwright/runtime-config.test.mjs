@@ -5,8 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   applyPlaywrightRuntimeEnvironment,
+  assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe,
   createPlaywrightRuntimeSettings,
+  DEFAULT_LOCAL_DATABASE_URL,
   getPlaywrightWebDistCandidates,
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
   resolveLatestWebDistDir,
 } from './runtime-config.mjs';
 
@@ -96,7 +99,66 @@ test('resolveLatestWebDistDir ignores a repo-root dist bundle when the app dist 
 
     assert.throws(
       () => resolveLatestWebDistDir({ candidates: getPlaywrightWebDistCandidates(rootDir) }),
-      /Unable to find an exported web bundle/,
+      /Unable to find an exported web bundle/
     );
   });
+});
+
+test('Playwright pyramid fixture target guard allows the default local DB with explicit wrapper opt-in', () => {
+  const target = assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe({
+    NODE_ENV: 'development',
+    DATABASE_URL: DEFAULT_LOCAL_DATABASE_URL,
+    [PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV]: '1',
+  });
+
+  assert.equal(target.host, 'localhost');
+  assert.equal(target.port, '5440');
+  assert.equal(target.databaseName, 'huishype');
+});
+
+test('Playwright pyramid fixture target guard requires explicit opt-in', () => {
+  assert.throws(
+    () =>
+      assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe({
+        NODE_ENV: 'test',
+        DATABASE_URL: DEFAULT_LOCAL_DATABASE_URL,
+      }),
+    /PLAYWRIGHT_ALLOW_PROPERTY_TILE_PYRAMID_FIXTURE=1/
+  );
+});
+
+test('Playwright pyramid fixture target guard rejects production mode', () => {
+  assert.throws(
+    () =>
+      assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe({
+        NODE_ENV: 'production',
+        DATABASE_URL: DEFAULT_LOCAL_DATABASE_URL,
+        [PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV]: '1',
+      }),
+    /NODE_ENV=production/
+  );
+});
+
+test('Playwright pyramid fixture target guard rejects remote database hosts', () => {
+  assert.throws(
+    () =>
+      assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe({
+        NODE_ENV: 'development',
+        DATABASE_URL: 'postgresql://huishype:secret@94.130.105.129:5432/huishype',
+        [PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV]: '1',
+      }),
+    /database host "94\.130\.105\.129" is not local/
+  );
+});
+
+test('Playwright pyramid fixture target guard rejects production-like database names', () => {
+  assert.throws(
+    () =>
+      assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe({
+        NODE_ENV: 'development',
+        DATABASE_URL: 'postgresql://huishype:secret@localhost:5440/huishype-production',
+        [PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV]: '1',
+      }),
+    /looks production-like/
+  );
 });

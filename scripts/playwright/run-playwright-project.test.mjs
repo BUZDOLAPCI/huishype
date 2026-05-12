@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:net';
 import {
+  createApiDeathMonitor,
   resolveRuntimePort,
+  startApiRestartControlServer,
   startServiceWithRetry,
   waitForChildExit,
   watchRuntimeDeaths,
@@ -97,6 +99,80 @@ test('reports mid-run API death with a useful error', async () => {
     runtimeDeath,
     /API server exited unexpectedly with code 1 and signal null while Playwright was running/,
   );
+});
+
+test('ignores API child exit while benchmark restart is in progress', async () => {
+  const child = new FakeChild();
+  const stopping = { current: false };
+  const apiRestarting = { current: true };
+  const runtimeDeath = watchRuntimeDeaths({
+    apiChild: child,
+    webRuntime: { server: new FakeServer() },
+    stopping,
+    apiRestarting,
+  });
+
+  queueMicrotask(() => {
+    child.exitCode = null;
+    child.signalCode = 'SIGTERM';
+    child.emit('exit', null, 'SIGTERM');
+  });
+
+  const result = await Promise.race([
+    runtimeDeath.then(
+      () => 'resolved',
+      () => 'rejected',
+    ),
+    new Promise((resolve) => setTimeout(() => resolve('pending'), 25)),
+  ]);
+
+  assert.equal(result, 'pending');
+});
+
+test('API death monitor watches replacement API children after benchmark restart', async () => {
+  const firstChild = new FakeChild();
+  const secondChild = new FakeChild();
+  const stopping = { current: false };
+  const apiRestarting = { current: false };
+  const monitor = createApiDeathMonitor({ stopping, apiRestarting });
+  monitor.promise.catch(() => {});
+
+  monitor.watch(firstChild);
+  apiRestarting.current = true;
+  firstChild.emit('exit', null, 'SIGTERM');
+  apiRestarting.current = false;
+
+  monitor.watch(secondChild);
+  queueMicrotask(() => {
+    secondChild.exitCode = 1;
+    secondChild.emit('exit', 1, null);
+  });
+
+  await assert.rejects(
+    monitor.promise,
+    /API server exited unexpectedly with code 1 and signal null while Playwright was running/,
+  );
+});
+
+test('benchmark API restart control server serializes restart requests', async () => {
+  const calls = [];
+  const control = await startApiRestartControlServer({
+    restartApi: async () => {
+      calls.push(Date.now());
+    },
+  });
+
+  try {
+    const response = await fetch(control.url, { method: 'POST' });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true });
+    assert.equal(calls.length, 1);
+
+    const missing = await fetch(control.url, { method: 'GET' });
+    assert.equal(missing.status, 404);
+  } finally {
+    await control.close();
+  }
 });
 
 test('reports unexpected static web server shutdown during a run', async () => {

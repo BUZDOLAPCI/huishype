@@ -7,6 +7,8 @@ import { formatDisplayAddress } from '../utils/address.js';
 import { getCountryConfig, isValidCountryCode, type CountryCode } from '@huishype/shared';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
 import {
+  PROPERTY_TILE_EXTENT,
+  lngLatToWorldUnits,
   resolveNearbyFollowingGroupedFeature,
   resolveNearbyGroupedFeature,
 } from '../services/property-grouping.js';
@@ -35,6 +37,14 @@ import {
   hydrateOfficialValuationRequestSchema,
   requestOfficialValuationHydration,
 } from '../services/official-valuations/index.js';
+import {
+  getDefaultPropertyTilePyramidSlot,
+  getPropertyTilePyramidMaxZoom,
+  isDefaultPropertyTilePyramidPointCovered,
+  isPropertyTilePyramidPointCoveredByCoverage,
+  lookupCurrentPropertyTilePyramidVersion,
+  safeRequestPropertyTilePyramidBuild,
+} from '../services/property-tile-pyramid.js';
 
 const coordinateSchema = z.object({
   type: z.literal('Point'),
@@ -238,12 +248,26 @@ const resolveFoundResponseSchema = z.object({
 
 const resolveResponseSchema = z.nullable(resolveFoundResponseSchema);
 
-const nearbyQuerySchema = z.object({
-  lon: z.coerce.number().min(-180).max(180),
-  lat: z.coerce.number().min(-90).max(90),
-  zoom: z.coerce.number().min(0).max(22).default(17),
-  ...mapFiltersQuerySchema.shape,
-});
+const nearbyQuerySchema = z
+  .object({
+    lon: z.coerce.number().min(-180).max(180),
+    lat: z.coerce.number().min(-90).max(90),
+    zoom: z.coerce.number().min(0).max(22).default(17),
+    pyramidVersionId: z.string().uuid().optional(),
+    pyramidNodeId: z.string().min(1).optional(),
+    ...mapFiltersQuerySchema.shape,
+  })
+  .superRefine((query, ctx) => {
+    if (Boolean(query.pyramidVersionId) !== Boolean(query.pyramidNodeId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: query.pyramidVersionId ? ['pyramidNodeId'] : ['pyramidVersionId'],
+        message: 'pyramidVersionId and pyramidNodeId must be provided together',
+      });
+    }
+  });
+
+const readStateCoverageSchema = z.enum(['complete', 'partial']);
 
 const nearbyGroupedBaseSchema = z.object({
   nodeClass: z.enum(['active', 'ghost']),
@@ -251,6 +275,10 @@ const nearbyGroupedBaseSchema = z.object({
   pointCount: z.number(),
   propertyIds: z.array(z.string().uuid()),
   previewPropertyIds: z.array(z.string().uuid()),
+  pyramidVersionId: z.string().nullable(),
+  pyramidNodeId: z.string().nullable(),
+  membershipComplete: z.boolean(),
+  readStateCoverage: readStateCoverageSchema,
   coordinate: z.tuple([z.number(), z.number()]).describe('[longitude, latitude]'),
   distanceMeters: z.number(),
   bbox: z
@@ -288,12 +316,65 @@ const nearbyGroupedResultSchema = z.discriminatedUnion('groupKind', [
 
 const nearbyGroupedResponseSchema = z.nullable(nearbyGroupedResultSchema);
 
+type NearbyGroupedContractResult = Awaited<ReturnType<typeof resolveNearbyGroupedFeature>> & {
+  pyramidVersionId?: string | null;
+  pyramidNodeId?: string | null;
+  membershipComplete?: boolean;
+  readStateCoverage?: 'complete' | 'partial';
+};
+
+type PyramidNearbyNodeRow = {
+  node_id: string;
+  primary_property_id: string | null;
+  node_class: 'active' | 'ghost';
+  group_kind: 'single' | 'cluster';
+  point_count: number | string;
+  preview_property_ids: string[] | null;
+  render_lon: number | string;
+  render_lat: number | string;
+  distance_meters: number | string;
+  bbox_west: number | string | null;
+  bbox_south: number | string | null;
+  bbox_east: number | string | null;
+  bbox_north: number | string | null;
+  active_listing_count: number | string;
+  completed_listing_count: number | string;
+  social_count: number | string;
+  recent_social_count: number | string;
+  social_score_total: number | string;
+  social_score_max: number | string;
+  recent_social_score_total: number | string;
+  comment_count: number | string;
+  address: string | null;
+  city: string | null;
+  asking_price: number | string | null;
+  thumbnail_url: string | null;
+  has_active_listing: boolean | null;
+  market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
+  tile_status: string | null;
+  validation_status: string | null;
+};
+
+type PyramidNearbyLookupStatus =
+  | 'pyramid-promoted'
+  | 'pyramid-empty'
+  | 'pyramid-missing'
+  | 'pyramid-stale'
+  | 'pyramid-unavailable'
+  | 'pyramid-build-active'
+  | 'pyramid-build-enqueued'
+  | 'pyramid-terminal'
+  | 'pyramid-uncovered';
+
 const followingNearbyQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
   lat: z.coerce.number().min(-90).max(90),
   zoom: z.coerce.number().min(0).max(22).default(17),
   ...followingMapFiltersQuerySchema.shape,
 });
+
+const PYRAMID_NEARBY_SINGLE_TAP_RADIUS_PX = 24;
+const PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX = 36;
 
 type PropertyRow = {
   id: string;
@@ -521,13 +602,14 @@ function mapPublicPropertyRow(row: PropertyRow) {
   };
 }
 
-function mapNearbyGroupedResult(
-  result: Awaited<ReturnType<typeof resolveNearbyGroupedFeature>>,
-  isRead = false,
-) {
+function mapNearbyGroupedResult(result: NearbyGroupedContractResult | null, isRead = false) {
   if (!result) {
     return null;
   }
+
+  const membershipComplete = result.membershipComplete ?? true;
+  const readStateCoverage =
+    result.readStateCoverage ?? (membershipComplete ? 'complete' : 'partial');
 
   const baseResult = {
     nodeClass: result.nodeClass,
@@ -535,6 +617,10 @@ function mapNearbyGroupedResult(
     pointCount: result.pointCount,
     propertyIds: result.propertyIds,
     previewPropertyIds: result.previewPropertyIds,
+    pyramidVersionId: result.pyramidVersionId ?? null,
+    pyramidNodeId: result.pyramidNodeId ?? null,
+    membershipComplete,
+    readStateCoverage,
     coordinate: result.coordinate,
     distanceMeters: result.distanceMeters,
     bbox: result.bbox,
@@ -575,6 +661,426 @@ function mapNearbyGroupedResult(
   return {
     ...baseResult,
     groupKind: 'cluster' as const,
+  };
+}
+
+function isPyramidSchemaUnavailable(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === '42P01' || code === '42703' || code === '42883') {
+    return true;
+  }
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  if (cause && cause !== error && isPyramidSchemaUnavailable(cause)) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : '';
+  return (
+    message.includes('property_tile_pyramid_') &&
+    (message.includes('does not exist') || message.includes('Failed query'))
+  );
+}
+
+function hasPyramidNodeQueryPair(query: {
+  pyramidVersionId?: string;
+  pyramidNodeId?: string;
+}): query is { pyramidVersionId: string; pyramidNodeId: string } {
+  return Boolean(query.pyramidVersionId && query.pyramidNodeId);
+}
+
+function pyramidOwnerTileForCoordinate(lon: number, lat: number, zoom: number) {
+  const [worldX, worldY] = lngLatToWorldUnits(lon, lat, zoom);
+  const maxTileCoord = 2 ** zoom - 1;
+  return {
+    z: zoom,
+    x: Math.max(0, Math.min(maxTileCoord, Math.floor(worldX / PROPERTY_TILE_EXTENT))),
+    y: Math.max(0, Math.min(maxTileCoord, Math.floor(worldY / PROPERTY_TILE_EXTENT))),
+  };
+}
+
+function getPyramidOwnerTileNeighborhood(tile: { z: number; x: number; y: number }) {
+  const tileCount = Math.pow(2, tile.z);
+  const tiles: Array<{ z: number; x: number; y: number }> = [];
+  const seen = new Set<string>();
+
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      const x = (tile.x + dx + tileCount) % tileCount;
+      const y = tile.y + dy;
+      if (y < 0 || y >= tileCount) continue;
+
+      const key = `${x}:${y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tiles.push({ z: tile.z, x, y });
+    }
+  }
+
+  return tiles;
+}
+
+function mapPyramidNearbyNodeRow(
+  row: PyramidNearbyNodeRow | null,
+  versionId: string
+): NearbyGroupedContractResult | null {
+  if (!row) {
+    return null;
+  }
+
+  const primaryPropertyId = row.primary_property_id ?? row.preview_property_ids?.[0] ?? null;
+  if (!primaryPropertyId) {
+    return null;
+  }
+
+  const bbox =
+    row.bbox_west != null &&
+    row.bbox_south != null &&
+    row.bbox_east != null &&
+    row.bbox_north != null
+      ? ([
+          Number(row.bbox_west),
+          Number(row.bbox_south),
+          Number(row.bbox_east),
+          Number(row.bbox_north),
+        ] as [number, number, number, number])
+      : null;
+
+  const baseResult = {
+    nodeClass: row.node_class,
+    primaryPropertyId,
+    pointCount: Number(row.point_count),
+    propertyIds: row.group_kind === 'single' ? [primaryPropertyId] : [],
+    previewPropertyIds: row.preview_property_ids ?? [],
+    pyramidVersionId: versionId,
+    pyramidNodeId: row.node_id,
+    membershipComplete: row.group_kind === 'single',
+    readStateCoverage: row.group_kind === 'single' ? ('complete' as const) : ('partial' as const),
+    coordinate: [Number(row.render_lon), Number(row.render_lat)] as [number, number],
+    distanceMeters: Number(row.distance_meters),
+    bbox,
+    activeListingCount: Number(row.active_listing_count),
+    completedListingCount: Number(row.completed_listing_count),
+    socialCount: Number(row.social_count),
+    recentSocialCount: Number(row.recent_social_count),
+    socialScoreTotal: Number(row.social_score_total),
+    socialScoreMax: Number(row.social_score_max),
+    recentSocialScoreTotal: Number(row.recent_social_score_total),
+    commentCount: Number(row.comment_count),
+  };
+
+  if (row.group_kind === 'single') {
+    return {
+      ...baseResult,
+      groupKind: 'single' as const,
+      address: row.address ?? '',
+      city: row.city ?? '',
+      askingPrice: row.asking_price == null ? null : Number(row.asking_price),
+      thumbnailUrl: row.thumbnail_url,
+      hasActiveListing: row.has_active_listing ?? false,
+      marketState: row.market_state ?? 'not-listed',
+      ownerTile: { z: 0, x: 0, y: 0 },
+      anchorWorldX: 0,
+      anchorWorldY: 0,
+    };
+  }
+
+  return {
+    ...baseResult,
+    groupKind: 'cluster' as const,
+    address: null,
+    city: null,
+    askingPrice: null,
+    thumbnailUrl: null,
+    hasActiveListing: null,
+    marketState: null,
+    ownerTile: { z: 0, x: 0, y: 0 },
+    anchorWorldX: 0,
+    anchorWorldY: 0,
+  };
+}
+
+function isServeablePyramidNearbyTile(row: {
+  tile_status: string | null;
+  validation_status: string | null;
+}): boolean {
+  return (
+    row.validation_status === 'validated' &&
+    (row.tile_status === 'valid_empty' ||
+      row.tile_status === 'valid_nodes' ||
+      row.tile_status === 'valid_encoded')
+  );
+}
+
+async function hasServeablePyramidTileManifest(input: {
+  versionId: string;
+  tile: { z: number; x: number; y: number };
+}): Promise<boolean> {
+  const rows = await db.execute<{
+    tile_status: string | null;
+    validation_status: string | null;
+  }>(sql`
+    SELECT t.tile_status, t.validation_status
+    FROM property_tile_pyramid_tiles t
+    WHERE t.version_id = ${input.versionId}::uuid
+      AND t.z = ${input.tile.z}
+      AND t.x = ${input.tile.x}
+      AND t.y = ${input.tile.y}
+    LIMIT 1
+  `);
+  return Array.from(rows).some(isServeablePyramidNearbyTile);
+}
+
+async function resolvePyramidNearbyNodeById(input: {
+  lon: number;
+  lat: number;
+  pyramidVersionId: string;
+  pyramidNodeId: string;
+}): Promise<{
+  result: NearbyGroupedContractResult | null;
+  status: PyramidNearbyLookupStatus;
+  versionId?: string;
+}> {
+  const slot = getDefaultPropertyTilePyramidSlot();
+  const current = await lookupCurrentPropertyTilePyramidVersion(slot);
+  if (current.state !== 'current') {
+    return { result: null, status: 'pyramid-unavailable' };
+  }
+  if (current.version.versionId !== input.pyramidVersionId) {
+    return { result: null, status: 'pyramid-stale', versionId: current.version.versionId };
+  }
+
+  const rows = await db.execute<PyramidNearbyNodeRow>(sql`
+    WITH tap AS (
+      SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
+    )
+    SELECT
+      node_id,
+      COALESCE(representative_property_id::text, preview_property_ids[1]::text) AS primary_property_id,
+      node_class,
+      group_kind,
+      point_count,
+      ARRAY(SELECT unnest(preview_property_ids)::text) AS preview_property_ids,
+      render_lon,
+      render_lat,
+      ST_Distance(
+        render_geometry::geography,
+        tap.geom::geography
+      ) AS distance_meters,
+      bbox_west,
+      bbox_south,
+      bbox_east,
+      bbox_north,
+      active_listing_count,
+      completed_listing_count,
+      social_count,
+      recent_social_count,
+      social_score_total,
+      social_score_max,
+      recent_social_score_total,
+      comment_count,
+      address,
+      city,
+      asking_price,
+      thumbnail_url,
+      has_active_listing,
+      market_state,
+      t.tile_status,
+      t.validation_status
+    FROM property_tile_pyramid_nodes n
+    CROSS JOIN tap
+    LEFT JOIN property_tile_pyramid_tiles t
+      ON t.version_id = n.version_id
+     AND t.z = n.z
+     AND t.x = n.x
+     AND t.y = n.y
+    WHERE n.version_id = ${input.pyramidVersionId}::uuid
+      AND n.node_id = ${input.pyramidNodeId}
+    LIMIT 1
+  `);
+
+  const row = Array.from(rows)[0] ?? null;
+  if (!row) {
+    return { result: null, status: 'pyramid-empty', versionId: current.version.versionId };
+  }
+  if (!isServeablePyramidNearbyTile(row)) {
+    return { result: null, status: 'pyramid-missing', versionId: current.version.versionId };
+  }
+
+  const result = mapPyramidNearbyNodeRow(row, input.pyramidVersionId);
+  return {
+    result,
+    status: result ? 'pyramid-promoted' : 'pyramid-empty',
+    versionId: current.version.versionId,
+  };
+}
+
+function pyramidNearbySearchRadiusMeters(lat: number, zoom: number): number {
+  const metersPerPixel =
+    (40075016.686 * Math.max(Math.cos((lat * Math.PI) / 180), 0.000001)) / (512 * 2 ** zoom);
+  return PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX * metersPerPixel;
+}
+
+function normalizePyramidNearbyServingZoom(zoom: number, maxZoom: number): number {
+  return Math.max(0, Math.min(maxZoom, Math.floor(zoom)));
+}
+
+function isDefaultPyramidNearbyZoom(zoom: number, maxZoom: number): boolean {
+  return Math.floor(zoom) <= maxZoom;
+}
+
+async function resolvePyramidNearbyNodeAtPoint(input: {
+  lon: number;
+  lat: number;
+  zoom: number;
+  logger: { warn(bindings: Record<string, unknown>, message: string): void };
+}): Promise<{
+  result: NearbyGroupedContractResult | null;
+  status: PyramidNearbyLookupStatus;
+  versionId?: string;
+}> {
+  const slot = getDefaultPropertyTilePyramidSlot();
+  const maxZoom = getPropertyTilePyramidMaxZoom();
+  const current = await lookupCurrentPropertyTilePyramidVersion(slot);
+  if (current.state !== 'current') {
+    const servingZoom = normalizePyramidNearbyServingZoom(input.zoom, maxZoom);
+    if (!isDefaultPropertyTilePyramidPointCovered({ ...input, zoom: servingZoom, maxZoom })) {
+      return { result: null, status: 'pyramid-uncovered' };
+    }
+
+    await safeRequestPropertyTilePyramidBuild(
+      {
+        reason: 'nearby-fallback-miss',
+        slot,
+      },
+      input.logger,
+      {
+        lon: input.lon,
+        lat: input.lat,
+        zoom: input.zoom,
+        servingZoom,
+      }
+    );
+    return { result: null, status: current.tileStatus };
+  }
+
+  const versionCoverage = current.version.coverage;
+  const servingZoom = normalizePyramidNearbyServingZoom(
+    input.zoom,
+    versionCoverage?.maxZoom ?? current.version.maxZoom
+  );
+  if (
+    !versionCoverage ||
+    !isPropertyTilePyramidPointCoveredByCoverage({
+      coverage: versionCoverage,
+      lon: input.lon,
+      lat: input.lat,
+      zoom: servingZoom,
+    })
+  ) {
+    return { result: null, status: 'pyramid-uncovered', versionId: current.version.versionId };
+  }
+
+  const tapOwnerTile = pyramidOwnerTileForCoordinate(input.lon, input.lat, servingZoom);
+  const ownerTileNeighborhood = getPyramidOwnerTileNeighborhood(tapOwnerTile);
+  const hasOwnerManifest = await hasServeablePyramidTileManifest({
+    versionId: current.version.versionId,
+    tile: tapOwnerTile,
+  });
+  if (!hasOwnerManifest) {
+    await safeRequestPropertyTilePyramidBuild(
+      {
+        reason: 'nearby-fallback-miss',
+        slot,
+      },
+      input.logger,
+      {
+        lon: input.lon,
+        lat: input.lat,
+        zoom: input.zoom,
+        servingZoom,
+        missingOwnerTile: tapOwnerTile,
+      }
+    );
+    return { result: null, status: 'pyramid-missing', versionId: current.version.versionId };
+  }
+
+  const searchRadiusMeters = pyramidNearbySearchRadiusMeters(input.lat, servingZoom);
+  const ownerTileRows = sql.join(
+    ownerTileNeighborhood.map(
+      (tile) => sql`(${tile.z}::integer, ${tile.x}::integer, ${tile.y}::integer)`
+    ),
+    sql`, `
+  );
+  const rows = await db.execute<PyramidNearbyNodeRow>(sql`
+    WITH tap AS (
+      SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
+    ),
+    tap_owner_tiles(z, x, y) AS (
+      VALUES ${ownerTileRows}
+    )
+    SELECT
+      node_id,
+      COALESCE(representative_property_id::text, preview_property_ids[1]::text) AS primary_property_id,
+      node_class,
+      group_kind,
+      point_count,
+      ARRAY(SELECT unnest(preview_property_ids)::text) AS preview_property_ids,
+      render_lon,
+      render_lat,
+      ST_Distance(render_geometry::geography, tap.geom::geography) AS distance_meters,
+      bbox_west,
+      bbox_south,
+      bbox_east,
+      bbox_north,
+      active_listing_count,
+      completed_listing_count,
+      social_count,
+      recent_social_count,
+      social_score_total,
+      social_score_max,
+      recent_social_score_total,
+      comment_count,
+      address,
+      city,
+      asking_price,
+      thumbnail_url,
+      has_active_listing,
+      market_state,
+      t.tile_status,
+      t.validation_status
+    FROM property_tile_pyramid_nodes n
+    JOIN property_tile_pyramid_tiles t
+      ON t.version_id = n.version_id
+     AND t.z = n.z
+     AND t.x = n.x
+     AND t.y = n.y
+     AND t.validation_status = 'validated'::property_tile_pyramid_tile_validation_status
+     AND t.tile_status IN (
+       'valid_empty'::property_tile_pyramid_tile_status,
+       'valid_nodes'::property_tile_pyramid_tile_status,
+       'valid_encoded'::property_tile_pyramid_tile_status
+     )
+    JOIN tap_owner_tiles ot
+      ON ot.z = n.z
+     AND ot.x = n.x
+     AND ot.y = n.y
+    CROSS JOIN tap
+    WHERE n.version_id = ${current.version.versionId}::uuid
+      AND n.z = ${servingZoom}
+      AND ST_DWithin(render_geometry::geography, tap.geom::geography, ${searchRadiusMeters})
+      AND ST_Distance(render_geometry::geography, tap.geom::geography) <=
+        CASE
+          WHEN group_kind = 'single'
+            THEN ${PYRAMID_NEARBY_SINGLE_TAP_RADIUS_PX}::double precision / ${PYRAMID_NEARBY_CLUSTER_TAP_RADIUS_PX}::double precision * ${searchRadiusMeters}
+          ELSE ${searchRadiusMeters}
+        END
+    ORDER BY ST_Distance(render_geometry::geography, tap.geom::geography), point_count DESC
+    LIMIT 1
+  `);
+
+  return {
+    result: mapPyramidNearbyNodeRow(Array.from(rows)[0] ?? null, current.version.versionId),
+    status: 'pyramid-empty',
+    versionId: current.version.versionId,
   };
 }
 
@@ -923,16 +1429,71 @@ export async function propertyRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { lon, lat, zoom } = request.query;
       const filters = parseMapFiltersQuery(request.query);
-      const result = await resolveNearbyGroupedFeature(lon, lat, zoom, filters);
+      let result: NearbyGroupedContractResult | null = null;
+      if (hasPyramidNodeQueryPair(request.query) && areMapFiltersDefault(filters)) {
+        try {
+          const lookup = await resolvePyramidNearbyNodeById({
+            lon,
+            lat,
+            pyramidVersionId: request.query.pyramidVersionId,
+            pyramidNodeId: request.query.pyramidNodeId,
+          });
+          result = lookup.result;
+
+          if (!result) {
+            reply.header('X-HuisHype-Nearby-Status', lookup.status);
+          }
+          if (!result && lookup.versionId) {
+            reply.header('X-HuisHype-Pyramid-Version', lookup.versionId);
+          }
+        } catch (error) {
+          if (!isPyramidSchemaUnavailable(error)) {
+            throw error;
+          }
+          reply.header('X-HuisHype-Nearby-Status', 'pyramid-unavailable');
+        }
+      } else if (
+        areMapFiltersDefault(filters) &&
+        isDefaultPyramidNearbyZoom(zoom, getPropertyTilePyramidMaxZoom())
+      ) {
+        try {
+          const lookup = await resolvePyramidNearbyNodeAtPoint({
+            lon,
+            lat,
+            zoom,
+            logger: request.log,
+          });
+          result = lookup.result;
+          reply.header('X-HuisHype-Nearby-Status', result ? 'pyramid-promoted' : lookup.status);
+          if (lookup.versionId) {
+            reply.header('X-HuisHype-Pyramid-Version', lookup.versionId);
+          }
+        } catch (error) {
+          if (!isPyramidSchemaUnavailable(error)) {
+            throw error;
+          }
+          reply.header('X-HuisHype-Nearby-Status', 'pyramid-unavailable');
+        }
+      } else {
+        result = (await resolveNearbyGroupedFeature(
+          lon,
+          lat,
+          zoom,
+          filters
+        )) as NearbyGroupedContractResult | null;
+      }
       const viewer = resolvePropertyReadViewer(
         request.userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
-      const readIds = result
-        ? await getReadPropertyIdSet(result.propertyIds, viewer)
-        : new Set<string>();
+      const membershipComplete = result?.membershipComplete ?? true;
+      const readIds =
+        result && membershipComplete
+          ? await getReadPropertyIdSet(result.propertyIds, viewer)
+          : new Set<string>();
       const isRead =
         result != null &&
+        membershipComplete &&
         result.propertyIds.length > 0 &&
         result.propertyIds.every((propertyId) => readIds.has(propertyId));
       return reply.send(mapNearbyGroupedResult(result, isRead));
@@ -963,7 +1524,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       const { ids } = request.query;
       const viewer = resolvePropertyReadViewer(
         request.userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
       const rows = await db.execute<PropertyRow>(sql`
         SELECT
@@ -1052,7 +1613,7 @@ export async function propertyRoutes(app: FastifyInstance) {
       const effectiveUserId = request.userId ?? '00000000-0000-4000-a000-000000000000';
       const viewer = resolvePropertyReadViewer(
         request.userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
 
       const rows = await db.execute<PropertyDetailRow>(sql`

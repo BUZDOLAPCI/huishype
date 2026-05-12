@@ -36,7 +36,8 @@ export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
 const TILE_UNITS_PER_PX = PROPERTY_TILE_EXTENT / TILE_SIZE_PX;
 export const GHOST_NODE_REVEAL_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
-const SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM = 13;
+const SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM = 14;
+const DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM = 10;
 
 const ACTIVE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active;
 const GHOST_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost;
@@ -45,6 +46,8 @@ const GHOST_GROUPING_GAP_PX = GHOST_FOOTPRINT.groupingGapPx;
 const GHOST_SUPPRESSION_PADDING_PX = GHOST_FOOTPRINT.suppressionPaddingPx;
 const NEARBY_TAP_TOLERANCE_PX = PROPERTY_MAP_FOOTPRINTS.nearbyTapTolerancePx;
 const DEFAULT_SHARED_CANONICAL_BUDGET_MS = 3_000;
+const MVT_CLUSTER_PROPERTY_IDS_COMPLETE_MAX = PROPERTY_PREVIEW_MEMBER_LIMIT;
+const MVT_CLUSTER_PROPERTY_IDS_LOW_ZOOM_MAX = 14;
 
 type NodeClass = 'active' | 'ghost';
 type GroupKind = 'single' | 'cluster';
@@ -148,6 +151,20 @@ type SinglePropertyDetail = {
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
 };
 
+type MemberAggregateSummary = {
+  propertyIds: string[];
+  previewPropertyIds: string[];
+  bbox: SerializedBbox | null;
+  activeListingCount: number;
+  completedListingCount: number;
+  socialCount: number;
+  recentSocialCount: number;
+  socialScoreTotal: number;
+  socialScoreMax: number;
+  recentSocialScoreTotal: number;
+  commentCount: number;
+};
+
 type SpatialHashEntry = {
   candidate: GroupingCandidate;
   radiusUnits: number;
@@ -195,6 +212,10 @@ type SharedCanonicalBuild = {
   uncancellableStage: boolean;
 };
 
+export type PropertyTileGroupingOptions = PropertyTileBuildOptions & {
+  clusterPropertyIdRetention?: 'complete' | 'preview-only';
+};
+
 const CANONICAL_GROUP_CACHE_TTL_MS = 30_000;
 const CANONICAL_GROUP_CACHE_MAX_ENTRIES = 1_024;
 const canonicalGroupCache = new Map<string, CanonicalGroupCacheEntry>();
@@ -222,6 +243,8 @@ export type TileTransportFeature = {
   point_count: number;
   property_ids: string;
   preview_property_ids: string;
+  membership_complete: boolean;
+  read_state_coverage: 'complete' | 'partial';
   bbox_west: number | null;
   bbox_south: number | null;
   bbox_east: number | null;
@@ -374,9 +397,9 @@ function getSharedCanonicalBudgetMs(): number {
 }
 
 function buildSharedCanonicalOptions(
-  options: PropertyTileBuildOptions | undefined,
+  options: PropertyTileGroupingOptions | undefined,
   sharedBuild: SharedCanonicalBuild
-): PropertyTileBuildOptions {
+): PropertyTileGroupingOptions {
   const now = Date.now();
   if (!options) {
     return {
@@ -410,6 +433,9 @@ function buildSharedCanonicalOptions(
     runtimeStartedAtMs: now,
     runtimeDeadlineMs,
     signal: sharedBuild.controller.signal,
+    clusterPropertyIdRetention: options.clusterPropertyIdRetention,
+    candidateSnapshotId: options.candidateSnapshotId,
+    closedSocialActivityCutoffAt: options.closedSocialActivityCutoffAt,
     onStageTiming: options.onStageTiming,
     markUncancellableStage: (active) => {
       options.markUncancellableStage?.(active);
@@ -419,8 +445,8 @@ function buildSharedCanonicalOptions(
 }
 
 function createSharedCanonicalBuild(
-  options: PropertyTileBuildOptions | undefined,
-  build: (sharedOptions: PropertyTileBuildOptions) => Promise<CanonicalPropertyGroup[]>
+  options: PropertyTileGroupingOptions | undefined,
+  build: (sharedOptions: PropertyTileGroupingOptions) => Promise<CanonicalPropertyGroup[]>
 ): SharedCanonicalBuild {
   const sharedBuild: SharedCanonicalBuild = {
     promise: Promise.resolve([]),
@@ -691,13 +717,69 @@ function hasRecentActiveSocialSignal(candidate: GroupingCandidate): boolean {
   return candidate.recentSocialScore >= ACTIVE_SOCIAL_SCORE_THRESHOLD;
 }
 
-function serializeBbox(candidates: GroupingCandidate[]): SerializedBbox {
-  return [
-    Math.min(...candidates.map((candidate) => candidate.lon)),
-    Math.min(...candidates.map((candidate) => candidate.lat)),
-    Math.max(...candidates.map((candidate) => candidate.lon)),
-    Math.max(...candidates.map((candidate) => candidate.lat)),
-  ];
+function serializeBbox(candidates: readonly GroupingCandidate[]): SerializedBbox {
+  let minLon = Number.POSITIVE_INFINITY;
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLon = Number.NEGATIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+
+  for (const candidate of candidates) {
+    if (candidate.lon < minLon) minLon = candidate.lon;
+    if (candidate.lat < minLat) minLat = candidate.lat;
+    if (candidate.lon > maxLon) maxLon = candidate.lon;
+    if (candidate.lat > maxLat) maxLat = candidate.lat;
+  }
+
+  return [minLon, minLat, maxLon, maxLat];
+}
+
+function summarizeOrderedMembers(
+  orderedMembers: readonly GroupingCandidate[],
+  propertyIdsLimit: number | null
+): MemberAggregateSummary {
+  const propertyIds: string[] = [];
+  const previewPropertyIds: string[] = [];
+  let activeListingCount = 0;
+  let completedListingCount = 0;
+  let socialCount = 0;
+  let recentSocialCount = 0;
+  let socialScoreTotal = 0;
+  let socialScoreMax = Number.NEGATIVE_INFINITY;
+  let recentSocialScoreTotal = 0;
+  let commentCount = 0;
+
+  for (const member of orderedMembers) {
+    if (propertyIdsLimit == null || propertyIds.length < propertyIdsLimit) {
+      propertyIds.push(member.id);
+    }
+    if (previewPropertyIds.length < PROPERTY_PREVIEW_MEMBER_LIMIT) {
+      previewPropertyIds.push(member.id);
+    }
+    if (member.hasActiveListing) activeListingCount += 1;
+    if (member.hasCompletedListing) completedListingCount += 1;
+    if (hasActiveSocialSignal(member)) socialCount += 1;
+    if (hasRecentActiveSocialSignal(member)) recentSocialCount += 1;
+    socialScoreTotal += member.socialScore;
+    if (member.socialScore > socialScoreMax) {
+      socialScoreMax = member.socialScore;
+    }
+    recentSocialScoreTotal += member.recentSocialScore;
+    commentCount += member.commentCount;
+  }
+
+  return {
+    propertyIds,
+    previewPropertyIds,
+    bbox: orderedMembers.length > 1 ? serializeBbox(orderedMembers) : null,
+    activeListingCount,
+    completedListingCount,
+    socialCount,
+    recentSocialCount,
+    socialScoreTotal,
+    socialScoreMax: Number.isFinite(socialScoreMax) ? socialScoreMax : 0,
+    recentSocialScoreTotal,
+    commentCount,
+  };
 }
 
 function getCellKey(x: number, y: number, cellSize: number): string {
@@ -869,19 +951,25 @@ function clusterCandidates(
   return groups;
 }
 
-function selectRepresentativeAnchor(members: GroupingCandidate[]): GroupingCandidate {
+function selectRepresentativeAnchor(members: readonly GroupingCandidate[]): GroupingCandidate {
   const centerX = members.reduce((sum, member) => sum + member.worldX, 0) / members.length;
   const centerY = members.reduce((sum, member) => sum + member.worldY, 0) / members.length;
-  const byPriority = [...members].sort(compareCandidatePriority);
-  const priorityRank = new Map(byPriority.map((member, index) => [member.id, index]));
+  let best = members[0];
+  let bestDistance = Math.hypot(best.worldX - centerX, best.worldY - centerY);
 
-  return [...members].sort((a, b) => {
-    const aDistance = Math.hypot(a.worldX - centerX, a.worldY - centerY);
-    const bDistance = Math.hypot(b.worldX - centerX, b.worldY - centerY);
-    const aScore = aDistance * 1000 + (priorityRank.get(a.id) ?? 0);
-    const bScore = bDistance * 1000 + (priorityRank.get(b.id) ?? 0);
-    return aScore - bScore || compareCandidatePriority(a, b);
-  })[0];
+  for (let index = 1; index < members.length; index += 1) {
+    const candidate = members[index];
+    const distance = Math.hypot(candidate.worldX - centerX, candidate.worldY - centerY);
+    if (
+      distance < bestDistance ||
+      (distance === bestDistance && compareCandidatePriority(candidate, best) < 0)
+    ) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
 }
 
 function worldToOwnerTile(worldX: number, worldY: number, zoom: number): TileId {
@@ -918,8 +1006,29 @@ function tileKey(tile: TileId): string {
   return `${tile.z}:${tile.x}:${tile.y}`;
 }
 
-function buildCanonicalGroupCacheKey(tile: TileId, filters: MapFilters): string {
-  return `${tile.z}/${tile.x}/${tile.y}:${getMapFilterSignature(filters)}`;
+function getPropertyTilePyramidReadMaxZoom(): number {
+  const raw = process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM;
+  if (raw == null || raw.trim() === '') {
+    return DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(22, parsed) : DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM;
+}
+
+function buildCanonicalGroupCacheKey(
+  tile: TileId,
+  filters: MapFilters,
+  options?: PropertyTileGroupingOptions
+): string {
+  return [
+    `${tile.z}/${tile.x}/${tile.y}`,
+    getMapFilterSignature(filters),
+    options?.clusterPropertyIdRetention ?? 'complete',
+    options?.candidateSnapshotId ?? 'current',
+    options?.closedSocialActivityCutoffAt instanceof Date
+      ? options.closedSocialActivityCutoffAt.toISOString()
+      : options?.closedSocialActivityCutoffAt ?? 'live',
+  ].join(':');
 }
 
 function pruneCanonicalGroupCache(now = Date.now()): void {
@@ -932,10 +1041,11 @@ function pruneCanonicalGroupCache(now = Date.now()): void {
 
 function getCachedCanonicalGroups(
   tile: TileId,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileGroupingOptions
 ): CanonicalPropertyGroup[] | null {
   const now = Date.now();
-  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters, options);
   const entry = canonicalGroupCache.get(cacheKey);
 
   if (!entry) {
@@ -955,10 +1065,11 @@ function getCachedCanonicalGroups(
 function setCachedCanonicalGroups(
   tile: TileId,
   filters: MapFilters,
-  groups: CanonicalPropertyGroup[]
+  groups: CanonicalPropertyGroup[],
+  options?: PropertyTileGroupingOptions
 ): void {
   const now = Date.now();
-  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters, options);
 
   pruneCanonicalGroupCache(now);
   if (canonicalGroupCache.has(cacheKey)) {
@@ -1012,17 +1123,108 @@ function hasPriceFilters(filters: MapFilters): boolean {
   );
 }
 
-function buildActivityWindowPredicate(column: SQL, activity: MapFilters['activity']): SQL {
+function getClosedSocialActivityCutoff(
+  options?: PropertyTileBuildOptions
+): string | Date | null {
+  if (!options?.candidateSnapshotId) {
+    return null;
+  }
+  const cutoff = options.closedSocialActivityCutoffAt;
+  if (cutoff instanceof Date) {
+    return cutoff;
+  }
+  if (typeof cutoff === 'string' && cutoff.trim().length > 0) {
+    return cutoff;
+  }
+  return null;
+}
+
+function buildClosedSocialActivityPredicate(
+  column: SQL,
+  options?: PropertyTileBuildOptions
+): SQL {
+  const cutoff = getClosedSocialActivityCutoff(options);
+  return cutoff ? sql`${column} <= ${cutoff}::timestamptz` : sql`TRUE`;
+}
+
+function buildRecentSocialActivityPredicate(
+  column: SQL,
+  options?: PropertyTileBuildOptions
+): SQL {
+  const cutoff = getClosedSocialActivityCutoff(options);
+  return cutoff
+    ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '7 days'
+        AND ${column} <= ${cutoff}::timestamptz`
+    : sql`${column} > NOW() - INTERVAL '7 days'`;
+}
+
+function buildActivityWindowPredicate(
+  column: SQL,
+  activity: MapFilters['activity'],
+  options?: PropertyTileBuildOptions
+): SQL {
+  const cutoff = getClosedSocialActivityCutoff(options);
+  const upperBound = cutoff ? sql`${column} <= ${cutoff}::timestamptz` : null;
+
   if (activity === 'today') {
-    return sql`${column} > NOW() - INTERVAL '24 hours'`;
+    return cutoff
+      ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '24 hours'
+          AND ${upperBound}`
+      : sql`${column} > NOW() - INTERVAL '24 hours'`;
   }
 
   if (activity === '10d') {
-    return sql`${column} > NOW() - INTERVAL '10 days'`;
+    return cutoff
+      ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '10 days'
+          AND ${upperBound}`
+      : sql`${column} > NOW() - INTERVAL '10 days'`;
   }
 
   if (activity === '30d') {
-    return sql`${column} > NOW() - INTERVAL '30 days'`;
+    return cutoff
+      ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '30 days'
+          AND ${upperBound}`
+      : sql`${column} > NOW() - INTERVAL '30 days'`;
+  }
+
+  return upperBound ?? sql`TRUE`;
+}
+
+function buildClosedActivityFilterPredicate(
+  activity: MapFilters['activity'],
+  alias: string,
+  options?: PropertyTileBuildOptions
+): SQL {
+  const cutoff = getClosedSocialActivityCutoff(options);
+  if (!cutoff) {
+    return buildActivityFilterPredicate(activity, alias);
+  }
+
+  const lastSocialAt = sql.raw(`${alias}.last_social_at`);
+  const socialScore = sql.raw(`${alias}.social_score`);
+  const recentSocialScore = sql.raw(`${alias}.recent_social_score`);
+
+  if (activity === 'all-time') {
+    return sql`${lastSocialAt} <= ${cutoff}::timestamptz
+      AND COALESCE(${socialScore}, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}`;
+  }
+
+  if (activity === 'today') {
+    return sql`${lastSocialAt} >= ${cutoff}::timestamptz - INTERVAL '24 hours'
+      AND ${lastSocialAt} <= ${cutoff}::timestamptz
+      AND COALESCE(${recentSocialScore}, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}`;
+  }
+
+  if (activity === '10d') {
+    return sql`${lastSocialAt} >= ${cutoff}::timestamptz - INTERVAL '10 days'
+      AND ${lastSocialAt} <= ${cutoff}::timestamptz
+      AND COALESCE(${recentSocialScore}, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}`;
+  }
+
+  if (activity === '30d') {
+    return sql`${lastSocialAt} >= ${cutoff}::timestamptz - INTERVAL '30 days'
+      AND ${lastSocialAt} <= ${cutoff}::timestamptz
+      AND COALESCE(${recentSocialScore}, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}`;
   }
 
   return sql`TRUE`;
@@ -1159,12 +1361,15 @@ async function fetchNearbyEmittedGroups(
 function buildCanonicalGroup(
   members: GroupingCandidate[],
   nodeClass: NodeClass,
-  zoom: number
+  zoom: number,
+  options?: PropertyTileGroupingOptions
 ): CanonicalPropertyGroup {
   const orderedMembers = [...members].sort(compareCandidatePriority);
   const anchor = selectRepresentativeAnchor(orderedMembers);
   const ownerTile = worldToOwnerTile(anchor.worldX, anchor.worldY, zoom);
-  const bbox = members.length > 1 ? serializeBbox(members) : null;
+  const propertyIdsLimit =
+    options?.clusterPropertyIdRetention === 'preview-only' && members.length > 1 ? 0 : null;
+  const summary = summarizeOrderedMembers(orderedMembers, propertyIdsLimit);
   const primaryProperty = anchor;
 
   return {
@@ -1172,20 +1377,18 @@ function buildCanonicalGroup(
     groupKind: members.length > 1 ? 'cluster' : 'single',
     primaryPropertyId: primaryProperty.id,
     pointCount: members.length,
-    propertyIds: orderedMembers.map((member) => member.id),
-    previewPropertyIds: orderedMembers
-      .slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)
-      .map((member) => member.id),
+    propertyIds: summary.propertyIds,
+    previewPropertyIds: summary.previewPropertyIds,
     coordinate: [anchor.lon, anchor.lat],
-    bbox,
-    activeListingCount: members.filter((member) => member.hasActiveListing).length,
-    completedListingCount: members.filter((member) => member.hasCompletedListing).length,
-    socialCount: members.filter(hasActiveSocialSignal).length,
-    recentSocialCount: members.filter(hasRecentActiveSocialSignal).length,
-    socialScoreTotal: members.reduce((sum, member) => sum + member.socialScore, 0),
-    socialScoreMax: Math.max(...members.map((member) => member.socialScore)),
-    recentSocialScoreTotal: members.reduce((sum, member) => sum + member.recentSocialScore, 0),
-    commentCount: members.reduce((sum, member) => sum + member.commentCount, 0),
+    bbox: summary.bbox,
+    activeListingCount: summary.activeListingCount,
+    completedListingCount: summary.completedListingCount,
+    socialCount: summary.socialCount,
+    recentSocialCount: summary.recentSocialCount,
+    socialScoreTotal: summary.socialScoreTotal,
+    socialScoreMax: summary.socialScoreMax,
+    recentSocialScoreTotal: summary.recentSocialScoreTotal,
+    commentCount: summary.commentCount,
     address: null,
     city: null,
     askingPrice: null,
@@ -1302,7 +1505,93 @@ function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target
   `;
 }
 
-function buildTileListingFactsProjectionCte(): SQL {
+function candidateSnapshotFilter(alias: string, options?: PropertyTileBuildOptions): SQL {
+  const requestedSnapshotId = options?.candidateSnapshotId ?? null;
+  const snapshotIdColumn = sql.raw(`${alias}.snapshot_id`);
+  return requestedSnapshotId
+    ? sql`${snapshotIdColumn} = ${requestedSnapshotId}::uuid`
+    : sql`${snapshotIdColumn} = (
+        SELECT c."snapshot_id"
+        FROM property_tile_candidate_source_current c
+        WHERE c."coverage_id" = 'public_default_low_zoom'
+          AND c."filter_signature" = 'default'
+          AND c."pyramid_kind" = 'public_default_low_zoom'
+        LIMIT 1
+      )`;
+}
+
+function buildTileListingFactsProjectionCte(options?: PropertyTileBuildOptions): SQL {
+  if (!options?.candidateSnapshotId) {
+    return sql`
+      latest_listing AS MATERIALIZED (
+        SELECT DISTINCT ON (cl.property_id)
+          cl.property_id,
+          cl.status::text AS status
+        FROM canonical_listings cl
+        INNER JOIN candidate_properties cp ON cp.id = cl.property_id
+        WHERE cl.verification_state <> 'invalid'
+        ORDER BY
+          cl.property_id,
+          COALESCE(
+            cl.last_reconciled_at,
+            cl.last_mirror_seen_at,
+            cl.last_user_seen_at,
+            cl.last_seen_at,
+            cl.updated_at,
+            cl.created_at
+          ) DESC,
+          cl.created_at DESC,
+          cl.id DESC
+      ),
+      active_listing AS MATERIALIZED (
+        SELECT DISTINCT ON (cl.property_id)
+          cl.property_id,
+          ${buildTileListingPriceTypeExpression('cl')} AS price_type
+        FROM canonical_listings cl
+        INNER JOIN candidate_properties cp ON cp.id = cl.property_id
+        WHERE cl.verification_state <> 'invalid'
+          AND cl.status = 'active'
+        ORDER BY
+          cl.property_id,
+          COALESCE(
+            cl.last_reconciled_at,
+            cl.last_mirror_seen_at,
+            cl.last_user_seen_at,
+            cl.last_seen_at,
+            cl.updated_at,
+            cl.created_at
+          ) DESC,
+          cl.created_at DESC,
+          cl.id DESC
+      ),
+      listing_facts AS MATERIALIZED (
+        SELECT
+          cp.id AS property_id,
+          active_listing.property_id IS NOT NULL AS has_active_listing,
+          (
+            active_listing.property_id IS NULL
+            AND latest_listing.status IN ('sold', 'rented')
+          ) AS has_completed_listing,
+          CASE
+            WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+              THEN 'for-rent'
+            WHEN active_listing.property_id IS NOT NULL
+              THEN 'for-sale'
+            WHEN latest_listing.status = 'sold'
+              THEN 'sold'
+            WHEN latest_listing.status = 'rented'
+              THEN 'rented'
+            ELSE 'not-listed'
+          END AS market_state,
+          NULL::bigint AS sale_effective_price,
+          NULL::bigint AS rent_effective_price
+        FROM candidate_properties cp
+        LEFT JOIN latest_listing ON latest_listing.property_id = cp.id
+        LEFT JOIN active_listing ON active_listing.property_id = cp.id
+      )
+    `;
+  }
+
   return sql`
     listing_facts AS MATERIALIZED (
       SELECT
@@ -1313,7 +1602,9 @@ function buildTileListingFactsProjectionCte(): SQL {
         NULL::bigint AS sale_effective_price,
         NULL::bigint AS rent_effective_price
       FROM candidate_properties cp
-      LEFT JOIN property_tile_listing_facts ptlf ON ptlf.property_id = cp.id
+      LEFT JOIN property_tile_listing_facts ptlf
+        ON ptlf.property_id = cp.id
+       AND ${candidateSnapshotFilter('ptlf', options)}
     )
   `;
 }
@@ -1322,20 +1613,25 @@ export function buildGroupingCandidateScopeCtes(
   boundsList: TileBBox[],
   includeGhostCandidates: boolean,
   filters: MapFilters,
-  zoom: number
+  zoom: number,
+  options?: PropertyTileBuildOptions
 ): SQL {
   const bboxFilter = buildBoundsFilter(boundsList, sql.raw('p.geometry'));
   const listingCandidateBboxFilter = buildBoundsFilter(boundsList, sql.raw('lpc.geometry'));
   const activityCandidateFilter = buildActivityWindowPredicate(
     sql.raw('activity_at'),
-    filters.activity
+    filters.activity,
+    options
   );
   const activeBoundedPropertyFilter = sql`p.geometry IS NOT NULL
             AND p.status = 'active'
             AND (${bboxFilter})`;
   const canIncludeSocialOnlyCandidates = filters.marketState.includes('not-listed');
   const useSourceFirstCandidateScope =
-    !includeGhostCandidates && zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
+    options?.candidateSnapshotId != null
+    && !includeGhostCandidates
+    && zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
+  const useBoundedSocialCandidateScope = useSourceFirstCandidateScope && zoom >= 14;
 
   if (includeGhostCandidates) {
     return sql`
@@ -1464,7 +1760,21 @@ export function buildGroupingCandidateScopeCtes(
             lpc.official_valuation
           FROM property_tile_listing_candidates lpc
           WHERE ${listingCandidateBboxFilter}
+            AND ${candidateSnapshotFilter('lpc', options)}
         )
+        ${
+          canIncludeSocialOnlyCandidates && useBoundedSocialCandidateScope
+            ? sql`,
+        bounded_social_properties AS MATERIALIZED (
+          SELECT
+            p.id,
+            p.geometry,
+            p.official_valuation
+          FROM properties p
+          WHERE ${activeBoundedPropertyFilter}
+        )`
+            : sql``
+        }
         ${
           canIncludeSocialOnlyCandidates
             ? sql`,
@@ -1475,8 +1785,12 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT c.property_id, c.created_at AS activity_at
               FROM comments c
-              INNER JOIN properties p ON p.id = c.property_id
-              WHERE ${activeBoundedPropertyFilter}
+              ${
+                useBoundedSocialCandidateScope
+                  ? sql`INNER JOIN bounded_social_properties p ON p.id = c.property_id`
+                  : sql`INNER JOIN properties p ON p.id = c.property_id
+              WHERE ${activeBoundedPropertyFilter}`
+              }
             ) c
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1484,8 +1798,12 @@ export function buildGroupingCandidateScopeCtes(
             FROM (
               SELECT r.target_id AS property_id, r.created_at AS activity_at
               FROM reactions r
-              INNER JOIN properties p ON p.id = r.target_id
-              WHERE ${activeBoundedPropertyFilter}
+              ${
+                useBoundedSocialCandidateScope
+                  ? sql`INNER JOIN bounded_social_properties p ON p.id = r.target_id`
+                  : sql`INNER JOIN properties p ON p.id = r.target_id
+              WHERE ${activeBoundedPropertyFilter}`
+              }
                 AND r.target_type = 'property'
                 AND r.reaction_type = 'like'
             ) r
@@ -1496,8 +1814,12 @@ export function buildGroupingCandidateScopeCtes(
                 SELECT c.property_id, r.created_at AS activity_at
                 FROM reactions r
                 INNER JOIN comments c ON c.id = r.target_id
-                INNER JOIN properties p ON p.id = c.property_id
-                WHERE ${activeBoundedPropertyFilter}
+                ${
+                  useBoundedSocialCandidateScope
+                    ? sql`INNER JOIN bounded_social_properties p ON p.id = c.property_id`
+                    : sql`INNER JOIN properties p ON p.id = c.property_id
+                WHERE ${activeBoundedPropertyFilter}`
+                }
                   AND r.target_type = 'comment'
                   AND r.reaction_type = 'like'
               ) rc
@@ -1509,8 +1831,12 @@ export function buildGroupingCandidateScopeCtes(
                 pg.property_id,
                 GREATEST(pg.created_at, pg.updated_at) AS activity_at
               FROM price_guesses pg
-              INNER JOIN properties p ON p.id = pg.property_id
-              WHERE ${activeBoundedPropertyFilter}
+              ${
+                useBoundedSocialCandidateScope
+                  ? sql`INNER JOIN bounded_social_properties p ON p.id = pg.property_id`
+                  : sql`INNER JOIN properties p ON p.id = pg.property_id
+              WHERE ${activeBoundedPropertyFilter}`
+              }
             ) pg
             WHERE ${activityCandidateFilter}
             UNION ALL
@@ -1520,8 +1846,12 @@ export function buildGroupingCandidateScopeCtes(
                 pv.property_id,
                 MAX(pv.viewed_at) AS activity_at
               FROM property_views pv
-              INNER JOIN properties p ON p.id = pv.property_id
-              WHERE ${activeBoundedPropertyFilter}
+              ${
+                useBoundedSocialCandidateScope
+                  ? sql`INNER JOIN bounded_social_properties p ON p.id = pv.property_id`
+                  : sql`INNER JOIN properties p ON p.id = pv.property_id
+              WHERE ${activeBoundedPropertyFilter}`
+              }
               GROUP BY pv.property_id
               HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
             ) pv
@@ -1554,8 +1884,12 @@ export function buildGroupingCandidateScopeCtes(
             p.geometry,
             p.official_valuation
           FROM social_only_candidate_ids soci
-          INNER JOIN properties p ON p.id = soci.property_id
+          ${
+            useBoundedSocialCandidateScope
+              ? sql`INNER JOIN bounded_social_properties p ON p.id = soci.property_id`
+              : sql`INNER JOIN properties p ON p.id = soci.property_id
           WHERE ${activeBoundedPropertyFilter}`
+          }`
               : sql`
           SELECT
             lcp.id,
@@ -1586,7 +1920,11 @@ async function fetchGroupingCandidatesInBBoxes(
 ): Promise<GroupingCandidate[]> {
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'candidate fetch preparation');
-  const activityFilterPredicate = buildActivityFilterPredicate(filters.activity, 'sf');
+  const activityFilterPredicate = buildClosedActivityFilterPredicate(
+    filters.activity,
+    'sf',
+    options
+  );
   const candidateVisibilityFilter = includeGhostCandidates
     ? sql`TRUE`
     : sql`(
@@ -1603,7 +1941,8 @@ async function fetchGroupingCandidatesInBBoxes(
     boundsList,
     includeGhostCandidates,
     filters,
-    zoom
+    zoom,
+    options
   );
   const listingFactsCtes = includeEffectivePrices
     ? sql`
@@ -1733,7 +2072,7 @@ async function fetchGroupingCandidatesInBBoxes(
           LEFT JOIN guess_facts ON guess_facts.property_id = cp.id
         )
       `
-    : buildTileListingFactsProjectionCte();
+    : buildTileListingFactsProjectionCte(options);
 
   const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
     sql`
@@ -1747,6 +2086,10 @@ async function fetchGroupingCandidatesInBBoxes(
         GREATEST(pg.created_at, pg.updated_at) AS effective_at
       FROM price_guesses pg
       INNER JOIN candidate_properties cp ON cp.id = pg.property_id
+      WHERE ${buildClosedSocialActivityPredicate(
+        sql`GREATEST(pg.created_at, pg.updated_at)`,
+        options
+      )}
       ORDER BY
         pg.property_id,
         pg.user_id,
@@ -1760,7 +2103,7 @@ async function fetchGroupingCandidatesInBBoxes(
         lpg.property_id,
         COUNT(*)::int AS guess_count,
         COUNT(*) FILTER (
-          WHERE lpg.effective_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('lpg.effective_at'), options)}
         )::int AS recent_guess_count,
         MAX(lpg.effective_at) AS latest_guess_at
       FROM latest_public_guesses lpg
@@ -1771,12 +2114,13 @@ async function fetchGroupingCandidatesInBBoxes(
         c.property_id,
         COUNT(*)::int AS count,
         COUNT(*) FILTER (
-          WHERE c.created_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('c.created_at'), options)}
         )::int AS recent_count,
         MAX(c.created_at) AS latest
       FROM comments c
       INNER JOIN candidate_properties cp ON cp.id = c.property_id
       WHERE c.parent_id IS NULL
+        AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
       GROUP BY c.property_id
     ),
     replies AS MATERIALIZED (
@@ -1784,12 +2128,13 @@ async function fetchGroupingCandidatesInBBoxes(
         c.property_id,
         COUNT(*)::int AS count,
         COUNT(*) FILTER (
-          WHERE c.created_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('c.created_at'), options)}
         )::int AS recent_count,
         MAX(c.created_at) AS latest
       FROM comments c
       INNER JOIN candidate_properties cp ON cp.id = c.property_id
       WHERE c.parent_id IS NOT NULL
+        AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
       GROUP BY c.property_id
     ),
     property_likes AS MATERIALIZED (
@@ -1797,13 +2142,14 @@ async function fetchGroupingCandidatesInBBoxes(
         r.target_id AS property_id,
         COUNT(*)::int AS count,
         COUNT(*) FILTER (
-          WHERE r.created_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('r.created_at'), options)}
         )::int AS recent_count,
         MAX(r.created_at) AS latest
       FROM reactions r
       INNER JOIN candidate_properties cp ON cp.id = r.target_id
       WHERE r.target_type = 'property'
         AND r.reaction_type = 'like'
+        AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
       GROUP BY r.target_id
     ),
     comment_likes AS MATERIALIZED (
@@ -1811,7 +2157,7 @@ async function fetchGroupingCandidatesInBBoxes(
         c.property_id,
         COUNT(*)::int AS count,
         COUNT(*) FILTER (
-          WHERE r.created_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('r.created_at'), options)}
         )::int AS recent_count,
         MAX(r.created_at) AS latest
       FROM reactions r
@@ -1819,6 +2165,7 @@ async function fetchGroupingCandidatesInBBoxes(
       INNER JOIN candidate_properties cp ON cp.id = c.property_id
       WHERE r.target_type = 'comment'
         AND r.reaction_type = 'like'
+        AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
       GROUP BY c.property_id
     ),
     view_facts AS MATERIALIZED (
@@ -1826,15 +2173,16 @@ async function fetchGroupingCandidatesInBBoxes(
         pv.property_id,
         COUNT(*)::int AS view_count,
         COUNT(*) FILTER (
-          WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
         )::int AS recent_view_count,
         COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id))::int AS unique_viewer_count,
         COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) FILTER (
-          WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
         )::int AS recent_unique_viewer_count,
         MAX(pv.viewed_at) AS latest
       FROM property_views pv
       INNER JOIN candidate_properties cp ON cp.id = pv.property_id
+      WHERE ${buildClosedSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
       GROUP BY pv.property_id
     ),
     social_facts AS MATERIALIZED (
@@ -2253,7 +2601,7 @@ async function filterReadGroupsWithTileOptions<TGroup extends { propertyIds: str
 function buildCanonicalGroupsFromCandidates(
   zoom: number,
   candidates: GroupingCandidate[],
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): CanonicalPropertyGroup[] {
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'canonical grouping preparation');
@@ -2280,7 +2628,7 @@ function buildCanonicalGroupsFromCandidates(
     },
     options,
     startedAt
-  ).map((members) => buildCanonicalGroup(members, 'active', zoom));
+  ).map((members) => buildCanonicalGroup(members, 'active', zoom, options));
 
   const activeOccupancies = activeGroups.map((group, index) => {
     if (index % 128 === 0) {
@@ -2323,7 +2671,7 @@ function buildCanonicalGroupsFromCandidates(
     },
     options,
     startedAt
-  ).map((members) => buildCanonicalGroup(members, 'ghost', zoom));
+  ).map((members) => buildCanonicalGroup(members, 'ghost', zoom, options));
 
   return [...activeGroups, ...ghostGroups];
 }
@@ -2331,7 +2679,7 @@ function buildCanonicalGroupsFromCandidates(
 export function groupCandidatesForTile(
   tile: TileId,
   candidates: GroupingCandidate[],
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): CanonicalPropertyGroup[] {
   const startedAt = Date.now();
   return buildCanonicalGroupsFromCandidates(tile.z, candidates, options).filter((group, index) => {
@@ -2345,7 +2693,7 @@ export function groupCandidatesForTile(
 async function buildUnhydratedCanonicalGroupsForTile(
   tile: TileId,
   filters: MapFilters,
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): Promise<CanonicalPropertyGroup[]> {
   const candidates = await timeTileStage(
     options,
@@ -2364,10 +2712,10 @@ async function buildUnhydratedCanonicalGroupsForTile(
 async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
   tile: TileId,
   filters: MapFilters,
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): Promise<CanonicalPropertyGroup[]> {
   assertTileBuildCanContinue(options, Date.now(), 'shared unhydrated canonical grouping');
-  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters, options);
   const pendingBuild = pendingUnhydratedCanonicalGroupBuilds.get(cacheKey);
   if (pendingBuild) {
     if (pendingBuild.controller.signal.aborted) {
@@ -2392,9 +2740,7 @@ async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
   return waitForSharedCanonicalBuild(sharedBuild, options, 'shared unhydrated canonical grouping');
 }
 
-function getViablePendingCanonicalBuild(
-  cacheKey: string
-): SharedCanonicalBuild | null {
+function getViablePendingCanonicalBuild(cacheKey: string): SharedCanonicalBuild | null {
   const pendingBuild = pendingCanonicalGroupBuilds.get(cacheKey);
   if (!pendingBuild) {
     return null;
@@ -2421,12 +2767,12 @@ export async function buildCanonicalGroupsForTile(
   options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
   assertTileBuildCanContinue(options, Date.now(), 'shared canonical grouping');
-  const cachedGroups = getCachedCanonicalGroups(tile, filters);
+  const cachedGroups = getCachedCanonicalGroups(tile, filters, options);
   if (cachedGroups) {
     return cachedGroups;
   }
 
-  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters, options);
   const pendingBuild = getViablePendingCanonicalBuild(cacheKey);
   if (pendingBuild) {
     return waitForPendingCanonicalBuild(pendingBuild, options);
@@ -2445,7 +2791,7 @@ export async function buildCanonicalGroupsForTile(
       (result) => result.length
     );
     assertTileBuildCanContinue(sharedOptions, Date.now(), 'shared canonical cache publish');
-    setCachedCanonicalGroups(tile, filters, groups);
+    setCachedCanonicalGroups(tile, filters, groups, options);
     return groups;
   });
 
@@ -2455,6 +2801,25 @@ export async function buildCanonicalGroupsForTile(
     () => pendingCanonicalGroupBuilds.delete(cacheKey)
   );
   return waitForSharedCanonicalBuild(sharedBuild, options, 'shared canonical grouping');
+}
+
+export async function buildCanonicalGroupsForTileUncached(
+  tile: TileId,
+  filters: MapFilters = createDefaultMapFilters(),
+  options?: PropertyTileGroupingOptions
+): Promise<CanonicalPropertyGroup[]> {
+  const unhydratedGroups = await timeTileStage(
+    options,
+    'pyramid uncached canonical groups',
+    () => buildUnhydratedCanonicalGroupsForTile(tile, filters, options),
+    (result) => result.length
+  );
+  return timeTileStage(
+    options,
+    'pyramid single-property hydration',
+    () => hydrateSinglePropertyDetails(unhydratedGroups, options),
+    (result) => result.length
+  );
 }
 
 export async function buildFollowingCanonicalGroupsForTile(
@@ -2478,15 +2843,20 @@ export async function buildReadCanonicalGroupsForTile(
     return [];
   }
 
-  const cachedGroups = getCachedCanonicalGroups(tile, filters);
+  const groupingOptions: PropertyTileGroupingOptions | undefined =
+    areMapFiltersDefault(filters) && tile.z <= getPropertyTilePyramidReadMaxZoom()
+      ? { ...options, clusterPropertyIdRetention: 'preview-only' }
+      : options;
+
+  const cachedGroups = getCachedCanonicalGroups(tile, filters, groupingOptions);
   if (cachedGroups) {
-    return filterReadGroupsWithTileOptions(cachedGroups, viewer, options);
+    return filterReadGroupsWithTileOptions(cachedGroups, viewer, groupingOptions);
   }
 
   const readGroups = await filterReadGroupsWithTileOptions(
-    await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, options),
+    await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, groupingOptions),
     viewer,
-    options
+    groupingOptions
   );
 
   if (readGroups.length === 0) {
@@ -2609,8 +2979,36 @@ export async function resolveNearbyFollowingGroupedFeature(
   return bestMatch;
 }
 
-export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransportFeature {
+function shouldOmitClusterPropertyIds(group: CanonicalPropertyGroup, tile?: TileId): boolean {
+  if (group.groupKind !== 'cluster') {
+    return false;
+  }
+  if (tile && tile.z <= MVT_CLUSTER_PROPERTY_IDS_LOW_ZOOM_MAX) {
+    return true;
+  }
+  return group.propertyIds.length > MVT_CLUSTER_PROPERTY_IDS_COMPLETE_MAX;
+}
+
+function serializePropertyIdsForTile(group: CanonicalPropertyGroup, tile?: TileId): string {
+  if (group.groupKind === 'single') {
+    return group.primaryPropertyId;
+  }
+  if (shouldOmitClusterPropertyIds(group, tile)) {
+    return '';
+  }
+  return group.propertyIds.join(',');
+}
+
+function isMembershipCompleteForTile(group: CanonicalPropertyGroup, tile?: TileId): boolean {
+  return group.groupKind === 'single' || !shouldOmitClusterPropertyIds(group, tile);
+}
+
+export function serializeGroupForTile(
+  group: CanonicalPropertyGroup,
+  tile?: TileId
+): TileTransportFeature {
   const bbox = group.bbox;
+  const membershipComplete = isMembershipCompleteForTile(group, tile);
   return {
     lon: group.coordinate[0],
     lat: group.coordinate[1],
@@ -2618,8 +3016,10 @@ export function serializeGroupForTile(group: CanonicalPropertyGroup): TileTransp
     group_kind: group.groupKind,
     primary_property_id: group.primaryPropertyId,
     point_count: group.pointCount,
-    property_ids: group.propertyIds.join(','),
+    property_ids: serializePropertyIdsForTile(group, tile),
     preview_property_ids: group.previewPropertyIds.join(','),
+    membership_complete: membershipComplete,
+    read_state_coverage: membershipComplete ? 'complete' : 'partial',
     bbox_west: bbox?.[0] ?? null,
     bbox_south: bbox?.[1] ?? null,
     bbox_east: bbox?.[2] ?? null,
@@ -2654,6 +3054,8 @@ function buildMvtFeatureRowsCte(features: TileTransportFeature[]): SQL {
         ${feature.point_count}::integer,
         ${feature.property_ids}::text,
         ${feature.preview_property_ids}::text,
+        ${feature.membership_complete}::boolean,
+        ${feature.read_state_coverage}::text,
         ${feature.bbox_west}::double precision,
         ${feature.bbox_south}::double precision,
         ${feature.bbox_east}::double precision,
@@ -2688,6 +3090,8 @@ function buildMvtFeatureRowsCte(features: TileTransportFeature[]): SQL {
       point_count,
       property_ids,
       preview_property_ids,
+      membership_complete,
+      read_state_coverage,
       bbox_west,
       bbox_south,
       bbox_east,
@@ -2728,7 +3132,7 @@ export async function buildMvtForGroups(
     if (index % 128 === 0) {
       assertTileBuildCanContinue(options, startedAt, 'MVT feature construction');
     }
-    return serializeGroupForTile(group);
+    return serializeGroupForTile(group, tile);
   });
   recordTileStageTiming(options, 'MVT feature construction', startedAt, serializedFeatures.length);
   assertTileBuildCanContinue(options, startedAt, 'MVT SQL preparation');
@@ -2757,6 +3161,8 @@ export async function buildMvtForGroups(
         point_count,
         property_ids,
         preview_property_ids,
+        membership_complete,
+        read_state_coverage,
         bbox_west,
         bbox_south,
         bbox_east,

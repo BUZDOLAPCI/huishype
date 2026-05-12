@@ -729,6 +729,41 @@ describe('Property routes', () => {
       expect(body).not.toHaveProperty('floorAreaM2');
     });
 
+    it('rejects partial pyramid nearby params before exact node lookup', async () => {
+      const versionOnlyResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/nearby?lon=${nearbyFixture.lon}&lat=${nearbyFixture.lat}&zoom=14&pyramidVersionId=a0000000-0000-4000-a000-000000000111`,
+      });
+      expect(versionOnlyResponse.statusCode).toBe(400);
+      expect(JSON.parse(versionOnlyResponse.body)).toMatchObject({
+        code: 'FST_ERR_VALIDATION',
+        message: expect.stringContaining('must be provided together'),
+      });
+
+      const nodeOnlyResponse = await app.inject({
+        method: 'GET',
+        url: `/properties/nearby?lon=${nearbyFixture.lon}&lat=${nearbyFixture.lat}&zoom=14&pyramidNodeId=node-1`,
+      });
+      expect(nodeOnlyResponse.statusCode).toBe(400);
+      expect(JSON.parse(nodeOnlyResponse.body)).toMatchObject({
+        code: 'FST_ERR_VALIDATION',
+        message: expect.stringContaining('must be provided together'),
+      });
+    });
+
+    it('rejects malformed pyramid version ids at request validation', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/nearby?lon=${nearbyFixture.lon}&lat=${nearbyFixture.lat}&zoom=14&pyramidVersionId=not-a-version&pyramidNodeId=node-1`,
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body)).toMatchObject({
+        code: 'FST_ERR_VALIDATION',
+        message: expect.stringContaining('Invalid UUID'),
+      });
+    });
+
     it('should expose thumbnailUrl and prefer an active thumbnail when the newest active listing has none', async () => {
       const propertyId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/nearby-fallback-thumb.jpg';

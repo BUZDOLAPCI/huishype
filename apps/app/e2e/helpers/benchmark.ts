@@ -2,14 +2,23 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+const DEFAULT_BENCHMARK_RESULT_DIR = 'test-results/benchmark';
+
 export const BENCHMARK_RESULT_DIR = path.join(
-  process.env.BENCHMARK_RESULT_DIR || 'test-results/benchmark',
+  process.env.BENCHMARK_RESULT_DIR || DEFAULT_BENCHMARK_RESULT_DIR
 );
 export const BENCHMARK_ROUTES = {
   lowZoom795: { route: '/@52.114544,4.9239009,7.95z?hhBenchmark=1', surface: 'map' },
   lowZoom629: { route: '/@52.3626765,5.3574841,6.29z?hhBenchmark=1', surface: 'map' },
   lowZoom498: { route: '/@52.1247641,5.0314279,4.98z?hhBenchmark=1', surface: 'map' },
   lowZoom392: { route: '/@51.0394976,4.4103663,3.92z?hhBenchmark=1', surface: 'map' },
+  transitionZoom11: { route: '/@51.4416000,5.4697000,11z?hhBenchmark=1', surface: 'map' },
+  transitionZoom12: { route: '/@51.4416000,5.4697000,12z?hhBenchmark=1', surface: 'map' },
+  transitionZoom13: { route: '/@51.4416000,5.4697000,13z?hhBenchmark=1', surface: 'map' },
+  highZoom14: { route: '/@51.4416000,5.4697000,14z?hhBenchmark=1', surface: 'map' },
+  highZoom15: { route: '/@51.4416000,5.4697000,15z?hhBenchmark=1', surface: 'map' },
+  highZoom16: { route: '/@51.4416000,5.4697000,16z?hhBenchmark=1', surface: 'map' },
+  highZoom17: { route: '/@51.4416000,5.4697000,17z?hhBenchmark=1', surface: 'map' },
   feedTrending: { route: '/feed?hhBenchmark=1', surface: 'feed' },
 } as const;
 
@@ -21,7 +30,7 @@ export type BenchmarkRouteConfig = {
   route: string;
   surface: BenchmarkRouteSurface;
 };
-export type BenchmarkCacheMode = 'cold-cache' | 'warm-cache';
+export type BenchmarkCacheMode = 'cold-cache' | 'warm-cache' | 'backend-cold';
 
 export type RequestMetric = {
   routeKey?: string;
@@ -278,11 +287,14 @@ export type RouteBenchmarkResult = {
       totalLongTaskBlockingTimeMs: NumberSummary;
       worstLongTaskMs: NumberSummary;
     };
-    renderProbes: Record<string, {
-      commitCount: NumberSummary;
-      firstCommitMs: NumberSummary;
-      lastCommitMs: NumberSummary;
-    }>;
+    renderProbes: Record<
+      string,
+      {
+        commitCount: NumberSummary;
+        firstCommitMs: NumberSummary;
+        lastCommitMs: NumberSummary;
+      }
+    >;
   };
 };
 
@@ -308,13 +320,22 @@ export function getBenchmarkMeasuredRuns(): number {
   return parsePositiveInteger(process.env.BENCHMARK_MEASURED_RUNS, 5);
 }
 
+export function getBenchmarkCacheModes(): BenchmarkCacheMode[] {
+  const modes: BenchmarkCacheMode[] = ['cold-cache', 'warm-cache'];
+  if (process.env.BENCHMARK_BACKEND_COLD === '1') {
+    modes.push('backend-cold');
+  }
+  return modes;
+}
+
 export function getBenchmarkResultDir(): string {
-  return BENCHMARK_RESULT_DIR;
+  return path.join(process.env.BENCHMARK_RESULT_DIR || DEFAULT_BENCHMARK_RESULT_DIR);
 }
 
 export async function ensureBenchmarkResultDir(): Promise<string> {
-  await mkdir(BENCHMARK_RESULT_DIR, { recursive: true });
-  return BENCHMARK_RESULT_DIR;
+  const resultDir = getBenchmarkResultDir();
+  await mkdir(resultDir, { recursive: true });
+  return resultDir;
 }
 
 export function captureGitMetadata(): BenchmarkRun['metadata'] {
@@ -360,9 +381,8 @@ function normalizeUrl(rawUrl: string, volatileKeys: Set<string>): string {
         const keyCompare = leftKey.localeCompare(rightKey);
         return keyCompare !== 0 ? keyCompare : leftValue.localeCompare(rightValue);
       });
-    const query = params.length > 0
-      ? `?${params.map(([key, value]) => `${key}=${value}`).join('&')}`
-      : '';
+    const query =
+      params.length > 0 ? `?${params.map(([key, value]) => `${key}=${value}`).join('&')}` : '';
     return `${url.pathname}${query}`;
   } catch {
     return rawUrl;
@@ -415,16 +435,17 @@ export function summarizeRequests(requests: RequestMetric[]): RouteBenchmarkSamp
 }
 
 export function collectFailedRequestDetails(requests: RequestMetric[]): FailedRequestDetail[] {
-  return requests
-    .filter(isFailedRequest)
-    .map(toRequestDetail);
+  return requests.filter(isFailedRequest).map(toRequestDetail);
 }
 
 function isFailedRequest(request: RequestMetric): boolean {
-  return !isTileAbort(request) && (request.failed || (request.status !== null && request.status >= 400));
+  return (
+    !isExpectedTileClientAbort(request) &&
+    (request.failed || (request.status !== null && request.status >= 400))
+  );
 }
 
-function isTileAbort(request: RequestMetric): boolean {
+function isExpectedTileClientAbort(request: RequestMetric): boolean {
   return (
     isTileRequest(request.url) &&
     request.failed &&
@@ -456,9 +477,7 @@ function toRequestDetail(request: RequestMetric): FailedRequestDetail {
 
 export function summarizeTileRequests(requests: RequestMetric[]): TileRequestSummary {
   const tileRequests = requests.filter((request) => isTileRequest(request.url));
-  const abortedRequestDetails = tileRequests
-    .filter(isTileAbort)
-    .map(toRequestDetail);
+  const abortedRequestDetails = tileRequests.filter(isExpectedTileClientAbort).map(toRequestDetail);
   const duplicates = new Map<string, number>();
   const age: Record<string, number> = {};
   const cacheControl: Record<string, number> = {};
@@ -520,7 +539,7 @@ export function summarizeTileRequests(requests: RequestMetric[]): TileRequestSum
     .sort();
   const duplicateRequestCount = [...duplicates.values()].reduce(
     (sum, count) => sum + Math.max(0, count - 1),
-    0,
+    0
   );
 
   return {
@@ -606,7 +625,8 @@ function summarizeRequestGroup(key: string, group: RequestMetric[]): RequestGrou
       serviceWorkerResponses += 1;
     }
 
-    statusCounts[String(request.status ?? 'null')] = (statusCounts[String(request.status ?? 'null')] || 0) + 1;
+    statusCounts[String(request.status ?? 'null')] =
+      (statusCounts[String(request.status ?? 'null')] || 0) + 1;
 
     if (request.responseBytes == null) {
       unknownSizeCount += 1;
@@ -646,7 +666,7 @@ export function aggregateRouteBenchmark(
   cacheMode: BenchmarkCacheMode,
   samples: RouteBenchmarkSample[],
   warmupRuns: number,
-  measuredRuns: number,
+  measuredRuns: number
 ): RouteBenchmarkResult {
   const mergedResourceTypes: Record<string, number> = {};
   const mergedTileAge: Record<string, number> = {};
@@ -701,34 +721,48 @@ export function aggregateRouteBenchmark(
   const summary: RouteBenchmarkResult['summary'] = {
     navigation: {
       gotoMs: summarizeNumbers(samples.map((sample) => sample.navigation.gotoMs)),
-      domContentLoadedMs: summarizeNumbers(samples.map((sample) => sample.navigation.domContentLoadedMs)),
+      domContentLoadedMs: summarizeNumbers(
+        samples.map((sample) => sample.navigation.domContentLoadedMs)
+      ),
       loadEventMs: summarizeNumbers(samples.map((sample) => sample.navigation.loadEventMs)),
-      firstContentfulPaintMs: summarizeNumbers(samples.map((sample) => sample.navigation.firstContentfulPaintMs)),
+      firstContentfulPaintMs: summarizeNumbers(
+        samples.map((sample) => sample.navigation.firstContentfulPaintMs)
+      ),
     },
     requests: {
       total: summarizeNumbers(samples.map((sample) => sample.requests.total)),
       failed: summarizeNumbers(samples.map((sample) => sample.requests.failed)),
-      payloadTotalBytes: summarizeNumbers(samples.map((sample) => sample.requests.payloadBytes.total)),
+      payloadTotalBytes: summarizeNumbers(
+        samples.map((sample) => sample.requests.payloadBytes.total)
+      ),
       byResourceType: mergedResourceTypes,
       failedDetails,
     },
     tiles: {
       totalRequests: summarizeNumbers(samples.map((sample) => sample.tiles.totalRequests)),
-      abortedRequestCount: summarizeNumbers(samples.map((sample) => sample.tiles.abortedRequestCount)),
+      abortedRequestCount: summarizeNumbers(
+        samples.map((sample) => sample.tiles.abortedRequestCount)
+      ),
       abortedRequestDetails: tileAbortDetails,
-      duplicateRequestCount: summarizeNumbers(samples.map((sample) => sample.tiles.duplicateRequestCount)),
+      duplicateRequestCount: summarizeNumbers(
+        samples.map((sample) => sample.tiles.duplicateRequestCount)
+      ),
       duplicateRequestRatio: summarizeNumbers(
         samples.map((sample) => {
           if (sample.tiles.totalRequests === 0) {
             return 0;
           }
           return sample.tiles.duplicateRequestCount / sample.tiles.totalRequests;
-        }),
+        })
       ),
       payloadTotalBytes: summarizeNumbers(samples.map((sample) => sample.tiles.payloadBytes.total)),
-      xTileGenerationTimeAvgMs: summarizeNumbers(samples.map((sample) => sample.tiles.xTileGenerationTimeMs.avg)),
+      xTileGenerationTimeAvgMs: summarizeNumbers(
+        samples.map((sample) => sample.tiles.xTileGenerationTimeMs.avg)
+      ),
       browserCacheHits: summarizeNumbers(samples.map((sample) => sample.tiles.browserCacheHits)),
-      serviceWorkerResponses: summarizeNumbers(samples.map((sample) => sample.tiles.serviceWorkerResponses)),
+      serviceWorkerResponses: summarizeNumbers(
+        samples.map((sample) => sample.tiles.serviceWorkerResponses)
+      ),
       age: mergedTileAge,
       cacheControl: mergedTileCacheControl,
       xTileCache: mergedTileCache,
@@ -738,12 +772,14 @@ export function aggregateRouteBenchmark(
     mainThread: {
       longTaskCount: summarizeNumbers(samples.map((sample) => sample.mainThread.longTasks.count)),
       totalLongTaskDurationMs: summarizeNumbers(
-        samples.map((sample) => sample.mainThread.longTasks.totalDurationMs),
+        samples.map((sample) => sample.mainThread.longTasks.totalDurationMs)
       ),
       totalLongTaskBlockingTimeMs: summarizeNumbers(
-        samples.map((sample) => sample.mainThread.longTasks.totalBlockingTimeMs),
+        samples.map((sample) => sample.mainThread.longTasks.totalBlockingTimeMs)
       ),
-      worstLongTaskMs: summarizeNumbers(samples.map((sample) => sample.mainThread.longTasks.worstTaskMs)),
+      worstLongTaskMs: summarizeNumbers(
+        samples.map((sample) => sample.mainThread.longTasks.worstTaskMs)
+      ),
     },
     renderProbes: {},
   };
@@ -757,9 +793,14 @@ export function aggregateRouteBenchmark(
     };
   }
 
-  const mapSamples = samples.filter((sample): sample is RouteBenchmarkSample & { map: NonNullable<RouteBenchmarkSample['map']> } => Boolean(sample.map));
+  const mapSamples = samples.filter(
+    (sample): sample is RouteBenchmarkSample & { map: NonNullable<RouteBenchmarkSample['map']> } =>
+      Boolean(sample.map)
+  );
   if (mapSamples.length > 0) {
-    const initialIdleTimeouts = mapSamples.filter((sample) => sample.map.initialIdleTimedOut).length;
+    const initialIdleTimeouts = mapSamples.filter(
+      (sample) => sample.map.initialIdleTimedOut
+    ).length;
     const settlePanTimeouts = mapSamples.filter((sample) => sample.map.settle.panTimedOut).length;
     const settleZoomTimeouts = mapSamples.filter((sample) => sample.map.settle.zoomTimedOut).length;
 
@@ -777,7 +818,12 @@ export function aggregateRouteBenchmark(
     };
   }
 
-  const feedSamples = samples.filter((sample): sample is RouteBenchmarkSample & { feed: NonNullable<RouteBenchmarkSample['feed']> } => Boolean(sample.feed));
+  const feedSamples = samples.filter(
+    (
+      sample
+    ): sample is RouteBenchmarkSample & { feed: NonNullable<RouteBenchmarkSample['feed']> } =>
+      Boolean(sample.feed)
+  );
   if (feedSamples.length > 0) {
     summary.feed = {
       renderMs: summarizeNumbers(feedSamples.map((sample) => sample.feed.renderMs)),
@@ -786,20 +832,32 @@ export function aggregateRouteBenchmark(
     };
 
     const scrollSamples = feedSamples.filter(
-      (sample): sample is RouteBenchmarkSample & { feed: RouteBenchmarkSample['feed'] & { scroll: NonNullable<NonNullable<RouteBenchmarkSample['feed']>['scroll']> } } =>
-        Boolean(sample.feed.scroll),
+      (
+        sample
+      ): sample is RouteBenchmarkSample & {
+        feed: RouteBenchmarkSample['feed'] & {
+          scroll: NonNullable<NonNullable<RouteBenchmarkSample['feed']>['scroll']>;
+        };
+      } => Boolean(sample.feed.scroll)
     );
     const scrollSettleSamples = feedSamples.filter(
-      (sample): sample is RouteBenchmarkSample & { feed: RouteBenchmarkSample['feed'] & { scrollSettle: FeedScrollSettleSummary } } =>
-        Boolean(sample.feed.scrollSettle),
+      (
+        sample
+      ): sample is RouteBenchmarkSample & {
+        feed: RouteBenchmarkSample['feed'] & { scrollSettle: FeedScrollSettleSummary };
+      } => Boolean(sample.feed.scrollSettle)
     );
     if (scrollSettleSamples.length > 0) {
-      const timeouts = scrollSettleSamples.filter((sample) => sample.feed.scrollSettle.timedOut).length;
+      const timeouts = scrollSettleSamples.filter(
+        (sample) => sample.feed.scrollSettle.timedOut
+      ).length;
       const networkIdleTimeouts = scrollSettleSamples.filter(
-        (sample) => sample.feed.scrollSettle.networkIdleTimedOut,
+        (sample) => sample.feed.scrollSettle.networkIdleTimedOut
       ).length;
       summary.feed.scrollSettle = {
-        elapsedMs: summarizeNumbers(scrollSettleSamples.map((sample) => sample.feed.scrollSettle.elapsedMs)),
+        elapsedMs: summarizeNumbers(
+          scrollSettleSamples.map((sample) => sample.feed.scrollSettle.elapsedMs)
+        ),
         timeouts,
         timeoutRate: timeouts / scrollSettleSamples.length,
         networkIdleTimeouts,
@@ -809,10 +867,18 @@ export function aggregateRouteBenchmark(
     if (scrollSamples.length > 0) {
       summary.feed.scroll = {
         durationMs: summarizeNumbers(scrollSamples.map((sample) => sample.feed.scroll.durationMs)),
-        totalFrames: summarizeNumbers(scrollSamples.map((sample) => sample.feed.scroll.totalFrames)),
-        longFrameCount: summarizeNumbers(scrollSamples.map((sample) => sample.feed.scroll.longFrameCount)),
-        worstFrameMs: summarizeNumbers(scrollSamples.map((sample) => sample.feed.scroll.worstFrameMs)),
-        averageFrameMs: summarizeNumbers(scrollSamples.map((sample) => sample.feed.scroll.averageFrameMs)),
+        totalFrames: summarizeNumbers(
+          scrollSamples.map((sample) => sample.feed.scroll.totalFrames)
+        ),
+        longFrameCount: summarizeNumbers(
+          scrollSamples.map((sample) => sample.feed.scroll.longFrameCount)
+        ),
+        worstFrameMs: summarizeNumbers(
+          scrollSamples.map((sample) => sample.feed.scroll.worstFrameMs)
+        ),
+        averageFrameMs: summarizeNumbers(
+          scrollSamples.map((sample) => sample.feed.scroll.averageFrameMs)
+        ),
       };
     }
   }
@@ -848,7 +914,10 @@ function aggregateRequestGroups(key: string, groups: RequestGroupSummary[]): Req
     durationMs: summarizeNumbers(groups.map((group) => group.durationMs.median)),
     payloadBytes: {
       total: groups.reduce((sum, group) => sum + group.payloadBytes.total, 0),
-      knownResponseCount: groups.reduce((sum, group) => sum + group.payloadBytes.knownResponseCount, 0),
+      knownResponseCount: groups.reduce(
+        (sum, group) => sum + group.payloadBytes.knownResponseCount,
+        0
+      ),
       unknownSizeCount: groups.reduce((sum, group) => sum + group.payloadBytes.unknownSizeCount, 0),
     },
     statuses,
@@ -865,12 +934,10 @@ function mergeCounts(target: Record<string, number>, source: Record<string, numb
 
 export async function writeBenchmarkArtifacts(
   baseName: string,
-  benchmarkRun: BenchmarkRun,
+  benchmarkRun: BenchmarkRun
 ): Promise<{ jsonPath: string; markdownPath: string }> {
   const resultDir = await ensureBenchmarkResultDir();
-  const timestamp = benchmarkRun.metadata.generatedAt
-    .replaceAll(':', '-')
-    .replaceAll('.', '-');
+  const timestamp = benchmarkRun.metadata.generatedAt.replaceAll(':', '-').replaceAll('.', '-');
   const labelSuffix = benchmarkRun.metadata.benchmarkLabel
     ? `-${benchmarkRun.metadata.benchmarkLabel}`
     : '';
@@ -911,36 +978,70 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
     lines.push('');
     lines.push(`- cache mode: ${route.cacheMode}`);
     lines.push(`- goto median: ${formatSummaryMs(route.summary.navigation.gotoMs)}`);
-    lines.push(`- domContentLoaded median: ${formatSummaryMs(route.summary.navigation.domContentLoadedMs)}`);
+    lines.push(
+      `- domContentLoaded median: ${formatSummaryMs(route.summary.navigation.domContentLoadedMs)}`
+    );
     lines.push(`- loadEvent median: ${formatSummaryMs(route.summary.navigation.loadEventMs)}`);
-    lines.push(`- firstContentfulPaint median: ${formatSummaryMs(route.summary.navigation.firstContentfulPaintMs)}`);
+    lines.push(
+      `- firstContentfulPaint median: ${formatSummaryMs(route.summary.navigation.firstContentfulPaintMs)}`
+    );
     lines.push(`- requests median: ${formatSummaryNumber(route.summary.requests.total)}`);
     lines.push(`- failed requests median: ${formatSummaryNumber(route.summary.requests.failed)}`);
-    lines.push(`- request bytes median: ${formatSummaryBytes(route.summary.requests.payloadTotalBytes)}`);
+    lines.push(
+      `- request bytes median: ${formatSummaryBytes(route.summary.requests.payloadTotalBytes)}`
+    );
     lines.push(`- tile requests median: ${formatSummaryNumber(route.summary.tiles.totalRequests)}`);
-    lines.push(`- tile aborts median: ${formatSummaryNumber(route.summary.tiles.abortedRequestCount)}`);
-    lines.push(`- duplicate tile requests median: ${formatSummaryNumber(route.summary.tiles.duplicateRequestCount)}`);
-    lines.push(`- duplicate tile ratio median: ${formatPercent(route.summary.tiles.duplicateRequestRatio.median)}`);
-    lines.push(`- tile generation avg median: ${formatSummaryMs(route.summary.tiles.xTileGenerationTimeAvgMs)}`);
-    lines.push(`- tile browser cache hits median: ${formatSummaryNumber(route.summary.tiles.browserCacheHits)}`);
-    lines.push(`- tile service worker responses median: ${formatSummaryNumber(route.summary.tiles.serviceWorkerResponses)}`);
+    lines.push(
+      `- tile aborts median: ${formatSummaryNumber(route.summary.tiles.abortedRequestCount)}`
+    );
+    lines.push(
+      `- duplicate tile requests median: ${formatSummaryNumber(route.summary.tiles.duplicateRequestCount)}`
+    );
+    lines.push(
+      `- duplicate tile ratio median: ${formatPercent(route.summary.tiles.duplicateRequestRatio.median)}`
+    );
+    lines.push(
+      `- tile generation avg median: ${formatSummaryMs(route.summary.tiles.xTileGenerationTimeAvgMs)}`
+    );
+    lines.push(
+      `- tile browser cache hits median: ${formatSummaryNumber(route.summary.tiles.browserCacheHits)}`
+    );
+    lines.push(
+      `- tile service worker responses median: ${formatSummaryNumber(route.summary.tiles.serviceWorkerResponses)}`
+    );
     lines.push(`- tile cache-control headers: ${formatRecord(route.summary.tiles.cacheControl)}`);
     lines.push(`- tile age headers: ${formatRecord(route.summary.tiles.age)}`);
     lines.push(`- tile cache headers: ${formatRecord(route.summary.tiles.xTileCache)}`);
-    lines.push(`- console errors per run median: ${formatSummaryNumber(route.summary.consoleErrorsPerRun)}`);
-    lines.push(`- long tasks median: ${formatSummaryNumber(route.summary.mainThread.longTaskCount)}`);
-    lines.push(`- long task duration median: ${formatSummaryMs(route.summary.mainThread.totalLongTaskDurationMs)}`);
-    lines.push(`- long task blocking median: ${formatSummaryMs(route.summary.mainThread.totalLongTaskBlockingTimeMs)}`);
-    lines.push(`- worst long task median: ${formatSummaryMs(route.summary.mainThread.worstLongTaskMs)}`);
+    lines.push(
+      `- console errors per run median: ${formatSummaryNumber(route.summary.consoleErrorsPerRun)}`
+    );
+    lines.push(
+      `- long tasks median: ${formatSummaryNumber(route.summary.mainThread.longTaskCount)}`
+    );
+    lines.push(
+      `- long task duration median: ${formatSummaryMs(route.summary.mainThread.totalLongTaskDurationMs)}`
+    );
+    lines.push(
+      `- long task blocking median: ${formatSummaryMs(route.summary.mainThread.totalLongTaskBlockingTimeMs)}`
+    );
+    lines.push(
+      `- worst long task median: ${formatSummaryMs(route.summary.mainThread.worstLongTaskMs)}`
+    );
 
     if (route.summary.map) {
       lines.push(`- map usable median: ${formatSummaryMs(route.summary.map.usableMs)}`);
       lines.push(`- initial map idle median: ${formatSummaryMs(route.summary.map.initialIdleMs)}`);
-      lines.push(`- initial map idle timeouts: ${route.summary.map.initialIdleTimeouts} (${formatPercent(route.summary.map.initialIdleTimeoutRate)})`);
+      lines.push(
+        `- initial map idle timeouts: ${route.summary.map.initialIdleTimeouts} (${formatPercent(route.summary.map.initialIdleTimeoutRate)})`
+      );
       lines.push(`- map settle pan median: ${formatSummaryMs(route.summary.map.settlePanMs)}`);
-      lines.push(`- map settle pan timeouts: ${route.summary.map.settlePanTimeouts} (${formatPercent(route.summary.map.settlePanTimeoutRate)})`);
+      lines.push(
+        `- map settle pan timeouts: ${route.summary.map.settlePanTimeouts} (${formatPercent(route.summary.map.settlePanTimeoutRate)})`
+      );
       lines.push(`- map settle zoom median: ${formatSummaryMs(route.summary.map.settleZoomMs)}`);
-      lines.push(`- map settle zoom timeouts: ${route.summary.map.settleZoomTimeouts} (${formatPercent(route.summary.map.settleZoomTimeoutRate)})`);
+      lines.push(
+        `- map settle zoom timeouts: ${route.summary.map.settleZoomTimeouts} (${formatPercent(route.summary.map.settleZoomTimeoutRate)})`
+      );
     }
 
     if (route.summary.feed) {
@@ -948,15 +1049,29 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
       lines.push(`- feed items median: ${formatSummaryNumber(route.summary.feed.itemCount)}`);
       lines.push(`- feed states: ${formatRecord(route.summary.feed.states)}`);
       if (route.summary.feed.scrollSettle) {
-        lines.push(`- feed scroll settle median: ${formatSummaryMs(route.summary.feed.scrollSettle.elapsedMs)}`);
-        lines.push(`- feed scroll settle timeouts: ${route.summary.feed.scrollSettle.timeouts} (${formatPercent(route.summary.feed.scrollSettle.timeoutRate)})`);
-        lines.push(`- feed scroll network-idle timeouts: ${route.summary.feed.scrollSettle.networkIdleTimeouts} (${formatPercent(route.summary.feed.scrollSettle.networkIdleTimeoutRate)})`);
+        lines.push(
+          `- feed scroll settle median: ${formatSummaryMs(route.summary.feed.scrollSettle.elapsedMs)}`
+        );
+        lines.push(
+          `- feed scroll settle timeouts: ${route.summary.feed.scrollSettle.timeouts} (${formatPercent(route.summary.feed.scrollSettle.timeoutRate)})`
+        );
+        lines.push(
+          `- feed scroll network-idle timeouts: ${route.summary.feed.scrollSettle.networkIdleTimeouts} (${formatPercent(route.summary.feed.scrollSettle.networkIdleTimeoutRate)})`
+        );
       }
       if (route.summary.feed.scroll) {
-        lines.push(`- feed scroll duration median: ${formatSummaryMs(route.summary.feed.scroll.durationMs)}`);
-        lines.push(`- feed scroll frames median: ${formatSummaryNumber(route.summary.feed.scroll.totalFrames)}`);
-        lines.push(`- feed long frames median: ${formatSummaryNumber(route.summary.feed.scroll.longFrameCount)}`);
-        lines.push(`- feed worst frame median: ${formatSummaryMs(route.summary.feed.scroll.worstFrameMs)}`);
+        lines.push(
+          `- feed scroll duration median: ${formatSummaryMs(route.summary.feed.scroll.durationMs)}`
+        );
+        lines.push(
+          `- feed scroll frames median: ${formatSummaryNumber(route.summary.feed.scroll.totalFrames)}`
+        );
+        lines.push(
+          `- feed long frames median: ${formatSummaryNumber(route.summary.feed.scroll.longFrameCount)}`
+        );
+        lines.push(
+          `- feed worst frame median: ${formatSummaryMs(route.summary.feed.scroll.worstFrameMs)}`
+        );
       }
     }
 
@@ -964,7 +1079,7 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
       lines.push('- render probes:');
       for (const [surface, probe] of Object.entries(route.summary.renderProbes)) {
         lines.push(
-          `  - ${surface}: commits median ${formatSummaryNumber(probe.commitCount)}, first commit ${formatSummaryMs(probe.firstCommitMs)}, last commit ${formatSummaryMs(probe.lastCommitMs)}`,
+          `  - ${surface}: commits median ${formatSummaryNumber(probe.commitCount)}, first commit ${formatSummaryMs(probe.firstCommitMs)}, last commit ${formatSummaryMs(probe.lastCommitMs)}`
         );
       }
     }
@@ -973,7 +1088,7 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
       lines.push('- critical requests:');
       for (const request of route.summary.criticalRequests.slice(0, 6)) {
         lines.push(
-          `  - ${request.key}: duration median ${formatSummaryMs(request.durationMs)}, count ${request.requestCount}, payload ${formatBytes(request.payloadBytes.total)}, browser-cache ${request.browserCacheHits}, service-worker ${request.serviceWorkerResponses}, cache-control ${formatRecord(request.cacheControl)}`,
+          `  - ${request.key}: duration median ${formatSummaryMs(request.durationMs)}, count ${request.requestCount}, payload ${formatBytes(request.payloadBytes.total)}, browser-cache ${request.browserCacheHits}, service-worker ${request.serviceWorkerResponses}, cache-control ${formatRecord(request.cacheControl)}`
         );
       }
     }
@@ -982,11 +1097,13 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
       lines.push('- failed request details:');
       for (const request of route.summary.requests.failedDetails.slice(0, 10)) {
         lines.push(
-          `  - ${request.routeKey}/${request.cacheMode} ${request.method} ${request.normalizedEndpoint}: status ${request.status ?? 'none'}, failed ${request.failed ? 'yes' : 'no'}, error ${request.failureText ?? 'none'}, duration ${request.durationMs.toFixed(1)} ms, bytes ${request.responseBytes ?? 'unknown'}, browser-cache ${request.cache.browserCacheHit ? 'yes' : 'no'}, service-worker ${request.cache.serviceWorker ? 'yes' : 'no'}, raw ${request.rawUrl}, headers ${formatFailedRequestHeaders(request.headers)}`,
+          `  - ${request.routeKey}/${request.cacheMode} ${request.method} ${request.normalizedEndpoint}: status ${request.status ?? 'none'}, failed ${request.failed ? 'yes' : 'no'}, error ${request.failureText ?? 'none'}, duration ${request.durationMs.toFixed(1)} ms, bytes ${request.responseBytes ?? 'unknown'}, browser-cache ${request.cache.browserCacheHit ? 'yes' : 'no'}, service-worker ${request.cache.serviceWorker ? 'yes' : 'no'}, raw ${request.rawUrl}, headers ${formatFailedRequestHeaders(request.headers)}`
         );
       }
       if (route.summary.requests.failedDetails.length > 10) {
-        lines.push(`  - ... ${route.summary.requests.failedDetails.length - 10} more failed request(s) in JSON artifact`);
+        lines.push(
+          `  - ... ${route.summary.requests.failedDetails.length - 10} more failed request(s) in JSON artifact`
+        );
       }
     }
 
@@ -994,11 +1111,13 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
       lines.push('- tile abort details:');
       for (const request of route.summary.tiles.abortedRequestDetails.slice(0, 10)) {
         lines.push(
-          `  - ${request.routeKey}/${request.cacheMode} ${request.method} ${request.normalizedEndpoint}: error ${request.failureText ?? 'none'}, duration ${request.durationMs.toFixed(1)} ms, raw ${request.rawUrl}`,
+          `  - ${request.routeKey}/${request.cacheMode} ${request.method} ${request.normalizedEndpoint}: error ${request.failureText ?? 'none'}, duration ${request.durationMs.toFixed(1)} ms, raw ${request.rawUrl}`
         );
       }
       if (route.summary.tiles.abortedRequestDetails.length > 10) {
-        lines.push(`  - ... ${route.summary.tiles.abortedRequestDetails.length - 10} more tile abort(s) in JSON artifact`);
+        lines.push(
+          `  - ... ${route.summary.tiles.abortedRequestDetails.length - 10} more tile abort(s) in JSON artifact`
+        );
       }
     }
 
@@ -1025,9 +1144,10 @@ function summarizeNumbers(values: Array<number | null | undefined>): NumberSumma
 
   const sum = filtered.reduce((total, value) => total + value, 0);
   const middleIndex = Math.floor(filtered.length / 2);
-  const median = filtered.length % 2 === 0
-    ? (filtered[middleIndex - 1] + filtered[middleIndex]) / 2
-    : filtered[middleIndex];
+  const median =
+    filtered.length % 2 === 0
+      ? (filtered[middleIndex - 1] + filtered[middleIndex]) / 2
+      : filtered[middleIndex];
 
   return {
     avg: sum / filtered.length,

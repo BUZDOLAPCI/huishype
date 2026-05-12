@@ -9,10 +9,9 @@ import {
   resolvePropertyReadViewer,
 } from '../services/property-read-state.js';
 import {
-  advancePropertyTileSnapshotWatermark,
-  getPropertyViewSnapshotRefreshThrottleMs,
-  safeRequestPropertyTileSnapshotRefresh,
-} from '../services/property-tile-snapshots.js';
+  advancePropertyTilePyramidSourceWatermark,
+  safeRequestPropertyTilePyramidBuildAfterMutation,
+} from '../services/property-tile-pyramid.js';
 import { propertyTileRuntime } from '../services/property-tile-runtime.js';
 
 // Schema definitions
@@ -151,7 +150,7 @@ export async function viewRoutes(app: FastifyInstance) {
             userId: userId || null,
             sessionId,
           });
-          await advancePropertyTileSnapshotWatermark(['social'], tx);
+          await advancePropertyTilePyramidSourceWatermark(['views_engagement'], tx);
         });
       }
 
@@ -163,9 +162,10 @@ export async function viewRoutes(app: FastifyInstance) {
       );
 
       if (!alreadyViewed) {
-        await safeRequestPropertyTileSnapshotRefresh({
+        await safeRequestPropertyTilePyramidBuildAfterMutation({
           reason: 'property-view',
-          throttleMs: getPropertyViewSnapshotRefreshThrottleMs(),
+          policy: 'views',
+          watermarkScopes: ['views_engagement'],
         }, request.log, { propertyId, viewerScope });
       }
 

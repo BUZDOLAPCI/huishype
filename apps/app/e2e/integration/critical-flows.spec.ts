@@ -43,7 +43,7 @@ test.describe('Critical Flows - Full Stack Integration', () => {
 
       const data = await response.json();
       expect(data).toHaveProperty('status');
-      expect(data.status).toBe('ok');
+      expect(['ok', 'degraded']).toContain(data.status);
       expect(data).toHaveProperty('timestamp');
       expect(data).toHaveProperty('version');
       expect(data).toHaveProperty('uptime');
