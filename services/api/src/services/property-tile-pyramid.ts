@@ -28,6 +28,8 @@ const DEFAULT_MAX_HEAP_MB = 1_024;
 const DEFAULT_MAX_MEMBER_ROWS = 5_000_000;
 const DEFAULT_MAX_WAL_BYTES_PER_CHUNK = 1_073_741_824;
 const DEFAULT_MAX_WAL_BYTES_PER_BUILD = 10 * 1_073_741_824;
+const PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT = 10_000;
+const DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP = 25;
 const PROPERTY_TILE_PYRAMID_PREFLIGHT_TILE_HEAP_BYTES = 250;
 const PROPERTY_TILE_PYRAMID_PREFLIGHT_TILE_INDEX_BYTES = 80;
 const PROPERTY_TILE_PYRAMID_PREFLIGHT_SOURCE_PLAN_BYTES = 24;
@@ -296,31 +298,44 @@ class PropertyTilePyramidLeaseLostError extends Error {
   }
 }
 
-function parseNonNegativeIntegerEnv(name: string, fallback: number): number {
+function parseIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw == null || raw.trim() === '') {
     return fallback;
   }
 
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/.test(trimmed)) {
+    throw new Error(`${name} must be an integer, received "${raw}"`);
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${name} must be a safe integer, received "${raw}"`);
+  }
+
+  return parsed;
+}
+
+function parseNonNegativeIntegerEnv(name: string, fallback: number, max?: number): number {
+  const parsed = parseIntegerEnv(name, fallback);
+  if (parsed < 0 || (max != null && parsed > max)) {
+    const range = max == null ? 'a non-negative integer' : `an integer between 0 and ${max}`;
+    throw new Error(`${name} must be ${range}, received "${process.env[name]}"`);
+  }
+  return parsed;
 }
 
 function parsePositiveIntegerEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw == null || raw.trim() === '') {
-    return fallback;
+  const parsed = parseIntegerEnv(name, fallback);
+  if (parsed <= 0) {
+    throw new Error(`${name} must be a positive integer, received "${process.env[name]}"`);
   }
-
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  return parsed;
 }
 
 export function getPropertyTilePyramidMaxZoom(): number {
-  return Math.min(
-    22,
-    parseNonNegativeIntegerEnv('PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM', DEFAULT_MAX_ZOOM)
-  );
+  return parseNonNegativeIntegerEnv('PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM', DEFAULT_MAX_ZOOM, 22);
 }
 
 export function getDefaultPropertyTilePyramidSlot(): PropertyTilePyramidSlot {
@@ -465,6 +480,13 @@ export function getPropertyTilePyramidResourceControls(): PropertyTilePyramidHea
       DEFAULT_MAX_WAL_BYTES_PER_BUILD
     ),
   };
+}
+
+function getPropertyTilePyramidRetentionMaxChunksPerStep(): number {
+  return parsePositiveIntegerEnv(
+    'PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP',
+    DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP
+  );
 }
 
 export function buildPropertyTilePyramidCacheKey(input: {
@@ -4811,7 +4833,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
     return await withSessionAdvisoryLock(
       PYRAMID_RETENTION_ADVISORY_LOCK,
       async () => {
-        const resetPayloads = await runPropertyTilePyramidRetentionChunk({
+        const resetPayloads = await runPropertyTilePyramidRetentionStep({
           sql: sql`
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
@@ -4833,7 +4855,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             FROM property_tile_pyramid_tiles t
             WHERE t.version_id IN (SELECT id FROM candidate_versions)
               AND t.payload IS NOT NULL
-            LIMIT 10000
+            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
             FOR UPDATE SKIP LOCKED
           ),
           reset AS (
@@ -4854,7 +4876,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           SELECT count(*)::int AS affected FROM reset
         `,
         });
-        const deletedMembers = await runPropertyTilePyramidRetentionChunk({
+        const deletedMembers = await runPropertyTilePyramidRetentionStep({
           sql: sql`
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
@@ -4882,7 +4904,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             SELECT m.ctid
             FROM property_tile_pyramid_members m
             WHERE m.version_id IN (SELECT id FROM candidate_versions)
-            LIMIT 10000
+            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
             FOR UPDATE SKIP LOCKED
           ),
           deleted AS (
@@ -4895,7 +4917,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
         `,
           optional: true,
         });
-        const deletedNodes = await runPropertyTilePyramidRetentionChunk({
+        const deletedNodes = await runPropertyTilePyramidRetentionStep({
           sql: sql`
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
@@ -4923,7 +4945,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             SELECT n.ctid
             FROM property_tile_pyramid_nodes n
             WHERE n.version_id IN (SELECT id FROM candidate_versions)
-            LIMIT 10000
+            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
             FOR UPDATE SKIP LOCKED
           ),
           deleted AS (
@@ -4935,7 +4957,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           SELECT count(*)::int AS affected FROM deleted
         `,
         });
-        const deletedTiles = await runPropertyTilePyramidRetentionChunk({
+        const deletedTiles = await runPropertyTilePyramidRetentionStep({
           sql: sql`
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
@@ -4963,7 +4985,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             SELECT t.ctid
             FROM property_tile_pyramid_tiles t
             WHERE t.version_id IN (SELECT id FROM candidate_versions)
-            LIMIT 10000
+            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
             FOR UPDATE SKIP LOCKED
           ),
           deleted AS (
@@ -4975,7 +4997,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           SELECT count(*)::int AS affected FROM deleted
         `,
         });
-        const deletedVersions = await runPropertyTilePyramidRetentionChunk({
+        const deletedVersions = await runPropertyTilePyramidRetentionStep({
           sql: sql`
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
@@ -5015,7 +5037,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
                   AND a.created_at > now() - interval '24 hours'
               )
             ORDER BY COALESCE(v.updated_at, v.promoted_at, v.created_at)
-            LIMIT 10000
+            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
             FOR UPDATE SKIP LOCKED
           ),
           deleted AS (
@@ -5027,7 +5049,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	          SELECT count(*)::int AS affected FROM deleted
 	        `,
         });
-        const deletedCandidateListingCandidates = await runPropertyTilePyramidRetentionChunk({
+        const deletedCandidateListingCandidates = await runPropertyTilePyramidRetentionStep({
           sql: sql`
 	          WITH reclaimable_snapshots AS (
 	            SELECT s.id
@@ -5057,7 +5079,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	            SELECT c.ctid
 	            FROM property_tile_listing_candidates c
 	            WHERE c.snapshot_id IN (SELECT id FROM reclaimable_snapshots)
-	            LIMIT 10000
+	            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
 	            FOR UPDATE SKIP LOCKED
 	          ),
 	          deleted AS (
@@ -5069,7 +5091,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	          SELECT count(*)::int AS affected FROM deleted
 	        `,
         });
-        const deletedCandidateListingFacts = await runPropertyTilePyramidRetentionChunk({
+        const deletedCandidateListingFacts = await runPropertyTilePyramidRetentionStep({
           sql: sql`
 	          WITH reclaimable_snapshots AS (
 	            SELECT s.id
@@ -5099,7 +5121,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	            SELECT f.ctid
 	            FROM property_tile_listing_facts f
 	            WHERE f.snapshot_id IN (SELECT id FROM reclaimable_snapshots)
-	            LIMIT 10000
+	            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
 	            FOR UPDATE SKIP LOCKED
 	          ),
 	          deleted AS (
@@ -5111,7 +5133,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	          SELECT count(*)::int AS affected FROM deleted
 	        `,
         });
-        const deletedCandidateSourceSnapshots = await runPropertyTilePyramidRetentionChunk({
+        const deletedCandidateSourceSnapshots = await runPropertyTilePyramidRetentionStep({
           sql: sql`
 	          WITH reclaimable_snapshots AS (
 	            SELECT s.id
@@ -5147,7 +5169,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	                )
 	              )
 	            ORDER BY COALESCE(s.updated_at, s.build_finished_at, s.build_started_at, s.created_at)
-	            LIMIT 10000
+	            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
 	            FOR UPDATE SKIP LOCKED
 	          ),
 	          deleted AS (
@@ -5159,8 +5181,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	          SELECT count(*)::int AS affected FROM deleted
 	        `,
         });
-        return {
-          status: 'completed',
+        const stepResults = {
           resetPayloads,
           deletedMembers,
           deletedNodes,
@@ -5170,10 +5191,27 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           deletedCandidateListingFacts,
           deletedCandidateSourceSnapshots,
         };
+        const hasMore = Object.values(stepResults).some((result) => result.hasMore);
+        return {
+          status: hasMore ? 'draining' : 'completed',
+          hasMore,
+          resetPayloads: resetPayloads.affected,
+          deletedMembers: deletedMembers.affected,
+          deletedNodes: deletedNodes.affected,
+          deletedTiles: deletedTiles.affected,
+          deletedVersions: deletedVersions.affected,
+          deletedCandidateListingCandidates: deletedCandidateListingCandidates.affected,
+          deletedCandidateListingFacts: deletedCandidateListingFacts.affected,
+          deletedCandidateSourceSnapshots: deletedCandidateSourceSnapshots.affected,
+          chunks: Object.fromEntries(
+            Object.entries(stepResults).map(([key, result]) => [key, result.chunks])
+          ),
+        };
       },
       () => ({
         status: 'skipped',
         reason: 'retention-lock-held',
+        hasMore: true,
         resetPayloads: 0,
         deletedMembers: 0,
         deletedNodes: 0,
@@ -5182,6 +5220,16 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
         deletedCandidateListingCandidates: 0,
         deletedCandidateListingFacts: 0,
         deletedCandidateSourceSnapshots: 0,
+        chunks: {
+          resetPayloads: 0,
+          deletedMembers: 0,
+          deletedNodes: 0,
+          deletedTiles: 0,
+          deletedVersions: 0,
+          deletedCandidateListingCandidates: 0,
+          deletedCandidateListingFacts: 0,
+          deletedCandidateSourceSnapshots: 0,
+        },
       })
     );
   } catch (error) {
@@ -5190,6 +5238,25 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
     }
     throw error;
   }
+}
+
+async function runPropertyTilePyramidRetentionStep(input: {
+  sql: SQL;
+  optional?: boolean;
+}): Promise<{ affected: number; chunks: number; hasMore: boolean }> {
+  const maxChunks = getPropertyTilePyramidRetentionMaxChunksPerStep();
+  let affected = 0;
+  let chunks = 0;
+
+  for (; chunks < maxChunks; chunks += 1) {
+    const chunkAffected = await runPropertyTilePyramidRetentionChunk(input);
+    affected += chunkAffected;
+    if (chunkAffected < PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT) {
+      return { affected, chunks: chunks + 1, hasMore: false };
+    }
+  }
+
+  return { affected, chunks, hasMore: true };
 }
 
 async function runPropertyTilePyramidRetentionChunk(input: {

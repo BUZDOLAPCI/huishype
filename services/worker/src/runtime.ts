@@ -640,7 +640,15 @@ export class WorkerRuntime {
         propertyTilePyramidRetentionStatus = typeof retention.status === 'string'
           ? retention.status
           : 'completed';
-        this.markPropertyTilePyramidRetentionAttempt(new Date());
+        if (
+          retention.hasMore !== true &&
+          (
+            propertyTilePyramidRetentionStatus === 'completed' ||
+            retention.reason === 'pyramid-schema-unavailable'
+          )
+        ) {
+          this.markPropertyTilePyramidRetentionAttempt(new Date());
+        }
         this.logger.info('Property tile pyramid retention completed', {
           trigger,
           ...retention,

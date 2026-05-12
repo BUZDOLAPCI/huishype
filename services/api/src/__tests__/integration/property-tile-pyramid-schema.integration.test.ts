@@ -14,7 +14,15 @@ async function cleanupPyramidSchemaTestRows(): Promise<void> {
     WHERE coverage_id LIKE ${`${coveragePrefix}%`}
   `);
   await db.execute(sql`
+    DELETE FROM property_tile_candidate_source_current
+    WHERE coverage_id LIKE ${`${coveragePrefix}%`}
+  `);
+  await db.execute(sql`
     DELETE FROM property_tile_pyramid_versions
+    WHERE coverage_id LIKE ${`${coveragePrefix}%`}
+  `);
+  await db.execute(sql`
+    DELETE FROM property_tile_candidate_source_snapshots
     WHERE coverage_id LIKE ${`${coveragePrefix}%`}
   `);
 }
@@ -275,6 +283,44 @@ function sha(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+async function insertCandidateSourceSnapshot(input: {
+  coverageId: string;
+  filterSignature?: string;
+  status?: 'building' | 'ready' | 'failed' | 'superseded';
+}): Promise<string> {
+  const snapshotId = crypto.randomUUID();
+  const unique = crypto.randomUUID();
+  await db.execute(sql`
+    INSERT INTO property_tile_candidate_source_snapshots (
+      id,
+      coverage_id,
+      filter_signature,
+      pyramid_kind,
+      source_watermark_hash,
+      comparable_source_watermark_hash,
+      source_watermarks_json,
+      status,
+      candidate_row_count,
+      fact_row_count,
+      build_finished_at
+    )
+    VALUES (
+      ${snapshotId}::uuid,
+      ${input.coverageId},
+      ${input.filterSignature ?? 'public-default'},
+      'public_default_low_zoom',
+      ${sha(`candidate-source-${unique}`)},
+      ${sha(`candidate-comparable-${unique}`)},
+      ${JSON.stringify({ sources: [{ source: 'schema-candidate-source', unique }] })}::jsonb,
+      ${input.status ?? 'ready'},
+      0,
+      0,
+      ${input.status === undefined || input.status === 'ready' ? sql`now()` : null}
+    )
+  `);
+  return snapshotId;
+}
+
 async function insertDefaultSlotVersionWithCandidate(input: {
   sourceWatermarkHash: string;
   sourceWatermarksJson: Record<string, unknown>;
@@ -473,7 +519,9 @@ describe('property tile pyramid schema safeguards', () => {
         'promote_property_tile_pyramid_version',
         'property_tile_pyramid_versions_guard',
         'property_tile_pyramid_current_guard',
-        'property_tile_pyramid_current_promoted_constraint'
+        'property_tile_pyramid_current_promoted_constraint',
+        'property_tile_candidate_source_current_guard',
+        'property_tile_candidate_source_snapshots_current_guard'
       )
     `)
     ).map((row) => row.proname);
@@ -484,6 +532,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_pyramid_versions_guard',
         'property_tile_pyramid_current_guard',
         'property_tile_pyramid_current_promoted_constraint',
+        'property_tile_candidate_source_current_guard',
+        'property_tile_candidate_source_snapshots_current_guard',
       ])
     );
 
@@ -494,7 +544,9 @@ describe('property tile pyramid schema safeguards', () => {
       WHERE tgrelid IN (
         'property_tile_pyramid_versions'::regclass,
         'property_tile_pyramid_current'::regclass,
-        'property_tile_pyramid_source_watermarks'::regclass
+        'property_tile_pyramid_source_watermarks'::regclass,
+        'property_tile_candidate_source_current'::regclass,
+        'property_tile_candidate_source_snapshots'::regclass
       )
         AND NOT tgisinternal
     `)
@@ -505,6 +557,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_pyramid_current_guard',
         'property_tile_pyramid_current_promoted_constraint',
         'property_tile_pyramid_source_watermarks_guard',
+        'property_tile_candidate_source_current_guard',
+        'property_tile_candidate_source_snapshots_current_guard',
       ])
     );
   });
@@ -784,6 +838,167 @@ describe('property tile pyramid schema safeguards', () => {
           AND pyramid_kind = 'public_default_low_zoom'
       `),
       /current pyramid pointer changes must use promote_property_tile_pyramid_version/
+    );
+  });
+
+  it('blocks direct current pointer metadata rewrites', async () => {
+    const coverageId = `${coveragePrefix}-direct-current-metadata`;
+    const firstVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+    await insertTileManifest({
+      versionId: firstVersionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+    await promote(firstVersionId);
+
+    const secondVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+    await insertTileManifest({
+      versionId: secondVersionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+    await promote(secondVersionId, firstVersionId);
+
+    await expectDbFailure(
+      () =>
+        db.execute(sql`
+        UPDATE property_tile_pyramid_current
+        SET promotion_reason = 'direct metadata bypass'
+        WHERE coverage_id = ${coverageId}
+          AND filter_signature = 'public-default'
+          AND max_zoom = 1
+          AND pyramid_kind = 'public_default_low_zoom'
+      `),
+      /current pyramid pointer changes must use promote_property_tile_pyramid_version/
+    );
+  });
+
+  it('rejects candidate source current rows whose snapshot is non-ready or from another slot', async () => {
+    const coverageId = `${coveragePrefix}-candidate-current`;
+    const otherCoverageId = `${coveragePrefix}-candidate-current-other`;
+    const readyOtherSlotSnapshotId = await insertCandidateSourceSnapshot({
+      coverageId: otherCoverageId,
+    });
+    const buildingSnapshotId = await insertCandidateSourceSnapshot({
+      coverageId,
+      status: 'building',
+    });
+
+    await expectDbFailure(
+      () =>
+        db.execute(sql`
+        INSERT INTO property_tile_candidate_source_current (
+          coverage_id,
+          filter_signature,
+          pyramid_kind,
+          snapshot_id
+        )
+        VALUES (
+          ${coverageId},
+          'public-default',
+          'public_default_low_zoom',
+          ${readyOtherSlotSnapshotId}::uuid
+        )
+      `),
+      /candidate source current snapshot .* must be ready and match serving slot/
+    );
+
+    await expectDbFailure(
+      () =>
+        db.execute(sql`
+        INSERT INTO property_tile_candidate_source_current (
+          coverage_id,
+          filter_signature,
+          pyramid_kind,
+          snapshot_id
+        )
+        VALUES (
+          ${coverageId},
+          'public-default',
+          'public_default_low_zoom',
+          ${buildingSnapshotId}::uuid
+        )
+      `),
+      /candidate source current snapshot .* must be ready and match serving slot/
+    );
+  });
+
+  it('rejects updates that make the current candidate source snapshot non-ready', async () => {
+    const coverageId = `${coveragePrefix}-candidate-current-status`;
+    const snapshotId = await insertCandidateSourceSnapshot({ coverageId });
+
+    await db.execute(sql`
+      INSERT INTO property_tile_candidate_source_current (
+        coverage_id,
+        filter_signature,
+        pyramid_kind,
+        snapshot_id
+      )
+      VALUES (
+        ${coverageId},
+        'public-default',
+        'public_default_low_zoom',
+        ${snapshotId}::uuid
+      )
+    `);
+
+    await expectDbFailure(
+      () =>
+        db.execute(sql`
+        UPDATE property_tile_candidate_source_snapshots
+        SET status = 'superseded'
+        WHERE id = ${snapshotId}::uuid
+      `),
+      /candidate source snapshot .* is current and must remain ready/
+    );
+  });
+
+  it('requires candidate source snapshots for registered configurable serving slots', async () => {
+    const coverageId = `${coveragePrefix}-configurable-source`;
+    const snapshotId = await insertCandidateSourceSnapshot({ coverageId });
+    await db.execute(sql`
+      INSERT INTO property_tile_candidate_source_current (
+        coverage_id,
+        filter_signature,
+        pyramid_kind,
+        snapshot_id
+      )
+      VALUES (
+        ${coverageId},
+        'public-default',
+        'public_default_low_zoom',
+        ${snapshotId}::uuid
+      )
+    `);
+
+    const versionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+    await insertTileManifest({
+      versionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+
+    await expectDbFailure(
+      () => promote(versionId),
+      /property tile pyramid version .* has no candidate source snapshot/
     );
   });
 

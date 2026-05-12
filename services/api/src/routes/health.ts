@@ -28,6 +28,7 @@ const healthResponseSchema = z.object({
 
 const healthQuerySchema = z.object({
   allowDegraded: z.preprocess((value) => value === true || value === 'true', z.boolean()).optional(),
+  strictPyramid: z.preprocess((value) => value === true || value === 'true', z.boolean()).optional(),
 });
 
 const opsPropertyTilePyramidResponseSchema = z.object({
@@ -90,8 +91,50 @@ export async function healthRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const pyramid = await getPropertyTilePyramidHealthSummary();
+      const status = request.query.strictPyramid && pyramid.status !== 'ok'
+        ? ('degraded' as const)
+        : ('ok' as const);
+      const statusCode = request.query.strictPyramid && pyramid.status !== 'ok' ? 503 : 200;
+
+      return reply.code(statusCode).send({
+        status,
+        timestamp: new Date().toISOString(),
+        version: '0.1.0',
+        uptime: process.uptime(),
+        propertyTilePyramid: {
+          status: pyramid.status,
+          currentVersionId: pyramid.currentVersionId,
+          degradedReason: pyramid.degradedReason,
+          activeCandidateVersionId: pyramid.activeCandidateVersionId,
+          retryableFailureDueAt: pyramid.retryableFailureDueAt,
+          terminalFailureCount: pyramid.terminalFailureCount,
+          encodedCoverageRatio: pyramid.encodedCoverageRatio,
+          closedWatermarkMaxUpdatedAt: pyramid.closedWatermarkMaxUpdatedAt,
+          currentWatermarkMaxUpdatedAt: pyramid.currentWatermarkMaxUpdatedAt,
+          closedToCurrentWatermarkLagSeconds: pyramid.closedToCurrentWatermarkLagSeconds,
+          lastSuccessfulPromotionAt: pyramid.lastSuccessfulPromotionAt,
+        },
+      });
+    }
+  );
+
+  typedApp.get(
+    '/health/property-tile-pyramid',
+    {
+      schema: {
+        tags: ['health'],
+        summary: 'Strict property tile pyramid readiness check',
+        description: 'Returns 503 when the API is healthy but the materialized property tile pyramid is not ready.',
+        response: {
+          200: healthResponseSchema,
+          503: healthResponseSchema,
+        },
+      },
+    },
+    async (_request, reply) => {
+      const pyramid = await getPropertyTilePyramidHealthSummary();
       const status = pyramid.status === 'ok' ? ('ok' as const) : ('degraded' as const);
-      const statusCode = status === 'ok' || request.query.allowDegraded ? 200 : 503;
+      const statusCode = status === 'ok' ? 200 : 503;
 
       return reply.code(statusCode).send({
         status,

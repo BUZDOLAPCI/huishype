@@ -254,6 +254,61 @@ async function withHermeticNearbyListingOnlyProperty(
   }
 }
 
+async function restoreCurrentPointerMetadata(input: {
+  slot: ReturnType<typeof getDefaultPropertyTilePyramidSlot>;
+  currentVersionId: string;
+  previousVersionId: string | null;
+  currentPromotedAt: Date;
+  promotionReason: string | null;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const txRows = await tx.execute<{ txid: string }>(sql`
+      SELECT txid_current()::bigint::text AS txid
+    `);
+    const txid = Array.from(txRows)[0]?.txid;
+    if (!txid) {
+      throw new Error('Failed to acquire transaction id for current pointer metadata restore');
+    }
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_promotion_intents (
+        txid,
+        version_id,
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        actor,
+        reason
+      )
+      VALUES (
+        ${txid}::bigint,
+        ${input.currentVersionId}::uuid,
+        ${input.slot.coverageId},
+        ${input.slot.filterSignature},
+        ${input.slot.maxZoom},
+        ${input.slot.pyramidKind}::property_tile_pyramid_kind,
+        'jest',
+        'restore nearby test current pointer metadata'
+      )
+      ON CONFLICT (txid, version_id) DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      UPDATE property_tile_pyramid_current
+      SET
+        previous_version_id = ${input.previousVersionId}::uuid,
+        current_promoted_at = ${input.currentPromotedAt},
+        promotion_reason = ${input.promotionReason},
+        updated_at = NOW()
+      WHERE coverage_id = ${input.slot.coverageId}
+        AND filter_signature = ${input.slot.filterSignature}
+        AND max_zoom = ${input.slot.maxZoom}
+        AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
+    `);
+  });
+}
+
 async function withHermeticCurrentPyramidNode(
   run: (fixture: {
     lon: number;
@@ -527,18 +582,13 @@ async function withHermeticCurrentPyramidNode(
           'jest'
         )
       `);
-      await db.execute(sql`
-        UPDATE property_tile_pyramid_current
-        SET
-          previous_version_id = ${previousCurrent.previous_version_id},
-          current_promoted_at = ${previousCurrent.current_promoted_at},
-          promotion_reason = ${previousCurrent.promotion_reason},
-          updated_at = NOW()
-        WHERE coverage_id = ${slot.coverageId}
-          AND filter_signature = ${slot.filterSignature}
-          AND max_zoom = ${slot.maxZoom}
-          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
-      `);
+      await restoreCurrentPointerMetadata({
+        slot,
+        currentVersionId: previousCurrent.current_version_id,
+        previousVersionId: previousCurrent.previous_version_id,
+        currentPromotedAt: previousCurrent.current_promoted_at,
+        promotionReason: previousCurrent.promotion_reason,
+      });
     } else {
       await db.execute(sql`
         DELETE FROM property_tile_pyramid_current
@@ -596,18 +646,13 @@ async function withTemporarilyNoCurrentPyramid(
           'jest'
         )
       `);
-      await db.execute(sql`
-        UPDATE property_tile_pyramid_current
-        SET
-          previous_version_id = ${previousCurrent.previous_version_id},
-          current_promoted_at = ${previousCurrent.current_promoted_at},
-          promotion_reason = ${previousCurrent.promotion_reason},
-          updated_at = NOW()
-        WHERE coverage_id = ${slot.coverageId}
-          AND filter_signature = ${slot.filterSignature}
-          AND max_zoom = ${slot.maxZoom}
-          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
-      `);
+      await restoreCurrentPointerMetadata({
+        slot,
+        currentVersionId: previousCurrent.current_version_id,
+        previousVersionId: previousCurrent.previous_version_id,
+        currentPromotedAt: previousCurrent.current_promoted_at,
+        promotionReason: previousCurrent.promotion_reason,
+      });
     }
   }
 }

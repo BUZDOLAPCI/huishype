@@ -202,6 +202,31 @@ test('recovery sweep runs property tile pyramid retention', async () => {
   assert.equal(summary.propertyTilePyramidRetentionStatus, 'completed');
 });
 
+test('recovery sweep retries draining property tile pyramid retention on the same UTC day', async () => {
+  const retentionCalls: string[] = [];
+  const runtime = createRuntime(
+    createModuleLoaders({
+      loadPropertyTilePyramidModule: async () => ({
+        executeDuePropertyTilePyramidBuild: async () => ({ status: 'noop' }),
+        requestPropertyTilePyramidBuild: async () => ({ status: 'coalesced' }),
+        runPropertyTilePyramidRetention: async () => {
+          retentionCalls.push('run');
+          return retentionCalls.length === 1
+            ? { status: 'draining', hasMore: true, deletedVersions: 10_000 }
+            : { status: 'completed', hasMore: false, deletedVersions: 0 };
+        },
+      }),
+    }),
+  ) as unknown as RuntimeInternals;
+
+  const firstSummary = await runtime.performRecoverySweep('unit');
+  const secondSummary = await runtime.performRecoverySweep('unit');
+
+  assert.deepEqual(retentionCalls, ['run', 'run']);
+  assert.equal(firstSummary.propertyTilePyramidRetentionStatus, 'draining');
+  assert.equal(secondSummary.propertyTilePyramidRetentionStatus, 'completed');
+});
+
 test('recovery sweep skips property tile pyramid retention before the configured UTC minute', async () => {
   mock.timers.enable({ apis: ['Date'], now: new Date('2026-05-07T03:19:00.000Z') });
   const retentionCalls: string[] = [];

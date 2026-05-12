@@ -5,6 +5,7 @@ import {
   buildPropertyTilePyramidCacheKey,
   buildPropertyTilePyramidEtag,
   buildPropertyTilePyramidQueueJobId,
+  getPropertyTilePyramidMaxZoom,
   getPropertyTilePyramidResourceControls,
   type PropertyTilePyramidSlot,
 } from './property-tile-pyramid.js';
@@ -239,7 +240,9 @@ describe('property tile pyramid service helpers', () => {
   });
 
   it('exposes default resource controls required by health output', () => {
-    expect(getPropertyTilePyramidResourceControls()).toMatchObject({
+    expect(withTemporaryEnv(defaultBuildIdentityEnv, () =>
+      getPropertyTilePyramidResourceControls()
+    )).toMatchObject({
       chunkTileLimit: 128,
       memberPageSize: 5000,
       statementTimeoutMs: 30000,
@@ -249,5 +252,37 @@ describe('property tile pyramid service helpers', () => {
       maxWalBytesPerChunk: 1073741824,
       maxWalBytesPerBuild: 10737418240,
     });
+  });
+
+  it('fails loudly on invalid pyramid resource control env values', () => {
+    expect(() => withTemporaryEnv({
+      ...defaultBuildIdentityEnv,
+      PROPERTY_TILE_PYRAMID_MEMBER_PAGE_SIZE: '5000ms',
+    }, () => getPropertyTilePyramidResourceControls())).toThrow(
+      /PROPERTY_TILE_PYRAMID_MEMBER_PAGE_SIZE must be an integer/
+    );
+
+    expect(() => withTemporaryEnv({
+      ...defaultBuildIdentityEnv,
+      PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD: '0',
+    }, () => getPropertyTilePyramidResourceControls())).toThrow(
+      /PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD must be a positive integer/
+    );
+  });
+
+  it('rejects invalid precompute max zoom values instead of silently clamping or falling back', () => {
+    expect(() => withTemporaryEnv({
+      ...defaultBuildIdentityEnv,
+      PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '23',
+    }, () => getPropertyTilePyramidMaxZoom())).toThrow(
+      /PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM must be an integer between 0 and 22/
+    );
+
+    expect(() => withTemporaryEnv({
+      ...defaultBuildIdentityEnv,
+      PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: 'ten',
+    }, () => getPropertyTilePyramidMaxZoom())).toThrow(
+      /PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM must be an integer/
+    );
   });
 });

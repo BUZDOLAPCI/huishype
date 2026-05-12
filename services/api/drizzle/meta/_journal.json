@@ -232,6 +232,27 @@
       "when": 1778198400006,
       "tag": "0032_property_tile_candidate_snapshot_comparable_assert",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1778198400007,
+      "tag": "0033_property_tile_pyramid_snapshot_slot_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1778198400008,
+      "tag": "0034_property_tile_pyramid_promotable_registered_snapshot_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1778198400009,
+      "tag": "0035_property_tile_candidate_source_current_owner_grant",
+      "breakpoints": true
     }
   ]
 }

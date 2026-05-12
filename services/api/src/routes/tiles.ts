@@ -208,7 +208,6 @@ const tileJsonResponseSchema = z.object({
 
 const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
-const PROPERTY_TILE_PYRAMID_ROUTE_MAX_ZOOM = 10;
 const OPENFREEMAP_VECTOR_SOURCE = {
   type: 'vector',
   tiles: ['https://tiles.openfreemap.org/planet/20260506_001001_pt/{z}/{x}/{y}.pbf'],
@@ -2269,10 +2268,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const filterSignature = getMapFilterSignature(filters);
       const cacheKey = `${z}/${x}/${y}:${filterSignature}`;
       const runtimeConfig = getPropertyTileRuntimeConfig();
-      const pyramidRouteMaxZoom = Math.min(
-        propertyTilePyramidRouteService.getMaxZoom(),
-        PROPERTY_TILE_PYRAMID_ROUTE_MAX_ZOOM
-      );
+      const pyramidRouteMaxZoom = propertyTilePyramidRouteService.getMaxZoom();
       const isPyramidCoveredPublicDefaultTile =
         filterSignature === 'default' && z <= pyramidRouteMaxZoom;
 
@@ -2284,7 +2280,10 @@ export async function tileRoutes(app: FastifyInstance) {
           generationTimeMs: 0,
           budgetMs: runtimeConfig.publicBudgetMs,
         };
-        const slot = getDefaultPropertyTilePyramidSlot();
+        const slot = {
+          ...getDefaultPropertyTilePyramidSlot(),
+          maxZoom: pyramidRouteMaxZoom,
+        };
         let current: PropertyTilePyramidCurrentLookup;
 
         try {

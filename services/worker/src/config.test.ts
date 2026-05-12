@@ -75,6 +75,10 @@ test('loadWorkerConfig rejects invalid integers', () => {
     () => loadWorkerConfig({ WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY: '1440' }),
     /WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY must be an integer between 0 and 1439/,
   );
+  assert.throws(
+    () => loadWorkerConfig({ WORKER_PROPERTY_TILE_PYRAMID_CONCURRENCY: '2x' }),
+    /WORKER_PROPERTY_TILE_PYRAMID_CONCURRENCY must be a positive integer/,
+  );
 });
 
 test('resolveApiModuleUrl uses src artifacts when running from worker source', () => {

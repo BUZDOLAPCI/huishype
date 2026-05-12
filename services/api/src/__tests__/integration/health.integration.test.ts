@@ -47,7 +47,7 @@ describe('GET /health', () => {
     }
   });
 
-  it('should pass required readiness only with a promoted property tile pyramid', async () => {
+  it('should pass API health with a promoted property tile pyramid', async () => {
     const response = await app!.inject({
       method: 'GET',
       url: '/health',
@@ -61,14 +61,12 @@ describe('GET /health', () => {
     expect(body.propertyTilePyramid.degradedReason).toBeNull();
   });
 
-  it('should mirror property tile pyramid readiness in the canonical health status', async () => {
+  it('should keep canonical health status scoped to API availability', async () => {
     const response = await app!.inject({
       method: 'GET',
       url: '/health',
     });
     const body = JSON.parse(response.body);
-    expect(body.status).toBe(body.propertyTilePyramid.status);
-
     expect(response.statusCode).toBe(200);
     expect(body.status).toBe('ok');
     expect(body.propertyTilePyramid.currentVersionId).toEqual(expect.any(String));
@@ -156,7 +154,7 @@ describe('GET /health', () => {
     }
   });
 
-  it('should fail required readiness when the promoted pyramid pointer is missing', async () => {
+  it('should keep /health alive but fail strict pyramid readiness when the promoted pyramid pointer is missing', async () => {
     const slot = getDefaultPropertyTilePyramidSlot();
 
     await db.execute(sql`
@@ -174,12 +172,23 @@ describe('GET /health', () => {
       });
       const body = JSON.parse(response.body);
 
-      expect(response.statusCode).toBe(503);
-      expect(body.status).toBe('degraded');
+      expect(response.statusCode).toBe(200);
+      expect(body.status).toBe('ok');
       expect(body.propertyTilePyramid.status).toBe('degraded');
       expect(body.propertyTilePyramid.currentVersionId).toBeNull();
       expect(body.propertyTilePyramid.degradedReason).toBe('no-current-promoted-pyramid');
       expect(body.propertyTilePyramid.terminalFailureCount).toBeGreaterThanOrEqual(0);
+
+      const strictResponse = await app!.inject({
+        method: 'GET',
+        url: '/health/property-tile-pyramid',
+      });
+      const strictBody = JSON.parse(strictResponse.body);
+
+      expect(strictResponse.statusCode).toBe(503);
+      expect(strictBody.status).toBe('degraded');
+      expect(strictBody.propertyTilePyramid.status).toBe('degraded');
+      expect(strictBody.propertyTilePyramid.degradedReason).toBe('no-current-promoted-pyramid');
     } finally {
       await restorePromotedPyramidFixture();
       fixtureVersionId = undefined;
@@ -382,39 +391,20 @@ describe('GET /health', () => {
     const slot = getDefaultPropertyTilePyramidSlot();
 
     if (savedCurrentPointer) {
-      const [currentPointer] = Array.from(
-        await db.execute<{ current_version_id: string }>(sql`
-          SELECT current_version_id::text AS current_version_id
-          FROM property_tile_pyramid_current
-          WHERE coverage_id = ${slot.coverageId}
-            AND filter_signature = ${slot.filterSignature}
-            AND max_zoom = ${slot.maxZoom}
-            AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
-          LIMIT 1
-        `)
-      );
-
       await db.execute(sql`
-        SELECT promote_property_tile_pyramid_version(
-          ${savedCurrentPointer.current_version_id}::uuid,
-          ${currentPointer ? fixtureVersionId : null}::uuid,
-          'restore health integration fixture',
-          'health.integration.test'
-        )
-      `);
-
-      await db.execute(sql`
-        UPDATE property_tile_pyramid_current
-        SET
-          previous_version_id = ${savedCurrentPointer.previous_version_id}::uuid,
-          current_promoted_at = ${savedCurrentPointer.current_promoted_at}::timestamptz,
-          promotion_reason = ${savedCurrentPointer.promotion_reason},
-          created_at = ${savedCurrentPointer.created_at}::timestamptz,
-          updated_at = ${savedCurrentPointer.updated_at}::timestamptz
+        DELETE FROM property_tile_pyramid_current
         WHERE coverage_id = ${slot.coverageId}
           AND filter_signature = ${slot.filterSignature}
           AND max_zoom = ${slot.maxZoom}
           AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      `);
+      await db.execute(sql`
+        SELECT promote_property_tile_pyramid_version(
+          ${savedCurrentPointer.current_version_id}::uuid,
+          NULL::uuid,
+          'restore health integration fixture',
+          'health.integration.test'
+        )
       `);
     } else {
       await db.execute(sql`
@@ -430,7 +420,10 @@ describe('GET /health', () => {
     await db.execute(sql`
       DELETE FROM property_tile_pyramid_audit
       WHERE actor = 'health.integration.test'
-        AND reason IN ('health integration fixture', 'restore health integration fixture')
+        AND reason IN (
+          'health integration fixture',
+          'restore health integration fixture'
+        )
     `);
     await db.execute(sql`
       DELETE FROM property_tile_pyramid_audit

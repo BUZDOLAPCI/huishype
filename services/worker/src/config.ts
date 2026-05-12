@@ -41,8 +41,9 @@ function parsePositiveInt(
     return fallback;
   }
 
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  if (!/^\d+$/.test(trimmed) || !Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer, received "${value}"`);
   }
 
@@ -58,8 +59,9 @@ function parseUtcMinuteOfDay(
     return fallback;
   }
 
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1439) {
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  if (!/^\d+$/.test(trimmed) || !Number.isSafeInteger(parsed) || parsed < 0 || parsed > 1439) {
     throw new Error(`${name} must be an integer between 0 and 1439, received "${value}"`);
   }
 

@@ -307,7 +307,11 @@ async function requestPropertyTilePyramidBuildAfterBulkImport(
   } = await import(
     '../src/services/property-tile-pyramid.js'
   );
-  await advancePropertyTilePyramidSourceWatermark(['property_geometry', 'coverage']);
+  await advancePropertyTilePyramidSourceWatermark([
+    'property_geometry',
+    'property_status',
+    'coverage',
+  ]);
   const result = await safeRequestPropertyTilePyramidBuild(
     { reason },
     { warn: (bindings, message) => console.warn(message, bindings) },

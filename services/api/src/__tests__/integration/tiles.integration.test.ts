@@ -1486,7 +1486,53 @@ describe('Tile routes', () => {
       }
     });
 
-    it('routes public default z11-z17 tiles through dynamic runtime cache, not the pyramid', async () => {
+    it('returns the pyramid 204 miss contract for configured public default low-zoom above z10', async () => {
+      const requestBuild = jest.fn(async () => ({
+        status: 'enqueued' as const,
+        versionId: '00000000-0000-0000-0000-000000000012',
+        queueJobId: 'property-tile-pyramid-unit',
+      }));
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+
+      setPropertyTilePyramidServiceForTests({
+        getMaxZoom: () => 12,
+        lookupCurrentVersion: async () => ({
+          state: 'none',
+          tileStatus: 'pyramid-unavailable',
+          reason: 'unit-no-current',
+        }),
+        isTileCovered: () => true,
+        requestBuild,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/12/0/0.pbf',
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.headers['x-huishype-tile-status']).toBe('pyramid-build-enqueued');
+        expect(response.headers['x-tile-cache']).toBe('pyramid-unavailable');
+        expect(response.headers.etag).toBeUndefined();
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
+        expect(requestBuild).toHaveBeenCalledWith({
+          reason: 'tile-miss',
+          slot: {
+            coverageId: 'public_default_low_zoom',
+            filterSignature: 'default',
+            maxZoom: 12,
+            pyramidKind: 'public_default_low_zoom',
+          },
+        });
+      } finally {
+        runtimeRunSpy.mockRestore();
+        resetPropertyTileCacheForTests();
+      }
+    });
+
+    it('serves configured public default z11-z17 tiles from the pyramid, not dynamic runtime', async () => {
       const lookupCurrentVersion = jest.fn(async () => ({
         state: 'current' as const,
         version: {
@@ -1503,15 +1549,19 @@ describe('Tile routes', () => {
           degradedReason: null,
         },
       }));
-      const lookupTile = jest.fn(async () => ({
-        state: 'hit' as const,
-        versionId: '00000000-0000-0000-0000-0000000000ab',
-        payload: Buffer.from([0x1a, 0x03, 0x70, 0x79, 0x72]),
-        statusCode: 200 as const,
-        etag: '"pyramid-ab"',
-        nodeCount: 1,
-        encodedFromNodes: false,
-      }));
+      const lookupTileZooms: number[] = [];
+      const lookupTile = jest.fn(async (input: { z: number; x: number; y: number }) => {
+        lookupTileZooms.push(input.z);
+        return {
+          state: 'hit' as const,
+          versionId: '00000000-0000-0000-0000-0000000000ab',
+          payload: Buffer.from([0x1a, 0x03, 0x70, 0x79, 0x72]),
+          statusCode: 200 as const,
+          etag: '"pyramid-ab"',
+          nodeCount: 1,
+          encodedFromNodes: false,
+        };
+      });
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run').mockResolvedValue({
         state: 'completed',
         result: { payload: null, statusCode: 204 },
@@ -1536,27 +1586,22 @@ describe('Tile routes', () => {
             url: `/tiles/properties/${z}/0/0.pbf`,
           });
 
-          expect(response.statusCode).toBe(204);
-          expect(response.headers['x-tile-cache']).toBe('miss');
+          expect(response.statusCode).toBe(200);
+          expect(response.headers['x-tile-cache']).toBe('precomputed');
           expect(response.headers['cache-control']).toContain('public');
-          expect(response.headers['x-huishype-pyramid-version']).toBeUndefined();
-          expect(response.headers['x-huishype-tile-status']).toBeUndefined();
+          expect(response.headers['x-huishype-pyramid-version']).toBe(
+            '00000000-0000-0000-0000-0000000000ab'
+          );
+          expect(response.headers['x-huishype-tile-status']).toBe('pyramid-promoted');
         }
 
-        expect(lookupCurrentVersion).not.toHaveBeenCalled();
-        expect(lookupTile).not.toHaveBeenCalled();
-        expect(runtimeRunSpy).toHaveBeenCalledTimes(7);
-        expect(runtimeRunSpy.mock.calls.map(([options]) => options.key)).toEqual([
-          'public:11/0/0:default',
-          'public:12/0/0:default',
-          'public:13/0/0:default',
-          'public:14/0/0:default',
-          'public:15/0/0:default',
-          'public:16/0/0:default',
-          'public:17/0/0:default',
-        ]);
+        expect(lookupCurrentVersion).toHaveBeenCalledTimes(7);
+        expect(lookupTile).toHaveBeenCalledTimes(7);
+        expect(lookupTileZooms).toEqual([11, 12, 13, 14, 15, 16, 17]);
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
       } finally {
         runtimeRunSpy.mockRestore();
+        resetPropertyTileCacheForTests();
       }
     });
 

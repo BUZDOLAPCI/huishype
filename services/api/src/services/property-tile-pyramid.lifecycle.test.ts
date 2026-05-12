@@ -139,6 +139,16 @@ function isPyramidCandidateSelectionQuery(queryText: string): boolean {
   );
 }
 
+function collectSqlValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectSqlValues(item));
+  }
+  if (value && typeof value === 'object') {
+    return Object.values(value).flatMap((item) => collectSqlValues(item));
+  }
+  return [value];
+}
+
 function isPyramidBuildingClaimQuery(queryText: string): boolean {
   return (
     queryText.includes('UPDATE property_tile_pyramid_versions') &&
@@ -1338,7 +1348,9 @@ describe('property tile pyramid build lifecycle', () => {
     const retentionQueries = executeMock.mock.calls
       .map((call) => JSON.stringify(call[0]))
       .join('\n');
-    expect(retentionQueries).toContain('LIMIT 10000');
+    const retentionQueryValues = executeMock.mock.calls.flatMap((call) => collectSqlValues(call[0]));
+    expect(retentionQueries).toContain('LIMIT');
+    expect(retentionQueryValues).toContain(10000);
     expect(retentionQueries).toContain('FOR UPDATE SKIP LOCKED');
     expect(retentionQueries).toContain('property_tile_pyramid_members');
     expect(retentionQueries).toContain('previous_version_id');
@@ -1349,5 +1361,46 @@ describe('property tile pyramid build lifecycle', () => {
     expect(retentionQueries).toContain('candidate_snapshot_id');
     expect(retentionQueries).toContain('property_tile_listing_candidates');
     expect(retentionQueries).toContain('property_tile_listing_facts');
+  });
+
+  it('marks retention as draining after bounded full chunks remain', async () => {
+    executeMock.mockResolvedValue([{ affected: 10000 }]);
+
+    const { runPropertyTilePyramidRetention } = await import('./property-tile-pyramid.js');
+    const result = await withTemporaryEnv(
+      { PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP: '2' },
+      () => runPropertyTilePyramidRetention()
+    );
+
+    expect(result).toMatchObject({
+      status: 'draining',
+      hasMore: true,
+      resetPayloads: 20000,
+      deletedMembers: 20000,
+      deletedNodes: 20000,
+      deletedTiles: 20000,
+      deletedVersions: 20000,
+      deletedCandidateListingCandidates: 20000,
+      deletedCandidateListingFacts: 20000,
+      deletedCandidateSourceSnapshots: 20000,
+      chunks: {
+        resetPayloads: 2,
+        deletedMembers: 2,
+        deletedNodes: 2,
+        deletedTiles: 2,
+        deletedVersions: 2,
+        deletedCandidateListingCandidates: 2,
+        deletedCandidateListingFacts: 2,
+        deletedCandidateSourceSnapshots: 2,
+      },
+    });
+    expect(executeMock).toHaveBeenCalledTimes(16);
+    const retentionQueries = executeMock.mock.calls
+      .map((call) => JSON.stringify(call[0]))
+      .join('\n');
+    const retentionQueryValues = executeMock.mock.calls.flatMap((call) => collectSqlValues(call[0]));
+    expect(retentionQueries).toContain('LIMIT');
+    expect(retentionQueries).toContain('FOR UPDATE SKIP LOCKED');
+    expect(retentionQueryValues).toContain(10000);
   });
 });
