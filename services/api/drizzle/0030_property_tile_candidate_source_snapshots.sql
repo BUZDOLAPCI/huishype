@@ -362,7 +362,8 @@ BEGIN
       OR candidate_snapshot."filter_signature" IS DISTINCT FROM target_version."filter_signature"
       OR candidate_snapshot."pyramid_kind" IS DISTINCT FROM target_version."pyramid_kind"
       OR candidate_snapshot."comparable_source_watermark_hash" IS DISTINCT FROM COALESCE(
-        target_version."source_watermarks_json"#>>'{propertyTilePyramidRepair,baseSourceWatermarkHash}',
+        target_version."source_watermarks_json"#>>'{propertyTilePyramidRepair,baseComparableSourceWatermarkHash}',
+        target_version."source_watermarks_json"#>>'{comparableSourceWatermarkHash}',
         target_version."source_watermark_hash"
       )
     THEN
@@ -442,6 +443,10 @@ BEGIN
   THEN
     IF target_version."source_watermarks_json"#>>'{propertyTilePyramidRepair,baseSourceWatermarkHash}' !~ '^[a-f0-9]{64}$' THEN
       RAISE EXCEPTION 'property tile pyramid version % has invalid repair source watermark snapshot',
+        p_target_version_id;
+    END IF;
+    IF target_version."source_watermarks_json"#>>'{propertyTilePyramidRepair,baseComparableSourceWatermarkHash}' !~ '^[a-f0-9]{64}$' THEN
+      RAISE EXCEPTION 'property tile pyramid version % has invalid repair comparable source watermark snapshot',
         p_target_version_id;
     END IF;
   ELSIF target_version."source_watermarks_json" <> '{}'::jsonb

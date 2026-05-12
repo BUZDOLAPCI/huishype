@@ -271,6 +271,126 @@ async function expectDbFailure(action: () => Promise<unknown>, pattern: RegExp):
   throw new Error('Expected database operation to fail');
 }
 
+function sha(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+async function insertDefaultSlotVersionWithCandidate(input: {
+  sourceWatermarkHash: string;
+  sourceWatermarksJson: Record<string, unknown>;
+  candidateSourceWatermarkHash: string;
+  candidateComparableSourceWatermarkHash: string;
+}): Promise<{ versionId: string; candidateSnapshotId: string }> {
+  const versionId = crypto.randomUUID();
+  const candidateSnapshotId = crypto.randomUUID();
+  const unique = crypto.randomUUID();
+
+  await db.execute(sql`
+    INSERT INTO property_tile_candidate_source_snapshots (
+      id,
+      coverage_id,
+      filter_signature,
+      pyramid_kind,
+      source_watermark_hash,
+      comparable_source_watermark_hash,
+      source_watermarks_json,
+      status,
+      candidate_row_count,
+      fact_row_count,
+      build_finished_at
+    )
+    VALUES (
+      ${candidateSnapshotId}::uuid,
+      'public_default_low_zoom',
+      'default',
+      'public_default_low_zoom',
+      ${input.candidateSourceWatermarkHash},
+      ${input.candidateComparableSourceWatermarkHash},
+      ${JSON.stringify({
+        sources: [{ source: 'schema-candidate-source', unique }],
+        comparableSourceWatermarkHash: input.candidateComparableSourceWatermarkHash,
+      })}::jsonb,
+      'ready',
+      0,
+      0,
+      now()
+    )
+  `);
+
+  await db.execute(sql`
+    INSERT INTO property_tile_pyramid_versions (
+      id,
+      coverage_id,
+      filter_signature,
+      max_zoom,
+      pyramid_kind,
+      config_hash,
+      build_inputs_hash,
+      source_watermark_hash,
+      source_watermarks_json,
+      candidate_snapshot_id,
+      coverage_snapshot_json,
+      config_snapshot_json,
+      grouping_constants_json,
+      status,
+      expected_tile_count,
+      validated_tile_count,
+      validation_summary,
+      validated_at
+    )
+    VALUES (
+      ${versionId}::uuid,
+      'public_default_low_zoom',
+      'default',
+      0,
+      'public_default_low_zoom',
+      ${sha(`config-${unique}`)},
+      ${sha(`inputs-${unique}`)},
+      ${input.sourceWatermarkHash},
+      ${JSON.stringify(input.sourceWatermarksJson)}::jsonb,
+      ${candidateSnapshotId}::uuid,
+      ${JSON.stringify({
+        bounds: { minLon: -180, minLat: -85, maxLon: 180, maxLat: 85 },
+        maxZoom: 0,
+      })}::jsonb,
+      '{}'::jsonb,
+      '{}'::jsonb,
+      'validated',
+      1,
+      1,
+      ${JSON.stringify({ expectedTileCount: 1, observedTileCount: 1 })}::jsonb,
+      now()
+    )
+  `);
+
+  await db.execute(sql`
+    INSERT INTO property_tile_pyramid_tiles (
+      version_id,
+      z,
+      x,
+      y,
+      tile_status,
+      validation_status,
+      node_count,
+      etag,
+      validated_at
+    )
+    VALUES (
+      ${versionId}::uuid,
+      0,
+      0,
+      0,
+      'valid_empty',
+      'validated',
+      0,
+      ${`schema-default-${unique}`},
+      now()
+    )
+  `);
+
+  return { versionId, candidateSnapshotId };
+}
+
 describe('property tile pyramid schema safeguards', () => {
   afterEach(async () => {
     await cleanupPyramidSchemaTestRows();
@@ -726,5 +846,54 @@ describe('property tile pyramid schema safeguards', () => {
       `),
       /direct inserted promoted property tile pyramid versions are not allowed/
     );
+  });
+
+  it('matches candidate source snapshots against comparable source watermark hashes', async () => {
+    const comparableHash = sha('candidate-comparable-source');
+    const { versionId, candidateSnapshotId } = await insertDefaultSlotVersionWithCandidate({
+      sourceWatermarkHash: sha('version-source-with-projection-fingerprints'),
+      sourceWatermarksJson: {
+        sources: [{ source: 'schema-version-source' }],
+        comparableSourceWatermarkHash: comparableHash,
+      },
+      candidateSourceWatermarkHash: sha('candidate-source-before-projection-fingerprints'),
+      candidateComparableSourceWatermarkHash: comparableHash,
+    });
+
+    try {
+      await db.execute(sql`SELECT property_tile_pyramid_assert_promotable(${versionId}::uuid)`);
+    } finally {
+      await db.execute(sql`DELETE FROM property_tile_pyramid_versions WHERE id = ${versionId}::uuid`);
+      await db.execute(sql`
+        DELETE FROM property_tile_candidate_source_snapshots
+        WHERE id = ${candidateSnapshotId}::uuid
+      `);
+    }
+  });
+
+  it('uses repair base comparable hashes when validating attached candidate snapshots', async () => {
+    const comparableHash = sha('repair-candidate-comparable-source');
+    const { versionId, candidateSnapshotId } = await insertDefaultSlotVersionWithCandidate({
+      sourceWatermarkHash: sha('repair-version-source'),
+      sourceWatermarksJson: {
+        propertyTilePyramidRepair: {
+          baseComparableSourceWatermarkHash: comparableHash,
+          baseSourceWatermarkHash: sha('repair-base-source-with-projection-fingerprints'),
+          reason: 'missing-tile-repair',
+        },
+      },
+      candidateSourceWatermarkHash: sha('repair-candidate-source'),
+      candidateComparableSourceWatermarkHash: comparableHash,
+    });
+
+    try {
+      await db.execute(sql`SELECT property_tile_pyramid_assert_promotable(${versionId}::uuid)`);
+    } finally {
+      await db.execute(sql`DELETE FROM property_tile_pyramid_versions WHERE id = ${versionId}::uuid`);
+      await db.execute(sql`
+        DELETE FROM property_tile_candidate_source_snapshots
+        WHERE id = ${candidateSnapshotId}::uuid
+      `);
+    }
   });
 });

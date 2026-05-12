@@ -225,6 +225,13 @@
       "when": 1778198400005,
       "tag": "0031_property_tile_pyramid_current_intent_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1778198400006,
+      "tag": "0032_property_tile_candidate_snapshot_comparable_assert",
+      "breakpoints": true
     }
   ]
 }

@@ -91,7 +91,7 @@ describe('property tile pyramid health and ops contracts', () => {
     });
   });
 
-  it('keeps /health readiness non-gating when only no current promoted pyramid exists', async () => {
+  it('fails required /health readiness when no current promoted pyramid exists', async () => {
     getPropertyTilePyramidHealthSummaryMock.mockResolvedValueOnce(
       baseHealthSummary({
         status: 'degraded',
@@ -106,7 +106,7 @@ describe('property tile pyramid health and ops contracts', () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
     const body = JSON.parse(response.body);
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(503);
     expect(body.status).toBe('degraded');
     expect(body.propertyTilePyramid).toMatchObject({
       status: 'degraded',

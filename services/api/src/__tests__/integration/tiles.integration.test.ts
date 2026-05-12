@@ -21,6 +21,7 @@ import {
   PROPERTY_TILE_CACHE_TTL_SECONDS,
   publicPropertyTileCache,
 } from '../../services/property-tile-cache.js';
+import type { PropertyTilePyramidCurrentLookup } from '../../services/property-tile-pyramid.js';
 import { propertyTileRuntime } from '../../services/property-tile-runtime.js';
 import { advancePropertyChangeVersion } from '../../services/property-read-state.js';
 import { createDefaultMapFilters, type MapFilters } from '../../services/map-filters.js';
@@ -961,6 +962,89 @@ describe('Tile routes', () => {
         expect(conditionalResponse.statusCode).toBe(304);
         expect(conditionalResponse.headers['x-tile-cache']).toBe('hit');
         expect(conditionalResponse.headers.etag).toBe(response.headers.etag);
+        expect(lookupTile).toHaveBeenCalledTimes(1);
+      } finally {
+        resetPropertyTileCacheForTests();
+      }
+    });
+
+    it('does not return 304 for a cached pyramid tile when the current version pointer moved', async () => {
+      const tile = { z: 0, x: 0, y: 0 };
+      const payload = Buffer.from([0x1a, 0x03, 0x6f, 0x6c, 0x64]);
+      const oldVersion = {
+        versionId: '00000000-0000-0000-0000-0000000000a1',
+        coverageId: 'public_default_low_zoom',
+        filterSignature: 'default',
+        maxZoom: 10,
+        pyramidKind: 'public_default_low_zoom',
+        buildInputsHash: 'inputs-old',
+        sourceWatermarkHash: 'watermarks-old',
+        status: 'promoted' as const,
+        promotedAt: new Date().toISOString(),
+        degradedAt: null,
+        degradedReason: null,
+      };
+      const newVersion = {
+        ...oldVersion,
+        versionId: '00000000-0000-0000-0000-0000000000a2',
+        buildInputsHash: 'inputs-new',
+        sourceWatermarkHash: 'watermarks-new',
+      };
+      const currentLookups: PropertyTilePyramidCurrentLookup[] = [
+        {
+          state: 'current' as const,
+          version: oldVersion,
+        },
+        {
+          state: 'current' as const,
+          version: oldVersion,
+        },
+        {
+          state: 'current' as const,
+          version: newVersion,
+        },
+      ];
+      const lookupCurrentVersion = jest.fn(async () => {
+        const lookup = currentLookups.shift();
+        if (!lookup) {
+          throw new Error('Unexpected current version lookup');
+        }
+        return lookup;
+      });
+      const lookupTile = jest.fn(async () => ({
+        state: 'hit' as const,
+        versionId: oldVersion.versionId,
+        payload,
+        statusCode: 200 as const,
+        etag: '"pyramid-old"',
+        nodeCount: 1,
+        encodedFromNodes: false,
+      }));
+
+      try {
+        setPropertyTilePyramidServiceForTests({
+          getMaxZoom: () => 10,
+          lookupCurrentVersion,
+          lookupTile,
+        });
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.headers.etag).toBe('"pyramid-old"');
+
+        const conditionalResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'if-none-match': String(response.headers.etag) },
+        });
+
+        expect(conditionalResponse.statusCode).toBe(200);
+        expect(conditionalResponse.rawPayload).toEqual(payload);
+        expect(conditionalResponse.headers['x-tile-cache']).toBe('hit');
+        expect(lookupCurrentVersion).toHaveBeenCalledTimes(3);
         expect(lookupTile).toHaveBeenCalledTimes(1);
       } finally {
         resetPropertyTileCacheForTests();

@@ -5,6 +5,7 @@ export type PropertyTileBuildOptions = {
   runtimeDeadlineMs?: number;
   signal?: AbortSignal;
   candidateSnapshotId?: string | null;
+  closedSocialActivityCutoffAt?: string | Date | null;
   markUncancellableStage?: (active: boolean) => void;
   onStageTiming?: (timing: PropertyTileStageTiming) => void;
 };

@@ -373,10 +373,12 @@ function sendPublicTileEntry(
   runtime: Pick<
     PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
     'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
-  >
+  >,
+  options: { honorConditional?: boolean } = {}
 ) {
   const cacheControl =
     source === 'stale' ? PROPERTY_TILE_STALE_CACHE_CONTROL : PROPERTY_TILE_CACHE_CONTROL;
+  const honorConditional = options.honorConditional ?? true;
   const baseReply = reply
     .header('Cache-Control', cacheControl)
     .header('ETag', entry.etag)
@@ -386,7 +388,7 @@ function sendPublicTileEntry(
     .header('X-Tile-Queue-Time', tileHeaderValue(runtime.queueTimeMs))
     .header('X-Tile-Budget-Ms', String(runtime.budgetMs));
 
-  if (isConditionalMatch(request, entry.etag)) {
+  if (honorConditional && isConditionalMatch(request, entry.etag)) {
     return baseReply.status(304).send();
   }
 
@@ -395,6 +397,27 @@ function sendPublicTileEntry(
   }
 
   return baseReply.header('Content-Type', 'application/x-protobuf').send(entry.payload);
+}
+
+async function shouldHonorCurrentPyramidConditionalRequest(input: {
+  request: FastifyRequest;
+  entry: PublicPropertyTileCacheEntry;
+  slot: ReturnType<typeof getDefaultPropertyTilePyramidSlot>;
+  versionId: string;
+}): Promise<boolean> {
+  if (!isConditionalMatch(input.request, input.entry.etag)) {
+    return true;
+  }
+
+  try {
+    const current = await propertyTilePyramidRouteService.lookupCurrentVersion(input.slot);
+    return current.state === 'current' && current.version.versionId === input.versionId;
+  } catch (error) {
+    if (isPropertyTileRecoverableError(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function sendPyramidUnavailableTile(
@@ -2354,6 +2377,12 @@ export async function tileRoutes(app: FastifyInstance) {
         });
         const cachedPyramidTile = publicPropertyTileCache.get(pyramidCacheKey);
         if (cachedPyramidTile.state === 'fresh') {
+          const honorConditional = await shouldHonorCurrentPyramidConditionalRequest({
+            request,
+            entry: cachedPyramidTile.entry,
+            slot,
+            versionId: current.version.versionId,
+          });
           reply.header('X-HuisHype-Pyramid-Version', current.version.versionId);
           logTileOutcome({
             request,
@@ -2371,12 +2400,21 @@ export async function tileRoutes(app: FastifyInstance) {
               budgetMs: runtimeConfig.publicBudgetMs,
             },
           });
-          return sendPublicTileEntry(request, reply, cachedPyramidTile.entry, 'hit', {
-            coalesced: false,
-            queueTimeMs: 0,
-            generationTimeMs: 0,
-            budgetMs: runtimeConfig.publicBudgetMs,
-          });
+          return sendPublicTileEntry(
+            request,
+            reply,
+            cachedPyramidTile.entry,
+            'hit',
+            {
+              coalesced: false,
+              queueTimeMs: 0,
+              generationTimeMs: 0,
+              budgetMs: runtimeConfig.publicBudgetMs,
+            },
+            {
+              honorConditional,
+            }
+          );
         }
 
         let tile: PropertyTilePyramidTileLookup;

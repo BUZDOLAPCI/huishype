@@ -568,14 +568,16 @@ function comparableSourceWatermarkHash(input: {
     ) {
       return baseComparableSourceWatermarkHash;
     }
-    const baseSourceWatermarkHash = (repair as Record<string, unknown>).baseSourceWatermarkHash;
-    if (typeof baseSourceWatermarkHash === 'string' && baseSourceWatermarkHash.length > 0) {
-      return baseSourceWatermarkHash;
-    }
   }
   const comparableHash = input.sourceWatermarksJson?.comparableSourceWatermarkHash;
   if (typeof comparableHash === 'string' && comparableHash.length > 0) {
     return comparableHash;
+  }
+  if (repair && typeof repair === 'object' && !Array.isArray(repair)) {
+    const baseSourceWatermarkHash = (repair as Record<string, unknown>).baseSourceWatermarkHash;
+    if (typeof baseSourceWatermarkHash === 'string' && baseSourceWatermarkHash.length > 0) {
+      return baseSourceWatermarkHash;
+    }
   }
   return input.sourceWatermarkHash;
 }
@@ -653,6 +655,64 @@ async function readReadyPropertyTileCandidateSourceSnapshot(input: {
         sourceWatermarksJson: row.source_watermarks_json ?? {},
       }
     : null;
+}
+
+async function readReadyPropertyTileCandidateSourceSnapshotById(input: {
+  snapshotId: string;
+  slot: PropertyTilePyramidSlot;
+}): Promise<PropertyTileCandidateSourceSnapshot | null> {
+  const rows = await db.execute<{
+    id: string;
+    coverage_id: string;
+    filter_signature: string;
+    pyramid_kind: string;
+    source_watermark_hash: string;
+    comparable_source_watermark_hash: string;
+    source_watermarks_json: Record<string, unknown> | null;
+    status: string;
+  }>(sql`
+    SELECT
+      id::text,
+      coverage_id,
+      filter_signature,
+      pyramid_kind::text,
+      source_watermark_hash,
+      comparable_source_watermark_hash,
+      source_watermarks_json,
+      status
+    FROM property_tile_candidate_source_snapshots
+    WHERE id = ${input.snapshotId}::uuid
+    LIMIT 1
+  `);
+  const row = Array.from(rows)[0];
+  if (!row) {
+    return null;
+  }
+  if (
+    row.status !== 'ready' ||
+    row.coverage_id !== input.slot.coverageId ||
+    row.filter_signature !== input.slot.filterSignature ||
+    row.pyramid_kind !== input.slot.pyramidKind
+  ) {
+    return null;
+  }
+  return {
+    id: row.id,
+    sourceWatermarkHash: row.source_watermark_hash,
+    comparableSourceWatermarkHash: row.comparable_source_watermark_hash,
+    sourceWatermarksJson: row.source_watermarks_json ?? {},
+  };
+}
+
+function buildCandidateSourceSnapshotAudit(
+  snapshot: PropertyTileCandidateSourceSnapshot
+): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    sourceWatermarkHash: snapshot.sourceWatermarkHash,
+    comparableSourceWatermarkHash: snapshot.comparableSourceWatermarkHash,
+    sourceWatermarksJsonHash: stableSha256(snapshot.sourceWatermarksJson),
+  };
 }
 
 async function rebuildPropertyTileCandidateSourceSnapshot(input: {
@@ -1481,7 +1541,9 @@ export async function readPropertyTilePyramidSourceWatermarkSnapshot(
         candidateSnapshotId: row.candidate_snapshot_id,
         rowCount: String(row.row_count),
         maxUpdatedAt:
-          row.max_updated_at instanceof Date ? row.max_updated_at.toISOString() : row.max_updated_at,
+          row.max_updated_at instanceof Date
+            ? row.max_updated_at.toISOString()
+            : row.max_updated_at,
       }))
     );
   } catch (error) {
@@ -1797,9 +1859,15 @@ function isMissingPyramidSchemaError(error: unknown): boolean {
 }
 
 function isActiveSlotUniqueViolation(error: unknown): boolean {
-  const cause = (error as { cause?: { code?: unknown; constraint?: unknown } } | null)?.cause;
+  const cause = (
+    error as { cause?: { code?: unknown; constraint?: unknown; constraint_name?: unknown } } | null
+  )?.cause;
   const code = (error as { code?: unknown } | null)?.code ?? cause?.code;
-  const constraint = (error as { constraint?: unknown } | null)?.constraint ?? cause?.constraint;
+  const constraint =
+    (error as { constraint?: unknown; constraint_name?: unknown } | null)?.constraint ??
+    (error as { constraint?: unknown; constraint_name?: unknown } | null)?.constraint_name ??
+    cause?.constraint ??
+    cause?.constraint_name;
   return code === '23505' && constraint === 'property_tile_pyramid_versions_active_slot_idx';
 }
 
@@ -2220,6 +2288,11 @@ export async function requestPropertyTilePyramidBuild(input: {
   const buildIdentity = buildPropertyTilePyramidBuildIdentitySnapshots(slot);
   const buildInputsHash = input.buildInputsHash ?? buildIdentity.buildInputsHash;
   const reason = String(input.reason);
+  let activeSlotConflictPendingRequest: {
+    sourceWatermarkHash: string;
+    sourceWatermarksJson: Record<string, unknown>;
+    comparableSourceWatermarkHash: string;
+  } | null = null;
   const useWorkerRecoveryMutationPolicy =
     reason === 'worker-recovery' &&
     input.sourceWatermarkHash == null &&
@@ -2259,6 +2332,11 @@ export async function requestPropertyTilePyramidBuild(input: {
       sourceWatermarkHash,
       sourceWatermarksJson,
     });
+    activeSlotConflictPendingRequest = {
+      sourceWatermarkHash,
+      sourceWatermarksJson,
+      comparableSourceWatermarkHash: comparableRequestedSourceWatermarkHash,
+    };
 
     await db.execute(sql`
       UPDATE property_tile_pyramid_versions
@@ -2310,8 +2388,8 @@ export async function requestPropertyTilePyramidBuild(input: {
           next_retry_at,
           COALESCE(
             source_watermarks_json#>>'{propertyTilePyramidRepair,baseComparableSourceWatermarkHash}',
-            source_watermarks_json#>>'{propertyTilePyramidRepair,baseSourceWatermarkHash}',
             source_watermarks_json#>>'{comparableSourceWatermarkHash}',
+            source_watermarks_json#>>'{propertyTilePyramidRepair,baseSourceWatermarkHash}',
             source_watermark_hash
           ) AS comparable_source_watermark_hash
         FROM property_tile_pyramid_versions
@@ -2513,6 +2591,80 @@ export async function requestPropertyTilePyramidBuild(input: {
       return { status: 'unavailable', reason: 'pyramid-schema-unavailable' };
     }
     if (isActiveSlotUniqueViolation(error)) {
+      if (activeSlotConflictPendingRequest) {
+        const pendingRows = await db.execute<{
+          id: string;
+          status: PropertyTilePyramidStatus;
+          next_retry_at: string | null;
+          pending_replacement: boolean;
+        }>(sql`
+          WITH active_replacement AS MATERIALIZED (
+            SELECT
+              id,
+              status,
+              next_retry_at,
+              COALESCE(
+                source_watermarks_json#>>'{propertyTilePyramidRepair,baseComparableSourceWatermarkHash}',
+                source_watermarks_json#>>'{comparableSourceWatermarkHash}',
+                source_watermarks_json#>>'{propertyTilePyramidRepair,baseSourceWatermarkHash}',
+                source_watermark_hash
+              ) AS comparable_source_watermark_hash
+            FROM property_tile_pyramid_versions
+            WHERE coverage_id = ${slot.coverageId}
+              AND filter_signature = ${slot.filterSignature}
+              AND max_zoom = ${slot.maxZoom}
+              AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+              AND status IN ('building', 'validating')
+              AND lease_until IS NOT NULL
+              AND lease_until > now()
+            ORDER BY requested_at ASC NULLS LAST, updated_at ASC
+            LIMIT 1
+          ),
+          pending AS (
+            UPDATE property_tile_pyramid_versions v
+            SET
+              pending_replacement_watermarks_json = jsonb_build_object(
+                'sourceWatermarkHash', ${activeSlotConflictPendingRequest.sourceWatermarkHash}::text,
+                'sourceWatermarksJson', ${JSON.stringify(activeSlotConflictPendingRequest.sourceWatermarksJson)}::jsonb,
+                'reason', ${reason}::text,
+                'requestedAt', now()
+              ),
+              request_reason = ${reason}::text,
+              updated_at = now()
+            FROM active_replacement a
+            WHERE v.id = a.id
+              AND a.comparable_source_watermark_hash IS DISTINCT FROM ${activeSlotConflictPendingRequest.comparableSourceWatermarkHash}
+            RETURNING v.id::text, v.status, v.next_retry_at::text, true AS pending_replacement
+          ),
+          active_same AS (
+            SELECT
+              a.id::text,
+              a.status,
+              a.next_retry_at::text,
+              false AS pending_replacement
+            FROM active_replacement a
+            WHERE NOT EXISTS (SELECT 1 FROM pending)
+              AND a.comparable_source_watermark_hash IS NOT DISTINCT FROM ${activeSlotConflictPendingRequest.comparableSourceWatermarkHash}
+          )
+          SELECT * FROM pending
+          UNION ALL
+          SELECT * FROM active_same
+          LIMIT 1
+        `);
+        const pending = Array.from(pendingRows)[0];
+        if (pending) {
+          return {
+            status: 'coalesced',
+            versionId: pending.id,
+            existingStatus: pending.status,
+            nextRetryAt: pending.next_retry_at,
+            reason: pending.pending_replacement
+              ? 'pending-replacement-recorded'
+              : 'active-slot-conflict',
+          };
+        }
+      }
+
       const activeRows = await db.execute<{
         id: string;
         status: PropertyTilePyramidStatus;
@@ -2761,6 +2913,7 @@ async function estimatePropertyTilePyramidPreflight(input: {
   tileCount: number;
   controls: PropertyTilePyramidHealthSummary['resourceControls'];
   candidateSnapshotId: string;
+  closedSocialActivityCutoffAt: string | Date | null;
 }): Promise<{
   estimatedMemberRows: number;
   estimatedPropertySourceRows: number;
@@ -2778,6 +2931,10 @@ async function estimatePropertyTilePyramidPreflight(input: {
     ${input.coverage.maxLat},
     4326
   )`;
+  const closedSocialActivityPredicate = (column: SQL) =>
+    input.closedSocialActivityCutoffAt
+      ? sql`${column} <= ${input.closedSocialActivityCutoffAt}::timestamptz`
+      : sql`TRUE`;
   const visibleCandidateRows = await estimatePropertyTilePyramidPlanRows(sql`
     EXPLAIN (FORMAT JSON)
     SELECT visible.property_id
@@ -2789,54 +2946,60 @@ async function estimatePropertyTilePyramidPreflight(input: {
 
       UNION
 
-      SELECT c.property_id
-      FROM comments c
-      INNER JOIN properties p ON p.id = c.property_id
-      WHERE p.geometry IS NOT NULL
-        AND p.status = 'active'
-        AND p.geometry && ${envelope}
+	      SELECT c.property_id
+	      FROM comments c
+	      INNER JOIN properties p ON p.id = c.property_id
+	      WHERE p.geometry IS NOT NULL
+	        AND p.status = 'active'
+	        AND p.geometry && ${envelope}
+          AND ${closedSocialActivityPredicate(sql.raw('c.created_at'))}
 
-      UNION
+	      UNION
 
-      SELECT r.target_id AS property_id
-      FROM reactions r
+	      SELECT r.target_id AS property_id
+	      FROM reactions r
       INNER JOIN properties p ON p.id = r.target_id
       WHERE r.target_type = 'property'
-        AND r.reaction_type = 'like'
-        AND p.geometry IS NOT NULL
-        AND p.status = 'active'
-        AND p.geometry && ${envelope}
+	        AND r.reaction_type = 'like'
+	        AND p.geometry IS NOT NULL
+	        AND p.status = 'active'
+	        AND p.geometry && ${envelope}
+          AND ${closedSocialActivityPredicate(sql.raw('r.created_at'))}
 
-      UNION
+	      UNION
 
-      SELECT c.property_id
-      FROM reactions r
+	      SELECT c.property_id
+	      FROM reactions r
       INNER JOIN comments c ON c.id = r.target_id
       INNER JOIN properties p ON p.id = c.property_id
       WHERE r.target_type = 'comment'
-        AND r.reaction_type = 'like'
-        AND p.geometry IS NOT NULL
-        AND p.status = 'active'
-        AND p.geometry && ${envelope}
+	        AND r.reaction_type = 'like'
+	        AND p.geometry IS NOT NULL
+	        AND p.status = 'active'
+	        AND p.geometry && ${envelope}
+          AND ${closedSocialActivityPredicate(sql.raw('r.created_at'))}
+          AND ${closedSocialActivityPredicate(sql.raw('c.created_at'))}
 
-      UNION
+	      UNION
 
-      SELECT pg.property_id
-      FROM price_guesses pg
+	      SELECT pg.property_id
+	      FROM price_guesses pg
       INNER JOIN properties p ON p.id = pg.property_id
-      WHERE p.geometry IS NOT NULL
-        AND p.status = 'active'
-        AND p.geometry && ${envelope}
+	      WHERE p.geometry IS NOT NULL
+	        AND p.status = 'active'
+	        AND p.geometry && ${envelope}
+          AND ${closedSocialActivityPredicate(sql`GREATEST(pg.created_at, pg.updated_at)`)}
 
-      UNION
+	      UNION
 
-      SELECT pv.property_id
+	      SELECT pv.property_id
       FROM property_views pv
       INNER JOIN properties p ON p.id = pv.property_id
-      WHERE p.geometry IS NOT NULL
-        AND p.status = 'active'
-        AND p.geometry && ${envelope}
-      GROUP BY pv.property_id
+	      WHERE p.geometry IS NOT NULL
+	        AND p.status = 'active'
+	        AND p.geometry && ${envelope}
+          AND ${closedSocialActivityPredicate(sql.raw('pv.viewed_at'))}
+	      GROUP BY pv.property_id
       HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
     ) visible
   `);
@@ -3532,16 +3695,43 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
     });
     let candidateSourceSnapshot: PropertyTileCandidateSourceSnapshot | null =
       candidateRow.candidate_snapshot_id
-        ? {
-            id: candidateRow.candidate_snapshot_id,
-            sourceWatermarkHash: candidateRow.source_watermark_hash,
-            comparableSourceWatermarkHash: comparableClosedSourceWatermarkHash,
-            sourceWatermarksJson: rowSourceWatermarksJson,
-          }
+        ? await readReadyPropertyTileCandidateSourceSnapshotById({
+            snapshotId: candidateRow.candidate_snapshot_id,
+            slot,
+          })
         : await readReadyPropertyTileCandidateSourceSnapshot({
             slot,
             comparableSourceWatermarkHash: comparableClosedSourceWatermarkHash,
           });
+    if (candidateRow.candidate_snapshot_id) {
+      const candidateSnapshotFailure = !candidateSourceSnapshot
+        ? 'candidate source snapshot is not ready'
+        : candidateSourceSnapshot.comparableSourceWatermarkHash !==
+            comparableClosedSourceWatermarkHash
+          ? 'candidate source snapshot does not match build source'
+          : null;
+      if (candidateSnapshotFailure) {
+        await markPropertyTilePyramidBuildFailure({
+          versionId: candidateRow.id,
+          category: 'build_error',
+          message: `Property tile pyramid version ${candidateRow.id} ${candidateSnapshotFailure}`,
+          stage: 'candidate-source-snapshot',
+          retryDelayMinutes: 15,
+        });
+        await requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced({
+          slot,
+          sourceWatermarkHash: candidateRow.source_watermark_hash,
+          sourceWatermarksJson: rowSourceWatermarksJson,
+          pendingReplacementWatermarks,
+          reason: 'source-watermark',
+        });
+        return {
+          status: 'failed_retryable',
+          versionId: candidateRow.id,
+          failureCategory: 'build_error',
+        };
+      }
+    }
     if (!candidateSourceSnapshot) {
       const latestAtClaimSourceWatermarks = await readPropertyTilePyramidSourceWatermarkSnapshot();
       const latestAtClaimComparableHash = comparableSourceWatermarkHash(
@@ -3630,6 +3820,26 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
         UPDATE property_tile_pyramid_versions
         SET
           candidate_snapshot_id = ${candidateSourceSnapshot.id}::uuid,
+          validation_summary = jsonb_set(
+            COALESCE(validation_summary, '{}'::jsonb),
+            '{candidateSourceSnapshot}',
+            ${JSON.stringify(buildCandidateSourceSnapshotAudit(candidateSourceSnapshot))}::jsonb,
+            true
+          ),
+          updated_at = now()
+        WHERE id = ${candidateRow.id}::uuid
+          AND status IN ('queued', 'failed_retryable')
+      `);
+    } else {
+      await db.execute(sql`
+        UPDATE property_tile_pyramid_versions
+        SET
+          validation_summary = jsonb_set(
+            COALESCE(validation_summary, '{}'::jsonb),
+            '{candidateSourceSnapshot}',
+            ${JSON.stringify(buildCandidateSourceSnapshotAudit(candidateSourceSnapshot))}::jsonb,
+            true
+          ),
           updated_at = now()
         WHERE id = ${candidateRow.id}::uuid
           AND status IN ('queued', 'failed_retryable')
@@ -3723,6 +3933,7 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
         tileCount: tiles.length,
         controls,
         candidateSnapshotId: candidateSourceSnapshot.id,
+        closedSocialActivityCutoffAt,
       });
     } catch (error) {
       const message =
@@ -4206,19 +4417,107 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
         FROM property_tile_pyramid_tiles
         WHERE version_id = (SELECT id FROM current_version)
       ),
-      closed_watermark AS (
-        SELECT max((entry->>'updatedAt')::timestamptz) AS max_updated_at
-        FROM current_version
-        CROSS JOIN LATERAL jsonb_array_elements(
-          COALESCE(source_watermarks_json->'sources', '[]'::jsonb)
-        ) AS entry
-        WHERE entry->>'source' = 'property_tile_pyramid_source_watermarks'
-          AND NULLIF(entry->>'updatedAt', '') IS NOT NULL
-      ),
-      current_watermark AS (
-        SELECT max(updated_at) AS max_updated_at
-        FROM property_tile_pyramid_source_watermarks
-      )
+	      closed_watermark AS (
+	        SELECT max(closed_values.value::timestamptz) AS max_updated_at
+	        FROM current_version
+	        CROSS JOIN LATERAL jsonb_array_elements(
+	          COALESCE(source_watermarks_json->'sources', '[]'::jsonb)
+	        ) AS entry
+	        CROSS JOIN LATERAL (
+	          VALUES
+	            (entry->>'updatedAt'),
+	            (entry->>'watermarkTimestamp'),
+	            (entry->>'lastCommittedChangedAt'),
+	            (entry->>'lastRunCompletedAt'),
+	            (entry->>'sourceHighWatermark'),
+	            (entry->>'sourceRunCompletedAt'),
+	            (entry->>'maxUpdatedAt'),
+	            (entry->>'cutoffAt')
+	        ) AS closed_values(value)
+	        WHERE entry->>'source' IN (
+	            'property_tile_pyramid_source_watermarks',
+	            'property_tile_snapshot_watermarks',
+	            'ingest_sources',
+	            'listing_source_scope_watermarks',
+	            'listing_scope_completions',
+	            'property_tile_listing_candidates',
+	            'property_tile_listing_facts',
+	            'rolling_social_window'
+	          )
+	          AND NULLIF(closed_values.value, '') IS NOT NULL
+	      ),
+	      current_source_timestamps AS (
+	        SELECT max(updated_at) AS max_updated_at
+	        FROM property_tile_pyramid_source_watermarks
+
+	        UNION ALL
+
+	        SELECT max(updated_at) AS max_updated_at
+	        FROM property_tile_snapshot_watermarks
+	        WHERE key IN (${DEFAULT_PROPERTY_TILE_PYRAMID_COVERAGE_ID}, 'global')
+
+	        UNION ALL
+
+	        SELECT max(source_at) AS max_updated_at
+	        FROM (
+	          SELECT last_committed_changed_at AS source_at
+	          FROM ingest_sources
+	          UNION ALL
+	          SELECT last_run_completed_at AS source_at
+	          FROM ingest_sources
+	        ) ingest_source_times
+
+	        UNION ALL
+
+	        SELECT max(updated_at) AS max_updated_at
+	        FROM listing_source_scope_watermarks
+
+	        UNION ALL
+
+	        SELECT max(source_at) AS max_updated_at
+	        FROM (
+	          SELECT source_high_watermark AS source_at
+	          FROM listing_scope_completions
+	          UNION ALL
+	          SELECT source_run_completed_at AS source_at
+	          FROM listing_scope_completions
+	        ) listing_completion_times
+
+	        UNION ALL
+
+	        SELECT max(s.updated_at) AS max_updated_at
+	        FROM property_tile_candidate_source_current c
+	        JOIN property_tile_candidate_source_snapshots s ON s.id = c.snapshot_id
+	        WHERE c.coverage_id = ${slot.coverageId}
+	          AND c.filter_signature = ${slot.filterSignature}
+	          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+
+	        UNION ALL
+
+	        SELECT max(lpc.updated_at) AS max_updated_at
+	        FROM property_tile_candidate_source_current c
+	        JOIN property_tile_listing_candidates lpc ON lpc.snapshot_id = c.snapshot_id
+	        WHERE c.coverage_id = ${slot.coverageId}
+	          AND c.filter_signature = ${slot.filterSignature}
+	          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+
+	        UNION ALL
+
+	        SELECT max(ptlf.updated_at) AS max_updated_at
+	        FROM property_tile_candidate_source_current c
+	        JOIN property_tile_listing_facts ptlf ON ptlf.snapshot_id = c.snapshot_id
+	        WHERE c.coverage_id = ${slot.coverageId}
+	          AND c.filter_signature = ${slot.filterSignature}
+	          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+
+	        UNION ALL
+
+	        SELECT date_trunc('hour', now()) AS max_updated_at
+	      ),
+	      current_watermark AS (
+	        SELECT max(max_updated_at) AS max_updated_at
+	        FROM current_source_timestamps
+	      )
       SELECT
         (SELECT id::text FROM current_version) AS current_version_id,
         (SELECT promoted_at::text FROM current_version) AS current_promoted_at,

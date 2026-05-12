@@ -22,6 +22,7 @@ const FIXTURE_CLUSTER = {
     'a0000000-0000-4000-a000-00000000e202',
   ],
 };
+const FIXTURE_LOCK_KEY = 'playwright-property-tile-pyramid-fixture';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -77,192 +78,196 @@ async function main(): Promise<void> {
     throw new Error('Playwright pyramid fixture coverage produced no tiles');
   }
 
-  await db.execute(sql`
-    INSERT INTO property_tile_candidate_source_snapshots (
-      id,
-      coverage_id,
-      filter_signature,
-      pyramid_kind,
-      source_watermark_hash,
-      comparable_source_watermark_hash,
-      source_watermarks_json,
-      status,
-      candidate_row_count,
-      fact_row_count,
-      build_finished_at
-    )
-    VALUES (
-      ${candidateSnapshotId}::uuid,
-      ${slot.coverageId},
-      ${slot.filterSignature},
-      ${slot.pyramidKind}::property_tile_pyramid_kind,
-      ${sourceWatermarkHash},
-      ${sourceWatermarkHash},
-      ${JSON.stringify({ sources: [{ source: 'playwright-runtime' }] })}::jsonb,
-      'ready',
-      0,
-      0,
-      now()
-    )
-  `);
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${FIXTURE_LOCK_KEY})::bigint)`);
 
-  await db.execute(sql`
-    INSERT INTO property_tile_pyramid_versions (
-      id,
-      coverage_id,
-      filter_signature,
-      max_zoom,
-      pyramid_kind,
-      config_hash,
-      build_inputs_hash,
-      source_watermark_hash,
-      source_watermarks_json,
-      candidate_snapshot_id,
-      coverage_snapshot_json,
-      status,
-      expected_tile_count,
-      validated_tile_count,
-      validation_summary,
-      validated_at
-    )
-    VALUES (
-      ${versionId}::uuid,
-      ${slot.coverageId},
-      ${slot.filterSignature},
-      ${slot.maxZoom},
-      ${slot.pyramidKind}::property_tile_pyramid_kind,
-      ${`playwright-config-${unique}`},
-      ${`playwright-inputs-${unique}`},
-      ${sourceWatermarkHash},
-      ${JSON.stringify({ sources: [{ source: 'playwright-runtime' }] })}::jsonb,
-      ${candidateSnapshotId}::uuid,
-      ${JSON.stringify({
-        coverageId: slot.coverageId,
-        boundsSource: 'playwright',
-        bounds: FIXTURE_BOUNDS,
-        minZoom: 0,
-        maxZoom: slot.maxZoom,
-        filterSignature: slot.filterSignature,
-      })}::jsonb,
-      'validated',
-      ${tiles.length},
-      ${tiles.length},
-      ${JSON.stringify({ expectedTileCount: tiles.length, observedTileCount: tiles.length })}::jsonb,
-      now()
-    )
-  `);
+    await tx.execute(sql`
+      INSERT INTO property_tile_candidate_source_snapshots (
+        id,
+        coverage_id,
+        filter_signature,
+        pyramid_kind,
+        source_watermark_hash,
+        comparable_source_watermark_hash,
+        source_watermarks_json,
+        status,
+        candidate_row_count,
+        fact_row_count,
+        build_finished_at
+      )
+      VALUES (
+        ${candidateSnapshotId}::uuid,
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
+        ${sourceWatermarkHash},
+        ${sourceWatermarkHash},
+        ${JSON.stringify({ sources: [{ source: 'playwright-runtime' }] })}::jsonb,
+        'ready',
+        0,
+        0,
+        now()
+      )
+    `);
 
-  await db.execute(sql`
-    INSERT INTO property_tile_pyramid_tiles (
-      version_id,
-      z,
-      x,
-      y,
-      tile_status,
-      validation_status,
-      node_count,
-      etag,
-      validated_at
-    )
-    VALUES ${sql.join(
-      tiles.map(
-        (tile) => sql`(
-          ${versionId}::uuid,
-          ${tile.z},
-          ${tile.x},
-          ${tile.y},
-          ${tile.z === clusterTile.z && tile.x === clusterTile.x && tile.y === clusterTile.y
-            ? 'valid_nodes'
-            : 'valid_empty'}::property_tile_pyramid_tile_status,
-          'validated'::property_tile_pyramid_tile_validation_status,
-          ${tile.z === clusterTile.z && tile.x === clusterTile.x && tile.y === clusterTile.y ? 1 : 0},
-          ${`playwright-empty-${versionId}-${tile.z}-${tile.x}-${tile.y}`},
-          now()
-        )`,
-      ),
-      sql`, `,
-    )}
-  `);
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_versions (
+        id,
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        config_hash,
+        build_inputs_hash,
+        source_watermark_hash,
+        source_watermarks_json,
+        candidate_snapshot_id,
+        coverage_snapshot_json,
+        status,
+        expected_tile_count,
+        validated_tile_count,
+        validation_summary,
+        validated_at
+      )
+      VALUES (
+        ${versionId}::uuid,
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.maxZoom},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
+        ${`playwright-config-${unique}`},
+        ${`playwright-inputs-${unique}`},
+        ${sourceWatermarkHash},
+        ${JSON.stringify({ sources: [{ source: 'playwright-runtime' }] })}::jsonb,
+        ${candidateSnapshotId}::uuid,
+        ${JSON.stringify({
+          coverageId: slot.coverageId,
+          boundsSource: 'playwright',
+          bounds: FIXTURE_BOUNDS,
+          minZoom: 0,
+          maxZoom: slot.maxZoom,
+          filterSignature: slot.filterSignature,
+        })}::jsonb,
+        'validated',
+        ${tiles.length},
+        ${tiles.length},
+        ${JSON.stringify({ expectedTileCount: tiles.length, observedTileCount: tiles.length })}::jsonb,
+        now()
+      )
+    `);
 
-  await db.execute(sql`
-    INSERT INTO property_tile_pyramid_nodes (
-      version_id,
-      node_id,
-      z,
-      x,
-      y,
-      render_lon,
-      render_lat,
-      render_geometry,
-      anchor_world_x,
-      anchor_world_y,
-      node_class,
-      group_kind,
-      point_count,
-      representative_property_id,
-      preview_property_ids,
-      preview_count,
-      node_summary_json,
-      preview_properties_json,
-      bbox_west,
-      bbox_south,
-      bbox_east,
-      bbox_north,
-      tap_radius_px,
-      tap_priority_score
-    )
-    VALUES (
-      ${versionId}::uuid,
-      ${FIXTURE_CLUSTER.nodeId},
-      ${clusterTile.z},
-      ${clusterTile.x},
-      ${clusterTile.y},
-      ${FIXTURE_CLUSTER.lon},
-      ${FIXTURE_CLUSTER.lat},
-      ST_SetSRID(ST_MakePoint(${FIXTURE_CLUSTER.lon}, ${FIXTURE_CLUSTER.lat}), 4326),
-      0,
-      0,
-      'active',
-      'cluster',
-      ${FIXTURE_CLUSTER.pointCount},
-      ${FIXTURE_CLUSTER.representativePropertyId}::uuid,
-      ARRAY[${sql.join(FIXTURE_CLUSTER.previewPropertyIds.map((id) => sql`${id}::uuid`), sql`, `)}]::uuid[],
-      ${FIXTURE_CLUSTER.previewPropertyIds.length},
-      ${JSON.stringify({
-        primaryPropertyId: FIXTURE_CLUSTER.representativePropertyId,
-        pointCount: FIXTURE_CLUSTER.pointCount,
-        propertyIdsOmitted: true,
-      })}::jsonb,
-      '[]'::jsonb,
-      ${FIXTURE_CLUSTER.lon - 0.0002},
-      ${FIXTURE_CLUSTER.lat - 0.0002},
-      ${FIXTURE_CLUSTER.lon + 0.0002},
-      ${FIXTURE_CLUSTER.lat + 0.0002},
-      36,
-      0
-    )
-  `);
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_tiles (
+        version_id,
+        z,
+        x,
+        y,
+        tile_status,
+        validation_status,
+        node_count,
+        etag,
+        validated_at
+      )
+      VALUES ${sql.join(
+        tiles.map(
+          (tile) => sql`(
+            ${versionId}::uuid,
+            ${tile.z},
+            ${tile.x},
+            ${tile.y},
+            ${tile.z === clusterTile.z && tile.x === clusterTile.x && tile.y === clusterTile.y
+              ? 'valid_nodes'
+              : 'valid_empty'}::property_tile_pyramid_tile_status,
+            'validated'::property_tile_pyramid_tile_validation_status,
+            ${tile.z === clusterTile.z && tile.x === clusterTile.x && tile.y === clusterTile.y ? 1 : 0},
+            ${`playwright-empty-${versionId}-${tile.z}-${tile.x}-${tile.y}`},
+            now()
+          )`,
+        ),
+        sql`, `,
+      )}
+    `);
 
-  const previousRows = Array.from(
-    await db.execute<{ current_version_id: string | null }>(sql`
-      SELECT current_version_id::text
-      FROM property_tile_pyramid_current
-      WHERE coverage_id = ${slot.coverageId}
-        AND filter_signature = ${slot.filterSignature}
-        AND max_zoom = ${slot.maxZoom}
-        AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
-      LIMIT 1
-    `),
-  );
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_nodes (
+        version_id,
+        node_id,
+        z,
+        x,
+        y,
+        render_lon,
+        render_lat,
+        render_geometry,
+        anchor_world_x,
+        anchor_world_y,
+        node_class,
+        group_kind,
+        point_count,
+        representative_property_id,
+        preview_property_ids,
+        preview_count,
+        node_summary_json,
+        preview_properties_json,
+        bbox_west,
+        bbox_south,
+        bbox_east,
+        bbox_north,
+        tap_radius_px,
+        tap_priority_score
+      )
+      VALUES (
+        ${versionId}::uuid,
+        ${FIXTURE_CLUSTER.nodeId},
+        ${clusterTile.z},
+        ${clusterTile.x},
+        ${clusterTile.y},
+        ${FIXTURE_CLUSTER.lon},
+        ${FIXTURE_CLUSTER.lat},
+        ST_SetSRID(ST_MakePoint(${FIXTURE_CLUSTER.lon}, ${FIXTURE_CLUSTER.lat}), 4326),
+        0,
+        0,
+        'active',
+        'cluster',
+        ${FIXTURE_CLUSTER.pointCount},
+        ${FIXTURE_CLUSTER.representativePropertyId}::uuid,
+        ARRAY[${sql.join(FIXTURE_CLUSTER.previewPropertyIds.map((id) => sql`${id}::uuid`), sql`, `)}]::uuid[],
+        ${FIXTURE_CLUSTER.previewPropertyIds.length},
+        ${JSON.stringify({
+          primaryPropertyId: FIXTURE_CLUSTER.representativePropertyId,
+          pointCount: FIXTURE_CLUSTER.pointCount,
+          propertyIdsOmitted: true,
+        })}::jsonb,
+        '[]'::jsonb,
+        ${FIXTURE_CLUSTER.lon - 0.0002},
+        ${FIXTURE_CLUSTER.lat - 0.0002},
+        ${FIXTURE_CLUSTER.lon + 0.0002},
+        ${FIXTURE_CLUSTER.lat + 0.0002},
+        36,
+        0
+      )
+    `);
 
-  await db.execute(sql`
-    SELECT promote_property_tile_pyramid_version(
-      ${versionId}::uuid,
-      ${previousRows[0]?.current_version_id ?? null}::uuid,
-      'playwright runtime fixture',
-      'playwright-runtime'
-    )
-  `);
+    const previousRows = Array.from(
+      await tx.execute<{ current_version_id: string | null }>(sql`
+        SELECT current_version_id::text
+        FROM property_tile_pyramid_current
+        WHERE coverage_id = ${slot.coverageId}
+          AND filter_signature = ${slot.filterSignature}
+          AND max_zoom = ${slot.maxZoom}
+          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+        LIMIT 1
+      `),
+    );
+
+    await tx.execute(sql`
+      SELECT promote_property_tile_pyramid_version(
+        ${versionId}::uuid,
+        ${previousRows[0]?.current_version_id ?? null}::uuid,
+        'playwright runtime fixture',
+        'playwright-runtime'
+      )
+    `);
+  });
 }
 
 function lonLatToTile(lon: number, lat: number, zoom: number): { x: number; y: number } {

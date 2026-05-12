@@ -198,10 +198,6 @@ type GroupingCandidateFetcher = (
   options?: PropertyTileBuildOptions
 ) => Promise<GroupingCandidate[]>;
 
-type ClosedSocialActivityCutoffOptions = {
-  closedSocialActivityCutoffAt?: string | Date | null;
-};
-
 type RadiusStop = readonly [threshold: number, radiusPx: number];
 
 type CanonicalGroupCacheEntry = {
@@ -218,7 +214,6 @@ type SharedCanonicalBuild = {
 
 export type PropertyTileGroupingOptions = PropertyTileBuildOptions & {
   clusterPropertyIdRetention?: 'complete' | 'preview-only';
-  closedSocialActivityCutoffAt?: string | Date | null;
 };
 
 const CANONICAL_GROUP_CACHE_TTL_MS = 30_000;
@@ -1030,6 +1025,9 @@ function buildCanonicalGroupCacheKey(
     getMapFilterSignature(filters),
     options?.clusterPropertyIdRetention ?? 'complete',
     options?.candidateSnapshotId ?? 'current',
+    options?.closedSocialActivityCutoffAt instanceof Date
+      ? options.closedSocialActivityCutoffAt.toISOString()
+      : options?.closedSocialActivityCutoffAt ?? 'live',
   ].join(':');
 }
 
@@ -1131,7 +1129,7 @@ function getClosedSocialActivityCutoff(
   if (!options?.candidateSnapshotId) {
     return null;
   }
-  const cutoff = (options as ClosedSocialActivityCutoffOptions).closedSocialActivityCutoffAt;
+  const cutoff = options.closedSocialActivityCutoffAt;
   if (cutoff instanceof Date) {
     return cutoff;
   }

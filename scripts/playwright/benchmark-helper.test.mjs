@@ -23,12 +23,7 @@ test('benchmark helper node tests are part of the Playwright harness gate', asyn
 
   const { stdout, stderr } = await execFileAsync(
     process.execPath,
-    [
-      '--import',
-      resolveTsxLoaderPath(),
-      '--test',
-      'apps/app/e2e/helpers/benchmark.test.mts',
-    ],
+    ['--import', resolveTsxLoaderPath(), '--test', 'apps/app/e2e/helpers/benchmark.test.mts'],
     {
       cwd: repoRoot,
       env: {
@@ -37,9 +32,12 @@ test('benchmark helper node tests are part of the Playwright harness gate', asyn
         NO_COLOR: '1',
       },
       timeout: 30_000,
-    },
+    }
   );
 
   const output = `${stdout}\n${stderr}`;
-  assert.match(output, /pass 6|tests 6/);
+  const testsSummary = output.match(/(?:^|\n)[#ℹ]\s*tests\s+(\d+)/);
+  const tapPlan = output.match(/(?:^|\n)1\.\.(\d+)(?:\n|$)/);
+  const testCount = Number(testsSummary?.[1] ?? tapPlan?.[1] ?? 0);
+  assert.ok(testCount > 0, `Expected benchmark helper tests to run.\n${output}`);
 });

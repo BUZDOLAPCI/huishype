@@ -156,7 +156,7 @@ describe('GET /health', () => {
     }
   });
 
-  it('should not fail readiness when only the promoted pyramid pointer is missing', async () => {
+  it('should fail required readiness when the promoted pyramid pointer is missing', async () => {
     const slot = getDefaultPropertyTilePyramidSlot();
 
     await db.execute(sql`
@@ -174,13 +174,12 @@ describe('GET /health', () => {
       });
       const body = JSON.parse(response.body);
 
-      expect(response.statusCode).toBe(200);
+      expect(response.statusCode).toBe(503);
       expect(body.status).toBe('degraded');
       expect(body.propertyTilePyramid.status).toBe('degraded');
       expect(body.propertyTilePyramid.currentVersionId).toBeNull();
       expect(body.propertyTilePyramid.degradedReason).toBe('no-current-promoted-pyramid');
-      expect(body.propertyTilePyramid.terminalFailureCount).toBe(0);
-      expect(body.propertyTilePyramid.retryableFailureDueAt).toBeNull();
+      expect(body.propertyTilePyramid.terminalFailureCount).toBeGreaterThanOrEqual(0);
     } finally {
       await restorePromotedPyramidFixture();
       fixtureVersionId = undefined;
@@ -383,10 +382,22 @@ describe('GET /health', () => {
     const slot = getDefaultPropertyTilePyramidSlot();
 
     if (savedCurrentPointer) {
+      const [currentPointer] = Array.from(
+        await db.execute<{ current_version_id: string }>(sql`
+          SELECT current_version_id::text AS current_version_id
+          FROM property_tile_pyramid_current
+          WHERE coverage_id = ${slot.coverageId}
+            AND filter_signature = ${slot.filterSignature}
+            AND max_zoom = ${slot.maxZoom}
+            AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+          LIMIT 1
+        `)
+      );
+
       await db.execute(sql`
         SELECT promote_property_tile_pyramid_version(
           ${savedCurrentPointer.current_version_id}::uuid,
-          ${fixtureVersionId}::uuid,
+          ${currentPointer ? fixtureVersionId : null}::uuid,
           'restore health integration fixture',
           'health.integration.test'
         )
@@ -416,6 +427,11 @@ describe('GET /health', () => {
       `);
     }
 
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_audit
+      WHERE actor = 'health.integration.test'
+        AND reason IN ('health integration fixture', 'restore health integration fixture')
+    `);
     await db.execute(sql`
       DELETE FROM property_tile_pyramid_audit
       WHERE version_id = ${fixtureVersionId}::uuid

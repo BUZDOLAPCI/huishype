@@ -4,7 +4,6 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import {
   getPropertyTilePyramidHealthSummary,
   getPropertyTilePyramidOpsSummary,
-  type PropertyTilePyramidHealthSummary,
 } from '../services/property-tile-pyramid.js';
 
 const healthResponseSchema = z.object({
@@ -72,18 +71,6 @@ const opsPropertyTilePyramidResponseSchema = z.object({
   }),
 });
 
-function isNonGatingNoCurrentPyramid(
-  pyramid: PropertyTilePyramidHealthSummary
-): boolean {
-  return (
-    pyramid.status === 'degraded' &&
-    pyramid.currentVersionId == null &&
-    pyramid.degradedReason === 'no-current-promoted-pyramid' &&
-    pyramid.terminalFailureCount === 0 &&
-    pyramid.retryableFailureDueAt == null
-  );
-}
-
 export async function healthRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
@@ -104,10 +91,7 @@ export async function healthRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const pyramid = await getPropertyTilePyramidHealthSummary();
       const status = pyramid.status === 'ok' ? ('ok' as const) : ('degraded' as const);
-      const statusCode =
-        status === 'ok' || request.query.allowDegraded || isNonGatingNoCurrentPyramid(pyramid)
-          ? 200
-          : 503;
+      const statusCode = status === 'ok' || request.query.allowDegraded ? 200 : 503;
 
       return reply.code(statusCode).send({
         status,

@@ -1,5 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import { writeFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import {
   buildRepresentativePropertyTileSamples,
   propertyTilePath,
@@ -11,7 +12,7 @@ type ZoomBand = 'z4-z10' | 'z11-z13' | 'z14-z17';
 
 type TileRequest = PropertyTileSample;
 
-type BenchmarkOptions = {
+export type BenchmarkOptions = {
   baseUrl: string;
   warmPasses: number;
   timeoutMs: number;
@@ -20,7 +21,7 @@ type BenchmarkOptions = {
   failColdP95GenOverMs?: number;
 };
 
-type BenchmarkRow = TileRequest & {
+export type BenchmarkRow = TileRequest & {
   phase: Phase;
   status: number | 'error';
   bytes: number;
@@ -30,6 +31,7 @@ type BenchmarkRow = TileRequest & {
   xTileQueueTime: string;
   xTileCoalesced: string;
   xTileBudgetMs: string;
+  xHuisHypeTileStatus: string;
 };
 
 type PhaseSummary = {
@@ -56,7 +58,7 @@ type ColdZoomBandSummary = Omit<PhaseSummary, 'phase'> & {
   zoomBand: ZoomBand;
 };
 
-type BenchmarkSummary = {
+export type BenchmarkSummary = {
   generatedAt: string;
   baseUrl: string;
   tiles: number;
@@ -89,6 +91,7 @@ const CSV_COLUMNS = [
   'x_tile_queue_time',
   'x_tile_coalesced',
   'x_tile_budget_ms',
+  'x_huishype_tile_status',
 ] as const;
 
 function printUsage(): void {
@@ -304,6 +307,7 @@ function rowToCsv(row: BenchmarkRow): string {
     row.xTileQueueTime,
     row.xTileCoalesced,
     row.xTileBudgetMs,
+    row.xHuisHypeTileStatus,
   ]
     .map(csvEscape)
     .join(',');
@@ -340,6 +344,7 @@ async function fetchTile(
       xTileQueueTime: getHeader(response.headers, 'x-tile-queue-time'),
       xTileCoalesced: getHeader(response.headers, 'x-tile-coalesced'),
       xTileBudgetMs: getHeader(response.headers, 'x-tile-budget-ms'),
+      xHuisHypeTileStatus: getHeader(response.headers, 'x-huishype-tile-status'),
     };
   } catch (error) {
     const elapsedClientMs = performance.now() - startedAt;
@@ -355,6 +360,7 @@ async function fetchTile(
       xTileQueueTime: '',
       xTileCoalesced: '',
       xTileBudgetMs: '',
+      xHuisHypeTileStatus: '',
     };
   } finally {
     clearTimeout(timeout);
@@ -389,8 +395,38 @@ function parseDurationMs(value: string): number | null {
   return Number(match[1]);
 }
 
-function isExpectedStatus(row: BenchmarkRow): boolean {
-  return row.status === 200 || row.status === 204;
+function isUnavailablePyramidTile(row: BenchmarkRow): boolean {
+  return row.xTileCache === 'pyramid-unavailable';
+}
+
+function buildPyramidUnavailablePreconditionFailure(
+  rows: BenchmarkRow[],
+  baseUrl: string
+): string | null {
+  const unavailableRows = rows.filter(isUnavailablePyramidTile);
+  if (unavailableRows.length === 0) {
+    return null;
+  }
+
+  const statuses = Array.from(
+    new Set(unavailableRows.map((row) => row.xHuisHypeTileStatus || 'unknown'))
+  ).join(', ');
+  const probe = unavailableRows[0];
+
+  return (
+    `Low-zoom pyramid benchmark precondition failed: ${unavailableRows.length} tile request(s) ` +
+    `returned X-Tile-Cache=pyramid-unavailable (tile statuses: ${statuses}). ` +
+    `benchmark:property-tiles:gate requires a promoted current property tile pyramid before ` +
+    `measuring low-zoom public tiles. If status is pyramid-build-active or pyramid-build-enqueued, ` +
+    `start/verify the worker with "docker compose --profile worker up -d worker" or ` +
+    `"pnpm --filter @huishype/worker dev", wait for promotion, then rerun. ` +
+    `Readiness probe: curl -I ${baseUrl}${propertyTilePath(probe)} should report ` +
+    `X-Tile-Cache=precomputed.`
+  );
+}
+
+export function isExpectedStatus(row: BenchmarkRow): boolean {
+  return (row.status === 200 || row.status === 204) && !isUnavailablePyramidTile(row);
 }
 
 function buildPhaseSummary(rows: BenchmarkRow[], phase: Phase): PhaseSummary {
@@ -436,15 +472,24 @@ function summarizePhaseRows<TIdentity extends { phase: Phase } | { zoomBand: Zoo
   } as TIdentity & Omit<PhaseSummary, 'phase'>;
 }
 
-function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): BenchmarkSummary {
+export function buildSummary(rows: BenchmarkRow[], options: BenchmarkOptions): BenchmarkSummary {
   const byPhase = (['cold', 'warm'] as const).map((phase) => buildPhaseSummary(rows, phase));
   const byColdZoomBand = (['z4-z10', 'z11-z13', 'z14-z17'] as const).map((zoomBand) =>
     buildColdZoomBandSummary(rows, zoomBand)
   );
   const unexpectedStatuses = rows.filter((row) => !isExpectedStatus(row));
-  const failures = unexpectedStatuses.map(
-    (row) => `${row.city} ${row.z}/${row.x}/${row.y} ${row.phase} returned status ${row.status}`
+  const failures = unexpectedStatuses.map((row) =>
+    isUnavailablePyramidTile(row)
+      ? `${row.city} ${row.z}/${row.x}/${row.y} ${row.phase} unavailable pyramid tile status=${row.status} tile_status=${row.xHuisHypeTileStatus || 'unknown'}`
+      : `${row.city} ${row.z}/${row.x}/${row.y} ${row.phase} returned status ${row.status}`
   );
+  const pyramidUnavailablePreconditionFailure = buildPyramidUnavailablePreconditionFailure(
+    rows,
+    options.baseUrl
+  );
+  if (pyramidUnavailablePreconditionFailure) {
+    failures.push(pyramidUnavailablePreconditionFailure);
+  }
 
   const failColdGenOverMs = options.failColdGenOverMs;
   if (failColdGenOverMs !== undefined) {
@@ -550,7 +595,7 @@ function printSummary(summary: BenchmarkSummary): void {
     console.error('Unexpected statuses');
     for (const row of summary.unexpectedStatuses) {
       console.error(
-        `${row.phase} ${row.city} ${row.z}/${row.x}/${row.y}: status=${row.status}, cache=${row.xTileCache}`
+        `${row.phase} ${row.city} ${row.z}/${row.x}/${row.y}: status=${row.status}, cache=${row.xTileCache}, tile_status=${row.xHuisHypeTileStatus || 'unknown'}`
       );
     }
   }
@@ -606,7 +651,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}
