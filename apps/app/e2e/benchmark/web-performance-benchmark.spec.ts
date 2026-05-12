@@ -207,6 +207,7 @@ async function primeWarmMapRoute(page: Page, route: string): Promise<void> {
   const startedAt = performance.now();
   await waitForMapUsable(page, startedAt);
   await waitForInitialMapIdle(page, startedAt);
+  await waitForWarmupNetworkSettled(page);
   await page.waitForTimeout(500);
 }
 
@@ -214,7 +215,17 @@ async function primeWarmFeedRoute(page: Page, route: string): Promise<void> {
   await page.goto(route, { waitUntil: 'domcontentloaded' });
   const startedAt = performance.now();
   await waitForFeedReady(page, startedAt);
+  await waitForWarmupNetworkSettled(page);
   await page.waitForTimeout(500);
+}
+
+async function waitForWarmupNetworkSettled(page: Page): Promise<void> {
+  await page.waitForTimeout(1200);
+  await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch((error: unknown) => {
+    if (!isPlaywrightTimeoutError(error)) {
+      throw error;
+    }
+  });
 }
 
 async function benchmarkMapRoute(
