@@ -405,6 +405,69 @@ describe('property tile pyramid schema safeguards', () => {
     );
   });
 
+  it('rejects direct current pointers to unpromoted versions', async () => {
+    const coverageId = `${coveragePrefix}-direct-current-unpromoted`;
+    const versionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+
+    await expectDbFailure(
+      () =>
+        db.execute(sql`
+        INSERT INTO property_tile_pyramid_current (
+          coverage_id,
+          filter_signature,
+          max_zoom,
+          pyramid_kind,
+          current_version_id,
+          current_promoted_at
+        )
+        VALUES (
+          ${coverageId},
+          'public-default',
+          1,
+          'public_default_low_zoom',
+          ${versionId}::uuid,
+          now()
+        )
+      `),
+      /current pyramid version .* must be promoted, got validated/
+    );
+  });
+
+  it('rejects direct current pointers whose version belongs to another serving slot', async () => {
+    const versionId = await insertPyramidVersion({
+      coverageId: `${coveragePrefix}-slot-a`,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+
+    await expectDbFailure(
+      () =>
+        db.execute(sql`
+        INSERT INTO property_tile_pyramid_current (
+          coverage_id,
+          filter_signature,
+          max_zoom,
+          pyramid_kind,
+          current_version_id,
+          current_promoted_at
+        )
+        VALUES (
+          ${`${coveragePrefix}-slot-b`},
+          'public-default',
+          1,
+          'public_default_low_zoom',
+          ${versionId}::uuid,
+          now()
+        )
+      `),
+      /current pyramid version .* does not match serving slot/
+    );
+  });
+
   it('rejects promotion when a manifest row is not validated and promotable', async () => {
     const versionId = await insertPyramidVersion({ expectedTileCount: 2, validatedTileCount: 2 });
     await insertTileManifest({
@@ -554,6 +617,54 @@ describe('property tile pyramid schema safeguards', () => {
       status: 'validated',
       current_version_id: firstVersionId,
     });
+  });
+
+  it('blocks direct current pointer moves to an already-promoted version', async () => {
+    const coverageId = `${coveragePrefix}-direct-current-promoted`;
+    const firstVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+    await insertTileManifest({
+      versionId: firstVersionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+    await promote(firstVersionId);
+
+    const secondVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+    await insertTileManifest({
+      versionId: secondVersionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+    await promote(secondVersionId, firstVersionId);
+
+    await expectDbFailure(
+      () =>
+        db.execute(sql`
+        UPDATE property_tile_pyramid_current
+        SET
+          current_version_id = ${firstVersionId}::uuid,
+          previous_version_id = ${secondVersionId}::uuid,
+          current_promoted_at = now(),
+          promotion_reason = 'direct bypass'
+        WHERE coverage_id = ${coverageId}
+          AND filter_signature = 'public-default'
+          AND max_zoom = 1
+          AND pyramid_kind = 'public_default_low_zoom'
+      `),
+      /current pyramid pointer changes must use promote_property_tile_pyramid_version/
+    );
   });
 
   it('blocks direct validated-to-promoted updates that bypass the promotion function', async () => {

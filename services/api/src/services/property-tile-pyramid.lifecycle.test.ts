@@ -73,6 +73,62 @@ function withTemporaryEnv<T>(
   });
 }
 
+function makePyramidBuildRow(input: {
+  identity: {
+    configHash: string;
+    buildInputsHash: string;
+    coverageSnapshot: Record<string, unknown>;
+    configSnapshot: Record<string, unknown>;
+    groupingConstants: Record<string, unknown>;
+  };
+  sourceWatermarkHash: string;
+  sourceWatermarksJson?: Record<string, unknown>;
+  status?: 'queued' | 'building';
+  candidateSnapshotId?: string | null;
+  pendingReplacementWatermarksJson?: Record<string, unknown>;
+}) {
+  return {
+    id: 'build-version',
+    status: input.status ?? 'building',
+    coverage_id: 'public_default_low_zoom',
+    filter_signature: 'default',
+    max_zoom: 0,
+    pyramid_kind: 'public_default_low_zoom',
+    config_hash: input.identity.configHash,
+    build_inputs_hash: input.identity.buildInputsHash,
+    source_watermark_hash: input.sourceWatermarkHash,
+    source_watermarks_json: input.sourceWatermarksJson ?? {},
+    candidate_snapshot_id:
+      input.candidateSnapshotId === undefined
+        ? '00000000-0000-0000-0000-0000000000c1'
+        : input.candidateSnapshotId,
+    coverage_snapshot_json: input.identity.coverageSnapshot,
+    config_snapshot_json: input.identity.configSnapshot,
+    grouping_constants_json: input.identity.groupingConstants,
+    pending_replacement_watermarks_json: input.pendingReplacementWatermarksJson ?? {},
+    requested_at: '2026-05-07T09:59:00.000Z',
+    lease_token: 'lease-token',
+    backfill_lock_required: false,
+    backfill_lock_acquired: true,
+  };
+}
+
+function isPyramidCandidateSelectionQuery(queryText: string): boolean {
+  return (
+    queryText.includes('FROM property_tile_pyramid_versions v') &&
+    queryText.includes('JOIN backfill_gate')
+  );
+}
+
+function isPyramidBuildingClaimQuery(queryText: string): boolean {
+  return (
+    queryText.includes('UPDATE property_tile_pyramid_versions') &&
+    queryText.includes("status = 'building'") &&
+    queryText.includes('attempt_count = COALESCE(attempt_count, 0) + 1') &&
+    queryText.includes('lease_token')
+  );
+}
+
 describe('property tile pyramid build lifecycle', () => {
   beforeEach(() => {
     jest.useRealTimers();
@@ -427,31 +483,30 @@ describe('property tile pyramid build lifecycle', () => {
         let sourceWatermarkSnapshotCount = 0;
         executeMock.mockImplementation(async (query) => {
           callIndex += 1;
+          const queryText = JSON.stringify(query);
           if (callIndex === 1) {
             return [{ retryable_version_count: 0 }];
           }
-          if (callIndex === 2) {
+          if (isPyramidCandidateSelectionQuery(queryText)) {
             return [
-              {
-                id: 'build-version',
-                status: 'building',
-                coverage_id: 'public_default_low_zoom',
-                filter_signature: 'default',
-                max_zoom: 0,
-                pyramid_kind: 'public_default_low_zoom',
-                config_hash: identity.configHash,
-                build_inputs_hash: identity.buildInputsHash,
-                source_watermark_hash: emptySourceWatermarks.sourceWatermarkHash,
-                source_watermarks_json: emptySourceWatermarks.sourceWatermarksJson,
-                coverage_snapshot_json: identity.coverageSnapshot,
-                config_snapshot_json: identity.configSnapshot,
-                grouping_constants_json: identity.groupingConstants,
-                pending_replacement_watermarks_json: {},
-                lease_token: 'lease-token',
-              },
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: emptySourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: emptySourceWatermarks.sourceWatermarksJson,
+                status: 'queued',
+              }),
             ];
           }
-          const queryText = JSON.stringify(query);
+          if (isPyramidBuildingClaimQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: emptySourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: emptySourceWatermarks.sourceWatermarksJson,
+                status: 'building',
+              }),
+            ];
+          }
           if (
             queryText.includes('EXPLAIN (FORMAT JSON)') ||
             queryText.includes('FROM property_tile_snapshot_watermarks') ||
@@ -570,30 +625,30 @@ describe('property tile pyramid build lifecycle', () => {
           if (executeCallIndex === 1) {
             return [{ retryable_version_count: 0 }];
           }
-          if (executeCallIndex === 2) {
+          if (isPyramidCandidateSelectionQuery(queryText)) {
             return [
-              {
-                id: 'build-version',
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
+                status: 'queued',
+                candidateSnapshotId: null,
+              }),
+            ];
+          }
+          if (isPyramidBuildingClaimQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
                 status: 'building',
-                coverage_id: 'public_default_low_zoom',
-                filter_signature: 'default',
-                max_zoom: 0,
-                pyramid_kind: 'public_default_low_zoom',
-                config_hash: identity.configHash,
-                build_inputs_hash: identity.buildInputsHash,
-                source_watermark_hash: sourceWatermarks.sourceWatermarkHash,
-                source_watermarks_json: sourceWatermarks.sourceWatermarksJson,
-                candidate_snapshot_id: null,
-                coverage_snapshot_json: identity.coverageSnapshot,
-                config_snapshot_json: identity.configSnapshot,
-                grouping_constants_json: identity.groupingConstants,
-                pending_replacement_watermarks_json: {},
-                lease_token: 'lease-token',
-              },
+              }),
             ];
           }
           if (
             queryText.includes('FROM property_tile_candidate_source_snapshots') ||
+            queryText.includes('FROM property_tile_candidate_source_current') ||
             queryText.includes('FROM property_tile_pyramid_source_watermarks') ||
             queryText.includes('FROM property_tile_snapshot_watermarks') ||
             queryText.includes('FROM ingest_sources') ||
@@ -639,6 +694,230 @@ describe('property tile pyramid build lifecycle', () => {
     );
   });
 
+  it('promotes an already closed candidate as last-known-good when source watermarks advance during active build and requests a successor', async () => {
+    await withTemporaryEnv(
+      {
+        PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
+        PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: '1000000',
+      },
+      async () => {
+        const pyramid = await import('./property-tile-pyramid.js');
+        executeMock.mockResolvedValue([]);
+        const closedSourceWatermarks =
+          await pyramid.readPropertyTilePyramidSourceWatermarkSnapshot();
+        executeMock.mockReset();
+        const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 0,
+          pyramidKind: 'public_default_low_zoom',
+        });
+
+        executeMock.mockImplementation(async (query) => {
+          const queryText = JSON.stringify(query);
+          if (queryText.includes('retryable_version_count')) {
+            return [{ retryable_version_count: 0 }];
+          }
+          if (isPyramidCandidateSelectionQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: closedSourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: closedSourceWatermarks.sourceWatermarksJson,
+                status: 'queued',
+              }),
+            ];
+          }
+          if (isPyramidBuildingClaimQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: closedSourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: closedSourceWatermarks.sourceWatermarksJson,
+                status: 'building',
+              }),
+            ];
+          }
+          if (queryText.includes('FROM property_tile_pyramid_source_watermarks')) {
+            return [
+              {
+                scope: 'listing_facts',
+                scope_key: 'global',
+                watermark_value: '2',
+                watermark_timestamp: '2026-05-07T10:00:00.000Z',
+                updated_at: '2026-05-07T10:00:00.000Z',
+              },
+            ];
+          }
+          if (
+            queryText.includes('FROM property_tile_snapshot_watermarks') ||
+            queryText.includes('FROM ingest_sources') ||
+            queryText.includes('FROM listing_source_scope_watermarks') ||
+            queryText.includes('FROM listing_scope_completions') ||
+            queryText.includes('FROM property_tile_listing_candidates') ||
+            queryText.includes('FROM property_tile_listing_facts') ||
+            queryText.includes('EXPLAIN (FORMAT JSON)')
+          ) {
+            return [];
+          }
+          if (queryText.includes(' AS ok')) {
+            return [{ ok: true }];
+          }
+          if (queryText.includes('active_replacement')) {
+            return [
+              {
+                id: 'successor-version',
+                status: 'queued',
+                next_retry_at: null,
+                queue_eligible: true,
+                pending_replacement: false,
+              },
+            ];
+          }
+          return [{ affected: 1 }];
+        });
+        txExecuteMock.mockImplementation(async (query) => {
+          const queryText = JSON.stringify(query);
+          if (queryText.includes('current_version_id')) {
+            return [];
+          }
+          return [{ affected: 1 }];
+        });
+        enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
+          status: 'enqueued',
+          jobId: 'job-1',
+        });
+
+        const result = await pyramid.executeDuePropertyTilePyramidBuild({
+          leaseOwner: 'unit-test',
+          reason: 'worker-build',
+        });
+
+        expect(result).toMatchObject({
+          status: 'promoted',
+          versionId: 'build-version',
+        });
+        expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+        const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        expect(
+          executedQueries.some((query) =>
+            query.includes('source-watermark-advanced-before-candidate-snapshot')
+          )
+        ).toBe(false);
+        expect(
+          executedQueries.some((query) => query.includes('active_replacement'))
+        ).toBe(true);
+        const txQueries = txExecuteMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        expect(
+          txQueries.some((query) => query.includes('promote_property_tile_pyramid_version'))
+        ).toBe(true);
+      }
+    );
+  });
+
+  it('supersedes pre-closure source-watermark advancement while the candidate is still non-active', async () => {
+    await withTemporaryEnv(
+      {
+        PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
+      },
+      async () => {
+        const pyramid = await import('./property-tile-pyramid.js');
+        executeMock.mockResolvedValue([]);
+        const closedSourceWatermarks =
+          await pyramid.readPropertyTilePyramidSourceWatermarkSnapshot();
+        executeMock.mockReset();
+        const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 0,
+          pyramidKind: 'public_default_low_zoom',
+        });
+
+        executeMock.mockImplementation(async (query) => {
+          const queryText = JSON.stringify(query);
+          if (queryText.includes('retryable_version_count')) {
+            return [{ retryable_version_count: 0 }];
+          }
+          if (isPyramidCandidateSelectionQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: closedSourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: closedSourceWatermarks.sourceWatermarksJson,
+                status: 'queued',
+                candidateSnapshotId: null,
+              }),
+            ];
+          }
+          if (queryText.includes('FROM property_tile_candidate_source_snapshots')) {
+            return [];
+          }
+          if (queryText.includes('FROM property_tile_pyramid_source_watermarks')) {
+            return [
+              {
+                scope: 'listing_facts',
+                scope_key: 'global',
+                watermark_value: '2',
+                watermark_timestamp: '2026-05-07T10:00:00.000Z',
+                updated_at: '2026-05-07T10:00:00.000Z',
+              },
+            ];
+          }
+          if (
+            queryText.includes('FROM property_tile_snapshot_watermarks') ||
+            queryText.includes('FROM ingest_sources') ||
+            queryText.includes('FROM listing_source_scope_watermarks') ||
+            queryText.includes('FROM listing_scope_completions') ||
+            queryText.includes('FROM property_tile_listing_candidates') ||
+            queryText.includes('FROM property_tile_listing_facts')
+          ) {
+            return [];
+          }
+          if (queryText.includes('active_replacement')) {
+            return [
+              {
+                id: 'successor-version',
+                status: 'queued',
+                next_retry_at: null,
+                queue_eligible: true,
+                pending_replacement: false,
+              },
+            ];
+          }
+          return [{ affected: 1 }];
+        });
+        enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
+          status: 'enqueued',
+          jobId: 'job-1',
+        });
+
+        const result = await pyramid.executeDuePropertyTilePyramidBuild({
+          leaseOwner: 'unit-test',
+          reason: 'worker-build',
+        });
+
+        expect(result).toMatchObject({
+          status: 'superseded',
+          versionId: 'build-version',
+          reason: 'source-watermark-advanced-before-candidate-snapshot',
+        });
+        expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+        const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        const preClosureSupersedeQuery =
+          executedQueries.find((query) =>
+            query.includes('source-watermark-advanced-before-candidate-snapshot')
+          ) ?? '';
+        expect(preClosureSupersedeQuery).toContain("status IN ('queued', 'failed_retryable')");
+        expect(preClosureSupersedeQuery).not.toContain("status = 'building'");
+        expect(preClosureSupersedeQuery).not.toContain('lease_owner');
+        expect(
+          executedQueries.some((query) => query.includes('active_replacement'))
+        ).toBe(true);
+        expect(isPyramidBuildingClaimQuery(executedQueries.join('\n'))).toBe(false);
+      }
+    );
+  });
+
   it('uses the configured WAL limit when validating build resources', async () => {
     await withTemporaryEnv(
       {
@@ -653,27 +932,31 @@ describe('property tile pyramid build lifecycle', () => {
           maxZoom: 0,
           pyramidKind: 'public_default_low_zoom',
         });
-        executeMock
-          .mockResolvedValueOnce([{ retryable_version_count: 0 }])
-          .mockResolvedValueOnce([
-            {
-              id: 'build-version',
-              status: 'building',
-              coverage_id: 'public_default_low_zoom',
-              filter_signature: 'default',
-              max_zoom: 0,
-              pyramid_kind: 'public_default_low_zoom',
-              config_hash: identity.configHash,
-              build_inputs_hash: identity.buildInputsHash,
-              source_watermark_hash: 'watermarks',
-              coverage_snapshot_json: identity.coverageSnapshot,
-              config_snapshot_json: identity.configSnapshot,
-              grouping_constants_json: identity.groupingConstants,
-              pending_replacement_watermarks_json: {},
-              lease_token: 'lease-token',
-            },
-          ])
-          .mockResolvedValue([{ affected: 1 }]);
+        executeMock.mockImplementation(async (query) => {
+          const queryText = JSON.stringify(query);
+          if (queryText.includes('retryable_version_count')) {
+            return [{ retryable_version_count: 0 }];
+          }
+          if (isPyramidCandidateSelectionQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: 'watermarks',
+                status: 'queued',
+              }),
+            ];
+          }
+          if (isPyramidBuildingClaimQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: 'watermarks',
+                status: 'building',
+              }),
+            ];
+          }
+          return [{ affected: 1 }];
+        });
 
         const result = await pyramid.executeDuePropertyTilePyramidBuild({
           leaseOwner: 'unit-test',
@@ -751,6 +1034,20 @@ describe('property tile pyramid build lifecycle', () => {
           stale_for_projection: false,
           repair_mode: false,
         },
+      ])
+      .mockResolvedValueOnce([
+        {
+          source: 'property_tile_listing_candidates',
+          candidate_snapshot_id: '00000000-0000-0000-0000-0000000000c1',
+          row_count: '12',
+          max_updated_at: '2026-05-07T09:14:00.000Z',
+        },
+        {
+          source: 'property_tile_listing_facts',
+          candidate_snapshot_id: '00000000-0000-0000-0000-0000000000c1',
+          row_count: '10',
+          max_updated_at: '2026-05-07T09:15:00.000Z',
+        },
       ]);
 
     const { readPropertyTilePyramidSourceWatermarkSnapshot } =
@@ -765,9 +1062,28 @@ describe('property tile pyramid build lifecycle', () => {
         expect.objectContaining({ source: 'ingest_sources' }),
         expect.objectContaining({ source: 'listing_source_scope_watermarks' }),
         expect.objectContaining({ source: 'listing_scope_completions' }),
-        expect.objectContaining({ source: 'rolling_social_window', bucket: 493930 }),
+        expect.objectContaining({
+          source: 'property_tile_listing_candidates',
+          scope: 'current_candidate_source_snapshot',
+          rowCount: '12',
+          maxUpdatedAt: '2026-05-07T09:14:00.000Z',
+        }),
+        expect.objectContaining({
+          source: 'property_tile_listing_facts',
+          scope: 'current_candidate_source_snapshot',
+          rowCount: '10',
+          maxUpdatedAt: '2026-05-07T09:15:00.000Z',
+        }),
+        expect.objectContaining({
+          source: 'rolling_social_window',
+          bucket: 493930,
+          cutoffAt: '2026-05-07T10:00:00.000Z',
+        }),
       ])
     );
+    expect(snapshot.sourceWatermarksJson).toMatchObject({
+      comparableSourceWatermarkHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
   });
 
   it('uses the regenerated payload etag when a promoted tile payload is rebuilt from nodes', async () => {

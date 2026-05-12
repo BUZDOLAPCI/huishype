@@ -198,6 +198,10 @@ type GroupingCandidateFetcher = (
   options?: PropertyTileBuildOptions
 ) => Promise<GroupingCandidate[]>;
 
+type ClosedSocialActivityCutoffOptions = {
+  closedSocialActivityCutoffAt?: string | Date | null;
+};
+
 type RadiusStop = readonly [threshold: number, radiusPx: number];
 
 type CanonicalGroupCacheEntry = {
@@ -214,6 +218,7 @@ type SharedCanonicalBuild = {
 
 export type PropertyTileGroupingOptions = PropertyTileBuildOptions & {
   clusterPropertyIdRetention?: 'complete' | 'preview-only';
+  closedSocialActivityCutoffAt?: string | Date | null;
 };
 
 const CANONICAL_GROUP_CACHE_TTL_MS = 30_000;
@@ -435,6 +440,7 @@ function buildSharedCanonicalOptions(
     signal: sharedBuild.controller.signal,
     clusterPropertyIdRetention: options.clusterPropertyIdRetention,
     candidateSnapshotId: options.candidateSnapshotId,
+    closedSocialActivityCutoffAt: options.closedSocialActivityCutoffAt,
     onStageTiming: options.onStageTiming,
     markUncancellableStage: (active) => {
       options.markUncancellableStage?.(active);
@@ -1119,17 +1125,108 @@ function hasPriceFilters(filters: MapFilters): boolean {
   );
 }
 
-function buildActivityWindowPredicate(column: SQL, activity: MapFilters['activity']): SQL {
+function getClosedSocialActivityCutoff(
+  options?: PropertyTileBuildOptions
+): string | Date | null {
+  if (!options?.candidateSnapshotId) {
+    return null;
+  }
+  const cutoff = (options as ClosedSocialActivityCutoffOptions).closedSocialActivityCutoffAt;
+  if (cutoff instanceof Date) {
+    return cutoff;
+  }
+  if (typeof cutoff === 'string' && cutoff.trim().length > 0) {
+    return cutoff;
+  }
+  return null;
+}
+
+function buildClosedSocialActivityPredicate(
+  column: SQL,
+  options?: PropertyTileBuildOptions
+): SQL {
+  const cutoff = getClosedSocialActivityCutoff(options);
+  return cutoff ? sql`${column} <= ${cutoff}::timestamptz` : sql`TRUE`;
+}
+
+function buildRecentSocialActivityPredicate(
+  column: SQL,
+  options?: PropertyTileBuildOptions
+): SQL {
+  const cutoff = getClosedSocialActivityCutoff(options);
+  return cutoff
+    ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '7 days'
+        AND ${column} <= ${cutoff}::timestamptz`
+    : sql`${column} > NOW() - INTERVAL '7 days'`;
+}
+
+function buildActivityWindowPredicate(
+  column: SQL,
+  activity: MapFilters['activity'],
+  options?: PropertyTileBuildOptions
+): SQL {
+  const cutoff = getClosedSocialActivityCutoff(options);
+  const upperBound = cutoff ? sql`${column} <= ${cutoff}::timestamptz` : null;
+
   if (activity === 'today') {
-    return sql`${column} > NOW() - INTERVAL '24 hours'`;
+    return cutoff
+      ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '24 hours'
+          AND ${upperBound}`
+      : sql`${column} > NOW() - INTERVAL '24 hours'`;
   }
 
   if (activity === '10d') {
-    return sql`${column} > NOW() - INTERVAL '10 days'`;
+    return cutoff
+      ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '10 days'
+          AND ${upperBound}`
+      : sql`${column} > NOW() - INTERVAL '10 days'`;
   }
 
   if (activity === '30d') {
-    return sql`${column} > NOW() - INTERVAL '30 days'`;
+    return cutoff
+      ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '30 days'
+          AND ${upperBound}`
+      : sql`${column} > NOW() - INTERVAL '30 days'`;
+  }
+
+  return upperBound ?? sql`TRUE`;
+}
+
+function buildClosedActivityFilterPredicate(
+  activity: MapFilters['activity'],
+  alias: string,
+  options?: PropertyTileBuildOptions
+): SQL {
+  const cutoff = getClosedSocialActivityCutoff(options);
+  if (!cutoff) {
+    return buildActivityFilterPredicate(activity, alias);
+  }
+
+  const lastSocialAt = sql.raw(`${alias}.last_social_at`);
+  const socialScore = sql.raw(`${alias}.social_score`);
+  const recentSocialScore = sql.raw(`${alias}.recent_social_score`);
+
+  if (activity === 'all-time') {
+    return sql`${lastSocialAt} <= ${cutoff}::timestamptz
+      AND COALESCE(${socialScore}, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}`;
+  }
+
+  if (activity === 'today') {
+    return sql`${lastSocialAt} >= ${cutoff}::timestamptz - INTERVAL '24 hours'
+      AND ${lastSocialAt} <= ${cutoff}::timestamptz
+      AND COALESCE(${recentSocialScore}, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}`;
+  }
+
+  if (activity === '10d') {
+    return sql`${lastSocialAt} >= ${cutoff}::timestamptz - INTERVAL '10 days'
+      AND ${lastSocialAt} <= ${cutoff}::timestamptz
+      AND COALESCE(${recentSocialScore}, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}`;
+  }
+
+  if (activity === '30d') {
+    return sql`${lastSocialAt} >= ${cutoff}::timestamptz - INTERVAL '30 days'
+      AND ${lastSocialAt} <= ${cutoff}::timestamptz
+      AND COALESCE(${recentSocialScore}, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}`;
   }
 
   return sql`TRUE`;
@@ -1525,7 +1622,8 @@ export function buildGroupingCandidateScopeCtes(
   const listingCandidateBboxFilter = buildBoundsFilter(boundsList, sql.raw('lpc.geometry'));
   const activityCandidateFilter = buildActivityWindowPredicate(
     sql.raw('activity_at'),
-    filters.activity
+    filters.activity,
+    options
   );
   const activeBoundedPropertyFilter = sql`p.geometry IS NOT NULL
             AND p.status = 'active'
@@ -1824,7 +1922,11 @@ async function fetchGroupingCandidatesInBBoxes(
 ): Promise<GroupingCandidate[]> {
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'candidate fetch preparation');
-  const activityFilterPredicate = buildActivityFilterPredicate(filters.activity, 'sf');
+  const activityFilterPredicate = buildClosedActivityFilterPredicate(
+    filters.activity,
+    'sf',
+    options
+  );
   const candidateVisibilityFilter = includeGhostCandidates
     ? sql`TRUE`
     : sql`(
@@ -1986,6 +2088,10 @@ async function fetchGroupingCandidatesInBBoxes(
         GREATEST(pg.created_at, pg.updated_at) AS effective_at
       FROM price_guesses pg
       INNER JOIN candidate_properties cp ON cp.id = pg.property_id
+      WHERE ${buildClosedSocialActivityPredicate(
+        sql`GREATEST(pg.created_at, pg.updated_at)`,
+        options
+      )}
       ORDER BY
         pg.property_id,
         pg.user_id,
@@ -1999,7 +2105,7 @@ async function fetchGroupingCandidatesInBBoxes(
         lpg.property_id,
         COUNT(*)::int AS guess_count,
         COUNT(*) FILTER (
-          WHERE lpg.effective_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('lpg.effective_at'), options)}
         )::int AS recent_guess_count,
         MAX(lpg.effective_at) AS latest_guess_at
       FROM latest_public_guesses lpg
@@ -2010,12 +2116,13 @@ async function fetchGroupingCandidatesInBBoxes(
         c.property_id,
         COUNT(*)::int AS count,
         COUNT(*) FILTER (
-          WHERE c.created_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('c.created_at'), options)}
         )::int AS recent_count,
         MAX(c.created_at) AS latest
       FROM comments c
       INNER JOIN candidate_properties cp ON cp.id = c.property_id
       WHERE c.parent_id IS NULL
+        AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
       GROUP BY c.property_id
     ),
     replies AS MATERIALIZED (
@@ -2023,12 +2130,13 @@ async function fetchGroupingCandidatesInBBoxes(
         c.property_id,
         COUNT(*)::int AS count,
         COUNT(*) FILTER (
-          WHERE c.created_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('c.created_at'), options)}
         )::int AS recent_count,
         MAX(c.created_at) AS latest
       FROM comments c
       INNER JOIN candidate_properties cp ON cp.id = c.property_id
       WHERE c.parent_id IS NOT NULL
+        AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
       GROUP BY c.property_id
     ),
     property_likes AS MATERIALIZED (
@@ -2036,13 +2144,14 @@ async function fetchGroupingCandidatesInBBoxes(
         r.target_id AS property_id,
         COUNT(*)::int AS count,
         COUNT(*) FILTER (
-          WHERE r.created_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('r.created_at'), options)}
         )::int AS recent_count,
         MAX(r.created_at) AS latest
       FROM reactions r
       INNER JOIN candidate_properties cp ON cp.id = r.target_id
       WHERE r.target_type = 'property'
         AND r.reaction_type = 'like'
+        AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
       GROUP BY r.target_id
     ),
     comment_likes AS MATERIALIZED (
@@ -2050,7 +2159,7 @@ async function fetchGroupingCandidatesInBBoxes(
         c.property_id,
         COUNT(*)::int AS count,
         COUNT(*) FILTER (
-          WHERE r.created_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('r.created_at'), options)}
         )::int AS recent_count,
         MAX(r.created_at) AS latest
       FROM reactions r
@@ -2058,6 +2167,7 @@ async function fetchGroupingCandidatesInBBoxes(
       INNER JOIN candidate_properties cp ON cp.id = c.property_id
       WHERE r.target_type = 'comment'
         AND r.reaction_type = 'like'
+        AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
       GROUP BY c.property_id
     ),
     view_facts AS MATERIALIZED (
@@ -2065,15 +2175,16 @@ async function fetchGroupingCandidatesInBBoxes(
         pv.property_id,
         COUNT(*)::int AS view_count,
         COUNT(*) FILTER (
-          WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
         )::int AS recent_view_count,
         COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id))::int AS unique_viewer_count,
         COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) FILTER (
-          WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
+          WHERE ${buildRecentSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
         )::int AS recent_unique_viewer_count,
         MAX(pv.viewed_at) AS latest
       FROM property_views pv
       INNER JOIN candidate_properties cp ON cp.id = pv.property_id
+      WHERE ${buildClosedSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
       GROUP BY pv.property_id
     ),
     social_facts AS MATERIALIZED (

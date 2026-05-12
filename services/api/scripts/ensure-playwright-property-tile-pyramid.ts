@@ -77,8 +77,6 @@ async function main(): Promise<void> {
     throw new Error('Playwright pyramid fixture coverage produced no tiles');
   }
 
-  await neutralizeTerminalFailures();
-
   await db.execute(sql`
     INSERT INTO property_tile_candidate_source_snapshots (
       id,
@@ -264,14 +262,6 @@ async function main(): Promise<void> {
       'playwright runtime fixture',
       'playwright-runtime'
     )
-  `);
-}
-
-async function neutralizeTerminalFailures(): Promise<void> {
-  await db.execute(sql`
-    UPDATE property_tile_pyramid_versions
-    SET status = 'superseded', updated_at = now()
-    WHERE status = 'failed_terminal'
   `);
 }
 

@@ -218,6 +218,13 @@
       "when": 1778198400004,
       "tag": "0030_property_tile_candidate_source_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1778198400005,
+      "tag": "0031_property_tile_pyramid_current_intent_guard",
+      "breakpoints": true
     }
   ]
 }

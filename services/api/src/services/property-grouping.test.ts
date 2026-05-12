@@ -15,6 +15,7 @@ import {
   getGhostClusterRadiusPx,
   getGhostSingleRadiusPx,
   buildCanonicalGroupsForTile,
+  buildCanonicalGroupsForTileUncached,
   groupCandidatesForTile,
   lngLatToWorldUnits,
   serializeGroupForTile,
@@ -445,6 +446,38 @@ describe('property-grouping', () => {
     expect(candidateQuery).not.toContain('tile_listing_facts AS MATERIALIZED');
     expect(candidateQuery).not.toContain('FROM tile_listing_facts l');
     expect(transactionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a bound closed timestamp for candidate snapshot social windows', async () => {
+    const closedSocialActivityCutoffAt = '2026-05-07T10:00:00.000Z';
+    const renderedQueries: ReturnType<typeof renderSqlQuery>[] = [];
+    const txExecuteMock = jest.fn(async (query: SQL) => {
+      renderedQueries.push(renderSqlQuery(query));
+      return [] as never;
+    });
+    jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+
+    await expect(
+      buildCanonicalGroupsForTileUncached(
+        { z: 13, x: 4206, y: 2692 },
+        createDefaultMapFilters(),
+        {
+          candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID,
+          closedSocialActivityCutoffAt,
+        }
+      )
+    ).resolves.toEqual([]);
+
+    const candidateQuery = renderedQueries.find((query) =>
+      query.sql.includes('latest_public_guesses AS MATERIALIZED')
+    );
+    expect(candidateQuery).toBeDefined();
+    expect(candidateQuery?.sql).toContain("::timestamptz - INTERVAL '7 days'");
+    expect(candidateQuery?.sql).toContain('<= $');
+    expect(candidateQuery?.sql).not.toContain("NOW() - INTERVAL '7 days'");
+    expect(candidateQuery?.params).toContain(closedSocialActivityCutoffAt);
   });
 
   it('hydrates single-property tile details with a set-based listing fact batch query', async () => {

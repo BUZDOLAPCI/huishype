@@ -34,7 +34,6 @@ describe('GET /health', () => {
   let fixtureVersionId: string | undefined;
   let fixtureCandidateSnapshotId: string | undefined;
   let savedCurrentPointer: SavedCurrentPointer | undefined;
-  let restoredTerminalFailureVersionIds: string[] = [];
 
   beforeAll(async () => {
     await installPromotedPyramidFixture();
@@ -157,6 +156,39 @@ describe('GET /health', () => {
     }
   });
 
+  it('should not fail readiness when only the promoted pyramid pointer is missing', async () => {
+    const slot = getDefaultPropertyTilePyramidSlot();
+
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_current
+      WHERE coverage_id = ${slot.coverageId}
+        AND filter_signature = ${slot.filterSignature}
+        AND max_zoom = ${slot.maxZoom}
+        AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+    `);
+
+    try {
+      const response = await app!.inject({
+        method: 'GET',
+        url: '/health',
+      });
+      const body = JSON.parse(response.body);
+
+      expect(response.statusCode).toBe(200);
+      expect(body.status).toBe('degraded');
+      expect(body.propertyTilePyramid.status).toBe('degraded');
+      expect(body.propertyTilePyramid.currentVersionId).toBeNull();
+      expect(body.propertyTilePyramid.degradedReason).toBe('no-current-promoted-pyramid');
+      expect(body.propertyTilePyramid.terminalFailureCount).toBe(0);
+      expect(body.propertyTilePyramid.retryableFailureDueAt).toBeNull();
+    } finally {
+      await restorePromotedPyramidFixture();
+      fixtureVersionId = undefined;
+      fixtureCandidateSnapshotId = undefined;
+      await installPromotedPyramidFixture();
+    }
+  });
+
   it('should include expected response shape', async () => {
     const response = await app!.inject({
       method: 'GET',
@@ -239,22 +271,6 @@ describe('GET /health', () => {
       `)
     );
     savedCurrentPointer = currentPointer;
-
-    restoredTerminalFailureVersionIds = Array.from(
-      await db.execute<{ id: string }>(sql`
-        SELECT id::text AS id
-        FROM property_tile_pyramid_versions
-        WHERE status = 'failed_terminal'
-      `)
-    ).map((row) => row.id);
-
-    if (restoredTerminalFailureVersionIds.length > 0) {
-      await db.execute(sql`
-        UPDATE property_tile_pyramid_versions
-        SET status = 'superseded', updated_at = now()
-        WHERE id = ANY(${restoredTerminalFailureVersionIds}::uuid[])
-      `);
-    }
 
     await db.execute(sql`
       INSERT INTO property_tile_candidate_source_snapshots (
@@ -368,24 +384,21 @@ describe('GET /health', () => {
 
     if (savedCurrentPointer) {
       await db.execute(sql`
-        UPDATE property_tile_pyramid_current
-        SET
-          current_version_id = ${savedCurrentPointer.current_version_id}::uuid,
-          previous_version_id = ${fixtureVersionId}::uuid,
-          current_promoted_at = ${savedCurrentPointer.current_promoted_at}::timestamptz,
-          promotion_reason = ${savedCurrentPointer.promotion_reason},
-          created_at = ${savedCurrentPointer.created_at}::timestamptz,
-          updated_at = now()
-        WHERE coverage_id = ${slot.coverageId}
-          AND filter_signature = ${slot.filterSignature}
-          AND max_zoom = ${slot.maxZoom}
-          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+        SELECT promote_property_tile_pyramid_version(
+          ${savedCurrentPointer.current_version_id}::uuid,
+          ${fixtureVersionId}::uuid,
+          'restore health integration fixture',
+          'health.integration.test'
+        )
       `);
 
       await db.execute(sql`
         UPDATE property_tile_pyramid_current
         SET
           previous_version_id = ${savedCurrentPointer.previous_version_id}::uuid,
+          current_promoted_at = ${savedCurrentPointer.current_promoted_at}::timestamptz,
+          promotion_reason = ${savedCurrentPointer.promotion_reason},
+          created_at = ${savedCurrentPointer.created_at}::timestamptz,
           updated_at = ${savedCurrentPointer.updated_at}::timestamptz
         WHERE coverage_id = ${slot.coverageId}
           AND filter_signature = ${slot.filterSignature}
@@ -420,14 +433,6 @@ describe('GET /health', () => {
       await db.execute(sql`
         DELETE FROM property_tile_candidate_source_snapshots
         WHERE id = ${fixtureCandidateSnapshotId}::uuid
-      `);
-    }
-
-    if (restoredTerminalFailureVersionIds.length > 0) {
-      await db.execute(sql`
-        UPDATE property_tile_pyramid_versions
-        SET status = 'failed_terminal', updated_at = now()
-        WHERE id = ANY(${restoredTerminalFailureVersionIds}::uuid[])
       `);
     }
   }

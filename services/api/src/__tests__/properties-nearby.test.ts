@@ -520,22 +520,19 @@ async function withHermeticCurrentPyramidNode(
   } finally {
     if (previousCurrent) {
       await db.execute(sql`
-        UPDATE property_tile_pyramid_current
-        SET
-          current_version_id = ${previousCurrent.current_version_id},
-          previous_version_id = ${versionId},
-          current_promoted_at = ${previousCurrent.current_promoted_at},
-          promotion_reason = ${previousCurrent.promotion_reason},
-          updated_at = NOW()
-        WHERE coverage_id = ${slot.coverageId}
-          AND filter_signature = ${slot.filterSignature}
-          AND max_zoom = ${slot.maxZoom}
-          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+        SELECT promote_property_tile_pyramid_version(
+          ${previousCurrent.current_version_id}::uuid,
+          ${versionId}::uuid,
+          'restore nearby test fixture',
+          'jest'
+        )
       `);
       await db.execute(sql`
         UPDATE property_tile_pyramid_current
         SET
           previous_version_id = ${previousCurrent.previous_version_id},
+          current_promoted_at = ${previousCurrent.current_promoted_at},
+          promotion_reason = ${previousCurrent.promotion_reason},
           updated_at = NOW()
         WHERE coverage_id = ${slot.coverageId}
           AND filter_signature = ${slot.filterSignature}
@@ -592,38 +589,19 @@ async function withTemporarilyNoCurrentPyramid(
   } finally {
     if (previousCurrent) {
       await db.execute(sql`
-        INSERT INTO property_tile_pyramid_current (
-          coverage_id,
-          filter_signature,
-          max_zoom,
-          pyramid_kind,
-          current_version_id,
-          previous_version_id,
-          current_promoted_at,
-          promotion_reason
+        SELECT promote_property_tile_pyramid_version(
+          ${previousCurrent.current_version_id}::uuid,
+          NULL::uuid,
+          'restore nearby no-current fixture',
+          'jest'
         )
-        VALUES (
-          ${slot.coverageId},
-          ${slot.filterSignature},
-          ${slot.maxZoom},
-          ${slot.pyramidKind}::property_tile_pyramid_kind,
-          ${previousCurrent.current_version_id},
-          NULL,
-          ${previousCurrent.current_promoted_at},
-          ${previousCurrent.promotion_reason}
-        )
-        ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
-        DO UPDATE SET
-          current_version_id = EXCLUDED.current_version_id,
-          previous_version_id = EXCLUDED.previous_version_id,
-          current_promoted_at = EXCLUDED.current_promoted_at,
-          promotion_reason = EXCLUDED.promotion_reason,
-          updated_at = NOW()
       `);
       await db.execute(sql`
         UPDATE property_tile_pyramid_current
         SET
           previous_version_id = ${previousCurrent.previous_version_id},
+          current_promoted_at = ${previousCurrent.current_promoted_at},
+          promotion_reason = ${previousCurrent.promotion_reason},
           updated_at = NOW()
         WHERE coverage_id = ${slot.coverageId}
           AND filter_signature = ${slot.filterSignature}

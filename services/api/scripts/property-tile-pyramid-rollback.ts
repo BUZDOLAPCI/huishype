@@ -253,53 +253,11 @@ async function applyRollback(
     await validateRollbackTargetVersion(target.id, tx);
 
     await tx.execute(sql`
-      UPDATE property_tile_pyramid_current
-      SET
-        current_version_id = ${target.id}::uuid,
-        previous_version_id = ${pointer.current_version_id}::uuid,
-        current_promoted_at = now(),
-        promotion_reason = ${options.reason},
-        updated_at = now()
-      WHERE coverage_id = ${pointer.coverage_id}
-        AND filter_signature = ${pointer.filter_signature}
-        AND max_zoom = ${pointer.max_zoom}
-        AND pyramid_kind = ${pointer.pyramid_kind}::property_tile_pyramid_kind
-    `);
-
-    await tx.execute(sql`
-      INSERT INTO property_tile_pyramid_audit (
-        version_id,
-        coverage_id,
-        filter_signature,
-        max_zoom,
-        pyramid_kind,
-        action,
-        actor,
-        from_status,
-        to_status,
-        previous_version_id,
-        current_version_id,
-        reason,
-        details_json
-      )
-      VALUES (
+      SELECT promote_property_tile_pyramid_version(
         ${target.id}::uuid,
-        ${pointer.coverage_id},
-        ${pointer.filter_signature},
-        ${pointer.max_zoom},
-        ${pointer.pyramid_kind}::property_tile_pyramid_kind,
-        'rollback',
-        ${options.actor},
-        'promoted',
-        'promoted',
         ${pointer.current_version_id}::uuid,
-        ${target.id}::uuid,
         ${options.reason},
-        ${JSON.stringify({
-          fromVersionId: pointer.current_version_id,
-          toVersionId: target.id,
-          previousPromotedAt: pointer.current_promoted_at,
-        })}::jsonb
+        ${options.actor}
       )
     `);
   });

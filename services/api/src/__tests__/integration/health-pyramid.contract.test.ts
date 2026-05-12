@@ -91,7 +91,7 @@ describe('property tile pyramid health and ops contracts', () => {
     });
   });
 
-  it('fails required /health readiness when no current promoted pyramid exists', async () => {
+  it('keeps /health readiness non-gating when only no current promoted pyramid exists', async () => {
     getPropertyTilePyramidHealthSummaryMock.mockResolvedValueOnce(
       baseHealthSummary({
         status: 'degraded',
@@ -106,7 +106,7 @@ describe('property tile pyramid health and ops contracts', () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
     const body = JSON.parse(response.body);
 
-    expect(response.statusCode).toBe(503);
+    expect(response.statusCode).toBe(200);
     expect(body.status).toBe('degraded');
     expect(body.propertyTilePyramid).toMatchObject({
       status: 'degraded',
@@ -116,15 +116,42 @@ describe('property tile pyramid health and ops contracts', () => {
     });
   });
 
-  it('allows degraded /health only when explicitly marked non-gating', async () => {
+  it('fails required /health readiness when no current pyramid also has retryable failure state', async () => {
     getPropertyTilePyramidHealthSummaryMock.mockResolvedValueOnce(
       baseHealthSummary({
         status: 'degraded',
         currentVersionId: null,
         currentPromotedAt: null,
         degradedReason: 'no-current-promoted-pyramid',
+        activeCandidateVersionId,
+        activeCandidateStatus: 'failed_retryable',
+        retryableFailureDueAt: '2026-05-07T08:15:00.000Z',
         encodedCoverageRatio: null,
         lastSuccessfulPromotionAt: null,
+      })
+    );
+
+    const response = await app.inject({ method: 'GET', url: '/health' });
+    const body = JSON.parse(response.body);
+
+    expect(response.statusCode).toBe(503);
+    expect(body.status).toBe('degraded');
+    expect(body.propertyTilePyramid).toMatchObject({
+      status: 'degraded',
+      currentVersionId: null,
+      degradedReason: 'no-current-promoted-pyramid',
+      activeCandidateVersionId,
+      retryableFailureDueAt: '2026-05-07T08:15:00.000Z',
+    });
+  });
+
+  it('allows degraded /health when explicitly marked non-gating', async () => {
+    getPropertyTilePyramidHealthSummaryMock.mockResolvedValueOnce(
+      baseHealthSummary({
+        status: 'degraded',
+        currentVersionId: promotedVersionId,
+        degradedReason: 'current-pyramid-degraded',
+        encodedCoverageRatio: null,
       })
     );
 
@@ -138,8 +165,8 @@ describe('property tile pyramid health and ops contracts', () => {
     expect(body.status).toBe('degraded');
     expect(body.propertyTilePyramid).toMatchObject({
       status: 'degraded',
-      currentVersionId: null,
-      degradedReason: 'no-current-promoted-pyramid',
+      currentVersionId: promotedVersionId,
+      degradedReason: 'current-pyramid-degraded',
     });
   });
 
