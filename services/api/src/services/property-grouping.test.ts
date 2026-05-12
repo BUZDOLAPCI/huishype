@@ -33,6 +33,7 @@ import {
 } from './property-tile-runtime.js';
 
 const dialect = new PgDialect();
+const TEST_CANDIDATE_SNAPSHOT_ID = '00000000-0000-0000-0000-00000000c001';
 
 function renderSql(query: SQL) {
   return dialect.sqlToQuery(query).sql;
@@ -169,7 +170,8 @@ describe('property-grouping', () => {
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       createDefaultMapFilters(),
-      13
+      13,
+      { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -182,6 +184,7 @@ describe('property-grouping', () => {
       'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
     );
     expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
+    expect(text).toContain('lpc.snapshot_id = $');
     expect(text).not.toContain('FROM canonical_listings cl INNER JOIN properties p');
     expect(text).toContain('FROM comments c INNER JOIN properties p ON p.id = c.property_id');
     expect(text).toContain('INNER JOIN properties p ON p.id = r.target_id');
@@ -225,7 +228,8 @@ describe('property-grouping', () => {
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       createDefaultMapFilters(),
-      14
+      14,
+      { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -238,6 +242,7 @@ describe('property-grouping', () => {
       'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
     );
     expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
+    expect(text).toContain('lpc.snapshot_id = $');
     expect(text).toContain('bounded_social_properties AS MATERIALIZED');
     expect(text).toContain(
       'SELECT p.id, p.geometry, p.official_valuation FROM properties p WHERE p.geometry IS NOT NULL'
@@ -331,7 +336,8 @@ describe('property-grouping', () => {
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       false,
       normalizeMapFilters({ marketState: ['for-sale', 'for-rent', 'sold', 'rented'] }),
-      10
+      10,
+      { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
     );
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
@@ -341,6 +347,7 @@ describe('property-grouping', () => {
       'SELECT lpc.property_id AS id, lpc.geometry, lpc.official_valuation FROM property_tile_listing_candidates lpc'
     );
     expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
+    expect(text).toContain('lpc.snapshot_id = $');
     expect(text).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
     expect(text).toContain('FROM listing_candidate_properties lcp');
@@ -414,7 +421,11 @@ describe('property-grouping', () => {
       .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
 
     await expect(
-      buildCanonicalGroupsForTile({ z: 13, x: 4206, y: 2692 }, createDefaultMapFilters())
+      buildCanonicalGroupsForTile(
+        { z: 13, x: 4206, y: 2692 },
+        createDefaultMapFilters(),
+        { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID },
+      )
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((text) =>
@@ -425,6 +436,7 @@ describe('property-grouping', () => {
     expect(candidateQuery).toContain(
       'FROM candidate_properties cp LEFT JOIN property_tile_listing_facts ptlf ON ptlf.property_id = cp.id'
     );
+    expect(candidateQuery).toContain('ptlf.snapshot_id = $');
     expect(candidateQuery).toContain('COALESCE(ptlf.has_active_listing, FALSE)');
     expect(candidateQuery).toContain('COALESCE(ptlf.has_completed_listing, FALSE)');
     expect(candidateQuery).toContain("COALESCE(ptlf.market_state, 'not-listed')");

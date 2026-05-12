@@ -10,14 +10,16 @@ const txExecuteMock = jest.fn<ExecuteMock>();
 const transactionMock = jest.fn<TransactionMock>();
 const enqueuePropertyTilePyramidBuildMock = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const buildGroupsMock = jest.fn<(...args: unknown[]) => Promise<unknown[]>>();
+const reserveDbConnectionMock = jest.fn<() => Promise<unknown>>();
 
 jest.unstable_mockModule('../db/index.js', () => ({
-  db: {
-    execute: executeMock,
-    transaction: transactionMock,
-  },
-  closeConnection: async () => undefined,
-}));
+	  db: {
+	    execute: executeMock,
+	    transaction: transactionMock,
+	  },
+	  reserveDbConnection: reserveDbConnectionMock,
+	  closeConnection: async () => undefined,
+	}));
 
 jest.unstable_mockModule('./ingest/queue.js', () => ({
   enqueuePropertyTilePyramidBuild: enqueuePropertyTilePyramidBuildMock,
@@ -81,7 +83,12 @@ describe('property tile pyramid build lifecycle', () => {
     txExecuteMock.mockReset();
     enqueuePropertyTilePyramidBuildMock.mockReset();
     buildGroupsMock.mockReset();
+    reserveDbConnectionMock.mockReset();
     buildGroupsMock.mockResolvedValue([]);
+    reserveDbConnectionMock.mockResolvedValue(Object.assign(
+      async () => [{ locked: true, required: false }],
+      { release: jest.fn() },
+    ));
     transactionMock.mockImplementation(async (run) => run({ execute: txExecuteMock }));
   });
 
@@ -116,6 +123,7 @@ describe('property tile pyramid build lifecycle', () => {
   it('dispatches BullMQ only after Postgres returns a queue-eligible version', async () => {
     executeMock
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: 'queued-version',
@@ -149,6 +157,7 @@ describe('property tile pyramid build lifecycle', () => {
   it('creates a repair replacement when a promoted version has corrupt tile state but source watermarks are unchanged', async () => {
     executeMock
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: 'repair-version',
@@ -181,6 +190,7 @@ describe('property tile pyramid build lifecycle', () => {
 
   it('reports enqueue failure instead of claiming the durable request was enqueued', async () => {
     executeMock
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
@@ -217,6 +227,7 @@ describe('property tile pyramid build lifecycle', () => {
   it('records pending replacement metadata instead of dispatching a duplicate active build for the slot', async () => {
     executeMock
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: 'active-version',
@@ -242,7 +253,7 @@ describe('property tile pyramid build lifecycle', () => {
       reason: 'pending-replacement-recorded',
     });
     expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-    const requestQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
+    const requestQuery = JSON.stringify(executeMock.mock.calls[2]?.[0]);
     expect(requestQuery).toContain('active_replacement');
     expect(requestQuery).toContain('pending_replacement_watermarks_json');
     expect(requestQuery).toContain("status IN ('building', 'validating')");
@@ -251,6 +262,7 @@ describe('property tile pyramid build lifecycle', () => {
 
   it('does not record pending replacement metadata for same comparable source watermarks', async () => {
     executeMock
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
@@ -277,7 +289,7 @@ describe('property tile pyramid build lifecycle', () => {
     });
     expect(result.reason).toBeUndefined();
     expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-    const requestQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
+    const requestQuery = JSON.stringify(executeMock.mock.calls[2]?.[0]);
     expect(requestQuery).toContain('active_same');
     expect(requestQuery).toContain('comparable_source_watermark_hash');
     expect(requestQuery).toContain('pending_replacement_watermarks_json');
@@ -286,6 +298,7 @@ describe('property tile pyramid build lifecycle', () => {
 
   it('supersedes a stale queued candidate before inserting newer queued inputs for the same slot', async () => {
     executeMock
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
@@ -315,12 +328,15 @@ describe('property tile pyramid build lifecycle', () => {
       existingStatus: 'queued',
     });
     expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
-    const requestQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
-    expect(requestQuery).toContain('superseded_queued');
-    expect(requestQuery).toContain("status = 'queued'");
-    expect(requestQuery).toContain("status = 'superseded'");
-    expect(requestQuery).toContain('source_watermark_hash =');
-    expect(requestQuery).toContain('AND NOT EXISTS (SELECT 1 FROM active_replacement)');
+    const supersedeQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
+    const requestQuery = JSON.stringify(executeMock.mock.calls[2]?.[0]);
+    expect(supersedeQuery).toContain("status = 'queued'");
+    expect(supersedeQuery).toContain("status = 'failed_retryable'");
+    expect(supersedeQuery).toContain('build_started_at IS NULL');
+    expect(supersedeQuery).toContain("status = 'superseded'");
+    expect(supersedeQuery).toContain('source_watermark_hash =');
+    expect(supersedeQuery).toContain('NOT EXISTS');
+    expect(requestQuery).toContain('active_replacement');
   });
 
   it('throttles worker recovery build requests through mutation coalescing when there is no active recovery work', async () => {
@@ -354,6 +370,7 @@ describe('property tile pyramid build lifecycle', () => {
     ['legacy validated'],
   ])('enqueues a recovered %s build identity instead of coalescing', async () => {
     executeMock
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
@@ -522,7 +539,7 @@ describe('property tile pyramid build lifecycle', () => {
     const leaseQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
     expect(leaseQuery).toContain('id =');
     expect(leaseQuery).toContain('00000000-0000-0000-0000-000000000123');
-    expect(leaseQuery).toContain('property_tile_pyramid_backfill');
+    expect(reserveDbConnectionMock).toHaveBeenCalled();
   });
 
   it('uses the configured WAL limit when validating build resources', async () => {
@@ -632,9 +649,7 @@ describe('property tile pyramid build lifecycle', () => {
           stale_for_projection: false,
           repair_mode: false,
         },
-      ])
-      .mockResolvedValueOnce([{ row_count: '10', max_updated_at: '2026-05-07T09:14:00.000Z' }])
-      .mockResolvedValueOnce([{ row_count: '11', max_updated_at: '2026-05-07T09:15:00.000Z' }]);
+      ]);
 
     const { readPropertyTilePyramidSourceWatermarkSnapshot } = await import('./property-tile-pyramid.js');
     const snapshot = await readPropertyTilePyramidSourceWatermarkSnapshot();
@@ -646,8 +661,6 @@ describe('property tile pyramid build lifecycle', () => {
       expect.objectContaining({ source: 'ingest_sources' }),
       expect.objectContaining({ source: 'listing_source_scope_watermarks' }),
       expect.objectContaining({ source: 'listing_scope_completions' }),
-      expect.objectContaining({ source: 'property_tile_listing_candidates' }),
-      expect.objectContaining({ source: 'property_tile_listing_facts' }),
       expect.objectContaining({ source: 'rolling_social_window', bucket: 493930 }),
     ]));
   });
@@ -761,13 +774,11 @@ describe('property tile pyramid build lifecycle', () => {
 
   it('runs retention through chunked child-table cleanup before deleting versions', async () => {
     executeMock
-      .mockResolvedValueOnce([{ locked: true }])
       .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }])
-      .mockResolvedValueOnce([{ affected: 0 }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ affected: 0 }]);
 
     const { runPropertyTilePyramidRetention } = await import('./property-tile-pyramid.js');
     const result = await runPropertyTilePyramidRetention();
@@ -781,7 +792,6 @@ describe('property tile pyramid build lifecycle', () => {
       deletedVersions: 0,
     });
     const retentionQueries = executeMock.mock.calls
-      .slice(1, -1)
       .map((call) => JSON.stringify(call[0]))
       .join('\n');
     expect(retentionQueries).toContain('LIMIT 10000');

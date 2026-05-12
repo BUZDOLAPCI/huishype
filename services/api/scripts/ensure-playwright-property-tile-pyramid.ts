@@ -65,7 +65,9 @@ async function main(): Promise<void> {
   }
 
   const versionId = randomUUID();
+  const candidateSnapshotId = randomUUID();
   const unique = randomUUID();
+  const sourceWatermarkHash = `playwright-watermarks-${unique}`;
   const tiles = coveredTiles(slot.maxZoom);
   const clusterTile = {
     z: slot.maxZoom,
@@ -78,6 +80,35 @@ async function main(): Promise<void> {
   await neutralizeTerminalFailures();
 
   await db.execute(sql`
+    INSERT INTO property_tile_candidate_source_snapshots (
+      id,
+      coverage_id,
+      filter_signature,
+      pyramid_kind,
+      source_watermark_hash,
+      comparable_source_watermark_hash,
+      source_watermarks_json,
+      status,
+      candidate_row_count,
+      fact_row_count,
+      build_finished_at
+    )
+    VALUES (
+      ${candidateSnapshotId}::uuid,
+      ${slot.coverageId},
+      ${slot.filterSignature},
+      ${slot.pyramidKind}::property_tile_pyramid_kind,
+      ${sourceWatermarkHash},
+      ${sourceWatermarkHash},
+      ${JSON.stringify({ sources: [{ source: 'playwright-runtime' }] })}::jsonb,
+      'ready',
+      0,
+      0,
+      now()
+    )
+  `);
+
+  await db.execute(sql`
     INSERT INTO property_tile_pyramid_versions (
       id,
       coverage_id,
@@ -87,6 +118,8 @@ async function main(): Promise<void> {
       config_hash,
       build_inputs_hash,
       source_watermark_hash,
+      source_watermarks_json,
+      candidate_snapshot_id,
       coverage_snapshot_json,
       status,
       expected_tile_count,
@@ -102,7 +135,9 @@ async function main(): Promise<void> {
       ${slot.pyramidKind}::property_tile_pyramid_kind,
       ${`playwright-config-${unique}`},
       ${`playwright-inputs-${unique}`},
-      ${`playwright-watermarks-${unique}`},
+      ${sourceWatermarkHash},
+      ${JSON.stringify({ sources: [{ source: 'playwright-runtime' }] })}::jsonb,
+      ${candidateSnapshotId}::uuid,
       ${JSON.stringify({
         coverageId: slot.coverageId,
         boundsSource: 'playwright',

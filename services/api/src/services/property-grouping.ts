@@ -37,6 +37,7 @@ const TILE_SIZE_PX = 512;
 const TILE_UNITS_PER_PX = PROPERTY_TILE_EXTENT / TILE_SIZE_PX;
 export const GHOST_NODE_REVEAL_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
 const SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM = 14;
+const DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM = 10;
 
 const ACTIVE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active;
 const GHOST_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost;
@@ -396,9 +397,9 @@ function getSharedCanonicalBudgetMs(): number {
 }
 
 function buildSharedCanonicalOptions(
-  options: PropertyTileBuildOptions | undefined,
+  options: PropertyTileGroupingOptions | undefined,
   sharedBuild: SharedCanonicalBuild
-): PropertyTileBuildOptions {
+): PropertyTileGroupingOptions {
   const now = Date.now();
   if (!options) {
     return {
@@ -432,6 +433,8 @@ function buildSharedCanonicalOptions(
     runtimeStartedAtMs: now,
     runtimeDeadlineMs,
     signal: sharedBuild.controller.signal,
+    clusterPropertyIdRetention: options.clusterPropertyIdRetention,
+    candidateSnapshotId: options.candidateSnapshotId,
     onStageTiming: options.onStageTiming,
     markUncancellableStage: (active) => {
       options.markUncancellableStage?.(active);
@@ -441,8 +444,8 @@ function buildSharedCanonicalOptions(
 }
 
 function createSharedCanonicalBuild(
-  options: PropertyTileBuildOptions | undefined,
-  build: (sharedOptions: PropertyTileBuildOptions) => Promise<CanonicalPropertyGroup[]>
+  options: PropertyTileGroupingOptions | undefined,
+  build: (sharedOptions: PropertyTileGroupingOptions) => Promise<CanonicalPropertyGroup[]>
 ): SharedCanonicalBuild {
   const sharedBuild: SharedCanonicalBuild = {
     promise: Promise.resolve([]),
@@ -1002,8 +1005,26 @@ function tileKey(tile: TileId): string {
   return `${tile.z}:${tile.x}:${tile.y}`;
 }
 
-function buildCanonicalGroupCacheKey(tile: TileId, filters: MapFilters): string {
-  return `${tile.z}/${tile.x}/${tile.y}:${getMapFilterSignature(filters)}`;
+function getPropertyTilePyramidReadMaxZoom(): number {
+  const raw = process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM;
+  if (raw == null || raw.trim() === '') {
+    return DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(22, parsed) : DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM;
+}
+
+function buildCanonicalGroupCacheKey(
+  tile: TileId,
+  filters: MapFilters,
+  options?: PropertyTileGroupingOptions
+): string {
+  return [
+    `${tile.z}/${tile.x}/${tile.y}`,
+    getMapFilterSignature(filters),
+    options?.clusterPropertyIdRetention ?? 'complete',
+    options?.candidateSnapshotId ?? 'current',
+  ].join(':');
 }
 
 function pruneCanonicalGroupCache(now = Date.now()): void {
@@ -1016,10 +1037,11 @@ function pruneCanonicalGroupCache(now = Date.now()): void {
 
 function getCachedCanonicalGroups(
   tile: TileId,
-  filters: MapFilters
+  filters: MapFilters,
+  options?: PropertyTileGroupingOptions
 ): CanonicalPropertyGroup[] | null {
   const now = Date.now();
-  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters, options);
   const entry = canonicalGroupCache.get(cacheKey);
 
   if (!entry) {
@@ -1039,10 +1061,11 @@ function getCachedCanonicalGroups(
 function setCachedCanonicalGroups(
   tile: TileId,
   filters: MapFilters,
-  groups: CanonicalPropertyGroup[]
+  groups: CanonicalPropertyGroup[],
+  options?: PropertyTileGroupingOptions
 ): void {
   const now = Date.now();
-  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters, options);
 
   pruneCanonicalGroupCache(now);
   if (canonicalGroupCache.has(cacheKey)) {
@@ -1387,7 +1410,93 @@ function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target
   `;
 }
 
-function buildTileListingFactsProjectionCte(): SQL {
+function candidateSnapshotFilter(alias: string, options?: PropertyTileBuildOptions): SQL {
+  const requestedSnapshotId = options?.candidateSnapshotId ?? null;
+  const snapshotIdColumn = sql.raw(`${alias}.snapshot_id`);
+  return requestedSnapshotId
+    ? sql`${snapshotIdColumn} = ${requestedSnapshotId}::uuid`
+    : sql`${snapshotIdColumn} = (
+        SELECT c."snapshot_id"
+        FROM property_tile_candidate_source_current c
+        WHERE c."coverage_id" = 'public_default_low_zoom'
+          AND c."filter_signature" = 'default'
+          AND c."pyramid_kind" = 'public_default_low_zoom'
+        LIMIT 1
+      )`;
+}
+
+function buildTileListingFactsProjectionCte(options?: PropertyTileBuildOptions): SQL {
+  if (!options?.candidateSnapshotId) {
+    return sql`
+      latest_listing AS MATERIALIZED (
+        SELECT DISTINCT ON (cl.property_id)
+          cl.property_id,
+          cl.status::text AS status
+        FROM canonical_listings cl
+        INNER JOIN candidate_properties cp ON cp.id = cl.property_id
+        WHERE cl.verification_state <> 'invalid'
+        ORDER BY
+          cl.property_id,
+          COALESCE(
+            cl.last_reconciled_at,
+            cl.last_mirror_seen_at,
+            cl.last_user_seen_at,
+            cl.last_seen_at,
+            cl.updated_at,
+            cl.created_at
+          ) DESC,
+          cl.created_at DESC,
+          cl.id DESC
+      ),
+      active_listing AS MATERIALIZED (
+        SELECT DISTINCT ON (cl.property_id)
+          cl.property_id,
+          ${buildTileListingPriceTypeExpression('cl')} AS price_type
+        FROM canonical_listings cl
+        INNER JOIN candidate_properties cp ON cp.id = cl.property_id
+        WHERE cl.verification_state <> 'invalid'
+          AND cl.status = 'active'
+        ORDER BY
+          cl.property_id,
+          COALESCE(
+            cl.last_reconciled_at,
+            cl.last_mirror_seen_at,
+            cl.last_user_seen_at,
+            cl.last_seen_at,
+            cl.updated_at,
+            cl.created_at
+          ) DESC,
+          cl.created_at DESC,
+          cl.id DESC
+      ),
+      listing_facts AS MATERIALIZED (
+        SELECT
+          cp.id AS property_id,
+          active_listing.property_id IS NOT NULL AS has_active_listing,
+          (
+            active_listing.property_id IS NULL
+            AND latest_listing.status IN ('sold', 'rented')
+          ) AS has_completed_listing,
+          CASE
+            WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+              THEN 'for-rent'
+            WHEN active_listing.property_id IS NOT NULL
+              THEN 'for-sale'
+            WHEN latest_listing.status = 'sold'
+              THEN 'sold'
+            WHEN latest_listing.status = 'rented'
+              THEN 'rented'
+            ELSE 'not-listed'
+          END AS market_state,
+          NULL::bigint AS sale_effective_price,
+          NULL::bigint AS rent_effective_price
+        FROM candidate_properties cp
+        LEFT JOIN latest_listing ON latest_listing.property_id = cp.id
+        LEFT JOIN active_listing ON active_listing.property_id = cp.id
+      )
+    `;
+  }
+
   return sql`
     listing_facts AS MATERIALIZED (
       SELECT
@@ -1398,7 +1507,9 @@ function buildTileListingFactsProjectionCte(): SQL {
         NULL::bigint AS sale_effective_price,
         NULL::bigint AS rent_effective_price
       FROM candidate_properties cp
-      LEFT JOIN property_tile_listing_facts ptlf ON ptlf.property_id = cp.id
+      LEFT JOIN property_tile_listing_facts ptlf
+        ON ptlf.property_id = cp.id
+       AND ${candidateSnapshotFilter('ptlf', options)}
     )
   `;
 }
@@ -1407,7 +1518,8 @@ export function buildGroupingCandidateScopeCtes(
   boundsList: TileBBox[],
   includeGhostCandidates: boolean,
   filters: MapFilters,
-  zoom: number
+  zoom: number,
+  options?: PropertyTileBuildOptions
 ): SQL {
   const bboxFilter = buildBoundsFilter(boundsList, sql.raw('p.geometry'));
   const listingCandidateBboxFilter = buildBoundsFilter(boundsList, sql.raw('lpc.geometry'));
@@ -1420,7 +1532,9 @@ export function buildGroupingCandidateScopeCtes(
             AND (${bboxFilter})`;
   const canIncludeSocialOnlyCandidates = filters.marketState.includes('not-listed');
   const useSourceFirstCandidateScope =
-    !includeGhostCandidates && zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
+    options?.candidateSnapshotId != null
+    && !includeGhostCandidates
+    && zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
   const useBoundedSocialCandidateScope = useSourceFirstCandidateScope && zoom >= 14;
 
   if (includeGhostCandidates) {
@@ -1550,6 +1664,7 @@ export function buildGroupingCandidateScopeCtes(
             lpc.official_valuation
           FROM property_tile_listing_candidates lpc
           WHERE ${listingCandidateBboxFilter}
+            AND ${candidateSnapshotFilter('lpc', options)}
         )
         ${
           canIncludeSocialOnlyCandidates && useBoundedSocialCandidateScope
@@ -1726,7 +1841,8 @@ async function fetchGroupingCandidatesInBBoxes(
     boundsList,
     includeGhostCandidates,
     filters,
-    zoom
+    zoom,
+    options
   );
   const listingFactsCtes = includeEffectivePrices
     ? sql`
@@ -1856,7 +1972,7 @@ async function fetchGroupingCandidatesInBBoxes(
           LEFT JOIN guess_facts ON guess_facts.property_id = cp.id
         )
       `
-    : buildTileListingFactsProjectionCte();
+    : buildTileListingFactsProjectionCte(options);
 
   const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
     sql`
@@ -2487,10 +2603,10 @@ async function buildUnhydratedCanonicalGroupsForTile(
 async function buildUnhydratedCanonicalGroupsForTileWithCoalescing(
   tile: TileId,
   filters: MapFilters,
-  options?: PropertyTileBuildOptions
+  options?: PropertyTileGroupingOptions
 ): Promise<CanonicalPropertyGroup[]> {
   assertTileBuildCanContinue(options, Date.now(), 'shared unhydrated canonical grouping');
-  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters, options);
   const pendingBuild = pendingUnhydratedCanonicalGroupBuilds.get(cacheKey);
   if (pendingBuild) {
     if (pendingBuild.controller.signal.aborted) {
@@ -2542,12 +2658,12 @@ export async function buildCanonicalGroupsForTile(
   options?: PropertyTileBuildOptions
 ): Promise<CanonicalPropertyGroup[]> {
   assertTileBuildCanContinue(options, Date.now(), 'shared canonical grouping');
-  const cachedGroups = getCachedCanonicalGroups(tile, filters);
+  const cachedGroups = getCachedCanonicalGroups(tile, filters, options);
   if (cachedGroups) {
     return cachedGroups;
   }
 
-  const cacheKey = buildCanonicalGroupCacheKey(tile, filters);
+  const cacheKey = buildCanonicalGroupCacheKey(tile, filters, options);
   const pendingBuild = getViablePendingCanonicalBuild(cacheKey);
   if (pendingBuild) {
     return waitForPendingCanonicalBuild(pendingBuild, options);
@@ -2566,7 +2682,7 @@ export async function buildCanonicalGroupsForTile(
       (result) => result.length
     );
     assertTileBuildCanContinue(sharedOptions, Date.now(), 'shared canonical cache publish');
-    setCachedCanonicalGroups(tile, filters, groups);
+    setCachedCanonicalGroups(tile, filters, groups, options);
     return groups;
   });
 
@@ -2618,15 +2734,20 @@ export async function buildReadCanonicalGroupsForTile(
     return [];
   }
 
-  const cachedGroups = getCachedCanonicalGroups(tile, filters);
+  const groupingOptions: PropertyTileGroupingOptions | undefined =
+    areMapFiltersDefault(filters) && tile.z <= getPropertyTilePyramidReadMaxZoom()
+      ? { ...options, clusterPropertyIdRetention: 'preview-only' }
+      : options;
+
+  const cachedGroups = getCachedCanonicalGroups(tile, filters, groupingOptions);
   if (cachedGroups) {
-    return filterReadGroupsWithTileOptions(cachedGroups, viewer, options);
+    return filterReadGroupsWithTileOptions(cachedGroups, viewer, groupingOptions);
   }
 
   const readGroups = await filterReadGroupsWithTileOptions(
-    await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, options),
+    await buildUnhydratedCanonicalGroupsForTileWithCoalescing(tile, filters, groupingOptions),
     viewer,
-    options
+    groupingOptions
   );
 
   if (readGroups.length === 0) {

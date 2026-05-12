@@ -277,6 +277,7 @@ async function withHermeticCurrentPyramidNode(
   const tileStatus = options.tileStatus ?? 'valid_nodes';
   const slot = getDefaultPropertyTilePyramidSlot();
   const versionId = crypto.randomUUID();
+  const candidateSnapshotId = crypto.randomUUID();
   const nodeId = `nearby-fractional-${versionId}`;
   const propertyIds = [crypto.randomUUID(), crypto.randomUUID()];
   const lon = options.lon ?? 5.812845;
@@ -351,6 +352,36 @@ async function withHermeticCurrentPyramidNode(
       AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
   `);
   const previousCurrent = Array.from(previousRows)[0] ?? null;
+  const sourceWatermarkHash = `nearby-fractional-watermark-${versionId}`;
+
+  await db.execute(sql`
+    INSERT INTO property_tile_candidate_source_snapshots (
+      id,
+      coverage_id,
+      filter_signature,
+      pyramid_kind,
+      source_watermark_hash,
+      comparable_source_watermark_hash,
+      source_watermarks_json,
+      status,
+      candidate_row_count,
+      fact_row_count,
+      build_finished_at
+    )
+    VALUES (
+      ${candidateSnapshotId}::uuid,
+      ${slot.coverageId},
+      ${slot.filterSignature},
+      ${slot.pyramidKind}::property_tile_pyramid_kind,
+      ${sourceWatermarkHash},
+      ${sourceWatermarkHash},
+      ${JSON.stringify({ sources: [{ source: 'nearby-fractional-test' }] })}::jsonb,
+      'ready',
+      0,
+      0,
+      NOW()
+    )
+  `);
 
   await db.execute(sql`
     INSERT INTO property_tile_pyramid_versions (
@@ -362,6 +393,8 @@ async function withHermeticCurrentPyramidNode(
       config_hash,
       build_inputs_hash,
       source_watermark_hash,
+      source_watermarks_json,
+      candidate_snapshot_id,
       coverage_snapshot_json,
       status,
       expected_tile_count,
@@ -377,7 +410,9 @@ async function withHermeticCurrentPyramidNode(
       ${slot.pyramidKind}::property_tile_pyramid_kind,
       ${`nearby-fractional-config-${versionId}`},
       ${`nearby-fractional-inputs-${versionId}`},
-      ${`nearby-fractional-watermark-${versionId}`},
+      ${sourceWatermarkHash},
+      ${JSON.stringify({ sources: [{ source: 'nearby-fractional-test' }] })}::jsonb,
+      ${candidateSnapshotId}::uuid,
       ${JSON.stringify(coverageSnapshotJson)}::jsonb,
       'validated',
       ${manifestTiles.length},
@@ -518,6 +553,10 @@ async function withHermeticCurrentPyramidNode(
     }
 
     await db.execute(sql`DELETE FROM property_tile_pyramid_versions WHERE id = ${versionId}`);
+    await db.execute(sql`
+      DELETE FROM property_tile_candidate_source_snapshots
+      WHERE id = ${candidateSnapshotId}::uuid
+    `);
   }
 }
 

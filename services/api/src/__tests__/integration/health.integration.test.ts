@@ -32,6 +32,7 @@ function lonLatToTile(lon: number, lat: number, zoom: number): { x: number; y: n
 describe('GET /health', () => {
   let app: FastifyInstance | undefined;
   let fixtureVersionId: string | undefined;
+  let fixtureCandidateSnapshotId: string | undefined;
   let savedCurrentPointer: SavedCurrentPointer | undefined;
   let restoredTerminalFailureVersionIds: string[] = [];
 
@@ -200,7 +201,9 @@ describe('GET /health', () => {
   async function installPromotedPyramidFixture(): Promise<void> {
     const slot = getDefaultPropertyTilePyramidSlot();
     fixtureVersionId = randomUUID();
+    fixtureCandidateSnapshotId = randomUUID();
     const unique = randomUUID();
+    const sourceWatermarkHash = `health-watermarks-${unique}`;
     const fixtureCenter = { lon: 5.4697, lat: 51.4416 };
     const fixtureTile = lonLatToTile(fixtureCenter.lon, fixtureCenter.lat, slot.maxZoom);
     const coverageSnapshot = {
@@ -254,6 +257,35 @@ describe('GET /health', () => {
     }
 
     await db.execute(sql`
+      INSERT INTO property_tile_candidate_source_snapshots (
+        id,
+        coverage_id,
+        filter_signature,
+        pyramid_kind,
+        source_watermark_hash,
+        comparable_source_watermark_hash,
+        source_watermarks_json,
+        status,
+        candidate_row_count,
+        fact_row_count,
+        build_finished_at
+      )
+      VALUES (
+        ${fixtureCandidateSnapshotId}::uuid,
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
+        ${sourceWatermarkHash},
+        ${sourceWatermarkHash},
+        ${JSON.stringify({ sources: [{ source: 'health.integration.test' }] })}::jsonb,
+        'ready',
+        0,
+        0,
+        now()
+      )
+    `);
+
+    await db.execute(sql`
       INSERT INTO property_tile_pyramid_versions (
         id,
         coverage_id,
@@ -263,6 +295,8 @@ describe('GET /health', () => {
         config_hash,
         build_inputs_hash,
         source_watermark_hash,
+        source_watermarks_json,
+        candidate_snapshot_id,
         coverage_snapshot_json,
         status,
         expected_tile_count,
@@ -278,7 +312,9 @@ describe('GET /health', () => {
         ${slot.pyramidKind}::property_tile_pyramid_kind,
         ${`health-config-${unique}`},
         ${`health-inputs-${unique}`},
-        ${`health-watermarks-${unique}`},
+        ${sourceWatermarkHash},
+        ${JSON.stringify({ sources: [{ source: 'health.integration.test' }] })}::jsonb,
+        ${fixtureCandidateSnapshotId}::uuid,
         ${JSON.stringify(coverageSnapshot)}::jsonb,
         'validated',
         1,
@@ -380,6 +416,12 @@ describe('GET /health', () => {
       DELETE FROM property_tile_pyramid_versions
       WHERE id = ${fixtureVersionId}::uuid
     `);
+    if (fixtureCandidateSnapshotId) {
+      await db.execute(sql`
+        DELETE FROM property_tile_candidate_source_snapshots
+        WHERE id = ${fixtureCandidateSnapshotId}::uuid
+      `);
+    }
 
     if (restoredTerminalFailureVersionIds.length > 0) {
       await db.execute(sql`

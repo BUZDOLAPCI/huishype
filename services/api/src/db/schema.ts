@@ -798,26 +798,108 @@ export const canonicalListings = pgTable(
   ]
 );
 
+export const propertyTileCandidateSourceSnapshots = pgTable(
+  'property_tile_candidate_source_snapshots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    coverageId: text('coverage_id').notNull().default('public_default_low_zoom'),
+    filterSignature: text('filter_signature').notNull().default('default'),
+    pyramidKind: propertyTilePyramidKindEnum('pyramid_kind')
+      .notNull()
+      .default('public_default_low_zoom'),
+    sourceWatermarkHash: text('source_watermark_hash').notNull(),
+    comparableSourceWatermarkHash: text('comparable_source_watermark_hash').notNull(),
+    sourceWatermarksJson: jsonb('source_watermarks_json')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    status: text('status').notNull().default('building'),
+    candidateRowCount: bigint('candidate_row_count', { mode: 'bigint' }).notNull().default(0n),
+    factRowCount: bigint('fact_row_count', { mode: 'bigint' }).notNull().default(0n),
+    buildStartedAt: timestamp('build_started_at', { withTimezone: true }).notNull().defaultNow(),
+    buildFinishedAt: timestamp('build_finished_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('property_tile_candidate_source_snapshots_ready_idx')
+      .on(
+        table.coverageId,
+        table.filterSignature,
+        table.pyramidKind,
+        table.comparableSourceWatermarkHash,
+      )
+      .where(sql`status = 'ready'`),
+    index('property_tile_candidate_source_snapshots_status_idx').on(
+      table.coverageId,
+      table.filterSignature,
+      table.pyramidKind,
+      table.status,
+      table.createdAt,
+    ),
+    check(
+      'property_tile_candidate_source_snapshots_status_check',
+      sql`${table.status} IN ('building', 'ready', 'failed', 'superseded')`,
+    ),
+    check(
+      'property_tile_candidate_source_snapshots_counts_check',
+      sql`${table.candidateRowCount} >= 0 AND ${table.factRowCount} >= 0`,
+    ),
+  ]
+);
+
+export const propertyTileCandidateSourceCurrent = pgTable(
+  'property_tile_candidate_source_current',
+  {
+    coverageId: text('coverage_id').notNull(),
+    filterSignature: text('filter_signature').notNull(),
+    pyramidKind: propertyTilePyramidKindEnum('pyramid_kind')
+      .notNull()
+      .default('public_default_low_zoom'),
+    snapshotId: uuid('snapshot_id')
+      .notNull()
+      .references(() => propertyTileCandidateSourceSnapshots.id, { onDelete: 'restrict' }),
+    promotedAt: timestamp('promoted_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.coverageId, table.filterSignature, table.pyramidKind],
+      name: 'property_tile_candidate_source_current_pk',
+    }),
+  ]
+);
+
 export const propertyTileListingCandidates = pgTable(
   'property_tile_listing_candidates',
   {
+    snapshotId: uuid('snapshot_id')
+      .notNull()
+      .references(() => propertyTileCandidateSourceSnapshots.id, { onDelete: 'cascade' }),
     propertyId: uuid('property_id')
-      .primaryKey()
       .references(() => properties.id, { onDelete: 'cascade' }),
     geometry: geometry('geometry').notNull(),
     officialValuation: bigint('official_valuation', { mode: 'number' }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('property_tile_listing_candidates_geometry_gist_idx').using('gist', table.geometry),
+    primaryKey({
+      columns: [table.snapshotId, table.propertyId],
+      name: 'property_tile_listing_candidates_pkey',
+    }),
+    index('property_tile_listing_candidates_snapshot_geometry_gist_idx').using('gist', table.geometry),
+    index('property_tile_listing_candidates_snapshot_id_idx').on(table.snapshotId),
   ]
 );
 
 export const propertyTileListingFacts = pgTable(
   'property_tile_listing_facts',
   {
+    snapshotId: uuid('snapshot_id')
+      .notNull()
+      .references(() => propertyTileCandidateSourceSnapshots.id, { onDelete: 'cascade' }),
     propertyId: uuid('property_id')
-      .primaryKey()
       .references(() => properties.id, { onDelete: 'cascade' }),
     hasActiveListing: boolean('has_active_listing').notNull(),
     hasCompletedListing: boolean('has_completed_listing').notNull(),
@@ -825,6 +907,14 @@ export const propertyTileListingFacts = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    primaryKey({
+      columns: [table.snapshotId, table.propertyId],
+      name: 'property_tile_listing_facts_pkey',
+    }),
+    index('property_tile_listing_facts_snapshot_market_state_idx').on(
+      table.snapshotId,
+      table.marketState,
+    ),
     check(
       'property_tile_listing_facts_market_state_check',
       sql`${table.marketState} IN ('for-sale', 'for-rent', 'sold', 'rented', 'not-listed')`,
@@ -1314,6 +1404,10 @@ export const propertyTilePyramidVersions = pgTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .default(sql`'{}'::jsonb`),
+    candidateSnapshotId: uuid('candidate_snapshot_id').references(
+      () => propertyTileCandidateSourceSnapshots.id,
+      { onDelete: 'restrict' },
+    ),
     coverageSnapshotJson: jsonb('coverage_snapshot_json')
       .$type<Record<string, unknown>>()
       .notNull()
@@ -1409,6 +1503,7 @@ export const propertyTilePyramidVersions = pgTable(
     index('property_tile_pyramid_versions_lease_idx')
       .on(table.leaseUntil, table.status)
       .where(sql`lease_until IS NOT NULL`),
+    index('property_tile_pyramid_versions_candidate_snapshot_idx').on(table.candidateSnapshotId),
     index('property_tile_pyramid_versions_retention_idx').on(
       table.status,
       table.promotedAt,
