@@ -652,6 +652,15 @@ export function buildFollowingNearbyGroupPath(
   return `/properties/following-nearby?${params.toString()}`;
 }
 
+export function buildResolveTapPath(lon: number, lat: number, zoom: number): string {
+  const params = new URLSearchParams({
+    lon: String(lon),
+    lat: String(lat),
+    zoom: String(zoom),
+  });
+  return `/properties/resolve-tap?${params.toString()}`;
+}
+
 export function getSaleEffectivePrice(input: SaleEffectivePriceInput): number | null {
   return (
     normalizeNumber(input.activeSaleAskingPrice ?? null) ??

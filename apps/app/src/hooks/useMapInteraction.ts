@@ -34,6 +34,7 @@ import {
   normalizeRenderedPropertyGroup,
   type PropertyResolveResult,
   type NearbyPropertyGroup,
+  type PhysicalTapPreviewProperty,
 } from '@/src/utils/api';
 import {
   PROPERTY_GHOST_REVEAL_ZOOM,
@@ -158,6 +159,7 @@ export interface ToGroupPropertyInput {
   postalCode?: string | null;
   countryCode?: string | null;
   officialValuation?: number | null;
+  officialValuationYear?: number | null;
   askingPrice?: number | null;
   fmv?: number | PropertyFmvData | null;
   hasActiveListing?: boolean | null;
@@ -469,6 +471,7 @@ function convertToGroupProperty(
     postalCode: p.postalCode,
     countryCode,
     officialValuation: p.officialValuation,
+    officialValuationYear: p.officialValuationYear ?? null,
     askingPrice: p.askingPrice ?? null,
     fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
     hasActiveListing: p.hasActiveListing ?? null,
@@ -485,6 +488,46 @@ function convertToGroupProperty(
     likeCount: p.likeCount ?? 0,
     commentCount: resolvePropertyCommentCount(p),
     guessCount: p.guessCount ?? 0,
+  };
+}
+
+function physicalTapPreviewToGroupPropertyInput(
+  property: PhysicalTapPreviewProperty,
+  fallbackCoordinate: [number, number],
+  nodeClass?: 'active' | 'ghost',
+): ToGroupPropertyInput {
+  const coordinate = property.geometry?.coordinates ?? fallbackCoordinate;
+
+  return {
+    id: property.id,
+    nodeClass,
+    address: property.address ?? '',
+    streetName: property.streetName ?? null,
+    houseNumber: property.houseNumber ?? null,
+    houseNumberAddition: property.houseNumberAddition ?? null,
+    city: property.city ?? '',
+    postalCode: property.postalCode ?? null,
+    countryCode: property.countryCode ?? property.country ?? null,
+    officialValuation: property.officialValuation ?? null,
+    officialValuationYear: property.officialValuationYear ?? null,
+    askingPrice: property.askingPrice ?? null,
+    hasActiveListing: property.hasActiveListing ?? property.hasListing ?? null,
+    marketState: property.marketState ?? null,
+    socialScore: property.socialScore ?? null,
+    recentSocialScore: property.recentSocialScore ?? null,
+    activityLevel: property.activityLevel ?? null,
+    activityScore: property.activityScore ?? undefined,
+    geometry: property.geometry ?? { type: 'Point', coordinates: coordinate },
+    imageryGeometry: property.imageryGeometry ?? null,
+    aerialImageUrl: property.aerialImageUrl ?? null,
+    thumbnailUrl: property.thumbnailUrl ?? null,
+    yearBuilt: property.yearBuilt ?? null,
+    floorAreaM2: property.floorAreaM2 ?? null,
+    likeCount: property.likeCount ?? 0,
+    commentCount: property.commentCount ?? null,
+    topLevelCommentCount: property.topLevelCommentCount ?? null,
+    replyCount: property.replyCount ?? null,
+    guessCount: property.guessCount ?? 0,
   };
 }
 
@@ -1055,6 +1098,24 @@ export function useMapInteraction(): UseMapInteractionReturn {
           setHighlightedCoordinate(result.coordinate);
           flyToPreviewAnchor(camera, result.coordinate, currentZoom, PREVIEW_FLY_DURATION_MS);
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
+            if (result.previewProperties && result.previewProperties.length > 0) {
+              setPreviewGroup({
+                properties: result.previewProperties.map((property) =>
+                  toGroupProperty(
+                    physicalTapPreviewToGroupPropertyInput(
+                      property,
+                      result.coordinate,
+                      result.nodeClass,
+                    ),
+                    property.activityScore ?? undefined,
+                  ),
+                ),
+                coordinate: result.coordinate,
+              });
+              setCurrentPreviewIndex(0);
+              return;
+            }
+
             void openClusterPreviewAtCoord(previewIds, result.coordinate, result.nodeClass);
           });
         } else {
@@ -1062,7 +1123,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
         }
       }
     },
-    [openClusterPreviewAtCoord, schedulePreviewActivation],
+    [openClusterPreviewAtCoord, schedulePreviewActivation, toGroupProperty],
   );
 
   // ── Empty map tap (dismiss logic) ───────────────────────────

@@ -10,6 +10,7 @@ export interface GroupPreviewProperty {
   postalCode?: string | null;
   countryCode?: string;
   officialValuation?: number | null;
+  officialValuationYear?: number | null;
   askingPrice?: number | null;
   fmv?: number | null;
   hasActiveListing?: boolean | null;

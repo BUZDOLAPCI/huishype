@@ -4,7 +4,13 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { db, properties as propertiesTable, savedProperties } from '../db/index.js';
 import { sql, eq, and, type SQL } from 'drizzle-orm';
 import { formatDisplayAddress } from '../utils/address.js';
-import { getCountryConfig, isValidCountryCode, type CountryCode } from '@huishype/shared';
+import {
+  getCountryConfig,
+  isValidCountryCode,
+  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_PREVIEW_MEMBER_LIMIT,
+  type CountryCode,
+} from '@huishype/shared';
 import { fetchGuessesWithKarma, calculateFmv } from '../services/fmv.js';
 import {
   PROPERTY_TILE_EXTENT,
@@ -22,6 +28,7 @@ import {
   followingMapFiltersQuerySchema,
 } from '../services/map-filters.js';
 import {
+  ACTIVE_SOCIAL_SCORE_THRESHOLD,
   buildActivityFilterPredicate,
   buildCanonicalHouseNumberAdditionExpression,
   buildPropertyListingFactsJoin,
@@ -31,6 +38,7 @@ import {
   getReadPropertyIdSet,
   isPropertyReadForViewer,
   resolvePropertyReadViewer,
+  type PropertyReadViewer,
 } from '../services/property-read-state.js';
 import {
   getOfficialValuationSourceFetchHint,
@@ -267,7 +275,49 @@ const nearbyQuerySchema = z
     }
   });
 
+const resolveTapQuerySchema = z.object({
+  lon: z.coerce.number().min(-180).max(180),
+  lat: z.coerce.number().min(-90).max(90),
+  zoom: z.coerce.number().min(0).max(22),
+});
+
+const resolveTapCoordinateSchema = z.object({
+  longitude: z.number(),
+  latitude: z.number(),
+});
+
+const resolveTapMatchSchema = z.enum(['containing-building', 'nearby-building', 'nearby-property']);
+
 const readStateCoverageSchema = z.enum(['complete', 'partial']);
+
+const resolveTapPropertyPreviewSchema = z.object({
+  id: z.string().uuid(),
+  nationalId: z.string().nullable(),
+  countryCode: z.string(),
+  region: z.string().nullable(),
+  street: z.string(),
+  houseNumber: z.number(),
+  houseNumberAddition: z.string().nullable(),
+  address: z.string(),
+  city: z.string(),
+  postalCode: z.string().nullable(),
+  coordinate: resolveTapCoordinateSchema,
+  imageryCoordinate: resolveTapCoordinateSchema.nullable(),
+  hasListing: z.boolean(),
+  hasActiveListing: z.boolean(),
+  marketState: marketStateSchema,
+  latestListingStatus: latestListingStatusSchema,
+  askingPrice: z.number().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  officialValuation: z.number().nullable(),
+  officialValuationYear: z.number().nullable(),
+  yearBuilt: z.number().nullable(),
+  floorAreaM2: z.number().nullable(),
+  socialScore: z.number(),
+  recentSocialScore: z.number(),
+  commentCount: z.number(),
+  isRead: z.boolean(),
+});
 
 const nearbyGroupedBaseSchema = z.object({
   nodeClass: z.enum(['active', 'ghost']),
@@ -315,6 +365,32 @@ const nearbyGroupedResultSchema = z.discriminatedUnion('groupKind', [
 ]);
 
 const nearbyGroupedResponseSchema = z.nullable(nearbyGroupedResultSchema);
+
+const resolveTapGroupPreviewSchema = nearbyGroupedBaseSchema.extend({
+  groupKind: z.literal('cluster'),
+  completedListingCount: z.number(),
+  previewProperties: z.array(resolveTapPropertyPreviewSchema),
+});
+
+const resolveTapSingleResponseSchema = z.object({
+  kind: z.literal('single'),
+  source: z.literal('physical-tap'),
+  property: resolveTapPropertyPreviewSchema,
+  coordinate: resolveTapCoordinateSchema,
+  match: resolveTapMatchSchema,
+});
+
+const resolveTapGroupResponseSchema = z.object({
+  kind: z.literal('group'),
+  source: z.literal('physical-tap'),
+  group: resolveTapGroupPreviewSchema,
+  coordinate: resolveTapCoordinateSchema,
+  match: resolveTapMatchSchema,
+});
+
+const resolveTapResponseSchema = z.nullable(
+  z.discriminatedUnion('kind', [resolveTapSingleResponseSchema, resolveTapGroupResponseSchema])
+);
 
 type NearbyGroupedContractResult = Awaited<ReturnType<typeof resolveNearbyGroupedFeature>> & {
   pyramidVersionId?: string | null;
@@ -428,6 +504,18 @@ type PropertyDetailRow = PropertyRow & {
   is_liked: boolean;
   is_saved: boolean;
 };
+
+type ResolveTapMatch = z.infer<typeof resolveTapMatchSchema>;
+
+type ResolveTapCandidateRow = PropertyRow & {
+  distance_meters: number | string;
+  group_distance_meters: number | string;
+  total_count: number | string;
+};
+
+type ResolveTapPropertyPreview = z.infer<typeof resolveTapPropertyPreviewSchema>;
+type ResolveTapGroupPreview = z.infer<typeof resolveTapGroupPreviewSchema>;
+type ResolveTapResponse = z.infer<typeof resolveTapResponseSchema>;
 
 function normalizeComparableAddressPart(value: string | null | undefined): string {
   return (value ?? '')
@@ -1169,6 +1257,422 @@ const PUBLIC_PROPERTY_SELECT = sql`
   sf.recent_unique_viewer_count
 `;
 
+const RESOLVE_TAP_BUILDING_SEARCH_RADIUS_METERS = 16;
+const RESOLVE_TAP_BUILDING_PROPERTY_TOLERANCE_METERS = 3;
+const RESOLVE_TAP_PROPERTY_SEARCH_RADIUS_METERS = 12;
+const RESOLVE_TAP_AMBIGUOUS_PROPERTY_EPSILON_METERS = 1.5;
+const RESOLVE_TAP_MAX_MEMBER_ROWS = 200;
+
+function buildResolveTapEnvelope(lon: number, lat: number, radiusMeters: number) {
+  const latRadiusDegrees = radiusMeters / 110574;
+  const lonScale = Math.max(Math.cos((lat * Math.PI) / 180), 0.000001);
+  const lonRadiusDegrees = radiusMeters / (111320 * lonScale);
+
+  return {
+    minLon: Math.max(-180, lon - lonRadiusDegrees),
+    minLat: Math.max(-90, lat - latRadiusDegrees),
+    maxLon: Math.min(180, lon + lonRadiusDegrees),
+    maxLat: Math.min(90, lat + latRadiusDegrees),
+  };
+}
+
+function compareResolveTapPropertyPriority(
+  a: ResolveTapPropertyPreview,
+  b: ResolveTapPropertyPreview
+): number {
+  return (
+    Number(b.hasActiveListing) - Number(a.hasActiveListing) ||
+    Number(b.latestListingStatus === 'sold' || b.latestListingStatus === 'rented') -
+      Number(a.latestListingStatus === 'sold' || a.latestListingStatus === 'rented') ||
+    b.socialScore - a.socialScore ||
+    b.recentSocialScore - a.recentSocialScore ||
+    b.commentCount - a.commentCount ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+function mapResolveTapPropertyPreview(
+  row: ResolveTapCandidateRow,
+  isRead: boolean
+): ResolveTapPropertyPreview | null {
+  const property = mapPublicPropertyRow(row);
+  const coordinates = property.geometry?.coordinates;
+  if (!coordinates) {
+    return null;
+  }
+
+  const imageryCoordinates = property.imageryGeometry?.coordinates ?? null;
+  return {
+    id: property.id,
+    nationalId: property.nationalId,
+    countryCode: property.countryCode,
+    region: property.region,
+    street: property.street,
+    houseNumber: property.houseNumber,
+    houseNumberAddition: property.houseNumberAddition,
+    address: property.address,
+    city: property.city,
+    postalCode: property.postalCode,
+    coordinate: {
+      longitude: coordinates[0],
+      latitude: coordinates[1],
+    },
+    imageryCoordinate: imageryCoordinates
+      ? {
+          longitude: imageryCoordinates[0],
+          latitude: imageryCoordinates[1],
+        }
+      : null,
+    hasListing: property.hasListing,
+    hasActiveListing: property.hasActiveListing,
+    marketState: property.marketState,
+    latestListingStatus: property.latestListingStatus,
+    askingPrice: property.askingPrice,
+    thumbnailUrl: property.thumbnailUrl,
+    officialValuation: property.officialValuation,
+    officialValuationYear: property.officialValuationYear,
+    yearBuilt: property.yearBuilt,
+    floorAreaM2: property.floorAreaM2,
+    socialScore: property.socialScore,
+    recentSocialScore: property.recentSocialScore,
+    commentCount: property.topLevelCommentCount + property.replyCount,
+    isRead,
+  };
+}
+
+function buildResolveTapGroupPreview(input: {
+  rows: ResolveTapCandidateRow[];
+  previews: ResolveTapPropertyPreview[];
+  readIds: Set<string>;
+}): ResolveTapGroupPreview {
+  const sortedPreviews = [...input.previews].sort(compareResolveTapPropertyPriority);
+  const propertyIds = sortedPreviews.map((property) => property.id);
+  const previewProperties = sortedPreviews.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT);
+  const previewPropertyIds = previewProperties.map((property) => property.id);
+  const totalCount = Math.max(Number(input.rows[0]?.total_count ?? sortedPreviews.length), 0);
+  const membershipComplete = input.rows.length >= totalCount;
+  const completedListingCount = sortedPreviews.filter(
+    (property) =>
+      property.latestListingStatus === 'sold' || property.latestListingStatus === 'rented'
+  ).length;
+  const activeListingCount = sortedPreviews.filter((property) => property.hasActiveListing).length;
+  const socialProperties = sortedPreviews.filter(
+    (property) => property.socialScore >= ACTIVE_SOCIAL_SCORE_THRESHOLD
+  );
+  const recentSocialProperties = sortedPreviews.filter(
+    (property) => property.recentSocialScore >= ACTIVE_SOCIAL_SCORE_THRESHOLD
+  );
+  const socialScoreTotal = sortedPreviews.reduce(
+    (total, property) => total + property.socialScore,
+    0
+  );
+  const recentSocialScoreTotal = sortedPreviews.reduce(
+    (total, property) => total + property.recentSocialScore,
+    0
+  );
+  const socialScoreMax = sortedPreviews.reduce(
+    (max, property) => Math.max(max, property.socialScore),
+    0
+  );
+  const commentCount = sortedPreviews.reduce((total, property) => total + property.commentCount, 0);
+  const longitudes = sortedPreviews.map((property) => property.coordinate.longitude);
+  const latitudes = sortedPreviews.map((property) => property.coordinate.latitude);
+  const primaryProperty = sortedPreviews[0];
+  const allRead = propertyIds.length > 0 && propertyIds.every((id) => input.readIds.has(id));
+
+  return {
+    nodeClass: 'active',
+    groupKind: 'cluster',
+    primaryPropertyId: primaryProperty.id,
+    pointCount: totalCount,
+    propertyIds,
+    previewPropertyIds,
+    pyramidVersionId: null,
+    pyramidNodeId: null,
+    membershipComplete,
+    readStateCoverage: membershipComplete ? 'complete' : 'partial',
+    coordinate: [primaryProperty.coordinate.longitude, primaryProperty.coordinate.latitude],
+    distanceMeters: Math.min(...input.rows.map((row) => Number(row.distance_meters))),
+    bbox:
+      sortedPreviews.length > 1
+        ? [
+            Math.min(...longitudes),
+            Math.min(...latitudes),
+            Math.max(...longitudes),
+            Math.max(...latitudes),
+          ]
+        : null,
+    activeListingCount,
+    completedListingCount,
+    socialCount: socialProperties.length,
+    recentSocialCount: recentSocialProperties.length,
+    socialScoreTotal,
+    socialScoreMax,
+    recentSocialScoreTotal,
+    commentCount,
+    isRead: membershipComplete && allRead,
+    previewProperties,
+  };
+}
+
+function buildResolveTapResponse(input: {
+  rows: ResolveTapCandidateRow[];
+  readIds: Set<string>;
+  lon: number;
+  lat: number;
+  match: ResolveTapMatch;
+}): ResolveTapResponse {
+  const previews = input.rows
+    .map((row) => mapResolveTapPropertyPreview(row, input.readIds.has(row.id)))
+    .filter((preview): preview is ResolveTapPropertyPreview => preview != null);
+  if (previews.length === 0) {
+    return null;
+  }
+
+  const coordinate = { longitude: input.lon, latitude: input.lat };
+  if (Number(input.rows[0]?.total_count ?? previews.length) <= 1 && previews.length === 1) {
+    return {
+      kind: 'single',
+      source: 'physical-tap',
+      property: previews[0],
+      coordinate,
+      match: input.match,
+    };
+  }
+
+  return {
+    kind: 'group',
+    source: 'physical-tap',
+    group: buildResolveTapGroupPreview({ rows: input.rows, previews, readIds: input.readIds }),
+    coordinate,
+    match: input.match,
+  };
+}
+
+async function buildResolveTapResponseWithReadState(input: {
+  rows: ResolveTapCandidateRow[];
+  viewer: PropertyReadViewer | null;
+  lon: number;
+  lat: number;
+  match: ResolveTapMatch;
+}): Promise<ResolveTapResponse> {
+  const readIds = input.viewer
+    ? await getReadPropertyIdSet(
+        input.rows.map((row) => row.id),
+        input.viewer
+      )
+    : new Set<string>();
+
+  return buildResolveTapResponse({ ...input, readIds });
+}
+
+async function fetchResolveTapBuildingRows(input: {
+  lon: number;
+  lat: number;
+  mode: 'containing' | 'nearby';
+}): Promise<ResolveTapCandidateRow[]> {
+  const envelope = buildResolveTapEnvelope(
+    input.lon,
+    input.lat,
+    input.mode === 'containing' ? 25 : RESOLVE_TAP_BUILDING_SEARCH_RADIUS_METERS
+  );
+  const buildingPredicate =
+    input.mode === 'containing'
+      ? sql`ST_Covers(b.geometry, tap.geom)`
+      : sql`ST_DWithin(b.geometry::geography, tap.geom::geography, ${RESOLVE_TAP_BUILDING_SEARCH_RADIUS_METERS})`;
+  const buildingOrder =
+    input.mode === 'containing'
+      ? sql`ST_Area(b.geometry::geography) ASC, b.id ASC`
+      : sql`ST_Distance(b.geometry::geography, tap.geom::geography) ASC, ST_Area(b.geometry::geography) ASC, b.id ASC`;
+
+  const rows = await db.execute<ResolveTapCandidateRow>(sql`
+    WITH tap AS (
+      SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
+    ),
+    chosen_building AS MATERIALIZED (
+      SELECT b.id, b.geometry
+      FROM osm_buildings b
+      CROSS JOIN tap
+      WHERE b.geometry && ST_MakeEnvelope(
+        ${envelope.minLon},
+        ${envelope.minLat},
+        ${envelope.maxLon},
+        ${envelope.maxLat},
+        4326
+      )
+        AND ${buildingPredicate}
+        AND EXISTS (
+          SELECT 1
+          FROM properties candidate
+          WHERE candidate.status = 'active'
+            AND candidate.geometry IS NOT NULL
+            AND candidate.geometry && ST_Envelope(b.geometry)
+            AND ST_DWithin(
+              candidate.geometry::geography,
+              b.geometry::geography,
+              ${RESOLVE_TAP_BUILDING_PROPERTY_TOLERANCE_METERS}
+            )
+        )
+      ORDER BY ${buildingOrder}
+      LIMIT 1
+    ),
+    candidate_ids AS MATERIALIZED (
+      SELECT
+        p.id,
+        ST_Distance(p.geometry::geography, tap.geom::geography) AS distance_meters,
+        ST_Distance(chosen_building.geometry::geography, tap.geom::geography) AS group_distance_meters,
+        COUNT(*) OVER ()::int AS total_count
+      FROM chosen_building
+      CROSS JOIN tap
+      INNER JOIN properties p
+        ON p.status = 'active'
+       AND p.geometry IS NOT NULL
+       AND p.geometry && ST_Envelope(chosen_building.geometry)
+       AND ST_DWithin(
+         p.geometry::geography,
+         chosen_building.geometry::geography,
+         ${RESOLVE_TAP_BUILDING_PROPERTY_TOLERANCE_METERS}
+       )
+      ORDER BY p.id
+      LIMIT ${RESOLVE_TAP_MAX_MEMBER_ROWS}
+    )
+    SELECT
+      ${PUBLIC_PROPERTY_SELECT},
+      ci.distance_meters,
+      ci.group_distance_meters,
+      ci.total_count
+    FROM candidate_ids ci
+    INNER JOIN properties p ON p.id = ci.id
+    ${buildPropertyListingFactsJoin('p', 'lf')}
+    ${buildPropertySocialFactsJoin('p', 'sf')}
+    ${imageryJoin}
+  `);
+
+  return Array.from(rows);
+}
+
+async function fetchResolveTapNearbyPropertyRows(input: {
+  lon: number;
+  lat: number;
+}): Promise<ResolveTapCandidateRow[]> {
+  const envelope = buildResolveTapEnvelope(
+    input.lon,
+    input.lat,
+    RESOLVE_TAP_PROPERTY_SEARCH_RADIUS_METERS
+  );
+  const candidateRows = await db.execute<ResolveTapCandidateRow>(sql`
+    WITH tap AS (
+      SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
+    ),
+    ranked AS MATERIALIZED (
+      SELECT
+        p.id,
+        ST_Distance(p.geometry::geography, tap.geom::geography) AS distance_meters
+      FROM properties p
+      CROSS JOIN tap
+      WHERE p.status = 'active'
+        AND p.geometry IS NOT NULL
+        AND p.geometry && ST_MakeEnvelope(
+          ${envelope.minLon},
+          ${envelope.minLat},
+          ${envelope.maxLon},
+          ${envelope.maxLat},
+          4326
+        )
+        AND ST_DWithin(
+          p.geometry::geography,
+          tap.geom::geography,
+          ${RESOLVE_TAP_PROPERTY_SEARCH_RADIUS_METERS}
+        )
+      ORDER BY ST_Distance(p.geometry::geography, tap.geom::geography), p.id
+      LIMIT ${RESOLVE_TAP_MAX_MEMBER_ROWS}
+    ),
+    best AS (
+      SELECT MIN(distance_meters) AS distance_meters
+      FROM ranked
+    ),
+    candidate_ids AS MATERIALIZED (
+      SELECT
+        ranked.id,
+        ranked.distance_meters,
+        ranked.distance_meters AS group_distance_meters,
+        COUNT(*) OVER ()::int AS total_count
+      FROM ranked, best
+      WHERE ranked.distance_meters <= best.distance_meters + ${RESOLVE_TAP_AMBIGUOUS_PROPERTY_EPSILON_METERS}
+      ORDER BY ranked.distance_meters, ranked.id
+    )
+    SELECT
+      ${PUBLIC_PROPERTY_SELECT},
+      ci.distance_meters,
+      ci.group_distance_meters,
+      ci.total_count
+    FROM candidate_ids ci
+    INNER JOIN properties p ON p.id = ci.id
+    ${buildPropertyListingFactsJoin('p', 'lf')}
+    ${buildPropertySocialFactsJoin('p', 'sf')}
+    ${imageryJoin}
+  `);
+
+  return Array.from(candidateRows);
+}
+
+async function resolvePhysicalTap(input: {
+  lon: number;
+  lat: number;
+  zoom: number;
+  viewer: PropertyReadViewer | null;
+}): Promise<ResolveTapResponse> {
+  if (input.zoom < PROPERTY_GHOST_REVEAL_ZOOM) {
+    return null;
+  }
+
+  const containingBuildingRows = await fetchResolveTapBuildingRows({
+    lon: input.lon,
+    lat: input.lat,
+    mode: 'containing',
+  });
+  if (containingBuildingRows.length > 0) {
+    return buildResolveTapResponseWithReadState({
+      rows: containingBuildingRows,
+      viewer: input.viewer,
+      lon: input.lon,
+      lat: input.lat,
+      match: 'containing-building',
+    });
+  }
+
+  const nearbyBuildingRows = await fetchResolveTapBuildingRows({
+    lon: input.lon,
+    lat: input.lat,
+    mode: 'nearby',
+  });
+  if (nearbyBuildingRows.length > 0) {
+    return buildResolveTapResponseWithReadState({
+      rows: nearbyBuildingRows,
+      viewer: input.viewer,
+      lon: input.lon,
+      lat: input.lat,
+      match: 'nearby-building',
+    });
+  }
+
+  const nearbyPropertyRows = await fetchResolveTapNearbyPropertyRows({
+    lon: input.lon,
+    lat: input.lat,
+  });
+  if (nearbyPropertyRows.length > 0) {
+    return buildResolveTapResponseWithReadState({
+      rows: nearbyPropertyRows,
+      viewer: input.viewer,
+      lon: input.lon,
+      lat: input.lat,
+      match: 'nearby-property',
+    });
+  }
+
+  return null;
+}
+
 export async function propertyRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
@@ -1410,6 +1914,30 @@ export async function propertyRoutes(app: FastifyInstance) {
           row.official_valuation_year != null ? Number(row.official_valuation_year) : null,
         officialValuationSourceFetch: getOfficialValuationSourceFetchHint(row.country_code),
       });
+    }
+  );
+
+  typedApp.get(
+    '/properties/resolve-tap',
+    {
+      onRequest: [app.optionalAuth],
+      schema: {
+        tags: ['properties'],
+        summary: 'Resolve a street-zoom physical map tap to a property preview',
+        querystring: resolveTapQuerySchema,
+        response: {
+          200: resolveTapResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { lon, lat, zoom } = request.query;
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined
+      );
+      const result = await resolvePhysicalTap({ lon, lat, zoom, viewer });
+      return reply.send(result);
     }
   );
 
@@ -1883,6 +2411,8 @@ export type PropertyListResponse = z.infer<typeof propertyListResponseSchema>;
 export type PropertyResponse = z.infer<typeof propertySchema>;
 export type ResolveQuery = z.infer<typeof resolveQuerySchema>;
 export type ResolveResponse = z.infer<typeof resolveResponseSchema>;
+export type ResolveTapQuery = z.infer<typeof resolveTapQuerySchema>;
+export type ResolveTapRouteResponse = z.infer<typeof resolveTapResponseSchema>;
 export type NearbyGroupedResult = z.infer<typeof nearbyGroupedResponseSchema>;
 export type SaveResponse = z.infer<typeof saveResponseSchema>;
 export type SavedPropertyResponse = z.infer<typeof savedPropertySchema>;

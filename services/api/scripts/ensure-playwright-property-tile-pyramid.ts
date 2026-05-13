@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { config } from '../src/config.js';
 import { closeConnection, db } from '../src/db/index.js';
-import { getDefaultPropertyTilePyramidSlot } from '../src/services/property-tile-pyramid.js';
+import {
+  DEFAULT_PROPERTY_TILE_PYRAMID_COVERAGE_ID,
+  getDefaultPropertyTilePyramidSlot,
+  type PropertyTilePyramidSlot,
+} from '../src/services/property-tile-pyramid.js';
 
 type TileCoord = { z: number; x: number; y: number };
 
@@ -18,8 +22,12 @@ const FIXTURE_CLUSTER = {
   nodeId: 'playwright:eindhoven:cluster',
   pointCount: 80,
 };
+const PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID = 'playwright_property_tile_pyramid_fixture';
 const FIXTURE_LOCK_KEY = 'playwright-property-tile-pyramid-fixture';
 const FIXTURE_ALLOW_ENV = 'PLAYWRIGHT_ALLOW_PROPERTY_TILE_PYRAMID_FIXTURE';
+const FIXTURE_ALLOW_PUBLIC_SLOT_ENV =
+  'PLAYWRIGHT_I_UNDERSTAND_THIS_WILL_OVERWRITE_PUBLIC_PROPERTY_TILE_PYRAMID_SLOT';
+const FIXTURE_ALLOW_PUBLIC_SLOT_VALUE = 'overwrite-public-property-tile-pyramid-slot';
 const LOCAL_DATABASE_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 const LOCAL_DATABASE_ADDRESSES = new Set(['127.0.0.1', '::1']);
 const PRIVATE_IPV4_ADDRESS_PATTERNS = [/^10\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./];
@@ -173,6 +181,20 @@ async function assertConnectedDatabaseIsSafe(target: DatabaseTarget): Promise<vo
   );
 }
 
+function assertFixtureCoverageSlotIsSafe(slot: PropertyTilePyramidSlot): void {
+  if (slot.coverageId === PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID) {
+    return;
+  }
+
+  const hasScaryOverride =
+    process.env[FIXTURE_ALLOW_PUBLIC_SLOT_ENV] === FIXTURE_ALLOW_PUBLIC_SLOT_VALUE;
+  if (slot.coverageId === DEFAULT_PROPERTY_TILE_PYRAMID_COVERAGE_ID && !hasScaryOverride) {
+    throw new Error(
+      `Refusing to create Playwright pyramid fixture in the public "${DEFAULT_PROPERTY_TILE_PYRAMID_COVERAGE_ID}" coverage slot. Set PROPERTY_TILE_PYRAMID_COVERAGE_ID=${PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID}; only set ${FIXTURE_ALLOW_PUBLIC_SLOT_ENV}=${FIXTURE_ALLOW_PUBLIC_SLOT_VALUE} if you intentionally want to overwrite the public tile pyramid slot.`
+    );
+  }
+}
+
 async function selectFixturePreviewPropertyIds(): Promise<[string, string]> {
   const rows = Array.from(
     await db.execute<{ id: string }>(sql`
@@ -214,6 +236,7 @@ async function main(): Promise<void> {
   await assertConnectedDatabaseIsSafe(databaseTarget);
 
   const slot = getDefaultPropertyTilePyramidSlot();
+  assertFixtureCoverageSlotIsSafe(slot);
   if (slot.maxZoom > 12) {
     throw new Error(
       `Refusing to create Playwright pyramid fixture for max zoom ${slot.maxZoom}; set PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM=10 for E2E.`

@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import {
   createIntegrationFollow,
   createIntegrationListing,
+  createIntegrationOsmBuildingRectangle,
   createIntegrationProperty,
   createIntegrationUser,
 } from './helpers/fixtures.js';
@@ -867,6 +868,211 @@ describe('Property routes', () => {
         expect(body.askingPrice).toBe(435000);
       } finally {
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
+    });
+  });
+
+  describe('GET /properties/resolve-tap', () => {
+    const runOffset = (Date.now() % 100000) / 10_000_000;
+
+    it('returns a single property when the tap is inside a building with one address', async () => {
+      const lon = -31.0 - runOffset;
+      const lat = 2.0 + runOffset;
+      const property = await createIntegrationProperty({
+        street: 'Resolve Tap Single',
+        houseNumber: 1,
+        city: 'Tapstad',
+        postalCode: '9400AA',
+        lon,
+        lat,
+        officialValuation: 321000,
+        yearBuilt: 1988,
+        floorAreaM2: 91,
+      });
+      const building = await createIntegrationOsmBuildingRectangle({
+        minLon: lon - 0.0001,
+        minLat: lat - 0.0001,
+        maxLon: lon + 0.0001,
+        maxLat: lat + 0.0001,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/resolve-tap?lon=${lon}&lat=${lat}&zoom=17`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toMatchObject({
+          kind: 'single',
+          source: 'physical-tap',
+          match: 'containing-building',
+          coordinate: { longitude: lon, latitude: lat },
+        });
+        expect(body.property).toMatchObject({
+          id: property.id,
+          street: 'Resolve Tap Single',
+          city: 'Tapstad',
+          postalCode: '9400AA',
+          marketState: 'not-listed',
+          officialValuation: 321000,
+          yearBuilt: 1988,
+          floorAreaM2: 91,
+          isRead: false,
+        });
+        expect(body.property.coordinate).toEqual({ longitude: lon, latitude: lat });
+      } finally {
+        await db.execute(sql`DELETE FROM osm_buildings WHERE id = ${building.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+
+    it('returns a grouped preview when the containing building has multiple addresses', async () => {
+      const lon = -31.01 - runOffset;
+      const lat = 2.01 + runOffset;
+      const listed = await createIntegrationProperty({
+        street: 'Resolve Tap Group',
+        houseNumber: 2,
+        city: 'Tapstad',
+        postalCode: '9400AB',
+        lon: lon - 0.00002,
+        lat: lat + 0.00002,
+      });
+      const unlisted = await createIntegrationProperty({
+        street: 'Resolve Tap Group',
+        houseNumber: 1,
+        city: 'Tapstad',
+        postalCode: '9400AB',
+        lon: lon + 0.00002,
+        lat: lat - 0.00002,
+      });
+      await createIntegrationListing({
+        propertyId: listed.id,
+        status: 'active',
+        verificationState: 'validated',
+        askingPrice: 475000,
+        thumbnailUrl: 'https://cdn.example.com/resolve-tap-group.jpg',
+      });
+      const building = await createIntegrationOsmBuildingRectangle({
+        minLon: lon - 0.00012,
+        minLat: lat - 0.00012,
+        maxLon: lon + 0.00012,
+        maxLat: lat + 0.00012,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/resolve-tap?lon=${lon}&lat=${lat}&zoom=18`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toMatchObject({
+          kind: 'group',
+          source: 'physical-tap',
+          match: 'containing-building',
+        });
+        expect(body.group.groupKind).toBe('cluster');
+        expect(body.group.primaryPropertyId).toBe(listed.id);
+        expect(body.group.pointCount).toBe(2);
+        expect(body.group.propertyIds).toEqual([listed.id, unlisted.id]);
+        expect(body.group.previewPropertyIds).toEqual([listed.id, unlisted.id]);
+        expect(body.group.previewProperties).toHaveLength(2);
+        expect(body.group.activeListingCount).toBe(1);
+        expect(body.group.previewProperties[0]).toMatchObject({
+          id: listed.id,
+          askingPrice: 475000,
+          thumbnailUrl: 'https://cdn.example.com/resolve-tap-group.jpg',
+        });
+      } finally {
+        await db.execute(sql`DELETE FROM osm_buildings WHERE id = ${building.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id IN (${listed.id}, ${unlisted.id})`);
+      }
+    });
+
+    it('falls back to the nearest property point within the tight street radius', async () => {
+      const lon = -31.02 - runOffset;
+      const lat = 2.02 + runOffset;
+      const property = await createIntegrationProperty({
+        street: 'Resolve Tap Point',
+        houseNumber: 1,
+        city: 'Tapstad',
+        postalCode: '9400AC',
+        lon: lon + 0.00003,
+        lat,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/resolve-tap?lon=${lon}&lat=${lat}&zoom=18`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toMatchObject({
+          kind: 'single',
+          source: 'physical-tap',
+          match: 'nearby-property',
+        });
+        expect(body.property.id).toBe(property.id);
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+
+    it('returns null below the street tap reveal zoom', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/properties/resolve-tap?lon=-31&lat=2&zoom=16.99',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toBeNull();
+    });
+
+    it('ignores market filter query params and resolves the physical tap target', async () => {
+      const lon = -31.03 - runOffset;
+      const lat = 2.03 + runOffset;
+      const property = await createIntegrationProperty({
+        street: 'Resolve Tap Filter',
+        houseNumber: 1,
+        city: 'Tapstad',
+        postalCode: '9400AD',
+        lon,
+        lat,
+      });
+      await createIntegrationListing({
+        propertyId: property.id,
+        status: 'active',
+        verificationState: 'validated',
+        askingPrice: 2100,
+        priceType: 'rent',
+      });
+      const building = await createIntegrationOsmBuildingRectangle({
+        minLon: lon - 0.0001,
+        minLat: lat - 0.0001,
+        maxLon: lon + 0.0001,
+        maxLat: lat + 0.0001,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties/resolve-tap?lon=${lon}&lat=${lat}&zoom=18&marketState=for-sale`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.kind).toBe('single');
+        expect(body.property.id).toBe(property.id);
+        expect(body.property.marketState).toBe('for-rent');
+        expect(body.property.askingPrice).toBe(2100);
+      } finally {
+        await db.execute(sql`DELETE FROM osm_buildings WHERE id = ${building.id}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }
     });
   });

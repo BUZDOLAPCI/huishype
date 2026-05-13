@@ -31,6 +31,7 @@ import {
   API_URL,
   fetchFollowingNearbyGroup,
   fetchNearbyGroup,
+  fetchPhysicalTapResolve,
   normalizeRenderedPropertyGroup,
   type PropertyResolveResult,
 } from '@/src/utils/api';
@@ -92,10 +93,10 @@ import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton'
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
+import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import {
   MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
   PROPERTY_GHOST_REVEAL_ZOOM,
-  QUERYABLE_PROPERTY_LAYER_IDS,
   resolveActiveClusterNodeVisual,
   resolveActiveSingleNodeVisual,
   withAlpha,
@@ -111,6 +112,7 @@ const STYLE_URL = `${API_URL}/tiles/style.json`;
 const FLOATING_ZOOM_CONTROL_RIGHT = 18;
 const FLOATING_ZOOM_CONTROL_TOP = 118;
 const FLOATING_ZOOM_CONTROL_SIZE = 40;
+const WEB_TOUCH_LONG_PRESS_MS = 550;
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
 const SELECTED_MARKER_PULSE_SIZE_PX = 32;
 const SELECTED_MARKER_DOT_SIZE_PX = 18;
@@ -788,7 +790,7 @@ function hideStaticActivityPulseLayers(map: maplibregl.Map): void {
 }
 
 // Property layer IDs for click handling
-const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
+const PROPERTY_LAYER_IDS = [...PROPERTY_QUERY_LAYER_IDS];
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
 const AMBIENT_BUBBLE_RESET_ZOOM_OUT_DELTA = 0.75;
 
@@ -1686,6 +1688,13 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     let cancelled = false;
     let loadTimeout: ReturnType<typeof setTimeout> | undefined;
+    let touchLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearTouchLongPressTimer = () => {
+      if (touchLongPressTimer) {
+        clearTimeout(touchLongPressTimer);
+        touchLongPressTimer = null;
+      }
+    };
 
     async function initMap() {
       let style: maplibregl.StyleSpecification | string = STYLE_URL;
@@ -2130,6 +2139,104 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       });
       map.on('rotateend', () => { setTimeout(() => { isRotating.current = false; }, 100); });
 
+      const resolvePhysicalTapAtCoordinate = async (
+        lon: number,
+        lat: number,
+        currentZoom: number,
+        event?: {
+          preventDefault?: () => void;
+          originalEvent?: { preventDefault?: () => void };
+        },
+      ): Promise<boolean> => {
+        if (currentZoom < PROPERTY_GHOST_REVEAL_ZOOM) {
+          return false;
+        }
+
+        event?.preventDefault?.();
+        event?.originalEvent?.preventDefault?.();
+
+        try {
+          const resolved = await fetchPhysicalTapResolve(lon, lat, currentZoom);
+          if (resolved) {
+            handleNearbyResultRef.current(
+              resolved,
+              currentZoom,
+              cameraCommandsRef.current,
+            );
+          }
+          return true;
+        } catch (error) {
+          console.warn('[HuisHype] Physical tap resolver failed:', error);
+          return true;
+        }
+      };
+
+      const getMapEventCoordinate = (event: {
+        lngLat?: { lng?: number; lat?: number };
+      }): [number, number] | null => {
+        const lon = event.lngLat?.lng;
+        const lat = event.lngLat?.lat;
+        return typeof lon === 'number' &&
+          Number.isFinite(lon) &&
+          typeof lat === 'number' &&
+          Number.isFinite(lat)
+          ? [lon, lat]
+          : null;
+      };
+
+      const handleMapContextMenu = (
+        event: maplibregl.MapMouseEvent & {
+          preventDefault?: () => void;
+          originalEvent?: { preventDefault?: () => void };
+        },
+      ) => {
+        const coordinate = getMapEventCoordinate(event);
+        if (!coordinate) {
+          return;
+        }
+
+        void resolvePhysicalTapAtCoordinate(
+          coordinate[0],
+          coordinate[1],
+          map.getZoom(),
+          event,
+        );
+      };
+
+      const handleMapTouchStart = (
+        event: maplibregl.MapTouchEvent & {
+          preventDefault?: () => void;
+          originalEvent?: { preventDefault?: () => void };
+          points?: unknown[];
+        },
+      ) => {
+        clearTouchLongPressTimer();
+        if (map.getZoom() < PROPERTY_GHOST_REVEAL_ZOOM || (event.points?.length ?? 1) > 1) {
+          return;
+        }
+
+        const coordinate = getMapEventCoordinate(event);
+        if (!coordinate) {
+          return;
+        }
+
+        touchLongPressTimer = setTimeout(() => {
+          touchLongPressTimer = null;
+          void resolvePhysicalTapAtCoordinate(
+            coordinate[0],
+            coordinate[1],
+            map.getZoom(),
+            event,
+          );
+        }, WEB_TOUCH_LONG_PRESS_MS);
+      };
+
+      map.on('contextmenu', handleMapContextMenu);
+      map.on('touchstart', handleMapTouchStart);
+      map.on('touchmove', clearTouchLongPressTimer);
+      map.on('touchend', clearTouchLongPressTimer);
+      map.on('touchcancel', clearTouchLongPressTimer);
+
       // Handle click on property points
       const handlePropertyClick = async (
         e: maplibregl.MapMouseEvent & { features?: maplibregl.GeoJSONFeature[] }
@@ -2257,6 +2364,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     return () => {
       cancelled = true;
       clearTimeout(loadTimeout);
+      clearTouchLongPressTimer();
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;

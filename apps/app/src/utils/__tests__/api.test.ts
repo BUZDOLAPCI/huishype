@@ -3,6 +3,7 @@ import {
   fetchBatchProperties,
   fetchFollowingNearbyGroup,
   fetchNearbyGroup,
+  fetchPhysicalTapResolve,
   fetchOfficialValuationFromSource,
   normalizeNearbyPropertyGroup,
   normalizeRenderedPropertyGroup,
@@ -128,6 +129,138 @@ describe('api auth attachment', () => {
 
     const headers = mockFetch.mock.calls[0]?.[1]?.headers as Headers;
     expect(headers.get('Authorization')).toBe('Bearer explicit-token');
+  });
+});
+
+describe('fetchPhysicalTapResolve', () => {
+  const mockFetch = jest.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    global.fetch = mockFetch as unknown as typeof fetch;
+    setApiAccessTokenResolver(null);
+  });
+
+  it('normalizes the single physical tap resolver contract', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        kind: 'single',
+        source: 'physical-tap',
+        match: 'containing-building',
+        coordinate: { longitude: 4.9, latitude: 52.37 },
+        property: {
+          id: 'property-1',
+          address: 'Main Street 1',
+          city: 'Eindhoven',
+          postalCode: '5611AA',
+          countryCode: 'NL',
+          street: 'Main Street',
+          coordinate: { longitude: 4.9, latitude: 52.37 },
+          imageryCoordinate: { longitude: 4.901, latitude: 52.371 },
+          hasActiveListing: true,
+          askingPrice: 425000,
+          officialValuationYear: 2024,
+          isRead: false,
+        },
+      }),
+    });
+
+    const result = await fetchPhysicalTapResolve(4.9, 52.37, 17);
+
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/resolve-tap?');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('lon=4.9');
+    expect(result).toEqual(
+      expect.objectContaining({
+        source: 'physical-tap',
+        match: 'containing-building',
+        groupKind: 'single',
+        primaryPropertyId: 'property-1',
+        coordinate: [4.9, 52.37],
+        askingPrice: 425000,
+        hasActiveListing: true,
+        isRead: false,
+      }),
+    );
+    expect(result?.streetName).toBe('Main Street');
+    expect(result?.previewProperties?.[0]).toEqual(
+      expect.objectContaining({
+        streetName: 'Main Street',
+        imageryGeometry: { type: 'Point', coordinates: [4.901, 52.371] },
+        officialValuationYear: 2024,
+      }),
+    );
+  });
+
+  it('normalizes grouped physical tap preview properties using the top-level tap coordinate', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        kind: 'group',
+        source: 'physical-tap',
+        match: 'nearby-building',
+        coordinate: { longitude: 4.91, latitude: 52.38 },
+        group: {
+          primaryPropertyId: 'property-2',
+          pointCount: 2,
+          coordinate: { longitude: 4.92, latitude: 52.39 },
+          bbox: [4.90, 52.37, 4.93, 52.40],
+          previewPropertyIds: ['property-2', 'property-3'],
+          previewProperties: [
+            {
+              id: 'property-2',
+              address: 'Main Street 2',
+              city: 'Eindhoven',
+              postalCode: '5611AB',
+              countryCode: 'NL',
+            },
+            {
+              id: 'property-3',
+              address: 'Main Street 3',
+              city: 'Eindhoven',
+              postalCode: '5611AC',
+              countryCode: 'NL',
+            },
+          ],
+        },
+      }),
+    });
+
+    const result = await fetchPhysicalTapResolve(4.91, 52.38, 17);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        source: 'physical-tap',
+        match: 'nearby-building',
+        groupKind: 'cluster',
+        primaryPropertyId: 'property-2',
+        previewPropertyIds: ['property-2', 'property-3'],
+        coordinate: [4.91, 52.38],
+        bbox: {
+          west: 4.90,
+          south: 52.37,
+          east: 4.93,
+          north: 52.40,
+        },
+      }),
+    );
+    expect(result?.previewProperties?.map((property) => property.id)).toEqual([
+      'property-2',
+      'property-3',
+    ]);
+    expect(result?.previewProperties?.[0]?.geometry).toEqual({
+      type: 'Point',
+      coordinates: [4.92, 52.39],
+    });
+  });
+
+  it('returns null for no physical tap match', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => null,
+    });
+
+    await expect(fetchPhysicalTapResolve(4.9, 52.37, 16)).resolves.toBeNull();
   });
 });
 

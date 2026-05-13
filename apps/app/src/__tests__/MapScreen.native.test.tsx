@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
 
 const mockGetBounds = jest.fn(async () => [4.8, 52.3, 5.0, 52.4]);
 const mockGetCenter = jest.fn(async () => [4.9, 52.37]);
@@ -35,6 +36,7 @@ const mockReadTileRefetch = jest.fn();
 const mockRecordPropertyView = jest.fn();
 const mockFetchNearbyGroup = jest.fn();
 const mockFetchFollowingNearbyGroup = jest.fn();
+const mockFetchPhysicalTapResolve = jest.fn();
 const mockWelcomeOpen = jest.fn();
 const mockWelcomeDismiss = jest.fn();
 let mockWelcomeVisible = false;
@@ -44,6 +46,7 @@ const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
 const mockCameraFlyTo = jest.fn();
 const mockCameraFitBounds = jest.fn();
+const mockCameraSetStop = jest.fn();
 
 let capturedMapFilterBarProps: {
   socialScope?: 'all' | 'following';
@@ -302,6 +305,9 @@ jest.mock('@/src/utils/api', () => ({
   fetchFollowingNearbyGroup: jest.fn((...args: unknown[]) =>
     mockFetchFollowingNearbyGroup(...args)
   ),
+  fetchPhysicalTapResolve: jest.fn((...args: unknown[]) =>
+    mockFetchPhysicalTapResolve(...args)
+  ),
 }));
 
 jest.mock('@/src/lib/sharedMapFilters', () => ({
@@ -322,6 +328,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
     onDidFinishLoadingMap?: () => void;
     onDidFinishRenderingMapFully?: () => void;
     onPress?: (event: unknown) => void;
+    onLongPress?: (event: unknown) => void;
     onRegionDidChange?: (event: unknown) => void;
   };
 
@@ -341,6 +348,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
       testID: 'native-map',
       onDidFinishRenderingMapFully: props.onDidFinishRenderingMapFully,
       onPress: props.onPress,
+      onLongPress: props.onLongPress,
       onRegionDidChange: props.onRegionDidChange,
     } as unknown as React.ComponentProps<typeof Pressable>;
 
@@ -351,6 +359,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
     ReactModule.useImperativeHandle(ref, () => ({
       flyTo: mockCameraFlyTo,
       fitBounds: mockCameraFitBounds,
+      setStop: mockCameraSetStop,
     }));
     return null;
   });
@@ -424,10 +433,13 @@ describe('MapScreen native grouped Following mode', () => {
     mockGetCenter.mockClear();
     mockFetchNearbyGroup.mockReset();
     mockFetchFollowingNearbyGroup.mockReset();
+    mockFetchPhysicalTapResolve.mockReset();
+    mockFetchPhysicalTapResolve.mockResolvedValue(null);
     mockInteraction.handleFeaturePress.mockReset();
     mockInteraction.handleFeaturePress.mockResolvedValue(false);
     mockCameraFlyTo.mockReset();
     mockCameraFitBounds.mockReset();
+    mockCameraSetStop.mockReset();
     mockGetCurrentLocation.mockReset();
     mockGetCurrentLocation.mockResolvedValue({
       longitude: 4.9041,
@@ -742,6 +754,48 @@ describe('MapScreen native grouped Following mode', () => {
 
     expect(screen.getByTestId('map-following-state-error')).toBeTruthy();
     expect(screen.queryByTestId('map-following-state-empty')).toBeNull();
+  });
+
+  it('resolves native long presses through the physical tap resolver without marker hit testing', async () => {
+    const resolved = {
+      groupKind: 'single',
+      primaryPropertyId: 'property-physical',
+      coordinate: [5.47, 51.44],
+    };
+    mockFetchPhysicalTapResolve.mockResolvedValue(resolved);
+
+    const screen = await renderMapScreen();
+
+    fireEvent(screen.getByTestId('native-map'), 'regionDidChange', {
+      nativeEvent: {
+        zoom: PROPERTY_GHOST_REVEAL_ZOOM,
+        center: [5.47, 51.44],
+      },
+    });
+
+    fireEvent(screen.getByTestId('native-map'), 'longPress', {
+      nativeEvent: {
+        point: [100, 200],
+        lngLat: [5.47, 51.44],
+      },
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockQueryRenderedFeatures).not.toHaveBeenCalled();
+    expect(mockFetchPhysicalTapResolve).toHaveBeenCalledWith(
+      5.47,
+      51.44,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+    );
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      resolved,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+      expect.any(Object),
+    );
   });
 
   it('passes pyramid node identity to public nearby fallback after unresolved feature taps', async () => {

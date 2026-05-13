@@ -7,6 +7,7 @@ import {
   buildFollowingNearbyGroupPath,
   buildFollowingPropertyTileTemplateUrl,
   buildNearbyGroupPath,
+  buildResolveTapPath,
   createDefaultMapFilters,
   getCanonicalMapFilterSignature,
   getMapFilterPillSummary,
@@ -272,6 +273,12 @@ describe('map filter query param helpers', () => {
         pyramidVersionId: '9b3b7e0e-7f10-4d8c-9d75-43ce369c7a11',
       })
     ).toBe('/properties/nearby?lon=5.47&lat=51.44&zoom=14');
+  });
+
+  it('serializes the physical tap resolver path without map filters', () => {
+    expect(buildResolveTapPath(5.47, 51.44, 17.5)).toBe(
+      '/properties/resolve-tap?lon=5.47&lat=51.44&zoom=17.5'
+    );
   });
 });
 

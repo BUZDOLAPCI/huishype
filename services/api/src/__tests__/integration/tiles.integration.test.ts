@@ -66,17 +66,6 @@ function requireValue<T>(value: T | null | undefined, message: string): T {
   return value;
 }
 
-function requireComparableNumber(value: unknown, message: string): number {
-  if (typeof value === 'number') {
-    return value;
-  }
-  const numericValues = collectExpressionNumbers(value);
-  if (numericValues.length > 0) {
-    return Math.max(...numericValues);
-  }
-  throw new Error(message);
-}
-
 function collectExpressionStrings(value: unknown): string[] {
   if (typeof value === 'string') {
     return [value];
@@ -308,9 +297,9 @@ describe('Tile routes', () => {
       expect(layerIds).toContain('active-nodes');
       expect(layerIds).toContain('active-node-fill');
       expect(layerIds).toContain('active-node-pulse');
-      expect(layerIds).toContain('ghost-clusters');
-      expect(layerIds).toContain('ghost-cluster-count');
-      expect(layerIds).toContain('ghost-nodes');
+      expect(layerIds).not.toContain('ghost-clusters');
+      expect(layerIds).not.toContain('ghost-cluster-count');
+      expect(layerIds).not.toContain('ghost-nodes');
     });
 
     it('uses additive ring, fill, and pulse semantics driven by composition fields', async () => {
@@ -488,80 +477,18 @@ describe('Tile routes', () => {
       expect(clusterCountPaint).toHaveProperty('text-halo-width', 1);
     });
 
-    it('should style ghost clusters and labels with subtler emphasis than active clusters', async () => {
+    it('does not expose ghost property layers in generated style.json', async () => {
       const response = await app.inject({
         method: 'GET',
         url: '/tiles/style.json',
       });
 
       const style = JSON.parse(response.body) as StyleJson;
-      const activeClusters = style.layers.find((layer) => layer.id === 'property-clusters');
-      const activeClusterCount = style.layers.find((layer) => layer.id === 'cluster-count');
-      const ghostClusters = style.layers.find((layer) => layer.id === 'ghost-clusters');
-      const ghostClusterCount = style.layers.find((layer) => layer.id === 'ghost-cluster-count');
+      const layerIds = style.layers.map((layer) => layer.id);
 
-      if (!activeClusters || !activeClusterCount || !ghostClusters || !ghostClusterCount) {
-        throw new Error('Expected cluster layers missing from style.json');
-      }
-      expect(ghostClusters.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
-      expect(ghostClusterCount.minzoom).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
-      const ghostClustersPaint = requireValue(
-        ghostClusters.paint,
-        'ghost-clusters paint missing from style.json'
+      expect(layerIds).not.toEqual(
+        expect.arrayContaining(['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes'])
       );
-      const activeClustersPaint = requireValue(
-        activeClusters.paint,
-        'property-clusters paint missing from style.json'
-      );
-      const ghostClusterCountPaint = requireValue(
-        ghostClusterCount.paint,
-        'ghost-cluster-count paint missing from style.json'
-      );
-      const activeClusterCountLayout = requireValue(
-        activeClusterCount.layout,
-        'cluster-count layout missing from style.json'
-      );
-      const ghostClusterCountLayout = requireValue(
-        ghostClusterCount.layout,
-        'ghost-cluster-count layout missing from style.json'
-      );
-
-      expect(
-        requireComparableNumber(
-          ghostClustersPaint['circle-opacity'],
-          'ghost-clusters circle-opacity missing'
-        )
-      ).toBeLessThan(
-        requireComparableNumber(
-          activeClustersPaint['circle-opacity'],
-          'property-clusters circle-opacity missing'
-        )
-      );
-      expect(
-        requireComparableNumber(
-          activeClustersPaint['circle-stroke-width'],
-          'property-clusters circle-stroke-width missing'
-        )
-      ).toBe(0);
-      expect(
-        requireComparableNumber(
-          ghostClustersPaint['circle-stroke-width'],
-          'ghost-clusters circle-stroke-width missing'
-        )
-      ).toBeGreaterThan(0);
-      expect(
-        requireComparableNumber(
-          ghostClusterCountLayout['text-size'],
-          'ghost-cluster-count text-size missing'
-        )
-      ).toBeLessThan(
-        requireComparableNumber(
-          activeClusterCountLayout['text-size'],
-          'cluster-count text-size missing'
-        )
-      );
-      expect(ghostClusterCountPaint['text-color']).toBe('#475569');
-      expect(ghostClusterCountPaint['text-halo-color']).toBe('rgba(255, 255, 255, 0.85)');
     });
 
     it('should set Cache-Control header', async () => {
@@ -1695,6 +1622,32 @@ describe('Tile routes', () => {
       }
     });
 
+    it('does not emit ghost groups from the public dynamic tile grouping path at z17+', async () => {
+      const property = await createIntegrationProperty({
+        street: 'Ghost Disabled Tile Street',
+        houseNumber: 1,
+        city: 'NoGhostTile',
+        postalCode: '9400GD',
+        lon: -42.1234,
+        lat: -34.1234,
+      });
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, PROPERTY_GHOST_REVEAL_ZOOM);
+
+      try {
+        const groups = await buildCanonicalGroupsForTile(tile);
+        expect(groups.every((group) => group.nodeClass !== 'ghost')).toBe(true);
+        expect(findGroupForProperty(groups, property.id)).toBeUndefined();
+
+        const response = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+        });
+        expect([200, 204]).toContain(response.statusCode);
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+      }
+    });
+
     it('should include X-Tile-Generation-Time header', async () => {
       const response = await app.inject({
         method: 'GET',
@@ -1824,8 +1777,6 @@ describe('Tile routes', () => {
     });
 
     it('should include the normalized filter signature in the property tile cache key', async () => {
-      const propertyId = crypto.randomUUID();
-      const listingId = crypto.randomUUID();
       const lon = 6.94;
       const lat = 53.34;
       const z = 20;
@@ -1835,53 +1786,22 @@ describe('Tile routes', () => {
         ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, z)
       );
 
-      await db.execute(sql`
-        INSERT INTO properties (
-          id,
-          country_code,
-          street,
-          house_number,
-          city,
-          postal_code,
-          status,
-          geometry
-        )
-        VALUES (
-          ${propertyId},
-          'NL',
-          'Tile Filter Street',
-          1,
-          'Filtermeer',
-          '9999AD',
-          'active',
-          ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
-        )
-      `);
-
-      await db.execute(sql`
-        INSERT INTO listings (
-          id,
-          property_id,
-          source_name,
-          source_url,
-          status,
-          asking_price,
-          price_type,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          ${listingId},
-          ${propertyId},
-          'funda',
-          ${`https://example.com/tile-filter-${listingId}`},
-          'active',
-          510000,
-          'sale',
-          NOW(),
-          NOW()
-        )
-      `);
+      const property = await createIntegrationProperty({
+        street: 'Tile Filter Street',
+        houseNumber: 1,
+        city: 'Filtermeer',
+        postalCode: '9999AD',
+        lon,
+        lat,
+      });
+      await createIntegrationListing({
+        propertyId: property.id,
+        status: 'active',
+        verificationState: 'validated',
+        askingPrice: 510000,
+        priceType: 'sale',
+        sourceUrl: `https://example.com/tile-filter-${property.id}`,
+      });
 
       try {
         const baseUrl = `/tiles/properties/${z}/${x}/${y}.pbf`;
@@ -1901,8 +1821,7 @@ describe('Tile routes', () => {
         expect(secondFilteredResponse.headers['x-tile-cache']).toBe('hit');
         expect(secondFilteredResponse.headers['x-tile-generation-time']).toBe('0ms');
       } finally {
-        await db.execute(sql`DELETE FROM listings WHERE id = ${listingId}`);
-        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }
     });
 

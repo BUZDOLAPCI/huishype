@@ -67,11 +67,7 @@ export {
 } from './formatting.js';
 
 // Karma tiers (unified source of truth)
-export {
-  KARMA_TIERS,
-  getKarmaTier,
-  type KarmaTier,
-} from './karma-tiers.js';
+export { KARMA_TIERS, getKarmaTier, type KarmaTier } from './karma-tiers.js';
 
 // Achievement registry (unified source of truth)
 export {
@@ -126,6 +122,7 @@ export {
   buildFollowingPropertyTileTemplateUrl,
   buildNearbyGroupPath,
   buildFollowingNearbyGroupPath,
+  buildResolveTapPath,
   getSaleEffectivePrice,
   getRentEffectivePrice,
   type MapFilterDraftState,

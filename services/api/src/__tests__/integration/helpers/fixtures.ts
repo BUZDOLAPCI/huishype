@@ -45,7 +45,13 @@ interface CreateListingOptions {
   priceType?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
-  verificationState?: 'provisional' | 'validated' | 'invalid' | 'validation_pending' | 'validation_blocked' | 'validation_failed';
+  verificationState?:
+    | 'provisional'
+    | 'validated'
+    | 'invalid'
+    | 'validation_pending'
+    | 'validation_blocked'
+    | 'validation_failed';
   originSummary?: 'user' | 'mirror' | 'user_and_mirror';
   submittedBy?: string | null;
 }
@@ -204,7 +210,8 @@ export async function createIntegrationListing(options: CreateListingOptions) {
     propertyId: options.propertyId,
     sourceName: options.sourceName ?? 'funda',
     sourceUrl:
-      options.sourceUrl ?? `https://example.com/listing-${options.propertyId}-${crypto.randomUUID()}`,
+      options.sourceUrl ??
+      `https://example.com/listing-${options.propertyId}-${crypto.randomUUID()}`,
     status: options.status ?? 'active',
     askingPrice: options.askingPrice ?? null,
     thumbnailUrl: options.thumbnailUrl ?? null,
@@ -360,11 +367,12 @@ export async function createIntegrationPriceHistory(options: CreatePriceHistoryO
 }
 
 export async function createIntegrationOsmBuildingRectangle(
-  options: CreateOsmBuildingRectangleOptions,
+  options: CreateOsmBuildingRectangleOptions
 ) {
-  const osmId = options.osmId ?? Number(`8${Date.now()}`.slice(0, 12));
+  const osmId =
+    options.osmId ?? 800_000_000_000 + (Date.now() % 100_000) * 1_000 + fixtureSequence++;
 
-  await db.execute(sql`
+  const rows = await db.execute<{ id: number }>(sql`
     INSERT INTO osm_buildings (osm_id, geometry)
     VALUES (
       ${osmId},
@@ -373,9 +381,10 @@ export async function createIntegrationOsmBuildingRectangle(
         4326
       )
     )
+    RETURNING id
   `);
 
-  return { osmId };
+  return { id: Array.from(rows)[0]?.id, osmId };
 }
 
 export async function createIntegrationFollow(options: CreateFollowOptions) {
@@ -407,7 +416,7 @@ export function tileCoordinatesForPoint(lon: number, lat: number, z: number) {
     z,
     x: Math.floor(((lon + 180) / 360) * Math.pow(2, z)),
     y: Math.floor(
-      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, z),
+      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, z)
     ),
   };
 }

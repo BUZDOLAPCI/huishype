@@ -31,7 +31,12 @@ type VersionRow = {
   max_zoom: number;
   pyramid_kind: string;
   status: string;
+  config_hash: string;
+  source_watermark_hash: string;
+  source_watermarks_json: string;
 };
+
+const PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID = 'playwright_property_tile_pyramid_fixture';
 
 function isDirectRun(): boolean {
   return process.argv[1] != null && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
@@ -54,7 +59,9 @@ Options:
   --help                      Show this help.
 
 The command updates property_tile_pyramid_current only after verifying that the
-target version is already promoted and belongs to the same serving slot.`);
+target version is already promoted and belongs to the same serving slot. If the
+default previous_version_id points at a Playwright fixture version, pass an
+explicit --to-version for the intended real rollback target.`);
 }
 
 function parsePositiveInteger(value: string | undefined, flag: string): number {
@@ -185,6 +192,28 @@ export async function validateRollbackTargetVersion(
   `);
 }
 
+function sourceWatermarksContainPlaywrightRuntime(sourceWatermarksJson: string): boolean {
+  try {
+    return JSON.stringify(JSON.parse(sourceWatermarksJson)).includes('playwright-runtime');
+  } catch {
+    return sourceWatermarksJson.includes('playwright-runtime');
+  }
+}
+
+export function isPlaywrightFixtureVersion(
+  version: Pick<
+    VersionRow,
+    'coverage_id' | 'config_hash' | 'source_watermark_hash' | 'source_watermarks_json'
+  >
+): boolean {
+  return (
+    version.coverage_id === PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID ||
+    version.config_hash.startsWith('playwright-config-') ||
+    version.source_watermark_hash.startsWith('playwright-watermarks-') ||
+    sourceWatermarksContainPlaywrightRuntime(version.source_watermarks_json)
+  );
+}
+
 async function findTargetVersion(
   pointer: CurrentPointerRow,
   targetVersionId: string
@@ -197,7 +226,10 @@ async function findTargetVersion(
       filter_signature,
       max_zoom,
       pyramid_kind::text AS pyramid_kind,
-      status::text AS status
+      status::text AS status,
+      config_hash,
+      source_watermark_hash,
+      source_watermarks_json::text AS source_watermarks_json
     FROM property_tile_pyramid_versions
     WHERE id = ${targetVersionId}::uuid
       AND coverage_id = ${pointer.coverage_id}
@@ -266,6 +298,7 @@ async function applyRollback(
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const pointer = await findCurrentPointer(options);
+  const targetSelectedFromPreviousPointer = options.toVersionId == null;
   const targetVersionId = options.toVersionId ?? pointer.previous_version_id;
 
   if (!targetVersionId) {
@@ -273,6 +306,36 @@ async function main(): Promise<void> {
   }
 
   const target = await findTargetVersion(pointer, targetVersionId);
+  const targetIsPlaywrightFixture = isPlaywrightFixtureVersion(target);
+
+  if (targetSelectedFromPreviousPointer && targetIsPlaywrightFixture) {
+    if (!options.execute) {
+      console.log(
+        JSON.stringify(
+          {
+            mode: 'dry-run',
+            blocked: true,
+            blockReason: 'default previous_version_id is a Playwright fixture version',
+            slot: {
+              coverageId: pointer.coverage_id,
+              filterSignature: pointer.filter_signature,
+              maxZoom: pointer.max_zoom,
+              pyramidKind: pointer.pyramid_kind,
+            },
+            fromVersionId: pointer.current_version_id,
+            defaultPreviousVersionId: target.id,
+            targetIsPlaywrightFixture,
+          },
+          null,
+          2
+        )
+      );
+    }
+
+    throw new Error(
+      `Refusing default rollback to Playwright fixture version ${target.id}; pass --to-version with the intended real promoted target.`
+    );
+  }
 
   console.log(
     JSON.stringify(
@@ -286,6 +349,8 @@ async function main(): Promise<void> {
         },
         fromVersionId: pointer.current_version_id,
         toVersionId: target.id,
+        targetIsPlaywrightFixture,
+        targetSelection: targetSelectedFromPreviousPointer ? 'previous_version_id' : 'explicit',
         reason: options.reason,
         actor: options.actor,
       },

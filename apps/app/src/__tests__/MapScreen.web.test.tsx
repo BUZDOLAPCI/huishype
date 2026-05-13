@@ -1,7 +1,8 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
+import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
+import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import { PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT } from '@/src/lib/propertyTileRetryProtocol';
 
 type MockMapEventHandler = (...args: unknown[]) => void;
@@ -368,6 +369,7 @@ jest.mock('@/src/utils/api', () => ({
   fetchBatchProperties: jest.fn(),
   fetchFollowingNearbyGroup: jest.fn(),
   fetchNearbyGroup: jest.fn(),
+  fetchPhysicalTapResolve: jest.fn(),
 }));
 
 jest.mock('@/src/lib/currentLocation', () => ({
@@ -564,9 +566,11 @@ const { getCurrentLocation: mockGetCurrentLocation } = jest.requireMock('@/src/l
 const {
   fetchFollowingNearbyGroup: mockFetchFollowingNearbyGroup,
   fetchNearbyGroup: mockFetchNearbyGroup,
+  fetchPhysicalTapResolve: mockFetchPhysicalTapResolve,
 } = jest.requireMock('@/src/utils/api') as {
   fetchFollowingNearbyGroup: jest.Mock;
   fetchNearbyGroup: jest.Mock;
+  fetchPhysicalTapResolve: jest.Mock;
 };
 
 async function flushMicrotasks() {
@@ -621,6 +625,8 @@ describe('MapScreen web grouped Following mode', () => {
     mockFetchNearbyGroup.mockResolvedValue(null);
     mockFetchFollowingNearbyGroup.mockReset();
     mockFetchFollowingNearbyGroup.mockResolvedValue(null);
+    mockFetchPhysicalTapResolve.mockReset();
+    mockFetchPhysicalTapResolve.mockResolvedValue(null);
     mockGetCurrentLocation.mockReset();
     mockGetCurrentLocation.mockResolvedValue({
       longitude: 4.9041,
@@ -1216,7 +1222,7 @@ describe('MapScreen web grouped Following mode', () => {
     const canvas = map.getCanvas();
     expect(map.queryRenderedFeatures).toHaveBeenCalledWith(
       [[0, 0], [canvas.width, canvas.height]],
-      { layers: QUERYABLE_PROPERTY_LAYER_IDS }
+      { layers: PROPERTY_QUERY_LAYER_IDS }
     );
     expect(container.querySelector('[data-testid="map-following-state-empty"]')).not.toBeNull();
     expect(
@@ -1339,7 +1345,195 @@ describe('MapScreen web grouped Following mode', () => {
     });
 
     expect(map.on.mock.calls.length - onCallsBeforeSourceEvents).toBe(
-      QUERYABLE_PROPERTY_LAYER_IDS.length * 3,
+      PROPERTY_QUERY_LAYER_IDS.length * 3,
+    );
+  });
+
+  it('does not bind ghost property layers for map hit testing', async () => {
+    expect(PROPERTY_QUERY_LAYER_IDS).not.toEqual(
+      expect.arrayContaining(['ghost-clusters', 'ghost-nodes']),
+    );
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getLayer.mockReturnValue(true);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    act(() => {
+      map.trigger('sourcedata', { sourceId: 'properties-source', isSourceLoaded: true });
+    });
+
+    const boundLayerIds = map.on.mock.calls
+      .filter(([eventName, layerId]) =>
+        ['click', 'mouseenter', 'mouseleave'].includes(String(eventName)) &&
+        typeof layerId === 'string',
+      )
+      .map(([, layerId]) => layerId);
+
+    expect(boundLayerIds).not.toEqual(
+      expect.arrayContaining(['ghost-clusters', 'ghost-nodes']),
+    );
+  });
+
+  it('resolves desktop contextmenu taps through the physical tap resolver', async () => {
+    const resolved = {
+      groupKind: 'single',
+      primaryPropertyId: 'property-physical',
+      coordinate: [4.9, 52.37],
+    };
+    mockFetchPhysicalTapResolve.mockResolvedValue(resolved);
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getZoom.mockReturnValue(PROPERTY_GHOST_REVEAL_ZOOM);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    const preventDefault = jest.fn();
+    const originalPreventDefault = jest.fn();
+    act(() => {
+      map.trigger('contextmenu', {
+        lngLat: { lng: 4.9, lat: 52.37 },
+        preventDefault,
+        originalEvent: { preventDefault: originalPreventDefault },
+      });
+    });
+    await flushMicrotasks();
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(originalPreventDefault).toHaveBeenCalled();
+    expect(mockFetchPhysicalTapResolve).toHaveBeenCalledWith(
+      4.9,
+      52.37,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+    );
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      resolved,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+      expect.any(Object),
+    );
+  });
+
+  it('resolves mobile-web touch long presses through the physical tap resolver', async () => {
+    const resolved = {
+      groupKind: 'cluster',
+      primaryPropertyId: 'property-group',
+      coordinate: [4.91, 52.38],
+      previewPropertyIds: ['property-group'],
+      previewProperties: [{ id: 'property-group' }],
+    };
+    mockFetchPhysicalTapResolve.mockResolvedValue(resolved);
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getZoom.mockReturnValue(PROPERTY_GHOST_REVEAL_ZOOM);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    const preventDefault = jest.fn();
+    act(() => {
+      map.trigger('touchstart', {
+        lngLat: { lng: 4.91, lat: 52.38 },
+        preventDefault,
+        points: [{}],
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 575));
+    });
+    await flushMicrotasks();
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(mockFetchPhysicalTapResolve).toHaveBeenCalledWith(
+      4.91,
+      52.38,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+    );
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      resolved,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+      expect.any(Object),
+    );
+  });
+
+  it('keeps normal property taps on the existing nearby path', async () => {
+    mockInteraction.handleFeaturePress.mockResolvedValue(false);
+    mockFetchNearbyGroup.mockResolvedValue({
+      groupKind: 'single',
+      primaryPropertyId: 'property-nearby',
+      coordinate: [5.47, 51.44],
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getLayer.mockReturnValue(true);
+
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+    act(() => {
+      map.trigger('sourcedata');
+    });
+
+    const groupedFeature = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [5.47, 51.44] },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: 'property-nearby',
+        point_count: 1,
+        property_ids: 'property-nearby',
+        preview_property_ids: 'property-nearby',
+      },
+    };
+
+    act(() => {
+      map.trigger(
+        'click',
+        {
+          features: [groupedFeature],
+          lngLat: { lng: 5.47, lat: 51.44 },
+        },
+        PROPERTY_QUERY_LAYER_IDS[0],
+      );
+    });
+    await flushMicrotasks();
+
+    expect(mockFetchPhysicalTapResolve).not.toHaveBeenCalled();
+    expect(mockFetchNearbyGroup).toHaveBeenCalledWith(
+      5.47,
+      51.44,
+      14,
+      mockAppliedFilters,
+      undefined,
     );
   });
 
@@ -1387,7 +1581,7 @@ describe('MapScreen web grouped Following mode', () => {
     };
 
     act(() => {
-      map.trigger('click', { features: [groupedFeature] }, QUERYABLE_PROPERTY_LAYER_IDS[0]);
+      map.trigger('click', { features: [groupedFeature] }, PROPERTY_QUERY_LAYER_IDS[0]);
     });
     await flushMicrotasks();
 
@@ -1511,7 +1705,7 @@ describe('MapScreen web grouped Following mode', () => {
           features: [groupedFeature],
           lngLat: { lng: 5.47, lat: 51.44 },
         },
-        QUERYABLE_PROPERTY_LAYER_IDS[0],
+        PROPERTY_QUERY_LAYER_IDS[0],
       );
     });
     await flushMicrotasks();

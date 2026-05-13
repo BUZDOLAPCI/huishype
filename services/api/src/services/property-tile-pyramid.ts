@@ -3837,8 +3837,32 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
         };
       }
     }
+    const failCandidateSourceSnapshotInvariant = async (
+      stage: 'candidate-source-snapshot-attach' | 'candidate-source-snapshot-claim',
+      message: string
+    ) => {
+      await markPropertyTilePyramidBuildFailure({
+        versionId: candidateRow.id,
+        category: 'build_error',
+        message,
+        stage,
+        retryDelayMinutes: 15,
+      });
+      await requestSuccessorPropertyTilePyramidBuildIfWatermarkAdvanced({
+        slot,
+        sourceWatermarkHash: candidateRow.source_watermark_hash,
+        sourceWatermarksJson: rowSourceWatermarksJson,
+        pendingReplacementWatermarks,
+        reason: 'source-watermark',
+      });
+      return {
+        status: 'failed_retryable' as const,
+        versionId: candidateRow.id,
+        failureCategory: 'build_error',
+      };
+    };
     if (candidateRow.candidate_snapshot_id == null) {
-      await db.execute(sql`
+      const attachedRows = await db.execute<{ candidate_snapshot_id: string | null }>(sql`
         UPDATE property_tile_pyramid_versions
         SET
           candidate_snapshot_id = ${candidateSourceSnapshot.id}::uuid,
@@ -3851,7 +3875,18 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
           updated_at = now()
         WHERE id = ${candidateRow.id}::uuid
           AND status IN ('queued', 'failed_retryable')
+        RETURNING candidate_snapshot_id::text
       `);
+      const attached = Array.from(attachedRows);
+      if (
+        attached.length !== 1 ||
+        attached[0]?.candidate_snapshot_id !== candidateSourceSnapshot.id
+      ) {
+        return failCandidateSourceSnapshotInvariant(
+          'candidate-source-snapshot-attach',
+          `Property tile pyramid version ${candidateRow.id} failed to attach candidate source snapshot ${candidateSourceSnapshot.id}`
+        );
+      }
     } else {
       await db.execute(sql`
         UPDATE property_tile_pyramid_versions
@@ -3921,7 +3956,16 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
     `);
     const row = Array.from(claimedRows)[0];
     if (!row) {
-      return { status: 'noop', reason: 'candidate-no-longer-eligible' };
+      return failCandidateSourceSnapshotInvariant(
+        'candidate-source-snapshot-claim',
+        `Property tile pyramid version ${candidateRow.id} could not be claimed after candidate source snapshot ${candidateSourceSnapshot.id} attachment`
+      );
+    }
+    if (row.candidate_snapshot_id !== candidateSourceSnapshot.id) {
+      return failCandidateSourceSnapshotInvariant(
+        'candidate-source-snapshot-claim',
+        `Property tile pyramid version ${candidateRow.id} claimed candidate source snapshot ${row.candidate_snapshot_id ?? 'null'} instead of ${candidateSourceSnapshot.id}`
+      );
     }
     activeVersionId = row.id;
     const lease: PropertyTilePyramidBuildLease = {

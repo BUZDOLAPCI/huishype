@@ -61,6 +61,7 @@ import { useWelcomeModal } from '@/src/hooks/useWelcomeModal';
 import {
   fetchNearbyGroup,
   fetchFollowingNearbyGroup,
+  fetchPhysicalTapResolve,
   normalizeRenderedPropertyGroup,
   API_URL,
 } from '@/src/utils/api';
@@ -89,7 +90,8 @@ import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
-import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
+import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
+import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
 
 // Semantic color constants for inline styles (warm palette)
 const COLORS = {
@@ -234,7 +236,7 @@ function useMergedMapStyle(
 }
 
 // Property layer IDs to query for features (matching server's /tiles/style.json)
-const PROPERTY_LAYER_IDS = [...QUERYABLE_PROPERTY_LAYER_IDS];
+const PROPERTY_LAYER_IDS = [...PROPERTY_QUERY_LAYER_IDS];
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
@@ -1131,6 +1133,27 @@ export default function MapScreen() {
     ]
   );
 
+  const handleMapLongPress = useCallback(
+    async (event: NativeSyntheticEvent<PressEvent>) => {
+      if (currentZoom < PROPERTY_GHOST_REVEAL_ZOOM) {
+        return;
+      }
+
+      const { lngLat } = event.nativeEvent;
+      const [lon, lat] = lngLat;
+
+      try {
+        const resolved = await fetchPhysicalTapResolve(lon, lat, currentZoom);
+        if (resolved) {
+          handleNearbyResult(resolved, currentZoom, cameraCommands);
+        }
+      } catch (error) {
+        console.warn('[HuisHype] Physical tap resolver failed:', error);
+      }
+    },
+    [cameraCommands, currentZoom, handleNearbyResult],
+  );
+
   // Search bar callbacks
   const handlePropertyResolved = useCallback(
     (
@@ -1291,6 +1314,7 @@ export default function MapScreen() {
             compassHiddenFacingNorth
             touchPitch={false}
             onPress={handleMapPress}
+            onLongPress={handleMapLongPress}
             onRegionIsChanging={handleRegionIsChanging}
             onRegionDidChange={handleRegionDidChange}
             onDidFinishLoadingMap={() => setMapLoaded(true)}

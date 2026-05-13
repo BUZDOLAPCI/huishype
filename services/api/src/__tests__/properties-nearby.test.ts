@@ -726,27 +726,6 @@ function coverageFromTiles(
   };
 }
 
-function getTileNeighborhood(tile: { z: number; x: number; y: number }) {
-  const tileCount = Math.pow(2, tile.z);
-  const tiles: Array<{ z: number; x: number; y: number }> = [];
-  const seen = new Set<string>();
-
-  for (let dx = -1; dx <= 1; dx += 1) {
-    for (let dy = -1; dy <= 1; dy += 1) {
-      const x = (tile.x + dx + tileCount) % tileCount;
-      const y = tile.y + dy;
-      if (y < 0 || y >= tileCount) continue;
-
-      const key = `${x}:${y}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      tiles.push({ z: tile.z, x, y });
-    }
-  }
-
-  return tiles;
-}
-
 /**
  * Integration tests for GET /properties/nearby
  *
@@ -1387,7 +1366,7 @@ describe('GET /properties/nearby', () => {
       }
     });
 
-    it('matches the canonical tile grouping emitted across the tap tile neighborhood', async () => {
+    it('does not resolve legacy ghost clusters through nearby fallback', async () => {
       const direct = await resolveNearbyGroupedFeature(
         SEEDED_GHOST_CLUSTER_FIXTURE.lon,
         SEEDED_GHOST_CLUSTER_FIXTURE.lat,
@@ -1404,65 +1383,37 @@ describe('GET /properties/nearby', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(direct).not.toBeNull();
-      const tapTile = tileForCoordinate(
-        SEEDED_GHOST_CLUSTER_FIXTURE.lon,
-        SEEDED_GHOST_CLUSTER_FIXTURE.lat,
-        SEEDED_GHOST_CLUSTER_FIXTURE.zoom
-      );
-      const nearbyGroups = (
-        await Promise.all(
-          getTileNeighborhood(tapTile).map((tile) => buildCanonicalGroupsForTile(tile))
-        )
-      ).flat();
-      const matchingGroup = nearbyGroups.find(
-        (group) => group.primaryPropertyId === direct?.primaryPropertyId
-      );
-
-      expect(matchingGroup).toBeDefined();
-      expect(body).not.toBeNull();
-      expect(body.nodeClass).toBe('ghost');
-      expect(body.groupKind).toBe('cluster');
-      expect(body.primaryPropertyId).toBe(matchingGroup?.primaryPropertyId);
-      expect(body.pointCount).toBe(matchingGroup?.pointCount);
-      expect(body.propertyIds).toEqual(matchingGroup?.propertyIds);
-      expect(body.previewPropertyIds).toEqual(matchingGroup?.previewPropertyIds);
-      expect(body.bbox).toEqual(matchingGroup?.bbox);
-      expect(body.activeListingCount).toBe(0);
-      expect(body.socialCount).toBe(0);
-      expect(body.recentSocialCount).toBe(0);
-      expect(body.socialScoreTotal).toBe(0);
-      expect(body.socialScoreMax).toBe(0);
-      expect(body.recentSocialScoreTotal).toBe(0);
-      expect(body).not.toHaveProperty('address');
-      expect(body).not.toHaveProperty('city');
+      expect(direct).toBeNull();
+      expect(body).toBeNull();
     });
 
     it('keeps nearby resolution aligned with the canonical tile group and preview cap rules', async () => {
-      const { lon, lat, zoom } = SEEDED_GHOST_CLUSTER_FIXTURE;
-      const direct = await resolveNearbyGroupedFeature(lon, lat, zoom);
-      expect(direct).not.toBeNull();
-      const tileGroup = await buildCanonicalGroupsForTile(direct!.ownerTile);
-      const matchingGroup = tileGroup.find(
-        (group) => group.primaryPropertyId === direct?.primaryPropertyId
-      );
+      await withHermeticNearbyActiveCluster(async ({ lon, lat }) => {
+        const zoom = 20;
+        const direct = await resolveNearbyGroupedFeature(lon, lat, zoom);
+        expect(direct).not.toBeNull();
+        const tileGroup = await buildCanonicalGroupsForTile(direct!.ownerTile);
+        const matchingGroup = tileGroup.find(
+          (group) => group.primaryPropertyId === direct?.primaryPropertyId
+        );
 
-      expect(matchingGroup).toBeDefined();
-      expect(direct?.primaryPropertyId).toBe(matchingGroup?.primaryPropertyId);
-      expect(direct?.groupKind).toBe(matchingGroup?.groupKind);
-      expect(direct?.nodeClass).toBe(matchingGroup?.nodeClass);
-      expect(direct?.pointCount).toBe(matchingGroup?.pointCount);
-      expect(direct?.previewPropertyIds).toEqual(matchingGroup?.previewPropertyIds);
-      expect(direct?.previewPropertyIds).toHaveLength(
-        Math.min(direct?.pointCount ?? 0, PROPERTY_PREVIEW_MEMBER_LIMIT)
-      );
-      expect(direct?.previewPropertyIds).toEqual(
-        direct?.propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)
-      );
-      expect(direct?.pointCount).toBeGreaterThanOrEqual(direct?.previewPropertyIds.length ?? 0);
+        expect(matchingGroup).toBeDefined();
+        expect(direct?.primaryPropertyId).toBe(matchingGroup?.primaryPropertyId);
+        expect(direct?.groupKind).toBe(matchingGroup?.groupKind);
+        expect(direct?.nodeClass).toBe(matchingGroup?.nodeClass);
+        expect(direct?.pointCount).toBe(matchingGroup?.pointCount);
+        expect(direct?.previewPropertyIds).toEqual(matchingGroup?.previewPropertyIds);
+        expect(direct?.previewPropertyIds).toHaveLength(
+          Math.min(direct?.pointCount ?? 0, PROPERTY_PREVIEW_MEMBER_LIMIT)
+        );
+        expect(direct?.previewPropertyIds).toEqual(
+          direct?.propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)
+        );
+        expect(direct?.pointCount).toBeGreaterThanOrEqual(direct?.previewPropertyIds.length ?? 0);
+      });
     });
 
-    it('hydrates ghost singles with real single-property fields', async () => {
+    it('does not resolve unlisted inactive singles as ghost nearby results', async () => {
       const propertyId = crypto.randomUUID();
       const lon = 3.15;
       const lat = 55.05;
@@ -1505,21 +1456,7 @@ describe('GET /properties/nearby', () => {
         expect(response.statusCode).toBe(200);
         const body = JSON.parse(response.body);
 
-        expect(body).not.toBeNull();
-        expect(body.nodeClass).toBe('ghost');
-        expect(body.groupKind).toBe('single');
-        expect(body.primaryPropertyId).toBe(propertyId);
-        expect(body.address).toEqual(expect.any(String));
-        expect(body.city).toBe('Remote City');
-        expect(body.activeListingCount).toBe(0);
-        expect(body.hasActiveListing).toBe(false);
-        expect(body.marketState).toBe('not-listed');
-        expect(body.askingPrice).toBeNull();
-        expect(body).not.toHaveProperty('postalCode');
-        expect(body).not.toHaveProperty('countryCode');
-        expect(body).not.toHaveProperty('officialValuation');
-        expect(body).not.toHaveProperty('yearBuilt');
-        expect(body).not.toHaveProperty('floorAreaM2');
+        expect(body).toBeNull();
       } finally {
         await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
       }

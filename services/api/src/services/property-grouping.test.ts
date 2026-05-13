@@ -161,9 +161,9 @@ describe('property-grouping', () => {
     jest.restoreAllMocks();
   });
 
-  it('skips ghost candidate fetches below the ghost reveal zoom and enables them at reveal zoom', () => {
+  it('keeps ghost candidate fetching disabled at and below the legacy reveal zoom', () => {
     expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM - 1)).toBe(false);
-    expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(true);
+    expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(false);
   });
 
   it('discovers z13 non-ghost listing candidates from the maintained tile projection', () => {
@@ -194,8 +194,12 @@ describe('property-grouping', () => {
       'INNER JOIN comments c ON c.id = r.target_id INNER JOIN properties p ON p.id = c.property_id'
     );
     expect(text).toContain("AND r.target_type = 'comment' AND r.reaction_type = 'like'");
-    expect(text).toContain('FROM price_guesses pg INNER JOIN properties p ON p.id = pg.property_id');
-    expect(text).toContain('FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id');
+    expect(text).toContain(
+      'FROM price_guesses pg INNER JOIN properties p ON p.id = pg.property_id'
+    );
+    expect(text).toContain(
+      'FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id'
+    );
     expect(text).not.toContain('active_listing_candidate_ids');
     expect(text).not.toContain('completed_listing_candidate_ids');
     expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
@@ -248,7 +252,9 @@ describe('property-grouping', () => {
     expect(text).toContain(
       'SELECT p.id, p.geometry, p.official_valuation FROM properties p WHERE p.geometry IS NOT NULL'
     );
-    expect(text).toContain('FROM comments c INNER JOIN bounded_social_properties p ON p.id = c.property_id');
+    expect(text).toContain(
+      'FROM comments c INNER JOIN bounded_social_properties p ON p.id = c.property_id'
+    );
     expect(text).toContain('INNER JOIN bounded_social_properties p ON p.id = r.target_id');
     expect(text).toContain(
       'INNER JOIN comments c ON c.id = r.target_id INNER JOIN bounded_social_properties p ON p.id = c.property_id'
@@ -422,11 +428,9 @@ describe('property-grouping', () => {
       .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
 
     await expect(
-      buildCanonicalGroupsForTile(
-        { z: 13, x: 4206, y: 2692 },
-        createDefaultMapFilters(),
-        { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID },
-      )
+      buildCanonicalGroupsForTile({ z: 13, x: 4206, y: 2692 }, createDefaultMapFilters(), {
+        candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID,
+      })
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((text) =>
@@ -460,14 +464,10 @@ describe('property-grouping', () => {
       .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
 
     await expect(
-      buildCanonicalGroupsForTileUncached(
-        { z: 13, x: 4206, y: 2692 },
-        createDefaultMapFilters(),
-        {
-          candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID,
-          closedSocialActivityCutoffAt,
-        }
-      )
+      buildCanonicalGroupsForTileUncached({ z: 13, x: 4206, y: 2692 }, createDefaultMapFilters(), {
+        candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID,
+        closedSocialActivityCutoffAt,
+      })
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((query) =>
@@ -1097,7 +1097,7 @@ describe('property-grouping', () => {
     expect(groups[1].propertyIds).toEqual([gamma.id]);
   });
 
-  it('suppresses ghosts inside active occupancy and keeps far ghosts once ghosts are revealed', () => {
+  it('drops ghost candidates while keeping active candidates once legacy ghosts would reveal', () => {
     const zoom = GHOST_NODE_REVEAL_ZOOM;
     const tile = { z: zoom, x: 100000, y: 70000 };
     const originX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
@@ -1143,27 +1143,20 @@ describe('property-grouping', () => {
       originY,
       zoom
     );
-    const farGhost = makeCandidate(
-      '00000000-0000-0000-0000-000000000013',
-      farLon,
-      farLat,
-      zoom,
-      {
-        hasActiveListing: false,
-        socialScore: 0,
-        worldX: originX + suppressionThresholdUnits + TILE_UNITS_PER_PX,
-        worldY: originY,
-      }
-    );
+    const farGhost = makeCandidate('00000000-0000-0000-0000-000000000013', farLon, farLat, zoom, {
+      hasActiveListing: false,
+      socialScore: 0,
+      worldX: originX + suppressionThresholdUnits + TILE_UNITS_PER_PX,
+      worldY: originY,
+    });
 
     const groups = groupCandidatesForTile(tile, [active, suppressedGhost, farGhost]);
     const activeGroup = groups.find((group) => group.nodeClass === 'active');
-    const ghostGroup = groups.find((group) => group.nodeClass === 'ghost');
 
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(1);
     expect(activeGroup?.primaryPropertyId).toBe(active.id);
-    expect(ghostGroup?.primaryPropertyId).toBe(farGhost.id);
     expect(groups.find((group) => group.primaryPropertyId === suppressedGhost.id)).toBeUndefined();
+    expect(groups.find((group) => group.primaryPropertyId === farGhost.id)).toBeUndefined();
   });
 
   it('keeps listing-backed zero-social candidates active below ghost reveal zoom while hiding true ghosts', () => {
@@ -1325,7 +1318,7 @@ describe('property-grouping', () => {
     expect(groups[0].recentSocialCount).toBe(1);
   });
 
-  it('preserves listing-only, social-only, and ghost semantics after candidate scoping', () => {
+  it('preserves listing-only and social-only semantics while dropping ghost candidates after scoping', () => {
     const hiddenZoom = GHOST_NODE_REVEAL_ZOOM - 1;
     const revealedZoom = GHOST_NODE_REVEAL_ZOOM;
     const baseLon = 5.4697;
@@ -1372,19 +1365,13 @@ describe('property-grouping', () => {
         marketState: 'not-listed',
       }
     );
-    const revealedGhost = makeCandidate(
-      hiddenGhost.id,
-      ghostLon,
-      baseLat,
-      revealedZoom,
-      {
-        hasActiveListing: false,
-        hasCompletedListing: false,
-        socialScore: 0.1,
-        recentSocialScore: 0.1,
-        marketState: 'not-listed',
-      }
-    );
+    const revealedGhost = makeCandidate(hiddenGhost.id, ghostLon, baseLat, revealedZoom, {
+      hasActiveListing: false,
+      hasCompletedListing: false,
+      socialScore: 0.1,
+      recentSocialScore: 0.1,
+      marketState: 'not-listed',
+    });
 
     const hiddenGroups = groupCandidatesForTile(hiddenTile, [listingOnly, socialOnly, hiddenGhost]);
     const revealedGroups = groupCandidatesForTile(revealedTile, [revealedGhost]);
@@ -1405,15 +1392,10 @@ describe('property-grouping', () => {
       socialCount: 1,
       marketState: 'not-listed',
     });
-    expect(hiddenGroups.find((group) => group.primaryPropertyId === hiddenGhost.id)).toBeUndefined();
-    expect(revealedGroups).toHaveLength(1);
-    expect(revealedGroups[0]).toMatchObject({
-      nodeClass: 'ghost',
-      groupKind: 'single',
-      primaryPropertyId: hiddenGhost.id,
-      socialCount: 0,
-      marketState: 'not-listed',
-    });
+    expect(
+      hiddenGroups.find((group) => group.primaryPropertyId === hiddenGhost.id)
+    ).toBeUndefined();
+    expect(revealedGroups).toHaveLength(0);
   });
 
   it('keeps a single unique view below active-node semantics', () => {
@@ -1458,7 +1440,7 @@ describe('property-grouping', () => {
     expect(groups[0].recentSocialScoreTotal).toBe(0.8);
   });
 
-  it('keeps revealed one-view non-listing nodes in the ghost layer', () => {
+  it('drops revealed one-view non-listing nodes instead of emitting ghost nodes', () => {
     const zoom = GHOST_NODE_REVEAL_ZOOM;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
@@ -1472,15 +1454,10 @@ describe('property-grouping', () => {
 
     const groups = groupCandidatesForTile(tile, [viewed]);
 
-    expect(groups).toHaveLength(1);
-    expect(groups[0].nodeClass).toBe('ghost');
-    expect(groups[0].primaryPropertyId).toBe(viewed.id);
-    expect(groups[0].socialCount).toBe(0);
-    expect(groups[0].recentSocialCount).toBe(0);
-    expect(groups[0].socialScoreTotal).toBe(0.1);
+    expect(groups).toHaveLength(0);
   });
 
-  it('builds ghost clusters from ghost members only once ghosts are revealed', () => {
+  it('does not build ghost clusters once legacy ghosts would reveal', () => {
     const zoom = GHOST_NODE_REVEAL_ZOOM;
     const tile = { z: zoom, x: 100000, y: 70000 };
     const originX = tile.x * PROPERTY_TILE_EXTENT + 1500;
@@ -1515,17 +1492,9 @@ describe('property-grouping', () => {
     const ghostGroup = groups.find((group) => group.nodeClass === 'ghost');
     const activeGroup = groups.find((group) => group.nodeClass === 'active');
 
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(1);
     expect(activeGroup?.groupKind).toBe('single');
-    expect(ghostGroup).toBeDefined();
-    expect(ghostGroup?.groupKind).toBe('cluster');
-    expect(ghostGroup?.pointCount).toBe(2);
-    expect(ghostGroup?.propertyIds).toEqual([ghostA.id, ghostB.id]);
-    expect(ghostGroup?.previewPropertyIds).toEqual([ghostA.id, ghostB.id]);
-    expect(ghostGroup?.activeListingCount).toBe(0);
-    expect(ghostGroup?.socialCount).toBe(0);
-    expect(ghostGroup?.recentSocialCount).toBe(0);
-    expect(ghostGroup?.socialScoreTotal).toBe(0);
+    expect(ghostGroup).toBeUndefined();
   });
 
   it('orders preview members by grouping priority and caps them to the preview member limit', () => {
@@ -1584,45 +1553,41 @@ describe('property-grouping', () => {
     );
   });
 
-  it(
-    'aggregates very large active clusters without spread argument overflow',
-    () => {
-      const zoom = 17;
-      const tile = { z: zoom, x: 100, y: 100 };
-      const worldX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
-      const worldY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
-      const memberCount = 140_000;
-      const candidates = Array.from({ length: memberCount }, (_, index) =>
-        makeCandidateAtWorld(makePropertyId(index), worldX, worldY, zoom, {
-          socialScore: index % 97,
-          recentSocialScore: index % 53,
-          commentCount: 1,
-          hasActiveListing: index % 2 === 0,
-          hasCompletedListing: index % 2 !== 0,
-          marketState: index % 2 === 0 ? 'for-sale' : 'sold',
-        })
-      );
+  it('aggregates very large active clusters without spread argument overflow', () => {
+    const zoom = 17;
+    const tile = { z: zoom, x: 100, y: 100 };
+    const worldX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const worldY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
+    const memberCount = 140_000;
+    const candidates = Array.from({ length: memberCount }, (_, index) =>
+      makeCandidateAtWorld(makePropertyId(index), worldX, worldY, zoom, {
+        socialScore: index % 97,
+        recentSocialScore: index % 53,
+        commentCount: 1,
+        hasActiveListing: index % 2 === 0,
+        hasCompletedListing: index % 2 !== 0,
+        marketState: index % 2 === 0 ? 'for-sale' : 'sold',
+      })
+    );
 
-      const groups = groupCandidatesForTile(tile, candidates);
+    const groups = groupCandidatesForTile(tile, candidates);
 
-      expect(groups).toHaveLength(1);
-      expect(groups[0].groupKind).toBe('cluster');
-      expect(groups[0].pointCount).toBe(memberCount);
-      expect(groups[0].propertyIds).toHaveLength(memberCount);
-      expect(groups[0].previewPropertyIds).toHaveLength(PROPERTY_PREVIEW_MEMBER_LIMIT);
-      expect(groups[0].activeListingCount).toBe(memberCount / 2);
-      expect(groups[0].completedListingCount).toBe(memberCount / 2);
-      expect(groups[0].socialScoreMax).toBe(96);
-      expect(groups[0].commentCount).toBe(memberCount);
-      expect(groups[0].bbox).toEqual([
-        groups[0].coordinate[0],
-        groups[0].coordinate[1],
-        groups[0].coordinate[0],
-        groups[0].coordinate[1],
-      ]);
-    },
-    30_000
-  );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].groupKind).toBe('cluster');
+    expect(groups[0].pointCount).toBe(memberCount);
+    expect(groups[0].propertyIds).toHaveLength(memberCount);
+    expect(groups[0].previewPropertyIds).toHaveLength(PROPERTY_PREVIEW_MEMBER_LIMIT);
+    expect(groups[0].activeListingCount).toBe(memberCount / 2);
+    expect(groups[0].completedListingCount).toBe(memberCount / 2);
+    expect(groups[0].socialScoreMax).toBe(96);
+    expect(groups[0].commentCount).toBe(memberCount);
+    expect(groups[0].bbox).toEqual([
+      groups[0].coordinate[0],
+      groups[0].coordinate[1],
+      groups[0].coordinate[0],
+      groups[0].coordinate[1],
+    ]);
+  }, 30_000);
 
   it('can omit full cluster property id membership while retaining capped previews for pyramid builds', () => {
     const zoom = 17;
@@ -1855,19 +1820,17 @@ describe('property-grouping', () => {
     const timings: Array<{ stage: string; itemCount?: number }> = [];
     let renderedMvtSql = '';
     const executeSpy = jest.spyOn(db, 'execute').mockImplementation((async (query: unknown) => {
-      renderedMvtSql = renderSql(query as SQL).replace(/\s+/g, ' ').trim();
+      renderedMvtSql = renderSql(query as SQL)
+        .replace(/\s+/g, ' ')
+        .trim();
       return [{ mvt: Buffer.from('dense-mvt') }] as never;
     }) as never);
 
-    const result = await buildMvtForGroups(
-      { z: 17, x: 67478, y: 43551 },
-      groups,
-      {
-        onStageTiming: (timing) => {
-          timings.push({ stage: timing.stage, itemCount: timing.itemCount });
-        },
-      }
-    );
+    const result = await buildMvtForGroups({ z: 17, x: 67478, y: 43551 }, groups, {
+      onStageTiming: (timing) => {
+        timings.push({ stage: timing.stage, itemCount: timing.itemCount });
+      },
+    });
 
     expect(result.toString()).toBe('dense-mvt');
     expect(executeSpy).toHaveBeenCalledTimes(1);
@@ -2175,17 +2138,17 @@ describe('property-grouping', () => {
         tile,
         normalizeMapFilters({ rentPriceFrom: 2000, rentPriceTo: 2200 })
       );
-      expect(rentFilteredGroups.some((candidate) => candidate.primaryPropertyId === propertyId)).toBe(
-        true
-      );
+      expect(
+        rentFilteredGroups.some((candidate) => candidate.primaryPropertyId === propertyId)
+      ).toBe(true);
 
       const saleFilteredGroups = await buildCanonicalGroupsForTile(
         tile,
         normalizeMapFilters({ marketState: ['for-sale'], salePriceFrom: 900000 })
       );
-      expect(saleFilteredGroups.some((candidate) => candidate.primaryPropertyId === propertyId)).toBe(
-        false
-      );
+      expect(
+        saleFilteredGroups.some((candidate) => candidate.primaryPropertyId === propertyId)
+      ).toBe(false);
     } finally {
       await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     }

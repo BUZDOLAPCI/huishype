@@ -9,7 +9,6 @@ import {
   mapFiltersQuerySchema,
 } from '@huishype/shared';
 import {
-  PROPERTY_GHOST_REVEAL_ZOOM,
   PROPERTY_MAP_FOOTPRINTS,
   PROPERTY_MAP_LAYERS,
   MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS,
@@ -41,8 +40,6 @@ import {
   MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
   MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
   MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
-  MAP_NODE_GHOST_CLUSTER_VISUAL,
-  MAP_NODE_GHOST_SINGLE_VISUAL,
   type NumericStop,
 } from '@huishype/shared/config';
 import { db } from '../db/index.js';
@@ -114,8 +111,8 @@ import {
  * Business Logic:
  * - Active nodes may group at any zoom when density requires it
  * - Sparse active areas naturally resolve to singles
- * - Ghost nodes reveal at Z17+ and group only with other ghosts
- * - Ghosts inside active occupancy are suppressed before ghost grouping
+ * - Ghost node classes are retained only for legacy transport compatibility
+ * - Public tiles emit active/listing-backed/social nodes only
  *
  * Performance:
  * - Uses one canonical tile-local grouping engine shared with nearby fallback
@@ -154,11 +151,7 @@ const fontParamsSchema = z.object({
   range: z.string().regex(/^\d+-\d+\.pbf$/),
 });
 
-// Zoom threshold for ghost nodes (frontend layers)
-// Must match the backend grouping engine so tiles and style stay aligned.
-const GHOST_NODE_FRONTEND_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
 const ACTIVE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active;
-const GHOST_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost;
 
 // 3D Buildings configuration
 const BUILDINGS_3D_CONFIG = {
@@ -1300,17 +1293,6 @@ function flattenFillExtrusionZoomExpressions(layers: Array<Record<string, unknow
   }
 }
 
-type StepStop = NumericStop;
-
-function buildStepExpression(
-  input: unknown,
-  stops: readonly StepStop[]
-): [string, unknown, number, ...(number | string)[]] {
-  const [firstStop, ...restStops] = stops;
-  const expressionTail = restStops.flatMap(([threshold, value]) => [threshold, value]);
-  return ['step', input, firstStop[1], ...expressionTail];
-}
-
 function buildInterpolateExpression<TValue extends number | string>(
   input: unknown,
   stops: ReadonlyArray<readonly [threshold: number, value: TValue]>
@@ -1389,7 +1371,7 @@ function buildRecentPulseRadiusExpression(
  * Final layer IDs:
  *   property-clusters, property-cluster-fill, property-cluster-pulse, cluster-count,
  *   active-nodes, active-node-fill, active-node-pulse,
- *   ghost-clusters, ghost-cluster-count, ghost-nodes
+ *   active-nodes
  */
 function buildPropertyLayers(): Array<Record<string, unknown>> {
   const activeClusterRadius = ACTIVE_FOOTPRINT.clusterRadiusPx;
@@ -1659,73 +1641,6 @@ function buildPropertyLayers(): Array<Record<string, unknown>> {
         'circle-stroke-width': ['case', hasListingRing, 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
         'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
         'circle-stroke-opacity': ['case', hasListingRing, 0, MAP_NODE_NON_LISTING_OUTLINE_OPACITY],
-      },
-    },
-    // Ghost-only clusters appear once ghosts are revealed.
-    {
-      id: PROPERTY_MAP_LAYERS.GHOST_CLUSTERS,
-      type: 'circle',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: GHOST_NODE_FRONTEND_ZOOM,
-      filter: [
-        'all',
-        ['==', ['get', 'node_class'], 'ghost'],
-        ['==', ['get', 'group_kind'], 'cluster'],
-      ],
-      paint: {
-        'circle-radius': buildStepExpression(
-          ['coalesce', ['get', 'point_count'], 2],
-          GHOST_FOOTPRINT.clusterRadiusStopsPx
-        ),
-        'circle-color': MAP_NODE_GHOST_CLUSTER_VISUAL.fill,
-        'circle-opacity': MAP_NODE_GHOST_CLUSTER_VISUAL.opacity,
-        'circle-stroke-width': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeWidth,
-        'circle-stroke-color': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeColor,
-        'circle-stroke-opacity': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeOpacity,
-      },
-    },
-    {
-      id: PROPERTY_MAP_LAYERS.GHOST_CLUSTER_COUNT,
-      type: 'symbol',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: GHOST_NODE_FRONTEND_ZOOM,
-      filter: [
-        'all',
-        ['==', ['get', 'node_class'], 'ghost'],
-        ['==', ['get', 'group_kind'], 'cluster'],
-      ],
-      layout: {
-        'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': MAP_NODE_GHOST_CLUSTER_VISUAL.labelSize,
-      },
-      paint: {
-        'text-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelColor,
-        'text-halo-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelHaloColor,
-        'text-halo-width': 1,
-      },
-    },
-    // Ghost singles remain low emphasis.
-    {
-      id: PROPERTY_MAP_LAYERS.GHOST_NODES,
-      type: 'circle',
-      source: 'properties-source',
-      'source-layer': 'properties',
-      minzoom: GHOST_NODE_FRONTEND_ZOOM,
-      filter: [
-        'all',
-        ['==', ['get', 'node_class'], 'ghost'],
-        ['==', ['get', 'group_kind'], 'single'],
-      ],
-      paint: {
-        'circle-radius': GHOST_FOOTPRINT.singleRadiusPx,
-        'circle-color': MAP_NODE_GHOST_SINGLE_VISUAL.fill,
-        'circle-opacity': MAP_NODE_GHOST_SINGLE_VISUAL.opacity,
-        'circle-stroke-width': MAP_NODE_GHOST_SINGLE_VISUAL.strokeWidth,
-        'circle-stroke-color': MAP_NODE_GHOST_SINGLE_VISUAL.strokeColor,
-        'circle-stroke-opacity': MAP_NODE_GHOST_SINGLE_VISUAL.strokeOpacity,
       },
     },
   ];
@@ -2247,7 +2162,7 @@ export async function tileRoutes(app: FastifyInstance) {
    *
    * Returns a Mapbox Vector Tile (MVT) containing property data
    * - Active nodes may group at any zoom based on density
-   * - Ghost nodes reveal at Z17+ and group only with ghosts
+   * - Ghost nodes are not emitted from public tiles
    */
   typedApp.get(
     '/tiles/properties/:z/:x/:y.pbf',
@@ -2256,7 +2171,7 @@ export async function tileRoutes(app: FastifyInstance) {
         tags: ['tiles'],
         summary: 'Get property vector tile',
         description:
-          'Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.',
+          'Returns MVT/PBF vector tile with density-aware grouped property data. Active/listing-backed/social nodes may group at any zoom; ghost nodes are not emitted.',
         params: tileParamsSchema,
         querystring: mapFiltersQuerySchema,
         // Response schema is omitted for binary data

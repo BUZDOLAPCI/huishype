@@ -304,6 +304,67 @@ export type NearbyPropertyGroup = PropertyNodeGroup & {
   isRead: boolean;
 };
 
+export type PhysicalTapMatch = 'containing-building' | 'nearby-building' | 'nearby-property';
+
+export interface PhysicalTapCoordinate {
+  longitude: number;
+  latitude: number;
+}
+
+export interface PhysicalTapPropertyPreview {
+  id: string;
+  nationalId: string | null;
+  countryCode: string;
+  region: string | null;
+  street: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
+  address: string;
+  city: string;
+  postalCode: string | null;
+  coordinate: PhysicalTapCoordinate;
+  imageryCoordinate: PhysicalTapCoordinate | null;
+  hasListing: boolean;
+  hasActiveListing: boolean;
+  marketState: MapMarketState;
+  latestListingStatus: 'active' | 'sold' | 'rented' | 'withdrawn' | null;
+  askingPrice: number | null;
+  thumbnailUrl: string | null;
+  officialValuation: number | null;
+  officialValuationYear: number | null;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
+  socialScore: number;
+  recentSocialScore: number;
+  commentCount: number;
+  isRead: boolean;
+}
+
+export type PhysicalTapGroupPreview = PropertyNodeGroupBase & {
+  nodeClass: 'active';
+  groupKind: 'cluster';
+  distanceMeters: number;
+  completedListingCount: number;
+  isRead: boolean;
+  previewProperties: PhysicalTapPropertyPreview[];
+};
+
+export type PhysicalTapResolveResult =
+  | {
+      kind: 'single';
+      source: 'physical-tap';
+      property: PhysicalTapPropertyPreview;
+      coordinate: PhysicalTapCoordinate;
+      match: PhysicalTapMatch;
+    }
+  | {
+      kind: 'group';
+      source: 'physical-tap';
+      group: PhysicalTapGroupPreview;
+      coordinate: PhysicalTapCoordinate;
+      match: PhysicalTapMatch;
+    };
+
 /**
  * Canonical filter categories for map state.
  */
@@ -312,12 +373,7 @@ export type MapFilterCategory = 'price' | 'marketState' | 'activity';
 /**
  * Exclusive market-state taxonomy for map filtering.
  */
-export type MapMarketState =
-  | 'for-sale'
-  | 'for-rent'
-  | 'sold'
-  | 'rented'
-  | 'not-listed';
+export type MapMarketState = 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
 
 /**
  * Shared applied map-filter state.

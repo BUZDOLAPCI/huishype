@@ -170,17 +170,6 @@ type SpatialHashEntry = {
   radiusUnits: number;
 };
 
-type ActiveOccupancy = {
-  x: number;
-  y: number;
-  radiusUnits: number;
-};
-
-type ActiveOccupancySpatialIndex = {
-  cellSize: number;
-  cells: Map<string, ActiveOccupancy[]>;
-};
-
 type ClusterBuilderConfig = {
   maxRadiusUnits: number;
   gapUnits: number;
@@ -688,7 +677,8 @@ export function getGroupingBufferUnits(): number {
 }
 
 export function shouldFetchGhostCandidates(zoom: number): boolean {
-  return zoom >= GHOST_NODE_REVEAL_ZOOM;
+  void zoom;
+  return false;
 }
 
 function compareCandidatePriority(a: GroupingCandidate, b: GroupingCandidate): number {
@@ -808,84 +798,6 @@ function buildSpatialHash(
     }
   });
   return index;
-}
-
-function buildActiveOccupancySpatialIndex(
-  activeOccupancies: ActiveOccupancy[],
-  ghostRadiusUnits: number,
-  options?: PropertyTileBuildOptions,
-  startedAt = Date.now()
-): ActiveOccupancySpatialIndex | null {
-  if (activeOccupancies.length === 0) {
-    return null;
-  }
-
-  let maxSuppressionRadiusUnits = ghostRadiusUnits;
-  for (let index = 0; index < activeOccupancies.length; index += 1) {
-    if (index % 128 === 0) {
-      assertTileBuildCanContinue(options, startedAt, 'active occupancy spatial index');
-    }
-    maxSuppressionRadiusUnits = Math.max(
-      maxSuppressionRadiusUnits,
-      activeOccupancies[index].radiusUnits + ghostRadiusUnits
-    );
-  }
-
-  const cells = new Map<string, ActiveOccupancy[]>();
-  const cellSize = Math.max(maxSuppressionRadiusUnits, 1);
-  for (let index = 0; index < activeOccupancies.length; index += 1) {
-    if (index % 128 === 0) {
-      assertTileBuildCanContinue(options, startedAt, 'active occupancy spatial index');
-    }
-    const occupancy = activeOccupancies[index];
-    const key = getCellKey(occupancy.x, occupancy.y, cellSize);
-    const bucket = cells.get(key);
-    if (bucket) {
-      bucket.push(occupancy);
-    } else {
-      cells.set(key, [occupancy]);
-    }
-  }
-
-  return { cellSize, cells };
-}
-
-function isSuppressedByActiveOccupancy(
-  candidate: GroupingCandidate,
-  ghostRadiusUnits: number,
-  index: ActiveOccupancySpatialIndex | null,
-  options?: PropertyTileBuildOptions,
-  startedAt = Date.now()
-): boolean {
-  if (!index) {
-    return false;
-  }
-
-  const cellX = Math.floor(candidate.worldX / index.cellSize);
-  const cellY = Math.floor(candidate.worldY / index.cellSize);
-  let occupancyChecks = 0;
-
-  for (let dx = -1; dx <= 1; dx += 1) {
-    for (let dy = -1; dy <= 1; dy += 1) {
-      const bucket = index.cells.get(`${cellX + dx}:${cellY + dy}`);
-      if (!bucket) continue;
-
-      for (const occupancy of bucket) {
-        occupancyChecks += 1;
-        if (occupancyChecks % 512 === 0) {
-          assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
-        }
-        const dxWorld = candidate.worldX - occupancy.x;
-        const dyWorld = candidate.worldY - occupancy.y;
-        const threshold = occupancy.radiusUnits + ghostRadiusUnits;
-        if (dxWorld * dxWorld + dyWorld * dyWorld <= threshold * threshold) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
 }
 
 function clusterCandidates(
@@ -1012,7 +924,9 @@ function getPropertyTilePyramidReadMaxZoom(): number {
     return DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM;
   }
   const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(22, parsed) : DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM;
+  return Number.isFinite(parsed) && parsed >= 0
+    ? Math.min(22, parsed)
+    : DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM;
 }
 
 function buildCanonicalGroupCacheKey(
@@ -1027,7 +941,7 @@ function buildCanonicalGroupCacheKey(
     options?.candidateSnapshotId ?? 'current',
     options?.closedSocialActivityCutoffAt instanceof Date
       ? options.closedSocialActivityCutoffAt.toISOString()
-      : options?.closedSocialActivityCutoffAt ?? 'live',
+      : (options?.closedSocialActivityCutoffAt ?? 'live'),
   ].join(':');
 }
 
@@ -1123,9 +1037,7 @@ function hasPriceFilters(filters: MapFilters): boolean {
   );
 }
 
-function getClosedSocialActivityCutoff(
-  options?: PropertyTileBuildOptions
-): string | Date | null {
+function getClosedSocialActivityCutoff(options?: PropertyTileBuildOptions): string | Date | null {
   if (!options?.candidateSnapshotId) {
     return null;
   }
@@ -1139,18 +1051,12 @@ function getClosedSocialActivityCutoff(
   return null;
 }
 
-function buildClosedSocialActivityPredicate(
-  column: SQL,
-  options?: PropertyTileBuildOptions
-): SQL {
+function buildClosedSocialActivityPredicate(column: SQL, options?: PropertyTileBuildOptions): SQL {
   const cutoff = getClosedSocialActivityCutoff(options);
   return cutoff ? sql`${column} <= ${cutoff}::timestamptz` : sql`TRUE`;
 }
 
-function buildRecentSocialActivityPredicate(
-  column: SQL,
-  options?: PropertyTileBuildOptions
-): SQL {
+function buildRecentSocialActivityPredicate(column: SQL, options?: PropertyTileBuildOptions): SQL {
   const cutoff = getClosedSocialActivityCutoff(options);
   return cutoff
     ? sql`${column} > ${cutoff}::timestamptz - INTERVAL '7 days'
@@ -1401,14 +1307,6 @@ function buildCanonicalGroup(
   };
 }
 
-function getActiveOccupancyRadiusUnits(group: CanonicalPropertyGroup): number {
-  const pxRadius =
-    group.groupKind === 'cluster'
-      ? getActiveClusterRadiusPx(group.pointCount)
-      : getActiveSingleRadiusPx(group.socialScoreMax);
-  return pxToTileUnits(pxRadius + GHOST_SUPPRESSION_PADDING_PX);
-}
-
 function getNearbyHitRadiusUnits(group: CanonicalPropertyGroup): number {
   const pxRadius =
     group.nodeClass === 'ghost'
@@ -1628,9 +1526,9 @@ export function buildGroupingCandidateScopeCtes(
             AND (${bboxFilter})`;
   const canIncludeSocialOnlyCandidates = filters.marketState.includes('not-listed');
   const useSourceFirstCandidateScope =
-    options?.candidateSnapshotId != null
-    && !includeGhostCandidates
-    && zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
+    options?.candidateSnapshotId != null &&
+    !includeGhostCandidates &&
+    zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
   const useBoundedSocialCandidateScope = useSourceFirstCandidateScope && zoom >= 14;
 
   if (includeGhostCandidates) {
@@ -2606,14 +2504,11 @@ function buildCanonicalGroupsFromCandidates(
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'canonical grouping preparation');
   const activeCandidates: GroupingCandidate[] = [];
-  const ghostCandidates: GroupingCandidate[] = [];
   candidates.forEach((candidate, index) => {
     if (index % 128 === 0) {
       assertTileBuildCanContinue(options, startedAt, 'candidate partitioning');
     }
-    if (isGhostCandidate(candidate)) {
-      ghostCandidates.push(candidate);
-    } else {
+    if (!isGhostCandidate(candidate)) {
       activeCandidates.push(candidate);
     }
   });
@@ -2630,50 +2525,7 @@ function buildCanonicalGroupsFromCandidates(
     startedAt
   ).map((members) => buildCanonicalGroup(members, 'active', zoom, options));
 
-  const activeOccupancies = activeGroups.map((group, index) => {
-    if (index % 128 === 0) {
-      assertTileBuildCanContinue(options, startedAt, 'active occupancy preparation');
-    }
-    return {
-      x: group.anchorWorldX,
-      y: group.anchorWorldY,
-      radiusUnits: getActiveOccupancyRadiusUnits(group),
-    };
-  });
-  const ghostRadiusUnits = pxToTileUnits(getGhostGroupingRadiusPx());
-  const activeOccupancyIndex =
-    zoom >= GHOST_NODE_REVEAL_ZOOM && ghostCandidates.length > 0
-      ? buildActiveOccupancySpatialIndex(activeOccupancies, ghostRadiusUnits, options, startedAt)
-      : null;
-
-  const visibleGhostCandidates =
-    zoom >= GHOST_NODE_REVEAL_ZOOM
-      ? ghostCandidates.filter((candidate, candidateIndex) => {
-          if (candidateIndex % 128 === 0) {
-            assertTileBuildCanContinue(options, startedAt, 'ghost suppression');
-          }
-          return !isSuppressedByActiveOccupancy(
-            candidate,
-            ghostRadiusUnits,
-            activeOccupancyIndex,
-            options,
-            startedAt
-          );
-        })
-      : [];
-
-  const ghostGroups = clusterCandidates(
-    visibleGhostCandidates,
-    {
-      maxRadiusUnits: pxToTileUnits(getGhostGroupingRadiusPx()),
-      gapUnits: pxToTileUnits(GHOST_GROUPING_GAP_PX),
-      getRadiusUnits: () => pxToTileUnits(getGhostGroupingRadiusPx()),
-    },
-    options,
-    startedAt
-  ).map((members) => buildCanonicalGroup(members, 'ghost', zoom, options));
-
-  return [...activeGroups, ...ghostGroups];
+  return activeGroups;
 }
 
 export function groupCandidatesForTile(

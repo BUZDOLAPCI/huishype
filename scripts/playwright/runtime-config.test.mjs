@@ -4,11 +4,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  applyPlaywrightPropertyTilePyramidFixtureEnvironment,
   applyPlaywrightRuntimeEnvironment,
   assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe,
   createPlaywrightRuntimeSettings,
   DEFAULT_LOCAL_DATABASE_URL,
   getPlaywrightWebDistCandidates,
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID,
   PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
   resolveLatestWebDistDir,
 } from './runtime-config.mjs';
@@ -89,6 +91,31 @@ test('applyPlaywrightRuntimeEnvironment rewrites inherited url env to match runt
   assert.equal(env.PLAYWRIGHT_API_PORT, '4123');
   assert.equal(env.PLAYWRIGHT_WEB_PORT, '9123');
   assert.equal(env.PLAYWRIGHT_WEB_URL, 'http://127.0.0.1:9123');
+});
+
+test('applyPlaywrightPropertyTilePyramidFixtureEnvironment isolates fixture coverage', () => {
+  const env = {
+    PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '10',
+  };
+
+  const settings = applyPlaywrightPropertyTilePyramidFixtureEnvironment(env);
+
+  assert.equal(settings.coverageId, PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID);
+  assert.equal(settings.maxZoom, '10');
+  assert.equal(env.PROPERTY_TILE_PYRAMID_COVERAGE_ID, PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID);
+  assert.equal(env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM, '10');
+  assert.equal(env[PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV], '1');
+});
+
+test('applyPlaywrightPropertyTilePyramidFixtureEnvironment forces fixture max zoom to 10', () => {
+  const env = {
+    PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '12',
+  };
+
+  applyPlaywrightPropertyTilePyramidFixtureEnvironment(env);
+
+  assert.equal(env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM, '10');
+  assert.equal(env.PROPERTY_TILE_PYRAMID_COVERAGE_ID, PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID);
 });
 
 test('resolveLatestWebDistDir ignores a repo-root dist bundle when the app dist is missing', async () => {

@@ -9,8 +9,8 @@ import {
   DEFAULT_PLAYWRIGHT_API_PORT,
   DEFAULT_PLAYWRIGHT_WEB_PORT,
   PLAYWRIGHT_APP_ROOT,
-  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
   PLAYWRIGHT_REPO_ROOT,
+  applyPlaywrightPropertyTilePyramidFixtureEnvironment,
   applyPlaywrightRuntimeEnvironment,
   assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe,
   resolveLatestWebDistDir,
@@ -233,17 +233,16 @@ async function main() {
   process.env.API_URL = apiUrl;
   process.env.EXPO_PUBLIC_API_URL = apiUrl;
   applyPlaywrightRuntimeEnvironment(process.env);
+  applyPlaywrightPropertyTilePyramidFixtureEnvironment(process.env);
 
   const childEnv = {
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
-    PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM || '10',
   };
   const fixtureTarget = assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe(childEnv, {
     requireExplicitAllow: false,
   });
-  childEnv[PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV] = '1';
   // Detached service children do not keep the supervisor event loop alive by
   // themselves. Hold a lightweight interval open so this process remains the
   // lifetime owner until Playwright signals shutdown.

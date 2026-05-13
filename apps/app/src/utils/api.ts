@@ -405,6 +405,7 @@ export interface NearbyGroupedResult {
   postalCode: string | null;
   countryCode: string | null;
   officialValuation: number | null;
+  officialValuationYear?: number | null;
   askingPrice: number | null;
   thumbnailUrl: string | null;
   yearBuilt?: number | null;
@@ -447,6 +448,7 @@ export interface NormalizedPropertyNodeGroup {
   postalCode: string | null;
   countryCode: string | null;
   officialValuation: number | null;
+  officialValuationYear?: number | null;
   askingPrice: number | null;
   thumbnailUrl: string | null;
   yearBuilt: number | null;
@@ -466,12 +468,118 @@ export interface NormalizedPropertyNodeGroup {
 export interface NearbyPropertyGroup extends Omit<NormalizedPropertyNodeGroup, 'isRead'> {
   isRead: boolean;
   distanceMeters: number;
+  source?: 'nearby' | 'physical-tap';
+  match?: PhysicalTapResolveMatch;
+  previewProperties?: PhysicalTapPreviewProperty[];
 }
 
 export interface NearbyGroupLookupOptions {
   pyramidVersionId?: string | null;
   pyramidNodeId?: string | null;
 }
+
+export type PhysicalTapResolveMatch =
+  | 'containing-building'
+  | 'nearby-building'
+  | 'nearby-property';
+
+export type PhysicalTapCoordinate =
+  | [number, number]
+  | {
+      longitude?: number | null;
+      latitude?: number | null;
+      lon?: number | null;
+      lat?: number | null;
+    };
+
+export interface PhysicalTapPreviewProperty {
+  id: string;
+  address?: string | null;
+  street?: string | null;
+  streetName?: string | null;
+  houseNumber?: string | number | null;
+  houseNumberAddition?: string | null;
+  city?: string | null;
+  postalCode?: string | null;
+  countryCode?: string | null;
+  country?: string | null;
+  coordinate?: PhysicalTapCoordinate | null;
+  coordinates?: PhysicalTapCoordinate | null;
+  geometry?: { type: 'Point'; coordinates: [number, number] } | null;
+  imageryCoordinate?: PhysicalTapCoordinate | null;
+  imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
+  officialValuation?: number | null;
+  officialValuationYear?: number | null;
+  askingPrice?: number | null;
+  hasActiveListing?: boolean | null;
+  hasListing?: boolean | null;
+  marketState?: MapMarketState | null;
+  socialScore?: number | null;
+  recentSocialScore?: number | null;
+  activityScore?: number | null;
+  activityLevel?: 'hot' | 'warm' | 'cold' | null;
+  thumbnailUrl?: string | null;
+  aerialImageUrl?: string | null;
+  yearBuilt?: number | null;
+  floorAreaM2?: number | null;
+  likeCount?: number | null;
+  commentCount?: number | null;
+  topLevelCommentCount?: number | null;
+  replyCount?: number | null;
+  guessCount?: number | null;
+  isRead?: boolean | null;
+}
+
+interface PhysicalTapSingleResponse {
+  kind: 'single';
+  source: 'physical-tap';
+  property: PhysicalTapPreviewProperty;
+  coordinate: PhysicalTapCoordinate;
+  match: PhysicalTapResolveMatch;
+}
+
+interface PhysicalTapGroupPayload {
+  primaryPropertyId?: string | null;
+  pointCount?: number | null;
+  propertyIds?: string[] | string | null;
+  previewPropertyIds?: string[] | string | null;
+  previewProperties?: PhysicalTapPreviewProperty[] | null;
+  coordinate?: PhysicalTapCoordinate | null;
+  bbox?: [number, number, number, number] | PropertyGroupBounds | null;
+  activeListingCount?: number | null;
+  socialCount?: number | null;
+  recentSocialCount?: number | null;
+  socialScoreTotal?: number | null;
+  socialScoreMax?: number | null;
+  recentSocialScoreTotal?: number | null;
+  commentCount?: number | null;
+  streetName?: string | null;
+  houseNumber?: number | null;
+  houseNumberAddition?: string | null;
+  address?: string | null;
+  city?: string | null;
+  postalCode?: string | null;
+  countryCode?: string | null;
+  officialValuation?: number | null;
+  officialValuationYear?: number | null;
+  askingPrice?: number | null;
+  thumbnailUrl?: string | null;
+  yearBuilt?: number | null;
+  floorAreaM2?: number | null;
+  hasActiveListing?: boolean | null;
+  marketState?: MapMarketState | null;
+  isRead?: boolean | null;
+}
+
+interface PhysicalTapGroupResponse {
+  kind: 'group';
+  source: 'physical-tap';
+  group: PhysicalTapGroupPayload;
+  coordinate: PhysicalTapCoordinate;
+  match: PhysicalTapResolveMatch;
+}
+
+type PhysicalTapResolveResponse = PhysicalTapSingleResponse | PhysicalTapGroupResponse | null;
 
 type NearbyStatusHeader =
   | 'pyramid-promoted'
@@ -1034,10 +1142,14 @@ function getTransportValue(
 }
 
 function normalizeBbox(
-  bbox: [number, number, number, number] | null | undefined,
+  bbox: [number, number, number, number] | PropertyGroupBounds | null | undefined,
 ): PropertyGroupBounds | null {
   if (!bbox) {
     return null;
+  }
+
+  if (!Array.isArray(bbox)) {
+    return bbox;
   }
 
   return {
@@ -1128,6 +1240,7 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     postalCode: result.postalCode,
     countryCode: result.countryCode,
     officialValuation: result.officialValuation,
+    officialValuationYear: result.officialValuationYear ?? null,
     askingPrice: result.askingPrice,
     thumbnailUrl: result.thumbnailUrl,
     yearBuilt: result.yearBuilt ?? null,
@@ -1136,6 +1249,235 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     marketState: result.marketState ?? null,
     isRead: result.isRead,
     distanceMeters: result.distanceMeters,
+  };
+}
+
+function normalizePhysicalTapCoordinate(
+  coordinate: PhysicalTapCoordinate | null | undefined,
+): [number, number] | null {
+  if (Array.isArray(coordinate)) {
+    const [lon, lat] = coordinate;
+    return Number.isFinite(lon) && Number.isFinite(lat) ? [lon, lat] : null;
+  }
+
+  if (!coordinate) {
+    return null;
+  }
+
+  const lon = coordinate.longitude ?? coordinate.lon;
+  const lat = coordinate.latitude ?? coordinate.lat;
+  return typeof lon === 'number' &&
+    Number.isFinite(lon) &&
+    typeof lat === 'number' &&
+    Number.isFinite(lat)
+    ? [lon, lat]
+    : null;
+}
+
+function normalizePhysicalTapPreviewProperty(
+  property: PhysicalTapPreviewProperty,
+  fallbackCoordinate: [number, number],
+): PhysicalTapPreviewProperty {
+  const coordinate =
+    property.geometry?.coordinates ??
+    normalizePhysicalTapCoordinate(property.coordinate) ??
+    normalizePhysicalTapCoordinate(property.coordinates) ??
+    fallbackCoordinate;
+  const imageryCoordinate = normalizePhysicalTapCoordinate(property.imageryCoordinate);
+  const countryCode = property.countryCode ?? property.country ?? null;
+  const streetName = property.streetName ?? property.street ?? null;
+
+  const normalized = withDerivedPropertyImageData({
+    ...property,
+    address: property.address ?? '',
+    streetName,
+    city: property.city ?? '',
+    countryCode: countryCode ?? undefined,
+    geometry: property.geometry ?? { type: 'Point', coordinates: coordinate },
+    imageryGeometry:
+      property.imageryGeometry ??
+      (imageryCoordinate ? { type: 'Point', coordinates: imageryCoordinate } : null),
+  } as PhysicalTapPreviewProperty & {
+    id: string;
+    countryCode?: string;
+    geometry: { type: 'Point'; coordinates: [number, number] };
+  });
+
+  return {
+    ...normalized,
+    countryCode,
+    streetName,
+  };
+}
+
+function normalizePhysicalTapSingleResponse(
+  response: PhysicalTapSingleResponse,
+): NearbyPropertyGroup | null {
+  const coordinate = normalizePhysicalTapCoordinate(response.coordinate);
+  if (!coordinate || !response.property?.id) {
+    return null;
+  }
+
+  const property = normalizePhysicalTapPreviewProperty(response.property, coordinate);
+  const hasActiveListing =
+    property.hasActiveListing ?? (property.hasListing == null ? null : property.hasListing);
+  const socialScoreTotal = toNumber(property.socialScore ?? property.activityScore);
+  const recentSocialScoreTotal = toNumber(property.recentSocialScore);
+  const socialScoreMax = toNumber(property.activityScore, socialScoreTotal);
+  const commentCount = toNumber(
+    property.commentCount ??
+      ((property.topLevelCommentCount ?? 0) + (property.replyCount ?? 0)),
+  );
+
+  return {
+    nodeClass: 'active',
+    groupKind: 'single',
+    primaryPropertyId: property.id,
+    pointCount: 1,
+    propertyIds: [property.id],
+    previewPropertyIds: [property.id],
+    pyramidVersionId: null,
+    pyramidNodeId: null,
+    membershipComplete: true,
+    readStateCoverage: 'complete',
+    coordinate,
+    bbox: null,
+    activeListingCount: hasActiveListing ? 1 : 0,
+    socialCount: socialScoreTotal > 0 ? 1 : 0,
+    recentSocialCount: recentSocialScoreTotal > 0 ? 1 : 0,
+    socialScoreTotal,
+    socialScoreMax,
+    recentSocialScoreTotal,
+    commentCount,
+    hasListing: hasActiveListing ?? false,
+    activityScore: socialScoreMax,
+    activityScoreTotal: socialScoreTotal,
+    likeCount: toNumber(property.likeCount),
+    guessCount: toNumber(property.guessCount),
+    streetName: property.streetName ?? null,
+    houseNumber:
+      typeof property.houseNumber === 'number'
+        ? property.houseNumber
+        : toNullableNumber(property.houseNumber),
+    houseNumberAddition: property.houseNumberAddition ?? null,
+    address: property.address ?? '',
+    city: property.city ?? '',
+    postalCode: property.postalCode ?? null,
+    countryCode: property.countryCode ?? property.country ?? null,
+    officialValuation: property.officialValuation ?? null,
+    officialValuationYear: property.officialValuationYear ?? null,
+    askingPrice: property.askingPrice ?? null,
+    thumbnailUrl: property.thumbnailUrl ?? null,
+    yearBuilt: property.yearBuilt ?? null,
+    floorAreaM2: property.floorAreaM2 ?? null,
+    hasActiveListing,
+    marketState: property.marketState ?? null,
+    isRead: property.isRead ?? false,
+    distanceMeters: 0,
+    source: response.source,
+    match: response.match,
+    previewProperties: [property],
+  };
+}
+
+function normalizePhysicalTapGroupResponse(
+  response: PhysicalTapGroupResponse,
+): NearbyPropertyGroup | null {
+  const coordinate =
+    normalizePhysicalTapCoordinate(response.coordinate) ??
+    normalizePhysicalTapCoordinate(response.group.coordinate);
+  if (!coordinate) {
+    return null;
+  }
+  const previewFallbackCoordinate =
+    normalizePhysicalTapCoordinate(response.group.coordinate) ?? coordinate;
+
+  const previewProperties = (response.group.previewProperties ?? []).map((property) =>
+    normalizePhysicalTapPreviewProperty(property, previewFallbackCoordinate),
+  );
+  const propertyIds = parseTransportPropertyIds(response.group.propertyIds);
+  const previewPropertyIds = parseTransportPropertyIds(response.group.previewPropertyIds);
+  const primaryPropertyId =
+    response.group.primaryPropertyId ??
+    previewPropertyIds[0] ??
+    propertyIds[0] ??
+    previewProperties[0]?.id ??
+    null;
+
+  if (!primaryPropertyId) {
+    return null;
+  }
+
+  const normalizedPreviewIds =
+    previewPropertyIds.length > 0
+      ? previewPropertyIds
+      : previewProperties.map((property) => property.id);
+  const normalizedPropertyIds =
+    propertyIds.length > 0 ? propertyIds : normalizedPreviewIds;
+  const activeListingCount = toNumber(response.group.activeListingCount);
+  const socialScoreTotal = toNumber(response.group.socialScoreTotal);
+  const socialScoreMax = toNumber(response.group.socialScoreMax, socialScoreTotal);
+  const recentSocialScoreTotal = toNumber(response.group.recentSocialScoreTotal);
+  const pointCount = toNumber(
+    response.group.pointCount,
+    Math.max(normalizedPropertyIds.length, normalizedPreviewIds.length, previewProperties.length, 1),
+  );
+
+  return {
+    nodeClass: 'active',
+    groupKind: 'cluster',
+    primaryPropertyId,
+    pointCount,
+    propertyIds: normalizedPropertyIds,
+    previewPropertyIds: normalizedPreviewIds,
+    pyramidVersionId: null,
+    pyramidNodeId: null,
+    membershipComplete: normalizedPropertyIds.length >= pointCount,
+    readStateCoverage: normalizedPropertyIds.length >= pointCount ? 'complete' : 'partial',
+    coordinate,
+    bbox: normalizeBbox(response.group.bbox ?? null),
+    activeListingCount,
+    socialCount: toNumber(response.group.socialCount, socialScoreTotal > 0 ? 1 : 0),
+    recentSocialCount: toNumber(
+      response.group.recentSocialCount,
+      recentSocialScoreTotal > 0 ? 1 : 0,
+    ),
+    socialScoreTotal,
+    socialScoreMax,
+    recentSocialScoreTotal,
+    commentCount: toNumber(response.group.commentCount),
+    hasListing: activeListingCount > 0,
+    activityScore: socialScoreMax,
+    activityScoreTotal: socialScoreTotal,
+    likeCount: 0,
+    guessCount: 0,
+    streetName: response.group.streetName ?? null,
+    houseNumber: response.group.houseNumber ?? null,
+    houseNumberAddition: response.group.houseNumberAddition ?? null,
+    address: response.group.address ?? previewProperties[0]?.address ?? null,
+    city: response.group.city ?? previewProperties[0]?.city ?? null,
+    postalCode: response.group.postalCode ?? previewProperties[0]?.postalCode ?? null,
+    countryCode:
+      response.group.countryCode ??
+      previewProperties[0]?.countryCode ??
+      previewProperties[0]?.country ??
+      null,
+    officialValuation: response.group.officialValuation ?? null,
+    officialValuationYear:
+      response.group.officialValuationYear ??
+      previewProperties[0]?.officialValuationYear ??
+      null,
+    askingPrice: response.group.askingPrice ?? null,
+    thumbnailUrl: response.group.thumbnailUrl ?? previewProperties[0]?.thumbnailUrl ?? null,
+    yearBuilt: response.group.yearBuilt ?? null,
+    floorAreaM2: response.group.floorAreaM2 ?? null,
+    hasActiveListing: response.group.hasActiveListing ?? (activeListingCount > 0),
+    marketState: response.group.marketState ?? null,
+    isRead: response.group.isRead ?? false,
+    distanceMeters: 0,
+    source: response.source,
+    match: response.match,
+    previewProperties,
   };
 }
 
@@ -1273,6 +1615,9 @@ export function normalizeRenderedPropertyGroup(
     officialValuation: toNullableNumber(
       getTransportValue(properties, 'officialValuation', 'official_valuation'),
     ),
+    officialValuationYear: toNullableNumber(
+      getTransportValue(properties, 'officialValuationYear', 'official_valuation_year'),
+    ),
     askingPrice: toNullableNumber(getTransportValue(properties, 'askingPrice', 'asking_price')),
     thumbnailUrl: toNullableString(getTransportValue(properties, 'thumbnailUrl', 'thumbnail_url')),
     yearBuilt: toNullableNumber(getTransportValue(properties, 'yearBuilt', 'year_built')),
@@ -1318,6 +1663,34 @@ export async function fetchNearbyGroup(
     return result ? normalizeNearbyPropertyGroup(result) : null;
   } catch (err) {
     console.warn('[HuisHype] fetchNearbyGroup failed:', err);
+    return null;
+  }
+}
+
+export async function fetchPhysicalTapResolve(
+  lon: number,
+  lat: number,
+  zoom: number,
+): Promise<NearbyPropertyGroup | null> {
+  try {
+    const params = new URLSearchParams({
+      lon: String(lon),
+      lat: String(lat),
+      zoom: String(zoom),
+    });
+    const result = await apiFetch<PhysicalTapResolveResponse>(
+      `/properties/resolve-tap?${params.toString()}`,
+    );
+
+    if (!result) {
+      return null;
+    }
+
+    return result.kind === 'single'
+      ? normalizePhysicalTapSingleResponse(result)
+      : normalizePhysicalTapGroupResponse(result);
+  } catch (err) {
+    console.warn('[HuisHype] fetchPhysicalTapResolve failed:', err);
     return null;
   }
 }

@@ -1,15 +1,17 @@
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
+import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
 
 /**
- * MapLibre layer name constants for density-aware property grouping.
+ * MapLibre layer name constants for density-aware active property grouping.
  *
- * Layer visibility by zoom level:
+ * Public property layers:
  * - property-clusters: active clusters at any zoom
+ * - property-cluster-fill: active cluster core fill
  * - cluster-count: active cluster labels at any zoom
  * - active-nodes: active singles at any zoom
- * - ghost-clusters: ghost-only clusters at z17+
- * - ghost-cluster-count: ghost cluster labels at z17+
- * - ghost-nodes: ghost singles at z17+
+ * - active-node-fill: active single core fill
+ *
+ * Ghost property layers are no longer part of the app-side query/expectation
+ * contract. Their names remain available only for negative assertions.
  */
 
 /**
@@ -19,19 +21,25 @@ export const MAP_LAYER_NAMES = {
   /** Active cluster circles shown whenever density requires grouping */
   CLUSTERS: 'property-clusters',
 
+  /** Active cluster fill */
+  CLUSTER_FILL: 'property-cluster-fill',
+
   /** Text labels showing count inside active clusters */
   CLUSTER_COUNT: 'cluster-count',
 
   /** Active singles shown at any zoom */
   ACTIVE_NODES: 'active-nodes',
 
-  /** Ghost-only clusters shown once ghost reveal kicks in */
+  /** Active single fill */
+  ACTIVE_NODE_FILL: 'active-node-fill',
+
+  /** Removed public ghost cluster layer name, for negative assertions only */
   GHOST_CLUSTERS: 'ghost-clusters',
 
-  /** Ghost cluster count labels */
+  /** Removed public ghost cluster count layer name, for negative assertions only */
   GHOST_CLUSTER_COUNT: 'ghost-cluster-count',
 
-  /** Ghost singles shown once ghost reveal kicks in */
+  /** Removed public ghost single layer name, for negative assertions only */
   GHOST_NODES: 'ghost-nodes',
 } as const;
 
@@ -40,37 +48,46 @@ export const MAP_LAYER_NAMES = {
  */
 export const ALL_PROPERTY_LAYERS = [
   MAP_LAYER_NAMES.CLUSTERS,
+  MAP_LAYER_NAMES.CLUSTER_FILL,
   MAP_LAYER_NAMES.ACTIVE_NODES,
-  MAP_LAYER_NAMES.GHOST_CLUSTERS,
-  MAP_LAYER_NAMES.GHOST_NODES,
+  MAP_LAYER_NAMES.ACTIVE_NODE_FILL,
 ] as const;
 
 /**
- * Layers visible before ghost reveal.
+ * Layers that should be safe for app-side feature queries.
  */
-export const LOW_ZOOM_LAYERS = [
-  MAP_LAYER_NAMES.CLUSTERS,
-  MAP_LAYER_NAMES.CLUSTER_COUNT,
-  MAP_LAYER_NAMES.ACTIVE_NODES,
-] as const;
+export const QUERYABLE_PROPERTY_LAYERS = QUERYABLE_PROPERTY_LAYER_IDS;
 
 /**
- * Layers visible once ghost reveal is active.
+ * Removed public ghost property layers. Use for absence checks only.
  */
-export const HIGH_ZOOM_LAYERS = [
-  MAP_LAYER_NAMES.CLUSTERS,
-  MAP_LAYER_NAMES.CLUSTER_COUNT,
-  MAP_LAYER_NAMES.ACTIVE_NODES,
+export const REMOVED_GHOST_PROPERTY_LAYERS = [
   MAP_LAYER_NAMES.GHOST_CLUSTERS,
   MAP_LAYER_NAMES.GHOST_CLUSTER_COUNT,
   MAP_LAYER_NAMES.GHOST_NODES,
 ] as const;
 
 /**
- * Zoom threshold where ghost nodes become visible
- * Matching PROPERTY_GHOST_REVEAL_ZOOM in the shared map config.
+ * Layers visible at low zoom.
  */
-export const GHOST_NODE_ZOOM_THRESHOLD = PROPERTY_GHOST_REVEAL_ZOOM;
+export const LOW_ZOOM_LAYERS = [
+  MAP_LAYER_NAMES.CLUSTERS,
+  MAP_LAYER_NAMES.CLUSTER_FILL,
+  MAP_LAYER_NAMES.CLUSTER_COUNT,
+  MAP_LAYER_NAMES.ACTIVE_NODES,
+  MAP_LAYER_NAMES.ACTIVE_NODE_FILL,
+] as const;
+
+/**
+ * Layers visible at high zoom.
+ */
+export const HIGH_ZOOM_LAYERS = [
+  MAP_LAYER_NAMES.CLUSTERS,
+  MAP_LAYER_NAMES.CLUSTER_FILL,
+  MAP_LAYER_NAMES.CLUSTER_COUNT,
+  MAP_LAYER_NAMES.ACTIVE_NODES,
+  MAP_LAYER_NAMES.ACTIVE_NODE_FILL,
+] as const;
 
 /**
  * Helper function to get existing layers from map instance

@@ -77,6 +77,7 @@ export function WebPreviewMarkerPortal({
       'touchend',
       'wheel',
       'dblclick',
+      'contextmenu',
     ].forEach((eventName) => {
       container.addEventListener(eventName, (event) => event.stopPropagation());
     });

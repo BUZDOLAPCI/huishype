@@ -11,8 +11,8 @@ import {
   DEFAULT_PLAYWRIGHT_API_PORT,
   DEFAULT_PLAYWRIGHT_WEB_PORT,
   PLAYWRIGHT_APP_ROOT,
-  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
   PLAYWRIGHT_REPO_ROOT,
+  applyPlaywrightPropertyTilePyramidFixtureEnvironment,
   applyPlaywrightRuntimeEnvironment,
   assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe,
   resolveLatestWebDistDir,
@@ -127,6 +127,7 @@ function syncRuntimeEnvironment(env = process.env) {
   env.API_URL = apiUrl;
   env.EXPO_PUBLIC_API_URL = apiUrl;
   applyPlaywrightRuntimeEnvironment(env);
+  applyPlaywrightPropertyTilePyramidFixtureEnvironment(env);
 }
 
 function isAddressInUseError(error) {
@@ -507,7 +508,6 @@ async function main() {
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
-    PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM || '10',
     API_URL: apiUrl,
     EXPO_PUBLIC_API_URL: apiUrl,
     PLAYWRIGHT_API_PORT: String(apiPort),
@@ -515,7 +515,6 @@ async function main() {
     PLAYWRIGHT_WEB_URL: webUrl,
     PLAYWRIGHT_DISABLE_WEBSERVER: '1',
     PLAYWRIGHT_REPO_ROOT: repoRoot,
-    [PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV]: '1',
     ...(apiRestartUrl ? { BENCHMARK_API_RESTART_URL: apiRestartUrl } : {}),
   });
 

@@ -5,13 +5,13 @@
  * - Zoom to property level and see rendered property markers
  * - Click on map at property location to trigger preview card
  * - Preview card shows real address data (not placeholders)
- * - Property layers exist at correct zoom levels
+ * - Active property layers exist at correct zoom levels
+ * - Removed ghost property layers are not used for app-side feature queries
  */
 
 import { test, expect, type Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from '../visual/helpers/visual-test-helpers';
 import { clickOnPropertyMarker } from '../visual/helpers/screenshot-harness';
 import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runtime';
@@ -26,8 +26,22 @@ const SCREENSHOT_DIR = getPlaywrightArtifactPath('flows');
 // Stable map viewport used by this dataset-backed flow.
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 
-// Match the shared ghost-reveal threshold used by the map contract.
-const PROPERTY_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
+// Property-level zoom used by the map contract for individual active nodes.
+const PROPERTY_ZOOM = 17;
+
+const ACTIVE_PROPERTY_QUERY_LAYERS = ['property-clusters', 'active-nodes'] as const;
+const ACTIVE_PROPERTY_STYLE_LAYERS = [
+  'property-clusters',
+  'property-cluster-fill',
+  'cluster-count',
+  'active-nodes',
+  'active-node-fill',
+] as const;
+const REMOVED_GHOST_PROPERTY_LAYERS = [
+  'ghost-clusters',
+  'ghost-cluster-count',
+  'ghost-nodes',
+] as const;
 
 // Known acceptable console errors
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
@@ -176,7 +190,7 @@ test.describe('Map to Property Flow', () => {
         const canvas = map.getCanvas();
         if (!canvas) return false;
 
-        const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
+        const layerIds = ['property-clusters', 'active-nodes']
           .filter((l) => map.getLayer(l));
         if (layerIds.length === 0) return false;
 
@@ -198,18 +212,10 @@ test.describe('Map to Property Flow', () => {
     // Query for rendered features count
     const featureCounts = await page.evaluate(() => {
       const map = (window as WindowWithMapInstance).__mapInstance;
-      if (!map) return { ghost: 0, active: 0, clusters: 0 };
+      if (!map) return { active: 0, clusters: 0 };
       const canvas = map.getCanvas();
 
-      let ghost = 0, active = 0, clusters = 0;
-      try {
-        if (map.getLayer('ghost-nodes')) {
-          ghost = (map.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-nodes'] }
-          ) || []).length;
-        }
-      } catch { /* ignore */ }
+      let active = 0, clusters = 0;
       try {
         if (map.getLayer('active-nodes')) {
           active = (map.queryRenderedFeatures(
@@ -227,13 +233,13 @@ test.describe('Map to Property Flow', () => {
         }
       } catch { /* ignore */ }
 
-      return { ghost, active, clusters };
+      return { active, clusters };
     });
 
     console.log(`Feature counts at z${PROPERTY_ZOOM}:`, featureCounts);
 
-    // At the ghost-reveal threshold in Eindhoven, property features should render.
-    const totalFeatures = featureCounts.ghost + featureCounts.active;
+    // At property zoom in Eindhoven, active property features should render.
+    const totalFeatures = featureCounts.clusters + featureCounts.active;
     expect(totalFeatures, `Should have rendered property features at z${PROPERTY_ZOOM}+`).toBeGreaterThan(0);
   });
 
@@ -261,18 +267,27 @@ test.describe('Map to Property Flow', () => {
       const style = map.getStyle();
       const layers = style?.layers || [];
 
+      const activePropertyLayers = [
+        'property-clusters',
+        'property-cluster-fill',
+        'cluster-count',
+        'active-nodes',
+        'active-node-fill',
+      ];
+      const removedGhostPropertyLayers = [
+        'ghost-clusters',
+        'ghost-cluster-count',
+        'ghost-nodes',
+      ];
+      const trackedLayers = [...activePropertyLayers, ...removedGhostPropertyLayers];
       const propertyLayers = layers.filter((l: { id?: string }) =>
-        l.id === 'ghost-nodes' ||
-        l.id === 'active-nodes' ||
-        l.id === 'property-clusters' ||
-        l.id === 'ghost-clusters' ||
-        l.id === 'cluster-count' ||
-        l.id === 'ghost-cluster-count'
+        trackedLayers.includes(l.id ?? '')
       );
 
       return {
         totalLayers: layers.length,
         propertyLayerIds: propertyLayers.map((l: { id?: string }) => l.id),
+        queryLayerIds: ['property-clusters', 'active-nodes'].filter((id) => map.getLayer(id)),
         sources: Object.keys(style?.sources || {}),
       };
     });
@@ -280,8 +295,16 @@ test.describe('Map to Property Flow', () => {
     console.log('Layer info:', layerInfo);
 
     expect(layerInfo).not.toBeNull();
-    expect(layerInfo!.propertyLayerIds).toContain('ghost-nodes');
-    expect(layerInfo!.propertyLayerIds).toContain('active-nodes');
+    for (const layerId of ACTIVE_PROPERTY_QUERY_LAYERS) {
+      expect(layerInfo!.queryLayerIds).toContain(layerId);
+    }
+    expect(layerInfo!.propertyLayerIds).toEqual(
+      expect.arrayContaining([...ACTIVE_PROPERTY_STYLE_LAYERS])
+    );
+    for (const layerId of REMOVED_GHOST_PROPERTY_LAYERS) {
+      expect(layerInfo!.propertyLayerIds).not.toContain(layerId);
+      expect(layerInfo!.queryLayerIds).not.toContain(layerId);
+    }
     expect(layerInfo!.sources).toContain('properties-source');
   });
 

@@ -17,6 +17,8 @@ export const PLAYWRIGHT_TEST_DIR = path.join(PLAYWRIGHT_APP_ROOT, 'e2e');
 export const PLAYWRIGHT_FLOW_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'flows');
 export const PLAYWRIGHT_INTEGRATION_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'integration');
 export const PLAYWRIGHT_VISUAL_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'visual');
+export const PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID =
+  'playwright_property_tile_pyramid_fixture';
 export const PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV =
   'PLAYWRIGHT_ALLOW_PROPERTY_TILE_PYRAMID_FIXTURE';
 export const DEFAULT_LOCAL_DATABASE_URL =
@@ -114,6 +116,18 @@ export function applyPlaywrightRuntimeEnvironment(env = process.env) {
   env.PLAYWRIGHT_REPO_ROOT = settings.repoRoot;
 
   return settings;
+}
+
+export function applyPlaywrightPropertyTilePyramidFixtureEnvironment(env = process.env) {
+  env.PROPERTY_TILE_PYRAMID_COVERAGE_ID = PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID;
+  env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM = '10';
+  env[PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV] = '1';
+
+  return {
+    coverageId: env.PROPERTY_TILE_PYRAMID_COVERAGE_ID,
+    maxZoom: env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM,
+    allowEnv: PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
+  };
 }
 
 function resolveDatabaseUrl(env = process.env) {

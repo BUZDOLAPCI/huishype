@@ -4,7 +4,11 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users, propertyTilePyramidSourceWatermarks } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
-import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
+import {
+  createIntegrationListing,
+  createIntegrationProperty,
+  createIntegrationUser,
+} from './helpers/fixtures.js';
 import {
   advancePropertyChangeVersion,
   ensurePropertyChangeState,
@@ -362,6 +366,11 @@ describe('Property view routes', () => {
 
     it('exposes read state on nearby, batch, and detail reads for the same viewer', async () => {
       const sessionId = `${sessionPrefix}-nearby-read`;
+      await createIntegrationListing({
+        propertyId,
+        status: 'active',
+        verificationState: 'validated',
+      });
 
       const viewResponse = await app.inject({
         method: 'POST',

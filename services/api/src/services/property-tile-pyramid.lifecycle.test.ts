@@ -158,6 +158,14 @@ function isPyramidBuildingClaimQuery(queryText: string): boolean {
   );
 }
 
+function isCandidateSourceSnapshotAttachQuery(queryText: string): boolean {
+  return (
+    queryText.includes('UPDATE property_tile_pyramid_versions') &&
+    queryText.includes('candidate_snapshot_id =') &&
+    queryText.includes('RETURNING candidate_snapshot_id::text')
+  );
+}
+
 describe('property tile pyramid build lifecycle', () => {
   beforeEach(() => {
     jest.useRealTimers();
@@ -729,6 +737,9 @@ describe('property tile pyramid build lifecycle', () => {
               }),
             ];
           }
+          if (isCandidateSourceSnapshotAttachQuery(queryText)) {
+            return [{ candidate_snapshot_id: '00000000-0000-0000-0000-0000000000c1' }];
+          }
           if (
             queryText.includes('FROM property_tile_candidate_source_snapshots') ||
             queryText.includes('FROM property_tile_candidate_source_current') ||
@@ -773,6 +784,176 @@ describe('property tile pyramid build lifecycle', () => {
         expect(joinedTxQueries).toContain('INSERT INTO property_tile_listing_candidates');
         expect(joinedTxQueries).toContain('INSERT INTO property_tile_listing_facts');
         expect(joinedTxQueries).toContain('property_tile_candidate_source_current');
+      }
+    );
+  });
+
+  it('fails retryably before tile generation when candidate source snapshot attach updates no rows', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-07T10:30:00.000Z'));
+    await withTemporaryEnv(
+      {
+        PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
+      },
+      async () => {
+        const pyramid = await import('./property-tile-pyramid.js');
+        executeMock.mockResolvedValue([]);
+        const sourceWatermarks = await pyramid.readPropertyTilePyramidSourceWatermarkSnapshot();
+        executeMock.mockReset();
+        const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 0,
+          pyramidKind: 'public_default_low_zoom',
+        });
+
+        executeMock.mockImplementation(async (query) => {
+          const queryText = JSON.stringify(query);
+          if (queryText.includes('retryable_version_count')) {
+            return [{ retryable_version_count: 0 }];
+          }
+          if (isPyramidCandidateSelectionQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
+                status: 'queued',
+                candidateSnapshotId: null,
+              }),
+            ];
+          }
+          if (queryText.includes('FROM property_tile_candidate_source_snapshots')) {
+            return [
+              makeCandidateSnapshotRow({
+                sourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
+              }),
+            ];
+          }
+          if (isCandidateSourceSnapshotAttachQuery(queryText)) {
+            return [];
+          }
+          if (
+            queryText.includes('FROM property_tile_pyramid_source_watermarks') ||
+            queryText.includes('FROM property_tile_snapshot_watermarks') ||
+            queryText.includes('FROM ingest_sources') ||
+            queryText.includes('FROM listing_source_scope_watermarks') ||
+            queryText.includes('FROM listing_scope_completions') ||
+            queryText.includes('FROM property_tile_listing_candidates') ||
+            queryText.includes('FROM property_tile_listing_facts')
+          ) {
+            return [];
+          }
+          return [{ affected: 1 }];
+        });
+
+        const result = await pyramid.executeDuePropertyTilePyramidBuild({
+          leaseOwner: 'unit-test',
+          reason: 'worker-build',
+        });
+
+        expect(result).toMatchObject({
+          status: 'failed_retryable',
+          versionId: 'build-version',
+          failureCategory: 'build_error',
+        });
+        expect(buildGroupsMock).not.toHaveBeenCalled();
+        const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        expect(executedQueries.some((query) => isCandidateSourceSnapshotAttachQuery(query))).toBe(
+          true
+        );
+        expect(isPyramidBuildingClaimQuery(executedQueries.join('\n'))).toBe(false);
+        const failureQuery =
+          executedQueries.find((query) => query.includes('candidate-source-snapshot-attach')) ??
+          '';
+        expect(failureQuery).toContain('failed_retryable');
+        expect(failureQuery).toContain('build_error');
+      }
+    );
+  });
+
+  it('fails retryably before tile generation when claim returns no attached candidate snapshot row', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-07T10:30:00.000Z'));
+    await withTemporaryEnv(
+      {
+        PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '0',
+      },
+      async () => {
+        const pyramid = await import('./property-tile-pyramid.js');
+        executeMock.mockResolvedValue([]);
+        const sourceWatermarks = await pyramid.readPropertyTilePyramidSourceWatermarkSnapshot();
+        executeMock.mockReset();
+        const identity = pyramid.buildPropertyTilePyramidBuildIdentitySnapshots({
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 0,
+          pyramidKind: 'public_default_low_zoom',
+        });
+
+        executeMock.mockImplementation(async (query) => {
+          const queryText = JSON.stringify(query);
+          if (queryText.includes('retryable_version_count')) {
+            return [{ retryable_version_count: 0 }];
+          }
+          if (isPyramidCandidateSelectionQuery(queryText)) {
+            return [
+              makePyramidBuildRow({
+                identity,
+                sourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
+                status: 'queued',
+                candidateSnapshotId: null,
+              }),
+            ];
+          }
+          if (queryText.includes('FROM property_tile_candidate_source_snapshots')) {
+            return [
+              makeCandidateSnapshotRow({
+                sourceWatermarkHash: sourceWatermarks.sourceWatermarkHash,
+                sourceWatermarksJson: sourceWatermarks.sourceWatermarksJson,
+              }),
+            ];
+          }
+          if (isCandidateSourceSnapshotAttachQuery(queryText)) {
+            return [{ candidate_snapshot_id: '00000000-0000-0000-0000-0000000000c1' }];
+          }
+          if (isPyramidBuildingClaimQuery(queryText)) {
+            return [];
+          }
+          if (
+            queryText.includes('FROM property_tile_pyramid_source_watermarks') ||
+            queryText.includes('FROM property_tile_snapshot_watermarks') ||
+            queryText.includes('FROM ingest_sources') ||
+            queryText.includes('FROM listing_source_scope_watermarks') ||
+            queryText.includes('FROM listing_scope_completions') ||
+            queryText.includes('FROM property_tile_listing_candidates') ||
+            queryText.includes('FROM property_tile_listing_facts')
+          ) {
+            return [];
+          }
+          return [{ affected: 1 }];
+        });
+
+        const result = await pyramid.executeDuePropertyTilePyramidBuild({
+          leaseOwner: 'unit-test',
+          reason: 'worker-build',
+        });
+
+        expect(result).toMatchObject({
+          status: 'failed_retryable',
+          versionId: 'build-version',
+          failureCategory: 'build_error',
+        });
+        expect(buildGroupsMock).not.toHaveBeenCalled();
+        const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        expect(executedQueries.some((query) => isCandidateSourceSnapshotAttachQuery(query))).toBe(
+          true
+        );
+        expect(executedQueries.some((query) => isPyramidBuildingClaimQuery(query))).toBe(true);
+        const failureQuery =
+          executedQueries.find((query) => query.includes('candidate-source-snapshot-claim')) ?? '';
+        expect(failureQuery).toContain('failed_retryable');
+        expect(failureQuery).toContain('build_error');
       }
     );
   });
