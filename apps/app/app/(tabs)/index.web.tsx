@@ -80,6 +80,7 @@ import {
 } from '@/src/lib/sharedMapFilters';
 import {
   getCurrentBrowserPathname,
+  pushBrowserPath,
   replacePassiveBrowserPath,
 } from '@/src/lib/webMapUrlSync';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
@@ -130,6 +131,9 @@ const AMBIENT_COMMENT_BUBBLE_MIN_ZOOM = 10;
 const ACTIVITY_PULSE_DOM_MIN_ZOOM = 10;
 const CAMERA_EPSILON = 0.000001;
 const ZOOM_EPSILON = 0.001;
+const CAMERA_HISTORY_CHECKPOINT_INTERVAL_MS = 8_000;
+const CAMERA_HISTORY_CHECKPOINT_ZOOM_DELTA = 0.75;
+const CAMERA_HISTORY_CHECKPOINT_CENTER_DELTA_METERS = 750;
 const PROPERTY_TILE_RECOVERY_RELOAD_DELAY_MS = 2_500;
 
 type WebViewStyle = ViewStyle & {
@@ -363,6 +367,13 @@ interface InitialWebMapCamera {
   cameraPath: string;
 }
 
+interface CameraHistoryCheckpoint {
+  lat: number;
+  lng: number;
+  zoom: number;
+  pushedAtMs: number;
+}
+
 function getInitialWebMapCamera(pathname: string): InitialWebMapCamera {
   const parsedRoute = parseMapRoutePath(pathname);
 
@@ -397,6 +408,45 @@ function isMapAlreadyAtCamera(
     Math.abs(center.lat - camera.lat) <= CAMERA_EPSILON &&
     Math.abs(zoom - camera.zoom) <= ZOOM_EPSILON
   );
+}
+
+function getApproximateCenterDistanceMeters(
+  from: Pick<CameraHistoryCheckpoint, 'lat' | 'lng'>,
+  to: Pick<CameraHistoryCheckpoint, 'lat' | 'lng'>,
+): number {
+  const averageLatitudeRadians = ((from.lat + to.lat) / 2) * (Math.PI / 180);
+  const metersPerDegreeLongitude = 111_320 * Math.cos(averageLatitudeRadians);
+  const deltaLngMeters = (to.lng - from.lng) * metersPerDegreeLongitude;
+  const deltaLatMeters = (to.lat - from.lat) * 111_320;
+  return Math.hypot(deltaLngMeters, deltaLatMeters);
+}
+
+function shouldPushCameraHistoryCheckpoint({
+  previousCheckpoint,
+  nextCamera,
+  nowMs,
+  previewOpen,
+}: {
+  previousCheckpoint: CameraHistoryCheckpoint;
+  nextCamera: Pick<CameraHistoryCheckpoint, 'lat' | 'lng' | 'zoom'>;
+  nowMs: number;
+  previewOpen: boolean;
+}): boolean {
+  if (
+    previewOpen ||
+    nowMs - previousCheckpoint.pushedAtMs < CAMERA_HISTORY_CHECKPOINT_INTERVAL_MS
+  ) {
+    return false;
+  }
+
+  const zoomChanged =
+    Math.abs(nextCamera.zoom - previousCheckpoint.zoom) >=
+    CAMERA_HISTORY_CHECKPOINT_ZOOM_DELTA;
+  const centerMoved =
+    getApproximateCenterDistanceMeters(previousCheckpoint, nextCamera) >=
+    CAMERA_HISTORY_CHECKPOINT_CENTER_DELTA_METERS;
+
+  return zoomChanged || centerMoved;
 }
 
 export function syncPassiveCameraPathOnMoveEnd({
@@ -906,6 +956,21 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const appliedRoutePathRef = useRef<string | null>(null);
   const skipNextPassiveUrlSyncRef = useRef(true);
   const lastCameraPathRef = useRef<string>('/');
+  const lastCameraHistoryCheckpointRef = useRef<CameraHistoryCheckpoint>({
+    lat: initialMapCamera.center[1],
+    lng: initialMapCamera.center[0],
+    zoom: initialMapCamera.zoom,
+    pushedAtMs: Date.now(),
+  });
+  const resetCameraHistoryCheckpointBaseline = useCallback(
+    (camera: Pick<CameraHistoryCheckpoint, 'lat' | 'lng' | 'zoom'>) => {
+      lastCameraHistoryCheckpointRef.current = {
+        ...camera,
+        pushedAtMs: Date.now(),
+      };
+    },
+    [],
+  );
   const previousPreviewPathRef = useRef<string | null>(null);
   const lockedAreaPathRef = useRef<string | null>(null);
   const canReplaceLockedAreaPathRef = useRef(true);
@@ -1118,6 +1183,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const readTileRequestPatternRef = useRef<RegExp | null>(readTileRequestPattern);
   readTileRequestPatternRef.current = readTileRequestPattern;
   const replaceMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
+  const pushMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
   const bottomSheetRefBridge = useRef(bottomSheetRef);
   bottomSheetRefBridge.current = bottomSheetRef;
   const handleFeaturePressRef = useRef(handleFeaturePress);
@@ -1318,6 +1384,23 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [pathnameOverride],
   );
   replaceMapBrowserPathRef.current = replaceMapBrowserPath;
+  const pushMapBrowserPath = useCallback(
+    (pathname: string) => {
+      if (!isMapTabActiveRef.current) {
+        return false;
+      }
+
+      const currentBrowserPathname = getCurrentBrowserPathname('/');
+      if (pathnameOverride == null && NON_MAP_TAB_PATHNAMES.has(currentBrowserPathname)) {
+        return false;
+      }
+
+      const nextHref = appendSearchToPath(pathname, browserSearchRef.current);
+      return pushBrowserPath(nextHref);
+    },
+    [pathnameOverride],
+  );
+  pushMapBrowserPathRef.current = pushMapBrowserPath;
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -2078,6 +2161,28 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         lastCameraPathRef.current = nextCameraPath;
         setSearchBiasCenter({ lon: center.lng, lat: center.lat });
         onViewportCenterChangedRef.current(center.lng, center.lat, zoom);
+        let didPushCameraCheckpoint = false;
+        const nowMs = Date.now();
+        const nextCheckpointCamera = {
+          lat: center.lat,
+          lng: center.lng,
+          zoom,
+        };
+        if (
+          shouldPushCameraHistoryCheckpoint({
+            previousCheckpoint: lastCameraHistoryCheckpointRef.current,
+            nextCamera: nextCheckpointCamera,
+            nowMs,
+            previewOpen: previewOpenRef.current,
+          }) &&
+          pushMapBrowserPathRef.current(nextCameraPath)
+        ) {
+          didPushCameraCheckpoint = true;
+          lastCameraHistoryCheckpointRef.current = {
+            ...nextCheckpointCamera,
+            pushedAtMs: nowMs,
+          };
+        }
         const passiveSyncResult = syncPassiveCameraPathOnMoveEnd({
           browserPathname: browserPathRef.current,
           nextCameraPath,
@@ -2088,7 +2193,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           skipNextPassiveUrlSync: skipNextPassiveUrlSyncRef.current,
           replaceBrowserPath: replaceMapBrowserPathRef.current,
         });
-        browserPathRef.current = passiveSyncResult.browserPathname;
+        browserPathRef.current = didPushCameraCheckpoint
+          ? nextCameraPath
+          : passiveSyncResult.browserPathname;
         lockedAreaPathRef.current = passiveSyncResult.lockedAreaPath;
         skipNextPassiveUrlSyncRef.current =
           passiveSyncResult.skipNextPassiveUrlSync;
@@ -2615,6 +2722,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         });
       }
       lastCameraPathRef.current = resolvedRoute.canonicalPath;
+      resetCameraHistoryCheckpointBaseline(resolvedRoute.camera);
       appliedRoutePathRef.current = routeState.pathname;
       return;
     }
@@ -2629,6 +2737,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         zoom: resolvedRoute.zoom,
       });
       lastCameraPathRef.current = serializeCanonicalCameraPath({
+        lat: resolvedRoute.center[1],
+        lng: resolvedRoute.center[0],
+        zoom: resolvedRoute.zoom,
+      });
+      resetCameraHistoryCheckpointBaseline({
         lat: resolvedRoute.center[1],
         lng: resolvedRoute.center[0],
         zoom: resolvedRoute.zoom,
@@ -2678,6 +2791,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     routeState.pathname,
     routeState.resolvedRoute,
     replaceMapBrowserPath,
+    resetCameraHistoryCheckpointBaseline,
     setSearchCity,
   ]);
 
@@ -2688,8 +2802,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     if (interaction.previewGroup && previewCanonicalPath) {
       previousPreviewPathRef.current = previewCanonicalPath;
-      if (browserPathRef.current !== previewCanonicalPath) {
-        replaceMapBrowserPath(previewCanonicalPath);
+      if (pushMapBrowserPath(previewCanonicalPath)) {
+        browserPathRef.current = previewCanonicalPath;
+      } else if (browserPathRef.current !== previewCanonicalPath) {
         browserPathRef.current = previewCanonicalPath;
       }
       return;
@@ -2712,6 +2827,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     isMapTabActive,
     interaction.previewGroup,
     previewCanonicalPath,
+    pushMapBrowserPath,
     replaceMapBrowserPath,
     routeState.isLoading,
   ]);

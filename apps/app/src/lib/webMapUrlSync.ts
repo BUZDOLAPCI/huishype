@@ -29,3 +29,17 @@ export function replacePassiveBrowserPath(pathname: string): boolean {
   window.history.replaceState(window.history.state, '', pathname);
   return true;
 }
+
+export function pushBrowserPath(pathname: string): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  if (currentPath === pathname) {
+    return false;
+  }
+
+  window.history.pushState(window.history.state, '', pathname);
+  return true;
+}

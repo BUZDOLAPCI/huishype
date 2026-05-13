@@ -86,6 +86,8 @@ const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
 let mockViewportCountryCode: string | null = 'NL';
 const mockReplacePassiveBrowserPath = jest.fn((pathname: string) => !!pathname);
+const mockPushBrowserPath = jest.fn((pathname: string) => !!pathname);
+const mockExtractCanonicalRouteInput = jest.fn<unknown, [unknown]>(() => null);
 let mockResolvedMapRouteState: {
   isLoading: boolean;
   pathname: string;
@@ -379,7 +381,7 @@ jest.mock('@/src/lib/currentLocation', () => ({
 jest.mock('@/src/lib/mapRoute', () => ({
   ...jest.requireActual('@/src/lib/mapRoute'),
   clearLocalPreviewRouteCache: jest.fn(),
-  extractCanonicalRouteInput: jest.fn(() => null),
+  extractCanonicalRouteInput: jest.fn((value: unknown) => mockExtractCanonicalRouteInput(value)),
   registerLocalPreviewRoute: jest.fn(),
 }));
 
@@ -395,6 +397,7 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
 
 jest.mock('@/src/lib/webMapUrlSync', () => ({
   getCurrentBrowserPathname: jest.fn(() => mockBrowserPathname),
+  pushBrowserPath: jest.fn((pathname: string) => mockPushBrowserPath(pathname)),
   replacePassiveBrowserPath: jest.fn((pathname: string) => mockReplacePassiveBrowserPath(pathname)),
 }));
 
@@ -546,7 +549,11 @@ jest.mock('maplibre-gl', () => {
   });
 
   const NavigationControl = jest.fn();
-  const Marker = jest.fn();
+  const Marker = jest.fn().mockImplementation(() => ({
+    setLngLat: jest.fn().mockReturnThis(),
+    addTo: jest.fn().mockReturnThis(),
+    remove: jest.fn(),
+  }));
 
   return {
     Map,
@@ -580,6 +587,48 @@ async function flushMicrotasks() {
   });
 }
 
+function mockPreviewRouteInputs() {
+  mockExtractCanonicalRouteInput.mockImplementation((value) => {
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      !('city' in value) ||
+      !('postalCode' in value) ||
+      !('streetName' in value) ||
+      !('houseNumber' in value)
+    ) {
+      return null;
+    }
+
+    const routeValue = value as {
+      city?: string | null;
+      postalCode?: string | null;
+      streetName?: string | null;
+      houseNumber?: string | number | null;
+      houseNumberAddition?: string | null;
+      countryCode?: string | null;
+    };
+
+    if (
+      !routeValue.city ||
+      !routeValue.postalCode ||
+      !routeValue.streetName ||
+      routeValue.houseNumber == null
+    ) {
+      return null;
+    }
+
+    return {
+      city: routeValue.city,
+      postalCode: routeValue.postalCode,
+      streetName: routeValue.streetName,
+      houseNumber: String(routeValue.houseNumber),
+      houseNumberAddition: routeValue.houseNumberAddition ?? null,
+      countryCode: routeValue.countryCode ?? 'NL',
+    };
+  });
+}
+
 describe('MapScreen web grouped Following mode', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -603,6 +652,26 @@ describe('MapScreen web grouped Following mode', () => {
     mockReadHeaderValue = 'session-123';
     mockWelcomeVisible = false;
     mockViewportCountryCode = 'NL';
+    mockReplacePassiveBrowserPath.mockImplementation((pathname: string) => {
+      if (!pathname || pathname === `${mockBrowserPathname}${window.location.search}`) {
+        return false;
+      }
+      const nextUrl = new URL(pathname, 'http://localhost');
+      mockBrowserPathname = nextUrl.pathname;
+      window.history.replaceState(window.history.state, '', pathname);
+      return true;
+    });
+    mockPushBrowserPath.mockImplementation((pathname: string) => {
+      if (!pathname || pathname === `${window.location.pathname}${window.location.search}`) {
+        return false;
+      }
+      const nextUrl = new URL(pathname, 'http://localhost');
+      mockBrowserPathname = nextUrl.pathname;
+      window.history.pushState(window.history.state, '', pathname);
+      return true;
+    });
+    mockExtractCanonicalRouteInput.mockReset();
+    mockExtractCanonicalRouteInput.mockReturnValue(null);
     mockResolvedMapRouteState = {
       isLoading: true,
       pathname: '/',
@@ -751,6 +820,172 @@ describe('MapScreen web grouped Following mode', () => {
       countryCode: 'NL',
     });
     expect(mockOnViewportCenterChanged).toHaveBeenCalledWith(2.3522, 48.8566, 13);
+  });
+
+  it('replaces camera URLs on moveend and pushes throttled camera checkpoints', async () => {
+    const nowSpy = jest.spyOn(Date, 'now');
+    nowSpy.mockReturnValue(0);
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getCenter.mockReturnValue({ lng: 4.9, lat: 52.37 });
+    map.getZoom.mockReturnValue(14);
+
+    nowSpy.mockReturnValue(1_000);
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith('/@52.37,4.9,14z');
+    expect(mockPushBrowserPath).not.toHaveBeenCalled();
+
+    map.getCenter.mockReturnValue({ lng: 4.91, lat: 52.38 });
+    map.getZoom.mockReturnValue(14.1);
+    nowSpy.mockReturnValue(8_999);
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledWith('/@52.38,4.91,14.1z');
+
+    mockPushBrowserPath.mockClear();
+    map.getCenter.mockReturnValue({ lng: 4.911, lat: 52.381 });
+    map.getZoom.mockReturnValue(14.2);
+    nowSpy.mockReturnValue(12_000);
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).not.toHaveBeenCalled();
+
+    map.getCenter.mockReturnValue({ lng: 4.9105, lat: 52.3805 });
+    map.getZoom.mockReturnValue(14.2);
+    nowSpy.mockReturnValue(17_000);
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).not.toHaveBeenCalled();
+
+    nowSpy.mockRestore();
+  });
+
+  it('rebaselines camera checkpoints after back navigation applies an older camera route', async () => {
+    const nowSpy = jest.spyOn(Date, 'now');
+    nowSpy.mockReturnValue(0);
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('idle');
+    });
+    await flushMicrotasks();
+
+    map.getCenter.mockReturnValue({ lng: 4.91, lat: 52.38 });
+    map.getZoom.mockReturnValue(14.1);
+    nowSpy.mockReturnValue(8_100);
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledWith('/@52.38,4.91,14.1z');
+
+    nowSpy.mockReturnValue(9_000);
+    mockBrowserPathname = '/@52.3626765,5.3574841,6.29z';
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/@52.3626765,5.3574841,6.29z',
+      resolvedRoute: {
+        kind: 'camera',
+        canonicalPath: '/@52.3626765,5.3574841,6.29z',
+        camera: { lat: 52.3626765, lng: 5.3574841, zoom: 6.29 },
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(map.jumpTo).toHaveBeenCalledWith({
+      center: [5.3574841, 52.3626765],
+      zoom: 6.29,
+    });
+
+    mockPushBrowserPath.mockClear();
+    map.getCenter.mockReturnValue({ lng: 5.3579, lat: 52.363 });
+    map.getZoom.mockReturnValue(6.3);
+    nowSpy.mockReturnValue(17_100);
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).not.toHaveBeenCalled();
+
+    nowSpy.mockRestore();
+  });
+
+  it('does not push camera checkpoints while a property preview is open', async () => {
+    mockPreviewRouteInputs();
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [
+          {
+            id: 'property-preview',
+            address: 'Routelaan 12',
+            city: 'Eindhoven',
+            postalCode: '5600AA',
+            streetName: 'Routelaan',
+            houseNumber: '12',
+            countryCode: 'NL',
+          },
+        ],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+    mockPushBrowserPath.mockClear();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getCenter.mockReturnValue({ lng: 4.91, lat: 52.38 });
+    map.getZoom.mockReturnValue(14.1);
+
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).not.toHaveBeenCalled();
+
+    nowSpy.mockRestore();
   });
 
   it('auto-locates once after the root web map reaches idle', async () => {
@@ -1150,6 +1385,143 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockRecordPropertyView).not.toHaveBeenCalled();
   });
 
+  it('pushes preview routes for first open and switched previews without duplicating same preview', async () => {
+    mockPreviewRouteInputs();
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+    const previewProperties = [
+      {
+        id: 'property-a',
+        address: 'Routelaan 12',
+        city: 'Eindhoven',
+        postalCode: '5600AA',
+        streetName: 'Routelaan',
+        houseNumber: '12',
+        countryCode: 'NL',
+      },
+      {
+        id: 'property-b',
+        address: 'Routelaan 14',
+        city: 'Eindhoven',
+        postalCode: '5600AA',
+        streetName: 'Routelaan',
+        houseNumber: '14',
+        countryCode: 'NL',
+      },
+    ];
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: previewProperties,
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledWith(
+      '/map/eindhoven/5600aa/routelaan/12',
+    );
+    expect(mockReplacePassiveBrowserPath).not.toHaveBeenCalledWith(
+      '/map/eindhoven/5600aa/routelaan/12',
+    );
+
+    const pushCountAfterFirstPreview = mockPushBrowserPath.mock.calls.length;
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledTimes(pushCountAfterFirstPreview);
+
+    Object.assign(mockInteraction, {
+      currentPreviewIndex: 1,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenLastCalledWith(
+      '/map/eindhoven/5600aa/routelaan/14',
+    );
+  });
+
+  it('restores the last camera URL with replaceState when an in-app preview closes', async () => {
+    mockPreviewRouteInputs();
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getCenter.mockReturnValue({ lng: 5.47, lat: 51.44 });
+    map.getZoom.mockReturnValue(14);
+
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [
+          {
+            id: 'property-a',
+            address: 'Routelaan 12',
+            city: 'Eindhoven',
+            postalCode: '5600AA',
+            streetName: 'Routelaan',
+            houseNumber: '12',
+            countryCode: 'NL',
+          },
+        ],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    Object.assign(mockInteraction, {
+      previewGroup: null,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockReplacePassiveBrowserPath).toHaveBeenLastCalledWith('/@51.44,5.47,14z');
+  });
+
   it('auth-gates signed-out Following toggles without switching state', async () => {
     mockIsAuthenticated = false;
 
@@ -1182,6 +1554,33 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     expect(mockReplacePassiveBrowserPath).not.toHaveBeenCalled();
+  });
+
+  it('rehydrates filters and social scope from popstate without router navigation', async () => {
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    window.history.replaceState(
+      {
+        huishypeMapView: {
+          socialScope: 'following',
+        },
+      },
+      '',
+      '/@52.37,4.9,14z?activity=today',
+    );
+    mockBrowserPathname = '/@52.37,4.9,14z';
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await flushMicrotasks();
+
+    expect(mockReplaceAppliedFilters).toHaveBeenCalledWith({ tag: 'default' });
+    expect(capturedMapFilterBarProps?.socialScope).toBe('following');
+    expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
   });
 
   it('shows the empty Following state from rendered grouped features after the map settles', async () => {

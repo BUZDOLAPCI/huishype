@@ -1,6 +1,7 @@
 import {
   getCurrentBrowserPathWithSearch,
   getCurrentBrowserPathname,
+  pushBrowserPath,
   replacePassiveBrowserPath,
 } from '../webMapUrlSync';
 
@@ -54,5 +55,25 @@ describe('webMapUrlSync', () => {
     expect(replaceState).toHaveBeenCalledWith({}, '', '/');
 
     window.history.replaceState = originalReplaceState;
+  });
+
+  it('pushes a browser path only when it changes and preserves history state', () => {
+    const pushState = jest.fn();
+    const originalPushState = window.history.pushState;
+    const state = { keep: 'state' };
+    window.history.replaceState(state, '', '/@51.4416,5.4697,14z?mode=map');
+    window.history.pushState = pushState;
+
+    expect(pushBrowserPath('/@51.4416,5.4697,14z?mode=map')).toBe(false);
+    expect(pushState).not.toHaveBeenCalled();
+
+    expect(pushBrowserPath('/map/eindhoven/5600aa/routelaan/12?mode=map')).toBe(true);
+    expect(pushState).toHaveBeenCalledWith(
+      state,
+      '',
+      '/map/eindhoven/5600aa/routelaan/12?mode=map',
+    );
+
+    window.history.pushState = originalPushState;
   });
 });
