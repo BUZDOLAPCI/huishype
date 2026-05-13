@@ -34,6 +34,7 @@ import { AuthModal } from '@/src/components';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
 import { useMyProfile, useUpdateProfile } from '@/src/hooks/useUserProfile';
 import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity';
@@ -115,6 +116,16 @@ export default function ProfileScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const dismissSettings = useCallback(() => {
+    setShowSettings(false);
+  }, []);
+
+  useWebDismissibleLayer({
+    id: 'profile-settings-dropdown',
+    active: showSettings,
+    onDismiss: dismissSettings,
+    enabled: Platform.OS === 'web',
+  });
 
   const canChangeName = useMemo(() => {
     if (!profile?.lastNameChangeAt) return true;
@@ -314,7 +325,7 @@ export default function ProfileScreen() {
           <SettingsDropdown
             visible={showSettings}
             onSignOut={handleLogout}
-            onDismiss={() => setShowSettings(false)}
+            onDismiss={dismissSettings}
           />
 
           {/* Avatar */}

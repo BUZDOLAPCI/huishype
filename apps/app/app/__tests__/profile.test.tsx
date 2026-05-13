@@ -1,9 +1,10 @@
 import React from 'react';
 import { Platform } from 'react-native';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import ProfileScreen from '../(tabs)/profile';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
 import { useMyProfile, useUpdateProfile } from '@/src/hooks/useUserProfile';
 import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity } from '@/src/hooks/useUserActivity';
@@ -111,6 +112,10 @@ const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
 const getRouterPush = () =>
   (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
+
+function renderWithDismissibleLayer(ui: React.ReactElement) {
+  return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
+}
 
 function seedMocks() {
   mockUseAuthContext.mockReturnValue({
@@ -245,5 +250,29 @@ describe('ProfileScreen sign out', () => {
     fireEvent.press(getByTestId('profile-search-user-button'));
 
     expect(getRouterPush()).toHaveBeenCalledWith('/user/search');
+  });
+
+  it('closes the settings dropdown on web popstate before route navigation', () => {
+    const routeNavigation = jest.fn();
+    window.addEventListener('popstate', routeNavigation);
+
+    try {
+      const { getByTestId, queryByTestId } = renderWithDismissibleLayer(
+        <ProfileScreen />
+      );
+
+      fireEvent.press(getByTestId('profile-settings'));
+      expect(getByTestId('settings-sign-out')).toBeTruthy();
+
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+
+      expect(queryByTestId('settings-sign-out')).toBeNull();
+      expect(routeNavigation).not.toHaveBeenCalled();
+      expect(getRouterPush()).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('popstate', routeNavigation);
+    }
   });
 });

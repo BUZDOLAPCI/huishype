@@ -1,6 +1,8 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { ListingSubmissionSheet } from '../ListingSubmissionSheet';
+import { WebDismissibleLayerProvider } from '../../../providers/WebDismissibleLayerProvider';
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
@@ -31,17 +33,34 @@ const previewContractFields = {
   previewToken: 'mock-preview-token-000000000000000000',
   previewId: '22222222-2222-4222-8222-222222222222',
 } as const;
+const originalPlatform = Platform.OS;
+
+function renderWithDismissibleLayer(ui: React.ReactElement) {
+  return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
+}
+
+function setPlatform(os: typeof Platform.OS) {
+  Object.defineProperty(Platform, 'OS', {
+    configurable: true,
+    value: os,
+  });
+}
 
 describe('ListingSubmissionSheet', () => {
   beforeEach(() => {
     mockFetch.mockReset();
     jest.clearAllMocks();
+    setPlatform(originalPlatform);
     mockAuthContext = {
       accessToken: 'test-access-token',
       user: { id: 'user-1' },
       isAuthenticated: true,
       getAccessToken: jest.fn(async () => 'test-access-token'),
     };
+  });
+
+  afterEach(() => {
+    setPlatform(originalPlatform);
   });
 
   it('submits the preview token and keeps preview request unauthenticated', async () => {
@@ -383,6 +402,138 @@ describe('ListingSubmissionSheet', () => {
     expect(screen.getByText('Beeldbuisring 41 A, 5651 HA Eindhoven')).toBeTruthy();
     expect(screen.getByText(/€\s?487[,.]500/)).toBeTruthy();
     expect(screen.queryByText('Fallback description')).toBeNull();
+  });
+
+  it('unwinds preview state to the URL input on web popstate', async () => {
+    setPlatform('web');
+    const routeNavigation = jest.fn();
+    window.addEventListener('popstate', routeNavigation);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...previewContractFields,
+        sourceName: 'funda',
+        rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+        canonicalUrl: 'https://www.funda.nl/detail/12345',
+        sourceListingId: '12345',
+        sourceListingIdKind: 'tiny_id',
+        validationState: 'valid',
+        matchState: 'matched',
+        handoffState: 'will_create',
+        reasonCode: 'source_identity_match',
+        title: 'Example Listing',
+        description: null,
+        imageUrl: null,
+        askingPrice: null,
+        priceType: 'unknown',
+        currency: null,
+        address: null,
+        submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+        matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+      }),
+    } as Response);
+
+    try {
+      renderWithDismissibleLayer(
+        <ListingSubmissionSheet
+          propertyId="11111111-1111-4111-8111-111111111111"
+          visible
+          onClose={jest.fn()}
+          onSubmitted={jest.fn()}
+        />
+      );
+
+      fireEvent.changeText(
+        screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+        'https://www.funda.nl/koop/eindhoven/huis-12345/'
+      );
+      fireEvent.press(screen.getByText('Preview'));
+
+      await screen.findByText('Confirm & Add Listing');
+
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+
+      await screen.findByPlaceholderText('Paste a Funda or Pararius link');
+      expect(screen.queryByText('Confirm & Add Listing')).toBeNull();
+      expect(routeNavigation).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('popstate', routeNavigation);
+    }
+  });
+
+  it('unwinds submit errors back to preview on web popstate', async () => {
+    setPlatform('web');
+    const routeNavigation = jest.fn();
+    window.addEventListener('popstate', routeNavigation);
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ...previewContractFields,
+          sourceName: 'funda',
+          rawUrl: 'https://www.funda.nl/koop/eindhoven/huis-12345/',
+          canonicalUrl: 'https://www.funda.nl/detail/12345',
+          sourceListingId: '12345',
+          sourceListingIdKind: 'tiny_id',
+          validationState: 'valid',
+          matchState: 'matched',
+          handoffState: 'will_create',
+          reasonCode: 'source_identity_match',
+          title: 'Example Listing',
+          description: null,
+          imageUrl: null,
+          askingPrice: null,
+          priceType: 'unknown',
+          currency: null,
+          address: null,
+          submittedPropertyId: '11111111-1111-4111-8111-111111111111',
+          matchedPropertyId: '11111111-1111-4111-8111-111111111111',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({ message: 'submit failed' }),
+      } as Response);
+
+    try {
+      renderWithDismissibleLayer(
+        <ListingSubmissionSheet
+          propertyId="11111111-1111-4111-8111-111111111111"
+          visible
+          onClose={jest.fn()}
+          onSubmitted={jest.fn()}
+        />
+      );
+
+      fireEvent.changeText(
+        screen.getByPlaceholderText('Paste a Funda or Pararius link'),
+        'https://www.funda.nl/koop/eindhoven/huis-12345/'
+      );
+      fireEvent.press(screen.getByText('Preview'));
+
+      await screen.findByText('Confirm & Add Listing');
+      fireEvent.press(screen.getByText('Confirm & Add Listing'));
+
+      await screen.findByText('Something went wrong');
+
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+
+      await screen.findByText('Confirm & Add Listing');
+      expect(screen.queryByText('Something went wrong')).toBeNull();
+      expect(routeNavigation).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('popstate', routeNavigation);
+    }
   });
 
   it('shows preview validation failures without creating a confirmation step', async () => {

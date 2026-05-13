@@ -81,6 +81,7 @@ import {
 import {
   getCurrentBrowserPathname,
   pushBrowserPath,
+  type PushBrowserPathOptions,
   replacePassiveBrowserPath,
 } from '@/src/lib/webMapUrlSync';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
@@ -972,6 +973,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [],
   );
   const previousPreviewPathRef = useRef<string | null>(null);
+  const expandedSheetHistoryPathRef = useRef<string | null>(null);
   const lockedAreaPathRef = useRef<string | null>(null);
   const canReplaceLockedAreaPathRef = useRef(true);
   const browserPathRef = useRef(getCurrentBrowserPathname(initialRoutePathname));
@@ -1385,7 +1387,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   );
   replaceMapBrowserPathRef.current = replaceMapBrowserPath;
   const pushMapBrowserPath = useCallback(
-    (pathname: string) => {
+    (pathname: string, options?: PushBrowserPathOptions) => {
       if (!isMapTabActiveRef.current) {
         return false;
       }
@@ -1396,7 +1398,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       }
 
       const nextHref = appendSearchToPath(pathname, browserSearchRef.current);
-      return pushBrowserPath(nextHref);
+      return pushBrowserPath(nextHref, options);
     },
     [pathnameOverride],
   );
@@ -2568,6 +2570,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           new URLSearchParams(browserSearchRef.current),
         ),
       );
+      if (expandedSheetHistoryPathRef.current && interaction.sheetIndexRef.current > 0) {
+        expandedSheetHistoryPathRef.current = null;
+        bottomSheetRefBridge.current.current?.close();
+      }
       browserPathRef.current = nextPathname;
       setRoutePathname(nextPathname);
     };
@@ -2576,7 +2582,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [replaceAppliedFilters]);
+  }, [interaction.sheetIndexRef, replaceAppliedFilters]);
 
   useEffect(() => {
     if (!isMapTabActive) {
@@ -2829,6 +2835,42 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     previewCanonicalPath,
     pushMapBrowserPath,
     replaceMapBrowserPath,
+    routeState.isLoading,
+  ]);
+
+  useEffect(() => {
+    if (!isMapTabActive || routeState.isLoading) {
+      return;
+    }
+
+    if (!interaction.previewGroup || !previewCanonicalPath) {
+      expandedSheetHistoryPathRef.current = null;
+      return;
+    }
+
+    if (interaction.sheetIndex <= 0) {
+      expandedSheetHistoryPathRef.current = null;
+      return;
+    }
+
+    if (expandedSheetHistoryPathRef.current === previewCanonicalPath) {
+      return;
+    }
+
+    if (browserPathRef.current !== previewCanonicalPath) {
+      return;
+    }
+
+    if (pushMapBrowserPath(previewCanonicalPath, { allowSamePath: true })) {
+      expandedSheetHistoryPathRef.current = previewCanonicalPath;
+      browserPathRef.current = previewCanonicalPath;
+    }
+  }, [
+    interaction.previewGroup,
+    interaction.sheetIndex,
+    isMapTabActive,
+    previewCanonicalPath,
+    pushMapBrowserPath,
     routeState.isLoading,
   ]);
 

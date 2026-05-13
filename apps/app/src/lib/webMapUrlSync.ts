@@ -30,13 +30,20 @@ export function replacePassiveBrowserPath(pathname: string): boolean {
   return true;
 }
 
-export function pushBrowserPath(pathname: string): boolean {
+export type PushBrowserPathOptions = {
+  allowSamePath?: boolean;
+};
+
+export function pushBrowserPath(
+  pathname: string,
+  options: PushBrowserPathOptions = {},
+): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
 
   const currentPath = `${window.location.pathname}${window.location.search}`;
-  if (currentPath === pathname) {
+  if (currentPath === pathname && !options.allowSamePath) {
     return false;
   }
 

@@ -34,6 +34,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../hooks/useAuth';
+import { useWebDismissibleLayer } from '../providers/WebDismissibleLayerProvider';
 import { HuisHypeLogo } from './branding';
 import { Button } from './ui/Button';
 import { Icon } from './ui/Icon';
@@ -346,6 +347,13 @@ export function AuthModal({
     try { Keyboard.dismiss(); } catch { /* Keyboard not available in test env */ }
     onClose();
   }, [clearError, onClose]);
+
+  useWebDismissibleLayer({
+    id: 'auth-modal',
+    active: visible,
+    onDismiss: handleClose,
+    enabled: Platform.OS === 'web',
+  });
 
   if (!isMounted) return null;
 

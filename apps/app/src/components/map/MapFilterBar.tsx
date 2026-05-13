@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
 import type { UseMapFilterControllerReturn } from '@/src/hooks/useMapFilterController';
+import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import {
   getMapActivityFilterLabel,
@@ -369,6 +370,13 @@ export function MapFilterBar({
     hasPriceRangeError,
     openCategory,
   ]);
+
+  useWebDismissibleLayer({
+    id: 'map-filter-panel',
+    active: isAnyPanelOpen,
+    onDismiss: handlePanelBackdropPress,
+    enabled: Platform.OS === 'web',
+  });
 
   const handleCategoryPress = useCallback(
     (nextCategory: MapFilterCategory) => {

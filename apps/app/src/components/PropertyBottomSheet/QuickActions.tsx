@@ -5,12 +5,13 @@
  * Replaces the old Ionicons-based implementation with Phosphor icons
  * from the shared QuickActions component.
  */
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { QuickActions as SharedQuickActions } from '../QuickActions';
 import type { SectionProps } from './types';
-import { Share } from 'react-native';
+import { Platform, Share } from 'react-native';
 import { SectionCard } from './SectionCard';
 import { SharePropertyModal } from './SharePropertyModal';
+import { useWebDismissibleLayer } from '../../providers/WebDismissibleLayerProvider';
 import {
   buildPropertySharePayload,
   isUnsupportedWebShareError,
@@ -34,6 +35,17 @@ export function QuickActions({
 }: QuickActionsProps) {
   const [isShareModalVisible, setIsShareModalVisible] = useState(false);
   const sharePayload = buildPropertySharePayload(property);
+  const closeShareModal = useCallback(() => {
+    setIsShareModalVisible(false);
+  }, []);
+
+  useWebDismissibleLayer({
+    id: `property-share-modal:${property.id}`,
+    active: isShareModalVisible,
+    onDismiss: closeShareModal,
+    stateKey: property.id,
+    enabled: Platform.OS === 'web',
+  });
 
   const handleShare = async () => {
     try {
@@ -74,7 +86,7 @@ export function QuickActions({
         property={property}
         visible={isShareModalVisible}
         payload={sharePayload}
-        onClose={() => setIsShareModalVisible(false)}
+        onClose={closeShareModal}
       />
     </>
   );

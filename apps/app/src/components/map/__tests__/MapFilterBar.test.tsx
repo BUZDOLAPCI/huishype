@@ -1,8 +1,9 @@
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import { Platform, Text, View } from 'react-native';
 
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
+import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
 import { MapFilterBar } from '../MapFilterBar';
 
 function MapFilterBarHarness() {
@@ -30,7 +31,24 @@ function MapFilterBarHarness() {
   );
 }
 
+const originalPlatform = Platform.OS;
+
+function renderWithDismissibleLayer(ui: React.ReactElement) {
+  return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
+}
+
+function setPlatform(os: typeof Platform.OS) {
+  Object.defineProperty(Platform, 'OS', {
+    configurable: true,
+    value: os,
+  });
+}
+
 describe('MapFilterBar', () => {
+  afterEach(() => {
+    setPlatform(originalPlatform);
+  });
+
   it('does not apply price draft edits until Apply is pressed', () => {
     const { getByTestId } = render(<MapFilterBarHarness />);
 
@@ -63,13 +81,9 @@ describe('MapFilterBar', () => {
 
   it('keeps the suggestion tappable through an input blur so web clicks still update the draft', () => {
     jest.useFakeTimers();
-    const originalPlatform = Platform.OS;
 
     try {
-      Object.defineProperty(Platform, 'OS', {
-        configurable: true,
-        value: 'web',
-      });
+      setPlatform('web');
 
       const { getByTestId } = render(<MapFilterBarHarness />);
 
@@ -84,11 +98,32 @@ describe('MapFilterBar', () => {
 
       expect(getByTestId('applied-state').props.children).toContain('"salePriceFrom":500000');
     } finally {
-      Object.defineProperty(Platform, 'OS', {
-        configurable: true,
-        value: originalPlatform,
-      });
+      setPlatform(originalPlatform);
       jest.useRealTimers();
+    }
+  });
+
+  it('closes the open web filter panel on popstate before route navigation', () => {
+    setPlatform('web');
+    const routeNavigation = jest.fn();
+    window.addEventListener('popstate', routeNavigation);
+
+    try {
+      const { getByTestId, queryByTestId } = renderWithDismissibleLayer(
+        <MapFilterBarHarness />
+      );
+
+      fireEvent.press(getByTestId('map-filter-pill-price'));
+      expect(getByTestId('map-filter-panel-price')).toBeTruthy();
+
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+
+      expect(queryByTestId('map-filter-panel-price')).toBeNull();
+      expect(routeNavigation).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('popstate', routeNavigation);
     }
   });
 

@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ListingPreviewResponse, ListingReadItem, ListingSubmitResult } from '@huishype/shared';
 import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
+import { useWebDismissibleLayer } from '../../providers/WebDismissibleLayerProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 
 type PreviewAddressObject = {
@@ -404,6 +405,40 @@ export function ListingSubmissionSheet({
     setPreviewData(null);
     setError(null);
   }, []);
+
+  const handleNestedDismiss = useCallback(() => {
+    if (step === 'error') {
+      if (previewData) {
+        setStep('preview');
+      } else {
+        setStep('input');
+      }
+      setError(null);
+      return;
+    }
+
+    if (step === 'preview') {
+      handleBack();
+    }
+  }, [handleBack, previewData, step]);
+
+  useWebDismissibleLayer({
+    id: `listing-submission-sheet:${propertyId}`,
+    active: visible,
+    onDismiss: handleClose,
+    priority: 10,
+    stateKey: propertyId,
+    enabled: Platform.OS === 'web',
+  });
+
+  useWebDismissibleLayer({
+    id: `listing-submission-sheet-nested:${propertyId}`,
+    active: visible && (step === 'preview' || step === 'error'),
+    onDismiss: handleNestedDismiss,
+    priority: 20,
+    stateKey: step,
+    enabled: Platform.OS === 'web',
+  });
 
   return (
     <Modal

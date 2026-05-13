@@ -17,6 +17,7 @@ import { BlurContainer } from './ui/BlurContainer';
 import { Button } from './ui/Button';
 import { Icon, type IconName } from './ui/Icon';
 import { shadows } from '../lib/shadows';
+import { useWebDismissibleLayer } from '../providers/WebDismissibleLayerProvider';
 
 const WARM_50 = '#FFF8F0';
 const WARM_100 = '#F5F0E8';
@@ -63,6 +64,13 @@ export function WelcomeModal({ visible, onClose }: WelcomeModalProps) {
   const handleClose = useCallback(() => {
     onClose();
   }, [onClose]);
+
+  useWebDismissibleLayer({
+    id: 'welcome-modal',
+    active: visible,
+    onDismiss: handleClose,
+    enabled: Platform.OS === 'web',
+  });
 
   useEffect(() => {
     if (!visible) {

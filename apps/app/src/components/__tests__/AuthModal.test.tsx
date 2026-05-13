@@ -28,9 +28,23 @@ jest.mock('../../hooks/useAuth', () => ({
 
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { BackHandler } from 'react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { BackHandler, Platform } from 'react-native';
 import { AuthModal } from '../AuthModal';
+import { WebDismissibleLayerProvider } from '../../providers/WebDismissibleLayerProvider';
+
+const originalPlatform = Platform.OS;
+
+function renderWithDismissibleLayer(ui: React.ReactElement) {
+  return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
+}
+
+function setPlatform(os: typeof Platform.OS) {
+  Object.defineProperty(Platform, 'OS', {
+    configurable: true,
+    value: os,
+  });
+}
 
 function setAuthDefaults(overrides: Record<string, unknown> = {}) {
   mockUseAuthReturn = {
@@ -55,6 +69,10 @@ describe('AuthModal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setAuthDefaults();
+  });
+
+  afterEach(() => {
+    setPlatform(originalPlatform);
   });
 
   describe('rendering', () => {
@@ -377,6 +395,29 @@ describe('AuthModal', () => {
       fireEvent.press(getByLabelText('Close'));
 
       expect(defaultProps.onAuthStarting).not.toHaveBeenCalled();
+    });
+
+    it('dismisses on web popstate before route navigation listeners run', () => {
+      setPlatform('web');
+      const onClose = jest.fn();
+      const routeNavigation = jest.fn();
+      window.addEventListener('popstate', routeNavigation);
+
+      try {
+        renderWithDismissibleLayer(
+          <AuthModal {...defaultProps} onClose={onClose} />
+        );
+
+        act(() => {
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        });
+
+        expect(mockClearError).toHaveBeenCalledTimes(1);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(routeNavigation).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener('popstate', routeNavigation);
+      }
     });
   });
 

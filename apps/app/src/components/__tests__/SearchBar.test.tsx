@@ -1,8 +1,10 @@
 import React from 'react';
 import { render, fireEvent, screen, act, waitFor } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { SearchBar } from '../SearchBar';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { TEST_LAT, TEST_LNG } from '@/src/__tests__/fixtures/test-coordinates';
+import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
 
 // Mock the useAddressSearch hook
 const mockUseAddressSearch = jest.fn();
@@ -53,6 +55,19 @@ function focusNativeSearchInput() {
   return screen.getByTestId('search-bar-input');
 }
 
+const originalPlatform = Platform.OS;
+
+function renderWithDismissibleLayer(ui: React.ReactElement) {
+  return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
+}
+
+function setPlatform(os: typeof Platform.OS) {
+  Object.defineProperty(Platform, 'OS', {
+    configurable: true,
+    value: os,
+  });
+}
+
 describe('SearchBar', () => {
   const onPropertyResolved = jest.fn();
   const onLocationResolved = jest.fn();
@@ -70,6 +85,7 @@ describe('SearchBar', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    setPlatform(originalPlatform);
   });
 
   it('renders search input with correct testID', () => {
@@ -467,5 +483,35 @@ describe('SearchBar', () => {
     expect(screen.queryByTestId('search-results-list')).toBeNull();
     expect(screen.queryByTestId('search-results-loading')).toBeNull();
     expect(screen.queryByTestId('search-results-empty')).toBeNull();
+  });
+
+  it('closes the focused web search overlay on popstate before route navigation', async () => {
+    jest.useRealTimers();
+    setPlatform('web');
+    const routeNavigation = jest.fn();
+    window.addEventListener('popstate', routeNavigation);
+
+    try {
+      renderWithDismissibleLayer(
+        <SearchBar
+          onPropertyResolved={onPropertyResolved}
+          onLocationResolved={onLocationResolved}
+        />
+      );
+
+      fireEvent(screen.getByTestId('search-bar-input'), 'focus');
+      expect(screen.getByTestId('search-overlay-backdrop')).toBeTruthy();
+
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('search-overlay-backdrop')).toBeNull();
+      });
+      expect(routeNavigation).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('popstate', routeNavigation);
+    }
   });
 });

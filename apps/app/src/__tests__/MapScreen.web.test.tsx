@@ -86,7 +86,10 @@ const mockSetSearchCity = jest.fn();
 const mockOnViewportCenterChanged = jest.fn();
 let mockViewportCountryCode: string | null = 'NL';
 const mockReplacePassiveBrowserPath = jest.fn((pathname: string) => !!pathname);
-const mockPushBrowserPath = jest.fn((pathname: string) => !!pathname);
+const mockPushBrowserPath = jest.fn((
+  pathname: string,
+  _options?: { allowSamePath?: boolean },
+) => !!pathname);
 const mockExtractCanonicalRouteInput = jest.fn<unknown, [unknown]>(() => null);
 let mockResolvedMapRouteState: {
   isLoading: boolean;
@@ -138,6 +141,7 @@ const mockInteraction = {
   selectedProperty: null,
   selectedPropertyForSheet: null,
   sheetIndex: -1,
+  sheetIndexRef: { current: -1 },
   toGroupProperty: jest.fn(),
   setPreviewGroup: jest.fn(),
   setCurrentPreviewIndex: jest.fn(),
@@ -397,7 +401,14 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
 
 jest.mock('@/src/lib/webMapUrlSync', () => ({
   getCurrentBrowserPathname: jest.fn(() => mockBrowserPathname),
-  pushBrowserPath: jest.fn((pathname: string) => mockPushBrowserPath(pathname)),
+  pushBrowserPath: jest.fn((
+    pathname: string,
+    options?: { allowSamePath?: boolean },
+  ) => (
+    options === undefined
+      ? mockPushBrowserPath(pathname)
+      : mockPushBrowserPath(pathname, options)
+  )),
   replacePassiveBrowserPath: jest.fn((pathname: string) => mockReplacePassiveBrowserPath(pathname)),
 }));
 
@@ -661,8 +672,15 @@ describe('MapScreen web grouped Following mode', () => {
       window.history.replaceState(window.history.state, '', pathname);
       return true;
     });
-    mockPushBrowserPath.mockImplementation((pathname: string) => {
-      if (!pathname || pathname === `${window.location.pathname}${window.location.search}`) {
+    mockPushBrowserPath.mockImplementation((
+      pathname: string,
+      options?: { allowSamePath?: boolean },
+    ) => {
+      if (
+        !pathname ||
+        (pathname === `${window.location.pathname}${window.location.search}` &&
+          !options?.allowSamePath)
+      ) {
         return false;
       }
       const nextUrl = new URL(pathname, 'http://localhost');
@@ -686,7 +704,10 @@ describe('MapScreen web grouped Following mode', () => {
       currentPreviewIndex: 0,
       selectedPropertyForSheet: null,
       selectedProperty: null,
+      sheetIndex: -1,
+      sheetIndexRef: { current: -1 },
     });
+    mockInteraction.bottomSheetRef.current.close.mockReset();
     mockInteraction.handleFeaturePress.mockReset();
     mockInteraction.handleFeaturePress.mockResolvedValue(false);
     mockInteraction.handleNearbyResult.mockReset();
@@ -1460,6 +1481,126 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockPushBrowserPath).toHaveBeenLastCalledWith(
       '/map/eindhoven/5600aa/routelaan/14',
     );
+  });
+
+  it('pushes a same-path history entry when the sheet opens over a preview', async () => {
+    mockPreviewRouteInputs();
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+    const previewProperty = {
+      id: 'property-a',
+      address: 'Routelaan 12',
+      city: 'Eindhoven',
+      postalCode: '5600AA',
+      streetName: 'Routelaan',
+      houseNumber: '12',
+      countryCode: 'NL',
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [previewProperty],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    mockPushBrowserPath.mockClear();
+    Object.assign(mockInteraction, {
+      selectedPropertyForSheet: previewProperty,
+      sheetIndex: 2,
+    });
+    mockInteraction.sheetIndexRef.current = 2;
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledWith(
+      '/map/eindhoven/5600aa/routelaan/12',
+      { allowSamePath: true },
+    );
+  });
+
+  it('browser Back from an open sheet dismisses the sheet before the preview card', async () => {
+    mockPreviewRouteInputs();
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+    const previewProperty = {
+      id: 'property-a',
+      address: 'Routelaan 12',
+      city: 'Eindhoven',
+      postalCode: '5600AA',
+      streetName: 'Routelaan',
+      houseNumber: '12',
+      countryCode: 'NL',
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [previewProperty],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    Object.assign(mockInteraction, {
+      selectedPropertyForSheet: previewProperty,
+      sheetIndex: 2,
+    });
+    mockInteraction.sheetIndexRef.current = 2;
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    mockInteraction.bottomSheetRef.current.close.mockClear();
+    mockInteraction.handleClosePreview.mockClear();
+    mockBrowserPathname = '/map/eindhoven/5600aa/routelaan/12';
+    window.history.replaceState({}, '', '/map/eindhoven/5600aa/routelaan/12');
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.bottomSheetRef.current.close).toHaveBeenCalledTimes(1);
+    expect(mockInteraction.handleClosePreview).not.toHaveBeenCalled();
+    expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
   });
 
   it('restores the last camera URL with replaceState when an in-app preview closes', async () => {

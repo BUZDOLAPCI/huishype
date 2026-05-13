@@ -27,6 +27,7 @@ import 'react-native-reanimated';
 import { QueryProvider } from '@/src/providers/QueryProvider';
 import { AuthProvider } from '@/src/providers/AuthProvider';
 import { DeepLinkRouteSync } from '@/src/providers/DeepLinkRouteSync';
+import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -79,15 +80,17 @@ function RootLayoutNav() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryProvider>
         <AuthProvider>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <DeepLinkRouteSync />
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
-              <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
-              <Stack.Screen name="notifications" options={{ headerShown: false }} />
-            </Stack>
-          </ThemeProvider>
+          <WebDismissibleLayerProvider>
+            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+              <DeepLinkRouteSync />
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
+                <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
+                <Stack.Screen name="notifications" options={{ headerShown: false }} />
+              </Stack>
+            </ThemeProvider>
+          </WebDismissibleLayerProvider>
         </AuthProvider>
       </QueryProvider>
     </GestureHandlerRootView>

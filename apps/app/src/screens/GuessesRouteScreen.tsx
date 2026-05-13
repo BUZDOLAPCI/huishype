@@ -22,6 +22,7 @@ import {
 } from '@/src/hooks/usePriceGuess';
 import { useAuth } from '@/src/hooks/useAuth';
 import { AuthModal } from '@/src/components';
+import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import {
   resolvePropertyImageWithType,
@@ -226,6 +227,17 @@ export function GuessesRouteScreen({
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSlider, setShowSlider] = useState(false);
+  const dismissSlider = useCallback(() => {
+    setShowSlider(false);
+  }, []);
+
+  useWebDismissibleLayer({
+    id: `guesses-slider:${propertyId ?? 'unknown'}`,
+    active: showSlider,
+    onDismiss: dismissSlider,
+    stateKey: propertyId ?? 'unknown',
+    enabled: Platform.OS === 'web',
+  });
 
   const { data: property, isLoading: propertyLoading } = useProperty(propertyId ?? null);
   const { data: guessData, isLoading: guessLoading, refetch } = useFetchPriceGuess(
@@ -446,7 +458,7 @@ export function GuessesRouteScreen({
             disabled={false}
             testID="guesses-slider"
           />
-          <TouchableOpacity onPress={() => setShowSlider(false)} style={styles.sliderDismiss}>
+          <TouchableOpacity onPress={dismissSlider} style={styles.sliderDismiss}>
             <Text style={styles.sliderDismissText}>Close slider</Text>
           </TouchableOpacity>
         </View>

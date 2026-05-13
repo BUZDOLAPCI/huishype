@@ -8,6 +8,7 @@ import { resolveProperty, type PropertyResolveResult } from '@/src/utils/api';
 import { SearchResults } from './SearchResults';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
 
 /**
  * Design spec (Section 7.2):
@@ -224,6 +225,13 @@ export function SearchBar({
     setShowResults(false);
     setIsResolving(false);
   }, [invalidatePendingSearch]);
+
+  useWebDismissibleLayer({
+    id: 'map-search',
+    active: isFocused || showResults,
+    onDismiss: handleBackdropPress,
+    enabled: Platform.OS === 'web',
+  });
 
   const clearTransientSearchState = useCallback(() => {
     invalidatePendingSearch();

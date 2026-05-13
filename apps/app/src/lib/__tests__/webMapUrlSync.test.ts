@@ -76,4 +76,23 @@ describe('webMapUrlSync', () => {
 
     window.history.pushState = originalPushState;
   });
+
+  it('can push a same-path browser entry for UI-only history layers', () => {
+    const pushState = jest.fn();
+    const originalPushState = window.history.pushState;
+    const state = { keep: 'state' };
+    window.history.replaceState(state, '', '/map/eindhoven/5600aa/routelaan/12');
+    window.history.pushState = pushState;
+
+    expect(pushBrowserPath('/map/eindhoven/5600aa/routelaan/12', {
+      allowSamePath: true,
+    })).toBe(true);
+    expect(pushState).toHaveBeenCalledWith(
+      state,
+      '',
+      '/map/eindhoven/5600aa/routelaan/12',
+    );
+
+    window.history.pushState = originalPushState;
+  });
 });
