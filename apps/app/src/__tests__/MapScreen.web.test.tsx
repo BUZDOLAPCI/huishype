@@ -1003,6 +1003,16 @@ describe('MapScreen web grouped Following mode', () => {
     expect(routeNavigation).not.toHaveBeenCalled();
     expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
 
+    routeNavigation.mockClear();
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await flushMicrotasks();
+
+    expect(routeNavigation).not.toHaveBeenCalled();
+    expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
+
     window.removeEventListener('popstate', routeNavigation);
   });
 
@@ -1838,6 +1848,7 @@ describe('MapScreen web grouped Following mode', () => {
 
   it('browser Back from an open sheet dismisses the sheet before the preview card', async () => {
     mockPreviewRouteInputs();
+    const routeNavigation = jest.fn();
     mockResolvedMapRouteState = {
       isLoading: false,
       pathname: '/',
@@ -1887,6 +1898,7 @@ describe('MapScreen web grouped Following mode', () => {
 
     mockInteraction.bottomSheetRef.current.close.mockClear();
     mockInteraction.handleClosePreview.mockClear();
+    window.addEventListener('popstate', routeNavigation);
     mockBrowserPathname = '/map/eindhoven/5600aa/routelaan/12';
     window.history.replaceState({}, '', '/map/eindhoven/5600aa/routelaan/12');
 
@@ -1897,7 +1909,10 @@ describe('MapScreen web grouped Following mode', () => {
 
     expect(mockInteraction.bottomSheetRef.current.close).toHaveBeenCalledTimes(1);
     expect(mockInteraction.handleClosePreview).not.toHaveBeenCalled();
+    expect(routeNavigation).not.toHaveBeenCalled();
     expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
+
+    window.removeEventListener('popstate', routeNavigation);
   });
 
   it('restores the last camera URL with replaceState when an in-app preview closes', async () => {

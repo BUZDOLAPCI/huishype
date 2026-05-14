@@ -2636,11 +2636,24 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       if (expandedSheetHistoryPathRef.current && interaction.sheetIndexRef.current > 0) {
         expandedSheetHistoryPathRef.current = null;
         bottomSheetRefBridge.current.current?.close();
+        return true;
       }
 
       const previousRoute = parseMapRoutePath(browserPathRef.current);
       const nextRoute = parseMapRoutePath(nextPathname);
       const map = mapRef.current;
+
+      const canConsumeSamePathPop =
+        isMapTabActiveRef.current &&
+        previousRoute.pathname === nextRoute.pathname;
+
+      if (canConsumeSamePathPop) {
+        browserPathRef.current = nextPathname;
+        setRoutePathname((currentPathname) =>
+          currentPathname === nextPathname ? currentPathname : nextPathname,
+        );
+        return true;
+      }
 
       const canDismissPreviewInPlace =
         isMapTabActiveRef.current &&
