@@ -84,6 +84,7 @@ import {
   type PushBrowserPathOptions,
   replacePassiveBrowserPath,
 } from '@/src/lib/webMapUrlSync';
+import { registerWebMapCameraPopHandler } from '@/src/lib/webMapCameraHistory';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
 import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
 import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
@@ -132,6 +133,7 @@ const AMBIENT_COMMENT_BUBBLE_MIN_ZOOM = 10;
 const ACTIVITY_PULSE_DOM_MIN_ZOOM = 10;
 const CAMERA_EPSILON = 0.000001;
 const ZOOM_EPSILON = 0.001;
+const BROWSER_CAMERA_POP_FLY_DURATION_MS = 700;
 const CAMERA_HISTORY_CHECKPOINT_INTERVAL_MS = 8_000;
 const CAMERA_HISTORY_CHECKPOINT_ZOOM_DELTA = 0.75;
 const CAMERA_HISTORY_CHECKPOINT_CENTER_DELTA_METERS = 750;
@@ -1192,6 +1194,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   handleFeaturePressRef.current = handleFeaturePress;
   const handleAuthRequiredRef = useRef(handleAuthRequired);
   handleAuthRequiredRef.current = handleAuthRequired;
+  const handleClosePreviewRef = useRef(interaction.handleClosePreview);
+  handleClosePreviewRef.current = interaction.handleClosePreview;
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2557,6 +2561,74 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return undefined;
     }
 
+    const applyCameraPopInPlace = () => {
+      const nextPathname = getCurrentBrowserPathname('/');
+      browserSearchRef.current = window.location.search || '';
+      replaceAppliedFilters(
+        parseMapFiltersFromSearchParams(
+          new URLSearchParams(browserSearchRef.current),
+        ),
+      );
+      setSocialScope(
+        getPersistedMapSocialScope(
+          new URLSearchParams(browserSearchRef.current),
+        ),
+      );
+      if (expandedSheetHistoryPathRef.current && interaction.sheetIndexRef.current > 0) {
+        expandedSheetHistoryPathRef.current = null;
+        bottomSheetRefBridge.current.current?.close();
+      }
+
+      const previousRoute = parseMapRoutePath(browserPathRef.current);
+      const nextRoute = parseMapRoutePath(nextPathname);
+      const map = mapRef.current;
+      const canApplyCameraInPlace =
+        isMapTabActiveRef.current &&
+        previousRoute.kind === 'camera' &&
+        nextRoute.kind === 'camera' &&
+        previousRoute.pathname !== nextRoute.pathname &&
+        !!map;
+
+      if (canApplyCameraInPlace) {
+        handleClosePreviewRef.current();
+        skipNextPassiveUrlSyncRef.current = true;
+        lockedAreaPathRef.current = null;
+        canReplaceLockedAreaPathRef.current = true;
+        lastCameraPathRef.current = nextRoute.pathname;
+        resetCameraHistoryCheckpointBaseline(nextRoute.camera);
+        appliedRoutePathRef.current = nextPathname;
+        browserPathRef.current = nextPathname;
+        setRoutePathname((currentPathname) =>
+          currentPathname === nextPathname ? currentPathname : nextPathname,
+        );
+
+        if (!isMapAlreadyAtCamera(map, nextRoute.camera)) {
+          map.flyTo({
+            center: [nextRoute.camera.lng, nextRoute.camera.lat],
+            zoom: nextRoute.camera.zoom,
+            duration: BROWSER_CAMERA_POP_FLY_DURATION_MS,
+            essential: true,
+          });
+        }
+
+        return true;
+      }
+
+      return false;
+    };
+
+    return registerWebMapCameraPopHandler(applyCameraPopInPlace);
+  }, [
+    interaction.sheetIndexRef,
+    replaceAppliedFilters,
+    resetCameraHistoryCheckpointBaseline,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
     const handlePopState = () => {
       const nextPathname = getCurrentBrowserPathname('/');
       browserSearchRef.current = window.location.search || '';
@@ -2574,15 +2646,20 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         expandedSheetHistoryPathRef.current = null;
         bottomSheetRefBridge.current.current?.close();
       }
+
       browserPathRef.current = nextPathname;
       setRoutePathname(nextPathname);
     };
 
-    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('popstate', handlePopState, { capture: true });
     return () => {
-      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('popstate', handlePopState, { capture: true });
     };
-  }, [interaction.sheetIndexRef, replaceAppliedFilters]);
+  }, [
+    interaction.sheetIndexRef,
+    replaceAppliedFilters,
+    resetCameraHistoryCheckpointBaseline,
+  ]);
 
   useEffect(() => {
     if (!isMapTabActive) {

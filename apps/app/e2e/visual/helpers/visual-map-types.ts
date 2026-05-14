@@ -114,6 +114,14 @@ export interface VisualMapInstance {
     pitch?: number;
     bearing?: number;
   }) => void;
+  flyTo: (options: {
+    center?: VisualMapLngLatLike;
+    zoom?: number;
+    pitch?: number;
+    bearing?: number;
+    duration?: number;
+    essential?: boolean;
+  }) => void;
   project: (coordinates: VisualMapGeometryCoordinates | VisualMapPointLike) => VisualMapPoint;
   unproject: (point: VisualMapPointLike) => VisualMapCenter;
   getSource: (sourceId: string) => VisualMapStyleSourceLike | undefined;

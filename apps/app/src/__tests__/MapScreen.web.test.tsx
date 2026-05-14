@@ -960,6 +960,58 @@ describe('MapScreen web grouped Following mode', () => {
     nowSpy.mockRestore();
   });
 
+  it('applies camera-route popstate in place without route navigation', async () => {
+    const fromCameraPath = '/@51.4588672,5.4525952,16z';
+    const toCameraPath = '/@51.4385345,5.5186267,13.33z';
+    const routeNavigation = jest.fn();
+
+    mockBrowserPathname = fromCameraPath;
+    window.history.replaceState({}, '', fromCameraPath);
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: fromCameraPath,
+      resolvedRoute: {
+        kind: 'camera',
+        canonicalPath: fromCameraPath,
+        camera: { lat: 51.4588672, lng: 5.4525952, zoom: 16 },
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('idle');
+    });
+    await flushMicrotasks();
+
+    map.flyTo.mockClear();
+    map.jumpTo.mockClear();
+    window.addEventListener('popstate', routeNavigation);
+    mockBrowserPathname = toCameraPath;
+    window.history.replaceState({}, '', toCameraPath);
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await flushMicrotasks();
+
+    expect(map.flyTo).toHaveBeenCalledWith({
+      center: [5.5186267, 51.4385345],
+      zoom: 13.33,
+      duration: 700,
+      essential: true,
+    });
+    expect(map.jumpTo).not.toHaveBeenCalled();
+    expect(routeNavigation).not.toHaveBeenCalled();
+    expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
+
+    window.removeEventListener('popstate', routeNavigation);
+  });
+
   it('does not push camera checkpoints while a property preview is open', async () => {
     mockPreviewRouteInputs();
     mockResolvedMapRouteState = {

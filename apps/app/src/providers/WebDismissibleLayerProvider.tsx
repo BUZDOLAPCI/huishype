@@ -8,6 +8,8 @@ import React, {
 } from 'react';
 import { Platform } from 'react-native';
 
+import { registerWebMapCameraPopBlocker } from '@/src/lib/webMapCameraHistory';
+
 type DismissibleLayerOptions = {
   id: string;
   active: boolean;
@@ -193,6 +195,14 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
     }),
     [registerLayer, updateLayer],
   );
+
+  React.useEffect(() => {
+    if (!canUseWebHistory()) {
+      return undefined;
+    }
+
+    return registerWebMapCameraPopBlocker(() => getTopLayer() !== null);
+  }, [getTopLayer]);
 
   React.useEffect(() => {
     if (!canUseWebHistory()) {

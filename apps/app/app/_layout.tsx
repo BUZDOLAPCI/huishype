@@ -1,4 +1,5 @@
 import '../src/bootstrap/styles';
+import '@/src/lib/webMapCameraHistory';
 
 import {
   Inter_400Regular,
