@@ -368,6 +368,7 @@ interface InitialWebMapCamera {
   center: [number, number];
   zoom: number;
   cameraPath: string;
+  fromCameraRoute: boolean;
 }
 
 interface CameraHistoryCheckpoint {
@@ -385,6 +386,7 @@ function getInitialWebMapCamera(pathname: string): InitialWebMapCamera {
       center: [parsedRoute.camera.lng, parsedRoute.camera.lat],
       zoom: parsedRoute.camera.zoom,
       cameraPath: parsedRoute.pathname,
+      fromCameraRoute: true,
     };
   }
 
@@ -396,6 +398,7 @@ function getInitialWebMapCamera(pathname: string): InitialWebMapCamera {
       lng: DEFAULT_CENTER[0],
       zoom: DEFAULT_ZOOM,
     }),
+    fromCameraRoute: false,
   };
 }
 
@@ -959,6 +962,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const appliedRoutePathRef = useRef<string | null>(null);
   const skipNextPassiveUrlSyncRef = useRef(true);
   const lastCameraPathRef = useRef<string>('/');
+  const hasNavigableCameraPathRef = useRef(initialMapCamera.fromCameraRoute);
   const lastCameraHistoryCheckpointRef = useRef<CameraHistoryCheckpoint>({
     lat: initialMapCamera.center[1],
     lng: initialMapCamera.center[0],
@@ -975,6 +979,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [],
   );
   const previousPreviewPathRef = useRef<string | null>(null);
+  const directPreviewHistoryPathRef = useRef<string | null>(null);
+  const previewRoutePopPathRef = useRef<string | null>(null);
   const expandedSheetHistoryPathRef = useRef<string | null>(null);
   const lockedAreaPathRef = useRef<string | null>(null);
   const canReplaceLockedAreaPathRef = useRef(true);
@@ -1372,7 +1378,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [previewRouteInput],
   );
   const previewOpenRef = useRef(false);
-  previewOpenRef.current = !!interaction.previewGroup || !!interaction.highlightedCoordinate;
+  previewOpenRef.current =
+    !!interaction.previewGroup ||
+    !!interaction.highlightedCoordinate ||
+    parseMapRoutePath(routePathname).kind === 'preview' ||
+    routeState.resolvedRoute?.kind === 'preview';
   const replaceMapBrowserPath = useCallback(
     (pathname: string) => {
       if (!isMapTabActiveRef.current) {
@@ -1407,6 +1417,52 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [pathnameOverride],
   );
   pushMapBrowserPathRef.current = pushMapBrowserPath;
+  const seedDirectPreviewHistory = useCallback(
+    (
+      previewPath: string,
+      coordinates: {
+        lat: number;
+        lon: number;
+      },
+    ) => {
+      if (
+        directPreviewHistoryPathRef.current === previewPath ||
+        previewRoutePopPathRef.current === previewPath
+      ) {
+        return;
+      }
+
+      let fallbackCameraPath = lastCameraPathRef.current;
+      if (!hasNavigableCameraPathRef.current || fallbackCameraPath === '/') {
+        fallbackCameraPath = serializeCanonicalCameraPath({
+          lat: coordinates.lat,
+          lng: coordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+        lastCameraPathRef.current = fallbackCameraPath;
+        hasNavigableCameraPathRef.current = true;
+        resetCameraHistoryCheckpointBaseline({
+          lat: coordinates.lat,
+          lng: coordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+      }
+
+      if (fallbackCameraPath !== previewPath && replaceMapBrowserPath(fallbackCameraPath)) {
+        browserPathRef.current = fallbackCameraPath;
+      }
+
+      if (pushMapBrowserPath(previewPath)) {
+        directPreviewHistoryPathRef.current = previewPath;
+        browserPathRef.current = previewPath;
+      }
+    },
+    [
+      pushMapBrowserPath,
+      replaceMapBrowserPath,
+      resetCameraHistoryCheckpointBaseline,
+    ],
+  );
 
   const syncVisibleZoom = useCallback((zoom: number) => {
     currentZoomRef.current = zoom;
@@ -2164,7 +2220,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           lng: center.lng,
           zoom,
         });
-        lastCameraPathRef.current = nextCameraPath;
+        if (!previewOpenRef.current) {
+          lastCameraPathRef.current = nextCameraPath;
+          hasNavigableCameraPathRef.current = true;
+        }
         setSearchBiasCenter({ lon: center.lng, lat: center.lat });
         onViewportCenterChangedRef.current(center.lng, center.lat, zoom);
         let didPushCameraCheckpoint = false;
@@ -2582,6 +2641,60 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       const previousRoute = parseMapRoutePath(browserPathRef.current);
       const nextRoute = parseMapRoutePath(nextPathname);
       const map = mapRef.current;
+
+      const canDismissPreviewInPlace =
+        isMapTabActiveRef.current &&
+        previousRoute.kind === 'preview' &&
+        (nextRoute.kind === 'camera' || nextRoute.kind === 'root');
+
+      if (canDismissPreviewInPlace) {
+        handleClosePreviewRef.current();
+        skipNextPassiveUrlSyncRef.current = true;
+        lockedAreaPathRef.current = null;
+        canReplaceLockedAreaPathRef.current = true;
+        expandedSheetHistoryPathRef.current = null;
+        appliedRoutePathRef.current = nextPathname;
+        browserPathRef.current = nextPathname;
+        setRoutePathname((currentPathname) =>
+          currentPathname === nextPathname ? currentPathname : nextPathname,
+        );
+
+        if (nextRoute.kind === 'camera') {
+          lastCameraPathRef.current = nextRoute.pathname;
+          hasNavigableCameraPathRef.current = true;
+          resetCameraHistoryCheckpointBaseline(nextRoute.camera);
+
+          if (map && !isMapAlreadyAtCamera(map, nextRoute.camera)) {
+            map.flyTo({
+              center: [nextRoute.camera.lng, nextRoute.camera.lat],
+              zoom: nextRoute.camera.zoom,
+              duration: BROWSER_CAMERA_POP_FLY_DURATION_MS,
+              essential: true,
+            });
+          }
+        }
+
+        return true;
+      }
+
+      const canApplyPreviewRouteInPlace =
+        isMapTabActiveRef.current &&
+        nextRoute.kind === 'preview' &&
+        previousRoute.kind !== 'preview';
+
+      if (canApplyPreviewRouteInPlace) {
+        skipNextPassiveUrlSyncRef.current = true;
+        lockedAreaPathRef.current = null;
+        canReplaceLockedAreaPathRef.current = true;
+        expandedSheetHistoryPathRef.current = null;
+        previewRoutePopPathRef.current = nextPathname;
+        browserPathRef.current = nextPathname;
+        setRoutePathname((currentPathname) =>
+          currentPathname === nextPathname ? currentPathname : nextPathname,
+        );
+        return true;
+      }
+
       const canApplyCameraInPlace =
         isMapTabActiveRef.current &&
         previousRoute.kind === 'camera' &&
@@ -2595,6 +2708,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         lockedAreaPathRef.current = null;
         canReplaceLockedAreaPathRef.current = true;
         lastCameraPathRef.current = nextRoute.pathname;
+        hasNavigableCameraPathRef.current = true;
         resetCameraHistoryCheckpointBaseline(nextRoute.camera);
         appliedRoutePathRef.current = nextPathname;
         browserPathRef.current = nextPathname;
@@ -2748,6 +2862,13 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
+    if (resolvedRoute.kind === 'preview' && resolvedRoute.property.coordinates) {
+      seedDirectPreviewHistory(
+        resolvedRoute.canonicalPath,
+        resolvedRoute.property.coordinates,
+      );
+    }
+
     const explicitCanonicalHref = getExplicitCanonicalReplaceHref(
       routeState.pathname,
       resolvedRoute,
@@ -2805,6 +2926,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         });
       }
       lastCameraPathRef.current = resolvedRoute.canonicalPath;
+      hasNavigableCameraPathRef.current = true;
       resetCameraHistoryCheckpointBaseline(resolvedRoute.camera);
       appliedRoutePathRef.current = routeState.pathname;
       return;
@@ -2824,6 +2946,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         lng: resolvedRoute.center[0],
         zoom: resolvedRoute.zoom,
       });
+      hasNavigableCameraPathRef.current = true;
       resetCameraHistoryCheckpointBaseline({
         lat: resolvedRoute.center[1],
         lng: resolvedRoute.center[0],
@@ -2849,13 +2972,21 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       }
 
       skipNextPassiveUrlSyncRef.current = true;
-      if (lastCameraPathRef.current === '/') {
-        lastCameraPathRef.current = serializeCanonicalCameraPath({
+      if (!hasNavigableCameraPathRef.current) {
+        const fallbackCameraPath = serializeCanonicalCameraPath({
+          lat: resolvedCoordinates.lat,
+          lng: resolvedCoordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+        lastCameraPathRef.current = fallbackCameraPath;
+        hasNavigableCameraPathRef.current = true;
+        resetCameraHistoryCheckpointBaseline({
           lat: resolvedCoordinates.lat,
           lng: resolvedCoordinates.lon,
           zoom: SEARCH_TARGET_ZOOM,
         });
       }
+      seedDirectPreviewHistory(resolvedRoute.canonicalPath, resolvedCoordinates);
       handlePropertyResolved(resolvedRoute.property, resolvedRoute.resolvedAddress);
       setSearchCity(resolvedRoute.property.city, [
         resolvedCoordinates.lon,
@@ -2875,20 +3006,58 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     routeState.resolvedRoute,
     replaceMapBrowserPath,
     resetCameraHistoryCheckpointBaseline,
+    seedDirectPreviewHistory,
     setSearchCity,
   ]);
 
   useEffect(() => {
-    if (!isMapTabActive || routeState.isLoading || !mapRef.current) {
+    if (!isMapTabActive || routeState.isLoading) {
       return;
     }
 
     if (interaction.previewGroup && previewCanonicalPath) {
       previousPreviewPathRef.current = previewCanonicalPath;
       if (pushMapBrowserPath(previewCanonicalPath)) {
+        directPreviewHistoryPathRef.current = null;
         browserPathRef.current = previewCanonicalPath;
-      } else if (browserPathRef.current !== previewCanonicalPath) {
+        return;
+      }
+
+      if (browserPathRef.current !== previewCanonicalPath) {
         browserPathRef.current = previewCanonicalPath;
+      }
+
+      const resolvedRoute = routeState.resolvedRoute;
+      if (
+        resolvedRoute?.kind === 'preview' &&
+        resolvedRoute.canonicalPath === previewCanonicalPath &&
+        !hasNavigableCameraPathRef.current &&
+        resolvedRoute.property.coordinates
+      ) {
+        const fallbackCameraPath = serializeCanonicalCameraPath({
+          lat: resolvedRoute.property.coordinates.lat,
+          lng: resolvedRoute.property.coordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+        lastCameraPathRef.current = fallbackCameraPath;
+        hasNavigableCameraPathRef.current = true;
+        resetCameraHistoryCheckpointBaseline({
+          lat: resolvedRoute.property.coordinates.lat,
+          lng: resolvedRoute.property.coordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+      }
+
+      if (
+        resolvedRoute?.kind === 'preview' &&
+        resolvedRoute.canonicalPath === previewCanonicalPath &&
+        resolvedRoute.property.coordinates
+      ) {
+        seedDirectPreviewHistory(previewCanonicalPath, resolvedRoute.property.coordinates);
+      }
+
+      if (previewRoutePopPathRef.current === previewCanonicalPath) {
+        previewRoutePopPathRef.current = null;
       }
       return;
     }
@@ -2912,7 +3081,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     previewCanonicalPath,
     pushMapBrowserPath,
     replaceMapBrowserPath,
+    resetCameraHistoryCheckpointBaseline,
     routeState.isLoading,
+    routeState.resolvedRoute,
+    seedDirectPreviewHistory,
   ]);
 
   useEffect(() => {

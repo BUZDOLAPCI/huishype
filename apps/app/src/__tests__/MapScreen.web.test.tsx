@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import { PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT } from '@/src/lib/propertyTileRetryProtocol';
+import type { ResolvedMapRoute } from '@/src/lib/mapRoute';
 
 type MockMapEventHandler = (...args: unknown[]) => void;
 
@@ -94,14 +95,7 @@ const mockExtractCanonicalRouteInput = jest.fn<unknown, [unknown]>(() => null);
 let mockResolvedMapRouteState: {
   isLoading: boolean;
   pathname: string;
-  resolvedRoute: null | {
-    kind: 'root';
-    canonicalPath: '/';
-  } | {
-    kind: 'camera';
-    canonicalPath: string;
-    camera: { lat: number; lng: number; zoom: number };
-  };
+  resolvedRoute: ResolvedMapRoute | null;
 } = {
   isLoading: true,
   pathname: '/',
@@ -1010,6 +1004,257 @@ describe('MapScreen web grouped Following mode', () => {
     expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
 
     window.removeEventListener('popstate', routeNavigation);
+  });
+
+  it('handles Back and Forward around an open map preview without route navigation', async () => {
+    mockPreviewRouteInputs();
+    const cameraPath = '/@51.44,5.47,14z';
+    const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
+    const routeNavigation = jest.fn();
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getCenter.mockReturnValue({ lng: 5.47, lat: 51.44 });
+    map.getZoom.mockReturnValue(14);
+
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith(cameraPath);
+
+    mockPushBrowserPath.mockClear();
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [
+          {
+            id: 'property-a',
+            address: 'Beeldbuisring 41',
+            city: 'Eindhoven',
+            postalCode: '5651HA',
+            streetName: 'Beeldbuisring',
+            houseNumber: '41',
+            countryCode: 'NL',
+          },
+        ],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledWith(previewPath);
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
+
+    window.addEventListener('popstate', routeNavigation);
+    mockBrowserPathname = cameraPath;
+    window.history.replaceState({}, '', cameraPath);
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.handleClosePreview).toHaveBeenCalledTimes(1);
+    expect(routeNavigation).not.toHaveBeenCalled();
+    expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
+
+    routeNavigation.mockClear();
+    mockBrowserPathname = previewPath;
+    window.history.replaceState({}, '', previewPath);
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.handleClosePreview).toHaveBeenCalledTimes(1);
+    expect(routeNavigation).not.toHaveBeenCalled();
+    expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('popstate', routeNavigation);
+  });
+
+  it('seeds direct preview loads so Back dismisses the card in place', async () => {
+    mockPreviewRouteInputs();
+    const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
+    const fallbackCameraPath = `/@51.44,5.47,${PROPERTY_GHOST_REVEAL_ZOOM + 1}z`;
+    const routeNavigation = jest.fn();
+    const previewProperty = {
+      id: 'property-a',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      streetName: 'Beeldbuisring',
+      houseNumber: '41',
+      countryCode: 'NL' as const,
+      coordinates: { lon: 5.47, lat: 51.44 },
+      hasActiveListing: false,
+      marketState: 'not-listed' as const,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationSourceFetch: null,
+    };
+    const resolvedAddress = {
+      bagId: 'property-a',
+      formattedAddress: 'Beeldbuisring 41, Eindhoven',
+      lat: 51.44,
+      lon: 5.47,
+      details: {
+        city: 'Eindhoven',
+        zip: '5651HA',
+        street: 'Beeldbuisring',
+        number: '41',
+        houseNumber: '41',
+        houseNumberAddition: null,
+        countryCode: 'NL',
+      },
+    };
+    mockBrowserPathname = previewPath;
+    window.history.replaceState({}, '', previewPath);
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: previewPath,
+      resolvedRoute: {
+        kind: 'preview',
+        canonicalPath: previewPath,
+        property: previewProperty,
+        resolvedAddress,
+        routeInput: {
+          city: 'Eindhoven',
+          postalCode: '5651HA',
+          streetName: 'Beeldbuisring',
+          houseNumber: '41',
+          houseNumberAddition: null,
+          countryCode: 'NL',
+        },
+      },
+    };
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [previewProperty],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith(fallbackCameraPath);
+    expect(mockPushBrowserPath).toHaveBeenCalledWith(previewPath);
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
+
+    window.addEventListener('popstate', routeNavigation);
+    mockBrowserPathname = fallbackCameraPath;
+    window.history.replaceState({}, '', fallbackCameraPath);
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.handleClosePreview).toHaveBeenCalledTimes(1);
+    expect(routeNavigation).not.toHaveBeenCalled();
+    expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('popstate', routeNavigation);
+  });
+
+  it('seeds direct preview route history before preview UI state is available', async () => {
+    const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
+    const fallbackCameraPath = `/@51.44,5.47,${PROPERTY_GHOST_REVEAL_ZOOM + 1}z`;
+    const previewProperty = {
+      id: 'property-a',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      streetName: 'Beeldbuisring',
+      houseNumber: '41',
+      countryCode: 'NL' as const,
+      coordinates: { lon: 5.47, lat: 51.44 },
+      hasActiveListing: false,
+      marketState: 'not-listed' as const,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationSourceFetch: null,
+    };
+    const resolvedAddress = {
+      bagId: 'property-a',
+      formattedAddress: 'Beeldbuisring 41, Eindhoven',
+      lat: 51.44,
+      lon: 5.47,
+      details: {
+        city: 'Eindhoven',
+        zip: '5651HA',
+        street: 'Beeldbuisring',
+        number: '41',
+        houseNumber: '41',
+        houseNumberAddition: null,
+        countryCode: 'NL',
+      },
+    };
+
+    mockBrowserPathname = previewPath;
+    window.history.replaceState({}, '', previewPath);
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: previewPath,
+      resolvedRoute: {
+        kind: 'preview',
+        canonicalPath: previewPath,
+        property: previewProperty,
+        resolvedAddress,
+        routeInput: {
+          city: 'Eindhoven',
+          postalCode: '5651HA',
+          streetName: 'Beeldbuisring',
+          houseNumber: '41',
+          houseNumberAddition: null,
+          countryCode: 'NL',
+        },
+      },
+    };
+    Object.assign(mockInteraction, {
+      previewGroup: null,
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith(fallbackCameraPath);
+    expect(mockPushBrowserPath).toHaveBeenCalledWith(previewPath);
   });
 
   it('does not push camera checkpoints while a property preview is open', async () => {
