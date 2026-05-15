@@ -47,6 +47,7 @@ import { sql } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DUCK_VARIANTS, generateDuckCandidates } from '../services/duck-scatter.js';
 import { generateTreeCandidates } from '../services/tree-scatter.js';
 import huishypeBaseStyle from '../styles/huishype-base-style.json' with { type: 'json' };
 import {
@@ -200,7 +201,15 @@ const tileJsonResponseSchema = z.object({
 });
 
 const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
+const DUCK_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
+let loggedMissingWatercoverForDuckTiles = false;
+let treeLandcoverSourceCache:
+  | {
+      tableName: 'tree_landcover' | 'landcover';
+      excludeWatercover: boolean;
+    }
+  | null = null;
 const OPENFREEMAP_VECTOR_SOURCE = {
   type: 'vector',
   tiles: ['https://tiles.openfreemap.org/planet/20260506_001001_pt/{z}/{x}/{y}.pbf'],
@@ -249,6 +258,7 @@ export function resetPropertyTileCacheForTests(): void {
   publicPropertyTileCache.clear();
   propertyTileRuntime.resetForTests();
   propertyTilePyramidRouteService = defaultPropertyTilePyramidRouteService;
+  treeLandcoverSourceCache = null;
 }
 
 export function setPropertyTilePyramidServiceForTests(
@@ -1023,6 +1033,51 @@ function patchShieldRefLengthFilters(layers: Array<Record<string, unknown>>): vo
   });
 }
 
+function isMissingWatercoverTableError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const maybeError = error as { cause?: unknown; code?: unknown; message?: unknown };
+  if (maybeError.code === '42P01') {
+    return true;
+  }
+
+  if (maybeError.cause && isMissingWatercoverTableError(maybeError.cause)) {
+    return true;
+  }
+
+  return (
+    typeof maybeError.message === 'string' &&
+    maybeError.message.includes('relation "watercover" does not exist')
+  );
+}
+
+async function getTreeLandcoverSource(): Promise<{
+  tableName: 'tree_landcover' | 'landcover';
+  excludeWatercover: boolean;
+}> {
+  if (treeLandcoverSourceCache) {
+    return treeLandcoverSourceCache;
+  }
+
+  const result = await db.execute<{
+    hasTreeLandcover: boolean;
+    hasWatercover: boolean;
+  }>(sql`
+    SELECT
+      to_regclass('public.tree_landcover') IS NOT NULL AS "hasTreeLandcover",
+      to_regclass('public.watercover') IS NOT NULL AS "hasWatercover"
+  `);
+  const state = Array.from(result)[0];
+
+  treeLandcoverSourceCache = state?.hasTreeLandcover
+    ? { tableName: 'tree_landcover', excludeWatercover: false }
+    : { tableName: 'landcover', excludeWatercover: Boolean(state?.hasWatercover) };
+
+  return treeLandcoverSourceCache;
+}
+
 /**
  * Convert a CSS color string (rgb, rgba, hsl, hsla) to hex (#RRGGBB).
  * Only converts FULLY OPAQUE colors. Colors with alpha < 1 are left as-is
@@ -1703,10 +1758,42 @@ function buildPaperTreesLayer(): Record<string, unknown> {
   };
 }
 
+/**
+ * Build the paper-ducks symbol layer shared by web and native rendering.
+ * Uses duck-0 through duck-15 sprites from the sprite sheet.
+ */
+function buildPaperDucksLayer(): Record<string, unknown> {
+  return {
+    id: 'paper-ducks',
+    type: 'symbol',
+    source: 'duck-source',
+    'source-layer': 'scattered-ducks',
+    minzoom: DUCK_MIN_ZOOM,
+    layout: {
+      'icon-image': ['concat', 'duck-', ['to-string', ['get', 'duck_variant']]],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 15, 0.22, 17, 0.38, 19, 0.55],
+      'icon-anchor': 'center',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'symbol-sort-key': ['get', 'duck_variant'],
+      'icon-pitch-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport',
+    },
+    paint: {
+      'icon-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.5, 0.9, 18, 1],
+    },
+  };
+}
+
 // Tree scatter tile configuration
 const TREE_MIN_ZOOM = 15;
 const TREE_MAX_ZOOM = 20;
 const TREE_VARIANTS = 16;
+
+// Duck scatter tile configuration
+const DUCK_MIN_ZOOM = 15;
+const DUCK_MAX_ZOOM = 20;
+const DUCK_MIN_WATER_AREA_M2 = 600;
 
 export async function tileRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -1829,6 +1916,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const baseUrl = `${protocol}://${host}`;
       const tileUrl = buildPropertyTileTemplateUrl(baseUrl, createDefaultMapFilters());
       const treeTileUrl = `${baseUrl}/tiles/trees/{z}/{x}/{y}.pbf`;
+      const duckTileUrl = `${baseUrl}/tiles/ducks/{z}/{x}/{y}.pbf`;
       const glyphsUrl = `${baseUrl}/fonts/{fontstack}/{range}.pbf`;
       const spriteUrl = `${baseUrl}/sprites/ofm`;
       // Check cache (60s TTL)
@@ -1842,6 +1930,8 @@ export async function tileRoutes(app: FastifyInstance) {
         propSource.tiles = [tileUrl];
         const treeSource = sources['tree-source'] as Record<string, unknown>;
         if (treeSource) treeSource.tiles = [treeTileUrl];
+        const duckSource = sources['duck-source'] as Record<string, unknown>;
+        if (duckSource) duckSource.tiles = [duckTileUrl];
         const buildingSource = sources['buildings-source'] as Record<string, unknown>;
         if (buildingSource) buildingSource.tiles = [`${baseUrl}/tiles/buildings/{z}/{x}/{y}.pbf`];
         style.glyphs = glyphsUrl;
@@ -1899,6 +1989,14 @@ export async function tileRoutes(app: FastifyInstance) {
           tiles: [treeTileUrl],
           minzoom: TREE_MIN_ZOOM,
           maxzoom: TREE_MAX_ZOOM,
+        };
+
+        // Add duck scatter tile source
+        sources['duck-source'] = {
+          type: 'vector',
+          tiles: [duckTileUrl],
+          minzoom: DUCK_MIN_ZOOM,
+          maxzoom: DUCK_MAX_ZOOM,
         };
 
         // Add OSM building tile source
@@ -1975,15 +2073,18 @@ export async function tileRoutes(app: FastifyInstance) {
         // are perceptible on WebGL but invisible on mobile GPU renderers.
         enhanceFillColors(filteredLayers);
 
-        // Add paper-trees symbol layer AFTER sprite filtering to preserve
+        // Add paper symbol layers AFTER sprite filtering to preserve
         // the raw concat expression (coalesce+image wrapper breaks on native).
-        // Both web and native render the server-provided symbol layer directly.
+        // Both web and native render the server-provided symbol layers directly.
         const buildings3DIndex = filteredLayers.findIndex((l) => l.id === '3d-buildings');
         const paperTreesLayer = buildPaperTreesLayer();
+        const paperDucksLayer = buildPaperDucksLayer();
         if (buildings3DIndex !== -1) {
           filteredLayers.splice(buildings3DIndex + 1, 0, paperTreesLayer);
+          filteredLayers.splice(buildings3DIndex + 2, 0, paperDucksLayer);
         } else {
           filteredLayers.push(paperTreesLayer);
+          filteredLayers.push(paperDucksLayer);
         }
 
         const merged = {
@@ -2924,9 +3025,9 @@ export async function tileRoutes(app: FastifyInstance) {
   /**
    * GET /tiles/trees/:z/:x/:y.pbf
    *
-   * Returns MVT tiles with scattered tree points inside landcover polygons.
+   * Returns MVT tiles with scattered tree points inside tree-eligible landcover polygons.
    * Points are generated deterministically via seeded PRNG, then filtered
-   * to only those inside green areas using ST_Within.
+   * to only those inside green areas with water and tall-building exclusions.
    */
   typedApp.get(
     '/tiles/trees/:z/:x/:y.pbf',
@@ -2935,7 +3036,7 @@ export async function tileRoutes(app: FastifyInstance) {
         tags: ['tiles'],
         summary: 'Get tree scatter vector tile',
         description:
-          'Returns MVT with deterministically scattered tree points inside landcover polygons.',
+          'Returns MVT with deterministically scattered tree points inside tree-eligible landcover polygons.',
         params: tileParamsSchema,
       },
     },
@@ -2957,6 +3058,13 @@ export async function tileRoutes(app: FastifyInstance) {
       const valuesClause = candidates
         .map((p, i) => `(${i}, ST_SetSRID(ST_MakePoint(${p.lon}, ${p.lat}), 4326), ${p.variant})`)
         .join(',');
+      const treeLandcoverSource = await getTreeLandcoverSource();
+      const waterExclusionClause = treeLandcoverSource.excludeWatercover
+        ? `AND NOT EXISTS (
+            SELECT 1 FROM watercover wc
+            WHERE ST_Covers(wc.geometry, c.geom)
+          )`
+        : '';
 
       const query = `
         WITH candidates(id, geom, tree_variant) AS (
@@ -2968,11 +3076,12 @@ export async function tileRoutes(app: FastifyInstance) {
             c.tree_variant,
             c.geom
           FROM candidates c
-          INNER JOIN landcover lc ON ST_Within(c.geom, lc.geometry)
+          INNER JOIN ${treeLandcoverSource.tableName} lc ON ST_Within(c.geom, lc.geometry)
           WHERE NOT EXISTS (
             SELECT 1 FROM tall_buildings b
             WHERE ST_Intersects(c.geom, b.exclusion_geom)
           )
+          ${waterExclusionClause}
           ORDER BY c.id
         ),
         mvt_data AS (
@@ -3005,6 +3114,107 @@ export async function tileRoutes(app: FastifyInstance) {
       return reply
         .header('Content-Type', 'application/x-protobuf')
         .header('Cache-Control', TREE_TILE_CACHE_CONTROL)
+        .send(mvtBuffer);
+    }
+  );
+
+  // --- Duck scatter tiles ---
+
+  /**
+   * GET /tiles/ducks/:z/:x/:y.pbf
+   *
+   * Returns MVT tiles with sparse decorative duck points inside closed water
+   * polygons. Points are generated deterministically via seeded PRNG, then
+   * filtered to larger watercover polygons using ST_Within.
+   */
+  typedApp.get(
+    '/tiles/ducks/:z/:x/:y.pbf',
+    {
+      schema: {
+        tags: ['tiles'],
+        summary: 'Get duck scatter vector tile',
+        description:
+          'Returns MVT with deterministically scattered duck points inside watercover polygons.',
+        params: tileParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const { z, x, y } = request.params;
+
+      if (z < DUCK_MIN_ZOOM || z > DUCK_MAX_ZOOM) {
+        return reply.header('Cache-Control', DUCK_TILE_CACHE_CONTROL).status(204).send();
+      }
+
+      const bbox = tileToBBox({ z, x, y });
+      const candidates = generateDuckCandidates(z, x, y, bbox, DUCK_VARIANTS);
+
+      if (candidates.length === 0) {
+        return reply.header('Cache-Control', DUCK_TILE_CACHE_CONTROL).status(204).send();
+      }
+
+      const valuesClause = candidates
+        .map((p, i) => `(${i}, ST_SetSRID(ST_MakePoint(${p.lon}, ${p.lat}), 4326), ${p.variant})`)
+        .join(',');
+
+      const query = `
+        WITH candidates(id, geom, duck_variant) AS (
+          VALUES ${valuesClause}
+        ),
+        water_ducks AS (
+          SELECT DISTINCT ON (c.id)
+            c.id,
+            c.duck_variant,
+            c.geom
+          FROM candidates c
+          INNER JOIN watercover wc ON ST_Within(c.geom, wc.geometry)
+          WHERE wc.area_m2 >= ${DUCK_MIN_WATER_AREA_M2}
+          ORDER BY c.id
+        ),
+        mvt_data AS (
+          SELECT
+            id,
+            duck_variant,
+            ST_AsMVTGeom(
+              ST_Transform(geom, 3857),
+              ST_TileEnvelope(${z}, ${x}, ${y}),
+              4096,
+              256,
+              true
+            ) AS geom
+          FROM water_ducks
+        )
+        SELECT ST_AsMVT(mvt_data, 'scattered-ducks', 4096, 'geom') AS mvt
+        FROM mvt_data
+      `;
+
+      let result: Iterable<{ mvt: Buffer }>;
+      try {
+        result = await db.execute<{ mvt: Buffer }>(sql.raw(query));
+      } catch (err) {
+        if (isMissingWatercoverTableError(err)) {
+          if (!loggedMissingWatercoverForDuckTiles) {
+            loggedMissingWatercoverForDuckTiles = true;
+            request.log.warn(
+              err,
+              'watercover table is missing; returning empty duck scatter tile'
+            );
+          }
+          return reply.header('Cache-Control', DUCK_TILE_CACHE_CONTROL).status(204).send();
+        }
+        throw err;
+      }
+      const rows = Array.from(result) as { mvt: Buffer }[];
+      const mvt = rows[0]?.mvt;
+
+      if (!mvt || mvt.length === 0) {
+        return reply.header('Cache-Control', DUCK_TILE_CACHE_CONTROL).status(204).send();
+      }
+
+      const mvtBuffer = Buffer.isBuffer(mvt) ? mvt : Buffer.from(mvt);
+
+      return reply
+        .header('Content-Type', 'application/x-protobuf')
+        .header('Cache-Control', DUCK_TILE_CACHE_CONTROL)
         .send(mvtBuffer);
     }
   );

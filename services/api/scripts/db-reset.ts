@@ -88,11 +88,14 @@ async function dbReset() {
     run(`npx tsx src/scripts/import-overture-addresses.ts${countryFlag}`, 'Step 6b: Import Overture addresses');
   }
 
-  // Step 6c: Import landcover
-  run(`npx tsx src/scripts/import-landcover.ts${countryFlag}`, 'Step 6c: Import landcover');
+  // Step 6c: Import watercover before landcover so tree_landcover can subtract water.
+  run(`npx tsx src/scripts/import-watercover.ts${countryFlag}`, 'Step 6c: Import watercover');
 
-  // Step 6d: Import tall buildings (tree exclusion zones)
-  run(`npx tsx src/scripts/import-tall-buildings.ts${countryFlag}`, 'Step 6d: Import tall buildings');
+  // Step 6d: Import landcover and derive tree-eligible landcover.
+  run(`npx tsx src/scripts/import-landcover.ts${countryFlag}`, 'Step 6d: Import landcover');
+
+  // Step 6e: Import tall buildings (tree exclusion zones)
+  run(`npx tsx src/scripts/import-tall-buildings.ts${countryFlag}`, 'Step 6e: Import tall buildings');
 
   // Step 7: Final ANALYZE
   const sqlFinal = postgres(databaseUrl, { max: 1, onnotice: () => {} });
