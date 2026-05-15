@@ -304,7 +304,12 @@ export type NearbyPropertyGroup = PropertyNodeGroup & {
   isRead: boolean;
 };
 
-export type PhysicalTapMatch = 'containing-building' | 'nearby-building' | 'nearby-property';
+export type PhysicalTapSource = 'physical-tap' | 'house-number-tap';
+export type PhysicalTapMatch =
+  | 'containing-building'
+  | 'nearby-building'
+  | 'nearby-property'
+  | 'house-number';
 
 export interface PhysicalTapCoordinate {
   longitude: number;
@@ -352,14 +357,14 @@ export type PhysicalTapGroupPreview = PropertyNodeGroupBase & {
 export type PhysicalTapResolveResult =
   | {
       kind: 'single';
-      source: 'physical-tap';
+      source: PhysicalTapSource;
       property: PhysicalTapPropertyPreview;
       coordinate: PhysicalTapCoordinate;
       match: PhysicalTapMatch;
     }
   | {
       kind: 'group';
-      source: 'physical-tap';
+      source: PhysicalTapSource;
       group: PhysicalTapGroupPreview;
       coordinate: PhysicalTapCoordinate;
       match: PhysicalTapMatch;

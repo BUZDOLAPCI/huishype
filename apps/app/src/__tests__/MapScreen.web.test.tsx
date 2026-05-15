@@ -368,6 +368,7 @@ jest.mock('@/src/utils/api', () => ({
   API_URL: 'http://api.test',
   fetchBatchProperties: jest.fn(),
   fetchFollowingNearbyGroup: jest.fn(),
+  fetchHouseNumberTapResolve: jest.fn(),
   fetchNearbyGroup: jest.fn(),
   fetchPhysicalTapResolve: jest.fn(),
 }));
@@ -577,10 +578,12 @@ const { getCurrentLocation: mockGetCurrentLocation } = jest.requireMock('@/src/l
 };
 const {
   fetchFollowingNearbyGroup: mockFetchFollowingNearbyGroup,
+  fetchHouseNumberTapResolve: mockFetchHouseNumberTapResolve,
   fetchNearbyGroup: mockFetchNearbyGroup,
   fetchPhysicalTapResolve: mockFetchPhysicalTapResolve,
 } = jest.requireMock('@/src/utils/api') as {
   fetchFollowingNearbyGroup: jest.Mock;
+  fetchHouseNumberTapResolve: jest.Mock;
   fetchNearbyGroup: jest.Mock;
   fetchPhysicalTapResolve: jest.Mock;
 };
@@ -709,6 +712,8 @@ describe('MapScreen web grouped Following mode', () => {
     mockFetchNearbyGroup.mockResolvedValue(null);
     mockFetchFollowingNearbyGroup.mockReset();
     mockFetchFollowingNearbyGroup.mockResolvedValue(null);
+    mockFetchHouseNumberTapResolve.mockReset();
+    mockFetchHouseNumberTapResolve.mockResolvedValue(null);
     mockFetchPhysicalTapResolve.mockReset();
     mockFetchPhysicalTapResolve.mockResolvedValue(null);
     mockGetCurrentLocation.mockReset();
@@ -2197,7 +2202,7 @@ describe('MapScreen web grouped Following mode', () => {
     });
 
     expect(map.on.mock.calls.length - onCallsBeforeSourceEvents).toBe(
-      PROPERTY_QUERY_LAYER_IDS.length * 3,
+      (PROPERTY_QUERY_LAYER_IDS.length + 1) * 3,
     );
   });
 
@@ -2273,6 +2278,70 @@ describe('MapScreen web grouped Following mode', () => {
       4.9,
       52.37,
       PROPERTY_GHOST_REVEAL_ZOOM,
+    );
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      resolved,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+      expect.any(Object),
+    );
+  });
+
+  it('resolves house-number label clicks through the house-number tap resolver', async () => {
+    const resolved = {
+      groupKind: 'single',
+      primaryPropertyId: 'property-house-number',
+      coordinate: [4.92, 52.36],
+    };
+    mockFetchHouseNumberTapResolve.mockResolvedValue(resolved);
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getZoom.mockReturnValue(PROPERTY_GHOST_REVEAL_ZOOM);
+    map.getLayer.mockImplementation((layerId: string) => layerId === 'housenumber');
+
+    act(() => {
+      map.trigger('styledata');
+    });
+
+    const boundLayerIds = map.on.mock.calls
+      .filter(([eventName, layerId]) => eventName === 'click' && typeof layerId === 'string')
+      .map(([, layerId]) => layerId);
+    expect(boundLayerIds).toContain('housenumber');
+
+    const preventDefault = jest.fn();
+    const originalPreventDefault = jest.fn();
+    act(() => {
+      map.trigger(
+        'click',
+        {
+          lngLat: { lng: 4.92, lat: 52.36 },
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [4.921, 52.361] },
+              properties: { housenumber: '12A' },
+            },
+          ],
+          preventDefault,
+          originalEvent: { preventDefault: originalPreventDefault },
+        },
+        'housenumber',
+      );
+    });
+    await flushMicrotasks();
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(originalPreventDefault).toHaveBeenCalled();
+    expect(mockFetchPhysicalTapResolve).not.toHaveBeenCalled();
+    expect(mockFetchHouseNumberTapResolve).toHaveBeenCalledWith(
+      4.921,
+      52.361,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+      '12A',
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       resolved,

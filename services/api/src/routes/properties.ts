@@ -281,12 +281,22 @@ const resolveTapQuerySchema = z.object({
   zoom: z.coerce.number().min(0).max(22),
 });
 
+const resolveHouseNumberTapQuerySchema = resolveTapQuerySchema.extend({
+  houseNumber: z.string().min(1).max(32),
+});
+
 const resolveTapCoordinateSchema = z.object({
   longitude: z.number(),
   latitude: z.number(),
 });
 
-const resolveTapMatchSchema = z.enum(['containing-building', 'nearby-building', 'nearby-property']);
+const resolveTapSourceSchema = z.enum(['physical-tap', 'house-number-tap']);
+const resolveTapMatchSchema = z.enum([
+  'containing-building',
+  'nearby-building',
+  'nearby-property',
+  'house-number',
+]);
 
 const readStateCoverageSchema = z.enum(['complete', 'partial']);
 
@@ -374,7 +384,7 @@ const resolveTapGroupPreviewSchema = nearbyGroupedBaseSchema.extend({
 
 const resolveTapSingleResponseSchema = z.object({
   kind: z.literal('single'),
-  source: z.literal('physical-tap'),
+  source: resolveTapSourceSchema,
   property: resolveTapPropertyPreviewSchema,
   coordinate: resolveTapCoordinateSchema,
   match: resolveTapMatchSchema,
@@ -382,7 +392,7 @@ const resolveTapSingleResponseSchema = z.object({
 
 const resolveTapGroupResponseSchema = z.object({
   kind: z.literal('group'),
-  source: z.literal('physical-tap'),
+  source: resolveTapSourceSchema,
   group: resolveTapGroupPreviewSchema,
   coordinate: resolveTapCoordinateSchema,
   match: resolveTapMatchSchema,
@@ -505,6 +515,7 @@ type PropertyDetailRow = PropertyRow & {
   is_saved: boolean;
 };
 
+type ResolveTapSource = z.infer<typeof resolveTapSourceSchema>;
 type ResolveTapMatch = z.infer<typeof resolveTapMatchSchema>;
 
 type ResolveTapCandidateRow = PropertyRow & {
@@ -1262,6 +1273,7 @@ const RESOLVE_TAP_BUILDING_PROPERTY_TOLERANCE_METERS = 3;
 const RESOLVE_TAP_PROPERTY_SEARCH_RADIUS_METERS = 12;
 const RESOLVE_TAP_AMBIGUOUS_PROPERTY_EPSILON_METERS = 1.5;
 const RESOLVE_TAP_MAX_MEMBER_ROWS = 200;
+const RESOLVE_HOUSE_NUMBER_TAP_SEARCH_RADIUS_METERS = 18;
 
 function buildResolveTapEnvelope(lon: number, lat: number, radiusMeters: number) {
   const latRadiusDegrees = radiusMeters / 110574;
@@ -1273,6 +1285,22 @@ function buildResolveTapEnvelope(lon: number, lat: number, radiusMeters: number)
     minLat: Math.max(-90, lat - latRadiusDegrees),
     maxLon: Math.min(180, lon + lonRadiusDegrees),
     maxLat: Math.min(90, lat + latRadiusDegrees),
+  };
+}
+
+function parseHouseNumberLabel(raw: string): { houseNumber: number; addition: string | null } | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^(\d+)(?:\s*[-/ ]?\s*(.*))?$/u);
+  if (!match) return null;
+
+  const houseNumber = Number.parseInt(match[1], 10);
+  if (!Number.isSafeInteger(houseNumber) || houseNumber <= 0) return null;
+
+  return {
+    houseNumber,
+    addition: match[2]?.trim().toUpperCase() || null,
   };
 }
 
@@ -1421,6 +1449,7 @@ function buildResolveTapResponse(input: {
   lon: number;
   lat: number;
   match: ResolveTapMatch;
+  source?: ResolveTapSource;
 }): ResolveTapResponse {
   const previews = input.rows
     .map((row) => mapResolveTapPropertyPreview(row, input.readIds.has(row.id)))
@@ -1433,7 +1462,7 @@ function buildResolveTapResponse(input: {
   if (Number(input.rows[0]?.total_count ?? previews.length) <= 1 && previews.length === 1) {
     return {
       kind: 'single',
-      source: 'physical-tap',
+      source: input.source ?? 'physical-tap',
       property: previews[0],
       coordinate,
       match: input.match,
@@ -1442,7 +1471,7 @@ function buildResolveTapResponse(input: {
 
   return {
     kind: 'group',
-    source: 'physical-tap',
+    source: input.source ?? 'physical-tap',
     group: buildResolveTapGroupPreview({ rows: input.rows, previews, readIds: input.readIds }),
     coordinate,
     match: input.match,
@@ -1455,6 +1484,7 @@ async function buildResolveTapResponseWithReadState(input: {
   lon: number;
   lat: number;
   match: ResolveTapMatch;
+  source?: ResolveTapSource;
 }): Promise<ResolveTapResponse> {
   const readIds = input.viewer
     ? await getReadPropertyIdSet(
@@ -1614,6 +1644,115 @@ async function fetchResolveTapNearbyPropertyRows(input: {
   `);
 
   return Array.from(candidateRows);
+}
+
+async function fetchResolveHouseNumberTapRows(input: {
+  lon: number;
+  lat: number;
+  houseNumber: number;
+  addition: string | null;
+}): Promise<ResolveTapCandidateRow[]> {
+  const envelope = buildResolveTapEnvelope(
+    input.lon,
+    input.lat,
+    RESOLVE_HOUSE_NUMBER_TAP_SEARCH_RADIUS_METERS
+  );
+  const additionCondition = input.addition
+    ? sql`${buildCanonicalHouseNumberAdditionExpression('p.house_number_addition')} = ${input.addition}`
+    : sql`${buildCanonicalHouseNumberAdditionExpression('p.house_number_addition')} IS NULL`;
+
+  const candidateRows = await db.execute<ResolveTapCandidateRow>(sql`
+    WITH tap AS (
+      SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
+    ),
+    ranked AS MATERIALIZED (
+      SELECT
+        p.id,
+        ST_Distance(p.geometry::geography, tap.geom::geography) AS distance_meters
+      FROM properties p
+      CROSS JOIN tap
+      WHERE p.status = 'active'
+        AND p.geometry IS NOT NULL
+        AND p.house_number = ${input.houseNumber}
+        AND ${additionCondition}
+        AND p.geometry && ST_MakeEnvelope(
+          ${envelope.minLon},
+          ${envelope.minLat},
+          ${envelope.maxLon},
+          ${envelope.maxLat},
+          4326
+        )
+        AND ST_DWithin(
+          p.geometry::geography,
+          tap.geom::geography,
+          ${RESOLVE_HOUSE_NUMBER_TAP_SEARCH_RADIUS_METERS}
+        )
+      ORDER BY ST_Distance(p.geometry::geography, tap.geom::geography), p.id
+      LIMIT ${RESOLVE_TAP_MAX_MEMBER_ROWS}
+    ),
+    best AS (
+      SELECT MIN(distance_meters) AS distance_meters
+      FROM ranked
+    ),
+    candidate_ids AS MATERIALIZED (
+      SELECT
+        ranked.id,
+        ranked.distance_meters,
+        ranked.distance_meters AS group_distance_meters,
+        COUNT(*) OVER ()::int AS total_count
+      FROM ranked, best
+      WHERE ranked.distance_meters <= best.distance_meters + ${RESOLVE_TAP_AMBIGUOUS_PROPERTY_EPSILON_METERS}
+      ORDER BY ranked.distance_meters, ranked.id
+    )
+    SELECT
+      ${PUBLIC_PROPERTY_SELECT},
+      ci.distance_meters,
+      ci.group_distance_meters,
+      ci.total_count
+    FROM candidate_ids ci
+    INNER JOIN properties p ON p.id = ci.id
+    ${buildPropertyListingFactsJoin('p', 'lf')}
+    ${buildPropertySocialFactsJoin('p', 'sf')}
+    ${imageryJoin}
+  `);
+
+  return Array.from(candidateRows);
+}
+
+async function resolveHouseNumberTap(input: {
+  lon: number;
+  lat: number;
+  zoom: number;
+  houseNumber: string;
+  viewer: PropertyReadViewer | null;
+}): Promise<ResolveTapResponse> {
+  if (input.zoom < PROPERTY_GHOST_REVEAL_ZOOM) {
+    return null;
+  }
+
+  const parsed = parseHouseNumberLabel(input.houseNumber);
+  if (!parsed) {
+    return null;
+  }
+
+  const rows = await fetchResolveHouseNumberTapRows({
+    lon: input.lon,
+    lat: input.lat,
+    houseNumber: parsed.houseNumber,
+    addition: parsed.addition,
+  });
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return buildResolveTapResponseWithReadState({
+    rows,
+    viewer: input.viewer,
+    lon: input.lon,
+    lat: input.lat,
+    match: 'house-number',
+    source: 'house-number-tap',
+  });
 }
 
 async function resolvePhysicalTap(input: {
@@ -1914,6 +2053,30 @@ export async function propertyRoutes(app: FastifyInstance) {
           row.official_valuation_year != null ? Number(row.official_valuation_year) : null,
         officialValuationSourceFetch: getOfficialValuationSourceFetchHint(row.country_code),
       });
+    }
+  );
+
+  typedApp.get(
+    '/properties/resolve-house-number-tap',
+    {
+      onRequest: [app.optionalAuth],
+      schema: {
+        tags: ['properties'],
+        summary: 'Resolve a clicked house-number label to a property preview',
+        querystring: resolveHouseNumberTapQuerySchema,
+        response: {
+          200: resolveTapResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { lon, lat, zoom, houseNumber } = request.query;
+      const viewer = resolvePropertyReadViewer(
+        request.userId,
+        request.headers['x-session-id'] as string | string[] | undefined
+      );
+      const result = await resolveHouseNumberTap({ lon, lat, zoom, houseNumber, viewer });
+      return reply.send(result);
     }
   );
 

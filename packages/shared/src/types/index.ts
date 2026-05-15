@@ -42,6 +42,7 @@ export type {
   PropertyGroupBounds,
   PropertyNodeGroup,
   NearbyPropertyGroup,
+  PhysicalTapSource,
   PhysicalTapMatch,
   PhysicalTapCoordinate,
   PhysicalTapPropertyPreview,

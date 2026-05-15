@@ -468,7 +468,7 @@ export interface NormalizedPropertyNodeGroup {
 export interface NearbyPropertyGroup extends Omit<NormalizedPropertyNodeGroup, 'isRead'> {
   isRead: boolean;
   distanceMeters: number;
-  source?: 'nearby' | 'physical-tap';
+  source?: 'nearby' | 'physical-tap' | 'house-number-tap';
   match?: PhysicalTapResolveMatch;
   previewProperties?: PhysicalTapPreviewProperty[];
 }
@@ -481,7 +481,8 @@ export interface NearbyGroupLookupOptions {
 export type PhysicalTapResolveMatch =
   | 'containing-building'
   | 'nearby-building'
-  | 'nearby-property';
+  | 'nearby-property'
+  | 'house-number';
 
 export type PhysicalTapCoordinate =
   | [number, number]
@@ -532,7 +533,7 @@ export interface PhysicalTapPreviewProperty {
 
 interface PhysicalTapSingleResponse {
   kind: 'single';
-  source: 'physical-tap';
+  source: 'physical-tap' | 'house-number-tap';
   property: PhysicalTapPreviewProperty;
   coordinate: PhysicalTapCoordinate;
   match: PhysicalTapResolveMatch;
@@ -573,7 +574,7 @@ interface PhysicalTapGroupPayload {
 
 interface PhysicalTapGroupResponse {
   kind: 'group';
-  source: 'physical-tap';
+  source: 'physical-tap' | 'house-number-tap';
   group: PhysicalTapGroupPayload;
   coordinate: PhysicalTapCoordinate;
   match: PhysicalTapResolveMatch;
@@ -1691,6 +1692,36 @@ export async function fetchPhysicalTapResolve(
       : normalizePhysicalTapGroupResponse(result);
   } catch (err) {
     console.warn('[HuisHype] fetchPhysicalTapResolve failed:', err);
+    return null;
+  }
+}
+
+export async function fetchHouseNumberTapResolve(
+  lon: number,
+  lat: number,
+  zoom: number,
+  houseNumber: string,
+): Promise<NearbyPropertyGroup | null> {
+  try {
+    const params = new URLSearchParams({
+      lon: String(lon),
+      lat: String(lat),
+      zoom: String(zoom),
+      houseNumber,
+    });
+    const result = await apiFetch<PhysicalTapResolveResponse>(
+      `/properties/resolve-house-number-tap?${params.toString()}`,
+    );
+
+    if (!result) {
+      return null;
+    }
+
+    return result.kind === 'single'
+      ? normalizePhysicalTapSingleResponse(result)
+      : normalizePhysicalTapGroupResponse(result);
+  } catch (err) {
+    console.warn('[HuisHype] fetchHouseNumberTapResolve failed:', err);
     return null;
   }
 }

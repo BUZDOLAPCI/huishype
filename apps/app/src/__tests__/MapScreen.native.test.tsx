@@ -5,7 +5,7 @@ import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
 const mockGetBounds = jest.fn(async () => [4.8, 52.3, 5.0, 52.4]);
 const mockGetCenter = jest.fn(async () => [4.9, 52.37]);
 const mockProject = jest.fn(async () => [0, 0]);
-const mockQueryRenderedFeatures = jest.fn(async (): Promise<unknown[]> => []);
+const mockQueryRenderedFeatures = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
 const mockNetworkManagerAddRequestHeader = jest.fn();
 const mockNetworkManagerRemoveRequestHeader = jest.fn();
 
@@ -36,6 +36,7 @@ const mockReadTileRefetch = jest.fn();
 const mockRecordPropertyView = jest.fn();
 const mockFetchNearbyGroup = jest.fn();
 const mockFetchFollowingNearbyGroup = jest.fn();
+const mockFetchHouseNumberTapResolve = jest.fn();
 const mockFetchPhysicalTapResolve = jest.fn();
 const mockWelcomeOpen = jest.fn();
 const mockWelcomeDismiss = jest.fn();
@@ -305,6 +306,9 @@ jest.mock('@/src/utils/api', () => ({
   fetchFollowingNearbyGroup: jest.fn((...args: unknown[]) =>
     mockFetchFollowingNearbyGroup(...args)
   ),
+  fetchHouseNumberTapResolve: jest.fn((...args: unknown[]) =>
+    mockFetchHouseNumberTapResolve(...args)
+  ),
   fetchPhysicalTapResolve: jest.fn((...args: unknown[]) =>
     mockFetchPhysicalTapResolve(...args)
   ),
@@ -433,6 +437,8 @@ describe('MapScreen native grouped Following mode', () => {
     mockGetCenter.mockClear();
     mockFetchNearbyGroup.mockReset();
     mockFetchFollowingNearbyGroup.mockReset();
+    mockFetchHouseNumberTapResolve.mockReset();
+    mockFetchHouseNumberTapResolve.mockResolvedValue(null);
     mockFetchPhysicalTapResolve.mockReset();
     mockFetchPhysicalTapResolve.mockResolvedValue(null);
     mockInteraction.handleFeaturePress.mockReset();
@@ -790,6 +796,59 @@ describe('MapScreen native grouped Following mode', () => {
       5.47,
       51.44,
       PROPERTY_GHOST_REVEAL_ZOOM,
+    );
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      resolved,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+      expect.any(Object),
+    );
+  });
+
+  it('resolves tapped house-number labels through the house-number tap resolver', async () => {
+    const houseNumberFeature = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [5.471, 51.441] },
+      properties: { housenumber: '12A' },
+    };
+    const resolved = {
+      groupKind: 'single',
+      primaryPropertyId: 'property-house-number',
+      coordinate: [5.471, 51.441],
+    };
+    mockQueryRenderedFeatures.mockImplementation(async (...args: unknown[]) => {
+      const options = args[1] as { layers?: string[] } | undefined;
+      return options?.layers?.includes('housenumber') ? [houseNumberFeature] : [];
+    });
+    mockFetchHouseNumberTapResolve.mockResolvedValue(resolved);
+
+    const screen = await renderMapScreen();
+
+    fireEvent(screen.getByTestId('native-map'), 'regionDidChange', {
+      nativeEvent: {
+        zoom: PROPERTY_GHOST_REVEAL_ZOOM,
+        center: [5.47, 51.44],
+      },
+    });
+
+    fireEvent(screen.getByTestId('native-map'), 'press', {
+      nativeEvent: {
+        point: [100, 200],
+        lngLat: [5.47, 51.44],
+      },
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockFetchPhysicalTapResolve).not.toHaveBeenCalled();
+    expect(mockFetchNearbyGroup).not.toHaveBeenCalled();
+    expect(mockFetchHouseNumberTapResolve).toHaveBeenCalledWith(
+      5.471,
+      51.441,
+      PROPERTY_GHOST_REVEAL_ZOOM,
+      '12A',
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       resolved,

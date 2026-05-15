@@ -61,6 +61,7 @@ import { useWelcomeModal } from '@/src/hooks/useWelcomeModal';
 import {
   fetchNearbyGroup,
   fetchFollowingNearbyGroup,
+  fetchHouseNumberTapResolve,
   fetchPhysicalTapResolve,
   normalizeRenderedPropertyGroup,
   API_URL,
@@ -113,6 +114,7 @@ const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
 const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
 const FOLLOWING_FEATURE_HIT_SLOP_PX = 28;
+const HOUSE_NUMBER_LAYER_ID = 'housenumber';
 
 type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
 
@@ -145,6 +147,39 @@ function emitFollowingFeatureClickAnalytics(features: GeoJSON.Feature[], platfor
     pointCount: group.pointCount,
     propertyId: group.primaryPropertyId,
   });
+}
+
+function getHouseNumberFeatureValue(feature?: GeoJSON.Feature | null): string | null {
+  const properties = feature?.properties;
+  if (!properties) {
+    return null;
+  }
+
+  for (const key of ['housenumber', 'addr:housenumber', 'house_number', 'number']) {
+    const value = properties[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return null;
+}
+
+function getPointFeatureCoordinate(feature?: GeoJSON.Feature | null): [number, number] | null {
+  const coordinates = feature?.geometry?.type === 'Point'
+    ? feature.geometry.coordinates
+    : null;
+  const lon = coordinates?.[0];
+  const lat = coordinates?.[1];
+  return typeof lon === 'number' &&
+    Number.isFinite(lon) &&
+    typeof lat === 'number' &&
+    Number.isFinite(lat)
+    ? [lon, lat]
+    : null;
 }
 
 // Style URL — served by our API, single source of truth for all map layers.
@@ -1070,6 +1105,22 @@ export default function MapScreen() {
                 return;
               }
             }
+          }
+
+          const houseNumberFeatures = await mapRef.current.queryRenderedFeatures(pixelPoint, {
+            layers: [HOUSE_NUMBER_LAYER_ID],
+          });
+          const houseNumberFeature = houseNumberFeatures[0] as GeoJSON.Feature | undefined;
+          const houseNumber = getHouseNumberFeatureValue(houseNumberFeature);
+          if (houseNumber) {
+            const [lon, lat] = getPointFeatureCoordinate(houseNumberFeature) ?? lngLat;
+            const resolved = await fetchHouseNumberTapResolve(lon, lat, currentZoom, houseNumber);
+            if (resolved) {
+              handleNearbyResult(resolved, currentZoom, cameraCommands);
+            } else {
+              handleEmptyMapTap();
+            }
+            return;
           }
         } catch (error) {
           console.warn('[HuisHype] Error querying features:', error);

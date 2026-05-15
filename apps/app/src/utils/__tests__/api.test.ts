@@ -2,6 +2,7 @@ import {
   api,
   fetchBatchProperties,
   fetchFollowingNearbyGroup,
+  fetchHouseNumberTapResolve,
   fetchNearbyGroup,
   fetchPhysicalTapResolve,
   fetchOfficialValuationFromSource,
@@ -261,6 +262,55 @@ describe('fetchPhysicalTapResolve', () => {
     });
 
     await expect(fetchPhysicalTapResolve(4.9, 52.37, 16)).resolves.toBeNull();
+  });
+});
+
+describe('fetchHouseNumberTapResolve', () => {
+  const mockFetch = jest.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    global.fetch = mockFetch as unknown as typeof fetch;
+    setApiAccessTokenResolver(null);
+  });
+
+  it('calls the house-number tap route and normalizes the preview contract', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        kind: 'single',
+        source: 'house-number-tap',
+        match: 'house-number',
+        coordinate: { longitude: 4.9, latitude: 52.37 },
+        property: {
+          id: 'property-house-number',
+          address: 'Main Street 12A',
+          city: 'Eindhoven',
+          postalCode: '5611AA',
+          countryCode: 'NL',
+          street: 'Main Street',
+          houseNumber: 12,
+          houseNumberAddition: 'A',
+          coordinate: { longitude: 4.9, latitude: 52.37 },
+          isRead: false,
+        },
+      }),
+    });
+
+    const result = await fetchHouseNumberTapResolve(4.9, 52.37, 17, '12A');
+
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('/properties/resolve-house-number-tap?');
+    expect(mockFetch.mock.calls[0]?.[0]).toContain('houseNumber=12A');
+    expect(result).toEqual(
+      expect.objectContaining({
+        source: 'house-number-tap',
+        match: 'house-number',
+        groupKind: 'single',
+        primaryPropertyId: 'property-house-number',
+        houseNumber: 12,
+        houseNumberAddition: 'A',
+      }),
+    );
   });
 });
 

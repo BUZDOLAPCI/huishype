@@ -30,6 +30,7 @@ import type { AuthModalCopyInput } from '@/src/lib/authModalCopy';
 import {
   API_URL,
   fetchFollowingNearbyGroup,
+  fetchHouseNumberTapResolve,
   fetchNearbyGroup,
   fetchPhysicalTapResolve,
   normalizeRenderedPropertyGroup,
@@ -116,6 +117,7 @@ const FLOATING_ZOOM_CONTROL_RIGHT = 18;
 const FLOATING_ZOOM_CONTROL_TOP = 118;
 const FLOATING_ZOOM_CONTROL_SIZE = 40;
 const WEB_TOUCH_LONG_PRESS_MS = 550;
+const HOUSE_NUMBER_LAYER_ID = 'housenumber';
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
 const SELECTED_MARKER_PULSE_SIZE_PX = 32;
 const SELECTED_MARKER_DOT_SIZE_PX = 18;
@@ -297,6 +299,39 @@ function getWebClickCoordinate(
   }
 
   return fallback ?? null;
+}
+
+function getHouseNumberFeatureValue(features?: GeoJSON.Feature[] | null): string | null {
+  const properties = features?.[0]?.properties;
+  if (!properties) {
+    return null;
+  }
+
+  for (const key of ['housenumber', 'addr:housenumber', 'house_number', 'number']) {
+    const value = properties[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return null;
+}
+
+function getPointFeatureCoordinate(feature?: GeoJSON.Feature | null): [number, number] | null {
+  const coordinates = feature?.geometry?.type === 'Point'
+    ? feature.geometry.coordinates
+    : null;
+  const lon = coordinates?.[0];
+  const lat = coordinates?.[1];
+  return typeof lon === 'number' &&
+    Number.isFinite(lon) &&
+    typeof lat === 'number' &&
+    Number.isFinite(lat)
+    ? [lon, lat]
+    : null;
 }
 
 const MAP_OVERLAY_STYLE: WebViewStyle = {
@@ -2356,6 +2391,17 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           : null;
       };
 
+      const markPropertyClickHandled = () => {
+        propertyClickHandled.current = true;
+        if (propertyClickResetTimer.current) {
+          clearTimeout(propertyClickResetTimer.current);
+        }
+        propertyClickResetTimer.current = setTimeout(() => {
+          propertyClickHandled.current = false;
+          propertyClickResetTimer.current = null;
+        }, 0);
+      };
+
       const handleMapContextMenu = (
         event: maplibregl.MapMouseEvent & {
           preventDefault?: () => void;
@@ -2415,14 +2461,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       ) => {
         if (!e.features?.length) return;
 
-        propertyClickHandled.current = true;
-        if (propertyClickResetTimer.current) {
-          clearTimeout(propertyClickResetTimer.current);
-        }
-        propertyClickResetTimer.current = setTimeout(() => {
-          propertyClickHandled.current = false;
-          propertyClickResetTimer.current = null;
-        }, 0);
+        markPropertyClickHandled();
 
         if (socialScopeRef.current === 'following') {
           emitFollowingFeatureClickAnalytics(
@@ -2484,6 +2523,48 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         handleEmptyMapTapRef.current();
       };
 
+      const handleHouseNumberClick = (
+        event: maplibregl.MapMouseEvent & {
+          features?: maplibregl.GeoJSONFeature[];
+          preventDefault?: () => void;
+          originalEvent?: { preventDefault?: () => void };
+        },
+      ) => {
+        const features = event.features as unknown as GeoJSON.Feature[] | undefined;
+        const houseNumber = getHouseNumberFeatureValue(features);
+        if (!houseNumber) {
+          return;
+        }
+
+        const coordinate = getPointFeatureCoordinate(features?.[0]) ?? getMapEventCoordinate(event);
+        if (!coordinate) {
+          return;
+        }
+
+        markPropertyClickHandled();
+        event.preventDefault?.();
+        event.originalEvent?.preventDefault?.();
+
+        const currentZoom = map.getZoom();
+        void fetchHouseNumberTapResolve(coordinate[0], coordinate[1], currentZoom, houseNumber)
+          .then((resolved) => {
+            if (resolved) {
+              handleNearbyResultRef.current(
+                resolved,
+                currentZoom,
+                cameraCommandsRef.current,
+              );
+              return;
+            }
+
+            handleEmptyMapTapRef.current();
+          })
+          .catch((error) => {
+            console.warn('[HuisHype] House-number tap resolver failed:', error);
+            handleEmptyMapTapRef.current();
+          });
+      };
+
       // Handle any unhandled map click as a background tap.
       // Layer-specific property handlers set `propertyClickHandled`, so
       // re-querying rendered features here only creates false negatives
@@ -2507,6 +2588,29 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
       // Wait for layers to be added
       const layerHandlersAttached = new Set<string>();
+      const attachLayerHandlers = () => {
+        PROPERTY_LAYER_IDS.forEach((layerId) => {
+          if (map.getLayer(layerId) && !layerHandlersAttached.has(layerId)) {
+            layerHandlersAttached.add(layerId);
+            map.on('click', layerId, handlePropertyClick);
+            map.on('mouseenter', layerId, handleMouseEnter);
+            map.on('mouseleave', layerId, handleMouseLeave);
+          }
+        });
+
+        if (
+          map.getLayer(HOUSE_NUMBER_LAYER_ID) &&
+          !layerHandlersAttached.has(HOUSE_NUMBER_LAYER_ID)
+        ) {
+          layerHandlersAttached.add(HOUSE_NUMBER_LAYER_ID);
+          map.on('click', HOUSE_NUMBER_LAYER_ID, handleHouseNumberClick);
+          map.on('mouseenter', HOUSE_NUMBER_LAYER_ID, handleMouseEnter);
+          map.on('mouseleave', HOUSE_NUMBER_LAYER_ID, handleMouseLeave);
+        }
+      };
+
+      attachLayerHandlers();
+      map.on('styledata', attachLayerHandlers);
       map.on('sourcedata', (event: unknown) => {
         const sourceDataEvent = event as
           | { sourceId?: string; isSourceLoaded?: boolean }
@@ -2518,14 +2622,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           scheduleFollowingRenderedFeatureRefreshRef.current();
         }
 
-        PROPERTY_LAYER_IDS.forEach((layerId) => {
-          if (map.getLayer(layerId) && !layerHandlersAttached.has(layerId)) {
-            layerHandlersAttached.add(layerId);
-            map.on('click', layerId, handlePropertyClick);
-            map.on('mouseenter', layerId, handleMouseEnter);
-            map.on('mouseleave', layerId, handleMouseLeave);
-          }
-        });
+        attachLayerHandlers();
       });
 
       mapRef.current = map;

@@ -1075,6 +1075,55 @@ describe('Property routes', () => {
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }
     });
+
+    it('resolves clicked house-number labels by the clicked number instead of generic nearby logic', async () => {
+      const lon = -31.04 - runOffset;
+      const lat = 2.04 + runOffset;
+      const target = await createIntegrationProperty({
+        street: 'Resolve House Number Tap',
+        houseNumber: 12,
+        houseNumberAddition: 'A',
+        city: 'Tapstad',
+        postalCode: '9400AE',
+        lon: lon + 0.00003,
+        lat,
+      });
+      const nearerDifferentAddress = await createIntegrationProperty({
+        street: 'Resolve House Number Tap',
+        houseNumber: 13,
+        city: 'Tapstad',
+        postalCode: '9400AF',
+        lon: lon + 0.000005,
+        lat,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url:
+            `/properties/resolve-house-number-tap?lon=${lon}&lat=${lat}` +
+            '&zoom=18&houseNumber=12A',
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toMatchObject({
+          kind: 'single',
+          source: 'house-number-tap',
+          match: 'house-number',
+        });
+        expect(body.property).toMatchObject({
+          id: target.id,
+          houseNumber: 12,
+          houseNumberAddition: 'A',
+        });
+        expect(body.property.id).not.toBe(nearerDifferentAddress.id);
+      } finally {
+        await db.execute(
+          sql`DELETE FROM properties WHERE id IN (${target.id}, ${nearerDifferentAddress.id})`
+        );
+      }
+    });
   });
 
   describe('GET /properties/following-nearby', () => {
