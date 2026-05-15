@@ -1771,7 +1771,7 @@ function buildPaperDucksLayer(): Record<string, unknown> {
     minzoom: DUCK_MIN_ZOOM,
     layout: {
       'icon-image': ['concat', 'duck-', ['to-string', ['get', 'duck_variant']]],
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 15, 0.22, 17, 0.38, 19, 0.55],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 15, 0.33, 17, 0.57, 19, 0.825],
       'icon-anchor': 'center',
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,

@@ -142,6 +142,17 @@ describe('Duck tiles endpoint', () => {
       'duck-',
       ['to-string', ['get', 'duck_variant']],
     ]);
+    expect(duckLayer.layout?.['icon-size']).toEqual([
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      15,
+      0.33,
+      17,
+      0.57,
+      19,
+      0.825,
+    ]);
     expect(duckLayer.layout?.['icon-anchor']).toBe('center');
     expect(duckLayer.layout?.['icon-pitch-alignment']).toBe('viewport');
     expect(duckLayer.layout?.['icon-rotation-alignment']).toBe('viewport');
