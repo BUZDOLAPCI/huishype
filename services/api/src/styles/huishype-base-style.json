@@ -4823,7 +4823,17 @@
       "minzoom": 0,
       "layout": {
         "symbol-placement": "line",
-        "text-field": "{name:latin}\n{name:nonlatin}",
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
         "text-font": [
           "Roboto Regular",
           "Noto Sans Regular"
@@ -4855,7 +4865,17 @@
       "minzoom": 2,
       "maxzoom": 24,
       "layout": {
-        "text-field": "{name:latin}\n{name:nonlatin}",
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
         "text-font": [
           "Roboto Regular",
           "Noto Sans Regular"
@@ -4891,7 +4911,17 @@
       "source-layer": "water_name",
       "minzoom": 0,
       "layout": {
-        "text-field": "{name:latin}\n{name:nonlatin}",
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
         "text-font": [
           "Roboto Regular",
           "Noto Sans Regular"
@@ -5029,7 +5059,17 @@
       "layout": {
         "symbol-placement": "line",
         "text-anchor": "center",
-        "text-field": "{name:latin} {name:nonlatin}",
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
         "text-font": [
           "Roboto Regular",
           "Noto Sans Regular"
@@ -5986,7 +6026,17 @@
       "source": "v3-openmaptiles",
       "source-layer": "water_name",
       "layout": {
-        "text-field": "{name:latin}",
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
         "text-font": [
           "Noto Sans Regular"
         ],

@@ -225,6 +225,59 @@ describe('Tile routes', () => {
       expect(waterIntermittentLayer.paint).toHaveProperty('fill-pattern', 'water-pattern');
     });
 
+    it('should standardize map name labels on English-first fallback naming', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/tiles/style.json',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const style = JSON.parse(response.body) as StyleJson;
+      const symbolTextFields = style.layers
+        .filter((layer) => layer.type === 'symbol' && layer.layout?.['text-field'] != null)
+        .map((layer) => ({
+          id: layer.id,
+          textField: layer.layout?.['text-field'],
+          textFieldStrings: collectExpressionStrings(layer.layout?.['text-field']),
+        }));
+
+      expect(symbolTextFields).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            textFieldStrings: expect.arrayContaining(['name:latin']),
+          }),
+        ])
+      );
+      expect(symbolTextFields).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            textFieldStrings: expect.arrayContaining(['name:nonlatin']),
+          }),
+        ])
+      );
+
+      const englishFirstNameLayerIds = [
+        'water_name_line',
+        'water_name_point',
+        'water_ocean_name_point',
+        'road_label',
+        'Water name',
+      ];
+
+      for (const layerId of englishFirstNameLayerIds) {
+        const layer = requireValue(
+          style.layers.find((candidate) => candidate.id === layerId),
+          `${layerId} layer missing from style.json`
+        );
+
+        expect(layer.layout?.['text-field']).toEqual([
+          'coalesce',
+          ['get', 'name_en'],
+          ['get', 'name'],
+        ]);
+      }
+    });
+
     it('should include properties-source in sources', async () => {
       const response = await app.inject({
         method: 'GET',
