@@ -46,7 +46,7 @@ const MAP_FILTER_QUERY_KEYS = [
   'marketState',
   'activity',
 ] as const;
-const PRIVATE_MAP_STATE_QUERY_KEYS = ['socialScope'] as const;
+const PRIVATE_MAP_STATE_QUERY_KEYS = ['socialScope', 'followingActivity'] as const;
 
 type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
 

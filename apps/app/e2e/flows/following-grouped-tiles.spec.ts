@@ -495,7 +495,7 @@ test.describe('Following grouped tiles', () => {
 
     const persistence = await readFollowingPersistence(page);
     expect(persistence.search).not.toContain('socialScope');
-    expect(persistence.search).not.toContain('activity');
+    expect(persistence.search).not.toContain('followingActivity');
     expect(persistence.historySocialScope).toBe('following');
     expect(persistence.sessionSocialScope).toBe('following');
 
@@ -639,6 +639,7 @@ test.describe('Following grouped tiles', () => {
 
     const persistence = await readFollowingPersistence(page);
     expect(persistence.search).not.toContain('socialScope');
+    expect(persistence.search).not.toContain('followingActivity');
     expect(persistence.historySocialScope).toBe('following');
     expect(persistence.sessionSocialScope).toBe('following');
   });

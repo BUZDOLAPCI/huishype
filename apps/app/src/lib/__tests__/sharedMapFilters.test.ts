@@ -237,13 +237,14 @@ describe('sharedMapFilters price suggestions', () => {
     expect(reset.activity).toBe('all');
   });
 
-  it('removes deprecated socialScope from public search serialization', () => {
+  it('removes deprecated Following params from public search serialization', () => {
     const params = updateMapFilterSearchParams(
-      new URLSearchParams('socialScope=following&foo=bar'),
+      new URLSearchParams('socialScope=following&followingActivity=10d&foo=bar'),
       createDefaultMapFilters(),
     );
 
     expect(params.get('socialScope')).toBeNull();
+    expect(params.get('followingActivity')).toBeNull();
     expect(params.get('foo')).toBe('bar');
   });
 

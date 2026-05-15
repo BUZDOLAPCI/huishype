@@ -456,7 +456,7 @@ Expected behavior:
 - default is `all`
 - `following` requires authentication
 - `following` changes the app's map presentation mode by enabling the authenticated sparse overlay of followed-user activity
-- `following` is serialized in committed app URL/state on web so refresh/share/canonical/returnTo behavior preserves the selected mode
+- `following` is persisted only in private app state on web and must not appear in the browser query string
 - native should carry the same `socialScope` in app map-view state even though there is no browser URL
 - `following` must not be pushed into the public property tile URL, public `MapFilters` serializer, or shared public tile signatures in v1
 
@@ -464,7 +464,7 @@ Implementation note:
 
 - This is a cross-cutting app-state and API change, but it is intentionally not a public tile/filter-contract change.
 - In the app UI, `Following` should be modeled as a dedicated top-level rail toggle near the existing quick filters, not as another generic filter-panel category or fake market-state value.
-- In web, `socialScope=following` is a committed app URL state that drives the authenticated viewport overlay fetch separately from public tile URL building, and all web URL/share/canonical/returnTo helpers must preserve it as app state without turning it into a public filter parameter.
+- In web, `socialScope='following'` is private app state that drives the authenticated viewport overlay fetch separately from public tile URL building; URL/share/canonical helpers must not serialize it into query params.
 - In native, the same `socialScope` drives overlay fetch behavior from in-memory app state.
 - Because the overlay is expected to be sparse in v1, do not add clustering, server-side grouping, or personalized vector-tile generation.
 
@@ -579,7 +579,7 @@ Success metrics:
 - add the authenticated map following viewport endpoint and keep the public property/tile pipeline unchanged
 - add app query hooks for parameterized activity scopes and self follow lists
 - wire `Following` into feed chips and feed screen
-- wire `Following` into committed app map-view state, web URL state, native state, and authenticated overlay fetching
+- wire `Following` into committed private app map-view state, native state, and authenticated overlay fetching
 - add follow affordances and counts to the public profile screen
 - add follower/following count affordances plus dedicated own-profile list screens
 - split activity-card property and actor press targets, then add actor-profile navigation
@@ -592,7 +592,7 @@ This work should include:
 - unit tests for relationship-state derivation
 - unit tests for canonical activity payload mapping and shared scope/query selection
 - unit tests for notification event rendering against canonical event names
-- app map-view-state tests for `socialScope` URL/state serialization while proving public tile URL serialization is unchanged
+- app map-view-state tests for private `socialScope` state while proving URL and public tile serialization are unchanged
 - API integration tests for follow and unfollow endpoints
 - API integration tests for enriched optional-auth `GET /users/:id/profile`
 - API integration tests for `GET /activity` with `scope=public` and `scope=following`
@@ -606,7 +606,7 @@ This work should include:
 - app component tests for own-profile follower/following list navigation
 - app component tests for split property-vs-actor activity-card taps
 - feed tests for the `Following` tab, signed-out gate, signed-in-empty state, and parameterized activity query keys
-- map view-state tests for the `Following` option, web URL serialization, and overlay-fetch triggering semantics
+- map view-state tests for the `Following` option, private web state, and overlay-fetch triggering semantics
 - one web E2E happy path:
   - sign in
   - follow a user

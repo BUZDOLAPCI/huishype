@@ -2036,6 +2036,34 @@ describe('MapScreen web grouped Following mode', () => {
     expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
   });
 
+  it('ignores deprecated Following URL params on reload', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/@52.37,4.9,14z?socialScope=following&followingActivity=30d',
+    );
+    mockBrowserPathname = '/@52.37,4.9,14z';
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+
+    expect(capturedMapFilterBarProps?.socialScope).toBe('all');
+    expect(capturedMapFilterBarProps?.followingActivity).toBe('all-time');
+    expect(mockUseFollowingTileSource).toHaveBeenLastCalledWith(
+      mockAppliedFilters,
+      'all-time',
+      false,
+    );
+  });
+
   it('shows the empty Following state from rendered grouped features after the map settles', async () => {
     await act(async () => {
       root.render(<MapScreen />);
