@@ -2310,13 +2310,14 @@ export async function requestPropertyTilePyramidBuild(input: {
   const buildIdentity = buildPropertyTilePyramidBuildIdentitySnapshots(slot);
   const buildInputsHash = input.buildInputsHash ?? buildIdentity.buildInputsHash;
   const reason = String(input.reason);
+  const isWorkerRecoveryReason = reason === 'worker-recovery';
   let activeSlotConflictPendingRequest: {
     sourceWatermarkHash: string;
     sourceWatermarksJson: Record<string, unknown>;
     comparableSourceWatermarkHash: string;
   } | null = null;
   const useWorkerRecoveryMutationPolicy =
-    reason === 'worker-recovery' &&
+    isWorkerRecoveryReason &&
     input.sourceWatermarkHash == null &&
     input.buildInputsHash == null;
 
@@ -2396,13 +2397,112 @@ export async function requestPropertyTilePyramidBuild(input: {
         )
     `);
 
-    const rows = await db.execute<{
-      id: string;
-      status: PropertyTilePyramidStatus;
-      next_retry_at: string | null;
-      queue_eligible: boolean;
-      pending_replacement: boolean;
-    }>(sql`
+    const rows = isWorkerRecoveryReason
+      ? await db.execute<{
+          id: string;
+          status: PropertyTilePyramidStatus;
+          next_retry_at: string | null;
+          queue_eligible: boolean;
+          pending_replacement: boolean;
+          active_build_in_progress: boolean;
+        }>(sql`
+          WITH active_replacement AS MATERIALIZED (
+            SELECT
+              id,
+              status,
+              next_retry_at
+            FROM property_tile_pyramid_versions
+            WHERE coverage_id = ${slot.coverageId}
+              AND filter_signature = ${slot.filterSignature}
+              AND max_zoom = ${slot.maxZoom}
+              AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+              AND status IN ('building', 'validating')
+              AND lease_until IS NOT NULL
+              AND lease_until > now()
+            ORDER BY requested_at ASC NULLS LAST, updated_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          ),
+          inserted AS (
+            INSERT INTO property_tile_pyramid_versions (
+              coverage_id,
+              filter_signature,
+              max_zoom,
+              pyramid_kind,
+              config_hash,
+              build_inputs_hash,
+              source_watermark_hash,
+              source_watermarks_json,
+              coverage_snapshot_json,
+              config_snapshot_json,
+              grouping_constants_json,
+              status,
+              request_reason,
+              requested_at,
+              updated_at
+            )
+            SELECT
+              ${slot.coverageId},
+              ${slot.filterSignature},
+              ${slot.maxZoom},
+              ${slot.pyramidKind}::property_tile_pyramid_kind,
+              ${buildIdentity.configHash},
+              ${buildInputsHash},
+              ${sourceWatermarkHash},
+              ${JSON.stringify(sourceWatermarksJson)}::jsonb,
+              ${stableJson(buildIdentity.coverageSnapshot)}::jsonb,
+              ${stableJson(buildIdentity.configSnapshot)}::jsonb,
+              ${stableJson(buildIdentity.groupingConstants)}::jsonb,
+              'queued',
+              ${reason},
+              now(),
+              now()
+            WHERE NOT EXISTS (SELECT 1 FROM active_replacement)
+            ON CONFLICT (
+              coverage_id,
+              filter_signature,
+              max_zoom,
+              pyramid_kind,
+              build_inputs_hash,
+              source_watermark_hash
+            )
+            DO UPDATE SET
+              request_reason = EXCLUDED.request_reason,
+              updated_at = now()
+            WHERE property_tile_pyramid_versions.status = 'queued'
+              OR (
+                property_tile_pyramid_versions.status = 'failed_retryable'
+                AND (
+                  property_tile_pyramid_versions.next_retry_at IS NULL
+                  OR property_tile_pyramid_versions.next_retry_at <= now()
+                )
+              )
+            RETURNING id::text, status, next_retry_at::text, true AS queue_eligible, false AS pending_replacement, false AS active_build_in_progress
+          ),
+          active_in_progress AS (
+            SELECT
+              a.id::text,
+              a.status,
+              a.next_retry_at::text,
+              false AS queue_eligible,
+              false AS pending_replacement,
+              true AS active_build_in_progress
+            FROM active_replacement a
+            WHERE NOT EXISTS (SELECT 1 FROM inserted)
+          )
+          SELECT * FROM inserted
+          UNION ALL
+          SELECT * FROM active_in_progress
+          LIMIT 1
+        `)
+      : await db.execute<{
+          id: string;
+          status: PropertyTilePyramidStatus;
+          next_retry_at: string | null;
+          queue_eligible: boolean;
+          pending_replacement: boolean;
+          active_build_in_progress: boolean;
+        }>(sql`
       WITH active_replacement AS MATERIALIZED (
         SELECT
           id,
@@ -2480,7 +2580,7 @@ export async function requestPropertyTilePyramidBuild(input: {
               OR property_tile_pyramid_versions.next_retry_at <= now()
             )
           )
-        RETURNING id::text, status, next_retry_at::text, true AS queue_eligible, false AS pending_replacement
+        RETURNING id::text, status, next_retry_at::text, true AS queue_eligible, false AS pending_replacement, false AS active_build_in_progress
       ),
       pending AS (
         UPDATE property_tile_pyramid_versions v
@@ -2497,7 +2597,7 @@ export async function requestPropertyTilePyramidBuild(input: {
         WHERE v.id = a.id
           AND NOT EXISTS (SELECT 1 FROM inserted)
           AND a.comparable_source_watermark_hash IS DISTINCT FROM ${comparableRequestedSourceWatermarkHash}
-        RETURNING v.id::text, v.status, v.next_retry_at::text, false AS queue_eligible, true AS pending_replacement
+        RETURNING v.id::text, v.status, v.next_retry_at::text, false AS queue_eligible, true AS pending_replacement, false AS active_build_in_progress
       ),
       active_same AS (
         SELECT
@@ -2505,7 +2605,8 @@ export async function requestPropertyTilePyramidBuild(input: {
           a.status,
           a.next_retry_at::text,
           false AS queue_eligible,
-          false AS pending_replacement
+          false AS pending_replacement,
+          false AS active_build_in_progress
         FROM active_replacement a
         WHERE NOT EXISTS (SELECT 1 FROM inserted)
           AND NOT EXISTS (SELECT 1 FROM pending)
@@ -2544,6 +2645,7 @@ export async function requestPropertyTilePyramidBuild(input: {
         ...existing,
         queue_eligible: false,
         pending_replacement: false,
+        active_build_in_progress: false,
       };
     }
 
@@ -2570,12 +2672,18 @@ export async function requestPropertyTilePyramidBuild(input: {
     }
 
     if (!row.queue_eligible) {
+      let coalescedReason: string | undefined;
+      if (row.pending_replacement) {
+        coalescedReason = 'pending-replacement-recorded';
+      } else if (row.active_build_in_progress) {
+        coalescedReason = 'active-build-in-progress';
+      }
       return {
         status: 'coalesced',
         versionId: row.id,
         existingStatus: row.status,
         nextRetryAt: row.next_retry_at,
-        reason: row.pending_replacement ? 'pending-replacement-recorded' : undefined,
+        reason: coalescedReason,
       };
     }
 
@@ -2614,12 +2722,46 @@ export async function requestPropertyTilePyramidBuild(input: {
     }
     if (isActiveSlotUniqueViolation(error)) {
       if (activeSlotConflictPendingRequest) {
-        const pendingRows = await db.execute<{
-          id: string;
-          status: PropertyTilePyramidStatus;
-          next_retry_at: string | null;
-          pending_replacement: boolean;
-        }>(sql`
+        const pendingRows = isWorkerRecoveryReason
+          ? await db.execute<{
+              id: string;
+              status: PropertyTilePyramidStatus;
+              next_retry_at: string | null;
+              pending_replacement: boolean;
+              active_build_in_progress: boolean;
+            }>(sql`
+              WITH active_replacement AS MATERIALIZED (
+                SELECT
+                  id,
+                  status,
+                  next_retry_at
+                FROM property_tile_pyramid_versions
+                WHERE coverage_id = ${slot.coverageId}
+                  AND filter_signature = ${slot.filterSignature}
+                  AND max_zoom = ${slot.maxZoom}
+                  AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+                  AND status IN ('building', 'validating')
+                  AND lease_until IS NOT NULL
+                  AND lease_until > now()
+                ORDER BY requested_at ASC NULLS LAST, updated_at ASC
+                LIMIT 1
+              )
+              SELECT
+                a.id::text,
+                a.status,
+                a.next_retry_at::text,
+                false AS pending_replacement,
+                true AS active_build_in_progress
+              FROM active_replacement a
+              LIMIT 1
+            `)
+          : await db.execute<{
+              id: string;
+              status: PropertyTilePyramidStatus;
+              next_retry_at: string | null;
+              pending_replacement: boolean;
+              active_build_in_progress: boolean;
+            }>(sql`
           WITH active_replacement AS MATERIALIZED (
             SELECT
               id,
@@ -2656,14 +2798,15 @@ export async function requestPropertyTilePyramidBuild(input: {
             FROM active_replacement a
             WHERE v.id = a.id
               AND a.comparable_source_watermark_hash IS DISTINCT FROM ${activeSlotConflictPendingRequest.comparableSourceWatermarkHash}
-            RETURNING v.id::text, v.status, v.next_retry_at::text, true AS pending_replacement
+            RETURNING v.id::text, v.status, v.next_retry_at::text, true AS pending_replacement, false AS active_build_in_progress
           ),
           active_same AS (
             SELECT
               a.id::text,
               a.status,
               a.next_retry_at::text,
-              false AS pending_replacement
+              false AS pending_replacement,
+              false AS active_build_in_progress
             FROM active_replacement a
             WHERE NOT EXISTS (SELECT 1 FROM pending)
               AND a.comparable_source_watermark_hash IS NOT DISTINCT FROM ${activeSlotConflictPendingRequest.comparableSourceWatermarkHash}
@@ -2675,14 +2818,18 @@ export async function requestPropertyTilePyramidBuild(input: {
         `);
         const pending = Array.from(pendingRows)[0];
         if (pending) {
+          let coalescedReason = 'active-slot-conflict';
+          if (pending.pending_replacement) {
+            coalescedReason = 'pending-replacement-recorded';
+          } else if (pending.active_build_in_progress) {
+            coalescedReason = 'active-build-in-progress';
+          }
           return {
             status: 'coalesced',
             versionId: pending.id,
             existingStatus: pending.status,
             nextRetryAt: pending.next_retry_at,
-            reason: pending.pending_replacement
-              ? 'pending-replacement-recorded'
-              : 'active-slot-conflict',
+            reason: coalescedReason,
           };
         }
       }
@@ -4223,15 +4370,14 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
       comparableSourceWatermarkHash(latestSourceWatermarks);
     const sourceWatermarkAdvanced =
       latestComparableSourceWatermarkHash !== comparableClosedSourceWatermarkHash;
-    const pendingReplacementComparableHash = pendingReplacementWatermarks
-      ? comparableSourceWatermarkHash(pendingReplacementWatermarks)
-      : null;
-    const pendingReplacementAdvanced =
-      pendingReplacementComparableHash != null &&
-      pendingReplacementComparableHash !== comparableClosedSourceWatermarkHash;
     const promotion = {
       status: 'promoted' as 'promoted' | 'superseded_by_current',
     };
+    let finalPendingReplacementWatermarks: {
+      sourceWatermarkHash: string;
+      sourceWatermarksJson: Record<string, unknown>;
+    } | null = null;
+    let finalPendingReplacementRecorded = false;
     await db.transaction(async (tx) => {
       const validatedRows = await tx.execute<{ affected: number | string }>(sql`
         WITH updated AS (
@@ -4254,6 +4400,35 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
         throw new PropertyTilePyramidLeaseLostError(row.id);
       }
 
+      const lockedRows = await tx.execute<{
+        pending_replacement_watermarks_json: Record<string, unknown> | null;
+      }>(sql`
+        SELECT pending_replacement_watermarks_json
+        FROM property_tile_pyramid_versions
+        WHERE id = ${row.id}::uuid
+          AND lease_owner = ${lease.owner}
+          AND lease_token = ${lease.token}
+          AND lease_until > now()
+          AND status = 'validated'
+        FOR UPDATE
+      `);
+      const lockedRow = Array.from(lockedRows)[0];
+      if (!lockedRow) {
+        throw new PropertyTilePyramidLeaseLostError(row.id);
+      }
+      finalPendingReplacementRecorded =
+        lockedRow.pending_replacement_watermarks_json != null &&
+        Object.keys(lockedRow.pending_replacement_watermarks_json).length > 0;
+      finalPendingReplacementWatermarks = readPendingReplacementWatermarkSnapshot(
+        lockedRow.pending_replacement_watermarks_json
+      );
+      const finalPendingReplacementComparableHash = finalPendingReplacementWatermarks
+        ? comparableSourceWatermarkHash(finalPendingReplacementWatermarks)
+        : null;
+      const finalPendingReplacementAdvanced =
+        finalPendingReplacementComparableHash != null &&
+        finalPendingReplacementComparableHash !== comparableClosedSourceWatermarkHash;
+
       const currentPointer = await getCurrentPyramidPointerForSlot(slot, tx);
       const previousVersionId = currentPointer.currentVersionId;
       const currentPointerComparableSourceWatermarkHash = currentPointer.sourceWatermarkHash
@@ -4263,11 +4438,11 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
           })
         : null;
       if (
-        (sourceWatermarkAdvanced || pendingReplacementAdvanced) &&
+        (sourceWatermarkAdvanced || finalPendingReplacementAdvanced) &&
         currentPointer.currentVersionId &&
         (currentPointerComparableSourceWatermarkHash === latestComparableSourceWatermarkHash ||
-          (pendingReplacementComparableHash != null &&
-            currentPointerComparableSourceWatermarkHash === pendingReplacementComparableHash) ||
+          (finalPendingReplacementComparableHash != null &&
+            currentPointerComparableSourceWatermarkHash === finalPendingReplacementComparableHash) ||
           (currentPointerComparableSourceWatermarkHash !== comparableClosedSourceWatermarkHash &&
             isTimestampAfter(currentPointer.currentPromotedAt, row.requested_at)))
       ) {
@@ -4305,7 +4480,7 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
         return;
       }
 
-      if (pendingReplacementWatermarks) {
+      if (finalPendingReplacementRecorded) {
         const clearedPendingRows = await tx.execute<{ affected: number | string }>(sql`
           WITH updated AS (
             UPDATE property_tile_pyramid_versions
@@ -4315,10 +4490,12 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
                 COALESCE(validation_summary, '{}'::jsonb),
                 '{pendingReplacementClosed}',
                 ${JSON.stringify({
-                  reason: pendingReplacementAdvanced
+                  reason: finalPendingReplacementAdvanced
                     ? 'successor-requested-after-promotion'
-                    : 'same-source-watermark-hash',
-                  sourceWatermarkHash: pendingReplacementWatermarks.sourceWatermarkHash,
+                    : finalPendingReplacementWatermarks
+                      ? 'same-source-watermark-hash'
+                      : 'invalid-pending-replacement-cleared',
+                  sourceWatermarkHash: finalPendingReplacementWatermarks?.sourceWatermarkHash,
                 })}::jsonb,
                 true
               ),
@@ -4377,7 +4554,7 @@ async function executeDuePropertyTilePyramidBuildInternal(options: {
       sourceWatermarkHash: row.source_watermark_hash,
       sourceWatermarksJson: row.source_watermarks_json,
       latestSourceWatermarks,
-      pendingReplacementWatermarks,
+      pendingReplacementWatermarks: finalPendingReplacementWatermarks,
       reason: 'source-watermark',
     });
 
@@ -4891,7 +5068,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             FROM property_tile_pyramid_versions v
             WHERE v.id NOT IN (SELECT id FROM retained)
               AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
-              AND COALESCE(v.updated_at, now()) < now() - interval '24 hours'
+              AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '30 minutes'
               AND (v.lease_until IS NULL OR v.lease_until < now())
           ),
           target AS (
@@ -4920,7 +5097,8 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           SELECT count(*)::int AS affected FROM reset
         `,
         });
-        const deletedMembers = await runPropertyTilePyramidRetentionStep({
+        const deletedMembers = await runOptionalPropertyTilePyramidRetentionStep({
+          relationName: 'property_tile_pyramid_members',
           sql: sql`
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
@@ -4933,15 +5111,15 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             SELECT v.id
             FROM property_tile_pyramid_versions v
             WHERE v.id NOT IN (SELECT id FROM retained)
-              AND v.status IN ('promoted', 'failed_terminal', 'superseded')
+              AND v.status = 'promoted'
               AND COALESCE(v.updated_at, v.promoted_at, v.created_at) < now() - interval '24 hours'
               AND (v.lease_until IS NULL OR v.lease_until < now())
             UNION
             SELECT v.id
             FROM property_tile_pyramid_versions v
             WHERE v.id NOT IN (SELECT id FROM retained)
-              AND v.status = 'failed_retryable'
-              AND COALESCE(v.next_retry_at, v.updated_at, v.created_at) < now() - interval '7 days'
+              AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+              AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '30 minutes'
               AND (v.lease_until IS NULL OR v.lease_until < now())
           ),
           target AS (
@@ -4959,7 +5137,6 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           )
           SELECT count(*)::int AS affected FROM deleted
         `,
-          optional: true,
         });
         const deletedNodes = await runPropertyTilePyramidRetentionStep({
           sql: sql`
@@ -4974,15 +5151,15 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             SELECT v.id
             FROM property_tile_pyramid_versions v
             WHERE v.id NOT IN (SELECT id FROM retained)
-              AND v.status IN ('promoted', 'failed_terminal', 'superseded')
+              AND v.status = 'promoted'
               AND COALESCE(v.updated_at, v.promoted_at, v.created_at) < now() - interval '24 hours'
               AND (v.lease_until IS NULL OR v.lease_until < now())
             UNION
             SELECT v.id
             FROM property_tile_pyramid_versions v
             WHERE v.id NOT IN (SELECT id FROM retained)
-              AND v.status = 'failed_retryable'
-              AND COALESCE(v.next_retry_at, v.updated_at, v.created_at) < now() - interval '7 days'
+              AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+              AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '30 minutes'
               AND (v.lease_until IS NULL OR v.lease_until < now())
           ),
           target AS (
@@ -5014,15 +5191,15 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             SELECT v.id
             FROM property_tile_pyramid_versions v
             WHERE v.id NOT IN (SELECT id FROM retained)
-              AND v.status IN ('promoted', 'failed_terminal', 'superseded')
+              AND v.status = 'promoted'
               AND COALESCE(v.updated_at, v.promoted_at, v.created_at) < now() - interval '24 hours'
               AND (v.lease_until IS NULL OR v.lease_until < now())
             UNION
             SELECT v.id
             FROM property_tile_pyramid_versions v
             WHERE v.id NOT IN (SELECT id FROM retained)
-              AND v.status = 'failed_retryable'
-              AND COALESCE(v.next_retry_at, v.updated_at, v.created_at) < now() - interval '7 days'
+              AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+              AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '30 minutes'
               AND (v.lease_until IS NULL OR v.lease_until < now())
           ),
           target AS (
@@ -5060,12 +5237,12 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
             WHERE v.id NOT IN (SELECT id FROM retained)
               AND (
                 (
-                  v.status IN ('promoted', 'failed_terminal', 'superseded')
+                  v.status = 'promoted'
                   AND COALESCE(v.updated_at, v.promoted_at, v.created_at) < now() - interval '24 hours'
                 )
                 OR (
-                  v.status = 'failed_retryable'
-                  AND COALESCE(v.next_retry_at, v.updated_at, v.created_at) < now() - interval '7 days'
+                  v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+                  AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '24 hours'
                 )
               )
               AND (v.lease_until IS NULL OR v.lease_until < now())
@@ -5098,24 +5275,47 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	          WITH reclaimable_snapshots AS (
 	            SELECT s.id
 	            FROM property_tile_candidate_source_snapshots s
-	            WHERE NOT EXISTS (
-	              SELECT 1
-	              FROM property_tile_candidate_source_current c
-	              WHERE c.snapshot_id = s.id
-	            )
-	              AND NOT EXISTS (
-	                SELECT 1
-	                FROM property_tile_pyramid_versions v
-	                WHERE v.candidate_snapshot_id = s.id
-	              )
-	              AND (
-	                (
+		            WHERE NOT EXISTS (
+		              SELECT 1
+		              FROM property_tile_candidate_source_current c
+		              WHERE c.snapshot_id = s.id
+		            )
+		              AND (
+		                (
 	                  s.status IN ('ready', 'failed', 'superseded')
-	                  AND COALESCE(s.updated_at, s.build_finished_at, s.created_at) < now() - interval '24 hours'
+	                  AND COALESCE(s.updated_at, s.build_finished_at, s.created_at) < now() - interval '1 hour'
+                    AND (
+                      NOT EXISTS (
+                        SELECT 1
+                        FROM property_tile_pyramid_versions v
+                        WHERE v.candidate_snapshot_id = s.id
+                      )
+                      OR (
+                        EXISTS (
+                          SELECT 1
+                          FROM property_tile_pyramid_versions v
+                          WHERE v.candidate_snapshot_id = s.id
+                            AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+                            AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '1 hour'
+                            AND (v.lease_until IS NULL OR v.lease_until < now())
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1
+                          FROM property_tile_pyramid_versions v
+                          WHERE v.candidate_snapshot_id = s.id
+                            AND v.status NOT IN ('failed_retryable', 'failed_terminal', 'superseded')
+                        )
+                      )
+                    )
 	                )
 	                OR (
 	                  s.status = 'building'
 	                  AND COALESCE(s.updated_at, s.build_started_at, s.created_at) < now() - interval '7 days'
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM property_tile_pyramid_versions v
+                      WHERE v.candidate_snapshot_id = s.id
+                    )
 	                )
 	              )
 	          ),
@@ -5140,24 +5340,47 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	          WITH reclaimable_snapshots AS (
 	            SELECT s.id
 	            FROM property_tile_candidate_source_snapshots s
-	            WHERE NOT EXISTS (
-	              SELECT 1
-	              FROM property_tile_candidate_source_current c
-	              WHERE c.snapshot_id = s.id
-	            )
-	              AND NOT EXISTS (
-	                SELECT 1
-	                FROM property_tile_pyramid_versions v
-	                WHERE v.candidate_snapshot_id = s.id
-	              )
-	              AND (
+		            WHERE NOT EXISTS (
+		              SELECT 1
+		              FROM property_tile_candidate_source_current c
+		              WHERE c.snapshot_id = s.id
+		            )
+		              AND (
 	                (
 	                  s.status IN ('ready', 'failed', 'superseded')
-	                  AND COALESCE(s.updated_at, s.build_finished_at, s.created_at) < now() - interval '24 hours'
+	                  AND COALESCE(s.updated_at, s.build_finished_at, s.created_at) < now() - interval '1 hour'
+                    AND (
+                      NOT EXISTS (
+                        SELECT 1
+                        FROM property_tile_pyramid_versions v
+                        WHERE v.candidate_snapshot_id = s.id
+                      )
+                      OR (
+                        EXISTS (
+                          SELECT 1
+                          FROM property_tile_pyramid_versions v
+                          WHERE v.candidate_snapshot_id = s.id
+                            AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+                            AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '1 hour'
+                            AND (v.lease_until IS NULL OR v.lease_until < now())
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1
+                          FROM property_tile_pyramid_versions v
+                          WHERE v.candidate_snapshot_id = s.id
+                            AND v.status NOT IN ('failed_retryable', 'failed_terminal', 'superseded')
+                        )
+                      )
+                    )
 	                )
 	                OR (
 	                  s.status = 'building'
 	                  AND COALESCE(s.updated_at, s.build_started_at, s.created_at) < now() - interval '7 days'
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM property_tile_pyramid_versions v
+                      WHERE v.candidate_snapshot_id = s.id
+                    )
 	                )
 	              )
 	          ),
@@ -5205,7 +5428,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	              AND (
 	                (
 	                  s.status IN ('ready', 'failed', 'superseded')
-	                  AND COALESCE(s.updated_at, s.build_finished_at, s.created_at) < now() - interval '24 hours'
+	                  AND COALESCE(s.updated_at, s.build_finished_at, s.created_at) < now() - interval '1 hour'
 	                )
 	                OR (
 	                  s.status = 'building'
@@ -5282,6 +5505,23 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
     }
     throw error;
   }
+}
+
+async function runOptionalPropertyTilePyramidRetentionStep(input: {
+  relationName: string;
+  sql: SQL;
+}): Promise<{ affected: number; chunks: number; hasMore: boolean }> {
+  if (!(await hasPropertyTilePyramidRelation(input.relationName))) {
+    return { affected: 0, chunks: 0, hasMore: false };
+  }
+  return runPropertyTilePyramidRetentionStep({ sql: input.sql });
+}
+
+async function hasPropertyTilePyramidRelation(relationName: string): Promise<boolean> {
+  const rows = await db.execute<{ relation_name: string | null }>(sql`
+    SELECT to_regclass(${`public.${relationName}`})::text AS relation_name
+  `);
+  return Array.from(rows)[0]?.relation_name != null;
 }
 
 async function runPropertyTilePyramidRetentionStep(input: {
