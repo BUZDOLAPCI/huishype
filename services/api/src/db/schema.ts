@@ -997,6 +997,11 @@ export const propertyTileGroupingFacts = pgTable(
       table.snapshotId,
       table.geometry,
     ),
+    index('property_tile_grouping_facts_visible_snapshot_geometry_gist_idx')
+      .using('gist', table.snapshotId, table.geometry)
+      .where(
+        sql`${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75`,
+      ),
     index('property_tile_grouping_facts_snapshot_market_state_idx').on(
       table.snapshotId,
       table.marketState,

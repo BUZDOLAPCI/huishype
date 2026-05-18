@@ -410,7 +410,7 @@ describe('property-grouping', () => {
     expect(candidateQuery).toContain('lf.sale_effective_price');
   });
 
-  it('uses projected listing facts for default unpriced candidate queries', async () => {
+  it('uses direct grouping facts for default unpriced snapshot candidate queries', async () => {
     const renderedQueries: string[] = [];
     const txExecuteMock = jest.fn(async (query: SQL) => {
       renderedQueries.push(renderSql(query).replace(/\s+/g, ' ').trim());
@@ -427,18 +427,26 @@ describe('property-grouping', () => {
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((text) =>
-      text.includes('listing_facts AS MATERIALIZED')
+      text.includes('FROM property_tile_grouping_facts pgf')
     );
     expect(candidateQuery).toBeDefined();
-    expect(candidateQuery).toContain('listing_facts AS MATERIALIZED');
-    expect(candidateQuery).toContain('social_facts AS MATERIALIZED');
-    expect(candidateQuery).toContain('property_tile_grouping_facts pgf');
-    expect(candidateQuery).toContain('COALESCE(cp.has_active_listing, FALSE)');
-    expect(candidateQuery).toContain('COALESCE(cp.has_completed_listing, FALSE)');
-    expect(candidateQuery).toContain("COALESCE(cp.market_state, 'not-listed')");
-    expect(candidateQuery).toContain('COALESCE(cp.social_score, 0)');
-    expect(candidateQuery).toContain('COALESCE(cp.recent_social_score, 0)');
-    expect(candidateQuery).toContain('cp.last_social_at');
+    expect(candidateQuery).toContain('SELECT pgf.property_id AS id');
+    expect(candidateQuery).toContain('ST_X(pgf.geometry) AS lon');
+    expect(candidateQuery).toContain('ST_Y(pgf.geometry) AS lat');
+    expect(candidateQuery).toContain('WHERE (pgf.geometry && ST_MakeEnvelope');
+    expect(candidateQuery).toContain('pgf.snapshot_id = $');
+    expect(candidateQuery).toContain('COALESCE(pgf.has_active_listing, FALSE)');
+    expect(candidateQuery).toContain('COALESCE(pgf.has_completed_listing, FALSE)');
+    expect(candidateQuery).toContain("COALESCE(pgf.market_state, 'not-listed')");
+    expect(candidateQuery).toContain('COALESCE(pgf.social_score, 0)');
+    expect(candidateQuery).toContain('COALESCE(pgf.recent_social_score, 0)');
+    expect(candidateQuery).toContain('COALESCE(pgf.comment_count, 0)');
+    expect(candidateQuery).toContain('OR COALESCE(pgf.social_score, 0) >= $');
+    expect(candidateQuery).not.toContain('candidate_properties AS MATERIALIZED');
+    expect(candidateQuery).not.toContain('listing_facts AS MATERIALIZED');
+    expect(candidateQuery).not.toContain('social_facts AS MATERIALIZED');
+    expect(candidateQuery).not.toContain('INNER JOIN listing_facts');
+    expect(candidateQuery).not.toContain('INNER JOIN social_facts');
     expect(candidateQuery).not.toContain('property_tile_listing_facts');
     expect(candidateQuery).not.toContain('property_tile_social_facts');
     expect(candidateQuery).not.toContain('property_tile_listing_candidates');
@@ -480,9 +488,16 @@ describe('property-grouping', () => {
       query.sql.includes('property_tile_grouping_facts pgf')
     );
     expect(candidateQuery).toBeDefined();
+    expect(candidateQuery?.sql).toContain('pgf.last_social_at');
+    expect(candidateQuery?.sql).toContain('pgf.recent_social_score');
     expect(candidateQuery?.sql).toContain("::timestamptz - INTERVAL '24 hours'");
     expect(candidateQuery?.sql).toContain('<= $');
     expect(candidateQuery?.sql).not.toContain("NOW() - INTERVAL '7 days'");
+    expect(candidateQuery?.sql).not.toContain('candidate_properties AS MATERIALIZED');
+    expect(candidateQuery?.sql).not.toContain('listing_facts AS MATERIALIZED');
+    expect(candidateQuery?.sql).not.toContain('social_facts AS MATERIALIZED');
+    expect(candidateQuery?.sql).not.toContain('INNER JOIN listing_facts');
+    expect(candidateQuery?.sql).not.toContain('INNER JOIN social_facts');
     expect(candidateQuery?.sql).not.toContain('latest_public_guesses AS MATERIALIZED');
     expect(candidateQuery?.sql).not.toContain('FROM comments c');
     expect(candidateQuery?.sql).not.toContain('FROM reactions r');

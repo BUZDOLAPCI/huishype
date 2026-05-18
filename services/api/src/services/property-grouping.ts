@@ -1792,6 +1792,62 @@ async function fetchGroupingCandidatesInBBoxes(
 ): Promise<GroupingCandidate[]> {
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'candidate fetch preparation');
+  const useSnapshotGroupingFactProjection = usesSnapshotGroupingFacts({
+    includeGhostCandidates,
+    filters,
+    zoom,
+    options,
+  });
+
+  if (useSnapshotGroupingFactProjection) {
+    const snapshotActivityFilterPredicate = buildClosedActivityFilterPredicate(
+      filters.activity,
+      'pgf',
+      options
+    );
+    const snapshotCandidateVisibilityFilter = includeGhostCandidates
+      ? sql`TRUE`
+      : sql`(
+          COALESCE(pgf.has_active_listing, FALSE)
+          OR COALESCE(pgf.has_completed_listing, FALSE)
+          OR COALESCE(pgf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
+        )`;
+    const snapshotMarketStatePredicate = buildBulkMarketStatePredicate(filters, 'pgf');
+
+    const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
+      sql`
+        SELECT
+          pgf.property_id AS id,
+          ST_X(pgf.geometry) AS lon,
+          ST_Y(pgf.geometry) AS lat,
+          COALESCE(pgf.has_active_listing, FALSE) AS has_active_listing,
+          COALESCE(pgf.has_completed_listing, FALSE) AS has_completed_listing,
+          COALESCE(pgf.social_score, 0)::double precision AS social_score,
+          COALESCE(pgf.recent_social_score, 0)::double precision AS recent_social_score,
+          COALESCE(pgf.comment_count, 0)::int AS comment_count,
+          COALESCE(pgf.market_state, 'not-listed') AS market_state
+        FROM property_tile_grouping_facts pgf
+        WHERE (${buildBoundsFilter(boundsList, sql.raw('pgf.geometry'))})
+          AND ${candidateSnapshotFilter('pgf', options)}
+          AND ${snapshotMarketStatePredicate}
+          AND ${snapshotActivityFilterPredicate}
+          AND ${snapshotCandidateVisibilityFilter}
+      `,
+      options,
+      async (tx) => {
+        await tx.execute(sql`SET LOCAL jit = off`);
+      },
+      'candidate SQL'
+    );
+
+    return Array.from(rows).map((row, index) => {
+      if (index % 128 === 0) {
+        assertTileBuildCanContinue(options, startedAt, 'candidate fetch mapping');
+      }
+      return toCandidate(row, zoom);
+    });
+  }
+
   const activityFilterPredicate = buildClosedActivityFilterPredicate(
     filters.activity,
     'sf',
@@ -1816,12 +1872,6 @@ async function fetchGroupingCandidatesInBBoxes(
     zoom,
     options
   );
-  const useSnapshotGroupingFactProjection = usesSnapshotGroupingFacts({
-    includeGhostCandidates,
-    filters,
-    zoom,
-    options,
-  });
   const listingFactsCtes = includeEffectivePrices
     ? sql`
         ${buildTileListingFactsCte('candidate_properties')},
