@@ -29,6 +29,7 @@ const DEFAULT_MAX_MEMBER_ROWS = 5_000_000;
 const DEFAULT_MAX_WAL_BYTES_PER_CHUNK = 1_073_741_824;
 const DEFAULT_MAX_WAL_BYTES_PER_BUILD = 10 * 1_073_741_824;
 const PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT = 10_000;
+const PROPERTY_TILE_GROUPING_FACT_INSERT_BATCH_SIZE = 10_000;
 const DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP = 25;
 const PROPERTY_TILE_PYRAMID_PREFLIGHT_TILE_HEAP_BYTES = 250;
 const PROPERTY_TILE_PYRAMID_PREFLIGHT_TILE_INDEX_BYTES = 80;
@@ -1116,48 +1117,93 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
       ON CONFLICT (snapshot_id, property_id) DO NOTHING
     `);
 
-    await tx.execute(sql`
-      INSERT INTO property_tile_grouping_facts (
-        snapshot_id,
-        property_id,
-        geometry,
-        official_valuation,
-        has_active_listing,
-        has_completed_listing,
-        market_state,
-        comment_count,
-        social_score,
-        recent_social_score,
-        last_social_at,
-        updated_at
-      )
-      SELECT
-        ${snapshotId}::uuid,
-        lpc.property_id,
-        lpc.geometry,
-        lpc.official_valuation,
-        COALESCE(ptlf.has_active_listing, FALSE),
-        COALESCE(ptlf.has_completed_listing, FALSE),
-        COALESCE(ptlf.market_state, 'not-listed'),
-        (
-          COALESCE(ptsf.top_level_comment_count, 0)
-          + COALESCE(ptsf.reply_count, 0)
-        )::int,
-        COALESCE(ptsf.social_score, 0)::double precision,
-        COALESCE(ptsf.recent_social_score, 0)::double precision,
-        ptsf.last_social_at,
-        now()
-      FROM property_tile_listing_candidates lpc
-      LEFT JOIN property_tile_listing_facts ptlf
-        ON ptlf.snapshot_id = ${snapshotId}::uuid
-       AND ptlf.property_id = lpc.property_id
-      LEFT JOIN property_tile_social_facts ptsf
-        ON ptsf.snapshot_id = ${snapshotId}::uuid
-       AND ptsf.property_id = lpc.property_id
-      WHERE lpc.snapshot_id = ${snapshotId}::uuid
-        AND lpc.geometry IS NOT NULL
-      ON CONFLICT (snapshot_id, property_id) DO NOTHING
-    `);
+    let lastGroupingCandidatePropertyId: string | null = null;
+    for (;;) {
+      const groupingRows: Array<{
+        batch_count: string | number;
+        inserted_count: string | number;
+        max_property_id: string | null;
+      }> = await tx.execute(sql`
+        WITH candidate_batch AS MATERIALIZED (
+          SELECT
+            lpc.property_id,
+            lpc.geometry,
+            lpc.official_valuation
+          FROM property_tile_listing_candidates lpc
+          WHERE lpc.snapshot_id = ${snapshotId}::uuid
+            AND lpc.geometry IS NOT NULL
+            AND lpc.property_id > COALESCE(
+              ${lastGroupingCandidatePropertyId}::uuid,
+              '00000000-0000-0000-0000-000000000000'::uuid
+            )
+          ORDER BY lpc.property_id
+          LIMIT ${PROPERTY_TILE_GROUPING_FACT_INSERT_BATCH_SIZE}
+        ),
+        inserted AS (
+          INSERT INTO property_tile_grouping_facts (
+            snapshot_id,
+            property_id,
+            geometry,
+            official_valuation,
+            has_active_listing,
+            has_completed_listing,
+            market_state,
+            comment_count,
+            social_score,
+            recent_social_score,
+            last_social_at,
+            updated_at
+          )
+          SELECT
+            ${snapshotId}::uuid,
+            lpc.property_id,
+            lpc.geometry,
+            lpc.official_valuation,
+            COALESCE(ptlf.has_active_listing, FALSE),
+            COALESCE(ptlf.has_completed_listing, FALSE),
+            COALESCE(ptlf.market_state, 'not-listed'),
+            (
+              COALESCE(ptsf.top_level_comment_count, 0)
+              + COALESCE(ptsf.reply_count, 0)
+            )::int,
+            COALESCE(ptsf.social_score, 0)::double precision,
+            COALESCE(ptsf.recent_social_score, 0)::double precision,
+            ptsf.last_social_at,
+            now()
+          FROM candidate_batch lpc
+          LEFT JOIN property_tile_listing_facts ptlf
+            ON ptlf.snapshot_id = ${snapshotId}::uuid
+           AND ptlf.property_id = lpc.property_id
+          LEFT JOIN property_tile_social_facts ptsf
+            ON ptsf.snapshot_id = ${snapshotId}::uuid
+           AND ptsf.property_id = lpc.property_id
+          ON CONFLICT (snapshot_id, property_id) DO NOTHING
+          RETURNING property_id
+        )
+        SELECT
+          (SELECT count(*)::bigint::text FROM candidate_batch) AS batch_count,
+          (SELECT count(*)::bigint::text FROM inserted) AS inserted_count,
+          (SELECT max(property_id)::text FROM candidate_batch) AS max_property_id
+      `);
+      const groupingRow:
+        | {
+            batch_count: string | number;
+            inserted_count: string | number;
+            max_property_id: string | null;
+          }
+        | undefined = groupingRows[0];
+      if (!groupingRow) {
+        break;
+      }
+      const batchCount = Number(groupingRow.batch_count);
+      if (batchCount <= 0) {
+        break;
+      }
+      lastGroupingCandidatePropertyId = groupingRow.max_property_id;
+      if (!lastGroupingCandidatePropertyId) {
+        break;
+      }
+    }
 
     await tx.execute(sql`
       INSERT INTO property_tile_grouping_facts (
