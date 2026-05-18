@@ -62,6 +62,14 @@ describe('Listing routes', () => {
   };
   let mockFetchFn: jest.Mock<typeof global.fetch>;
 
+  function listingFixturePropertyIdsQuery() {
+    return sql`
+      SELECT id FROM properties
+      WHERE country_code = 'NL'
+        AND street IN (${testPropertyStreet}, ${otherPropertyStreet})
+    `;
+  }
+
   function jsonResponse(body: unknown, status = 200): Response {
     return {
       ok: status >= 200 && status < 300,
@@ -251,81 +259,37 @@ describe('Listing routes', () => {
       DELETE FROM listing_observation_links
       WHERE canonical_listing_id IN (
         SELECT id FROM canonical_listings
-        WHERE property_id IN (
-          SELECT id FROM properties
-          WHERE street = 'Listings Fixture Street'
-            OR street = 'Listings Mismatch Street'
-            OR street LIKE 'Listings Fixture Street %'
-            OR street LIKE 'Listings Mismatch Street %'
-        )
+        WHERE property_id IN (${listingFixturePropertyIdsQuery()})
       )
     `);
     await db.execute(sql`
       DELETE FROM listing_candidate_handoffs
-      WHERE property_id IN (
-        SELECT id FROM properties
-        WHERE street = 'Listings Fixture Street'
-          OR street = 'Listings Mismatch Street'
-          OR street LIKE 'Listings Fixture Street %'
-          OR street LIKE 'Listings Mismatch Street %'
-      )
+      WHERE property_id IN (${listingFixturePropertyIdsQuery()})
     `);
     await db.execute(sql`
       DELETE FROM listing_preview_results
-      WHERE property_id IN (
-        SELECT id FROM properties
-        WHERE street = 'Listings Fixture Street'
-          OR street = 'Listings Mismatch Street'
-          OR street LIKE 'Listings Fixture Street %'
-          OR street LIKE 'Listings Mismatch Street %'
-      )
+      WHERE property_id IN (${listingFixturePropertyIdsQuery()})
     `);
     await db.execute(sql`
       DELETE FROM listing_observations
-      WHERE property_id IN (
-        SELECT id FROM properties
-        WHERE street = 'Listings Fixture Street'
-          OR street = 'Listings Mismatch Street'
-          OR street LIKE 'Listings Fixture Street %'
-          OR street LIKE 'Listings Mismatch Street %'
-      )
+      WHERE property_id IN (${listingFixturePropertyIdsQuery()})
     `);
     await db.execute(sql`
       DELETE FROM canonical_listings
-      WHERE property_id IN (
-        SELECT id FROM properties
-        WHERE street = 'Listings Fixture Street'
-          OR street = 'Listings Mismatch Street'
-          OR street LIKE 'Listings Fixture Street %'
-          OR street LIKE 'Listings Mismatch Street %'
-      )
+      WHERE property_id IN (${listingFixturePropertyIdsQuery()})
     `);
     await db.execute(sql`
       DELETE FROM price_history
-      WHERE property_id IN (
-        SELECT id FROM properties
-        WHERE street = 'Listings Fixture Street'
-          OR street = 'Listings Mismatch Street'
-          OR street LIKE 'Listings Fixture Street %'
-          OR street LIKE 'Listings Mismatch Street %'
-      )
+      WHERE property_id IN (${listingFixturePropertyIdsQuery()})
     `);
     await db.execute(sql`
       DELETE FROM listings
-      WHERE property_id IN (
-        SELECT id FROM properties
-        WHERE street = 'Listings Fixture Street'
-          OR street = 'Listings Mismatch Street'
-          OR street LIKE 'Listings Fixture Street %'
-          OR street LIKE 'Listings Mismatch Street %'
-      )
+      WHERE property_id IN (${listingFixturePropertyIdsQuery()})
     `);
     await db.execute(sql`
       DELETE FROM properties
-      WHERE street = 'Listings Fixture Street'
-        OR street = 'Listings Mismatch Street'
-        OR street LIKE 'Listings Fixture Street %'
-        OR street LIKE 'Listings Mismatch Street %'
+      WHERE country_code = 'NL'
+        AND street IN (${testPropertyStreet}, ${otherPropertyStreet})
     `);
     await db.execute(sql`
       DELETE FROM ingest_sources

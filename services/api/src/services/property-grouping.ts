@@ -1418,7 +1418,25 @@ function candidateSnapshotFilter(alias: string, options?: PropertyTileBuildOptio
       )`;
 }
 
-function buildTileListingFactsProjectionCte(options?: PropertyTileBuildOptions): SQL {
+function buildTileListingFactsProjectionCte(
+  options?: PropertyTileBuildOptions,
+  useSnapshotGroupingFacts = false
+): SQL {
+  if (useSnapshotGroupingFacts) {
+    return sql`
+      listing_facts AS MATERIALIZED (
+        SELECT
+          cp.id AS property_id,
+          COALESCE(cp.has_active_listing, FALSE) AS has_active_listing,
+          COALESCE(cp.has_completed_listing, FALSE) AS has_completed_listing,
+          COALESCE(cp.market_state, 'not-listed') AS market_state,
+          NULL::bigint AS sale_effective_price,
+          NULL::bigint AS rent_effective_price
+        FROM candidate_properties cp
+      )
+    `;
+  }
+
   if (!options?.candidateSnapshotId) {
     return sql`
       latest_listing AS MATERIALIZED (
@@ -1507,6 +1525,20 @@ function buildTileListingFactsProjectionCte(options?: PropertyTileBuildOptions):
   `;
 }
 
+function usesSnapshotGroupingFacts(input: {
+  includeGhostCandidates: boolean;
+  filters: MapFilters;
+  zoom: number;
+  options?: PropertyTileBuildOptions;
+}): boolean {
+  return (
+    input.options?.candidateSnapshotId != null &&
+    !input.includeGhostCandidates &&
+    !hasPriceFilters(input.filters) &&
+    input.zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM
+  );
+}
+
 export function buildGroupingCandidateScopeCtes(
   boundsList: TileBBox[],
   includeGhostCandidates: boolean,
@@ -1531,6 +1563,12 @@ export function buildGroupingCandidateScopeCtes(
     options?.candidateSnapshotId != null &&
     !includeGhostCandidates &&
     zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
+  const useSnapshotGroupingFacts = usesSnapshotGroupingFacts({
+    includeGhostCandidates,
+    filters,
+    zoom,
+    options,
+  });
 
   if (includeGhostCandidates) {
     return sql`
@@ -1543,6 +1581,27 @@ export function buildGroupingCandidateScopeCtes(
           WHERE p.geometry IS NOT NULL
             AND p.status = 'active'
             AND (${bboxFilter})
+        )
+      `;
+  }
+
+  if (useSnapshotGroupingFacts) {
+    return sql`
+        candidate_properties AS MATERIALIZED (
+          SELECT
+            pgf.property_id AS id,
+            pgf.geometry,
+            pgf.official_valuation,
+            pgf.has_active_listing,
+            pgf.has_completed_listing,
+            pgf.market_state,
+            pgf.comment_count,
+            pgf.social_score,
+            pgf.recent_social_score,
+            pgf.last_social_at
+          FROM property_tile_grouping_facts pgf
+          WHERE ${buildBoundsFilter(boundsList, sql.raw('pgf.geometry'))}
+            AND ${candidateSnapshotFilter('pgf', options)}
         )
       `;
   }
@@ -1757,6 +1816,12 @@ async function fetchGroupingCandidatesInBBoxes(
     zoom,
     options
   );
+  const useSnapshotGroupingFactProjection = usesSnapshotGroupingFacts({
+    includeGhostCandidates,
+    filters,
+    zoom,
+    options,
+  });
   const listingFactsCtes = includeEffectivePrices
     ? sql`
         ${buildTileListingFactsCte('candidate_properties')},
@@ -1885,9 +1950,37 @@ async function fetchGroupingCandidatesInBBoxes(
           LEFT JOIN guess_facts ON guess_facts.property_id = cp.id
         )
       `
-    : buildTileListingFactsProjectionCte(options);
-  const useSnapshotSocialFacts = options?.candidateSnapshotId != null && !includeEffectivePrices;
-  const socialFactsCtes = useSnapshotSocialFacts
+    : buildTileListingFactsProjectionCte(options, useSnapshotGroupingFactProjection);
+  const useSnapshotSocialFacts =
+    options?.candidateSnapshotId != null &&
+    !includeEffectivePrices &&
+    !useSnapshotGroupingFactProjection;
+  const socialFactsCtes = useSnapshotGroupingFactProjection
+    ? sql`
+        social_facts AS MATERIALIZED (
+          SELECT
+            cp.id AS property_id,
+            COALESCE(cp.comment_count, 0)::int AS top_level_comment_count,
+            0::int AS reply_count,
+            0::int AS property_like_count,
+            0::int AS comment_like_count,
+            0::int AS guess_count,
+            0::int AS view_count,
+            0::int AS unique_viewer_count,
+            0::int AS recent_top_level_comment_count,
+            0::int AS recent_reply_count,
+            0::int AS recent_property_like_count,
+            0::int AS recent_comment_like_count,
+            0::int AS recent_guess_count,
+            0::int AS recent_view_count,
+            0::int AS recent_unique_viewer_count,
+            COALESCE(cp.social_score, 0)::double precision AS social_score,
+            COALESCE(cp.recent_social_score, 0)::double precision AS recent_social_score,
+            cp.last_social_at
+          FROM candidate_properties cp
+        )
+      `
+    : useSnapshotSocialFacts
     ? sql`
         social_facts AS MATERIALIZED (
           SELECT

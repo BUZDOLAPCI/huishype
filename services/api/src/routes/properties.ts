@@ -605,6 +605,16 @@ const imageryLatSelect = sql`CASE
   ELSE ST_Y(p.geometry)
 END`;
 
+const propertyGeometryImageryLonSelect = sql`CASE
+  WHEN p.geometry IS NULL THEN NULL
+  ELSE ST_X(p.geometry)
+END`;
+
+const propertyGeometryImageryLatSelect = sql`CASE
+  WHEN p.geometry IS NULL THEN NULL
+  ELSE ST_Y(p.geometry)
+END`;
+
 function mapPropertyBaseRow(row: {
   id: string;
   national_id: string | null;
@@ -1221,7 +1231,16 @@ function buildPropertyWhereConditions(params: {
   return conditions;
 }
 
-const PUBLIC_PROPERTY_SELECT = sql`
+function buildPublicPropertySelect(options: { useSnappedImagery?: boolean } = {}): SQL {
+  const useSnappedImagery = options.useSnappedImagery ?? true;
+  const imageryLonExpression = useSnappedImagery
+    ? imageryLonSelect
+    : propertyGeometryImageryLonSelect;
+  const imageryLatExpression = useSnappedImagery
+    ? imageryLatSelect
+    : propertyGeometryImageryLatSelect;
+
+  return sql`
   p.id,
   p.national_id,
   p.country_code,
@@ -1233,8 +1252,8 @@ const PUBLIC_PROPERTY_SELECT = sql`
   p.postal_code,
   ST_X(p.geometry) AS lon,
   ST_Y(p.geometry) AS lat,
-  ${imageryLonSelect} AS imagery_lon,
-  ${imageryLatSelect} AS imagery_lat,
+  ${imageryLonExpression} AS imagery_lon,
+  ${imageryLatExpression} AS imagery_lat,
   p.year_built,
   p.floor_area_m2,
   p.status,
@@ -1267,6 +1286,10 @@ const PUBLIC_PROPERTY_SELECT = sql`
   sf.recent_view_count,
   sf.recent_unique_viewer_count
 `;
+}
+
+const PUBLIC_PROPERTY_SELECT = buildPublicPropertySelect();
+const PUBLIC_PROPERTY_LIST_SELECT = buildPublicPropertySelect({ useSnappedImagery: false });
 
 const RESOLVE_TAP_BUILDING_SEARCH_RADIUS_METERS = 16;
 const RESOLVE_TAP_BUILDING_PROPERTY_TOLERANCE_METERS = 3;
@@ -1830,6 +1853,9 @@ export async function propertyRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { page, limit, city, minPrice, maxPrice, bbox, lat, lon, radius } = request.query;
       const offset = (page - 1) * limit;
+      const usesSpatialPropertyListFilter = Boolean(
+        bbox || (lat !== undefined && lon !== undefined)
+      );
       const parsedMapFilters = parseMapFiltersQuery(request.query);
       const filters = normalizeMapFilters({
         ...parsedMapFilters,
@@ -1848,14 +1874,17 @@ export async function propertyRoutes(app: FastifyInstance) {
 
       const whereFragment = sql`WHERE ${sql.join(conditions, sql` AND `)}`;
 
-      const countRows = await db.execute<{ cnt: number }>(sql`
-        SELECT COUNT(*)::int AS cnt
-        FROM properties p
-        ${mapFilterQuery.join}
-        ${requiresSocialFactsForCount ? buildPropertySocialFactsJoin('p', 'sf') : sql``}
-        ${whereFragment}
-      `);
-      const total = Array.from(countRows)[0]?.cnt ?? 0;
+      let total = 0;
+      if (!usesSpatialPropertyListFilter) {
+        const countRows = await db.execute<{ cnt: number }>(sql`
+          SELECT COUNT(*)::int AS cnt
+          FROM properties p
+          ${mapFilterQuery.join}
+          ${requiresSocialFactsForCount ? buildPropertySocialFactsJoin('p', 'sf') : sql``}
+          ${whereFragment}
+        `);
+        total = Array.from(countRows)[0]?.cnt ?? 0;
+      }
 
       const rows = await db.execute<PropertyRow>(sql`
         WITH page_ids AS (
@@ -1864,22 +1893,25 @@ export async function propertyRoutes(app: FastifyInstance) {
           ${requiresListingFactsForMarketFilters ? mapFilterQuery.join : sql``}
           ${requiresSocialFactsForCount ? buildPropertySocialFactsJoin('p', 'sf') : sql``}
           ${whereFragment}
-          ORDER BY p.created_at, p.id
+          ORDER BY p.id
           LIMIT ${limit}
           OFFSET ${offset}
         )
         SELECT
-          ${PUBLIC_PROPERTY_SELECT}
+          ${PUBLIC_PROPERTY_LIST_SELECT}
         FROM page_ids page
         INNER JOIN properties p ON p.id = page.id
         ${buildPropertyListingFactsJoin('p', 'lf')}
         ${buildPropertySocialFactsJoin('p', 'sf')}
-        ${imageryJoin}
-        ORDER BY p.created_at, p.id
+        ORDER BY p.id
       `);
+      const rowArray = Array.from(rows);
+      if (usesSpatialPropertyListFilter) {
+        total = offset + rowArray.length;
+      }
 
       return reply.send({
-        data: Array.from(rows).map(mapPublicPropertyRow),
+        data: rowArray.map(mapPublicPropertyRow),
         meta: {
           page,
           limit,

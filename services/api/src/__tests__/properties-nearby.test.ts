@@ -421,6 +421,7 @@ async function withHermeticCurrentPyramidNode(
       status,
       candidate_row_count,
       fact_row_count,
+      social_fact_row_count,
       build_finished_at
     )
     VALUES (
@@ -432,6 +433,7 @@ async function withHermeticCurrentPyramidNode(
       ${sourceWatermarkHash},
       ${JSON.stringify({ sources: [{ source: 'nearby-fractional-test' }] })}::jsonb,
       'ready',
+      0,
       0,
       0,
       NOW()

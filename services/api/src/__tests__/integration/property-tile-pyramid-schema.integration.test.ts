@@ -302,6 +302,8 @@ async function insertCandidateSourceSnapshot(input: {
       status,
       candidate_row_count,
       fact_row_count,
+      social_fact_row_count,
+      grouping_fact_row_count,
       build_finished_at
     )
     VALUES (
@@ -313,6 +315,8 @@ async function insertCandidateSourceSnapshot(input: {
       ${sha(`candidate-comparable-${unique}`)},
       ${JSON.stringify({ sources: [{ source: 'schema-candidate-source', unique }] })}::jsonb,
       ${input.status ?? 'ready'},
+      0,
+      0,
       0,
       0,
       ${input.status === undefined || input.status === 'ready' ? sql`now()` : null}
@@ -343,6 +347,8 @@ async function insertDefaultSlotVersionWithCandidate(input: {
       status,
       candidate_row_count,
       fact_row_count,
+      social_fact_row_count,
+      grouping_fact_row_count,
       build_finished_at
     )
     VALUES (
@@ -357,6 +363,8 @@ async function insertDefaultSlotVersionWithCandidate(input: {
         comparableSourceWatermarkHash: input.candidateComparableSourceWatermarkHash,
       })}::jsonb,
       'ready',
+      0,
+      0,
       0,
       0,
       now()
@@ -456,7 +464,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_candidate_source_current'::regclass,
         'property_tile_listing_candidates'::regclass,
         'property_tile_listing_facts'::regclass,
-        'property_tile_social_facts'::regclass
+        'property_tile_social_facts'::regclass,
+        'property_tile_grouping_facts'::regclass
       )
     `)
     ).map((row) => row.conname);
@@ -475,6 +484,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_listing_candidates_pkey',
         'property_tile_listing_facts_pkey',
         'property_tile_social_facts_pkey',
+        'property_tile_grouping_facts_pkey',
+        'property_tile_grouping_facts_market_state_check',
       ])
     );
 
@@ -490,7 +501,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_candidate_source_snapshots',
         'property_tile_listing_candidates',
         'property_tile_listing_facts',
-        'property_tile_social_facts'
+        'property_tile_social_facts',
+        'property_tile_grouping_facts'
       )
     `)
     ).map((row) => row.indexname);
@@ -513,6 +525,10 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_social_facts_snapshot_id_idx',
         'property_tile_social_facts_geometry_gist_idx',
         'property_tile_social_facts_snapshot_last_social_at_idx',
+        'property_tile_grouping_facts_snapshot_id_idx',
+        'property_tile_grouping_facts_snapshot_geometry_gist_idx',
+        'property_tile_grouping_facts_snapshot_market_state_idx',
+        'property_tile_grouping_facts_snapshot_last_social_at_idx',
       ])
     );
 
@@ -524,6 +540,16 @@ describe('property tile pyramid schema safeguards', () => {
     `)
     ).map((row) => row.column_name);
     expect(snapshotColumns).toContain('social_fact_row_count');
+    expect(snapshotColumns).toContain('grouping_fact_row_count');
+
+    const extensions = Array.from(
+      await db.execute<{ extname: string }>(sql`
+      SELECT extname
+      FROM pg_extension
+      WHERE extname = 'btree_gist'
+    `)
+    ).map((row) => row.extname);
+    expect(extensions).toContain('btree_gist');
 
     const functions = Array.from(
       await db.execute<{ proname: string }>(sql`

@@ -817,6 +817,7 @@ export const propertyTileCandidateSourceSnapshots = pgTable(
     candidateRowCount: bigint('candidate_row_count', { mode: 'bigint' }).notNull().default(0n),
     factRowCount: bigint('fact_row_count', { mode: 'bigint' }).notNull().default(0n),
     socialFactRowCount: bigint('social_fact_row_count', { mode: 'bigint' }),
+    groupingFactRowCount: bigint('grouping_fact_row_count', { mode: 'bigint' }),
     buildStartedAt: timestamp('build_started_at', { withTimezone: true }).notNull().defaultNow(),
     buildFinishedAt: timestamp('build_finished_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -844,7 +845,7 @@ export const propertyTileCandidateSourceSnapshots = pgTable(
     ),
     check(
       'property_tile_candidate_source_snapshots_counts_check',
-      sql`${table.candidateRowCount} >= 0 AND ${table.factRowCount} >= 0 AND (${table.socialFactRowCount} IS NULL OR ${table.socialFactRowCount} >= 0)`,
+      sql`${table.candidateRowCount} >= 0 AND ${table.factRowCount} >= 0 AND (${table.socialFactRowCount} IS NULL OR ${table.socialFactRowCount} >= 0) AND (${table.groupingFactRowCount} IS NULL OR ${table.groupingFactRowCount} >= 0)`,
     ),
   ]
 );
@@ -962,6 +963,51 @@ export const propertyTileSocialFacts = pgTable(
     index('property_tile_social_facts_snapshot_last_social_at_idx').on(
       table.snapshotId,
       table.lastSocialAt,
+    ),
+  ]
+);
+
+export const propertyTileGroupingFacts = pgTable(
+  'property_tile_grouping_facts',
+  {
+    snapshotId: uuid('snapshot_id')
+      .notNull()
+      .references(() => propertyTileCandidateSourceSnapshots.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    geometry: geometry('geometry').notNull(),
+    officialValuation: bigint('official_valuation', { mode: 'number' }),
+    hasActiveListing: boolean('has_active_listing').notNull().default(false),
+    hasCompletedListing: boolean('has_completed_listing').notNull().default(false),
+    marketState: varchar('market_state', { length: 20 }).notNull().default('not-listed'),
+    commentCount: integer('comment_count').notNull().default(0),
+    socialScore: doublePrecision('social_score').notNull().default(0),
+    recentSocialScore: doublePrecision('recent_social_score').notNull().default(0),
+    lastSocialAt: timestamp('last_social_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.snapshotId, table.propertyId],
+      name: 'property_tile_grouping_facts_pkey',
+    }),
+    index('property_tile_grouping_facts_snapshot_id_idx').on(table.snapshotId),
+    index('property_tile_grouping_facts_snapshot_geometry_gist_idx').using(
+      'gist',
+      table.snapshotId,
+      table.geometry,
+    ),
+    index('property_tile_grouping_facts_snapshot_market_state_idx').on(
+      table.snapshotId,
+      table.marketState,
+    ),
+    index('property_tile_grouping_facts_snapshot_last_social_at_idx').on(
+      table.snapshotId,
+      table.lastSocialAt,
+    ),
+    check(
+      'property_tile_grouping_facts_market_state_check',
+      sql`${table.marketState} IN ('for-sale', 'for-rent', 'sold', 'rented', 'not-listed')`,
     ),
   ]
 );

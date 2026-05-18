@@ -620,7 +620,8 @@ function isPropertyTileProjectionFingerprintSource(source: Record<string, unknow
   return (
     source.source === 'property_tile_listing_candidates' ||
     source.source === 'property_tile_listing_facts' ||
-    source.source === 'property_tile_social_facts'
+    source.source === 'property_tile_social_facts' ||
+    source.source === 'property_tile_grouping_facts'
   );
 }
 
@@ -667,6 +668,7 @@ async function readReadyPropertyTileCandidateSourceSnapshot(input: {
       AND comparable_source_watermark_hash = ${input.comparableSourceWatermarkHash}
       AND status = 'ready'
       AND social_fact_row_count IS NOT NULL
+      AND grouping_fact_row_count IS NOT NULL
     ORDER BY created_at DESC
     LIMIT 1
   `);
@@ -707,6 +709,7 @@ async function readReadyPropertyTileCandidateSourceSnapshotById(input: {
     FROM property_tile_candidate_source_snapshots
     WHERE id = ${input.snapshotId}::uuid
       AND social_fact_row_count IS NOT NULL
+      AND grouping_fact_row_count IS NOT NULL
     LIMIT 1
   `);
   const row = Array.from(rows)[0];
@@ -768,7 +771,10 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
         AND comparable_source_watermark_hash = ${input.comparableSourceWatermarkHash}
         AND status = 'ready'
-        AND social_fact_row_count IS NULL
+        AND (
+          social_fact_row_count IS NULL
+          OR grouping_fact_row_count IS NULL
+        )
     `);
 
     const insertedRows = await tx.execute<{ id: string }>(sql`
@@ -1110,10 +1116,65 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
       ON CONFLICT (snapshot_id, property_id) DO NOTHING
     `);
 
+    await tx.execute(sql`
+      WITH grouping_property_ids AS MATERIALIZED (
+        SELECT property_id
+        FROM property_tile_listing_candidates
+        WHERE snapshot_id = ${snapshotId}::uuid
+        UNION
+        SELECT property_id
+        FROM property_tile_social_facts
+        WHERE snapshot_id = ${snapshotId}::uuid
+      )
+      INSERT INTO property_tile_grouping_facts (
+        snapshot_id,
+        property_id,
+        geometry,
+        official_valuation,
+        has_active_listing,
+        has_completed_listing,
+        market_state,
+        comment_count,
+        social_score,
+        recent_social_score,
+        last_social_at,
+        updated_at
+      )
+      SELECT
+        ${snapshotId}::uuid,
+        gpi.property_id,
+        COALESCE(lpc.geometry, ptsf.geometry),
+        COALESCE(lpc.official_valuation, ptsf.official_valuation),
+        COALESCE(ptlf.has_active_listing, FALSE),
+        COALESCE(ptlf.has_completed_listing, FALSE),
+        COALESCE(ptlf.market_state, 'not-listed'),
+        (
+          COALESCE(ptsf.top_level_comment_count, 0)
+          + COALESCE(ptsf.reply_count, 0)
+        )::int,
+        COALESCE(ptsf.social_score, 0)::double precision,
+        COALESCE(ptsf.recent_social_score, 0)::double precision,
+        ptsf.last_social_at,
+        now()
+      FROM grouping_property_ids gpi
+      LEFT JOIN property_tile_listing_candidates lpc
+        ON lpc.snapshot_id = ${snapshotId}::uuid
+       AND lpc.property_id = gpi.property_id
+      LEFT JOIN property_tile_listing_facts ptlf
+        ON ptlf.snapshot_id = ${snapshotId}::uuid
+       AND ptlf.property_id = gpi.property_id
+      LEFT JOIN property_tile_social_facts ptsf
+        ON ptsf.snapshot_id = ${snapshotId}::uuid
+       AND ptsf.property_id = gpi.property_id
+      WHERE COALESCE(lpc.geometry, ptsf.geometry) IS NOT NULL
+      ON CONFLICT (snapshot_id, property_id) DO NOTHING
+    `);
+
     const countRows = await tx.execute<{
       candidate_count: string | number;
       fact_count: string | number;
       social_fact_count: string | number;
+      grouping_fact_count: string | number;
     }>(sql`
       SELECT
         (SELECT count(*)::bigint::text FROM property_tile_listing_candidates WHERE snapshot_id = ${snapshotId}::uuid)
@@ -1121,7 +1182,9 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         (SELECT count(*)::bigint::text FROM property_tile_listing_facts WHERE snapshot_id = ${snapshotId}::uuid)
           AS fact_count,
         (SELECT count(*)::bigint::text FROM property_tile_social_facts WHERE snapshot_id = ${snapshotId}::uuid)
-          AS social_fact_count
+          AS social_fact_count,
+        (SELECT count(*)::bigint::text FROM property_tile_grouping_facts WHERE snapshot_id = ${snapshotId}::uuid)
+          AS grouping_fact_count
     `);
     const counts = Array.from(countRows)[0];
     await tx.execute(sql`
@@ -1131,6 +1194,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         candidate_row_count = ${counts?.candidate_count ?? 0},
         fact_row_count = ${counts?.fact_count ?? 0},
         social_fact_row_count = ${counts?.social_fact_count ?? 0},
+        grouping_fact_row_count = ${counts?.grouping_fact_count ?? 0},
         build_finished_at = now(),
         updated_at = now()
       WHERE id = ${snapshotId}::uuid
@@ -1783,6 +1847,16 @@ export async function readPropertyTilePyramidSourceWatermarkSnapshot(
       FROM current_snapshot
       LEFT JOIN property_tile_social_facts ptsf
         ON ptsf.snapshot_id = current_snapshot.snapshot_id
+      GROUP BY current_snapshot.snapshot_id
+      UNION ALL
+      SELECT
+        'property_tile_grouping_facts'::text AS source,
+        current_snapshot.snapshot_id::text AS candidate_snapshot_id,
+        count(pgf.property_id)::bigint::text AS row_count,
+        max(pgf.updated_at) AS max_updated_at
+      FROM current_snapshot
+      LEFT JOIN property_tile_grouping_facts pgf
+        ON pgf.snapshot_id = current_snapshot.snapshot_id
       GROUP BY current_snapshot.snapshot_id
       ORDER BY source
     `);
@@ -3330,84 +3404,28 @@ async function estimatePropertyTilePyramidPreflight(input: {
     ${input.coverage.maxLat},
     4326
   )`;
-  const closedSocialActivityPredicate = (column: SQL) =>
-    input.closedSocialActivityCutoffAt
-      ? sql`${column} <= ${input.closedSocialActivityCutoffAt}::timestamptz`
-      : sql`TRUE`;
   const visibleCandidateRows = await estimatePropertyTilePyramidPlanRows(sql`
     EXPLAIN (FORMAT JSON)
-    SELECT visible.property_id
-    FROM (
-	      SELECT lpc.property_id
-	      FROM property_tile_listing_candidates lpc
-	      WHERE lpc.geometry && ${envelope}
-	        AND lpc.snapshot_id = ${input.candidateSnapshotId}::uuid
-
-      UNION
-
-	      SELECT c.property_id
-	      FROM comments c
-	      INNER JOIN properties p ON p.id = c.property_id
-	      WHERE p.geometry IS NOT NULL
-	        AND p.status = 'active'
-	        AND p.geometry && ${envelope}
-          AND ${closedSocialActivityPredicate(sql.raw('c.created_at'))}
-
-	      UNION
-
-	      SELECT r.target_id AS property_id
-	      FROM reactions r
-      INNER JOIN properties p ON p.id = r.target_id
-      WHERE r.target_type = 'property'
-	        AND r.reaction_type = 'like'
-	        AND p.geometry IS NOT NULL
-	        AND p.status = 'active'
-	        AND p.geometry && ${envelope}
-          AND ${closedSocialActivityPredicate(sql.raw('r.created_at'))}
-
-	      UNION
-
-	      SELECT c.property_id
-	      FROM reactions r
-      INNER JOIN comments c ON c.id = r.target_id
-      INNER JOIN properties p ON p.id = c.property_id
-      WHERE r.target_type = 'comment'
-	        AND r.reaction_type = 'like'
-	        AND p.geometry IS NOT NULL
-	        AND p.status = 'active'
-	        AND p.geometry && ${envelope}
-          AND ${closedSocialActivityPredicate(sql.raw('r.created_at'))}
-          AND ${closedSocialActivityPredicate(sql.raw('c.created_at'))}
-
-	      UNION
-
-	      SELECT pg.property_id
-	      FROM price_guesses pg
-      INNER JOIN properties p ON p.id = pg.property_id
-	      WHERE p.geometry IS NOT NULL
-	        AND p.status = 'active'
-	        AND p.geometry && ${envelope}
-          AND ${closedSocialActivityPredicate(sql`GREATEST(pg.created_at, pg.updated_at)`)}
-
-	      UNION
-
-	      SELECT pv.property_id
-      FROM property_views pv
-      INNER JOIN properties p ON p.id = pv.property_id
-	      WHERE p.geometry IS NOT NULL
-	        AND p.status = 'active'
-	        AND p.geometry && ${envelope}
-          AND ${closedSocialActivityPredicate(sql.raw('pv.viewed_at'))}
-	      GROUP BY pv.property_id
-      HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
-    ) visible
+    SELECT pgf.property_id
+    FROM property_tile_grouping_facts pgf
+    WHERE pgf.geometry && ${envelope}
+      AND pgf.snapshot_id = ${input.candidateSnapshotId}::uuid
+      AND (
+        pgf.has_active_listing
+        OR pgf.has_completed_listing
+        OR pgf.social_score >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
+      )
   `);
   const listingCandidateRows = await estimatePropertyTilePyramidPlanRows(sql`
     EXPLAIN (FORMAT JSON)
-	    SELECT lpc.property_id
-	    FROM property_tile_listing_candidates lpc
-	    WHERE lpc.geometry && ${envelope}
-	      AND lpc.snapshot_id = ${input.candidateSnapshotId}::uuid
+	    SELECT pgf.property_id
+	    FROM property_tile_grouping_facts pgf
+	    WHERE pgf.geometry && ${envelope}
+	      AND pgf.snapshot_id = ${input.candidateSnapshotId}::uuid
+        AND (
+          pgf.has_active_listing
+          OR pgf.has_completed_listing
+        )
 	  `);
   const estimatedPropertySourceRows = Math.max(0, Math.ceil(visibleCandidateRows ?? 0));
   const estimatedListingCandidateRows = Math.max(0, Math.ceil(listingCandidateRows ?? 0));
@@ -4916,6 +4934,7 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
 	            'property_tile_listing_candidates',
 	            'property_tile_listing_facts',
 	            'property_tile_social_facts',
+	            'property_tile_grouping_facts',
 	            'rolling_social_window'
 	          )
 	          AND NULLIF(closed_values.value, '') IS NOT NULL
@@ -4989,6 +5008,15 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
 	        SELECT max(ptsf.updated_at) AS max_updated_at
 	        FROM property_tile_candidate_source_current c
 	        JOIN property_tile_social_facts ptsf ON ptsf.snapshot_id = c.snapshot_id
+	        WHERE c.coverage_id = ${slot.coverageId}
+	          AND c.filter_signature = ${slot.filterSignature}
+	          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+
+	        UNION ALL
+
+	        SELECT max(pgf.updated_at) AS max_updated_at
+	        FROM property_tile_candidate_source_current c
+	        JOIN property_tile_grouping_facts pgf ON pgf.snapshot_id = c.snapshot_id
 	        WHERE c.coverage_id = ${slot.coverageId}
 	          AND c.filter_signature = ${slot.filterSignature}
 	          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
@@ -5705,6 +5733,71 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	          SELECT count(*)::int AS affected FROM deleted
 	        `,
         });
+        const deletedCandidateGroupingFacts = await runPropertyTilePyramidRetentionStep({
+          sql: sql`
+	          WITH reclaimable_snapshots AS (
+	            SELECT s.id
+	            FROM property_tile_candidate_source_snapshots s
+		            WHERE NOT EXISTS (
+		              SELECT 1
+		              FROM property_tile_candidate_source_current c
+		              WHERE c.snapshot_id = s.id
+		            )
+		              AND (
+	                (
+	                  s.status IN ('ready', 'failed', 'superseded')
+	                  AND COALESCE(s.updated_at, s.build_finished_at, s.created_at) < now() - interval '1 hour'
+                    AND (
+                      NOT EXISTS (
+                        SELECT 1
+                        FROM property_tile_pyramid_versions v
+                        WHERE v.candidate_snapshot_id = s.id
+                      )
+                      OR (
+                        EXISTS (
+                          SELECT 1
+                          FROM property_tile_pyramid_versions v
+                          WHERE v.candidate_snapshot_id = s.id
+                            AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+                            AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '1 hour'
+                            AND (v.lease_until IS NULL OR v.lease_until < now())
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1
+                          FROM property_tile_pyramid_versions v
+                          WHERE v.candidate_snapshot_id = s.id
+                            AND v.status NOT IN ('failed_retryable', 'failed_terminal', 'superseded')
+                        )
+                      )
+                    )
+	                )
+	                OR (
+	                  s.status = 'building'
+	                  AND COALESCE(s.updated_at, s.build_started_at, s.created_at) < now() - interval '7 days'
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM property_tile_pyramid_versions v
+                      WHERE v.candidate_snapshot_id = s.id
+                    )
+	                )
+	              )
+	          ),
+	          target AS (
+	            SELECT f.ctid
+	            FROM property_tile_grouping_facts f
+	            WHERE f.snapshot_id IN (SELECT id FROM reclaimable_snapshots)
+	            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
+	            FOR UPDATE SKIP LOCKED
+	          ),
+	          deleted AS (
+	            DELETE FROM property_tile_grouping_facts f
+	            USING target
+	            WHERE f.ctid = target.ctid
+	            RETURNING 1
+	          )
+	          SELECT count(*)::int AS affected FROM deleted
+	        `,
+        });
         const deletedCandidateSourceSnapshots = await runPropertyTilePyramidRetentionStep({
           sql: sql`
 	          WITH reclaimable_snapshots AS (
@@ -5734,6 +5827,11 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	                SELECT 1
 	                FROM property_tile_social_facts ptsf
 	                WHERE ptsf.snapshot_id = s.id
+	              )
+	              AND NOT EXISTS (
+	                SELECT 1
+	                FROM property_tile_grouping_facts pgf
+	                WHERE pgf.snapshot_id = s.id
 	              )
 	              AND (
 	                (
@@ -5767,6 +5865,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           deletedCandidateListingCandidates,
           deletedCandidateListingFacts,
           deletedCandidateSocialFacts,
+          deletedCandidateGroupingFacts,
           deletedCandidateSourceSnapshots,
         };
         const hasMore = Object.values(stepResults).some((result) => result.hasMore);
@@ -5781,6 +5880,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           deletedCandidateListingCandidates: deletedCandidateListingCandidates.affected,
           deletedCandidateListingFacts: deletedCandidateListingFacts.affected,
           deletedCandidateSocialFacts: deletedCandidateSocialFacts.affected,
+          deletedCandidateGroupingFacts: deletedCandidateGroupingFacts.affected,
           deletedCandidateSourceSnapshots: deletedCandidateSourceSnapshots.affected,
           chunks: Object.fromEntries(
             Object.entries(stepResults).map(([key, result]) => [key, result.chunks])
@@ -5799,6 +5899,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
         deletedCandidateListingCandidates: 0,
         deletedCandidateListingFacts: 0,
         deletedCandidateSocialFacts: 0,
+        deletedCandidateGroupingFacts: 0,
         deletedCandidateSourceSnapshots: 0,
         chunks: {
           resetPayloads: 0,
@@ -5809,6 +5910,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           deletedCandidateListingCandidates: 0,
           deletedCandidateListingFacts: 0,
           deletedCandidateSocialFacts: 0,
+          deletedCandidateGroupingFacts: 0,
           deletedCandidateSourceSnapshots: 0,
         },
       })
