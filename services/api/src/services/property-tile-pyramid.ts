@@ -1117,15 +1117,6 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
     `);
 
     await tx.execute(sql`
-      WITH grouping_property_ids AS MATERIALIZED (
-        SELECT property_id
-        FROM property_tile_listing_candidates
-        WHERE snapshot_id = ${snapshotId}::uuid
-        UNION
-        SELECT property_id
-        FROM property_tile_social_facts
-        WHERE snapshot_id = ${snapshotId}::uuid
-      )
       INSERT INTO property_tile_grouping_facts (
         snapshot_id,
         property_id,
@@ -1142,9 +1133,9 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
       )
       SELECT
         ${snapshotId}::uuid,
-        gpi.property_id,
-        COALESCE(lpc.geometry, ptsf.geometry),
-        COALESCE(lpc.official_valuation, ptsf.official_valuation),
+        lpc.property_id,
+        lpc.geometry,
+        lpc.official_valuation,
         COALESCE(ptlf.has_active_listing, FALSE),
         COALESCE(ptlf.has_completed_listing, FALSE),
         COALESCE(ptlf.market_state, 'not-listed'),
@@ -1156,17 +1147,52 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         COALESCE(ptsf.recent_social_score, 0)::double precision,
         ptsf.last_social_at,
         now()
-      FROM grouping_property_ids gpi
-      LEFT JOIN property_tile_listing_candidates lpc
-        ON lpc.snapshot_id = ${snapshotId}::uuid
-       AND lpc.property_id = gpi.property_id
+      FROM property_tile_listing_candidates lpc
       LEFT JOIN property_tile_listing_facts ptlf
         ON ptlf.snapshot_id = ${snapshotId}::uuid
-       AND ptlf.property_id = gpi.property_id
+       AND ptlf.property_id = lpc.property_id
       LEFT JOIN property_tile_social_facts ptsf
         ON ptsf.snapshot_id = ${snapshotId}::uuid
-       AND ptsf.property_id = gpi.property_id
-      WHERE COALESCE(lpc.geometry, ptsf.geometry) IS NOT NULL
+       AND ptsf.property_id = lpc.property_id
+      WHERE lpc.snapshot_id = ${snapshotId}::uuid
+        AND lpc.geometry IS NOT NULL
+      ON CONFLICT (snapshot_id, property_id) DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_grouping_facts (
+        snapshot_id,
+        property_id,
+        geometry,
+        official_valuation,
+        has_active_listing,
+        has_completed_listing,
+        market_state,
+        comment_count,
+        social_score,
+        recent_social_score,
+        last_social_at,
+        updated_at
+      )
+      SELECT
+        ${snapshotId}::uuid,
+        ptsf.property_id,
+        ptsf.geometry,
+        ptsf.official_valuation,
+        FALSE,
+        FALSE,
+        'not-listed',
+        (
+          COALESCE(ptsf.top_level_comment_count, 0)
+          + COALESCE(ptsf.reply_count, 0)
+        )::int,
+        COALESCE(ptsf.social_score, 0)::double precision,
+        COALESCE(ptsf.recent_social_score, 0)::double precision,
+        ptsf.last_social_at,
+        now()
+      FROM property_tile_social_facts ptsf
+      WHERE ptsf.snapshot_id = ${snapshotId}::uuid
+        AND ptsf.geometry IS NOT NULL
       ON CONFLICT (snapshot_id, property_id) DO NOTHING
     `);
 
