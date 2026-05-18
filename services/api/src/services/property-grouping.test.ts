@@ -187,45 +187,27 @@ describe('property-grouping', () => {
     expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
     expect(text).toContain('lpc.snapshot_id = $');
     expect(text).not.toContain('FROM canonical_listings cl INNER JOIN properties p');
-    expect(text).toContain('FROM comments c INNER JOIN properties p ON p.id = c.property_id');
-    expect(text).toContain('INNER JOIN properties p ON p.id = r.target_id');
-    expect(text).toContain("AND r.target_type = 'property' AND r.reaction_type = 'like'");
+    expect(text).toContain('social_activity_candidate_properties AS MATERIALIZED');
     expect(text).toContain(
-      'INNER JOIN comments c ON c.id = r.target_id INNER JOIN properties p ON p.id = c.property_id'
+      'FROM property_tile_social_facts ptsf WHERE ptsf.geometry && ST_MakeEnvelope'
     );
-    expect(text).toContain("AND r.target_type = 'comment' AND r.reaction_type = 'like'");
-    expect(text).toContain(
-      'FROM price_guesses pg INNER JOIN properties p ON p.id = pg.property_id'
-    );
-    expect(text).toContain(
-      'FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id'
-    );
+    expect(text).toContain('ptsf.snapshot_id = $');
+    expect(text).not.toContain('FROM comments c');
+    expect(text).not.toContain('FROM reactions r');
+    expect(text).not.toContain('FROM price_guesses pg');
+    expect(text).not.toContain('FROM property_views pv');
     expect(text).not.toContain('active_listing_candidate_ids');
     expect(text).not.toContain('completed_listing_candidate_ids');
-    expect(text.match(/\bUNION ALL\b/g)?.length).toBeGreaterThanOrEqual(5);
     expect(text).not.toMatch(/\bUNION\b(?!\s+ALL)/);
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
     expect(text).toContain(
-      'social_only_candidate_ids AS MATERIALIZED ( SELECT DISTINCT social_activity_candidate_ids.property_id'
+      'social_only_candidate_properties AS MATERIALIZED ( SELECT social_activity_candidate_properties.id'
     );
     expect(text).toContain('FROM listing_candidate_properties lcp');
-    expect(text).toContain('WHERE lcp.id = social_activity_candidate_ids.property_id');
-    expect(text).toContain(
-      'FROM social_only_candidate_ids soci INNER JOIN properties p ON p.id = soci.property_id'
-    );
-    expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
-    expect(text).toContain('p.geometry && ST_MakeEnvelope');
-    expect(text.match(/INNER JOIN properties p ON p\.id/g)?.length).toBe(6);
-    expect(text.match(/p\.status = 'active'/g)?.length).toBe(6);
-    expect(text.match(/p\.geometry && ST_MakeEnvelope/g)?.length).toBe(6);
+    expect(text).toContain('WHERE lcp.id = social_activity_candidate_properties.id');
+    expect(text).toContain('FROM social_only_candidate_properties soci');
     expect(text).toContain('SELECT lcp.id, lcp.geometry, lcp.official_valuation');
-    expect(text).toContain('SELECT p.id, p.geometry, p.official_valuation');
-    expect(text).toContain(
-      'FROM property_views pv INNER JOIN properties p ON p.id = pv.property_id WHERE p.geometry IS NOT NULL'
-    );
-    expect(text).toContain(
-      'GROUP BY pv.property_id HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8'
-    );
+    expect(text).toContain('SELECT soci.id, soci.geometry, soci.official_valuation');
   });
 
   it('discovers z14 non-ghost listing candidates from the maintained tile projection', () => {
@@ -248,32 +230,21 @@ describe('property-grouping', () => {
     );
     expect(text).toContain('WHERE lpc.geometry && ST_MakeEnvelope');
     expect(text).toContain('lpc.snapshot_id = $');
-    expect(text).toContain('bounded_social_properties AS MATERIALIZED');
     expect(text).toContain(
-      'SELECT p.id, p.geometry, p.official_valuation FROM properties p WHERE p.geometry IS NOT NULL'
+      'FROM property_tile_social_facts ptsf WHERE ptsf.geometry && ST_MakeEnvelope'
     );
     expect(text).toContain(
-      'FROM comments c INNER JOIN bounded_social_properties p ON p.id = c.property_id'
-    );
-    expect(text).toContain('INNER JOIN bounded_social_properties p ON p.id = r.target_id');
-    expect(text).toContain(
-      'INNER JOIN comments c ON c.id = r.target_id INNER JOIN bounded_social_properties p ON p.id = c.property_id'
-    );
-    expect(text).toContain(
-      'FROM price_guesses pg INNER JOIN bounded_social_properties p ON p.id = pg.property_id'
-    );
-    expect(text).toContain(
-      'FROM property_views pv INNER JOIN bounded_social_properties p ON p.id = pv.property_id'
-    );
-    expect(text).toContain(
-      'social_only_candidate_ids AS MATERIALIZED ( SELECT DISTINCT social_activity_candidate_ids.property_id'
+      'social_only_candidate_properties AS MATERIALIZED ( SELECT social_activity_candidate_properties.id'
     );
     expect(text).toContain('FROM listing_candidate_properties lcp');
-    expect(text).toContain('WHERE lcp.id = social_activity_candidate_ids.property_id');
-    expect(text).toContain(
-      'FROM social_only_candidate_ids soci INNER JOIN bounded_social_properties p ON p.id = soci.property_id'
-    );
+    expect(text).toContain('WHERE lcp.id = social_activity_candidate_properties.id');
+    expect(text).toContain('FROM social_only_candidate_properties soci');
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
+    expect(text).not.toContain('bounded_social_properties AS MATERIALIZED');
+    expect(text).not.toContain('FROM comments c');
+    expect(text).not.toContain('FROM reactions r');
+    expect(text).not.toContain('FROM price_guesses pg');
+    expect(text).not.toContain('FROM property_views pv');
   });
 
   it('scopes z15 non-ghost tile candidate discovery to bounded active properties before source scans', () => {
@@ -434,10 +405,12 @@ describe('property-grouping', () => {
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((text) =>
-      text.includes('latest_public_guesses AS MATERIALIZED')
+      text.includes('listing_facts AS MATERIALIZED')
     );
     expect(candidateQuery).toBeDefined();
     expect(candidateQuery).toContain('listing_facts AS MATERIALIZED');
+    expect(candidateQuery).toContain('social_facts AS MATERIALIZED');
+    expect(candidateQuery).toContain('property_tile_social_facts ptsf');
     expect(candidateQuery).toContain(
       'FROM candidate_properties cp LEFT JOIN property_tile_listing_facts ptlf ON ptlf.property_id = cp.id'
     );
@@ -449,6 +422,11 @@ describe('property-grouping', () => {
     expect(candidateQuery).not.toContain('FROM canonical_listings cl WHERE cl.property_id = cp.id');
     expect(candidateQuery).not.toContain('tile_listing_facts AS MATERIALIZED');
     expect(candidateQuery).not.toContain('FROM tile_listing_facts l');
+    expect(candidateQuery).not.toContain('latest_public_guesses AS MATERIALIZED');
+    expect(candidateQuery).not.toContain('FROM comments c');
+    expect(candidateQuery).not.toContain('FROM reactions r');
+    expect(candidateQuery).not.toContain('FROM price_guesses pg');
+    expect(candidateQuery).not.toContain('FROM property_views pv');
     expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -464,19 +442,28 @@ describe('property-grouping', () => {
       .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
 
     await expect(
-      buildCanonicalGroupsForTileUncached({ z: 13, x: 4206, y: 2692 }, createDefaultMapFilters(), {
-        candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID,
-        closedSocialActivityCutoffAt,
-      })
+      buildCanonicalGroupsForTileUncached(
+        { z: 13, x: 4206, y: 2692 },
+        normalizeMapFilters({ activity: 'today' }),
+        {
+          candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID,
+          closedSocialActivityCutoffAt,
+        }
+      )
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((query) =>
-      query.sql.includes('latest_public_guesses AS MATERIALIZED')
+      query.sql.includes('property_tile_social_facts ptsf')
     );
     expect(candidateQuery).toBeDefined();
-    expect(candidateQuery?.sql).toContain("::timestamptz - INTERVAL '7 days'");
+    expect(candidateQuery?.sql).toContain("::timestamptz - INTERVAL '24 hours'");
     expect(candidateQuery?.sql).toContain('<= $');
     expect(candidateQuery?.sql).not.toContain("NOW() - INTERVAL '7 days'");
+    expect(candidateQuery?.sql).not.toContain('latest_public_guesses AS MATERIALIZED');
+    expect(candidateQuery?.sql).not.toContain('FROM comments c');
+    expect(candidateQuery?.sql).not.toContain('FROM reactions r');
+    expect(candidateQuery?.sql).not.toContain('FROM price_guesses pg');
+    expect(candidateQuery?.sql).not.toContain('FROM property_views pv');
     expect(candidateQuery?.params).toContain(closedSocialActivityCutoffAt);
   });
 

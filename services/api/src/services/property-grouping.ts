@@ -1521,15 +1521,16 @@ export function buildGroupingCandidateScopeCtes(
     filters.activity,
     options
   );
-  const activeBoundedPropertyFilter = sql`p.geometry IS NOT NULL
-            AND p.status = 'active'
-            AND (${bboxFilter})`;
+  const snapshotSocialActivityFilter = buildClosedActivityFilterPredicate(
+    filters.activity,
+    'ptsf',
+    options
+  );
   const canIncludeSocialOnlyCandidates = filters.marketState.includes('not-listed');
   const useSourceFirstCandidateScope =
     options?.candidateSnapshotId != null &&
     !includeGhostCandidates &&
     zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
-  const useBoundedSocialCandidateScope = useSourceFirstCandidateScope && zoom >= 14;
 
   if (includeGhostCandidates) {
     return sql`
@@ -1661,108 +1662,28 @@ export function buildGroupingCandidateScopeCtes(
             AND ${candidateSnapshotFilter('lpc', options)}
         )
         ${
-          canIncludeSocialOnlyCandidates && useBoundedSocialCandidateScope
-            ? sql`,
-        bounded_social_properties AS MATERIALIZED (
-          SELECT
-            p.id,
-            p.geometry,
-            p.official_valuation
-          FROM properties p
-          WHERE ${activeBoundedPropertyFilter}
-        )`
-            : sql``
-        }
-        ${
           canIncludeSocialOnlyCandidates
             ? sql`,
-        social_activity_candidate_ids AS MATERIALIZED (
-          SELECT property_id
-          FROM (
-            SELECT c.property_id
-            FROM (
-              SELECT c.property_id, c.created_at AS activity_at
-              FROM comments c
-              ${
-                useBoundedSocialCandidateScope
-                  ? sql`INNER JOIN bounded_social_properties p ON p.id = c.property_id`
-                  : sql`INNER JOIN properties p ON p.id = c.property_id
-              WHERE ${activeBoundedPropertyFilter}`
-              }
-            ) c
-            WHERE ${activityCandidateFilter}
-            UNION ALL
-            SELECT r.property_id
-            FROM (
-              SELECT r.target_id AS property_id, r.created_at AS activity_at
-              FROM reactions r
-              ${
-                useBoundedSocialCandidateScope
-                  ? sql`INNER JOIN bounded_social_properties p ON p.id = r.target_id`
-                  : sql`INNER JOIN properties p ON p.id = r.target_id
-              WHERE ${activeBoundedPropertyFilter}`
-              }
-                AND r.target_type = 'property'
-                AND r.reaction_type = 'like'
-            ) r
-            WHERE ${activityCandidateFilter}
-            UNION ALL
-            SELECT rc.property_id
-            FROM (
-                SELECT c.property_id, r.created_at AS activity_at
-                FROM reactions r
-                INNER JOIN comments c ON c.id = r.target_id
-                ${
-                  useBoundedSocialCandidateScope
-                    ? sql`INNER JOIN bounded_social_properties p ON p.id = c.property_id`
-                    : sql`INNER JOIN properties p ON p.id = c.property_id
-                WHERE ${activeBoundedPropertyFilter}`
-                }
-                  AND r.target_type = 'comment'
-                  AND r.reaction_type = 'like'
-              ) rc
-            WHERE ${activityCandidateFilter}
-            UNION ALL
-            SELECT pg.property_id
-            FROM (
-              SELECT
-                pg.property_id,
-                GREATEST(pg.created_at, pg.updated_at) AS activity_at
-              FROM price_guesses pg
-              ${
-                useBoundedSocialCandidateScope
-                  ? sql`INNER JOIN bounded_social_properties p ON p.id = pg.property_id`
-                  : sql`INNER JOIN properties p ON p.id = pg.property_id
-              WHERE ${activeBoundedPropertyFilter}`
-              }
-            ) pg
-            WHERE ${activityCandidateFilter}
-            UNION ALL
-            SELECT pv.property_id
-            FROM (
-              SELECT
-                pv.property_id,
-                MAX(pv.viewed_at) AS activity_at
-              FROM property_views pv
-              ${
-                useBoundedSocialCandidateScope
-                  ? sql`INNER JOIN bounded_social_properties p ON p.id = pv.property_id`
-                  : sql`INNER JOIN properties p ON p.id = pv.property_id
-              WHERE ${activeBoundedPropertyFilter}`
-              }
-              GROUP BY pv.property_id
-              HAVING COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) >= 8
-            ) pv
-            WHERE ${activityCandidateFilter}
-          ) social_candidates
+        social_activity_candidate_properties AS MATERIALIZED (
+          SELECT
+            ptsf.property_id AS id,
+            ptsf.geometry,
+            ptsf.official_valuation
+          FROM property_tile_social_facts ptsf
+          WHERE ${buildBoundsFilter(boundsList, sql.raw('ptsf.geometry'))}
+            AND ${candidateSnapshotFilter('ptsf', options)}
+            AND ${snapshotSocialActivityFilter}
         ),
-        social_only_candidate_ids AS MATERIALIZED (
-          SELECT DISTINCT social_activity_candidate_ids.property_id
-          FROM social_activity_candidate_ids
+        social_only_candidate_properties AS MATERIALIZED (
+          SELECT
+            social_activity_candidate_properties.id,
+            social_activity_candidate_properties.geometry,
+            social_activity_candidate_properties.official_valuation
+          FROM social_activity_candidate_properties
           WHERE NOT EXISTS (
             SELECT 1
             FROM listing_candidate_properties lcp
-            WHERE lcp.id = social_activity_candidate_ids.property_id
+            WHERE lcp.id = social_activity_candidate_properties.id
           )
         )`
             : sql``
@@ -1778,16 +1699,10 @@ export function buildGroupingCandidateScopeCtes(
           FROM listing_candidate_properties lcp
           UNION ALL
           SELECT
-            p.id,
-            p.geometry,
-            p.official_valuation
-          FROM social_only_candidate_ids soci
-          ${
-            useBoundedSocialCandidateScope
-              ? sql`INNER JOIN bounded_social_properties p ON p.id = soci.property_id`
-              : sql`INNER JOIN properties p ON p.id = soci.property_id
-          WHERE ${activeBoundedPropertyFilter}`
-          }`
+            soci.id,
+            soci.geometry,
+            soci.official_valuation
+          FROM social_only_candidate_properties soci`
               : sql`
           SELECT
             lcp.id,
@@ -1971,167 +1886,199 @@ async function fetchGroupingCandidatesInBBoxes(
         )
       `
     : buildTileListingFactsProjectionCte(options);
+  const useSnapshotSocialFacts = options?.candidateSnapshotId != null && !includeEffectivePrices;
+  const socialFactsCtes = useSnapshotSocialFacts
+    ? sql`
+        social_facts AS MATERIALIZED (
+          SELECT
+            cp.id AS property_id,
+            COALESCE(ptsf.top_level_comment_count, 0)::int AS top_level_comment_count,
+            COALESCE(ptsf.reply_count, 0)::int AS reply_count,
+            COALESCE(ptsf.property_like_count, 0)::int AS property_like_count,
+            COALESCE(ptsf.comment_like_count, 0)::int AS comment_like_count,
+            COALESCE(ptsf.guess_count, 0)::int AS guess_count,
+            COALESCE(ptsf.view_count, 0)::int AS view_count,
+            COALESCE(ptsf.unique_viewer_count, 0)::int AS unique_viewer_count,
+            COALESCE(ptsf.recent_top_level_comment_count, 0)::int AS recent_top_level_comment_count,
+            COALESCE(ptsf.recent_reply_count, 0)::int AS recent_reply_count,
+            COALESCE(ptsf.recent_property_like_count, 0)::int AS recent_property_like_count,
+            COALESCE(ptsf.recent_comment_like_count, 0)::int AS recent_comment_like_count,
+            COALESCE(ptsf.recent_guess_count, 0)::int AS recent_guess_count,
+            COALESCE(ptsf.recent_view_count, 0)::int AS recent_view_count,
+            COALESCE(ptsf.recent_unique_viewer_count, 0)::int AS recent_unique_viewer_count,
+            COALESCE(ptsf.social_score, 0)::double precision AS social_score,
+            COALESCE(ptsf.recent_social_score, 0)::double precision AS recent_social_score,
+            ptsf.last_social_at
+          FROM candidate_properties cp
+          LEFT JOIN property_tile_social_facts ptsf
+            ON ptsf.property_id = cp.id
+           AND ${candidateSnapshotFilter('ptsf', options)}
+        )
+      `
+    : sql`
+        latest_public_guesses AS MATERIALIZED (
+          SELECT DISTINCT ON (pg.property_id, pg.user_id)
+            pg.property_id,
+            pg.user_id,
+            pg.guessed_price,
+            pg.is_meme_guess,
+            GREATEST(pg.created_at, pg.updated_at) AS effective_at
+          FROM price_guesses pg
+          INNER JOIN candidate_properties cp ON cp.id = pg.property_id
+          WHERE ${buildClosedSocialActivityPredicate(
+            sql`GREATEST(pg.created_at, pg.updated_at)`,
+            options
+          )}
+          ORDER BY
+            pg.property_id,
+            pg.user_id,
+            GREATEST(pg.created_at, pg.updated_at) DESC,
+            pg.created_at DESC,
+            pg.id DESC
+        ),
+        guess_activity AS MATERIALIZED (
+          SELECT
+            lpg.property_id,
+            COUNT(*)::int AS guess_count,
+            COUNT(*) FILTER (
+              WHERE ${buildRecentSocialActivityPredicate(sql.raw('lpg.effective_at'), options)}
+            )::int AS recent_guess_count,
+            MAX(lpg.effective_at) AS latest_guess_at
+          FROM latest_public_guesses lpg
+          GROUP BY lpg.property_id
+        ),
+        top_level_comments AS MATERIALIZED (
+          SELECT
+            c.property_id,
+            COUNT(*)::int AS count,
+            COUNT(*) FILTER (
+              WHERE ${buildRecentSocialActivityPredicate(sql.raw('c.created_at'), options)}
+            )::int AS recent_count,
+            MAX(c.created_at) AS latest
+          FROM comments c
+          INNER JOIN candidate_properties cp ON cp.id = c.property_id
+          WHERE c.parent_id IS NULL
+            AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
+          GROUP BY c.property_id
+        ),
+        replies AS MATERIALIZED (
+          SELECT
+            c.property_id,
+            COUNT(*)::int AS count,
+            COUNT(*) FILTER (
+              WHERE ${buildRecentSocialActivityPredicate(sql.raw('c.created_at'), options)}
+            )::int AS recent_count,
+            MAX(c.created_at) AS latest
+          FROM comments c
+          INNER JOIN candidate_properties cp ON cp.id = c.property_id
+          WHERE c.parent_id IS NOT NULL
+            AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
+          GROUP BY c.property_id
+        ),
+        property_likes AS MATERIALIZED (
+          SELECT
+            r.target_id AS property_id,
+            COUNT(*)::int AS count,
+            COUNT(*) FILTER (
+              WHERE ${buildRecentSocialActivityPredicate(sql.raw('r.created_at'), options)}
+            )::int AS recent_count,
+            MAX(r.created_at) AS latest
+          FROM reactions r
+          INNER JOIN candidate_properties cp ON cp.id = r.target_id
+          WHERE r.target_type = 'property'
+            AND r.reaction_type = 'like'
+            AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
+          GROUP BY r.target_id
+        ),
+        comment_likes AS MATERIALIZED (
+          SELECT
+            c.property_id,
+            COUNT(*)::int AS count,
+            COUNT(*) FILTER (
+              WHERE ${buildRecentSocialActivityPredicate(sql.raw('r.created_at'), options)}
+            )::int AS recent_count,
+            MAX(r.created_at) AS latest
+          FROM reactions r
+          INNER JOIN comments c ON c.id = r.target_id
+          INNER JOIN candidate_properties cp ON cp.id = c.property_id
+          WHERE r.target_type = 'comment'
+            AND r.reaction_type = 'like'
+            AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
+          GROUP BY c.property_id
+        ),
+        view_facts AS MATERIALIZED (
+          SELECT
+            pv.property_id,
+            COUNT(*)::int AS view_count,
+            COUNT(*) FILTER (
+              WHERE ${buildRecentSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
+            )::int AS recent_view_count,
+            COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id))::int AS unique_viewer_count,
+            COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) FILTER (
+              WHERE ${buildRecentSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
+            )::int AS recent_unique_viewer_count,
+            MAX(pv.viewed_at) AS latest
+          FROM property_views pv
+          INNER JOIN candidate_properties cp ON cp.id = pv.property_id
+          WHERE ${buildClosedSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
+          GROUP BY pv.property_id
+        ),
+        social_facts AS MATERIALIZED (
+          SELECT
+            cp.id AS property_id,
+            COALESCE(top_level_comments.count, 0)::int AS top_level_comment_count,
+            COALESCE(replies.count, 0)::int AS reply_count,
+            COALESCE(property_likes.count, 0)::int AS property_like_count,
+            COALESCE(comment_likes.count, 0)::int AS comment_like_count,
+            COALESCE(guess_activity.guess_count, 0)::int AS guess_count,
+            COALESCE(view_facts.view_count, 0)::int AS view_count,
+            COALESCE(view_facts.unique_viewer_count, 0)::int AS unique_viewer_count,
+            COALESCE(top_level_comments.recent_count, 0)::int AS recent_top_level_comment_count,
+            COALESCE(replies.recent_count, 0)::int AS recent_reply_count,
+            COALESCE(property_likes.recent_count, 0)::int AS recent_property_like_count,
+            COALESCE(comment_likes.recent_count, 0)::int AS recent_comment_like_count,
+            COALESCE(guess_activity.recent_guess_count, 0)::int AS recent_guess_count,
+            COALESCE(view_facts.recent_view_count, 0)::int AS recent_view_count,
+            COALESCE(view_facts.recent_unique_viewer_count, 0)::int AS recent_unique_viewer_count,
+            (
+              COALESCE(top_level_comments.count, 0)::double precision
+              + COALESCE(replies.count, 0)::double precision
+              + COALESCE(property_likes.count, 0)::double precision
+              + COALESCE(comment_likes.count, 0)::double precision * 0.8
+              + COALESCE(guess_activity.guess_count, 0)::double precision * 0.85
+              + COALESCE(view_facts.unique_viewer_count, 0)::double precision * 0.1
+            )::double precision AS social_score,
+            (
+              COALESCE(top_level_comments.recent_count, 0)::double precision
+              + COALESCE(replies.recent_count, 0)::double precision
+              + COALESCE(property_likes.recent_count, 0)::double precision
+              + COALESCE(comment_likes.recent_count, 0)::double precision * 0.8
+              + COALESCE(guess_activity.recent_guess_count, 0)::double precision * 0.85
+              + COALESCE(view_facts.recent_unique_viewer_count, 0)::double precision * 0.1
+            )::double precision AS recent_social_score,
+            GREATEST(
+              top_level_comments.latest,
+              replies.latest,
+              property_likes.latest,
+              comment_likes.latest,
+              guess_activity.latest_guess_at,
+              view_facts.latest
+            ) AS last_social_at
+          FROM candidate_properties cp
+          LEFT JOIN top_level_comments ON top_level_comments.property_id = cp.id
+          LEFT JOIN replies ON replies.property_id = cp.id
+          LEFT JOIN property_likes ON property_likes.property_id = cp.id
+          LEFT JOIN comment_likes ON comment_likes.property_id = cp.id
+          LEFT JOIN guess_activity ON guess_activity.property_id = cp.id
+          LEFT JOIN view_facts ON view_facts.property_id = cp.id
+        )
+      `;
 
   const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
     sql`
       WITH ${candidateScopeCtes},
-      latest_public_guesses AS MATERIALIZED (
-        SELECT DISTINCT ON (pg.property_id, pg.user_id)
-          pg.property_id,
-          pg.user_id,
-        pg.guessed_price,
-        pg.is_meme_guess,
-        GREATEST(pg.created_at, pg.updated_at) AS effective_at
-      FROM price_guesses pg
-      INNER JOIN candidate_properties cp ON cp.id = pg.property_id
-      WHERE ${buildClosedSocialActivityPredicate(
-        sql`GREATEST(pg.created_at, pg.updated_at)`,
-        options
-      )}
-      ORDER BY
-        pg.property_id,
-        pg.user_id,
-        GREATEST(pg.created_at, pg.updated_at) DESC,
-        pg.created_at DESC,
-        pg.id DESC
-    ),
-    ${listingFactsCtes},
-    guess_activity AS MATERIALIZED (
-      SELECT
-        lpg.property_id,
-        COUNT(*)::int AS guess_count,
-        COUNT(*) FILTER (
-          WHERE ${buildRecentSocialActivityPredicate(sql.raw('lpg.effective_at'), options)}
-        )::int AS recent_guess_count,
-        MAX(lpg.effective_at) AS latest_guess_at
-      FROM latest_public_guesses lpg
-      GROUP BY lpg.property_id
-    ),
-    top_level_comments AS MATERIALIZED (
-      SELECT
-        c.property_id,
-        COUNT(*)::int AS count,
-        COUNT(*) FILTER (
-          WHERE ${buildRecentSocialActivityPredicate(sql.raw('c.created_at'), options)}
-        )::int AS recent_count,
-        MAX(c.created_at) AS latest
-      FROM comments c
-      INNER JOIN candidate_properties cp ON cp.id = c.property_id
-      WHERE c.parent_id IS NULL
-        AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
-      GROUP BY c.property_id
-    ),
-    replies AS MATERIALIZED (
-      SELECT
-        c.property_id,
-        COUNT(*)::int AS count,
-        COUNT(*) FILTER (
-          WHERE ${buildRecentSocialActivityPredicate(sql.raw('c.created_at'), options)}
-        )::int AS recent_count,
-        MAX(c.created_at) AS latest
-      FROM comments c
-      INNER JOIN candidate_properties cp ON cp.id = c.property_id
-      WHERE c.parent_id IS NOT NULL
-        AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
-      GROUP BY c.property_id
-    ),
-    property_likes AS MATERIALIZED (
-      SELECT
-        r.target_id AS property_id,
-        COUNT(*)::int AS count,
-        COUNT(*) FILTER (
-          WHERE ${buildRecentSocialActivityPredicate(sql.raw('r.created_at'), options)}
-        )::int AS recent_count,
-        MAX(r.created_at) AS latest
-      FROM reactions r
-      INNER JOIN candidate_properties cp ON cp.id = r.target_id
-      WHERE r.target_type = 'property'
-        AND r.reaction_type = 'like'
-        AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
-      GROUP BY r.target_id
-    ),
-    comment_likes AS MATERIALIZED (
-      SELECT
-        c.property_id,
-        COUNT(*)::int AS count,
-        COUNT(*) FILTER (
-          WHERE ${buildRecentSocialActivityPredicate(sql.raw('r.created_at'), options)}
-        )::int AS recent_count,
-        MAX(r.created_at) AS latest
-      FROM reactions r
-      INNER JOIN comments c ON c.id = r.target_id
-      INNER JOIN candidate_properties cp ON cp.id = c.property_id
-      WHERE r.target_type = 'comment'
-        AND r.reaction_type = 'like'
-        AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
-      GROUP BY c.property_id
-    ),
-    view_facts AS MATERIALIZED (
-      SELECT
-        pv.property_id,
-        COUNT(*)::int AS view_count,
-        COUNT(*) FILTER (
-          WHERE ${buildRecentSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
-        )::int AS recent_view_count,
-        COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id))::int AS unique_viewer_count,
-        COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) FILTER (
-          WHERE ${buildRecentSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
-        )::int AS recent_unique_viewer_count,
-        MAX(pv.viewed_at) AS latest
-      FROM property_views pv
-      INNER JOIN candidate_properties cp ON cp.id = pv.property_id
-      WHERE ${buildClosedSocialActivityPredicate(sql.raw('pv.viewed_at'), options)}
-      GROUP BY pv.property_id
-    ),
-    social_facts AS MATERIALIZED (
-      SELECT
-        cp.id AS property_id,
-        COALESCE(top_level_comments.count, 0)::int AS top_level_comment_count,
-        COALESCE(replies.count, 0)::int AS reply_count,
-        COALESCE(property_likes.count, 0)::int AS property_like_count,
-        COALESCE(comment_likes.count, 0)::int AS comment_like_count,
-        COALESCE(guess_activity.guess_count, 0)::int AS guess_count,
-        COALESCE(view_facts.view_count, 0)::int AS view_count,
-        COALESCE(view_facts.unique_viewer_count, 0)::int AS unique_viewer_count,
-        COALESCE(top_level_comments.recent_count, 0)::int AS recent_top_level_comment_count,
-        COALESCE(replies.recent_count, 0)::int AS recent_reply_count,
-        COALESCE(property_likes.recent_count, 0)::int AS recent_property_like_count,
-        COALESCE(comment_likes.recent_count, 0)::int AS recent_comment_like_count,
-        COALESCE(guess_activity.recent_guess_count, 0)::int AS recent_guess_count,
-        COALESCE(view_facts.recent_view_count, 0)::int AS recent_view_count,
-        COALESCE(view_facts.recent_unique_viewer_count, 0)::int AS recent_unique_viewer_count,
-        (
-          COALESCE(top_level_comments.count, 0)::double precision
-          + COALESCE(replies.count, 0)::double precision
-          + COALESCE(property_likes.count, 0)::double precision
-          + COALESCE(comment_likes.count, 0)::double precision * 0.8
-          + COALESCE(guess_activity.guess_count, 0)::double precision * 0.85
-          + COALESCE(view_facts.unique_viewer_count, 0)::double precision * 0.1
-        )::double precision AS social_score,
-        (
-          COALESCE(top_level_comments.recent_count, 0)::double precision
-          + COALESCE(replies.recent_count, 0)::double precision
-          + COALESCE(property_likes.recent_count, 0)::double precision
-          + COALESCE(comment_likes.recent_count, 0)::double precision * 0.8
-          + COALESCE(guess_activity.recent_guess_count, 0)::double precision * 0.85
-          + COALESCE(view_facts.recent_unique_viewer_count, 0)::double precision * 0.1
-        )::double precision AS recent_social_score,
-        GREATEST(
-          top_level_comments.latest,
-          replies.latest,
-          property_likes.latest,
-          comment_likes.latest,
-          guess_activity.latest_guess_at,
-          view_facts.latest
-        ) AS last_social_at
-      FROM candidate_properties cp
-      LEFT JOIN top_level_comments ON top_level_comments.property_id = cp.id
-      LEFT JOIN replies ON replies.property_id = cp.id
-      LEFT JOIN property_likes ON property_likes.property_id = cp.id
-      LEFT JOIN comment_likes ON comment_likes.property_id = cp.id
-      LEFT JOIN guess_activity ON guess_activity.property_id = cp.id
-      LEFT JOIN view_facts ON view_facts.property_id = cp.id
-    )
+      ${socialFactsCtes},
+      ${listingFactsCtes}
     SELECT
       cp.id,
       ST_X(cp.geometry) AS lon,

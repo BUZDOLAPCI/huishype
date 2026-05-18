@@ -455,7 +455,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_candidate_source_snapshots'::regclass,
         'property_tile_candidate_source_current'::regclass,
         'property_tile_listing_candidates'::regclass,
-        'property_tile_listing_facts'::regclass
+        'property_tile_listing_facts'::regclass,
+        'property_tile_social_facts'::regclass
       )
     `)
     ).map((row) => row.conname);
@@ -473,6 +474,7 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_candidate_source_current_pk',
         'property_tile_listing_candidates_pkey',
         'property_tile_listing_facts_pkey',
+        'property_tile_social_facts_pkey',
       ])
     );
 
@@ -487,7 +489,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_pyramid_nodes',
         'property_tile_candidate_source_snapshots',
         'property_tile_listing_candidates',
-        'property_tile_listing_facts'
+        'property_tile_listing_facts',
+        'property_tile_social_facts'
       )
     `)
     ).map((row) => row.indexname);
@@ -507,8 +510,20 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_listing_candidates_snapshot_id_idx',
         'property_tile_listing_candidates_snapshot_geometry_gist_idx',
         'property_tile_listing_facts_snapshot_market_state_idx',
+        'property_tile_social_facts_snapshot_id_idx',
+        'property_tile_social_facts_geometry_gist_idx',
+        'property_tile_social_facts_snapshot_last_social_at_idx',
       ])
     );
+
+    const snapshotColumns = Array.from(
+      await db.execute<{ column_name: string }>(sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'property_tile_candidate_source_snapshots'
+    `)
+    ).map((row) => row.column_name);
+    expect(snapshotColumns).toContain('social_fact_row_count');
 
     const functions = Array.from(
       await db.execute<{ proname: string }>(sql`

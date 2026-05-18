@@ -1009,7 +1009,7 @@ describe('property tile pyramid build lifecycle', () => {
             return [{ id: '00000000-0000-0000-0000-0000000000c1' }];
           }
           if (queryText.includes('candidate_count')) {
-            return [{ candidate_count: '0', fact_count: '0' }];
+            return [{ candidate_count: '0', fact_count: '0', social_fact_count: '0' }];
           }
           return [];
         });
@@ -1029,9 +1029,13 @@ describe('property tile pyramid build lifecycle', () => {
         const joinedTxQueries = txQueries.join('\n');
         expect(txQueries[0]).toContain('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         expect(joinedTxQueries).toContain('FROM property_tile_pyramid_source_watermarks');
+        expect(joinedTxQueries).toContain("status = 'superseded'");
+        expect(joinedTxQueries).toContain('social_fact_row_count IS NULL');
         expect(joinedTxQueries).toContain('INSERT INTO property_tile_candidate_source_snapshots');
         expect(joinedTxQueries).toContain('INSERT INTO property_tile_listing_candidates');
         expect(joinedTxQueries).toContain('INSERT INTO property_tile_listing_facts');
+        expect(joinedTxQueries).toContain('INSERT INTO property_tile_social_facts');
+        expect(joinedTxQueries).toContain('social_fact_row_count');
         expect(joinedTxQueries).toContain('property_tile_candidate_source_current');
       }
     );
@@ -1578,6 +1582,12 @@ describe('property tile pyramid build lifecycle', () => {
           row_count: '10',
           max_updated_at: '2026-05-07T09:15:00.000Z',
         },
+        {
+          source: 'property_tile_social_facts',
+          candidate_snapshot_id: '00000000-0000-0000-0000-0000000000c1',
+          row_count: '7',
+          max_updated_at: '2026-05-07T09:16:00.000Z',
+        },
       ]);
 
     const { readPropertyTilePyramidSourceWatermarkSnapshot } =
@@ -1603,6 +1613,12 @@ describe('property tile pyramid build lifecycle', () => {
           scope: 'current_candidate_source_snapshot',
           rowCount: '10',
           maxUpdatedAt: '2026-05-07T09:15:00.000Z',
+        }),
+        expect.objectContaining({
+          source: 'property_tile_social_facts',
+          scope: 'current_candidate_source_snapshot',
+          rowCount: '7',
+          maxUpdatedAt: '2026-05-07T09:16:00.000Z',
         }),
         expect.objectContaining({
           source: 'rolling_social_window',
@@ -1646,6 +1662,7 @@ describe('property tile pyramid build lifecycle', () => {
     expect(healthQuery).toContain('property_tile_candidate_source_current');
     expect(healthQuery).toContain('property_tile_listing_candidates');
     expect(healthQuery).toContain('property_tile_listing_facts');
+    expect(healthQuery).toContain('property_tile_social_facts');
     expect(healthQuery).toContain('rolling_social_window');
   });
 
@@ -1766,6 +1783,7 @@ describe('property tile pyramid build lifecycle', () => {
       .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ affected: 0 }]);
 
     const { runPropertyTilePyramidRetention } = await import('./property-tile-pyramid.js');
@@ -1780,6 +1798,7 @@ describe('property tile pyramid build lifecycle', () => {
       deletedVersions: 0,
       deletedCandidateListingCandidates: 0,
       deletedCandidateListingFacts: 0,
+      deletedCandidateSocialFacts: 0,
       deletedCandidateSourceSnapshots: 0,
     });
     const retentionQueries = executeMock.mock.calls
@@ -1801,6 +1820,7 @@ describe('property tile pyramid build lifecycle', () => {
     expect(retentionQueries).toContain('candidate_snapshot_id');
     expect(retentionQueries).toContain('property_tile_listing_candidates');
     expect(retentionQueries).toContain('property_tile_listing_facts');
+    expect(retentionQueries).toContain('property_tile_social_facts');
   });
 
   it('marks retention as draining after bounded full chunks remain', async () => {
@@ -1828,6 +1848,7 @@ describe('property tile pyramid build lifecycle', () => {
       deletedVersions: 20000,
       deletedCandidateListingCandidates: 20000,
       deletedCandidateListingFacts: 20000,
+      deletedCandidateSocialFacts: 20000,
       deletedCandidateSourceSnapshots: 20000,
       chunks: {
         resetPayloads: 2,
@@ -1837,10 +1858,11 @@ describe('property tile pyramid build lifecycle', () => {
         deletedVersions: 2,
         deletedCandidateListingCandidates: 2,
         deletedCandidateListingFacts: 2,
+        deletedCandidateSocialFacts: 2,
         deletedCandidateSourceSnapshots: 2,
       },
     });
-    expect(executeMock).toHaveBeenCalledTimes(17);
+    expect(executeMock).toHaveBeenCalledTimes(19);
     const retentionQueries = executeMock.mock.calls
       .map((call) => JSON.stringify(call[0]))
       .join('\n');

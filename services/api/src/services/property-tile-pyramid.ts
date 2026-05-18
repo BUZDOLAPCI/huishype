@@ -619,7 +619,8 @@ function getSourceWatermarkSources(
 function isPropertyTileProjectionFingerprintSource(source: Record<string, unknown>): boolean {
   return (
     source.source === 'property_tile_listing_candidates' ||
-    source.source === 'property_tile_listing_facts'
+    source.source === 'property_tile_listing_facts' ||
+    source.source === 'property_tile_social_facts'
   );
 }
 
@@ -665,6 +666,7 @@ async function readReadyPropertyTileCandidateSourceSnapshot(input: {
       AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
       AND comparable_source_watermark_hash = ${input.comparableSourceWatermarkHash}
       AND status = 'ready'
+      AND social_fact_row_count IS NOT NULL
     ORDER BY created_at DESC
     LIMIT 1
   `);
@@ -704,6 +706,7 @@ async function readReadyPropertyTileCandidateSourceSnapshotById(input: {
       status
     FROM property_tile_candidate_source_snapshots
     WHERE id = ${input.snapshotId}::uuid
+      AND social_fact_row_count IS NOT NULL
     LIMIT 1
   `);
   const row = Array.from(rows)[0];
@@ -755,6 +758,19 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
       );
     }
 
+    await tx.execute(sql`
+      UPDATE property_tile_candidate_source_snapshots
+      SET
+        status = 'superseded',
+        updated_at = now()
+      WHERE coverage_id = ${input.slot.coverageId}
+        AND filter_signature = ${input.slot.filterSignature}
+        AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
+        AND comparable_source_watermark_hash = ${input.comparableSourceWatermarkHash}
+        AND status = 'ready'
+        AND social_fact_row_count IS NULL
+    `);
+
     const insertedRows = await tx.execute<{ id: string }>(sql`
       INSERT INTO property_tile_candidate_source_snapshots (
         coverage_id,
@@ -784,6 +800,8 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
     if (!snapshotId) {
       throw new Error('Failed to create property tile candidate source snapshot');
     }
+    const closedSocialActivityCutoffAt =
+      readRollingSocialWindowCutoffAt(input.sourceWatermarksJson) ?? new Date().toISOString();
 
     await tx.execute(sql`
       INSERT INTO property_tile_listing_candidates (
@@ -894,15 +912,216 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
       ON CONFLICT (snapshot_id, property_id) DO NOTHING
     `);
 
+    await tx.execute(sql`
+      WITH latest_public_guesses AS MATERIALIZED (
+        SELECT DISTINCT ON (pg.property_id, pg.user_id)
+          pg.property_id,
+          pg.user_id,
+          GREATEST(pg.created_at, pg.updated_at) AS effective_at
+        FROM price_guesses pg
+        WHERE GREATEST(pg.created_at, pg.updated_at) <= ${closedSocialActivityCutoffAt}::timestamptz
+        ORDER BY
+          pg.property_id,
+          pg.user_id,
+          GREATEST(pg.created_at, pg.updated_at) DESC,
+          pg.created_at DESC,
+          pg.id DESC
+      ),
+      guess_activity AS MATERIALIZED (
+        SELECT
+          lpg.property_id,
+          COUNT(*)::int AS guess_count,
+          COUNT(*) FILTER (
+            WHERE lpg.effective_at > ${closedSocialActivityCutoffAt}::timestamptz - INTERVAL '7 days'
+              AND lpg.effective_at <= ${closedSocialActivityCutoffAt}::timestamptz
+          )::int AS recent_guess_count,
+          MAX(lpg.effective_at) AS latest_guess_at
+        FROM latest_public_guesses lpg
+        GROUP BY lpg.property_id
+      ),
+      top_level_comments AS MATERIALIZED (
+        SELECT
+          c.property_id,
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (
+            WHERE c.created_at > ${closedSocialActivityCutoffAt}::timestamptz - INTERVAL '7 days'
+              AND c.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
+          )::int AS recent_count,
+          MAX(c.created_at) AS latest
+        FROM comments c
+        WHERE c.parent_id IS NULL
+          AND c.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
+        GROUP BY c.property_id
+      ),
+      replies AS MATERIALIZED (
+        SELECT
+          c.property_id,
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (
+            WHERE c.created_at > ${closedSocialActivityCutoffAt}::timestamptz - INTERVAL '7 days'
+              AND c.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
+          )::int AS recent_count,
+          MAX(c.created_at) AS latest
+        FROM comments c
+        WHERE c.parent_id IS NOT NULL
+          AND c.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
+        GROUP BY c.property_id
+      ),
+      property_likes AS MATERIALIZED (
+        SELECT
+          r.target_id AS property_id,
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (
+            WHERE r.created_at > ${closedSocialActivityCutoffAt}::timestamptz - INTERVAL '7 days'
+              AND r.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
+          )::int AS recent_count,
+          MAX(r.created_at) AS latest
+        FROM reactions r
+        WHERE r.target_type = 'property'
+          AND r.reaction_type = 'like'
+          AND r.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
+        GROUP BY r.target_id
+      ),
+      comment_likes AS MATERIALIZED (
+        SELECT
+          c.property_id,
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (
+            WHERE r.created_at > ${closedSocialActivityCutoffAt}::timestamptz - INTERVAL '7 days'
+              AND r.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
+          )::int AS recent_count,
+          MAX(r.created_at) AS latest
+        FROM reactions r
+        INNER JOIN comments c ON c.id = r.target_id
+        WHERE r.target_type = 'comment'
+          AND r.reaction_type = 'like'
+          AND r.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
+        GROUP BY c.property_id
+      ),
+      view_facts AS MATERIALIZED (
+        SELECT
+          pv.property_id,
+          COUNT(*)::int AS view_count,
+          COUNT(*) FILTER (
+            WHERE pv.viewed_at > ${closedSocialActivityCutoffAt}::timestamptz - INTERVAL '7 days'
+              AND pv.viewed_at <= ${closedSocialActivityCutoffAt}::timestamptz
+          )::int AS recent_view_count,
+          COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id))::int AS unique_viewer_count,
+          COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) FILTER (
+            WHERE pv.viewed_at > ${closedSocialActivityCutoffAt}::timestamptz - INTERVAL '7 days'
+              AND pv.viewed_at <= ${closedSocialActivityCutoffAt}::timestamptz
+          )::int AS recent_unique_viewer_count,
+          MAX(pv.viewed_at) AS latest
+        FROM property_views pv
+        WHERE pv.viewed_at <= ${closedSocialActivityCutoffAt}::timestamptz
+        GROUP BY pv.property_id
+      ),
+      social_property_ids AS MATERIALIZED (
+        SELECT property_id FROM guess_activity
+        UNION
+        SELECT property_id FROM top_level_comments
+        UNION
+        SELECT property_id FROM replies
+        UNION
+        SELECT property_id FROM property_likes
+        UNION
+        SELECT property_id FROM comment_likes
+        UNION
+        SELECT property_id FROM view_facts
+      )
+      INSERT INTO property_tile_social_facts (
+        snapshot_id,
+        property_id,
+        geometry,
+        official_valuation,
+        top_level_comment_count,
+        reply_count,
+        property_like_count,
+        comment_like_count,
+        guess_count,
+        view_count,
+        unique_viewer_count,
+        recent_top_level_comment_count,
+        recent_reply_count,
+        recent_property_like_count,
+        recent_comment_like_count,
+        recent_guess_count,
+        recent_view_count,
+        recent_unique_viewer_count,
+        social_score,
+        recent_social_score,
+        last_social_at,
+        updated_at
+      )
+      SELECT
+        ${snapshotId}::uuid,
+        p.id,
+        p.geometry,
+        p.official_valuation,
+        COALESCE(top_level_comments.count, 0)::int,
+        COALESCE(replies.count, 0)::int,
+        COALESCE(property_likes.count, 0)::int,
+        COALESCE(comment_likes.count, 0)::int,
+        COALESCE(guess_activity.guess_count, 0)::int,
+        COALESCE(view_facts.view_count, 0)::int,
+        COALESCE(view_facts.unique_viewer_count, 0)::int,
+        COALESCE(top_level_comments.recent_count, 0)::int,
+        COALESCE(replies.recent_count, 0)::int,
+        COALESCE(property_likes.recent_count, 0)::int,
+        COALESCE(comment_likes.recent_count, 0)::int,
+        COALESCE(guess_activity.recent_guess_count, 0)::int,
+        COALESCE(view_facts.recent_view_count, 0)::int,
+        COALESCE(view_facts.recent_unique_viewer_count, 0)::int,
+        (
+          COALESCE(top_level_comments.count, 0)::double precision
+          + COALESCE(replies.count, 0)::double precision
+          + COALESCE(property_likes.count, 0)::double precision
+          + COALESCE(comment_likes.count, 0)::double precision * 0.8
+          + COALESCE(guess_activity.guess_count, 0)::double precision * 0.85
+          + COALESCE(view_facts.unique_viewer_count, 0)::double precision * 0.1
+        )::double precision,
+        (
+          COALESCE(top_level_comments.recent_count, 0)::double precision
+          + COALESCE(replies.recent_count, 0)::double precision
+          + COALESCE(property_likes.recent_count, 0)::double precision
+          + COALESCE(comment_likes.recent_count, 0)::double precision * 0.8
+          + COALESCE(guess_activity.recent_guess_count, 0)::double precision * 0.85
+          + COALESCE(view_facts.recent_unique_viewer_count, 0)::double precision * 0.1
+        )::double precision,
+        GREATEST(
+          top_level_comments.latest,
+          replies.latest,
+          property_likes.latest,
+          comment_likes.latest,
+          guess_activity.latest_guess_at,
+          view_facts.latest
+        ),
+        now()
+      FROM social_property_ids spi
+      INNER JOIN properties p ON p.id = spi.property_id
+      LEFT JOIN top_level_comments ON top_level_comments.property_id = p.id
+      LEFT JOIN replies ON replies.property_id = p.id
+      LEFT JOIN property_likes ON property_likes.property_id = p.id
+      LEFT JOIN comment_likes ON comment_likes.property_id = p.id
+      LEFT JOIN guess_activity ON guess_activity.property_id = p.id
+      LEFT JOIN view_facts ON view_facts.property_id = p.id
+      WHERE p.geometry IS NOT NULL
+        AND p.status = 'active'
+      ON CONFLICT (snapshot_id, property_id) DO NOTHING
+    `);
+
     const countRows = await tx.execute<{
       candidate_count: string | number;
       fact_count: string | number;
+      social_fact_count: string | number;
     }>(sql`
       SELECT
         (SELECT count(*)::bigint::text FROM property_tile_listing_candidates WHERE snapshot_id = ${snapshotId}::uuid)
           AS candidate_count,
         (SELECT count(*)::bigint::text FROM property_tile_listing_facts WHERE snapshot_id = ${snapshotId}::uuid)
-          AS fact_count
+          AS fact_count,
+        (SELECT count(*)::bigint::text FROM property_tile_social_facts WHERE snapshot_id = ${snapshotId}::uuid)
+          AS social_fact_count
     `);
     const counts = Array.from(countRows)[0];
     await tx.execute(sql`
@@ -911,6 +1130,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         status = 'ready',
         candidate_row_count = ${counts?.candidate_count ?? 0},
         fact_row_count = ${counts?.fact_count ?? 0},
+        social_fact_row_count = ${counts?.social_fact_count ?? 0},
         build_finished_at = now(),
         updated_at = now()
       WHERE id = ${snapshotId}::uuid
@@ -1553,6 +1773,16 @@ export async function readPropertyTilePyramidSourceWatermarkSnapshot(
       FROM current_snapshot
       LEFT JOIN property_tile_listing_facts ptlf
         ON ptlf.snapshot_id = current_snapshot.snapshot_id
+      GROUP BY current_snapshot.snapshot_id
+      UNION ALL
+      SELECT
+        'property_tile_social_facts'::text AS source,
+        current_snapshot.snapshot_id::text AS candidate_snapshot_id,
+        count(ptsf.property_id)::bigint::text AS row_count,
+        max(ptsf.updated_at) AS max_updated_at
+      FROM current_snapshot
+      LEFT JOIN property_tile_social_facts ptsf
+        ON ptsf.snapshot_id = current_snapshot.snapshot_id
       GROUP BY current_snapshot.snapshot_id
       ORDER BY source
     `);
@@ -4685,6 +4915,7 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
 	            'listing_scope_completions',
 	            'property_tile_listing_candidates',
 	            'property_tile_listing_facts',
+	            'property_tile_social_facts',
 	            'rolling_social_window'
 	          )
 	          AND NULLIF(closed_values.value, '') IS NOT NULL
@@ -4749,6 +4980,15 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
 	        SELECT max(ptlf.updated_at) AS max_updated_at
 	        FROM property_tile_candidate_source_current c
 	        JOIN property_tile_listing_facts ptlf ON ptlf.snapshot_id = c.snapshot_id
+	        WHERE c.coverage_id = ${slot.coverageId}
+	          AND c.filter_signature = ${slot.filterSignature}
+	          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+
+	        UNION ALL
+
+	        SELECT max(ptsf.updated_at) AS max_updated_at
+	        FROM property_tile_candidate_source_current c
+	        JOIN property_tile_social_facts ptsf ON ptsf.snapshot_id = c.snapshot_id
 	        WHERE c.coverage_id = ${slot.coverageId}
 	          AND c.filter_signature = ${slot.filterSignature}
 	          AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
@@ -5400,6 +5640,71 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	          SELECT count(*)::int AS affected FROM deleted
 	        `,
         });
+        const deletedCandidateSocialFacts = await runPropertyTilePyramidRetentionStep({
+          sql: sql`
+	          WITH reclaimable_snapshots AS (
+	            SELECT s.id
+	            FROM property_tile_candidate_source_snapshots s
+		            WHERE NOT EXISTS (
+		              SELECT 1
+		              FROM property_tile_candidate_source_current c
+		              WHERE c.snapshot_id = s.id
+		            )
+		              AND (
+	                (
+	                  s.status IN ('ready', 'failed', 'superseded')
+	                  AND COALESCE(s.updated_at, s.build_finished_at, s.created_at) < now() - interval '1 hour'
+                    AND (
+                      NOT EXISTS (
+                        SELECT 1
+                        FROM property_tile_pyramid_versions v
+                        WHERE v.candidate_snapshot_id = s.id
+                      )
+                      OR (
+                        EXISTS (
+                          SELECT 1
+                          FROM property_tile_pyramid_versions v
+                          WHERE v.candidate_snapshot_id = s.id
+                            AND v.status IN ('failed_retryable', 'failed_terminal', 'superseded')
+                            AND COALESCE(v.updated_at, v.build_finished_at, v.superseded_at, v.created_at) < now() - interval '1 hour'
+                            AND (v.lease_until IS NULL OR v.lease_until < now())
+                        )
+                        AND NOT EXISTS (
+                          SELECT 1
+                          FROM property_tile_pyramid_versions v
+                          WHERE v.candidate_snapshot_id = s.id
+                            AND v.status NOT IN ('failed_retryable', 'failed_terminal', 'superseded')
+                        )
+                      )
+                    )
+	                )
+	                OR (
+	                  s.status = 'building'
+	                  AND COALESCE(s.updated_at, s.build_started_at, s.created_at) < now() - interval '7 days'
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM property_tile_pyramid_versions v
+                      WHERE v.candidate_snapshot_id = s.id
+                    )
+	                )
+	              )
+	          ),
+	          target AS (
+	            SELECT f.ctid
+	            FROM property_tile_social_facts f
+	            WHERE f.snapshot_id IN (SELECT id FROM reclaimable_snapshots)
+	            LIMIT ${PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT}
+	            FOR UPDATE SKIP LOCKED
+	          ),
+	          deleted AS (
+	            DELETE FROM property_tile_social_facts f
+	            USING target
+	            WHERE f.ctid = target.ctid
+	            RETURNING 1
+	          )
+	          SELECT count(*)::int AS affected FROM deleted
+	        `,
+        });
         const deletedCandidateSourceSnapshots = await runPropertyTilePyramidRetentionStep({
           sql: sql`
 	          WITH reclaimable_snapshots AS (
@@ -5424,6 +5729,11 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	                SELECT 1
 	                FROM property_tile_listing_facts ptlf
 	                WHERE ptlf.snapshot_id = s.id
+	              )
+	              AND NOT EXISTS (
+	                SELECT 1
+	                FROM property_tile_social_facts ptsf
+	                WHERE ptsf.snapshot_id = s.id
 	              )
 	              AND (
 	                (
@@ -5456,6 +5766,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           deletedVersions,
           deletedCandidateListingCandidates,
           deletedCandidateListingFacts,
+          deletedCandidateSocialFacts,
           deletedCandidateSourceSnapshots,
         };
         const hasMore = Object.values(stepResults).some((result) => result.hasMore);
@@ -5469,6 +5780,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           deletedVersions: deletedVersions.affected,
           deletedCandidateListingCandidates: deletedCandidateListingCandidates.affected,
           deletedCandidateListingFacts: deletedCandidateListingFacts.affected,
+          deletedCandidateSocialFacts: deletedCandidateSocialFacts.affected,
           deletedCandidateSourceSnapshots: deletedCandidateSourceSnapshots.affected,
           chunks: Object.fromEntries(
             Object.entries(stepResults).map(([key, result]) => [key, result.chunks])
@@ -5486,6 +5798,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
         deletedVersions: 0,
         deletedCandidateListingCandidates: 0,
         deletedCandidateListingFacts: 0,
+        deletedCandidateSocialFacts: 0,
         deletedCandidateSourceSnapshots: 0,
         chunks: {
           resetPayloads: 0,
@@ -5495,6 +5808,7 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           deletedVersions: 0,
           deletedCandidateListingCandidates: 0,
           deletedCandidateListingFacts: 0,
+          deletedCandidateSocialFacts: 0,
           deletedCandidateSourceSnapshots: 0,
         },
       })

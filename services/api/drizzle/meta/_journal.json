@@ -253,6 +253,13 @@
       "when": 1778198400009,
       "tag": "0035_property_tile_candidate_source_current_owner_grant",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1778198400010,
+      "tag": "0036_property_tile_social_facts",
+      "breakpoints": true
     }
   ]
 }

@@ -816,6 +816,7 @@ export const propertyTileCandidateSourceSnapshots = pgTable(
     status: text('status').notNull().default('building'),
     candidateRowCount: bigint('candidate_row_count', { mode: 'bigint' }).notNull().default(0n),
     factRowCount: bigint('fact_row_count', { mode: 'bigint' }).notNull().default(0n),
+    socialFactRowCount: bigint('social_fact_row_count', { mode: 'bigint' }),
     buildStartedAt: timestamp('build_started_at', { withTimezone: true }).notNull().defaultNow(),
     buildFinishedAt: timestamp('build_finished_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -843,7 +844,7 @@ export const propertyTileCandidateSourceSnapshots = pgTable(
     ),
     check(
       'property_tile_candidate_source_snapshots_counts_check',
-      sql`${table.candidateRowCount} >= 0 AND ${table.factRowCount} >= 0`,
+      sql`${table.candidateRowCount} >= 0 AND ${table.factRowCount} >= 0 AND (${table.socialFactRowCount} IS NULL OR ${table.socialFactRowCount} >= 0)`,
     ),
   ]
 );
@@ -918,6 +919,49 @@ export const propertyTileListingFacts = pgTable(
     check(
       'property_tile_listing_facts_market_state_check',
       sql`${table.marketState} IN ('for-sale', 'for-rent', 'sold', 'rented', 'not-listed')`,
+    ),
+  ]
+);
+
+export const propertyTileSocialFacts = pgTable(
+  'property_tile_social_facts',
+  {
+    snapshotId: uuid('snapshot_id')
+      .notNull()
+      .references(() => propertyTileCandidateSourceSnapshots.id, { onDelete: 'cascade' }),
+    propertyId: uuid('property_id')
+      .references(() => properties.id, { onDelete: 'cascade' }),
+    geometry: geometry('geometry').notNull(),
+    officialValuation: bigint('official_valuation', { mode: 'number' }),
+    topLevelCommentCount: integer('top_level_comment_count').notNull().default(0),
+    replyCount: integer('reply_count').notNull().default(0),
+    propertyLikeCount: integer('property_like_count').notNull().default(0),
+    commentLikeCount: integer('comment_like_count').notNull().default(0),
+    guessCount: integer('guess_count').notNull().default(0),
+    viewCount: integer('view_count').notNull().default(0),
+    uniqueViewerCount: integer('unique_viewer_count').notNull().default(0),
+    recentTopLevelCommentCount: integer('recent_top_level_comment_count').notNull().default(0),
+    recentReplyCount: integer('recent_reply_count').notNull().default(0),
+    recentPropertyLikeCount: integer('recent_property_like_count').notNull().default(0),
+    recentCommentLikeCount: integer('recent_comment_like_count').notNull().default(0),
+    recentGuessCount: integer('recent_guess_count').notNull().default(0),
+    recentViewCount: integer('recent_view_count').notNull().default(0),
+    recentUniqueViewerCount: integer('recent_unique_viewer_count').notNull().default(0),
+    socialScore: doublePrecision('social_score').notNull().default(0),
+    recentSocialScore: doublePrecision('recent_social_score').notNull().default(0),
+    lastSocialAt: timestamp('last_social_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.snapshotId, table.propertyId],
+      name: 'property_tile_social_facts_pkey',
+    }),
+    index('property_tile_social_facts_snapshot_id_idx').on(table.snapshotId),
+    index('property_tile_social_facts_geometry_gist_idx').using('gist', table.geometry),
+    index('property_tile_social_facts_snapshot_last_social_at_idx').on(
+      table.snapshotId,
+      table.lastSocialAt,
     ),
   ]
 );
