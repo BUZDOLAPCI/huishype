@@ -164,6 +164,14 @@ Auth:
 
 Optional: `CORS_ORIGINS`
 
+Property tile pyramid:
+- `PROPERTY_TILE_PYRAMID_LEASE_SECONDS` — production default `3600`. Full
+  pyramid builds can run longer than the API default lease; API and worker must
+  use the same value so build claims are not marked expired mid-build.
+- `PROPERTY_TILE_PYRAMID_STATEMENT_TIMEOUT_MS` — production default `600000`.
+  Large replacement builds can exceed the shorter development default; keep this
+  value aligned between API and worker.
+
 Listing ingest/source services:
 - `INGEST_API_KEY` — shared secret used by scraper callbacks and protected ingest routes.
 - `FUNDA_SOURCE_SERVICE_URL` — private-network URL, currently `http://10.42.0.2:8100`.
