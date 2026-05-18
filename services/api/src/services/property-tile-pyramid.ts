@@ -1183,7 +1183,12 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         SELECT
           (SELECT count(*)::bigint::text FROM candidate_batch) AS batch_count,
           (SELECT count(*)::bigint::text FROM inserted) AS inserted_count,
-          (SELECT max(property_id)::text FROM candidate_batch) AS max_property_id
+          (
+            SELECT property_id::text
+            FROM candidate_batch
+            ORDER BY property_id DESC
+            LIMIT 1
+          ) AS max_property_id
       `);
       const groupingRow:
         | {
