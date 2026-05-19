@@ -744,6 +744,9 @@ export async function markOfficialValuationSourceFailure(input: {
   retryAt?: Date;
 }): Promise<void> {
   const config = getOfficialValuationSourceConfig(input.source);
+  const rateLimited = input.rateLimited === true;
+  const retryAt = input.retryAt ?? null;
+
   await db.transaction(async (tx) => {
     await tx
       .insert(officialValuationSourceStates)
@@ -754,7 +757,7 @@ export async function markOfficialValuationSourceFailure(input: {
       UPDATE official_valuation_source_states
       SET
         state = CASE
-          WHEN ${input.rateLimited ? 'rate_limited' : null} IS NOT NULL THEN 'rate_limited'
+          WHEN ${rateLimited}::boolean THEN 'rate_limited'
           WHEN consecutive_failure_count + 1 >= ${config.circuitOpenAfterFailures} THEN 'open'
           ELSE state
         END,
@@ -763,15 +766,15 @@ export async function markOfficialValuationSourceFailure(input: {
           ELSE circuit_opened_at
         END,
         circuit_half_open_at = CASE
-          WHEN ${input.retryAt?.toISOString() ?? null}::timestamptz IS NOT NULL
-            THEN ${input.retryAt?.toISOString() ?? null}::timestamptz
+          WHEN ${retryAt}::timestamptz IS NOT NULL
+            THEN ${retryAt}::timestamptz
           WHEN consecutive_failure_count + 1 >= ${config.circuitOpenAfterFailures}
             THEN now() + (${config.circuitCooldownMs} || ' milliseconds')::interval
           ELSE circuit_half_open_at
         END,
         consecutive_failure_count = consecutive_failure_count + 1,
         last_failure_at = now(),
-        last_rate_limit_at = CASE WHEN ${input.rateLimited ? true : false} THEN now() ELSE last_rate_limit_at END,
+        last_rate_limit_at = CASE WHEN ${rateLimited}::boolean THEN now() ELSE last_rate_limit_at END,
         last_error = ${input.error.slice(0, 2_000)},
         updated_at = now()
       WHERE source = ${input.source}

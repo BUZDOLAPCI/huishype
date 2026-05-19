@@ -199,6 +199,7 @@ describe('property tile pyramid build lifecycle', () => {
     executeMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: 'promoted-version',
@@ -225,6 +226,7 @@ describe('property tile pyramid build lifecycle', () => {
 
   it('dispatches BullMQ only after Postgres returns a queue-eligible version', async () => {
     executeMock
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -295,6 +297,7 @@ describe('property tile pyramid build lifecycle', () => {
     executeMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: 'queued-version',
@@ -361,11 +364,11 @@ describe('property tile pyramid build lifecycle', () => {
     expect(requestQuery).toContain('pending_replacement_watermarks_json');
     expect(requestQuery).toContain("status IN ('building', 'validating')");
     expect(requestQuery).toContain('lease_until > now()');
+    expect(requestQuery).not.toContain('FOR UPDATE SKIP LOCKED');
   });
 
-  it('does not record pending replacement metadata during worker recovery when an active build is in progress', async () => {
+  it('short-circuits worker recovery when an active leased build is in progress', async () => {
     executeMock
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
@@ -393,12 +396,12 @@ describe('property tile pyramid build lifecycle', () => {
       reason: 'active-build-in-progress',
     });
     expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-    const requestQuery = JSON.stringify(executeMock.mock.calls[2]?.[0]);
-    expect(requestQuery).toContain('active_replacement');
-    expect(requestQuery).toContain('active_build_in_progress');
-    expect(requestQuery).toContain("status IN ('building', 'validating')");
-    expect(requestQuery).toContain('lease_until > now()');
-    expect(requestQuery).not.toContain('pending_replacement_watermarks_json');
+    expect(executeMock).toHaveBeenCalledTimes(2);
+    const activeLookupQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
+    expect(activeLookupQuery).toContain("status IN ('building', 'validating')");
+    expect(activeLookupQuery).toContain('lease_until > now()');
+    expect(activeLookupQuery).not.toContain('INSERT INTO property_tile_pyramid_versions');
+    expect(activeLookupQuery).not.toContain('pending_replacement_watermarks_json');
   });
 
   it.each([
@@ -460,6 +463,7 @@ describe('property tile pyramid build lifecycle', () => {
       executeMock
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
         .mockRejectedValueOnce(activeSlotConflict)
         .mockResolvedValueOnce([
           {
@@ -486,7 +490,7 @@ describe('property tile pyramid build lifecycle', () => {
         reason: 'active-build-in-progress',
       });
       expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-      const conflictRecoveryQuery = JSON.stringify(executeMock.mock.calls[3]?.[0]);
+      const conflictRecoveryQuery = JSON.stringify(executeMock.mock.calls[4]?.[0]);
       expect(conflictRecoveryQuery).toContain('active_replacement');
       expect(conflictRecoveryQuery).toContain('active_build_in_progress');
       expect(conflictRecoveryQuery).toContain("status IN ('building', 'validating')");
@@ -604,6 +608,7 @@ describe('property tile pyramid build lifecycle', () => {
     'enqueues a recovered %s build identity instead of coalescing',
     async () => {
       executeMock
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([

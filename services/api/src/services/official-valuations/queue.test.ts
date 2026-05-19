@@ -52,18 +52,85 @@ describe('official valuation hydration queue', () => {
     );
   });
 
-  it('does not add another Redis dispatch job when BullMQ already has the durable job id', async () => {
-    getJobMock.mockResolvedValueOnce({ id: 'durable-job-1' });
+  it.each(['active', 'waiting', 'delayed'] as const)(
+    'does not add another Redis dispatch job when BullMQ already has a live %s durable job id',
+    async (state) => {
+      const getStateMock = jest.fn(async () => state);
+      const retryMock = jest.fn(async () => undefined);
+      getJobMock.mockResolvedValueOnce({
+        id: 'durable-job-1',
+        getState: getStateMock,
+        retry: retryMock,
+      });
+      const { enqueueOfficialValuationHydration } = await import('./queue.js');
+
+      await enqueueOfficialValuationHydration({
+        jobId: 'durable-job-1',
+        propertyId: 'property-1',
+        source: 'woz',
+        valuationYear: 2025,
+      });
+
+      expect(getJobMock).toHaveBeenCalledWith('durable-job-1');
+      expect(getStateMock).toHaveBeenCalled();
+      expect(retryMock).not.toHaveBeenCalled();
+      expect(addMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['failed', 'completed'] as const)(
+    'retries an existing %s durable job instead of silently treating it as dispatched',
+    async (state) => {
+      const getStateMock = jest.fn(async () => state);
+      const retryMock = jest.fn(async () => undefined);
+      getJobMock.mockResolvedValueOnce({
+        id: 'durable-job-1',
+        getState: getStateMock,
+        retry: retryMock,
+      });
+      const { enqueueOfficialValuationHydration } = await import('./queue.js');
+
+      await enqueueOfficialValuationHydration({
+        jobId: 'durable-job-1',
+        propertyId: 'property-1',
+        source: 'woz',
+        valuationYear: 2025,
+      });
+
+      expect(getJobMock).toHaveBeenCalledWith('durable-job-1');
+      expect(getStateMock).toHaveBeenCalled();
+      expect(retryMock).toHaveBeenCalledWith(state, {
+        resetAttemptsMade: true,
+        resetAttemptsStarted: true,
+      });
+      expect(addMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('surfaces retained-job retry errors so recovery does not mark hydration dispatched', async () => {
+    const retryError = new Error('retry failed');
+    const getStateMock = jest.fn(async () => 'failed');
+    const retryMock = jest.fn(async () => {
+      throw retryError;
+    });
+    getJobMock.mockResolvedValueOnce({
+      id: 'durable-job-1',
+      getState: getStateMock,
+      retry: retryMock,
+    });
     const { enqueueOfficialValuationHydration } = await import('./queue.js');
 
-    await enqueueOfficialValuationHydration({
+    await expect(enqueueOfficialValuationHydration({
       jobId: 'durable-job-1',
       propertyId: 'property-1',
       source: 'woz',
       valuationYear: 2025,
-    });
+    })).rejects.toThrow(retryError);
 
-    expect(getJobMock).toHaveBeenCalledWith('durable-job-1');
+    expect(retryMock).toHaveBeenCalledWith('failed', {
+      resetAttemptsMade: true,
+      resetAttemptsStarted: true,
+    });
     expect(addMock).not.toHaveBeenCalled();
   });
 });

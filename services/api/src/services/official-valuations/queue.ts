@@ -11,6 +11,14 @@ type QueueLike<T> = {
   close(): Promise<unknown>;
 };
 
+type ExistingJobLike = {
+  getState?: () => Promise<string>;
+  retry?: (
+    state?: 'failed' | 'completed',
+    options?: { resetAttemptsMade?: boolean; resetAttemptsStarted?: boolean },
+  ) => Promise<void>;
+};
+
 let hydrationQueue: QueueLike<OfficialValuationHydrationJobData> | null = null;
 
 async function loadQueueConstructor<T>(): Promise<
@@ -46,9 +54,22 @@ export async function enqueueOfficialValuationHydration(
   data: OfficialValuationHydrationJobData,
 ): Promise<void> {
   const queue = await getHydrationQueue();
-  const existingJob = await queue.getJob(data.jobId);
+  const existingJob = await queue.getJob(data.jobId) as ExistingJobLike | null;
 
   if (existingJob) {
+    const state = await existingJob.getState?.();
+    if (state === 'failed' || state === 'completed') {
+      if (!existingJob.retry) {
+        throw new Error(
+          `Existing official valuation hydration job ${data.jobId} is ${state} but cannot be retried`,
+        );
+      }
+
+      await existingJob.retry(state, {
+        resetAttemptsMade: true,
+        resetAttemptsStarted: true,
+      });
+    }
     return;
   }
 

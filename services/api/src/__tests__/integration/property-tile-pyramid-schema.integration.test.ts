@@ -835,6 +835,108 @@ describe('property tile pyramid schema safeguards', () => {
     });
   });
 
+  it('marks promoted versions that are no longer current or previous as superseded', async () => {
+    const coverageId = `${coveragePrefix}-promoted-lifecycle`;
+    const firstVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+    await insertTileManifest({
+      versionId: firstVersionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+    await promote(firstVersionId);
+
+    const secondVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+    await insertTileManifest({
+      versionId: secondVersionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+    await promote(secondVersionId, firstVersionId);
+
+    const thirdVersionId = await insertPyramidVersion({
+      coverageId,
+      expectedTileCount: 1,
+      validatedTileCount: 1,
+    });
+    await insertTileManifest({
+      versionId: thirdVersionId,
+      x: 0,
+      tileStatus: 'valid_empty',
+      validationStatus: 'validated',
+      nodeCount: 0,
+    });
+    await promote(thirdVersionId, secondVersionId);
+
+    const rows = Array.from(
+      await db.execute<{
+        id: string;
+        status: string;
+        is_current: boolean;
+        is_previous: boolean;
+        superseded: boolean;
+        superseded_reason: string | null;
+      }>(sql`
+        SELECT
+          v.id::text,
+          v.status::text,
+          c.current_version_id = v.id AS is_current,
+          c.previous_version_id = v.id AS is_previous,
+          v.superseded_at IS NOT NULL AS superseded,
+          v.validation_summary#>>'{superseded,reason}' AS superseded_reason
+        FROM property_tile_pyramid_versions v
+        JOIN property_tile_pyramid_current c
+          ON c.coverage_id = v.coverage_id
+         AND c.filter_signature = v.filter_signature
+         AND c.max_zoom = v.max_zoom
+         AND c.pyramid_kind = v.pyramid_kind
+        WHERE v.id IN (${firstVersionId}::uuid, ${secondVersionId}::uuid, ${thirdVersionId}::uuid)
+        ORDER BY array_position(
+          ARRAY[${firstVersionId}::uuid, ${secondVersionId}::uuid, ${thirdVersionId}::uuid],
+          v.id
+        )
+      `)
+    );
+
+    expect(rows).toEqual([
+      {
+        id: firstVersionId,
+        status: 'promoted',
+        is_current: false,
+        is_previous: false,
+        superseded: true,
+        superseded_reason: 'promoted-version-no-longer-current-or-previous',
+      },
+      {
+        id: secondVersionId,
+        status: 'promoted',
+        is_current: false,
+        is_previous: true,
+        superseded: false,
+        superseded_reason: null,
+      },
+      {
+        id: thirdVersionId,
+        status: 'promoted',
+        is_current: true,
+        is_previous: false,
+        superseded: false,
+        superseded_reason: null,
+      },
+    ]);
+  });
+
   it('blocks direct current pointer moves to an already-promoted version', async () => {
     const coverageId = `${coveragePrefix}-direct-current-promoted`;
     const firstVersionId = await insertPyramidVersion({

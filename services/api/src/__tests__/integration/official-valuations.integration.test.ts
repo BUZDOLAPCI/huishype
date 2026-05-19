@@ -12,6 +12,7 @@ import {
 import {
   acceptOfficialValuationHydrationRequest,
   markOfficialValuationHydrationSucceeded,
+  markOfficialValuationSourceFailure,
   releaseOfficialValuationSourceRequest,
   reserveOfficialValuationSourceRequest,
 } from '../../services/official-valuations/store.js';
@@ -163,6 +164,42 @@ describe('official valuation hydration requests', () => {
       requestsInFlight: 0,
       leaseExpiresAt: null,
     });
+  });
+
+  it('records non-rate-limited source failures without tripping nullable SQL bindings', async () => {
+    await db
+      .delete(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'));
+
+    await expect(
+      markOfficialValuationSourceFailure({
+        source: 'woz',
+        error: 'fetch failed',
+        rateLimited: false,
+      }),
+    ).resolves.toBeUndefined();
+
+    const [sourceState] = await db
+      .select({
+        state: officialValuationSourceStates.state,
+        consecutiveFailureCount: officialValuationSourceStates.consecutiveFailureCount,
+        lastFailureAt: officialValuationSourceStates.lastFailureAt,
+        lastRateLimitAt: officialValuationSourceStates.lastRateLimitAt,
+        lastError: officialValuationSourceStates.lastError,
+        circuitHalfOpenAt: officialValuationSourceStates.circuitHalfOpenAt,
+      })
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'))
+      .limit(1);
+
+    expect(sourceState).toMatchObject({
+      state: 'healthy',
+      consecutiveFailureCount: 1,
+      lastRateLimitAt: null,
+      lastError: 'fetch failed',
+      circuitHalfOpenAt: null,
+    });
+    expect(sourceState?.lastFailureAt).toBeInstanceOf(Date);
   });
 
   it('creates a durable maintenance refresh request when server hydration updates the valuation cache', async () => {

@@ -2790,6 +2790,19 @@ export async function requestPropertyTilePyramidBuild(input: {
       comparableSourceWatermarkHash: comparableRequestedSourceWatermarkHash,
     };
 
+    if (isWorkerRecoveryReason) {
+      const activeBuild = await readLeasedActivePropertyTilePyramidBuild(slot);
+      if (activeBuild) {
+        return {
+          status: 'coalesced',
+          versionId: activeBuild.id,
+          existingStatus: activeBuild.status,
+          nextRetryAt: activeBuild.next_retry_at,
+          reason: 'active-build-in-progress',
+        };
+      }
+    }
+
     await db.execute(sql`
       UPDATE property_tile_pyramid_versions
       SET
@@ -2850,7 +2863,6 @@ export async function requestPropertyTilePyramidBuild(input: {
               AND lease_until > now()
             ORDER BY requested_at ASC NULLS LAST, updated_at ASC
             LIMIT 1
-            FOR UPDATE SKIP LOCKED
           ),
           inserted AS (
             INSERT INTO property_tile_pyramid_versions (
@@ -2953,7 +2965,6 @@ export async function requestPropertyTilePyramidBuild(input: {
           AND lease_until > now()
         ORDER BY requested_at ASC NULLS LAST, updated_at ASC
         LIMIT 1
-        FOR UPDATE SKIP LOCKED
       ),
       inserted AS (
         INSERT INTO property_tile_pyramid_versions (
@@ -3337,6 +3348,33 @@ async function recoverStalePropertyTilePyramidBuildRequest(input: {
     SELECT count(*)::int AS recovered_count FROM recovered
   `);
   return Number(Array.from(rows)[0]?.recovered_count ?? 0);
+}
+
+async function readLeasedActivePropertyTilePyramidBuild(
+  slot: PropertyTilePyramidSlot
+): Promise<{
+  id: string;
+  status: Extract<PropertyTilePyramidStatus, 'building' | 'validating'>;
+  next_retry_at: string | null;
+} | null> {
+  const rows = await db.execute<{
+    id: string;
+    status: Extract<PropertyTilePyramidStatus, 'building' | 'validating'>;
+    next_retry_at: string | null;
+  }>(sql`
+    SELECT id::text, status, next_retry_at::text
+    FROM property_tile_pyramid_versions
+    WHERE coverage_id = ${slot.coverageId}
+      AND filter_signature = ${slot.filterSignature}
+      AND max_zoom = ${slot.maxZoom}
+      AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      AND status IN ('building', 'validating')
+      AND lease_until IS NOT NULL
+      AND lease_until > now()
+    ORDER BY requested_at ASC NULLS LAST, updated_at ASC
+    LIMIT 1
+  `);
+  return Array.from(rows)[0] ?? null;
 }
 
 async function enqueuePropertyTilePyramidBuildSignal(input: {
