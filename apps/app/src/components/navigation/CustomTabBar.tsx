@@ -80,6 +80,11 @@ const MAP_ROUTE_NAMES = new Set([
   'map/[country]/[city]/[postcode]/[street]/[house]',
 ]);
 
+const PROFILE_ROUTE_NAMES = new Set([
+  'profile',
+  'profile-settings',
+]);
+
 /** Palette derived from the selected pen frame. */
 const COLORS = {
   warmDivider: '#E8E0D4',
@@ -97,6 +102,7 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
 
   const activeRoute = state.routes[state.index];
   const isMapRouteActive = !!activeRoute?.name && MAP_ROUTE_NAMES.has(activeRoute.name);
+  const isProfileRouteActive = !!activeRoute?.name && PROFILE_ROUTE_NAMES.has(activeRoute.name);
   const isMapTab = isMapRouteActive;
   const extraBottomInset = Math.max(insets.bottom - TAB_BAR_DOCK_BOTTOM_PADDING, 0);
 
@@ -106,8 +112,10 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
 
   const tabItems = visibleRoutes.map((route: TabRoute) => {
     const routeIndex = state.routes.indexOf(route);
-    const isFocused =
+    const isRouteFocused =
       state.index === routeIndex || (route.name === 'index' && isMapRouteActive);
+    const isFocused =
+      isRouteFocused || (route.name === 'profile' && isProfileRouteActive);
     const iconName = TAB_ICONS[route.name] ?? 'HouseLine';
     const label = TAB_LABELS[route.name] ?? route.name;
 
@@ -123,7 +131,7 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
         canPreventDefault: true,
       });
 
-      if (!isFocused && !event.defaultPrevented) {
+      if (!isRouteFocused && !event.defaultPrevented) {
         if (Platform.OS === 'web') {
           const href = TAB_HREFS[route.name];
           if (href) {

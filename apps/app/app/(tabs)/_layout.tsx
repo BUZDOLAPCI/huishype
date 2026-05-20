@@ -37,6 +37,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="profile-settings"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="@[camera]"
         options={{
           href: null,

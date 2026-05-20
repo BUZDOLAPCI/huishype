@@ -88,13 +88,6 @@ jest.mock('@/src/components', () => ({
   AuthModal: () => null,
 }));
 
-jest.mock('@/src/components/navigation/ScreenHeader', () => ({
-  ScreenHeader: ({ title }: { title: string }) => {
-    const ReactNative = require('react-native');
-    return <ReactNative.Text>{title}</ReactNative.Text>;
-  },
-}));
-
 jest.mock('@/src/utils/property-route', () => ({
   buildPropertyRoute: jest.fn(() => '/property/test'),
   toInternalAppHref: jest.fn((href: string) => href),
@@ -115,6 +108,23 @@ const getRouterPush = () =>
 
 function renderWithDismissibleLayer(ui: React.ReactElement) {
   return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
+}
+
+function seedSignedOutAuth() {
+  mockUseAuthContext.mockReturnValue({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    accessToken: null,
+    authError: null,
+    signInWithGoogle: jest.fn(),
+    signInWithMockToken: jest.fn(),
+    requestEmailLink: jest.fn(),
+    verifyEmailToken: jest.fn(),
+    signOut,
+    refreshAuth: jest.fn(),
+    getAccessToken: jest.fn(),
+  });
 }
 
 function seedMocks() {
@@ -232,6 +242,58 @@ describe('ProfileScreen sign out', () => {
       expect(globalThis.confirm).toHaveBeenCalledTimes(1);
     });
     expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it('shows settings from the signed-out profile state', () => {
+    seedSignedOutAuth();
+
+    const { getByTestId, queryByTestId } = render(<ProfileScreen />);
+
+    expect(getByTestId('profile-actions-header')).toBeTruthy();
+    expect(getByTestId('profile-settings-anchor')).toBeTruthy();
+
+    fireEvent.press(getByTestId('profile-settings'));
+
+    expect(getByTestId('settings-open')).toBeTruthy();
+    expect(queryByTestId('settings-sign-out')).toBeNull();
+
+    fireEvent.press(getByTestId('settings-open'));
+
+    expect(getRouterPush()).toHaveBeenCalledWith('/profile-settings');
+  });
+
+  it('shows settings and sign out from the signed-in loading profile state', () => {
+    mockUseMyProfile.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      refetch: jest.fn().mockResolvedValue(undefined),
+    } as unknown as ReturnType<typeof useMyProfile>);
+
+    const { getByTestId } = render(<ProfileScreen />);
+
+    expect(getByTestId('profile-actions-header')).toBeTruthy();
+    expect(getByTestId('profile-settings-anchor')).toBeTruthy();
+
+    fireEvent.press(getByTestId('profile-settings'));
+
+    expect(getByTestId('settings-open')).toBeTruthy();
+    expect(getByTestId('settings-sign-out')).toBeTruthy();
+
+    fireEvent.press(getByTestId('settings-open'));
+
+    expect(getRouterPush()).toHaveBeenCalledWith('/profile-settings');
+  });
+
+  it('opens settings from the signed-in profile menu', () => {
+    const { getByTestId } = render(<ProfileScreen />);
+
+    expect(getByTestId('profile-actions-header')).toBeTruthy();
+    expect(getByTestId('profile-settings-anchor')).toBeTruthy();
+
+    fireEvent.press(getByTestId('profile-settings'));
+    fireEvent.press(getByTestId('settings-open'));
+
+    expect(getRouterPush()).toHaveBeenCalledWith('/profile-settings');
   });
 
   it('keeps self follower and following counts as navigation entrypoints', () => {

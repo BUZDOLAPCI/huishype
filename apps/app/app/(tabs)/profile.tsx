@@ -8,7 +8,7 @@
  *   - Stats grid (guesses, karma, accuracy)
  *   - Achievements row (horizontal scroll of AchievementBadge compact)
  *   - Recent activity log from API
- *   - Settings dropdown (sign out)
+ *   - Settings dropdown (settings, sign out)
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -24,6 +24,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
@@ -31,7 +32,6 @@ import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { AchievementBadge } from '@/src/components/ui/AchievementBadge';
 import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
 import { AuthModal } from '@/src/components';
-import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
@@ -75,10 +75,14 @@ function formatRelativeTime(isoDate: string, nowMs: number): string {
 
 function SettingsDropdown({
   visible,
+  isSignedIn,
+  onSettings,
   onSignOut,
   onDismiss,
 }: {
   visible: boolean;
+  isSignedIn: boolean;
+  onSettings: () => void;
   onSignOut: () => void;
   onDismiss: () => void;
 }) {
@@ -90,14 +94,110 @@ function SettingsDropdown({
       <View style={[styles.dropdown, shadows.dropdown]}>
         <Pressable
           style={styles.dropdownItem}
-          onPress={onSignOut}
-          testID="settings-sign-out"
+          onPress={onSettings}
+          testID="settings-open"
         >
-          <Icon name="SignOut" size="md" color="#504A42" />
-          <Text style={styles.dropdownItemText}>Sign out</Text>
+          <Icon name="GearSix" size="md" color="#504A42" />
+          <Text style={styles.dropdownItemText}>Settings</Text>
         </Pressable>
+        {isSignedIn ? (
+          <Pressable
+            style={styles.dropdownItem}
+            onPress={onSignOut}
+            testID="settings-sign-out"
+          >
+            <Icon name="SignOut" size="md" color="#504A42" />
+            <Text style={styles.dropdownItemText}>Sign out</Text>
+          </Pressable>
+        ) : null}
       </View>
     </>
+  );
+}
+
+function ProfileSettingsButton({
+  onPress,
+}: {
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={8}
+      testID="profile-settings"
+      accessibilityRole="button"
+      accessibilityLabel="Settings"
+      accessibilityHint="Opens the settings menu"
+      style={styles.headerIconButton}
+    >
+      <Icon name="DotsThreeVertical" size="lg" color="#504A42" />
+    </Pressable>
+  );
+}
+
+function ProfileActionsHeader({
+  topInset,
+  showTitle = false,
+  showNotifications = false,
+  isSignedIn,
+  showSettings,
+  onToggleSettings,
+  onOpenSettings,
+  onSignOut = () => undefined,
+  onDismissSettings,
+}: {
+  topInset: number;
+  showTitle?: boolean;
+  showNotifications?: boolean;
+  isSignedIn: boolean;
+  showSettings: boolean;
+  onToggleSettings: () => void;
+  onOpenSettings: () => void;
+  onSignOut?: () => void;
+  onDismissSettings: () => void;
+}) {
+  return (
+    <View
+      style={[styles.profileActionsHeader, { paddingTop: topInset }]}
+      testID="profile-actions-header"
+    >
+      {showTitle ? (
+        <Text
+          style={styles.profileActionsTitle}
+          numberOfLines={1}
+          accessibilityRole="header"
+        >
+          Profile
+        </Text>
+      ) : (
+        <View style={styles.profileActionsTitleSpacer} />
+      )}
+      <View style={styles.headerActions}>
+        {showNotifications ? (
+          <Pressable
+            onPress={() => router.push('/notifications')}
+            hitSlop={8}
+            testID="profile-notifications"
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            accessibilityHint="Opens the notifications screen"
+            style={styles.headerIconButton}
+          >
+            <Icon name="Bell" size="lg" color="#504A42" />
+          </Pressable>
+        ) : null}
+        <View style={styles.settingsMenuAnchor} testID="profile-settings-anchor">
+          <ProfileSettingsButton onPress={onToggleSettings} />
+          <SettingsDropdown
+            visible={showSettings}
+            isSignedIn={isSignedIn}
+            onSettings={onOpenSettings}
+            onSignOut={onSignOut}
+            onDismiss={onDismissSettings}
+          />
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -105,6 +205,7 @@ function SettingsDropdown({
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuthContext();
+  const insets = useSafeAreaInsets();
   const { data: profile, isLoading, refetch } = useMyProfile();
   const updateProfile = useUpdateProfile();
   const { data: achievementsData } = useAchievements();
@@ -229,6 +330,17 @@ export default function ProfileScreen() {
     ]);
   }, [signOut]);
 
+  const toggleSettings = useCallback(() => {
+    setShowSettings((visible) => !visible);
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setShowSettings(false);
+    router.push('/profile-settings');
+  }, []);
+
+  const profileHeaderTopInset = Platform.OS === 'web' ? 16 : insets.top + 8;
+
   // --- Not logged in ---
   if (!user) {
     return (
@@ -236,7 +348,15 @@ export default function ProfileScreen() {
         testID="profile-auth-required"
         pointerEvents="box-none"
       >
-        <ScreenHeader title="Profile" />
+        <ProfileActionsHeader
+          topInset={profileHeaderTopInset}
+          showTitle
+          isSignedIn={false}
+          showSettings={showSettings}
+          onToggleSettings={toggleSettings}
+          onOpenSettings={handleOpenSettings}
+          onDismissSettings={dismissSettings}
+        />
         <View className="flex-1 items-center justify-center px-6">
           <View className="bg-primary-100 p-5 rounded-full mb-4">
             <Icon name="User" size="2xl" color="#DE911D" />
@@ -268,7 +388,16 @@ export default function ProfileScreen() {
   if (isLoading && !profile) {
     return (
       <ScreenBackground testID="profile-loading">
-        <ScreenHeader title="Profile" />
+        <ProfileActionsHeader
+          topInset={profileHeaderTopInset}
+          showTitle
+          isSignedIn
+          showSettings={showSettings}
+          onToggleSettings={toggleSettings}
+          onOpenSettings={handleOpenSettings}
+          onSignOut={handleLogout}
+          onDismissSettings={dismissSettings}
+        />
         <View className="flex-1 items-center justify-center">
           <Icon name="User" size="xl" color="#DE911D" />
           <Text className="text-warm-600 mt-4">Loading profile...</Text>
@@ -295,37 +424,15 @@ export default function ProfileScreen() {
       >
         {/* Profile Header */}
         <View style={styles.profileHeader}>
-          {/* Header actions row */}
-          <View style={styles.headerActions}>
-            <Pressable
-              onPress={() => router.push('/notifications')}
-              hitSlop={8}
-              testID="profile-notifications"
-              accessibilityRole="button"
-              accessibilityLabel="Notifications"
-              accessibilityHint="Opens the notifications screen"
-              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Icon name="Bell" size="lg" color="#504A42" />
-            </Pressable>
-            <Pressable
-              onPress={() => setShowSettings(!showSettings)}
-              hitSlop={8}
-              testID="profile-settings"
-              accessibilityRole="button"
-              accessibilityLabel="Settings"
-              accessibilityHint="Opens the settings menu"
-              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Icon name="DotsThreeVertical" size="lg" color="#504A42" />
-            </Pressable>
-          </View>
-
-          {/* Settings dropdown */}
-          <SettingsDropdown
-            visible={showSettings}
+          <ProfileActionsHeader
+            topInset={profileHeaderTopInset}
+            isSignedIn
+            showNotifications
+            showSettings={showSettings}
+            onToggleSettings={toggleSettings}
+            onOpenSettings={handleOpenSettings}
             onSignOut={handleLogout}
-            onDismiss={dismissSettings}
+            onDismissSettings={dismissSettings}
           />
 
           {/* Avatar */}
@@ -509,18 +616,56 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   profileHeader: {
-    marginHorizontal: 16,
     marginTop: 0,
-    paddingTop: 6,
     paddingBottom: 20,
     alignItems: 'center',
     overflow: 'visible',
+  },
+  profileActionsHeader: {
+    width: '100%',
+    maxWidth: 768,
+    alignSelf: 'center',
+    minHeight: 62,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    overflow: 'visible',
+    zIndex: 20,
+    elevation: 20,
+  },
+  profileActionsTitle: {
+    flex: 1,
+    fontSize: 22,
+    fontFamily: 'Inter_700Bold',
+    color: '#2D2926',
+    letterSpacing: 0,
+    lineHeight: 28,
+  },
+  profileActionsTitleSpacer: {
+    flex: 1,
   },
   headerActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 12,
-    width: '100%',
+  },
+  settingsMenuAnchor: {
+    position: 'relative',
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    overflow: 'visible',
+    zIndex: 20,
+    elevation: 20,
+  },
+  headerIconButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dropdownBackdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -537,6 +682,7 @@ const styles = StyleSheet.create({
     padding: 8,
     minWidth: 150,
     zIndex: 20,
+    elevation: 20,
   },
   dropdownItem: {
     flexDirection: 'row',
