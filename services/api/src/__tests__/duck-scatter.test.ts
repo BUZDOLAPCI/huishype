@@ -1,7 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 import {
   DUCK_CANDIDATES_LEVEL1,
-  DUCK_CANDIDATES_LEVEL2,
   DUCK_VARIANTS,
   generateDuckCandidates,
   getAncestorTile,
@@ -99,6 +98,9 @@ describe('duck tile anchoring', () => {
 });
 
 describe('generateDuckCandidates', () => {
+  const pointKey = (p: { lon: number; lat: number; variant: number }) =>
+    `${p.lon}:${p.lat}:${p.variant}`;
+
   test('is deterministic for same inputs', () => {
     const bbox = tileToBBox(15, 16892, 10898);
     const c1 = generateDuckCandidates(15, 16892, 10898, bbox);
@@ -123,7 +125,7 @@ describe('generateDuckCandidates', () => {
     });
   });
 
-  test('z16 child tiles collectively contain all z15 parent ducks plus level 2', () => {
+  test('z16 child tiles collectively contain only the z15 base density', () => {
     const childCoords = [
       [33784, 21796],
       [33785, 21796],
@@ -137,13 +139,12 @@ describe('generateDuckCandidates', () => {
       totalChildDucks += generateDuckCandidates(16, cx, cy, childBBox).length;
     }
 
-    expect(totalChildDucks).toBe(DUCK_CANDIDATES_LEVEL1 + DUCK_CANDIDATES_LEVEL2);
+    expect(totalChildDucks).toBe(DUCK_CANDIDATES_LEVEL1);
   });
 
-  test('z17 child tiles preserve z15 parent ducks within their area', () => {
-    const parentBBox = tileToBBox(15, 16892, 10898);
-    const parentDucks = generateDuckCandidates(15, 16892, 10898, parentBBox);
+  test('z17 child tiles collectively preserve the z16 base candidates exactly', () => {
     const z16BBox = tileToBBox(16, 33784, 21796);
+    const z16Ducks = generateDuckCandidates(16, 33784, 21796, z16BBox);
     const z17Coords = [
       [67568, 43592],
       [67569, 43592],
@@ -154,23 +155,8 @@ describe('generateDuckCandidates', () => {
     const z17Ducks = z17Coords.flatMap(([gx, gy]) =>
       generateDuckCandidates(17, gx, gy, tileToBBox(17, gx, gy))
     );
-    const parentDucksInQuadrant = parentDucks.filter(
-      (p) =>
-        p.lon >= z16BBox.minLon &&
-        p.lon <= z16BBox.maxLon &&
-        p.lat >= z16BBox.minLat &&
-        p.lat <= z16BBox.maxLat
-    );
 
-    for (const parentDuck of parentDucksInQuadrant) {
-      const found = z17Ducks.some(
-        (duck) =>
-          duck.lon === parentDuck.lon &&
-          duck.lat === parentDuck.lat &&
-          duck.variant === parentDuck.variant
-      );
-      expect(found).toBe(true);
-    }
+    expect(new Set(z17Ducks.map(pointKey))).toEqual(new Set(z16Ducks.map(pointKey)));
   });
 
   test('variant values are valid', () => {

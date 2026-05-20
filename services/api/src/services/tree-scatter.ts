@@ -15,6 +15,8 @@ export interface BBox {
 export const TREE_CANDIDATES_LEVEL1 = 200;
 /** Additional density candidates generated at zoom >= 16 */
 export const TREE_CANDIDATES_LEVEL2 = 400;
+/** Source-only re-enable switch for z16+ decorative tree density. */
+const ENABLE_TREE_LEVEL2_DENSITY = false;
 /** Seed offset for Level 2 candidates (ensures different positions from Level 1) */
 const LEVEL2_SEED_OFFSET = 0xdeadbeef;
 /** Anchor zoom level — all tree positions are derived from z15 tile coordinates */
@@ -111,10 +113,10 @@ function pointInBBox(p: ScatterPoint, bbox: BBox): boolean {
  * the z15 tile's seed, then filtered to the current tile's bbox.
  *
  * - Level 1 (z15+): TREE_CANDIDATES_LEVEL1 candidates — base density
- * - Level 2 (z16+): TREE_CANDIDATES_LEVEL2 additional candidates — extra density
+ * - Level 2 (disabled): TREE_CANDIDATES_LEVEL2 additional candidates — extra density
  *
  * This ensures z15 trees never jump or disappear when zooming in,
- * and z16+ tiles add more trees on top of the z15 set.
+ * and z16+ tiles preserve the z15 set without extra decorative density.
  */
 export function generateTreeCandidates(
   z: number,
@@ -136,9 +138,9 @@ export function generateTreeCandidates(
     ancestorSeed,
   );
 
-  // Level 2: additional density (z16+ only)
+  // Level 2: additional density (z16+ only when deliberately re-enabled in source).
   let level2: ScatterPoint[] = [];
-  if (z >= ANCHOR_ZOOM + 1) {
+  if (ENABLE_TREE_LEVEL2_DENSITY && z >= ANCHOR_ZOOM + 1) {
     level2 = scatterCandidatePoints(
       ancestorBBox,
       TREE_CANDIDATES_LEVEL2,

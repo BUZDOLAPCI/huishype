@@ -7,7 +7,6 @@ import {
   getAncestorTile,
   generateTreeCandidates,
   TREE_CANDIDATES_LEVEL1,
-  TREE_CANDIDATES_LEVEL2,
 } from '../services/tree-scatter.js';
 
 describe('tree-scatter', () => {
@@ -127,6 +126,9 @@ describe('tileToBBox', () => {
 });
 
 describe('generateTreeCandidates', () => {
+  const pointKey = (p: { lon: number; lat: number; variant: number }) =>
+    `${p.lon}:${p.lat}:${p.variant}`;
+
   test('is deterministic for same inputs', () => {
     const bbox = tileToBBox(15, 16892, 10898);
     const c1 = generateTreeCandidates(15, 16892, 10898, bbox, 16);
@@ -182,8 +184,7 @@ describe('generateTreeCandidates', () => {
     }
   });
 
-  test('z16 tiles have more candidates than z15 (Level 2 added)', () => {
-    // Total z16 children trees should equal LEVEL1 + LEVEL2
+  test('z16 child tiles collectively contain only the z15 base density', () => {
     const childCoords = [
       [33784, 21796],
       [33785, 21796],
@@ -196,8 +197,7 @@ describe('generateTreeCandidates', () => {
       const childTrees = generateTreeCandidates(16, cx, cy, childBBox, 16);
       totalChildTrees += childTrees.length;
     }
-    // Combined z16 children should have LEVEL1 + LEVEL2 total
-    expect(totalChildTrees).toBe(TREE_CANDIDATES_LEVEL1 + TREE_CANDIDATES_LEVEL2);
+    expect(totalChildTrees).toBe(TREE_CANDIDATES_LEVEL1);
   });
 
   test('all z16 candidates fall within their respective tile bbox', () => {
@@ -211,14 +211,10 @@ describe('generateTreeCandidates', () => {
     });
   });
 
-  test('z17 child tiles collectively contain ALL z15 parent trees within their area', () => {
-    // Generate z15 parent trees
-    const parentBBox = tileToBBox(15, 16892, 10898);
-    const parentTrees = generateTreeCandidates(15, 16892, 10898, parentBBox, 16);
-
-    // Pick one z16 child, then check its 4 z17 grandchildren
+  test('z17 child tiles collectively preserve the z16 base candidates exactly', () => {
     // z16 (33784, 21796) -> z17 children: (67568,43592), (67569,43592), (67568,43593), (67569,43593)
     const z16BBox = tileToBBox(16, 33784, 21796);
+    const z16Trees = generateTreeCandidates(16, 33784, 21796, z16BBox, 16);
     const z17Coords = [
       [67568, 43592],
       [67569, 43592],
@@ -232,24 +228,7 @@ describe('generateTreeCandidates', () => {
       allZ17Trees.push(...trees);
     }
 
-    // Every z15 parent tree that falls within this z16 quadrant must be present
-    const parentTreesInQuadrant = parentTrees.filter(
-      (p) =>
-        p.lon >= z16BBox.minLon &&
-        p.lon <= z16BBox.maxLon &&
-        p.lat >= z16BBox.minLat &&
-        p.lat <= z16BBox.maxLat,
-    );
-
-    for (const parentTree of parentTreesInQuadrant) {
-      const found = allZ17Trees.some(
-        (ct) =>
-          ct.lon === parentTree.lon &&
-          ct.lat === parentTree.lat &&
-          ct.variant === parentTree.variant,
-      );
-      expect(found).toBe(true);
-    }
+    expect(new Set(allZ17Trees.map(pointKey))).toEqual(new Set(z16Trees.map(pointKey)));
   });
 
   test('variant values are valid', () => {

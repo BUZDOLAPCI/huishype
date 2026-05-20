@@ -15,6 +15,8 @@ export interface DuckBBox {
 export const DUCK_CANDIDATES_LEVEL1 = 24;
 /** Additional density candidates generated at zoom >= 16 */
 export const DUCK_CANDIDATES_LEVEL2 = 48;
+/** Source-only re-enable switch for z16+ decorative duck density. */
+const ENABLE_DUCK_LEVEL2_DENSITY = false;
 /** Number of duck sprite variants exposed as duck-0 through duck-15 */
 export const DUCK_VARIANTS = 16;
 
@@ -106,7 +108,7 @@ function pointInBBox(p: DuckScatterPoint, bbox: DuckBBox): boolean {
  * consistency across zoom levels.
  *
  * - Level 1 (z15+): DUCK_CANDIDATES_LEVEL1 candidates — sparse base accents
- * - Level 2 (z16+): DUCK_CANDIDATES_LEVEL2 additional candidates
+ * - Level 2 (disabled): DUCK_CANDIDATES_LEVEL2 additional candidates
  */
 export function generateDuckCandidates(
   z: number,
@@ -127,7 +129,7 @@ export function generateDuckCandidates(
   );
 
   let level2: DuckScatterPoint[] = [];
-  if (z >= ANCHOR_ZOOM + 1) {
+  if (ENABLE_DUCK_LEVEL2_DENSITY && z >= ANCHOR_ZOOM + 1) {
     level2 = scatterCandidatePoints(
       ancestorBBox,
       DUCK_CANDIDATES_LEVEL2,
