@@ -21,6 +21,7 @@ export default function ProfileSettingsScreen() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuthContext();
   const [showAuth, setShowAuth] = useState(false);
+  const [settingsView, setSettingsView] = useState<'main' | 'legal'>('main');
 
   const versionLabel = useMemo(() => {
     const version = Constants.expoConfig?.version ?? '0.0.1';
@@ -30,6 +31,15 @@ export default function ProfileSettingsScreen() {
   const dismissToProfile = useCallback(() => {
     router.replace('/profile');
   }, []);
+
+  const handleHeaderBack = useCallback(() => {
+    if (settingsView === 'legal') {
+      setSettingsView('main');
+      return;
+    }
+
+    dismissToProfile();
+  }, [dismissToProfile, settingsView]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') {
@@ -76,6 +86,18 @@ export default function ProfileSettingsScreen() {
     setShowAuth(true);
   }, [handleLogout, user]);
 
+  const navigateToTerms = useCallback(() => {
+    router.push('/terms');
+  }, []);
+
+  const navigateToPrivacy = useCallback(() => {
+    router.push('/privacy');
+  }, []);
+
+  const navigateToContact = useCallback(() => {
+    router.push('/contact');
+  }, []);
+
   return (
     <View
       style={[styles.screen, { paddingTop: Platform.OS === 'web' ? 16 : insets.top }]}
@@ -83,7 +105,7 @@ export default function ProfileSettingsScreen() {
     >
       <View style={styles.header}>
         <Pressable
-          onPress={dismissToProfile}
+          onPress={handleHeaderBack}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel="Back"
@@ -93,7 +115,7 @@ export default function ProfileSettingsScreen() {
           <Icon name="ArrowLeft" size="lg" color="#003C32" />
         </Pressable>
         <Text style={styles.headerTitle} accessibilityRole="header">
-          Profile
+          {settingsView === 'legal' ? 'Legal' : 'Profile'}
         </Text>
         <View style={styles.headerButton} />
       </View>
@@ -106,17 +128,58 @@ export default function ProfileSettingsScreen() {
         ]}
         contentInsetAdjustmentBehavior="automatic"
       >
-        <View>
-          <Pressable
-            style={styles.row}
-            onPress={handleAuthRowPress}
-            accessibilityRole="button"
-            testID="settings-auth-row"
-          >
-            <Text style={styles.rowText}>{user ? 'Log out' : 'Log in'}</Text>
-            <Icon name="ArrowRight" size={30} color="#6E6A65" />
-          </Pressable>
-        </View>
+        {settingsView === 'legal' ? (
+          <View testID="settings-legal-submenu">
+            <Pressable
+              style={styles.row}
+              onPress={navigateToTerms}
+              accessibilityRole="button"
+              testID="settings-terms-row"
+            >
+              <Text style={styles.rowText}>Terms and Conditions</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+            <Pressable
+              style={styles.row}
+              onPress={navigateToPrivacy}
+              accessibilityRole="button"
+              testID="settings-privacy-row"
+            >
+              <Text style={styles.rowText}>Privacy Policy</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+          </View>
+        ) : (
+          <View>
+            <Pressable
+              style={styles.row}
+              onPress={() => setSettingsView('legal')}
+              accessibilityRole="button"
+              testID="settings-legal-row"
+            >
+              <Text style={styles.rowText}>Legal</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+            <Pressable
+              style={styles.row}
+              onPress={navigateToContact}
+              accessibilityRole="button"
+              testID="settings-contact-row"
+            >
+              <Text style={styles.rowText}>Need help?</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+            <Pressable
+              style={styles.row}
+              onPress={handleAuthRowPress}
+              accessibilityRole="button"
+              testID="settings-auth-row"
+            >
+              <Text style={styles.rowText}>{user ? 'Log out' : 'Log in'}</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+          </View>
+        )}
 
         <Text style={styles.versionText} testID="settings-version">
           {versionLabel}

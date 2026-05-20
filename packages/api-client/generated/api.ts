@@ -19,7 +19,100 @@ export interface paths {
             parameters: {
                 query?: {
                     allowDegraded?: boolean;
+                    strictPyramid?: boolean;
                 };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok" | "degraded" | "error";
+                            /** Format: date-time */
+                            timestamp: string;
+                            version: string;
+                            /** @description Server uptime in seconds */
+                            uptime: number;
+                            propertyTilePyramid: {
+                                /** @enum {string} */
+                                status: "ok" | "degraded";
+                                currentVersionId: string | null;
+                                degradedReason: string | null;
+                                activeCandidateVersionId: string | null;
+                                retryableFailureDueAt: string | null;
+                                terminalFailureCount: number;
+                                encodedCoverageRatio: number | null;
+                                closedWatermarkMaxUpdatedAt: string | null;
+                                currentWatermarkMaxUpdatedAt: string | null;
+                                closedToCurrentWatermarkLagSeconds: number | null;
+                                lastSuccessfulPromotionAt: string | null;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok" | "degraded" | "error";
+                            /** Format: date-time */
+                            timestamp: string;
+                            version: string;
+                            /** @description Server uptime in seconds */
+                            uptime: number;
+                            propertyTilePyramid: {
+                                /** @enum {string} */
+                                status: "ok" | "degraded";
+                                currentVersionId: string | null;
+                                degradedReason: string | null;
+                                activeCandidateVersionId: string | null;
+                                retryableFailureDueAt: string | null;
+                                terminalFailureCount: number;
+                                encodedCoverageRatio: number | null;
+                                closedWatermarkMaxUpdatedAt: string | null;
+                                currentWatermarkMaxUpdatedAt: string | null;
+                                closedToCurrentWatermarkLagSeconds: number | null;
+                                lastSuccessfulPromotionAt: string | null;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/property-tile-pyramid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Strict property tile pyramid readiness check
+         * @description Returns 503 when the API is healthy but the materialized property tile pyramid is not ready.
+         */
+        get: {
+            parameters: {
+                query?: never;
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -727,6 +820,351 @@ export interface paths {
                             error: string;
                             message: string;
                         };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/resolve-house-number-tap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve a clicked house-number label to a property preview */
+        get: {
+            parameters: {
+                query: {
+                    lon: number;
+                    lat: number;
+                    zoom: number;
+                    houseNumber: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": ({
+                            /** @enum {string} */
+                            kind: "single";
+                            /** @enum {string} */
+                            source: "physical-tap" | "house-number-tap";
+                            property: {
+                                /** Format: uuid */
+                                id: string;
+                                nationalId: string | null;
+                                countryCode: string;
+                                region: string | null;
+                                street: string;
+                                houseNumber: number;
+                                houseNumberAddition: string | null;
+                                address: string;
+                                city: string;
+                                postalCode: string | null;
+                                coordinate: {
+                                    longitude: number;
+                                    latitude: number;
+                                };
+                                imageryCoordinate: {
+                                    longitude: number;
+                                    latitude: number;
+                                } | null;
+                                hasListing: boolean;
+                                hasActiveListing: boolean;
+                                /** @enum {string} */
+                                marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                                latestListingStatus: ("active" | "sold" | "rented" | "withdrawn") | null;
+                                askingPrice: number | null;
+                                thumbnailUrl: string | null;
+                                officialValuation: number | null;
+                                officialValuationYear: number | null;
+                                yearBuilt: number | null;
+                                floorAreaM2: number | null;
+                                socialScore: number;
+                                recentSocialScore: number;
+                                commentCount: number;
+                                isRead: boolean;
+                            };
+                            coordinate: {
+                                longitude: number;
+                                latitude: number;
+                            };
+                            /** @enum {string} */
+                            match: "containing-building" | "nearby-building" | "nearby-property" | "house-number";
+                        } | {
+                            /** @enum {string} */
+                            kind: "group";
+                            /** @enum {string} */
+                            source: "physical-tap" | "house-number-tap";
+                            group: {
+                                /** @enum {string} */
+                                nodeClass: "active" | "ghost";
+                                /** Format: uuid */
+                                primaryPropertyId: string;
+                                pointCount: number;
+                                propertyIds: string[];
+                                previewPropertyIds: string[];
+                                pyramidVersionId: string | null;
+                                pyramidNodeId: string | null;
+                                membershipComplete: boolean;
+                                /** @enum {string} */
+                                readStateCoverage: "complete" | "partial";
+                                /** @description [longitude, latitude] */
+                                coordinate: [
+                                    number,
+                                    number
+                                ];
+                                distanceMeters: number;
+                                /** @description [west, south, east, north] */
+                                bbox: [
+                                    number,
+                                    number,
+                                    number,
+                                    number
+                                ] | null;
+                                activeListingCount: number;
+                                socialCount: number;
+                                recentSocialCount: number;
+                                socialScoreTotal: number;
+                                socialScoreMax: number;
+                                recentSocialScoreTotal: number;
+                                commentCount: number;
+                                isRead: boolean;
+                                /** @enum {string} */
+                                groupKind: "cluster";
+                                completedListingCount: number;
+                                previewProperties: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    nationalId: string | null;
+                                    countryCode: string;
+                                    region: string | null;
+                                    street: string;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    address: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    coordinate: {
+                                        longitude: number;
+                                        latitude: number;
+                                    };
+                                    imageryCoordinate: {
+                                        longitude: number;
+                                        latitude: number;
+                                    } | null;
+                                    hasListing: boolean;
+                                    hasActiveListing: boolean;
+                                    /** @enum {string} */
+                                    marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                                    latestListingStatus: ("active" | "sold" | "rented" | "withdrawn") | null;
+                                    askingPrice: number | null;
+                                    thumbnailUrl: string | null;
+                                    officialValuation: number | null;
+                                    officialValuationYear: number | null;
+                                    yearBuilt: number | null;
+                                    floorAreaM2: number | null;
+                                    socialScore: number;
+                                    recentSocialScore: number;
+                                    commentCount: number;
+                                    isRead: boolean;
+                                }[];
+                            };
+                            coordinate: {
+                                longitude: number;
+                                latitude: number;
+                            };
+                            /** @enum {string} */
+                            match: "containing-building" | "nearby-building" | "nearby-property" | "house-number";
+                        }) | null;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/resolve-tap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve a street-zoom physical map tap to a property preview */
+        get: {
+            parameters: {
+                query: {
+                    lon: number;
+                    lat: number;
+                    zoom: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": ({
+                            /** @enum {string} */
+                            kind: "single";
+                            /** @enum {string} */
+                            source: "physical-tap" | "house-number-tap";
+                            property: {
+                                /** Format: uuid */
+                                id: string;
+                                nationalId: string | null;
+                                countryCode: string;
+                                region: string | null;
+                                street: string;
+                                houseNumber: number;
+                                houseNumberAddition: string | null;
+                                address: string;
+                                city: string;
+                                postalCode: string | null;
+                                coordinate: {
+                                    longitude: number;
+                                    latitude: number;
+                                };
+                                imageryCoordinate: {
+                                    longitude: number;
+                                    latitude: number;
+                                } | null;
+                                hasListing: boolean;
+                                hasActiveListing: boolean;
+                                /** @enum {string} */
+                                marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                                latestListingStatus: ("active" | "sold" | "rented" | "withdrawn") | null;
+                                askingPrice: number | null;
+                                thumbnailUrl: string | null;
+                                officialValuation: number | null;
+                                officialValuationYear: number | null;
+                                yearBuilt: number | null;
+                                floorAreaM2: number | null;
+                                socialScore: number;
+                                recentSocialScore: number;
+                                commentCount: number;
+                                isRead: boolean;
+                            };
+                            coordinate: {
+                                longitude: number;
+                                latitude: number;
+                            };
+                            /** @enum {string} */
+                            match: "containing-building" | "nearby-building" | "nearby-property" | "house-number";
+                        } | {
+                            /** @enum {string} */
+                            kind: "group";
+                            /** @enum {string} */
+                            source: "physical-tap" | "house-number-tap";
+                            group: {
+                                /** @enum {string} */
+                                nodeClass: "active" | "ghost";
+                                /** Format: uuid */
+                                primaryPropertyId: string;
+                                pointCount: number;
+                                propertyIds: string[];
+                                previewPropertyIds: string[];
+                                pyramidVersionId: string | null;
+                                pyramidNodeId: string | null;
+                                membershipComplete: boolean;
+                                /** @enum {string} */
+                                readStateCoverage: "complete" | "partial";
+                                /** @description [longitude, latitude] */
+                                coordinate: [
+                                    number,
+                                    number
+                                ];
+                                distanceMeters: number;
+                                /** @description [west, south, east, north] */
+                                bbox: [
+                                    number,
+                                    number,
+                                    number,
+                                    number
+                                ] | null;
+                                activeListingCount: number;
+                                socialCount: number;
+                                recentSocialCount: number;
+                                socialScoreTotal: number;
+                                socialScoreMax: number;
+                                recentSocialScoreTotal: number;
+                                commentCount: number;
+                                isRead: boolean;
+                                /** @enum {string} */
+                                groupKind: "cluster";
+                                completedListingCount: number;
+                                previewProperties: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    nationalId: string | null;
+                                    countryCode: string;
+                                    region: string | null;
+                                    street: string;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    address: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    coordinate: {
+                                        longitude: number;
+                                        latitude: number;
+                                    };
+                                    imageryCoordinate: {
+                                        longitude: number;
+                                        latitude: number;
+                                    } | null;
+                                    hasListing: boolean;
+                                    hasActiveListing: boolean;
+                                    /** @enum {string} */
+                                    marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                                    latestListingStatus: ("active" | "sold" | "rented" | "withdrawn") | null;
+                                    askingPrice: number | null;
+                                    thumbnailUrl: string | null;
+                                    officialValuation: number | null;
+                                    officialValuationYear: number | null;
+                                    yearBuilt: number | null;
+                                    floorAreaM2: number | null;
+                                    socialScore: number;
+                                    recentSocialScore: number;
+                                    commentCount: number;
+                                    isRead: boolean;
+                                }[];
+                            };
+                            coordinate: {
+                                longitude: number;
+                                latitude: number;
+                            };
+                            /** @enum {string} */
+                            match: "containing-building" | "nearby-building" | "nearby-property" | "house-number";
+                        }) | null;
                     };
                 };
             };
@@ -2667,7 +3105,7 @@ export interface paths {
         };
         /**
          * Get property vector tile
-         * @description Returns MVT/PBF vector tile with density-aware grouped property data. Active nodes may group at any zoom, while ghost nodes reveal at Z17+ on a separate grouping path.
+         * @description Returns MVT/PBF vector tile with density-aware grouped property data. Active/listing-backed/social nodes may group at any zoom; ghost nodes are not emitted.
          */
         get: {
             parameters: {
@@ -2811,7 +3249,48 @@ export interface paths {
         };
         /**
          * Get tree scatter vector tile
-         * @description Returns MVT with deterministically scattered tree points inside landcover polygons.
+         * @description Returns MVT with deterministically scattered tree points inside tree-eligible landcover polygons.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    z: number;
+                    x: number;
+                    y: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiles/ducks/{z}/{x}/{y}.pbf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get duck scatter vector tile
+         * @description Returns MVT with deterministically scattered duck points inside watercover polygons.
          */
         get: {
             parameters: {
@@ -5479,6 +5958,94 @@ export interface paths {
                 };
                 /** @description Default Response */
                 401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit contact form
+         * @description Public endpoint for sending a contact form message to HuisHype support.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        /** Format: email */
+                        email: string;
+                        subject?: string;
+                        message: string;
+                        website?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            success: boolean;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                503: {
                     headers: {
                         [name: string]: unknown;
                     };

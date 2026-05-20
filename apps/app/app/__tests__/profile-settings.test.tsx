@@ -7,6 +7,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 
 jest.mock('expo-router', () => ({
   router: {
+    push: jest.fn(),
     replace: jest.fn(),
   },
 }));
@@ -35,6 +36,8 @@ const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
 const getRouterReplace = () =>
   (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
+const getRouterPush = () =>
+  (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
 
 function mockAuthContext(user: { id: string } | null) {
   mockUseAuthContext.mockReturnValue({
@@ -83,9 +86,12 @@ describe('ProfileSettingsScreen', () => {
   it('shows the login row and version when signed out', () => {
     mockAuthContext(null);
 
-    const { getByTestId, getByText } = render(<ProfileSettingsScreen />);
+    const { getByTestId, getByText, queryByText } = render(<ProfileSettingsScreen />);
 
+    expect(getByText('Legal')).toBeTruthy();
+    expect(getByText('Need help?')).toBeTruthy();
     expect(getByText('Log in')).toBeTruthy();
+    expect(queryByText('Terms and Conditions')).toBeNull();
     expect(getByTestId('settings-version').props.children).toBe('Version 0.0.1');
 
     fireEvent.press(getByTestId('settings-auth-row'));
@@ -109,6 +115,38 @@ describe('ProfileSettingsScreen', () => {
       );
       expect(signOut).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('opens the legal submenu, navigates legal rows, and backs to main settings', () => {
+    mockAuthContext(null);
+
+    const { getByTestId, getByText, queryByTestId } = render(<ProfileSettingsScreen />);
+
+    fireEvent.press(getByTestId('settings-legal-row'));
+
+    expect(getByTestId('settings-legal-submenu')).toBeTruthy();
+    expect(getByText('Terms and Conditions')).toBeTruthy();
+    expect(getByText('Privacy Policy')).toBeTruthy();
+    expect(queryByTestId('settings-auth-row')).toBeNull();
+
+    fireEvent.press(getByTestId('settings-terms-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/terms');
+
+    fireEvent.press(getByTestId('settings-privacy-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/privacy');
+
+    fireEvent.press(getByTestId('profile-settings-back'));
+    expect(getByTestId('settings-auth-row')).toBeTruthy();
+  });
+
+  it('navigates the help row to contact', () => {
+    mockAuthContext(null);
+
+    const { getByTestId } = render(<ProfileSettingsScreen />);
+
+    fireEvent.press(getByTestId('settings-contact-row'));
+
+    expect(getRouterPush()).toHaveBeenCalledWith('/contact');
   });
 
   it('dismisses to the profile tab from the back arrow', () => {

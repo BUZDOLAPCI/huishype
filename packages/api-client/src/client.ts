@@ -82,6 +82,10 @@ type FollowingPropertyTilesResponse =
   paths['/tiles/following/properties.json']['get']['responses'][200]['content']['application/json'];
 type FollowingNearbyPropertyResponse =
   paths['/properties/following-nearby']['get']['responses'][200]['content']['application/json'];
+type ContactRequest =
+  paths['/contact']['post']['requestBody']['content']['application/json'];
+type ContactResponse =
+  paths['/contact']['post']['responses'][200]['content']['application/json'];
 
 /**
  * API client configuration options
@@ -293,6 +297,16 @@ export class HuisHypeApiClient {
   async getAuthMe(): Promise<AuthMeResponse> {
     return this.request<AuthMeResponse>('GET', '/auth/me', {
       requiresAuth: true,
+    });
+  }
+
+  // ============================================
+  // Contact Endpoint  (path: /contact)
+  // ============================================
+
+  async submitContact(request: ContactRequest): Promise<ContactResponse> {
+    return this.request<ContactResponse>('POST', '/contact', {
+      body: request,
     });
   }
 

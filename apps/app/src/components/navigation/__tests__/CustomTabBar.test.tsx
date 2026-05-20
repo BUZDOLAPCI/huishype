@@ -58,6 +58,9 @@ describe('CustomTabBar', () => {
             { key: 'camera-key', name: '@[camera]' },
             { key: 'address-key', name: '[...address]' },
             { key: 'map-key', name: 'map/[...address]' },
+            { key: 'terms-key', name: 'terms' },
+            { key: 'privacy-key', name: 'privacy' },
+            { key: 'contact-key', name: 'contact' },
           ],
         }}
         descriptors={descriptors}
@@ -72,6 +75,9 @@ describe('CustomTabBar', () => {
     expect(queryByTestId('tab-@[camera]')).toBeNull();
     expect(queryByTestId('tab-[...address]')).toBeNull();
     expect(queryByTestId('tab-map/[...address]')).toBeNull();
+    expect(queryByTestId('tab-terms')).toBeNull();
+    expect(queryByTestId('tab-privacy')).toBeNull();
+    expect(queryByTestId('tab-contact')).toBeNull();
   });
 
   it('keeps the map tab selected for deep-link map routes', () => {
@@ -90,5 +96,25 @@ describe('CustomTabBar', () => {
     );
 
     expect(getByTestId('tab-index').props.accessibilityState).toEqual({ selected: true });
+  });
+
+  it('keeps the profile tab selected for hidden legal and contact routes', () => {
+    const { getByTestId } = render(
+      <CustomTabBar
+        state={{
+          index: 4,
+          routes: [
+            ...baseRoutes,
+            { key: 'terms-key', name: 'terms' },
+            { key: 'privacy-key', name: 'privacy' },
+            { key: 'contact-key', name: 'contact' },
+          ],
+        }}
+        descriptors={descriptors}
+        navigation={navigation}
+      />
+    );
+
+    expect(getByTestId('tab-profile').props.accessibilityState).toEqual({ selected: true });
   });
 });

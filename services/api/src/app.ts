@@ -25,6 +25,7 @@ import { leaderboardRoutes } from './routes/leaderboard.js';
 import { activityRoutes } from './routes/activity.js';
 import { achievementRoutes } from './routes/achievements.js';
 import { emailAuthRoutes } from './routes/email-auth.js';
+import { contactRoutes } from './routes/contact.js';
 import { closeConnection } from './db/index.js';
 import { closeRedisConnection } from './lib/redis.js';
 import { setNotificationLogger } from './services/notifications.js';
@@ -129,6 +130,28 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   // Register auth plugin (must be before routes that use authentication)
   await app.register(authPlugin);
 
+  // Add global error handler
+  app.setErrorHandler((error: FastifyError, _request: FastifyRequest, reply: FastifyReply) => {
+    app.log.error(error);
+
+    // Handle Zod validation errors
+    if (error.validation || error.code === 'FST_ERR_VALIDATION') {
+      return reply.status(400).send({
+        error: 'VALIDATION_ERROR',
+        code: error.code ?? 'FST_ERR_VALIDATION',
+        message: error.message || 'Request validation failed',
+        details: error.validation ?? error.message,
+      });
+    }
+
+    // Handle other errors
+    const statusCode = error.statusCode ?? 500;
+    return reply.status(statusCode).send({
+      error: error.name || 'INTERNAL_ERROR',
+      message: config.isDev ? error.message : 'An unexpected error occurred',
+    });
+  });
+
   // Register routes
   await app.register(healthRoutes);
   await app.register(authRoutes);
@@ -147,27 +170,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   await app.register(activityRoutes);
   await app.register(achievementRoutes);
   await app.register(emailAuthRoutes);
-
-  // Add global error handler
-  app.setErrorHandler((error: FastifyError, _request: FastifyRequest, reply: FastifyReply) => {
-    app.log.error(error);
-
-    // Handle Zod validation errors
-    if (error.validation) {
-      return reply.status(400).send({
-        error: 'VALIDATION_ERROR',
-        message: 'Request validation failed',
-        details: error.validation,
-      });
-    }
-
-    // Handle other errors
-    const statusCode = error.statusCode ?? 500;
-    return reply.status(statusCode).send({
-      error: error.name || 'INTERNAL_ERROR',
-      message: config.isDev ? error.message : 'An unexpected error occurred',
-    });
-  });
+  await app.register(contactRoutes);
 
   // Not found handler
   app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {

@@ -51,6 +51,10 @@ type FeedResponseFromOpenApi =
   paths['/feed']['get']['responses'][200]['content']['application/json'];
 type OpsPropertyTilePyramidResponseFromOpenApi =
   paths['/ops/property-tile-pyramid']['get']['responses'][200]['content']['application/json'];
+type ContactRequestFromOpenApi =
+  paths['/contact']['post']['requestBody']['content']['application/json'];
+type ContactResponseFromOpenApi =
+  paths['/contact']['post']['responses'][200]['content']['application/json'];
 type ListingPreviewRequestFromOpenApi =
   paths['/listings/preview']['post']['requestBody']['content']['application/json'];
 type ListingPreviewResponseFromOpenApi =
@@ -93,6 +97,16 @@ type CanonicalListingPreviewRequest = {
   askingPrice?: number;
   priceType?: CanonicalListingPriceType;
   currency?: string;
+};
+type CanonicalContactRequest = {
+  name: string;
+  email: string;
+  subject?: string;
+  message: string;
+  website?: string;
+};
+type CanonicalContactResponse = {
+  success: boolean;
 };
 type CanonicalListingPreviewResponse = {
   sourceName: string;
@@ -562,6 +576,8 @@ const feedContractAssertions = [
   true as Assert<
     IsExact<OpsPropertyTilePyramidResponseFromOpenApi, CanonicalOpsPropertyTilePyramidResponse>
   >,
+  true as Assert<IsExact<Expand<ContactRequestFromOpenApi>, CanonicalContactRequest>>,
+  true as Assert<IsExact<ContactResponseFromOpenApi, CanonicalContactResponse>>,
 ] as const;
 
 describe('Generated OpenAPI types', () => {
@@ -575,6 +591,7 @@ describe('Generated OpenAPI types', () => {
     const expectedPaths: PathKeys[] = [
       '/health',
       '/ops/property-tile-pyramid',
+      '/contact',
       '/auth/google',
       '/auth/email/request',
       '/auth/email/verify',
@@ -649,6 +666,7 @@ describe('HuisHypeApiClient', () => {
     const client = createApiClient({ baseUrl: 'http://test' });
 
     // Auth
+    expect(typeof client.submitContact).toBe('function');
     expect(typeof client.loginGoogle).toBe('function');
     expect(typeof client.requestEmailMagicLink).toBe('function');
     expect(typeof client.verifyEmailToken).toBe('function');
@@ -707,6 +725,47 @@ describe('HuisHypeApiClient', () => {
     const client = createApiClient({ baseUrl: 'http://test/' });
     // The client should not double-slash when making requests
     expect(client).toBeInstanceOf(HuisHypeApiClient);
+  });
+
+  it('serializes public contact submissions against the canonical route', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    try {
+      await expect(
+        client.submitContact({
+          name: 'Jane',
+          email: 'jane@example.com',
+          subject: 'Question',
+          message: 'Can you help me with HuisHype?',
+        })
+      ).resolves.toEqual({ success: true });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/contact',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({
+            name: 'Jane',
+            email: 'jane@example.com',
+            subject: 'Question',
+            message: 'Can you help me with HuisHype?',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it('adds x-session-id for anonymous property view tracking when configured', async () => {

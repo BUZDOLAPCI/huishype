@@ -43,6 +43,24 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="terms"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="privacy"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="contact"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="@[camera]"
         options={{
           href: null,
