@@ -2,6 +2,7 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
+import { PREVIEW_CARD_VIEWPORT_ANCHOR, viewportAnchorToOffset } from '@/src/lib/mapCameraAnchor';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import { PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT } from '@/src/lib/propertyTileRetryProtocol';
 import type { ResolvedMapRoute } from '@/src/lib/mapRoute';
@@ -109,6 +110,18 @@ let capturedMapFilterBarProps: {
   onFollowingActivityChange?: (activity: 'today' | '10d' | '30d' | 'all-time') => void;
 } | null = null;
 let capturedSearchBarProps: {
+  onPropertyResolved?: (
+    property: {
+      id: string;
+      coordinates?: { lon: number; lat: number } | null;
+      city?: string | null;
+    },
+    resolvedAddress?: {
+      details: {
+        city?: string | null;
+      };
+    },
+  ) => void;
   searchBias?: {
     lon?: number;
     lat?: number;
@@ -1198,7 +1211,7 @@ describe('MapScreen web grouped Following mode', () => {
     window.removeEventListener('popstate', routeNavigation);
   });
 
-  it('seeds direct preview route history before preview UI state is available', async () => {
+  it('anchors direct preview route camera movement to the preview card viewport position', async () => {
     const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
     const fallbackCameraPath = `/@51.44,5.47,${PROPERTY_GHOST_REVEAL_ZOOM + 1}z`;
     const previewProperty = {
@@ -1263,6 +1276,15 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     const map = mockMapInstances[0] as MockMapInstance;
+    Object.defineProperty(map.options.container, 'clientWidth', {
+      configurable: true,
+      value: 1000,
+    });
+    Object.defineProperty(map.options.container, 'clientHeight', {
+      configurable: true,
+      value: 1000,
+    });
+
     act(() => {
       map.trigger('load');
     });
@@ -1270,6 +1292,75 @@ describe('MapScreen web grouped Following mode', () => {
 
     expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith(fallbackCameraPath);
     expect(mockPushBrowserPath).toHaveBeenCalledWith(previewPath);
+    expect(map.flyTo).toHaveBeenCalledWith({
+      center: [5.47, 51.44],
+      zoom: PROPERTY_GHOST_REVEAL_ZOOM + 1,
+      duration: 1000,
+      essential: true,
+      offset: [
+        viewportAnchorToOffset(
+          { width: 1000, height: 1000 },
+          PREVIEW_CARD_VIEWPORT_ANCHOR,
+        ).x,
+        viewportAnchorToOffset(
+          { width: 1000, height: 1000 },
+          PREVIEW_CARD_VIEWPORT_ANCHOR,
+        ).y,
+      ],
+    });
+  });
+
+  it('anchors web search property navigation to the preview card viewport position', async () => {
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    Object.defineProperty(map.options.container, 'clientWidth', {
+      configurable: true,
+      value: 1000,
+    });
+    Object.defineProperty(map.options.container, 'clientHeight', {
+      configurable: true,
+      value: 1000,
+    });
+    map.flyTo.mockClear();
+
+    act(() => {
+      capturedSearchBarProps?.onPropertyResolved?.({
+        id: 'property-search',
+        city: 'Eindhoven',
+        coordinates: { lon: 5.47, lat: 51.44 },
+      });
+    });
+
+    expect(map.flyTo).toHaveBeenCalledWith({
+      center: [5.47, 51.44],
+      zoom: PROPERTY_GHOST_REVEAL_ZOOM + 1,
+      duration: 1000,
+      essential: true,
+      offset: [
+        viewportAnchorToOffset(
+          { width: 1000, height: 1000 },
+          PREVIEW_CARD_VIEWPORT_ANCHOR,
+        ).x,
+        viewportAnchorToOffset(
+          { width: 1000, height: 1000 },
+          PREVIEW_CARD_VIEWPORT_ANCHOR,
+        ).y,
+      ],
+    });
+    expect(mockSetSearchCity).toHaveBeenCalledWith('Eindhoven', [5.47, 51.44]);
   });
 
   it('does not push camera checkpoints while a property preview is open', async () => {

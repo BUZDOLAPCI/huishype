@@ -37,7 +37,7 @@ import {
   type PropertyResolveResult,
 } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
-import { viewportAnchorToOffset } from '@/src/lib/mapCameraAnchor';
+import { PREVIEW_CARD_VIEWPORT_ANCHOR, viewportAnchorToOffset } from '@/src/lib/mapCameraAnchor';
 import {
   clearLocalPreviewRouteCache,
   extractCanonicalRouteInput,
@@ -2672,7 +2672,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       const { lon, lat } = property.coordinates;
       const coord: [number, number] = [lon, lat];
 
-      cameraCommands.flyTo({ center: coord, zoom: SEARCH_TARGET_ZOOM, duration: 1000 });
+      cameraCommands.flyTo({
+        center: coord,
+        zoom: SEARCH_TARGET_ZOOM,
+        duration: 1000,
+        anchor: PREVIEW_CARD_VIEWPORT_ANCHOR,
+      });
       scheduleSinglePreviewSelection(property.id, coord, undefined, 1000);
 
       // Set the search city from the resolved property
