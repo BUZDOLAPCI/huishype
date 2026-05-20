@@ -110,5 +110,20 @@ describe('nativePreviewOverlay', () => {
         top: 350,
       });
     });
+
+    it('uses the compact native preview width before card measurement', () => {
+      expect(
+        getNativePreviewOverlayLayout({
+          anchorPoint: [200, 350],
+          cardSize: { width: 0, height: 0 },
+          topBoundary,
+          viewportSize,
+        }),
+      ).toEqual({
+        arrowDirection: 'up',
+        left: 81,
+        top: 350,
+      });
+    });
   });
 });

@@ -5,6 +5,8 @@ export type WebViewStyle = ViewStyle & {
   backdropFilter?: string;
   boxShadow?: string;
   filter?: string;
+  touchAction?: string;
   transition?: string;
+  userSelect?: string;
   WebkitBackdropFilter?: string;
 };

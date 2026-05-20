@@ -110,7 +110,7 @@ const COLORS = {
 // after a card touch (e.g. user lifts finger outside the map gesture area),
 // the ref resets so the next map tap isn't blocked.
 const TOUCH_GUARD_RESET_MS = 500;
-const NATIVE_PREVIEW_FALLBACK_WIDTH = 280;
+const NATIVE_PREVIEW_FALLBACK_WIDTH = 238;
 const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
 const FOLLOWING_FEATURE_HIT_SLOP_PX = 28;

@@ -336,6 +336,91 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
     ctx.assertNoCriticalErrors();
   });
 
+  test('should navigate between properties using a horizontal swipe', async ({ page }) => {
+    ctx = createVisualTestContext(page, 'cluster-swipe-navigation');
+    ctx.start();
+
+    await page.goto('/');
+    await ctx.validator.waitForReady();
+    await waitForMapStyleLoaded(page);
+    await setMapZoom(page, PREVIEWABLE_CLUSTER_ZOOM);
+
+    const clickResult = await openPreviewableCluster(page);
+    expect(clickResult.success, 'Expected to find a rendered cluster').toBe(true);
+
+    const pageIndicator = page.locator('[data-testid="group-preview-page-indicator"]');
+    const swipeSurface = page.locator('[data-testid="group-preview-swipe-surface"]');
+    const activeCard = page.locator('[data-testid="group-preview-active-card"]');
+
+    await expect(pageIndicator).toBeVisible({ timeout: 10000 });
+    await expect(swipeSurface).toBeVisible();
+    await expect(activeCard).toBeVisible();
+
+    const initialText = await pageIndicator.textContent();
+    expect(initialText).toMatch(/1 of \d+/);
+
+    const activeCardBox = await activeCard.boundingBox();
+    expect(activeCardBox).not.toBeNull();
+    if (!activeCardBox) {
+      return;
+    }
+
+    const startX = activeCardBox.x + activeCardBox.width * 0.76;
+    const endX = activeCardBox.x + activeCardBox.width * 0.22;
+    const y = activeCardBox.y + activeCardBox.height * 0.5;
+
+    await page.evaluate(
+      ({ startX: x1, endX: x2, y: touchY }) => {
+        const target = document.querySelector('[data-testid="group-preview-swipe-surface"]');
+        if (!target) {
+          return false;
+        }
+
+        const dispatchTouch = (type: string, x: number) => {
+          const touch = {
+            identifier: 1,
+            target,
+            clientX: x,
+            clientY: touchY,
+            pageX: x,
+            pageY: touchY,
+            screenX: x,
+            screenY: touchY,
+          };
+          const event = new Event(type, { bubbles: true, cancelable: true });
+          Object.defineProperties(event, {
+            touches: { value: type === 'touchend' ? [] : [touch] },
+            targetTouches: { value: type === 'touchend' ? [] : [touch] },
+            changedTouches: { value: [touch] },
+          });
+          target.dispatchEvent(event);
+        };
+
+        dispatchTouch('touchstart', x1);
+
+        for (let step = 1; step <= 8; step += 1) {
+          const x = x1 + ((x2 - x1) * step) / 8;
+          dispatchTouch('touchmove', x);
+        }
+
+        dispatchTouch('touchend', x2);
+
+        return true;
+      },
+      { startX, endX, y }
+    );
+
+    await expect(pageIndicator).not.toHaveText(initialText ?? '', { timeout: 3000 });
+    await expect(pageIndicator).toHaveText(/2 of \d+/, { timeout: 3000 });
+
+    await page.screenshot({
+      path: path.join(SCREENSHOT_DIR, 'cluster-swipe-navigation-current.png'),
+      fullPage: true,
+    });
+
+    ctx.assertNoCriticalErrors();
+  });
+
   test('should open property details when clicking on property card', async ({ page }) => {
     ctx = createVisualTestContext(page, 'cluster-property-tap');
     ctx.start();
@@ -351,7 +436,9 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
     const clusterPreview = page.locator('[data-testid="group-preview-card"]');
     await expect(clusterPreview).toBeVisible({ timeout: 10000 });
 
-    await page.locator('[data-testid="property-preview-card"]').click();
+    await page
+      .locator('[data-testid="group-preview-active-card"] [data-testid="property-preview-card"]')
+      .click();
     await page.waitForTimeout(1000);
 
     const panel = page.locator('[data-testid="web-property-panel"]');

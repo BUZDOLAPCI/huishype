@@ -5,7 +5,7 @@ export type NativePreviewLayout = {
 };
 
 const DEFAULT_PREVIEW_OVERLAY_MARGIN = 12;
-const DEFAULT_PREVIEW_FALLBACK_WIDTH = 280;
+const DEFAULT_PREVIEW_FALLBACK_WIDTH = 238;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);

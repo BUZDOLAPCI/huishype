@@ -1,5 +1,6 @@
 import React from 'react';
-import { render, fireEvent, screen } from '@testing-library/react-native';
+import { render, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Animated, Image, Platform, StyleSheet } from 'react-native';
 import { GroupPreviewCard, shouldClaimPreviewSwipe } from '../GroupPreviewCard';
 import type { GroupPreviewProperty } from '../types';
 
@@ -35,7 +36,121 @@ const makeProperties = (count: number): GroupPreviewProperty[] =>
     })
   );
 
+const originalPlatformOS = Platform.OS;
+let prefetchSpy: jest.SpiedFunction<typeof Image.prefetch>;
+
+function setPlatformOS(os: typeof Platform.OS) {
+  Object.defineProperty(Platform, 'OS', {
+    configurable: true,
+    value: os,
+  });
+}
+
+function getRenderedCarouselAddresses(): string[] {
+  return screen
+    .getAllByTestId('property-preview-address')
+    .map((address) => address.props.children);
+}
+
+function fireWebTouchStart(pageX: number, pageY = 120) {
+  fireEvent(screen.getByTestId('group-preview-swipe-surface'), 'touchStart', {
+    nativeEvent: {
+      touches: [{ pageX, pageY }],
+      changedTouches: [],
+    },
+  });
+}
+
+function fireWebTouchMove(pageX: number, pageY = 124) {
+  fireEvent(screen.getByTestId('group-preview-swipe-surface'), 'touchMove', {
+    nativeEvent: {
+      touches: [{ pageX, pageY }],
+      changedTouches: [],
+    },
+    stopPropagation: jest.fn(),
+  });
+}
+
+function fireWebTouchEnd(pageX: number, pageY = 124) {
+  fireEvent(screen.getByTestId('group-preview-swipe-surface'), 'touchEnd', {
+    nativeEvent: {
+      touches: [],
+      changedTouches: [{ pageX, pageY }],
+    },
+    stopPropagation: jest.fn(),
+  });
+}
+
+type CarouselTransformStyle = {
+  transform?: Array<{ translateX?: unknown }>;
+};
+
+function getAnimatedTranslateXValue(): number {
+  const styles = screen.getByTestId('group-preview-swipe-surface').props.style as Array<
+    CarouselTransformStyle | null | false
+  >;
+  const translateXValue = styles
+    .filter((style): style is CarouselTransformStyle => Boolean(style))
+    .flatMap((style) => style?.transform ?? [])
+    .map((transform) => transform.translateX)
+    .find((value): value is { _value: number } => (
+      typeof value === 'object' &&
+      value !== null &&
+      '_value' in value &&
+      typeof value._value === 'number'
+    ));
+
+  if (!translateXValue) {
+    throw new Error('Expected carousel swipe surface to include an Animated translateX value');
+  }
+
+  return translateXValue._value;
+}
+
+function getCarouselNumericTranslateXValues(): number[] {
+  const styles = screen.getByTestId('group-preview-swipe-surface').props.style as Array<
+    CarouselTransformStyle | null | false
+  >;
+
+  return styles
+    .filter((style): style is CarouselTransformStyle => Boolean(style))
+    .flatMap((style) => style?.transform ?? [])
+    .map((transform) => transform.translateX)
+    .filter((value): value is number => typeof value === 'number');
+}
+
+function flattenNodeStyle(testID: string) {
+  return flattenStyle(screen.getByTestId(testID).props.style);
+}
+
+function flattenStyle(style: unknown): Record<string, unknown> {
+  if (Array.isArray(style)) {
+    return style.reduce<Record<string, unknown>>(
+      (acc, entry) => ({ ...acc, ...flattenStyle(entry) }),
+      {}
+    );
+  }
+
+  return (StyleSheet.flatten(style as never) as Record<string, unknown> | undefined) ?? {};
+}
+
 describe('GroupPreviewCard', () => {
+  beforeEach(() => {
+    if (!Image.prefetch) {
+      Object.defineProperty(Image, 'prefetch', {
+        configurable: true,
+        value: jest.fn(),
+      });
+    }
+    prefetchSpy = jest.spyOn(Image, 'prefetch').mockResolvedValue(true);
+    prefetchSpy.mockClear();
+  });
+
+  afterEach(() => {
+    setPlatformOS(originalPlatformOS);
+    jest.restoreAllMocks();
+  });
+
   describe('shouldClaimPreviewSwipe', () => {
     it('does not claim low-drift thumb jitter', () => {
       expect(shouldClaimPreviewSwipe({ dx: 11, dy: 3, vx: 0.12 })).toBe(false);
@@ -145,11 +260,12 @@ describe('GroupPreviewCard', () => {
         />
       );
 
-      const previewSurface = screen.getByTestId('group-preview-touch-overlay');
+      const previewSurface = screen.getByTestId('group-preview-active-card');
 
       expect(previewSurface.props.onTouchStart).toBeUndefined();
       expect(previewSurface.props.onTouchMove).toBeUndefined();
       expect(previewSurface.props.onTouchEnd).toBeUndefined();
+      expect(screen.queryByTestId('group-preview-touch-overlay')).toBeNull();
     });
 
     it('fires onPropertyTap when card body is pressed', () => {
@@ -186,6 +302,69 @@ describe('GroupPreviewCard', () => {
         />
       );
       expect(screen.getByText('Hot')).toBeTruthy();
+    });
+
+    it('uses the compact 238px width for web single-property previews without wrapper maxWidth', () => {
+      setPlatformOS('web');
+      render(
+        <GroupPreviewCard
+          properties={[makeProperty()]}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(flattenNodeStyle('group-preview-card')).toEqual(
+        expect.objectContaining({
+          width: 238,
+        })
+      );
+      expect(flattenNodeStyle('group-preview-card')).not.toHaveProperty('maxWidth');
+      expect(flattenNodeStyle('group-preview-card-container')).toEqual(
+        expect.objectContaining({ width: '100%' })
+      );
+      expect(flattenNodeStyle('group-preview-swipe-surface')).toEqual(
+        expect.objectContaining({
+          width: 238,
+          flexShrink: 0,
+        })
+      );
+      expect(flattenNodeStyle('group-preview-active-card')).toEqual(
+        expect.objectContaining({
+          width: 238,
+          flexBasis: 238,
+          flexShrink: 0,
+        })
+      );
+    });
+
+    it('keeps native single-property previews at the full 280px width', () => {
+      setPlatformOS('ios');
+      render(
+        <GroupPreviewCard
+          properties={[makeProperty()]}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(flattenNodeStyle('group-preview-card')).toEqual(
+        expect.objectContaining({
+          width: 280,
+        })
+      );
+      expect(flattenNodeStyle('group-preview-card')).not.toHaveProperty('maxWidth');
+      expect(flattenNodeStyle('group-preview-swipe-surface')).toEqual(
+        expect.objectContaining({
+          width: 280,
+          flexShrink: 0,
+        })
+      );
+      expect(flattenNodeStyle('group-preview-active-card')).toEqual(
+        expect.objectContaining({
+          width: 280,
+          flexBasis: 280,
+          flexShrink: 0,
+        })
+      );
     });
 
     it('defaults to cold/quiet activity', () => {
@@ -314,6 +493,131 @@ describe('GroupPreviewCard', () => {
   // ---- Cluster mode ----
 
   describe('cluster (multiple properties)', () => {
+    it('prefetches previous and next adjacent property image candidates', async () => {
+      render(
+        <GroupPreviewCard
+          properties={[
+            makeProperty({
+              id: 'prev',
+              thumbnailUrl: 'https://cdn.huishype.nl/prev.jpg',
+            }),
+            makeProperty({ id: 'current' }),
+            makeProperty({
+              id: 'next',
+              thumbnailUrl: 'https://cdn.huishype.nl/next.jpg',
+            }),
+          ]}
+          currentIndex={1}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      await waitFor(() => expect(prefetchSpy).toHaveBeenCalledTimes(2));
+      expect(prefetchSpy).toHaveBeenCalledWith('https://cdn.huishype.nl/prev.jpg');
+      expect(prefetchSpy).toHaveBeenCalledWith('https://cdn.huishype.nl/next.jpg');
+    });
+
+    it('prefetches only the next image candidate at the first index', async () => {
+      render(
+        <GroupPreviewCard
+          properties={[
+            makeProperty({ id: 'current' }),
+            makeProperty({
+              id: 'next',
+              thumbnailUrl: 'https://cdn.huishype.nl/next-only.jpg',
+            }),
+          ]}
+          currentIndex={0}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      await waitFor(() => expect(prefetchSpy).toHaveBeenCalledTimes(1));
+      expect(prefetchSpy).toHaveBeenCalledWith('https://cdn.huishype.nl/next-only.jpg');
+    });
+
+    it('prefetches only the previous image candidate at the last index', async () => {
+      render(
+        <GroupPreviewCard
+          properties={[
+            makeProperty({
+              id: 'prev',
+              thumbnailUrl: 'https://cdn.huishype.nl/prev-only.jpg',
+            }),
+            makeProperty({ id: 'current' }),
+          ]}
+          currentIndex={1}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      await waitFor(() => expect(prefetchSpy).toHaveBeenCalledTimes(1));
+      expect(prefetchSpy).toHaveBeenCalledWith('https://cdn.huishype.nl/prev-only.jpg');
+    });
+
+    it('deduplicates matching adjacent image candidate URLs', async () => {
+      render(
+        <GroupPreviewCard
+          properties={[
+            makeProperty({
+              id: 'prev',
+              thumbnailUrl: 'https://cdn.huishype.nl/shared.jpg',
+            }),
+            makeProperty({ id: 'current' }),
+            makeProperty({
+              id: 'next',
+              thumbnailUrl: 'https://cdn.huishype.nl/shared.jpg',
+            }),
+          ]}
+          currentIndex={1}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      await waitFor(() => expect(prefetchSpy).toHaveBeenCalledTimes(1));
+      expect(prefetchSpy).toHaveBeenCalledWith('https://cdn.huishype.nl/shared.jpg');
+    });
+
+    it('prefetches NL aerial candidates when no listing thumbnail is available', async () => {
+      render(
+        <GroupPreviewCard
+          properties={[
+            makeProperty({ id: 'current' }),
+            makeProperty({
+              id: 'next',
+              countryCode: 'NL',
+              aerialImageUrl: 'https://images.huishype.nl/aerial-next.jpg',
+            }),
+          ]}
+          currentIndex={0}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      await waitFor(() => expect(prefetchSpy).toHaveBeenCalledTimes(1));
+      expect(prefetchSpy).toHaveBeenCalledWith('https://images.huishype.nl/aerial-next.jpg');
+    });
+
+    it('does not prefetch for single-property previews', async () => {
+      render(
+        <GroupPreviewCard
+          properties={[
+            makeProperty({
+              thumbnailUrl: 'https://cdn.huishype.nl/single.jpg',
+            }),
+          ]}
+          onClose={jest.fn()}
+        />
+      );
+
+      await waitFor(() => expect(prefetchSpy).not.toHaveBeenCalled());
+    });
+
     it('renders pagination controls for multiple properties', () => {
       render(
         <GroupPreviewCard
@@ -363,6 +667,136 @@ describe('GroupPreviewCard', () => {
         />
       );
       expect(screen.getByText('Straat 2')).toBeTruthy();
+    });
+
+    it('renders adjacent property content in grouped carousel mode', () => {
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(3)}
+          currentIndex={1}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(getRenderedCarouselAddresses()).toEqual(['Straat 1', 'Straat 2', 'Straat 3']);
+    });
+
+    it.each([
+      { label: 'first', currentIndex: 0, expectedAddresses: ['Straat 1', 'Straat 2'] },
+      { label: 'middle', currentIndex: 1, expectedAddresses: ['Straat 1', 'Straat 2', 'Straat 3'] },
+      { label: 'last', currentIndex: 2, expectedAddresses: ['Straat 2', 'Straat 3'] },
+    ])('renders the bounded carousel window at the $label index', ({ currentIndex, expectedAddresses }) => {
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(3)}
+          currentIndex={currentIndex}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(getRenderedCarouselAddresses()).toEqual(expectedAddresses);
+    });
+
+    it('keeps native grouped carousel width math compact without wrapper maxWidth', () => {
+      setPlatformOS('ios');
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(3)}
+          currentIndex={1}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(flattenNodeStyle('group-preview-card')).toEqual(
+        expect.objectContaining({
+          width: 238,
+        })
+      );
+      expect(flattenNodeStyle('group-preview-card')).not.toHaveProperty('maxWidth');
+      expect(flattenNodeStyle('group-preview-card-container')).toEqual(
+        expect.objectContaining({ width: '100%' })
+      );
+      expect(flattenNodeStyle('group-preview-carousel-viewport')).toEqual(
+        expect.objectContaining({
+          width: '100%',
+          overflow: 'hidden',
+        })
+      );
+      expect(flattenNodeStyle('group-preview-swipe-surface')).toEqual(
+        expect.objectContaining({
+          width: 714,
+          flexShrink: 0,
+        })
+      );
+      expect(getCarouselNumericTranslateXValues()).toContain(-238);
+
+      const slideStyles = [
+        screen.getByTestId('group-preview-active-card'),
+        ...screen.getAllByTestId('group-preview-adjacent-card'),
+      ].map((node) => flattenStyle(node.props.style));
+
+      for (const slideStyle of slideStyles) {
+        expect(slideStyle).toEqual(
+          expect.objectContaining({
+            width: 238,
+            flexBasis: 238,
+            flexShrink: 0,
+          })
+        );
+      }
+    });
+
+    it('keeps web grouped carousel width math compact without wrapper maxWidth', () => {
+      setPlatformOS('web');
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(3)}
+          currentIndex={1}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(flattenNodeStyle('group-preview-card')).toEqual(
+        expect.objectContaining({
+          width: 238,
+        })
+      );
+      expect(flattenNodeStyle('group-preview-card')).not.toHaveProperty('maxWidth');
+      expect(flattenNodeStyle('group-preview-card-container')).toEqual(
+        expect.objectContaining({ width: '100%' })
+      );
+      expect(flattenNodeStyle('group-preview-carousel-viewport')).toEqual(
+        expect.objectContaining({
+          width: '100%',
+          overflow: 'hidden',
+        })
+      );
+      expect(flattenNodeStyle('group-preview-swipe-surface')).toEqual(
+        expect.objectContaining({
+          width: 714,
+          flexShrink: 0,
+        })
+      );
+      expect(getCarouselNumericTranslateXValues()).toContain(-238);
+
+      const slideStyles = [
+        screen.getByTestId('group-preview-active-card'),
+        ...screen.getAllByTestId('group-preview-adjacent-card'),
+      ].map((node) => flattenStyle(node.props.style));
+
+      for (const slideStyle of slideStyles) {
+        expect(slideStyle).toEqual(
+          expect.objectContaining({
+            width: 238,
+            flexBasis: 238,
+            flexShrink: 0,
+          })
+        );
+      }
     });
 
     it('fires onIndexChange when right arrow is pressed', () => {
@@ -449,6 +883,138 @@ describe('GroupPreviewCard', () => {
       );
       fireEvent.press(screen.getByText('Straat 2'));
       expect(onPropertyTap).toHaveBeenCalledWith(props[1]);
+    });
+
+    it('quick actions and close target only the active cluster property', () => {
+      const onLike = jest.fn();
+      const onComment = jest.fn();
+      const onGuess = jest.fn();
+      const onClose = jest.fn();
+      const props = makeProperties(3);
+
+      render(
+        <GroupPreviewCard
+          properties={props}
+          currentIndex={1}
+          onIndexChange={jest.fn()}
+          onClose={onClose}
+          onLike={onLike}
+          onComment={onComment}
+          onGuess={onGuess}
+        />
+      );
+
+      for (const button of screen.getAllByTestId('group-preview-like-button')) {
+        fireEvent.press(button);
+      }
+      for (const button of screen.getAllByTestId('group-preview-comment-button')) {
+        fireEvent.press(button);
+      }
+      for (const button of screen.getAllByTestId('group-preview-guess-button')) {
+        fireEvent.press(button);
+      }
+
+      expect(onLike).toHaveBeenCalledTimes(1);
+      expect(onLike).toHaveBeenCalledWith(props[1]);
+      expect(onComment).toHaveBeenCalledTimes(1);
+      expect(onComment).toHaveBeenCalledWith(props[1]);
+      expect(onGuess).toHaveBeenCalledTimes(1);
+      expect(onGuess).toHaveBeenCalledWith(props[1]);
+
+      expect(screen.getAllByTestId('group-preview-close-button')).toHaveLength(1);
+      fireEvent.press(screen.getByTestId('group-preview-close-button'));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('navigates with direct web touch swipes', () => {
+      setPlatformOS('web');
+      const onIndexChange = jest.fn();
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(3)}
+          currentIndex={0}
+          onIndexChange={onIndexChange}
+          onClose={jest.fn()}
+        />
+      );
+
+      fireWebTouchStart(240);
+      fireWebTouchMove(120);
+      fireWebTouchEnd(120);
+
+      expect(onIndexChange).toHaveBeenCalledWith(1);
+    });
+
+    it('snaps back after an insufficient web swipe without changing index', () => {
+      setPlatformOS('web');
+      const timingSpy = jest.spyOn(Animated, 'timing');
+      const onIndexChange = jest.fn();
+
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(3)}
+          currentIndex={1}
+          onIndexChange={onIndexChange}
+          onClose={jest.fn()}
+        />
+      );
+
+      fireWebTouchStart(220);
+      fireWebTouchMove(190);
+      fireWebTouchEnd(190);
+
+      expect(onIndexChange).not.toHaveBeenCalled();
+      expect(timingSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        })
+      );
+    });
+
+    it.each([
+      { label: 'first', currentIndex: 0, startX: 120, moveX: 220 },
+      { label: 'last', currentIndex: 2, startX: 220, moveX: 120 },
+    ])('clamps out-of-bounds web swipes at the $label index', ({ currentIndex, startX, moveX }) => {
+      setPlatformOS('web');
+      const onIndexChange = jest.fn();
+
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(3)}
+          currentIndex={currentIndex}
+          onIndexChange={onIndexChange}
+          onClose={jest.fn()}
+        />
+      );
+
+      fireWebTouchStart(startX);
+      fireWebTouchMove(moveX);
+      expect(getAnimatedTranslateXValue()).toBe(0);
+      fireWebTouchEnd(moveX);
+
+      expect(onIndexChange).not.toHaveBeenCalled();
+    });
+
+    it('does not treat vertical web touch movement as card navigation', () => {
+      setPlatformOS('web');
+      const onIndexChange = jest.fn();
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(3)}
+          currentIndex={0}
+          onIndexChange={onIndexChange}
+          onClose={jest.fn()}
+        />
+      );
+
+      fireWebTouchStart(160, 120);
+      fireWebTouchMove(166, 210);
+      fireWebTouchEnd(166, 210);
+
+      expect(onIndexChange).not.toHaveBeenCalled();
     });
   });
 
