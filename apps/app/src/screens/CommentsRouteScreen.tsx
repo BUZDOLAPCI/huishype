@@ -323,7 +323,7 @@ export function CommentsRouteScreen({
 
           {commentsDisabled ? (
             <View style={styles.disabledState}>
-              <Icon name="ShieldCheck" size={28} color="#8C8479" />
+              <Icon name="ShieldCheck" size={28} color="#C7BFB3" />
               <Text style={styles.disabledText}>Comments are disabled for this property</Text>
             </View>
           ) : isLoading ? (
@@ -428,18 +428,16 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 20, gap: 12 },
   disabledState: {
     marginHorizontal: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F0E5D6',
-    backgroundColor: '#FFF7EC',
-    padding: 20,
+    borderRadius: 12,
+    backgroundColor: '#FFFBF5',
+    padding: 16,
     alignItems: 'center',
     gap: 8,
   },
   disabledText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#5F574F',
+    fontWeight: '400',
+    color: '#9C958A',
     textAlign: 'center',
   },
 });

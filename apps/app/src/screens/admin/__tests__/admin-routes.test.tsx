@@ -48,7 +48,9 @@ function getNavLinkState(
   label: string,
 ): { selected?: boolean } | undefined {
   const navLink = screen.UNSAFE_getAllByProps({ accessibilityRole: 'link' }).find((node) =>
-    node.findAllByType(Text).some((textNode) => textNode.props.children === label),
+    node.findAllByType(Text).some((textNode: { props: { children?: React.ReactNode } }) =>
+      textNode.props.children === label
+    ),
   );
   return navLink?.props.accessibilityState;
 }

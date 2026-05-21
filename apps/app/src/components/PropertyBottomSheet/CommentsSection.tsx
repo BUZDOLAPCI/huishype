@@ -162,7 +162,7 @@ export function CommentsSection({
         description="Read the neighborhood takes and add your own perspective on the address."
       >
         <View style={styles.disabledState}>
-          <Ionicons name="lock-closed-outline" size={32} color="#8C8479" />
+          <Ionicons name="lock-closed-outline" size={32} color="#C7BFB3" />
           <Text style={styles.disabledText}>Comments are disabled for this property</Text>
         </View>
       </SectionCard>
@@ -343,18 +343,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFCF7',
   },
   disabledState: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F5EBDD',
-    backgroundColor: '#FFFCF7',
-    padding: 18,
+    borderRadius: 12,
+    backgroundColor: '#FFFBF5',
+    padding: 16,
     alignItems: 'center',
     gap: 8,
   },
   disabledText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#5F574F',
+    fontWeight: '400',
+    color: '#9C958A',
     textAlign: 'center',
   },
 });
