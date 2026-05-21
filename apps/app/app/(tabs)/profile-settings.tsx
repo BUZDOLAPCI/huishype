@@ -22,6 +22,7 @@ export default function ProfileSettingsScreen() {
   const { user, signOut } = useAuthContext();
   const [showAuth, setShowAuth] = useState(false);
   const [settingsView, setSettingsView] = useState<'main' | 'legal'>('main');
+  const accountEmail = user?.email?.trim() || null;
 
   const versionLabel = useMemo(() => {
     const version = Constants.expoConfig?.version ?? '0.0.1';
@@ -151,6 +152,24 @@ export default function ProfileSettingsScreen() {
           </View>
         ) : (
           <View>
+            {user ? (
+              <View
+                style={styles.accountRow}
+                accessibilityRole="text"
+                accessibilityLabel={`Account email ${accountEmail ?? 'not available'}`}
+                testID="settings-account-email-row"
+              >
+                <Text style={styles.accountLabel}>Account email</Text>
+                <Text
+                  style={styles.accountEmail}
+                  selectable
+                  numberOfLines={2}
+                  testID="settings-account-email-value"
+                >
+                  {accountEmail ?? 'Not available'}
+                </Text>
+              </View>
+            ) : null}
             <Pressable
               style={styles.row}
               onPress={() => setSettingsView('legal')}
@@ -243,6 +262,26 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 26,
     lineHeight: 32,
+    fontWeight: '500',
+    color: '#003C32',
+  },
+  accountRow: {
+    minHeight: 96,
+    justifyContent: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECECEC',
+    paddingHorizontal: 26,
+    gap: 4,
+  },
+  accountLabel: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '600',
+    color: '#6E6A65',
+  },
+  accountEmail: {
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: '500',
     color: '#003C32',
   },

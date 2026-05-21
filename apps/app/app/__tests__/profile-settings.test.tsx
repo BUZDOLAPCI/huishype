@@ -39,11 +39,12 @@ const getRouterReplace = () =>
 const getRouterPush = () =>
   (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
 
-function mockAuthContext(user: { id: string } | null) {
+function mockAuthContext(user: { id: string; email?: string } | null) {
   mockUseAuthContext.mockReturnValue({
     user: user
       ? {
           id: user.id,
+          email: user.email ?? 'test@example.com',
           username: 'test-user',
           displayName: 'Test User',
           profilePhotoUrl: undefined,
@@ -91,6 +92,7 @@ describe('ProfileSettingsScreen', () => {
     expect(getByText('Legal')).toBeTruthy();
     expect(getByText('Need help?')).toBeTruthy();
     expect(getByText('Log in')).toBeTruthy();
+    expect(queryByText('Account email')).toBeNull();
     expect(queryByText('Terms and Conditions')).toBeNull();
     expect(getByTestId('settings-version').props.children).toBe('Version 0.0.1');
 
@@ -105,6 +107,11 @@ describe('ProfileSettingsScreen', () => {
 
     const { getByTestId, getByText } = render(<ProfileSettingsScreen />);
 
+    expect(getByText('Account email')).toBeTruthy();
+    expect(getByTestId('settings-account-email-row').props.accessibilityRole).toBe('text');
+    expect(getByTestId('settings-account-email-value').props.children).toBe(
+      'test@example.com'
+    );
     expect(getByText('Log out')).toBeTruthy();
 
     fireEvent.press(getByTestId('settings-auth-row'));

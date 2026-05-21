@@ -1123,6 +1123,9 @@
                                 }
                               ]
                             },
+                            "email": {
+                              "type": "string"
+                            },
                             "karma": {
                               "type": "number"
                             },
@@ -1141,6 +1144,7 @@
                             "username",
                             "displayName",
                             "profilePhotoUrl",
+                            "email",
                             "karma",
                             "karmaRank",
                             "createdAt",
@@ -1287,6 +1291,9 @@
                                 }
                               ]
                             },
+                            "email": {
+                              "type": "string"
+                            },
                             "karma": {
                               "type": "number"
                             },
@@ -1305,6 +1312,7 @@
                             "username",
                             "displayName",
                             "profilePhotoUrl",
+                            "email",
                             "karma",
                             "karmaRank",
                             "createdAt",
@@ -15737,6 +15745,9 @@
                                 }
                               ]
                             },
+                            "email": {
+                              "type": "string"
+                            },
                             "karma": {
                               "type": "number"
                             },
@@ -15755,6 +15766,7 @@
                             "username",
                             "displayName",
                             "profilePhotoUrl",
+                            "email",
                             "karma",
                             "karmaRank",
                             "createdAt",

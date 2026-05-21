@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { config } from '../../config.js';
 
 /**
  * Integration tests for auth routes.
@@ -158,6 +159,7 @@ describe('Auth routes', () => {
       expect(user).toHaveProperty('id');
       expect(user).toHaveProperty('username');
       expect(user).toHaveProperty('displayName');
+      expect(user.email).toBe(`${uniqueId}@gmail.com`);
       expect(user).toHaveProperty('karma');
       expect(user).toHaveProperty('karmaRank');
       expect(user).toHaveProperty('createdAt');
@@ -252,6 +254,63 @@ describe('Auth routes', () => {
       });
       expect(response.statusCode).toBe(400);
     });
+
+    it('should verify real Google tokens in development instead of replacing the email', async () => {
+      const email = `real-google-${Date.now()}@live.com`;
+      const sub = `google-real-${Date.now()}`;
+      const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          email,
+          sub,
+          name: 'Real Google User',
+          aud: config.auth.googleClientId,
+        }),
+      } as Response);
+
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/auth/google',
+          payload: { idToken: 'real-google-id-token' },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.session.user.email).toBe(email);
+        expect(body.session.user.email).not.toMatch(/^testuser\d+@gmail\.com$/);
+        expect(fetchSpy).toHaveBeenCalledWith(
+          'https://oauth2.googleapis.com/tokeninfo?id_token=real-google-id-token',
+        );
+
+        testUserIds.push(body.session.user.id);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('should reject non-mock invalid Google tokens in development', async () => {
+      const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({}),
+      } as Response);
+
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/auth/google',
+          payload: { idToken: 'invalid-real-google-token' },
+        });
+
+        expect(response.statusCode).toBe(401);
+        expect(JSON.parse(response.body)).toMatchObject({
+          error: 'INVALID_TOKEN',
+          message: 'Invalid or expired Google ID token',
+        });
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
   });
 
   describe('POST /auth/apple', () => {
@@ -269,6 +328,7 @@ describe('Auth routes', () => {
       const body = JSON.parse(response.body);
 
       expect(body.isNewUser).toBe(true);
+      expect(body.session.user.email).toBe(`${uniqueId}@privaterelay.appleid.com`);
       expect(body.session.user).not.toHaveProperty('isPlus');
 
       testUserIds.push(body.session.user.id);
@@ -298,6 +358,7 @@ describe('Auth routes', () => {
       const verifyBody = JSON.parse(verifyResponse.body);
 
       expect(verifyBody.isNewUser).toBe(true);
+      expect(verifyBody.session.user.email).toBe(email);
       expect(verifyBody.session.user).not.toHaveProperty('isPlus');
 
       testUserIds.push(verifyBody.session.user.id);

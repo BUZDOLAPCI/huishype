@@ -81,7 +81,9 @@ const STORED_USER = {
 };
 
 /** Seed SecureStore with a full set of auth tokens. */
-function seedStorage(overrides: { expiresAt?: string; accessToken?: string } = {}) {
+function seedStorage(
+  overrides: { expiresAt?: string; accessToken?: string; user?: string } = {}
+) {
   const defaults = {
     accessToken: 'stale-access-token',
     refreshToken: 'stored-refresh-token',
@@ -223,6 +225,42 @@ describe('AuthProvider startup token refresh', () => {
     });
 
     invalidateQueries.mockRestore();
+  });
+
+  it('backfills email for stored sessions created before auth responses included it', async () => {
+    const { email: _email, ...storedUserWithoutEmail } = STORED_USER;
+
+    seedStorage({
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      accessToken: 'fresh-access-token',
+      user: JSON.stringify(storedUserWithoutEmail),
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        user: {
+          ...STORED_USER,
+          username: 'test-user',
+          profilePhotoUrl: null,
+          karma: 0,
+          karmaRank: 'Newcomer',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          isAdmin: false,
+        },
+      }),
+    });
+
+    const { result } = renderHook(() => useAuthContext(), { wrapper });
+    await settleAuthBoot();
+
+    expect(result.current.user?.email).toBe('test@example.com');
+    expect(JSON.parse(mockSecureStore['huishype_user'] ?? '{}')).toEqual(
+      expect.objectContaining({ email: 'test@example.com' })
+    );
+    expect(mockFetch).toHaveBeenCalledWith('http://localhost:3100/auth/me', {
+      headers: { Authorization: 'Bearer fresh-access-token' },
+    });
   });
 
   it('clears auth and stops loading when refresh fails on boot', async () => {

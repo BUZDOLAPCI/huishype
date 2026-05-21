@@ -104,6 +104,36 @@ function extractEmailTokenFromUrl(url: string | null): string | null {
   }
 }
 
+async function backfillStoredUserEmail(
+  user: AuthUser,
+  accessToken: string | null
+): Promise<AuthUser> {
+  if (user.email || !accessToken) {
+    return user;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      return user;
+    }
+
+    const data = (await response.json()) as { user: AuthUser };
+    if (!data.user.email) {
+      return user;
+    }
+
+    const hydratedUser = { ...user, ...data.user };
+    await setSecureItem(USER_KEY, JSON.stringify(hydratedUser));
+    return hydratedUser;
+  } catch {
+    return user;
+  }
+}
+
 interface AuthProviderProps {
   children: ReactNode;
 }
@@ -608,7 +638,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return;
         }
 
-        const user = JSON.parse(userStr) as AuthUser;
+        let user = JSON.parse(userStr) as AuthUser;
 
         // Check if token is expired
         if (expiresAt && new Date(expiresAt).getTime() < Date.now()) {
@@ -618,6 +648,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setState((prev) => ({ ...prev, isLoading: false }));
             return;
           }
+          const refreshedAccessToken = await getSecureItem(ACCESS_TOKEN_KEY);
+          user = await backfillStoredUserEmail(user, refreshedAccessToken);
           // refreshAuth already updated accessToken in state and storage;
           // only set user/isAuthenticated/isLoading here to avoid
           // overwriting the fresh token with the stale one we read above.
@@ -629,6 +661,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             authError: null,
           }));
         } else {
+          user = await backfillStoredUserEmail(user, accessToken);
           setState({
             user,
             isAuthenticated: true,

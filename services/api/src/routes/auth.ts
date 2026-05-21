@@ -228,30 +228,9 @@ function isGoogleIdentityUniqueViolation(error: unknown): boolean {
   return false;
 }
 
-/**
- * Validate Google ID token
- * In production, this would verify with Google's API
- * For development, we mock the validation
- */
-async function validateGoogleToken(
-  idToken: string
+async function verifyGoogleTokenWithGoogle(
+  idToken: string,
 ): Promise<{ email: string; googleId: string; name?: string } | null> {
-  if (config.isDev === true) {
-    const mockGoogleUser = parseMockGoogleToken(idToken);
-    if (mockGoogleUser) {
-      return mockGoogleUser;
-    }
-
-    // For any token in dev mode, create a test user
-    const timestamp = Date.now();
-    return {
-      email: `testuser${timestamp}@gmail.com`,
-      googleId: `google-${timestamp}`,
-      name: 'Test User',
-    };
-  }
-
-  // Production: Verify with Google
   try {
     const response = await fetch(
       `https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`
@@ -262,25 +241,49 @@ async function validateGoogleToken(
     }
 
     const data = (await response.json()) as {
-      email: string;
-      sub: string;
+      email?: string;
+      sub?: string;
       name?: string;
-      aud: string;
+      aud?: string;
     };
 
     // Verify the audience matches our client ID
-    if (data.aud !== config.auth.googleClientId) {
+    if (
+      data.aud !== config.auth.googleClientId ||
+      !data.email ||
+      !data.sub
+    ) {
       return null;
     }
 
     return {
-      email: data.email,
+      email: data.email.toLowerCase(),
       googleId: data.sub,
       name: data.name,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Validate Google ID token.
+ *
+ * Development and test runs support explicit `mock-google...` tokens for local
+ * automation. Real Google tokens are still verified with Google so local dev
+ * sign-in uses the actual account email.
+ */
+async function validateGoogleToken(
+  idToken: string
+): Promise<{ email: string; googleId: string; name?: string } | null> {
+  if (config.isDev === true) {
+    const mockGoogleUser = parseMockGoogleToken(idToken);
+    if (mockGoogleUser) {
+      return mockGoogleUser;
+    }
+  }
+
+  return verifyGoogleTokenWithGoogle(idToken);
 }
 
 async function findUserByGoogleIdentity(googleUser: {
@@ -295,34 +298,39 @@ async function findUserByGoogleIdentity(googleUser: {
   });
 }
 
+function parseMockAppleToken(
+  idToken: string,
+): { email: string; appleId: string; name?: string } | null {
+  if (!idToken.startsWith('mock-apple-')) {
+    return null;
+  }
+
+  const parts = idToken.split('-');
+  if (parts.length < 4) {
+    return null;
+  }
+
+  return {
+    email: parts[2] + '@privaterelay.appleid.com',
+    appleId: parts[3],
+    name: parts[2],
+  };
+}
+
 /**
- * Validate Apple ID token
- * In production, this would verify with Apple's API
- * For development, we mock the validation
+ * Validate Apple ID token.
+ *
+ * Development and test runs support explicit `mock-apple...` tokens. Real
+ * Apple tokens are verified against Apple's signing keys in every environment.
  */
 async function validateAppleToken(
   idToken: string
 ): Promise<{ email: string | null; appleId: string; name?: string } | null> {
   if (config.isDev === true) {
-    // Mock validation for development
-    if (idToken.startsWith('mock-apple-')) {
-      const parts = idToken.split('-');
-      if (parts.length >= 4) {
-        return {
-          email: parts[2] + '@privaterelay.appleid.com',
-          appleId: parts[3],
-          name: parts[2],
-        };
-      }
+    const mockAppleUser = parseMockAppleToken(idToken);
+    if (mockAppleUser) {
+      return mockAppleUser;
     }
-
-    // For any token in dev mode, create a test user
-    const timestamp = Date.now();
-    return {
-      email: `testuser${timestamp}@privaterelay.appleid.com`,
-      appleId: `apple-${timestamp}`,
-      name: 'Test User',
-    };
   }
 
   try {
@@ -400,6 +408,7 @@ export async function authRoutes(fastify: FastifyInstance) {
                 username: z.string(),
                 displayName: z.string(),
                 profilePhotoUrl: z.string().nullable(),
+                email: z.string(),
                 karma: z.number(),
                 karmaRank: z.string(),
                 createdAt: z.string(),
@@ -488,6 +497,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             username: user.username,
             displayName: user.displayName || user.username,
             profilePhotoUrl: user.profilePhotoUrl,
+            email: user.email,
             karma: user.karma,
             karmaRank: getKarmaRank(user.karma).title,
             createdAt: user.createdAt.toISOString(),
@@ -523,6 +533,7 @@ export async function authRoutes(fastify: FastifyInstance) {
                 username: z.string(),
                 displayName: z.string(),
                 profilePhotoUrl: z.string().nullable(),
+                email: z.string(),
                 karma: z.number(),
                 karmaRank: z.string(),
                 createdAt: z.string(),
@@ -612,6 +623,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             username: user.username,
             displayName: user.displayName || user.username,
             profilePhotoUrl: user.profilePhotoUrl,
+            email: user.email,
             karma: user.karma,
             karmaRank: getKarmaRank(user.karma).title,
             createdAt: user.createdAt.toISOString(),

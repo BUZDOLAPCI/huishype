@@ -310,6 +310,7 @@ export interface paths {
                                     username: string;
                                     displayName: string;
                                     profilePhotoUrl: string | null;
+                                    email: string;
                                     karma: number;
                                     karmaRank: string;
                                     createdAt: string;
@@ -396,6 +397,7 @@ export interface paths {
                                     username: string;
                                     displayName: string;
                                     profilePhotoUrl: string | null;
+                                    email: string;
                                     karma: number;
                                     karmaRank: string;
                                     createdAt: string;
@@ -5935,6 +5937,7 @@ export interface paths {
                                     username: string;
                                     displayName: string;
                                     profilePhotoUrl: string | null;
+                                    email: string;
                                     karma: number;
                                     karmaRank: string;
                                     createdAt: string;
