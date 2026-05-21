@@ -27,9 +27,12 @@ import {
   Crown,
   Crosshair,
   CurrencyEur,
+  Copy,
+  CopySimple,
   DotsThreeVertical,
   Envelope,
   Eye,
+  Flag,
   Flame,
   Globe,
   Heart,
@@ -103,9 +106,12 @@ export type IconName =
   | 'Crown'
   | 'Crosshair'
   | 'CurrencyEur'
+  | 'Copy'
+  | 'CopySimple'
   | 'DotsThreeVertical'
   | 'Envelope'
   | 'Eye'
+  | 'Flag'
   | 'Flame'
   | 'GearSix'
   | 'Globe'
@@ -158,9 +164,12 @@ const ICON_MAP: Record<IconName, ComponentType<any>> = {
   Crown,
   Crosshair,
   CurrencyEur,
+  Copy,
+  CopySimple,
   DotsThreeVertical,
   Envelope,
   Eye,
+  Flag,
   Flame,
   GearSix,
   Globe,
@@ -220,7 +229,7 @@ export function Icon({
   const PhosphorIcon = ICON_MAP[name];
 
   if (!PhosphorIcon) {
-    if (__DEV__) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
       console.warn(`[Icon] Unknown icon name: "${name}"`);
     }
     return null;

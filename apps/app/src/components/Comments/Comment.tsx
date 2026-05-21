@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { KarmaBadge } from './KarmaBadge';
 import { UserAvatar } from '../ui/UserAvatar';
+import { CommentActionMenu } from '../CommentActionMenu';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 
@@ -110,9 +111,13 @@ export function Comment({
   }, [onReport]);
 
   const handleReport = useCallback(() => {
-    setShowActionMenu(false);
     onReport?.(comment.id);
   }, [comment.id, onReport]);
+
+  const handleCopy = useCallback(async () => {
+    const Clipboard = await import('expo-clipboard');
+    await Clipboard.setStringAsync(comment.content);
+  }, [comment.content]);
 
   const displayName = comment.user.displayName || comment.user.username;
 
@@ -207,20 +212,12 @@ export function Comment({
             </Pressable>
           )}
         </View>
-        {showActionMenu ? (
-          <View style={styles.actionMenu} testID="comment-action-menu">
-            <Pressable
-              onPress={handleReport}
-              style={styles.actionMenuItem}
-              testID="comment-report-menu-item"
-              accessibilityRole="button"
-              accessibilityLabel="Report comment"
-            >
-              <Ionicons name="flag-outline" size={15} color="#B91C1C" />
-              <Text style={styles.actionMenuText}>Report</Text>
-            </Pressable>
-          </View>
-        ) : null}
+        <CommentActionMenu
+          visible={showActionMenu}
+          onClose={() => setShowActionMenu(false)}
+          onReport={handleReport}
+          onCopy={handleCopy}
+        />
       </Pressable>
 
       {/* Render Replies */}
@@ -242,26 +239,3 @@ export function Comment({
     </View>
   );
 }
-
-const styles = {
-  actionMenu: {
-    alignSelf: 'flex-start' as const,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#F5EBDD',
-    backgroundColor: '#FFFFFF',
-    overflow: 'hidden' as const,
-  },
-  actionMenuItem: {
-    minHeight: 38,
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    gap: 7,
-    paddingHorizontal: 12,
-  },
-  actionMenuText: {
-    fontSize: 13,
-    fontWeight: '700' as const,
-    color: '#B91C1C',
-  },
-};

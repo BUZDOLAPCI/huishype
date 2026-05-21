@@ -1,7 +1,12 @@
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { Comment, formatRelativeTime } from '../Comment';
+
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn(() => Promise.resolve()),
+}));
 
 // Mock Ionicons
 jest.mock('@expo/vector-icons', () => ({
@@ -215,7 +220,29 @@ describe('Comment', () => {
     expect(mockOnReply).toHaveBeenCalledWith('comment-1', 'testuser');
   });
 
-  it('shows the report action only after long-pressing a comment', () => {
+  it('shows the action menu only after long-pressing a comment', () => {
+    const onReport = jest.fn();
+    const { getByTestId, queryByTestId, queryByText } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+        onReport={onReport}
+      />
+    );
+
+    expect(queryByTestId('comment-action-menu')).toBeNull();
+    expect(queryByTestId('comment-report-menu-item')).toBeNull();
+
+    fireEvent(getByTestId('comment-long-press-target'), 'longPress');
+
+    expect(getByTestId('comment-action-menu')).toBeTruthy();
+    expect(getByTestId('comment-report-menu-item')).toBeTruthy();
+    expect(getByTestId('comment-copy-menu-item')).toBeTruthy();
+    expect(queryByText('Translate')).toBeNull();
+  });
+
+  it('reports from the long-press menu and closes the menu', () => {
     const onReport = jest.fn();
     const { getByTestId, queryByTestId } = render(
       <Comment
@@ -226,12 +253,48 @@ describe('Comment', () => {
       />
     );
 
-    expect(queryByTestId('comment-report-menu-item')).toBeNull();
+    fireEvent(getByTestId('comment-long-press-target'), 'longPress');
+    fireEvent.press(getByTestId('comment-report-menu-item'));
+
+    expect(onReport).toHaveBeenCalledWith('comment-1');
+    expect(queryByTestId('comment-action-menu')).toBeNull();
+  });
+
+  it('copies the comment text from the long-press menu and closes the menu', async () => {
+    const { getByTestId, queryByTestId } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+        onReport={jest.fn()}
+      />
+    );
 
     fireEvent(getByTestId('comment-long-press-target'), 'longPress');
+    await act(async () => {
+      fireEvent.press(getByTestId('comment-copy-menu-item'));
+    });
 
-    fireEvent.press(getByTestId('comment-report-menu-item'));
-    expect(onReport).toHaveBeenCalledWith('comment-1');
+    expect(Clipboard.setStringAsync).toHaveBeenCalledWith('This is a test comment');
+    await waitFor(() => {
+      expect(queryByTestId('comment-action-menu')).toBeNull();
+    });
+  });
+
+  it('closes the long-press menu when the backdrop is pressed', () => {
+    const { getByTestId, queryByTestId } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+        onReport={jest.fn()}
+      />
+    );
+
+    fireEvent(getByTestId('comment-long-press-target'), 'longPress');
+    fireEvent.press(getByTestId('comment-action-menu-backdrop'));
+
+    expect(queryByTestId('comment-action-menu')).toBeNull();
   });
 
   it('does not expose a visible report button without long press', () => {

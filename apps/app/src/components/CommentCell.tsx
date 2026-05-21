@@ -17,6 +17,7 @@ import { router } from 'expo-router';
 import { Icon } from './ui/Icon';
 import { UserAvatar, type AvatarSize } from './ui/UserAvatar';
 import { KarmaBadge } from './Comments/KarmaBadge';
+import { CommentActionMenu } from './CommentActionMenu';
 
 export type CommentCellVariant = 'compact' | 'full';
 
@@ -93,8 +94,12 @@ export function CommentCell({
   };
 
   const handleReport = () => {
-    setShowActionMenu(false);
     onReport?.(comment.id);
+  };
+
+  const handleCopy = async () => {
+    const Clipboard = await import('expo-clipboard');
+    await Clipboard.setStringAsync(comment.content);
   };
 
   const hasReplies = comment.replies && comment.replies.length > 0;
@@ -206,20 +211,12 @@ export function CommentCell({
           )}
         </View>
 
-        {showActionMenu ? (
-          <View style={styles.actionMenu} testID="comment-action-menu">
-            <Pressable
-              onPress={handleReport}
-              style={styles.actionMenuItem}
-              testID="comment-report-menu-item"
-              accessibilityRole="button"
-              accessibilityLabel="Report comment"
-            >
-              <Icon name="WarningCircle" size="sm" color="#B91C1C" />
-              <Text style={styles.actionMenuText}>Report</Text>
-            </Pressable>
-          </View>
-        ) : null}
+        <CommentActionMenu
+          visible={showActionMenu}
+          onClose={() => setShowActionMenu(false)}
+          onReport={handleReport}
+          onCopy={handleCopy}
+        />
 
         {/* Reply thread */}
         {variant === 'full' && !isReply && hasReplies && (
@@ -322,28 +319,6 @@ const styles = StyleSheet.create({
     color: '#9C958A',
     fontWeight: '500',
   },
-  actionMenu: {
-    alignSelf: 'flex-start',
-    marginTop: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#F5EBDD',
-    backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
-  },
-  actionMenuItem: {
-    minHeight: 38,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    paddingHorizontal: 12,
-  },
-  actionMenuText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#B91C1C',
-  },
-
   // View replies
   viewRepliesButton: {
     flexDirection: 'row',
