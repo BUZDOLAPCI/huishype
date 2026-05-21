@@ -364,7 +364,12 @@ describe('ProfileScreen sign out', () => {
     const { getByTestId } = render(<ProfileScreen />);
 
     fireEvent.press(getByTestId('profile-handle-edit'));
+    expect(getByTestId('profile-handle-prefix')).toBeTruthy();
+    expect(getByTestId('profile-handle-input').props.value).toBe('test-user');
+    expect(getByTestId('profile-handle-input').props.maxLength).toBe(20);
+
     fireEvent.changeText(getByTestId('profile-handle-input'), '  @New_Handle  ');
+    expect(getByTestId('profile-handle-input').props.value).toBe('  New_Handle  ');
     fireEvent.press(getByTestId('profile-handle-save'));
 
     await waitFor(() => {

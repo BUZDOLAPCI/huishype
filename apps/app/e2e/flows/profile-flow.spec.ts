@@ -203,13 +203,21 @@ test.describe('Profile Tab Flow', () => {
     );
 
     await page.locator('[data-testid="profile-handle-edit"]').click();
-    await page.locator('[data-testid="profile-handle-input"]').fill(`@${nextHandle.toUpperCase()}`);
-    await Promise.all([
+    const handleInput = page.locator('[data-testid="profile-handle-input"]');
+    await expect(handleInput).toHaveValue(session.user.handle);
+    await expect(page.locator('[data-testid="profile-handle-prefix"]')).toContainText('@');
+    await handleInput.fill(nextHandle.toUpperCase());
+    const [handleUpdateResponse] = await Promise.all([
       page.waitForResponse((response) =>
         response.url().includes('/users/me/profile') && response.request().method() === 'PUT',
       ),
       page.locator('[data-testid="profile-handle-save"]').click(),
     ]);
+    const handleUpdatePayload = handleUpdateResponse.request().postDataJSON() as {
+      handle?: string;
+    };
+    expect(handleUpdatePayload.handle).toBe(nextHandle);
+    expect(handleUpdatePayload.handle?.startsWith('@')).toBe(false);
     await expect(page.locator('[data-testid="profile-handle-row"]')).toContainText(
       `@${nextHandle}`,
       { timeout: 15000 },

@@ -357,12 +357,16 @@ export default function ProfileScreen() {
       );
       return;
     }
-    setHandleDraft(profile?.handle ? `@${profile.handle}` : '');
+    setHandleDraft(profile?.handle || '');
     setEditingField('handle');
   }, [canChangeHandle, nextHandleChangeDate, profile?.handle]);
 
   const handleCancelIdentityEdit = useCallback(() => {
     setEditingField(null);
+  }, []);
+
+  const handleChangeHandleDraft = useCallback((nextText: string) => {
+    setHandleDraft(nextText.replace(/@+/g, ''));
   }, []);
 
   const handleSaveDisplayName = useCallback(async () => {
@@ -592,16 +596,21 @@ export default function ProfileScreen() {
 
             {editingField === 'handle' ? (
               <View style={styles.identityEditRow}>
-                <TextInput
-                  value={handleDraft}
-                  onChangeText={setHandleDraft}
-                  style={[styles.identityEditInput, styles.handleEditInput]}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  maxLength={21}
-                  testID="profile-handle-input"
-                  accessibilityLabel="Handle"
-                />
+                <View style={styles.handleEditField}>
+                  <Text style={styles.handleEditPrefix} testID="profile-handle-prefix">
+                    @
+                  </Text>
+                  <TextInput
+                    value={handleDraft}
+                    onChangeText={handleChangeHandleDraft}
+                    style={[styles.identityEditInput, styles.handleEditInput]}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    maxLength={20}
+                    testID="profile-handle-input"
+                    accessibilityLabel="Handle"
+                  />
+                </View>
                 <Pressable
                   onPress={handleSaveHandle}
                   style={styles.identityActionButton}
@@ -921,6 +930,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     minWidth: 126,
     maxWidth: 180,
+  },
+  handleEditField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  handleEditPrefix: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#857D72',
+    lineHeight: 20,
+    letterSpacing: 0,
   },
   identityEditButton: {
     width: 28,
