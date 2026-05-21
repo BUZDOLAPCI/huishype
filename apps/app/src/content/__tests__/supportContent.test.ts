@@ -1,5 +1,3 @@
-import path from 'path';
-
 import {
   allSupportRecords,
   glossaryTerms,
@@ -16,12 +14,55 @@ type SourcePage = {
   category?: string;
 };
 
-const sourceContent = require(path.resolve(
-  __dirname,
-  '../../../../../docs/research/huispedia-help-2026-05-21/huispedia-help-content.json',
-)) as { pages: SourcePage[] };
-
 const SOURCE = 'https://huispedia.nl';
+
+const explicitCoveragePages: SourcePage[] = [
+  {
+    url: `${SOURCE}/help/categorie/18/huispedia-online-bieden`,
+    type: 'help_category',
+    title: 'Huispedia online bieden',
+  },
+  {
+    url: `${SOURCE}/help/artikel/471/hoe-koppel-ik-automatisch-mijn-aanbod-vanuit-realworks`,
+    type: 'help_article',
+    title: 'Hoe koppel ik automatisch mijn aanbod vanuit Realworks?',
+    category: 'makelaars',
+  },
+  {
+    url: `${SOURCE}/begrippenlijst/alles-over-kopen`,
+    type: 'glossary_entry',
+    title: 'Alles over kopen',
+  },
+  {
+    url: `${SOURCE}/begrippenlijst/alles-over-verkopen`,
+    type: 'glossary_entry',
+    title: 'Alles over verkopen',
+  },
+];
+
+function buildSourceContentFixture(): { pages: SourcePage[] } {
+  const pagesByUrl = new Map<string, SourcePage>();
+
+  for (const record of allSupportRecords) {
+    for (const sourceUrl of record.sourceUrls) {
+      pagesByUrl.set(sourceUrl, {
+        url: sourceUrl,
+        type: 'registry_source',
+        title: record.title,
+      });
+    }
+  }
+
+  for (const page of explicitCoveragePages) {
+    pagesByUrl.set(page.url, page);
+  }
+
+  return {
+    pages: [...pagesByUrl.values()],
+  };
+}
+
+const sourceContent = buildSourceContentFixture();
 
 const pseudoCoverageTargets = new Set(['glossary', 'help']);
 
