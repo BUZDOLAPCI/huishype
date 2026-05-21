@@ -11,7 +11,7 @@ module.exports = {
   useLocalSearchParams: () => ({}),
   useGlobalSearchParams: () => ({}),
   useSegments: () => [],
-  usePathname: () => '/',
+  usePathname: jest.fn(() => '/'),
   Link: ({ children, ...props }) => React.createElement('a', props, children),
   Stack: {
     Screen: ({ children }) => children,

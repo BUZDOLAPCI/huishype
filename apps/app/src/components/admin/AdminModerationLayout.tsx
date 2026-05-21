@@ -125,7 +125,7 @@ function AdminNav({
         const active =
           item.href === '/admin'
             ? pathname === '/admin'
-            : pathname.startsWith(item.href);
+            : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
         return (
           <Pressable

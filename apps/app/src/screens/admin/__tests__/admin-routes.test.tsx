@@ -1,10 +1,11 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
-import { router } from 'expo-router';
-import { Platform } from 'react-native';
+import { router, usePathname } from 'expo-router';
+import { Platform, Text } from 'react-native';
 
 import FlaggedCommentsRoute from '@/app/admin/comments';
 import FlaggedPropertiesRoute from '@/app/admin/properties';
+import { AdminShell } from '@/src/components/admin/AdminModerationLayout';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
   useAdminCommentReports,
@@ -38,8 +39,19 @@ const mockUseAdminReportAction =
 const mockUseAdminPropertyCommentsAction =
   useAdminPropertyCommentsAction as jest.MockedFunction<typeof useAdminPropertyCommentsAction>;
 const mockRouterPush = router.push as jest.MockedFunction<typeof router.push>;
+const mockUsePathname = usePathname as jest.MockedFunction<typeof usePathname>;
 const mockWindowOpen = jest.fn();
 const originalPlatform = Platform.OS;
+
+function getNavLinkState(
+  screen: ReturnType<typeof render>,
+  label: string,
+): { selected?: boolean } | undefined {
+  const navLink = screen.UNSAFE_getAllByProps({ accessibilityRole: 'link' }).find((node) =>
+    node.findAllByType(Text).some((textNode) => textNode.props.children === label),
+  );
+  return navLink?.props.accessibilityState;
+}
 
 function seedAuth(overrides: Partial<ReturnType<typeof useAuthContext>> = {}) {
   mockUseAuthContext.mockReturnValue({
@@ -78,6 +90,7 @@ describe('admin routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     Platform.OS = 'web';
+    mockUsePathname.mockReturnValue('/');
     mockUseAdminPropertyReports.mockReturnValue({
       data: {
         items: [],
@@ -141,6 +154,19 @@ describe('admin routes', () => {
     expect(screen.getAllByText('Flagged Properties').length).toBeGreaterThan(0);
     expect(screen.getByText('Your account does not have admin access.')).toBeTruthy();
     expect(mockUseAdminPropertyReports).not.toHaveBeenCalled();
+  });
+
+  it('selects only the exact admin nav item for prefixed route names', () => {
+    mockUsePathname.mockReturnValue('/admin/comments-disabled');
+
+    const screen = render(
+      <AdminShell title="Disabled Properties">
+        {null}
+      </AdminShell>,
+    );
+
+    expect(getNavLinkState(screen, 'Disabled Properties')).toEqual({ selected: true });
+    expect(getNavLinkState(screen, 'Flagged Comments')).toEqual({ selected: false });
   });
 
   it('renders forbidden state when auth has no explicit admin marker', () => {
