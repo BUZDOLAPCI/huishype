@@ -47,6 +47,7 @@ const COLORS = {
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/admin' },
   { label: 'Flagged Properties', href: '/admin/properties' },
+  { label: 'Disabled Properties', href: '/admin/comments-disabled' },
   { label: 'Flagged Comments', href: '/admin/comments' },
   { label: 'Activity Logs', href: '/admin/activity' },
 ] as const;
@@ -260,11 +261,13 @@ export function PropertyReportCard({
   group,
   onDismiss,
   onReview,
+  onDisableComments,
   disabled,
 }: {
   group: AdminReportGroup;
   onDismiss: () => void;
   onReview: () => void;
+  onDisableComments: () => void;
   disabled?: boolean;
 }) {
   const property = group.property;
@@ -300,6 +303,14 @@ export function PropertyReportCard({
             testID={`open-property-${group.id}`}
           />
         ) : null}
+        <Button
+          label="Disable comments"
+          variant="secondary"
+          size="sm"
+          disabled={disabled}
+          onPress={onDisableComments}
+          testID={`disable-comments-property-${group.id}`}
+        />
         <Button
           label="Dismiss reports"
           variant="secondary"

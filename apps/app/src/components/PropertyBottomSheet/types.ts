@@ -17,6 +17,7 @@ export interface PropertyDetailsData extends Property {
   socialScore?: number;
   recentSocialScore?: number;
   lastSocialAt?: string | null;
+  commentsDisabled?: boolean;
   activityLevel: 'hot' | 'warm' | 'cold';
   commentCount: number;
   topLevelCommentCount?: number;
@@ -114,6 +115,7 @@ export function toPropertyDetails(
     socialScore: details.socialScore ?? 0,
     recentSocialScore: details.recentSocialScore ?? 0,
     lastSocialAt: details.lastSocialAt ?? null,
+    commentsDisabled: details.commentsDisabled ?? false,
     activityLevel,
     commentCount,
     topLevelCommentCount,

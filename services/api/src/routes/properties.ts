@@ -122,6 +122,7 @@ const propertyBaseSchema = z.object({
   officialValuation: z.number().nullable(),
   officialValuationYear: z.number().nullable(),
   officialValuationSourceFetch: officialValuationSourceFetchSchema,
+  commentsDisabled: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -326,6 +327,7 @@ const resolveTapPropertyPreviewSchema = z.object({
   socialScore: z.number(),
   recentSocialScore: z.number(),
   commentCount: z.number(),
+  commentsDisabled: z.boolean(),
   isRead: z.boolean(),
 });
 
@@ -482,6 +484,7 @@ type PropertyRow = {
   official_valuation: number | null;
   official_valuation_year: number | null;
   official_valuation_verified: boolean;
+  comments_disabled_at: string | Date | null;
   created_at: string;
   updated_at: string;
   has_listing: boolean;
@@ -635,6 +638,7 @@ function mapPropertyBaseRow(row: {
   official_valuation: number | null;
   official_valuation_year: number | null;
   official_valuation_verified?: boolean;
+  comments_disabled_at?: string | Date | null;
   created_at: string;
   updated_at: string;
 }) {
@@ -676,12 +680,15 @@ function mapPropertyBaseRow(row: {
     officialValuationYear:
       row.official_valuation_year != null ? Number(row.official_valuation_year) : null,
     officialValuationSourceFetch: getOfficialValuationSourceFetchHint(row.country_code),
+    commentsDisabled: row.comments_disabled_at != null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
 
 function mapPublicPropertyRow(row: PropertyRow) {
+  const commentsDisabled = row.comments_disabled_at != null;
+
   return {
     ...mapPropertyBaseRow(row),
     hasListing: row.has_listing,
@@ -693,17 +700,17 @@ function mapPublicPropertyRow(row: PropertyRow) {
     socialScore: Number(row.social_score),
     recentSocialScore: Number(row.recent_social_score),
     lastSocialAt: row.last_social_at ? new Date(row.last_social_at).toISOString() : null,
-    topLevelCommentCount: Number(row.top_level_comment_count),
-    replyCount: Number(row.reply_count),
+    topLevelCommentCount: commentsDisabled ? 0 : Number(row.top_level_comment_count),
+    replyCount: commentsDisabled ? 0 : Number(row.reply_count),
     propertyLikeCount: Number(row.property_like_count),
-    commentLikeCount: Number(row.comment_like_count),
+    commentLikeCount: commentsDisabled ? 0 : Number(row.comment_like_count),
     guessCount: Number(row.guess_count),
     viewCount: Number(row.view_count),
     uniqueViewerCount: Number(row.unique_viewer_count),
-    recentTopLevelCommentCount: Number(row.recent_top_level_comment_count),
-    recentReplyCount: Number(row.recent_reply_count),
+    recentTopLevelCommentCount: commentsDisabled ? 0 : Number(row.recent_top_level_comment_count),
+    recentReplyCount: commentsDisabled ? 0 : Number(row.recent_reply_count),
     recentPropertyLikeCount: Number(row.recent_property_like_count),
-    recentCommentLikeCount: Number(row.recent_comment_like_count),
+    recentCommentLikeCount: commentsDisabled ? 0 : Number(row.recent_comment_like_count),
     recentGuessCount: Number(row.recent_guess_count),
     recentViewCount: Number(row.recent_view_count),
     recentUniqueViewerCount: Number(row.recent_unique_viewer_count),
@@ -1260,6 +1267,7 @@ function buildPublicPropertySelect(options: { useSnappedImagery?: boolean } = {}
   p.official_valuation,
   p.official_valuation_year,
   p.official_valuation_verified,
+  p.comments_disabled_at,
   p.created_at,
   p.updated_at,
   lf.has_listing,
@@ -1387,6 +1395,7 @@ function mapResolveTapPropertyPreview(
     socialScore: property.socialScore,
     recentSocialScore: property.recentSocialScore,
     commentCount: property.topLevelCommentCount + property.replyCount,
+    commentsDisabled: property.commentsDisabled,
     isRead,
   };
 }
@@ -2379,7 +2388,9 @@ export async function propertyRoutes(app: FastifyInstance) {
         row.official_valuation != null ? Number(row.official_valuation) : null,
         row.asking_price != null ? Number(row.asking_price) : null
       );
-      const commentCount = Number(row.top_level_comment_count) + Number(row.reply_count);
+      const commentCount = publicRow.commentsDisabled
+        ? 0
+        : Number(row.top_level_comment_count) + Number(row.reply_count);
       const isRead = await isPropertyReadForViewer(id, viewer);
 
       return reply.send({

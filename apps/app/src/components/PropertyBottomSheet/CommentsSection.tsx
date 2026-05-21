@@ -35,6 +35,7 @@ export function CommentsSection({
   const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
   const { isAuthenticated } = useAuthContext();
+  const commentsDisabled = property.commentsDisabled === true;
 
   // Fetch comments
   const {
@@ -152,6 +153,21 @@ export function CommentsSection({
       }
     }
   }, [onViewAll, hasNextPage, fetchNextPage]);
+
+  if (commentsDisabled) {
+    return (
+      <SectionCard
+        title="Comments"
+        icon="chatbubbles"
+        description="Read the neighborhood takes and add your own perspective on the address."
+      >
+        <View style={styles.disabledState}>
+          <Ionicons name="lock-closed-outline" size={32} color="#8C8479" />
+          <Text style={styles.disabledText}>Comments are disabled for this property</Text>
+        </View>
+      </SectionCard>
+    );
+  }
 
   return (
     <SectionCard
@@ -325,5 +341,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F5EBDD',
     backgroundColor: '#FFFCF7',
+  },
+  disabledState: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F5EBDD',
+    backgroundColor: '#FFFCF7',
+    padding: 18,
+    alignItems: 'center',
+    gap: 8,
+  },
+  disabledText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#5F574F',
+    textAlign: 'center',
   },
 });

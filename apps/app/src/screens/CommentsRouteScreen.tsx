@@ -139,6 +139,9 @@ export function CommentsRouteScreen({
     return commentsData.pages.flatMap((page) => page.data);
   }, [commentsData?.pages]);
 
+  const commentsDisabled =
+    property?.commentsDisabled === true ||
+    commentsData?.pages[0]?.commentsDisabled === true;
   const totalComments = commentsData?.pages[0]?.meta.total ?? 0;
 
   const cellComments: CommentCellData[] = useMemo(
@@ -315,10 +318,15 @@ export function CommentsRouteScreen({
             <Text style={styles.commentCount}>
               {totalComments} {totalComments === 1 ? 'comment' : 'comments'}
             </Text>
-            <SortToggle value={sortBy} onChange={setSortBy} />
+            {commentsDisabled ? null : <SortToggle value={sortBy} onChange={setSortBy} />}
           </View>
 
-          {isLoading ? (
+          {commentsDisabled ? (
+            <View style={styles.disabledState}>
+              <Icon name="ShieldCheck" size={28} color="#8C8479" />
+              <Text style={styles.disabledText}>Comments are disabled for this property</Text>
+            </View>
+          ) : isLoading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#F5A623" />
             </View>
@@ -348,11 +356,13 @@ export function CommentsRouteScreen({
             />
           )}
 
-          <CommentInput
-            onSubmit={handleSubmit}
-            replyTo={replyTo}
-            onCancelReply={() => setReplyTo(null)}
-          />
+          {commentsDisabled ? null : (
+            <CommentInput
+              onSubmit={handleSubmit}
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
+            />
+          )}
         </KeyboardAvoidingView>
       </ResponsivePanel>
 
@@ -416,4 +426,20 @@ const styles = StyleSheet.create({
   sortTextActive: { color: '#FFFFFF' },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: 20, gap: 12 },
+  disabledState: {
+    marginHorizontal: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F0E5D6',
+    backgroundColor: '#FFF7EC',
+    padding: 20,
+    alignItems: 'center',
+    gap: 8,
+  },
+  disabledText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#5F574F',
+    textAlign: 'center',
+  },
 });

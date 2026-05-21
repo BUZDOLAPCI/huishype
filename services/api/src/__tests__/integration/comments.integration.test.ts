@@ -2,12 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
-import {
-  users,
-  comments,
-  reactions,
-  propertyTilePyramidSourceWatermarks,
-} from '../../db/schema.js';
+import { propertyTilePyramidSourceWatermarks } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 
@@ -61,30 +56,21 @@ describe('Comment routes', () => {
   });
 
   afterAll(async () => {
-    for (const commentId of createdCommentIds) {
-      try {
-        await db.delete(reactions).where(eq(reactions.targetId, commentId));
-      } catch {
-        // Ignore cleanup errors
-      }
+    if (propertyId) {
+      await db.execute(sql`
+        DELETE FROM reactions
+        WHERE target_type = 'comment'
+          AND target_id IN (SELECT id FROM comments WHERE property_id = ${propertyId})
+      `);
+      await db.execute(sql`DELETE FROM comments WHERE property_id = ${propertyId}`);
+      await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     }
-    // Clean up test comments
-    for (const commentId of createdCommentIds) {
-      try {
-        await db.delete(comments).where(eq(comments.id, commentId));
-      } catch {
-        // Ignore cleanup errors
-      }
+    if (testUserIds.length > 0) {
+      await db.execute(sql`
+        DELETE FROM users
+        WHERE id IN (${sql.join(testUserIds.map((id) => sql`${id}`), sql`, `)})
+      `);
     }
-    // Clean up test users
-    for (const uid of testUserIds) {
-      try {
-        await db.delete(users).where(eq(users.id, uid));
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
-    await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
     await app.close();
   });
 
@@ -135,6 +121,35 @@ describe('Comment routes', () => {
         payload: { content: 'Comment on fake property' },
       });
       expect(response.statusCode).toBe(404);
+    });
+
+    it('should reject new comments when property comments are disabled', async () => {
+      await db.execute(sql`
+        UPDATE properties
+        SET comments_disabled_at = NOW(),
+            comments_disabled_by = ${userId},
+            comments_disabled_reason = 'Integration test'
+        WHERE id = ${propertyId}
+      `);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/properties/${propertyId}/comments`,
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { content: 'Blocked comment' },
+      });
+
+      expect(response.statusCode).toBe(403);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('COMMENTS_DISABLED');
+
+      await db.execute(sql`
+        UPDATE properties
+        SET comments_disabled_at = NULL,
+            comments_disabled_by = NULL,
+            comments_disabled_reason = NULL
+        WHERE id = ${propertyId}
+      `);
     });
 
     it('should create a reply to a top-level comment', async () => {
@@ -267,6 +282,44 @@ describe('Comment routes', () => {
         url: `/properties/${fakeId}/comments`,
       });
       expect(response.statusCode).toBe(404);
+    });
+
+    it('should return an empty disabled response when property comments are disabled', async () => {
+      const commentResp = await app.inject({
+        method: 'POST',
+        url: `/properties/${propertyId}/comments`,
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { content: 'Hidden by disabled thread state' },
+      });
+      const commentBody = JSON.parse(commentResp.body);
+      createdCommentIds.push(commentBody.id);
+
+      await db.execute(sql`
+        UPDATE properties
+        SET comments_disabled_at = NOW(),
+            comments_disabled_by = ${userId},
+            comments_disabled_reason = 'Integration test'
+        WHERE id = ${propertyId}
+      `);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}/comments?limit=50`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.commentsDisabled).toBe(true);
+      expect(body.data).toEqual([]);
+      expect(body.meta.total).toBe(0);
+
+      await db.execute(sql`
+        UPDATE properties
+        SET comments_disabled_at = NULL,
+            comments_disabled_by = NULL,
+            comments_disabled_reason = NULL
+        WHERE id = ${propertyId}
+      `);
     });
 
     it('should include replies nested under parent comments', async () => {

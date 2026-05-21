@@ -229,6 +229,7 @@ export function buildPropertyListingFactsJoin(
 
 export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'): SQL {
   const idColumn = propertyIdColumn(propertyAlias);
+  const commentsDisabledAtColumn = sql.raw(`${propertyAlias}.comments_disabled_at`);
 
   return sql`
     LEFT JOIN LATERAL (
@@ -241,6 +242,7 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
           MAX(c.created_at) AS latest
         FROM comments c
         WHERE c.property_id = ${idColumn}
+          AND ${commentsDisabledAtColumn} IS NULL
           AND c.parent_id IS NULL
           AND c.hidden_at IS NULL
       ),
@@ -253,6 +255,7 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
           MAX(c.created_at) AS latest
         FROM comments c
         WHERE c.property_id = ${idColumn}
+          AND ${commentsDisabledAtColumn} IS NULL
           AND c.parent_id IS NOT NULL
           AND c.hidden_at IS NULL
       ),
@@ -280,6 +283,7 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
         WHERE r.target_type = 'comment'
           AND r.reaction_type = 'like'
           AND c.property_id = ${idColumn}
+          AND ${commentsDisabledAtColumn} IS NULL
           AND c.hidden_at IS NULL
       ),
       guesses AS (

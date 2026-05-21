@@ -2001,6 +2001,9 @@
                               }
                             ]
                           },
+                          "commentsDisabled": {
+                            "type": "boolean"
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time",
@@ -2145,6 +2148,7 @@
                           "officialValuation",
                           "officialValuationYear",
                           "officialValuationSourceFetch",
+                          "commentsDisabled",
                           "createdAt",
                           "updatedAt",
                           "hasListing",
@@ -2752,6 +2756,9 @@
                                 "commentCount": {
                                   "type": "number"
                                 },
+                                "commentsDisabled": {
+                                  "type": "boolean"
+                                },
                                 "isRead": {
                                   "type": "boolean"
                                 }
@@ -2782,6 +2789,7 @@
                                 "socialScore",
                                 "recentSocialScore",
                                 "commentCount",
+                                "commentsDisabled",
                                 "isRead"
                               ],
                               "additionalProperties": false
@@ -3179,6 +3187,9 @@
                                       "commentCount": {
                                         "type": "number"
                                       },
+                                      "commentsDisabled": {
+                                        "type": "boolean"
+                                      },
                                       "isRead": {
                                         "type": "boolean"
                                       }
@@ -3209,6 +3220,7 @@
                                       "socialScore",
                                       "recentSocialScore",
                                       "commentCount",
+                                      "commentsDisabled",
                                       "isRead"
                                     ],
                                     "additionalProperties": false
@@ -3556,6 +3568,9 @@
                                 "commentCount": {
                                   "type": "number"
                                 },
+                                "commentsDisabled": {
+                                  "type": "boolean"
+                                },
                                 "isRead": {
                                   "type": "boolean"
                                 }
@@ -3586,6 +3601,7 @@
                                 "socialScore",
                                 "recentSocialScore",
                                 "commentCount",
+                                "commentsDisabled",
                                 "isRead"
                               ],
                               "additionalProperties": false
@@ -3983,6 +3999,9 @@
                                       "commentCount": {
                                         "type": "number"
                                       },
+                                      "commentsDisabled": {
+                                        "type": "boolean"
+                                      },
                                       "isRead": {
                                         "type": "boolean"
                                       }
@@ -4013,6 +4032,7 @@
                                       "socialScore",
                                       "recentSocialScore",
                                       "commentCount",
+                                      "commentsDisabled",
                                       "isRead"
                                     ],
                                     "additionalProperties": false
@@ -4879,6 +4899,9 @@
                           }
                         ]
                       },
+                      "commentsDisabled": {
+                        "type": "boolean"
+                      },
                       "createdAt": {
                         "type": "string",
                         "format": "date-time",
@@ -5023,6 +5046,7 @@
                       "officialValuation",
                       "officialValuationYear",
                       "officialValuationSourceFetch",
+                      "commentsDisabled",
                       "createdAt",
                       "updatedAt",
                       "hasListing",
@@ -5823,6 +5847,9 @@
                         }
                       ]
                     },
+                    "commentsDisabled": {
+                      "type": "boolean"
+                    },
                     "createdAt": {
                       "type": "string",
                       "format": "date-time",
@@ -6092,6 +6119,7 @@
                     "officialValuation",
                     "officialValuationYear",
                     "officialValuationSourceFetch",
+                    "commentsDisabled",
                     "createdAt",
                     "updatedAt",
                     "hasListing",
@@ -6830,6 +6858,9 @@
                               }
                             ]
                           },
+                          "commentsDisabled": {
+                            "type": "boolean"
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time",
@@ -6985,6 +7016,7 @@
                           "officialValuation",
                           "officialValuationYear",
                           "officialValuationSourceFetch",
+                          "commentsDisabled",
                           "createdAt",
                           "updatedAt",
                           "hasListing",
@@ -7952,6 +7984,9 @@
                         "totalPages"
                       ],
                       "additionalProperties": false
+                    },
+                    "commentsDisabled": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -8177,6 +8212,29 @@
             }
           },
           "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Default Response",
             "content": {
               "application/json": {
@@ -16334,7 +16392,9 @@
                               "enum": [
                                 "dismiss_reports",
                                 "mark_property_reviewed",
-                                "hide_comment"
+                                "hide_comment",
+                                "disable_property_comments",
+                                "enable_property_comments"
                               ]
                             },
                             {
@@ -16838,7 +16898,9 @@
                               "enum": [
                                 "dismiss_reports",
                                 "mark_property_reviewed",
-                                "hide_comment"
+                                "hide_comment",
+                                "disable_property_comments",
+                                "enable_property_comments"
                               ]
                             },
                             {
@@ -17336,7 +17398,9 @@
                                 "enum": [
                                   "dismiss_reports",
                                   "mark_property_reviewed",
-                                  "hide_comment"
+                                  "hide_comment",
+                                  "disable_property_comments",
+                                  "enable_property_comments"
                                 ]
                               },
                               {
@@ -17693,7 +17757,9 @@
                             "enum": [
                               "dismiss_reports",
                               "mark_property_reviewed",
-                              "hide_comment"
+                              "hide_comment",
+                              "disable_property_comments",
+                              "enable_property_comments"
                             ]
                           },
                           "targetType": {
@@ -17957,7 +18023,9 @@
                                 "enum": [
                                   "dismiss_reports",
                                   "mark_property_reviewed",
-                                  "hide_comment"
+                                  "hide_comment",
+                                  "disable_property_comments",
+                                  "enable_property_comments"
                                 ]
                               },
                               {
@@ -18314,7 +18382,9 @@
                             "enum": [
                               "dismiss_reports",
                               "mark_property_reviewed",
-                              "hide_comment"
+                              "hide_comment",
+                              "disable_property_comments",
+                              "enable_property_comments"
                             ]
                           },
                           "targetType": {
@@ -18550,7 +18620,9 @@
                               "enum": [
                                 "dismiss_reports",
                                 "mark_property_reviewed",
-                                "hide_comment"
+                                "hide_comment",
+                                "disable_property_comments",
+                                "enable_property_comments"
                               ]
                             },
                             {
@@ -19146,7 +19218,9 @@
                                 "enum": [
                                   "dismiss_reports",
                                   "mark_property_reviewed",
-                                  "hide_comment"
+                                  "hide_comment",
+                                  "disable_property_comments",
+                                  "enable_property_comments"
                                 ]
                               },
                               {
@@ -19483,7 +19557,9 @@
                             "enum": [
                               "dismiss_reports",
                               "mark_property_reviewed",
-                              "hide_comment"
+                              "hide_comment",
+                              "disable_property_comments",
+                              "enable_property_comments"
                             ]
                           },
                           "targetType": {
@@ -19664,7 +19740,8 @@
                     "enum": [
                       "dismiss_reports",
                       "mark_property_reviewed",
-                      "hide_comment"
+                      "hide_comment",
+                      "disable_property_comments"
                     ]
                   },
                   "moderationReason": {
@@ -19769,7 +19846,9 @@
                               "enum": [
                                 "dismiss_reports",
                                 "mark_property_reviewed",
-                                "hide_comment"
+                                "hide_comment",
+                                "disable_property_comments",
+                                "enable_property_comments"
                               ]
                             },
                             {
@@ -20092,6 +20171,11 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "disabledPropertyId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     }
                   },
                   "required": [
@@ -20120,6 +20204,763 @@
                   "required": [
                     "error",
                     "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/properties/comments-disabled": {
+      "get": {
+        "summary": "List properties with comments disabled",
+        "tags": [
+          "admin",
+          "properties"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "address": {
+                            "type": "string"
+                          },
+                          "street": {
+                            "type": "string"
+                          },
+                          "city": {
+                            "type": "string"
+                          },
+                          "postalCode": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "houseNumber": {
+                            "type": "number"
+                          },
+                          "houseNumberAddition": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "countryCode": {
+                            "type": "string"
+                          },
+                          "commentsDisabled": {
+                            "type": "boolean"
+                          },
+                          "commentsDisabledAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "commentsDisabledReason": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "commentsDisabledBy": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "disabledByAdmin": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "username": {
+                                    "type": "string"
+                                  },
+                                  "displayName": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "email": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "username",
+                                  "displayName",
+                                  "email"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "address",
+                          "street",
+                          "city",
+                          "postalCode",
+                          "houseNumber",
+                          "houseNumberAddition",
+                          "countryCode",
+                          "commentsDisabled",
+                          "commentsDisabledAt",
+                          "commentsDisabledReason",
+                          "commentsDisabledBy",
+                          "disabledByAdmin"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/properties/{id}/comments/disable": {
+      "post": {
+        "summary": "Disable comments for a property",
+        "tags": [
+          "admin",
+          "properties"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 140
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "property": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "address": {
+                          "type": "string"
+                        },
+                        "street": {
+                          "type": "string"
+                        },
+                        "city": {
+                          "type": "string"
+                        },
+                        "postalCode": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "houseNumber": {
+                          "type": "number"
+                        },
+                        "houseNumberAddition": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "countryCode": {
+                          "type": "string"
+                        },
+                        "commentsDisabled": {
+                          "type": "boolean"
+                        },
+                        "commentsDisabledAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "commentsDisabledReason": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "commentsDisabledBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "disabledByAdmin": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "username": {
+                                  "type": "string"
+                                },
+                                "displayName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "email": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "username",
+                                "displayName",
+                                "email"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "address",
+                        "street",
+                        "city",
+                        "postalCode",
+                        "houseNumber",
+                        "houseNumberAddition",
+                        "countryCode",
+                        "commentsDisabled",
+                        "commentsDisabledAt",
+                        "commentsDisabledReason",
+                        "commentsDisabledBy",
+                        "disabledByAdmin"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "property"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/properties/{id}/comments/enable": {
+      "post": {
+        "summary": "Enable comments for a property",
+        "tags": [
+          "admin",
+          "properties"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 140
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "property": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "address": {
+                          "type": "string"
+                        },
+                        "street": {
+                          "type": "string"
+                        },
+                        "city": {
+                          "type": "string"
+                        },
+                        "postalCode": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "houseNumber": {
+                          "type": "number"
+                        },
+                        "houseNumberAddition": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "countryCode": {
+                          "type": "string"
+                        },
+                        "commentsDisabled": {
+                          "type": "boolean"
+                        },
+                        "commentsDisabledAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "commentsDisabledReason": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "commentsDisabledBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "disabledByAdmin": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "username": {
+                                  "type": "string"
+                                },
+                                "displayName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "email": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "username",
+                                "displayName",
+                                "email"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "address",
+                        "street",
+                        "city",
+                        "postalCode",
+                        "houseNumber",
+                        "houseNumberAddition",
+                        "countryCode",
+                        "commentsDisabled",
+                        "commentsDisabledAt",
+                        "commentsDisabledReason",
+                        "commentsDisabledBy",
+                        "disabledByAdmin"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "property"
                   ],
                   "additionalProperties": false
                 }

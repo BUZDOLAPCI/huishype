@@ -95,6 +95,7 @@ const commentListResponseSchema = z.object({
     total: z.number(),
     totalPages: z.number(),
   }),
+  commentsDisabled: z.boolean().optional(),
 });
 
 // Helper to format a comment row
@@ -150,7 +151,7 @@ export async function commentRoutes(app: FastifyInstance) {
 
       // Check if property exists
       const propertyExists = await db
-        .select({ id: properties.id })
+        .select({ id: properties.id, commentsDisabledAt: properties.commentsDisabledAt })
         .from(properties)
         .where(eq(properties.id, propertyId))
         .limit(1);
@@ -159,6 +160,19 @@ export async function commentRoutes(app: FastifyInstance) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: `Property with ID ${propertyId} not found`,
+        });
+      }
+
+      if (propertyExists[0].commentsDisabledAt) {
+        return reply.send({
+          data: [],
+          meta: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+          },
+          commentsDisabled: true,
         });
       }
 
@@ -344,6 +358,10 @@ export async function commentRoutes(app: FastifyInstance) {
             error: z.string(),
             message: z.string(),
           }),
+          403: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
           404: z.object({
             error: z.string(),
             message: z.string(),
@@ -359,7 +377,7 @@ export async function commentRoutes(app: FastifyInstance) {
 
       // Check if property exists
       const propertyExists = await db
-        .select({ id: properties.id })
+        .select({ id: properties.id, commentsDisabledAt: properties.commentsDisabledAt })
         .from(properties)
         .where(eq(properties.id, propertyId))
         .limit(1);
@@ -368,6 +386,13 @@ export async function commentRoutes(app: FastifyInstance) {
         return reply.status(404).send({
           error: 'NOT_FOUND',
           message: `Property with ID ${propertyId} not found`,
+        });
+      }
+
+      if (propertyExists[0].commentsDisabledAt) {
+        return reply.status(403).send({
+          error: 'COMMENTS_DISABLED',
+          message: 'Comments are disabled for this property.',
         });
       }
 

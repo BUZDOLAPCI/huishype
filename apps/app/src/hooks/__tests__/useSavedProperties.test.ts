@@ -46,6 +46,7 @@ function createSavedProperty(
     floorAreaM2: 120,
     status: 'active',
     officialValuation: 475000,
+    commentsDisabled: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-04-01T00:00:00.000Z',
     hasListing: true,

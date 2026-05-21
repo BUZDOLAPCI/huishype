@@ -696,6 +696,7 @@ export interface paths {
                                         native: boolean;
                                     };
                                 } | null;
+                                commentsDisabled: boolean;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -904,6 +905,7 @@ export interface paths {
                                 socialScore: number;
                                 recentSocialScore: number;
                                 commentCount: number;
+                                commentsDisabled: boolean;
                                 isRead: boolean;
                             };
                             coordinate: {
@@ -988,6 +990,7 @@ export interface paths {
                                     socialScore: number;
                                     recentSocialScore: number;
                                     commentCount: number;
+                                    commentsDisabled: boolean;
                                     isRead: boolean;
                                 }[];
                             };
@@ -1076,6 +1079,7 @@ export interface paths {
                                 socialScore: number;
                                 recentSocialScore: number;
                                 commentCount: number;
+                                commentsDisabled: boolean;
                                 isRead: boolean;
                             };
                             coordinate: {
@@ -1160,6 +1164,7 @@ export interface paths {
                                     socialScore: number;
                                     recentSocialScore: number;
                                     commentCount: number;
+                                    commentsDisabled: boolean;
                                     isRead: boolean;
                                 }[];
                             };
@@ -1383,6 +1388,7 @@ export interface paths {
                                     native: boolean;
                                 };
                             } | null;
+                            commentsDisabled: boolean;
                             /** Format: date-time */
                             createdAt: string;
                             /** Format: date-time */
@@ -1635,6 +1641,7 @@ export interface paths {
                                     native: boolean;
                                 };
                             } | null;
+                            commentsDisabled: boolean;
                             /** Format: date-time */
                             createdAt: string;
                             /** Format: date-time */
@@ -1997,6 +2004,7 @@ export interface paths {
                                         native: boolean;
                                     };
                                 } | null;
+                                commentsDisabled: boolean;
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** Format: date-time */
@@ -2363,6 +2371,7 @@ export interface paths {
                                 total: number;
                                 totalPages: number;
                             };
+                            commentsDisabled?: boolean;
                         };
                     };
                 };
@@ -2455,6 +2464,18 @@ export interface paths {
                 };
                 /** @description Default Response */
                 401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6175,7 +6196,7 @@ export interface paths {
                                 details: string | null;
                                 /** @enum {string} */
                                 status: "unresolved" | "resolved";
-                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments") | null;
                                 reviewedBy: string | null;
                                 reviewedAt: string | null;
                                 /** Format: date-time */
@@ -6310,7 +6331,7 @@ export interface paths {
                                 details: string | null;
                                 /** @enum {string} */
                                 status: "unresolved" | "resolved";
-                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments") | null;
                                 reviewedBy: string | null;
                                 reviewedAt: string | null;
                                 /** Format: date-time */
@@ -6436,7 +6457,7 @@ export interface paths {
                                 details: string | null;
                                 /** @enum {string} */
                                 status: "unresolved" | "resolved";
-                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments") | null;
                                 reviewedBy: string | null;
                                 reviewedAt: string | null;
                                 /** Format: date-time */
@@ -6497,7 +6518,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** @enum {string} */
-                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment";
+                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments";
                                 /** @enum {string} */
                                 targetType: "property" | "comment";
                                 /** Format: uuid */
@@ -6591,7 +6612,7 @@ export interface paths {
                                 details: string | null;
                                 /** @enum {string} */
                                 status: "unresolved" | "resolved";
-                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments") | null;
                                 reviewedBy: string | null;
                                 reviewedAt: string | null;
                                 /** Format: date-time */
@@ -6652,7 +6673,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** @enum {string} */
-                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment";
+                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments";
                                 /** @enum {string} */
                                 targetType: "property" | "comment";
                                 /** Format: uuid */
@@ -6744,7 +6765,7 @@ export interface paths {
                                 details: string | null;
                                 /** @enum {string} */
                                 status: "unresolved" | "resolved";
-                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments") | null;
                                 reviewedBy: string | null;
                                 reviewedAt: string | null;
                                 /** Format: date-time */
@@ -6840,7 +6861,7 @@ export interface paths {
                                 details: string | null;
                                 /** @enum {string} */
                                 status: "unresolved" | "resolved";
-                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments") | null;
                                 reviewedBy: string | null;
                                 reviewedAt: string | null;
                                 /** Format: date-time */
@@ -6896,7 +6917,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                                 /** @enum {string} */
-                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment";
+                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments";
                                 /** @enum {string} */
                                 targetType: "property" | "comment";
                                 /** Format: uuid */
@@ -6972,7 +6993,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         /** @enum {string} */
-                        action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment";
+                        action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments";
                         moderationReason?: string;
                     };
                 };
@@ -6998,7 +7019,7 @@ export interface paths {
                                 details: string | null;
                                 /** @enum {string} */
                                 status: "unresolved" | "resolved";
-                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment" | "disable_property_comments" | "enable_property_comments") | null;
                                 reviewedBy: string | null;
                                 reviewedAt: string | null;
                                 /** Format: date-time */
@@ -7051,6 +7072,8 @@ export interface paths {
                             resolvedCount: number;
                             /** Format: uuid */
                             hiddenCommentId?: string;
+                            /** Format: uuid */
+                            disabledPropertyId?: string;
                         };
                     };
                 };
@@ -7104,6 +7127,295 @@ export interface paths {
                 };
             };
         };
+        trace?: never;
+    };
+    "/admin/properties/comments-disabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List properties with comments disabled */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                /** Format: uuid */
+                                id: string;
+                                address: string;
+                                street: string;
+                                city: string;
+                                postalCode: string | null;
+                                houseNumber: number;
+                                houseNumberAddition: string | null;
+                                countryCode: string;
+                                commentsDisabled: boolean;
+                                commentsDisabledAt: string | null;
+                                commentsDisabledReason: string | null;
+                                commentsDisabledBy: string | null;
+                                disabledByAdmin: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                } | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/properties/{id}/comments/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable comments for a property */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        reason?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            property: {
+                                /** Format: uuid */
+                                id: string;
+                                address: string;
+                                street: string;
+                                city: string;
+                                postalCode: string | null;
+                                houseNumber: number;
+                                houseNumberAddition: string | null;
+                                countryCode: string;
+                                commentsDisabled: boolean;
+                                commentsDisabledAt: string | null;
+                                commentsDisabledReason: string | null;
+                                commentsDisabledBy: string | null;
+                                disabledByAdmin: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                } | null;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/properties/{id}/comments/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable comments for a property */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        reason?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            property: {
+                                /** Format: uuid */
+                                id: string;
+                                address: string;
+                                street: string;
+                                city: string;
+                                postalCode: string | null;
+                                houseNumber: number;
+                                houseNumberAddition: string | null;
+                                countryCode: string;
+                                commentsDisabled: boolean;
+                                commentsDisabledAt: string | null;
+                                commentsDisabledReason: string | null;
+                                commentsDisabledBy: string | null;
+                                disabledByAdmin: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                } | null;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }

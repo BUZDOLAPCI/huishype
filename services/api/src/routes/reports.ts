@@ -36,6 +36,8 @@ const adminReportActionSchema = z.enum([
   'dismiss_reports',
   'mark_property_reviewed',
   'hide_comment',
+  'disable_property_comments',
+  'enable_property_comments',
 ]);
 
 const reportResponseSchema = z.object({
@@ -152,7 +154,12 @@ const adminReportDetailResponseSchema = z.object({
 });
 
 const adminPatchReportBodySchema = z.object({
-  action: adminReportActionSchema,
+  action: z.enum([
+    'dismiss_reports',
+    'mark_property_reviewed',
+    'hide_comment',
+    'disable_property_comments',
+  ]),
   moderationReason: z.string().trim().max(140).optional(),
 });
 
@@ -160,6 +167,42 @@ const adminPatchReportResponseSchema = z.object({
   report: reportResponseSchema,
   resolvedCount: z.number(),
   hiddenCommentId: z.string().uuid().optional(),
+  disabledPropertyId: z.string().uuid().optional(),
+});
+
+const adminPropertyCommentsBodySchema = z.object({
+  reason: z.string().trim().max(140).optional(),
+});
+
+const disabledPropertyResponseSchema = z.object({
+  id: z.string().uuid(),
+  address: z.string(),
+  street: z.string(),
+  city: z.string(),
+  postalCode: z.string().nullable(),
+  houseNumber: z.number(),
+  houseNumberAddition: z.string().nullable(),
+  countryCode: z.string(),
+  commentsDisabled: z.boolean(),
+  commentsDisabledAt: z.string().datetime().nullable(),
+  commentsDisabledReason: z.string().nullable(),
+  commentsDisabledBy: z.string().uuid().nullable(),
+  disabledByAdmin: z
+    .object({
+      id: z.string().uuid(),
+      username: z.string(),
+      displayName: z.string().nullable(),
+      email: z.string().nullable(),
+    })
+    .nullable(),
+});
+
+const disabledPropertyListResponseSchema = z.object({
+  data: z.array(disabledPropertyResponseSchema),
+});
+
+const propertyCommentsModerationResponseSchema = z.object({
+  property: disabledPropertyResponseSchema,
 });
 
 const errorResponseSchema = z.object({
@@ -196,6 +239,22 @@ type ReportContext = {
   properties: Map<string, PropertyPreview>;
   comments: Map<string, CommentPreview>;
 };
+type DisabledPropertyRow = {
+  id: string;
+  countryCode: string;
+  street: string;
+  houseNumber: number;
+  houseNumberAddition: string | null;
+  postalCode: string | null;
+  city: string;
+  commentsDisabledAt: Date | null;
+  commentsDisabledBy: string | null;
+  commentsDisabledReason: string | null;
+  adminId: string | null;
+  adminUsername: string | null;
+  adminDisplayName: string | null;
+  adminEmail: string | null;
+};
 
 function formatPropertyPreview(property: {
   id: string;
@@ -221,6 +280,26 @@ function formatPropertyPreview(property: {
     houseNumber: property.houseNumber,
     houseNumberAddition: property.houseNumberAddition,
     countryCode: property.countryCode,
+  };
+}
+
+function formatDisabledProperty(row: DisabledPropertyRow) {
+  const preview = formatPropertyPreview(row);
+
+  return {
+    ...preview,
+    commentsDisabled: row.commentsDisabledAt != null,
+    commentsDisabledAt: row.commentsDisabledAt?.toISOString() ?? null,
+    commentsDisabledReason: row.commentsDisabledReason,
+    commentsDisabledBy: row.commentsDisabledBy,
+    disabledByAdmin: row.adminId
+      ? {
+          id: row.adminId,
+          username: row.adminUsername!,
+          displayName: row.adminDisplayName,
+          email: row.adminEmail,
+        }
+      : null,
   };
 }
 
@@ -402,6 +481,148 @@ async function createReport(
     .returning();
 
   return report;
+}
+
+async function applyPropertyCommentsDisabled(input: {
+  propertyId: string;
+  adminUserId: string;
+  reason?: string | null;
+  reportId?: string | null;
+  resolveReports: boolean;
+}) {
+  const now = new Date();
+
+  return db.transaction(async (tx) => {
+    const [property] = await tx
+      .select({ id: properties.id })
+      .from(properties)
+      .where(eq(properties.id, input.propertyId))
+      .limit(1);
+
+    if (!property) {
+      return { status: 'target_missing' as const, message: 'Property not found.' };
+    }
+
+    await tx
+      .update(properties)
+      .set({
+        commentsDisabledAt: now,
+        commentsDisabledBy: input.adminUserId,
+        commentsDisabledReason: input.reason ?? null,
+        updatedAt: now,
+      })
+      .where(eq(properties.id, input.propertyId));
+
+    let resolvedCount = 0;
+    if (input.resolveReports) {
+      const resolved = await tx
+        .update(contentReports)
+        .set({
+          status: 'resolved',
+          reviewAction: 'disable_property_comments',
+          reviewedBy: input.adminUserId,
+          reviewedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(contentReports.targetType, 'property'),
+            eq(contentReports.targetId, input.propertyId),
+            eq(contentReports.status, 'unresolved'),
+          ),
+        )
+        .returning();
+      resolvedCount = resolved.length;
+    }
+
+    await tx.insert(adminLogs).values({
+      adminUserId: input.adminUserId,
+      action: 'disable_property_comments',
+      reportId: input.reportId ?? null,
+      targetType: 'property',
+      targetId: input.propertyId,
+      metadata: {
+        resolvedCount,
+        moderationReason: input.reason ?? null,
+      },
+    });
+
+    await advancePropertyChangeVersion(input.propertyId, tx);
+    await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
+
+    return { status: 'ok' as const, resolvedCount };
+  });
+}
+
+async function applyPropertyCommentsEnabled(input: {
+  propertyId: string;
+  adminUserId: string;
+  reason?: string | null;
+}) {
+  const now = new Date();
+
+  return db.transaction(async (tx) => {
+    const [property] = await tx
+      .select({ id: properties.id })
+      .from(properties)
+      .where(eq(properties.id, input.propertyId))
+      .limit(1);
+
+    if (!property) {
+      return { status: 'target_missing' as const, message: 'Property not found.' };
+    }
+
+    await tx
+      .update(properties)
+      .set({
+        commentsDisabledAt: null,
+        commentsDisabledBy: null,
+        commentsDisabledReason: null,
+        updatedAt: now,
+      })
+      .where(eq(properties.id, input.propertyId));
+
+    await tx.insert(adminLogs).values({
+      adminUserId: input.adminUserId,
+      action: 'enable_property_comments',
+      targetType: 'property',
+      targetId: input.propertyId,
+      metadata: {
+        moderationReason: input.reason ?? null,
+      },
+    });
+
+    await advancePropertyChangeVersion(input.propertyId, tx);
+    await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
+
+    return { status: 'ok' as const };
+  });
+}
+
+async function fetchDisabledProperty(propertyId: string) {
+  const rows = await db
+    .select({
+      id: properties.id,
+      countryCode: properties.countryCode,
+      street: properties.street,
+      houseNumber: properties.houseNumber,
+      houseNumberAddition: properties.houseNumberAddition,
+      postalCode: properties.postalCode,
+      city: properties.city,
+      commentsDisabledAt: properties.commentsDisabledAt,
+      commentsDisabledBy: properties.commentsDisabledBy,
+      commentsDisabledReason: properties.commentsDisabledReason,
+      adminId: users.id,
+      adminUsername: users.username,
+      adminDisplayName: users.displayName,
+      adminEmail: users.email,
+    })
+    .from(properties)
+    .leftJoin(users, eq(users.id, properties.commentsDisabledBy))
+    .where(eq(properties.id, propertyId))
+    .limit(1);
+
+  return rows[0] ? formatDisabledProperty(rows[0]) : null;
 }
 
 export async function reportRoutes(app: FastifyInstance) {
@@ -629,6 +850,147 @@ export async function reportRoutes(app: FastifyInstance) {
     },
   );
 
+  typedApp.get(
+    '/admin/properties/comments-disabled',
+    {
+      onRequest: [app.requireAdmin],
+      schema: {
+        tags: ['admin', 'properties'],
+        summary: 'List properties with comments disabled',
+        response: {
+          200: disabledPropertyListResponseSchema,
+          401: errorResponseSchema,
+          403: errorResponseSchema,
+        },
+      },
+    },
+    async () => {
+      const rows = await db
+        .select({
+          id: properties.id,
+          countryCode: properties.countryCode,
+          street: properties.street,
+          houseNumber: properties.houseNumber,
+          houseNumberAddition: properties.houseNumberAddition,
+          postalCode: properties.postalCode,
+          city: properties.city,
+          commentsDisabledAt: properties.commentsDisabledAt,
+          commentsDisabledBy: properties.commentsDisabledBy,
+          commentsDisabledReason: properties.commentsDisabledReason,
+          adminId: users.id,
+          adminUsername: users.username,
+          adminDisplayName: users.displayName,
+          adminEmail: users.email,
+        })
+        .from(properties)
+        .leftJoin(users, eq(users.id, properties.commentsDisabledBy))
+        .where(sql`${properties.commentsDisabledAt} IS NOT NULL`)
+        .orderBy(desc(properties.commentsDisabledAt))
+        .limit(100);
+
+      return { data: rows.map(formatDisabledProperty) };
+    },
+  );
+
+  typedApp.post(
+    '/admin/properties/:id/comments/disable',
+    {
+      onRequest: [app.requireAdmin],
+      schema: {
+        tags: ['admin', 'properties'],
+        summary: 'Disable comments for a property',
+        params: uuidParamSchema,
+        body: adminPropertyCommentsBodySchema,
+        response: {
+          200: propertyCommentsModerationResponseSchema,
+          401: errorResponseSchema,
+          403: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const outcome = await applyPropertyCommentsDisabled({
+        propertyId: id,
+        adminUserId: request.userId!,
+        reason: request.body.reason ?? null,
+        resolveReports: false,
+      });
+
+      if (outcome.status === 'target_missing') {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: outcome.message,
+        });
+      }
+
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'property-comments-disable', policy: 'social', watermarkScopes: ['social_inputs'] },
+        request.log,
+        { propertyId: id },
+      );
+
+      const property = await fetchDisabledProperty(id);
+      if (!property) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'Property not found.',
+        });
+      }
+      return reply.send({ property });
+    },
+  );
+
+  typedApp.post(
+    '/admin/properties/:id/comments/enable',
+    {
+      onRequest: [app.requireAdmin],
+      schema: {
+        tags: ['admin', 'properties'],
+        summary: 'Enable comments for a property',
+        params: uuidParamSchema,
+        body: adminPropertyCommentsBodySchema,
+        response: {
+          200: propertyCommentsModerationResponseSchema,
+          401: errorResponseSchema,
+          403: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const outcome = await applyPropertyCommentsEnabled({
+        propertyId: id,
+        adminUserId: request.userId!,
+        reason: request.body.reason ?? null,
+      });
+
+      if (outcome.status === 'target_missing') {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: outcome.message,
+        });
+      }
+
+      await safeRequestPropertyTilePyramidBuildAfterMutation(
+        { reason: 'property-comments-enable', policy: 'social', watermarkScopes: ['social_inputs'] },
+        request.log,
+        { propertyId: id },
+      );
+
+      const property = await fetchDisabledProperty(id);
+      if (!property) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: 'Property not found.',
+        });
+      }
+      return reply.send({ property });
+    },
+  );
+
   typedApp.patch(
     '/admin/reports/:id',
     {
@@ -671,8 +1033,13 @@ export async function reportRoutes(app: FastifyInstance) {
           return { status: 'wrong_target' as const, message: 'Action requires a comment report.' };
         }
 
+        if (action === 'disable_property_comments' && report.targetType !== 'property') {
+          return { status: 'wrong_target' as const, message: 'Action requires a property report.' };
+        }
+
         let hiddenCommentId: string | undefined;
-        let hiddenPropertyId: string | undefined;
+        let mutatedPropertyId: string | undefined;
+        let disabledPropertyId: string | undefined;
 
         if (action === 'hide_comment') {
           const [comment] = await tx
@@ -698,7 +1065,34 @@ export async function reportRoutes(app: FastifyInstance) {
           await advancePropertyChangeVersion(comment.propertyId, tx);
           await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
           hiddenCommentId = comment.id;
-          hiddenPropertyId = comment.propertyId;
+          mutatedPropertyId = comment.propertyId;
+        }
+
+        if (action === 'disable_property_comments') {
+          const [property] = await tx
+            .select({ id: properties.id })
+            .from(properties)
+            .where(eq(properties.id, report.targetId))
+            .limit(1);
+
+          if (!property) {
+            return { status: 'target_missing' as const, message: 'Property not found.' };
+          }
+
+          await tx
+            .update(properties)
+            .set({
+              commentsDisabledAt: new Date(),
+              commentsDisabledBy: adminUserId,
+              commentsDisabledReason: moderationReason ?? null,
+              updatedAt: new Date(),
+            })
+            .where(eq(properties.id, property.id));
+
+          await advancePropertyChangeVersion(property.id, tx);
+          await advancePropertyTilePyramidSourceWatermark(['social_inputs'], tx);
+          disabledPropertyId = property.id;
+          mutatedPropertyId = property.id;
         }
 
         const resolved = await tx
@@ -735,6 +1129,7 @@ export async function reportRoutes(app: FastifyInstance) {
             resolvedCount: resolved.length,
             moderationReason: moderationReason ?? null,
             hiddenCommentId: hiddenCommentId ?? null,
+            disabledPropertyId: disabledPropertyId ?? null,
           },
         });
 
@@ -743,7 +1138,8 @@ export async function reportRoutes(app: FastifyInstance) {
           report: updatedReport ?? report,
           resolvedCount: resolved.length,
           hiddenCommentId,
-          hiddenPropertyId,
+          disabledPropertyId,
+          mutatedPropertyId,
         };
       });
 
@@ -761,11 +1157,15 @@ export async function reportRoutes(app: FastifyInstance) {
         });
       }
 
-      if (outcome.hiddenPropertyId) {
+      if (outcome.mutatedPropertyId) {
         await safeRequestPropertyTilePyramidBuildAfterMutation(
-          { reason: 'comment-hide', policy: 'social', watermarkScopes: ['social_inputs'] },
+          {
+            reason: outcome.hiddenCommentId ? 'comment-hide' : 'property-comments-disable',
+            policy: 'social',
+            watermarkScopes: ['social_inputs'],
+          },
           request.log,
-          { propertyId: outcome.hiddenPropertyId, commentId: outcome.hiddenCommentId },
+          { propertyId: outcome.mutatedPropertyId, commentId: outcome.hiddenCommentId },
         );
       }
 
@@ -775,6 +1175,7 @@ export async function reportRoutes(app: FastifyInstance) {
         report: formatReport(outcome.report, context),
         resolvedCount: outcome.resolvedCount,
         ...(outcome.hiddenCommentId ? { hiddenCommentId: outcome.hiddenCommentId } : {}),
+        ...(outcome.disabledPropertyId ? { disabledPropertyId: outcome.disabledPropertyId } : {}),
       });
     },
   );

@@ -46,6 +46,7 @@ export interface Property {
   officialValuation: number | null;
   officialValuationYear?: number | null;
   officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
+  commentsDisabled?: boolean;
   officialValuationPreview?: {
     source: 'client_fetched';
     fetchedAt: number;
@@ -182,8 +183,13 @@ export function resolvePropertyCommentCount(
     commentCount?: number | null;
     topLevelCommentCount?: number | null;
     replyCount?: number | null;
+    commentsDisabled?: boolean | null;
   },
 ): number {
+  if (property.commentsDisabled) {
+    return 0;
+  }
+
   if (
     typeof property.topLevelCommentCount === 'number' ||
     typeof property.replyCount === 'number'

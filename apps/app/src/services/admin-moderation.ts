@@ -22,6 +22,14 @@ export interface AdminPropertyTarget {
   countryCode?: string | null;
 }
 
+export interface AdminDisabledProperty extends AdminPropertyTarget {
+  commentsDisabled: boolean;
+  commentsDisabledAt?: string | null;
+  commentsDisabledReason?: string | null;
+  commentsDisabledBy?: string | null;
+  disabledByAdmin?: AdminReporter | null;
+}
+
 export interface AdminCommentTarget {
   id: string;
   text?: string | null;
@@ -83,6 +91,7 @@ export interface AdminReportPatchInput {
     | 'dismiss_reports'
     | 'mark_property_reviewed'
     | 'hide_comment'
+    | 'disable_property_comments'
     | 'mark_reviewed';
   status?: 'dismissed' | 'reviewed' | 'hidden' | 'resolved';
   targetId?: string;
@@ -93,6 +102,9 @@ export interface AdminReportPatchInput {
 export interface AdminReportPatchResponse {
   report?: AdminReport;
   updatedCount?: number;
+  resolvedCount?: number;
+  hiddenCommentId?: string;
+  disabledPropertyId?: string;
   log?: AdminLogEntry;
   success?: boolean;
 }
@@ -172,6 +184,25 @@ function normalizeProperty(value: unknown): AdminPropertyTarget | null {
       stringValue(value.houseNumber) ?? numberValue(value.houseNumber) ?? null,
     houseNumberAddition: stringValue(value.houseNumberAddition) ?? null,
     countryCode: stringValue(value.countryCode) ?? stringValue(value.country_code) ?? null,
+  };
+}
+
+function normalizeDisabledProperty(value: unknown): AdminDisabledProperty | null {
+  const property = normalizeProperty(value);
+  if (!property || !isRecord(value)) {
+    return null;
+  }
+
+  return {
+    ...property,
+    commentsDisabled: value.commentsDisabled === true,
+    commentsDisabledAt: stringValue(value.commentsDisabledAt) ?? null,
+    commentsDisabledReason: stringValue(value.commentsDisabledReason) ?? null,
+    commentsDisabledBy: stringValue(value.commentsDisabledBy) ?? null,
+    disabledByAdmin:
+      normalizeReporter(value.disabledByAdmin) ??
+      normalizeReporter(value.admin) ??
+      null,
   };
 }
 
@@ -524,4 +555,53 @@ export async function patchAdminReport(
       body: JSON.stringify(input),
     },
   );
+}
+
+export async function fetchAdminDisabledProperties(
+  accessToken: string,
+): Promise<AdminDisabledProperty[]> {
+  const payload = await adminFetch<unknown>('/admin/properties/comments-disabled', accessToken);
+  return extractArray(payload, ['data', 'items', 'properties'])
+    .map(normalizeDisabledProperty)
+    .filter((property): property is AdminDisabledProperty => property !== null);
+}
+
+export async function disableAdminPropertyComments(
+  accessToken: string,
+  propertyId: string,
+  reason?: string,
+): Promise<AdminDisabledProperty> {
+  const payload = await adminFetch<unknown>(
+    `/admin/properties/${encodeURIComponent(propertyId)}/comments/disable`,
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason?.trim() || undefined }),
+    },
+  );
+  const property = normalizeDisabledProperty(isRecord(payload) ? payload.property : payload);
+  if (!property) {
+    throw new Error('Invalid disabled property response');
+  }
+  return property;
+}
+
+export async function enableAdminPropertyComments(
+  accessToken: string,
+  propertyId: string,
+  reason?: string,
+): Promise<AdminDisabledProperty> {
+  const payload = await adminFetch<unknown>(
+    `/admin/properties/${encodeURIComponent(propertyId)}/comments/enable`,
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason?.trim() || undefined }),
+    },
+  );
+  const property = normalizeDisabledProperty(isRecord(payload) ? payload.property : payload);
+  if (!property) {
+    throw new Error('Invalid disabled property response');
+  }
+  return property;
 }

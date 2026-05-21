@@ -8,6 +8,8 @@ import FlaggedPropertiesRoute from '@/app/admin/properties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
   useAdminCommentReports,
+  useAdminDisabledProperties,
+  useAdminPropertyCommentsAction,
   useAdminPropertyReports,
   useAdminReportAction,
 } from '@/src/hooks/admin/useAdminModeration';
@@ -18,6 +20,8 @@ jest.mock('@/src/providers/AuthProvider', () => ({
 
 jest.mock('@/src/hooks/admin/useAdminModeration', () => ({
   useAdminCommentReports: jest.fn(),
+  useAdminDisabledProperties: jest.fn(),
+  useAdminPropertyCommentsAction: jest.fn(),
   useAdminPropertyReports: jest.fn(),
   useAdminReportAction: jest.fn(),
 }));
@@ -27,8 +31,12 @@ const mockUseAdminCommentReports =
   useAdminCommentReports as jest.MockedFunction<typeof useAdminCommentReports>;
 const mockUseAdminPropertyReports =
   useAdminPropertyReports as jest.MockedFunction<typeof useAdminPropertyReports>;
+const mockUseAdminDisabledProperties =
+  useAdminDisabledProperties as jest.MockedFunction<typeof useAdminDisabledProperties>;
 const mockUseAdminReportAction =
   useAdminReportAction as jest.MockedFunction<typeof useAdminReportAction>;
+const mockUseAdminPropertyCommentsAction =
+  useAdminPropertyCommentsAction as jest.MockedFunction<typeof useAdminPropertyCommentsAction>;
 const mockRouterPush = router.push as jest.MockedFunction<typeof router.push>;
 const mockWindowOpen = jest.fn();
 const originalPlatform = Platform.OS;
@@ -98,6 +106,17 @@ describe('admin routes', () => {
       mutate: jest.fn(),
       isPending: false,
     } as unknown as ReturnType<typeof useAdminReportAction>);
+    mockUseAdminDisabledProperties.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    } as unknown as ReturnType<typeof useAdminDisabledProperties>);
+    mockUseAdminPropertyCommentsAction.mockReturnValue({
+      mutate: jest.fn(),
+      isPending: false,
+    } as unknown as ReturnType<typeof useAdminPropertyCommentsAction>);
   });
 
   afterAll(() => {
@@ -207,6 +226,18 @@ describe('admin routes', () => {
       input: {
         action: 'mark_property_reviewed',
         status: 'reviewed',
+        targetId: 'p1',
+        targetType: 'property',
+      },
+    });
+
+    fireEvent.press(screen.getByTestId('disable-comments-property-property-p1'));
+
+    expect(mutate).toHaveBeenCalledWith({
+      reportId: 'report-1',
+      input: {
+        action: 'disable_property_comments',
+        status: 'resolved',
         targetId: 'p1',
         targetType: 'property',
       },

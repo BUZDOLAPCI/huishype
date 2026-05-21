@@ -198,6 +198,7 @@ export type PropertyResolveResult = PropertyResolveResponse & {
   hasActiveListing?: boolean;
   marketState?: MapMarketState | null;
   officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
+  commentsDisabled?: boolean | null;
 };
 
 export interface OfficialValuationSourceFetch {
@@ -527,6 +528,7 @@ export interface PhysicalTapPreviewProperty {
   commentCount?: number | null;
   topLevelCommentCount?: number | null;
   replyCount?: number | null;
+  commentsDisabled?: boolean | null;
   guessCount?: number | null;
   isRead?: boolean | null;
 }
@@ -1325,10 +1327,12 @@ function normalizePhysicalTapSingleResponse(
   const socialScoreTotal = toNumber(property.socialScore ?? property.activityScore);
   const recentSocialScoreTotal = toNumber(property.recentSocialScore);
   const socialScoreMax = toNumber(property.activityScore, socialScoreTotal);
-  const commentCount = toNumber(
-    property.commentCount ??
-      ((property.topLevelCommentCount ?? 0) + (property.replyCount ?? 0)),
-  );
+  const commentCount = property.commentsDisabled
+    ? 0
+    : toNumber(
+        property.commentCount ??
+          ((property.topLevelCommentCount ?? 0) + (property.replyCount ?? 0)),
+      );
 
   return {
     nodeClass: 'active',
@@ -1786,6 +1790,7 @@ export interface BatchProperty {
   officialValuation: number | null;
   officialValuationYear?: number | null;
   officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
+  commentsDisabled?: boolean | null;
   hasListing: boolean;
   hasActiveListing?: boolean;
   marketState?: MapMarketState;

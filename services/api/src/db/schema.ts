@@ -168,11 +168,15 @@ export const contentReportReviewActionEnum = pgEnum('content_report_review_actio
   'dismiss_reports',
   'mark_property_reviewed',
   'hide_comment',
+  'disable_property_comments',
+  'enable_property_comments',
 ]);
 export const adminLogActionEnum = pgEnum('admin_log_action', [
   'dismiss_reports',
   'mark_property_reviewed',
   'hide_comment',
+  'disable_property_comments',
+  'enable_property_comments',
 ]);
 // listing_source changed from enum to varchar(50) for multi-country extensibility
 export const propertyStatusEnum = pgEnum('property_status', ['active', 'inactive', 'demolished']);
@@ -408,6 +412,11 @@ export const properties = pgTable(
     officialValuation: bigint('official_valuation', { mode: 'number' }), // Fast cache of current official valuation
     officialValuationYear: integer('official_valuation_year'),
     officialValuationVerified: boolean('official_valuation_verified').notNull().default(false),
+    commentsDisabledAt: timestamp('comments_disabled_at', { withTimezone: true }),
+    commentsDisabledBy: uuid('comments_disabled_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    commentsDisabledReason: varchar('comments_disabled_reason', { length: 140 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -428,6 +437,10 @@ export const properties = pgTable(
     index('properties_active_geometry_gist_idx')
       .using('gist', table.geometry)
       .where(sql`status = 'active' AND geometry IS NOT NULL`),
+    index('properties_comments_disabled_idx')
+      .on(table.commentsDisabledAt)
+      .where(sql`comments_disabled_at IS NOT NULL`),
+    index('properties_comments_disabled_by_idx').on(table.commentsDisabledBy),
   ]
 );
 

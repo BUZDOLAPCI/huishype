@@ -295,6 +295,20 @@
       "when": 1778198400015,
       "tag": "0041_user_handle_cooldown",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1778198400016,
+      "tag": "0042_property_comments_disabled",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1778198400017,
+      "tag": "0043_property_comments_disabled_by_index",
+      "breakpoints": true
     }
   ]
 }

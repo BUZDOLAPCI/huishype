@@ -1,5 +1,8 @@
 import {
   AdminForbiddenError,
+  disableAdminPropertyComments,
+  enableAdminPropertyComments,
+  fetchAdminDisabledProperties,
   fetchAdminPropertyReports,
   patchAdminReport,
 } from '@/src/services/admin-moderation';
@@ -92,6 +95,85 @@ describe('admin moderation service', () => {
           targetId: 'property-1',
           targetType: 'property',
         }),
+      }),
+    );
+  });
+
+  it('lists disabled properties', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: jest.fn().mockResolvedValue({
+        data: [
+          {
+            id: 'p1',
+            address: 'Beeldbuisring 41',
+            city: 'Eindhoven',
+            postalCode: '5651 HA',
+            commentsDisabled: true,
+            commentsDisabledAt: '2026-05-20T10:00:00.000Z',
+          },
+        ],
+      }),
+    });
+
+    const result = await fetchAdminDisabledProperties('token-1');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/properties/comments-disabled'),
+      expect.any(Object),
+    );
+    expect(result[0]).toMatchObject({
+      id: 'p1',
+      commentsDisabled: true,
+      commentsDisabledAt: '2026-05-20T10:00:00.000Z',
+    });
+  });
+
+  it('disables and enables property comments with optional reasons', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: jest.fn().mockResolvedValue({
+          property: {
+            id: 'p1',
+            address: 'Beeldbuisring 41',
+            city: 'Eindhoven',
+            commentsDisabled: true,
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: jest.fn().mockResolvedValue({
+          property: {
+            id: 'p1',
+            address: 'Beeldbuisring 41',
+            city: 'Eindhoven',
+            commentsDisabled: false,
+          },
+        }),
+      });
+
+    await disableAdminPropertyComments('token-1', 'p1', 'Privacy');
+    await enableAdminPropertyComments('token-1', 'p1');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('/admin/properties/p1/comments/disable'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Privacy' }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('/admin/properties/p1/comments/enable'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({}),
       }),
     );
   });

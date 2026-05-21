@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import type { FastifyInstance } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { buildApp } from '../../app.js';
-import { adminLogs, comments, users } from '../../db/schema.js';
+import { adminLogs, comments, properties, users } from '../../db/schema.js';
 import { db } from '../../db/index.js';
 import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 
@@ -65,6 +65,10 @@ describe('Report and admin moderation routes', () => {
         createdCommentIds.length > 0
           ? sql`OR target_id IN (${sql.join(createdCommentIds.map((id) => sql`${id}`), sql`, `)})`
           : sql``;
+      const createdCommentPredicate =
+        createdCommentIds.length > 0
+          ? sql`OR id IN (${sql.join(createdCommentIds.map((id) => sql`${id}`), sql`, `)})`
+          : sql``;
 
       await db.execute(sql`
         DELETE FROM admin_logs
@@ -76,15 +80,26 @@ describe('Report and admin moderation routes', () => {
         WHERE target_id = ${propertyId}
           ${commentTargetPredicate}
       `);
-    }
-    for (const commentId of createdCommentIds) {
-      await db.delete(comments).where(eq(comments.id, commentId));
-    }
-    for (const uid of createdUserIds) {
-      await db.delete(users).where(eq(users.id, uid));
-    }
-    if (propertyId) {
+      await db.execute(sql`
+        DELETE FROM reactions
+        WHERE target_type = 'comment'
+          AND target_id IN (
+            SELECT id FROM comments WHERE property_id = ${propertyId}
+            ${createdCommentPredicate}
+          )
+      `);
+      await db.execute(sql`
+        DELETE FROM comments
+        WHERE property_id = ${propertyId}
+          ${createdCommentPredicate}
+      `);
       await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+    }
+    if (createdUserIds.length > 0) {
+      await db.execute(sql`
+        DELETE FROM users
+        WHERE id IN (${sql.join(createdUserIds.map((id) => sql`${id}`), sql`, `)})
+      `);
     }
     await app.close();
   });
@@ -254,6 +269,108 @@ describe('Report and admin moderation routes', () => {
     expect(patchResponse.statusCode).toBe(200);
     const patchBody = JSON.parse(patchResponse.body);
     expect(patchBody.report.reviewAction).toBe('mark_property_reviewed');
+  });
+
+  it('disables property comments from a property report and resolves sibling reports', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: `/properties/${propertyId}/report`,
+      payload: { reason: 'privacy_safety' },
+    });
+    const firstBody = JSON.parse(first.body);
+
+    await app.inject({
+      method: 'POST',
+      url: `/properties/${propertyId}/report`,
+      payload: { reason: 'spam_scam' },
+    });
+
+    const patchResponse = await app.inject({
+      method: 'PATCH',
+      url: `/admin/reports/${firstBody.report.id}`,
+      headers: { authorization: `Bearer ${adminAccessToken}` },
+      payload: {
+        action: 'disable_property_comments',
+        moderationReason: 'Privacy moderation',
+      },
+    });
+
+    expect(patchResponse.statusCode).toBe(200);
+    const patchBody = JSON.parse(patchResponse.body);
+    expect(patchBody.disabledPropertyId).toBe(propertyId);
+    expect(patchBody.report.reviewAction).toBe('disable_property_comments');
+    expect(patchBody.resolvedCount).toBeGreaterThanOrEqual(2);
+
+    const [property] = await db
+      .select({
+        commentsDisabledAt: properties.commentsDisabledAt,
+        commentsDisabledBy: properties.commentsDisabledBy,
+        commentsDisabledReason: properties.commentsDisabledReason,
+      })
+      .from(properties)
+      .where(eq(properties.id, propertyId));
+    expect(property.commentsDisabledAt).toBeInstanceOf(Date);
+    expect(property.commentsDisabledBy).toBe(adminUserId);
+    expect(property.commentsDisabledReason).toBe('Privacy moderation');
+
+    await app.inject({
+      method: 'POST',
+      url: `/admin/properties/${propertyId}/comments/enable`,
+      headers: { authorization: `Bearer ${adminAccessToken}` },
+      payload: { reason: 'Test cleanup' },
+    });
+  });
+
+  it('lists disabled properties and re-enables comments directly', async () => {
+    const seedDisableResponse = await app.inject({
+      method: 'POST',
+      url: `/admin/properties/${propertyId}/comments/disable`,
+      headers: { authorization: `Bearer ${adminAccessToken}` },
+      payload: { reason: 'List fixture' },
+    });
+    expect(seedDisableResponse.statusCode).toBe(200);
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/admin/properties/comments-disabled',
+      headers: { authorization: `Bearer ${adminAccessToken}` },
+    });
+    expect(listResponse.statusCode).toBe(200);
+    const listBody = JSON.parse(listResponse.body);
+    expect(
+      listBody.data.some((property: { id: string; commentsDisabled: boolean }) =>
+        property.id === propertyId && property.commentsDisabled
+      ),
+    ).toBe(true);
+
+    const enableResponse = await app.inject({
+      method: 'POST',
+      url: `/admin/properties/${propertyId}/comments/enable`,
+      headers: { authorization: `Bearer ${adminAccessToken}` },
+      payload: { reason: 'Undo moderation' },
+    });
+    expect(enableResponse.statusCode).toBe(200);
+    const enableBody = JSON.parse(enableResponse.body);
+    expect(enableBody.property.commentsDisabled).toBe(false);
+    expect(enableBody.property.commentsDisabledAt).toBeNull();
+
+    const disableResponse = await app.inject({
+      method: 'POST',
+      url: `/admin/properties/${propertyId}/comments/disable`,
+      headers: { authorization: `Bearer ${adminAccessToken}` },
+      payload: { reason: 'Direct moderation' },
+    });
+    expect(disableResponse.statusCode).toBe(200);
+    const disableBody = JSON.parse(disableResponse.body);
+    expect(disableBody.property.commentsDisabled).toBe(true);
+    expect(disableBody.property.commentsDisabledReason).toBe('Direct moderation');
+
+    await app.inject({
+      method: 'POST',
+      url: `/admin/properties/${propertyId}/comments/enable`,
+      headers: { authorization: `Bearer ${adminAccessToken}` },
+      payload: { reason: 'Test cleanup' },
+    });
   });
 
   it('hides reported comments from public comment queries and logs the action', async () => {

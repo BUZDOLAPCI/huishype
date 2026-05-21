@@ -7,8 +7,11 @@ import {
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
   fetchAdminCommentReports,
+  fetchAdminDisabledProperties,
   fetchAdminPropertyReports,
   fetchAdminReportDetail,
+  disableAdminPropertyComments,
+  enableAdminPropertyComments,
   patchAdminReport,
   type AdminLogEntry,
   type AdminReportPatchInput,
@@ -25,6 +28,8 @@ export const adminModerationKeys = {
     [...adminModerationKeys.all, 'detail', viewerKey, reportId] as const,
   logs: (viewerKey: string) =>
     [...adminModerationKeys.all, 'logs', viewerKey] as const,
+  disabledProperties: (viewerKey: string) =>
+    [...adminModerationKeys.all, 'disabled-properties', viewerKey] as const,
 };
 
 export function useAdminPropertyReports(enabled: boolean) {
@@ -124,6 +129,25 @@ export function useAdminActivityLogs(enabled: boolean) {
   };
 }
 
+export function useAdminDisabledProperties(enabled: boolean) {
+  const { getAccessToken, user } = useAuthContext();
+  const viewerKey = user?.id ?? 'anon';
+
+  return useQuery({
+    queryKey: adminModerationKeys.disabledProperties(viewerKey),
+    queryFn: async () => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return fetchAdminDisabledProperties(accessToken);
+    },
+    enabled,
+    staleTime: 20 * 1000,
+  });
+}
+
 export function useAdminReportAction() {
   const queryClient = useQueryClient();
   const { getAccessToken } = useAuthContext();
@@ -142,6 +166,35 @@ export function useAdminReportAction() {
       }
 
       return patchAdminReport(accessToken, reportId, input);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminModerationKeys.all });
+    },
+  });
+}
+
+export function useAdminPropertyCommentsAction() {
+  const queryClient = useQueryClient();
+  const { getAccessToken } = useAuthContext();
+
+  return useMutation({
+    mutationFn: async ({
+      propertyId,
+      action,
+      reason,
+    }: {
+      propertyId: string;
+      action: 'disable' | 'enable';
+      reason?: string;
+    }) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Not authenticated');
+      }
+
+      return action === 'disable'
+        ? disableAdminPropertyComments(accessToken, propertyId, reason)
+        : enableAdminPropertyComments(accessToken, propertyId, reason);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminModerationKeys.all });

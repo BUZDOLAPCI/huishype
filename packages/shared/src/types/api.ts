@@ -270,6 +270,7 @@ export interface PropertyContractBase {
   officialValuation: number | null;
   officialValuationYear: number | null;
   officialValuationSourceFetch: OfficialValuationSourceFetch | null;
+  commentsDisabled: boolean;
   createdAt: string;
   updatedAt: string;
   hasListing: boolean;
@@ -555,6 +556,7 @@ export interface SavedProperty {
   officialValuation: number | null;
   officialValuationYear: number | null;
   officialValuationSourceFetch: OfficialValuationSourceFetch | null;
+  commentsDisabled: boolean;
   createdAt: string;
   updatedAt: string;
   hasListing: boolean;

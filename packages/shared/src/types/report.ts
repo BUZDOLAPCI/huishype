@@ -30,7 +30,9 @@ export type ContentReportStatus = 'unresolved' | 'resolved';
 export type ContentReportReviewAction =
   | 'dismiss_reports'
   | 'mark_property_reviewed'
-  | 'hide_comment';
+  | 'hide_comment'
+  | 'disable_property_comments'
+  | 'enable_property_comments';
 
 export interface CreatePropertyReportRequest {
   reason: PropertyReportCategory;

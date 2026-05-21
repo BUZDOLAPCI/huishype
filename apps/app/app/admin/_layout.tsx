@@ -6,6 +6,7 @@ export default function AdminLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="properties" />
+      <Stack.Screen name="comments-disabled" />
       <Stack.Screen name="comments" />
       <Stack.Screen name="activity" />
       <Stack.Screen name="reports/[id]" />

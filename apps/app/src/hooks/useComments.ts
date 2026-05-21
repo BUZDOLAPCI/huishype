@@ -43,6 +43,7 @@ interface CommentListResponse {
     total: number;
     totalPages: number;
   };
+  commentsDisabled?: boolean;
 }
 
 export type CommentSortBy = 'recent' | 'popular';
