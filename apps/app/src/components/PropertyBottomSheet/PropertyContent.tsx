@@ -43,6 +43,7 @@ import { PropertyDetails } from './PropertyDetails';
 import { ListingLinks } from './ListingLinks';
 import { ListingSubmissionSheet } from './ListingSubmissionSheet';
 import { LoadingSkeleton } from './LoadingSkeleton';
+import { ReportModal } from '../ReportModal';
 
 export interface PropertyContentProps {
   property: PropertyContentData | null;
@@ -127,6 +128,7 @@ function PropertyContentSections({
 }: PropertyContentSectionsProps) {
   const queryClient = useQueryClient();
   const [showSubmission, setShowSubmission] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [sectionStackOffsetY, setSectionStackOffsetY] = useState(0);
   const guessSectionLocalY = useRef<number | null>(null);
   const commentsSectionLocalY = useRef<number | null>(null);
@@ -219,13 +221,9 @@ function PropertyContentSections({
             />
           </View>
 
-          <Pressable
-            onPress={onHalfExpandedBodyPress}
-            pointerEvents="box-only"
-            testID="property-content-passive-details"
-          >
-            <PropertyDetails property={property} />
-          </Pressable>
+          <View testID="property-content-passive-details">
+            <PropertyDetails property={property} onReport={() => setShowReport(true)} />
+          </View>
         </View>
       </View>
 
@@ -250,6 +248,14 @@ function PropertyContentSections({
         }}
         onAuthRequired={onAuthRequired}
       />
+      {showReport ? (
+        <ReportModal
+          visible
+          target={{ type: 'property', id: property.id }}
+          targetLabel="Tell us what is wrong with this property."
+          onClose={() => setShowReport(false)}
+        />
+      ) : null}
     </>
   );
 }

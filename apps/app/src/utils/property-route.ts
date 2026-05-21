@@ -15,6 +15,7 @@ const STATIC_ROUTE_PREFIXES = new Set([
   'profile',
   'notifications',
   'leaderboard',
+  'admin',
   'auth',
   'user',
   'showcase',

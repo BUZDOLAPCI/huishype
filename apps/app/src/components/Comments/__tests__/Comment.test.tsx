@@ -215,6 +215,38 @@ describe('Comment', () => {
     expect(mockOnReply).toHaveBeenCalledWith('comment-1', 'testuser');
   });
 
+  it('shows the report action only after long-pressing a comment', () => {
+    const onReport = jest.fn();
+    const { getByTestId, queryByTestId } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+        onReport={onReport}
+      />
+    );
+
+    expect(queryByTestId('comment-report-menu-item')).toBeNull();
+
+    fireEvent(getByTestId('comment-long-press-target'), 'longPress');
+
+    fireEvent.press(getByTestId('comment-report-menu-item'));
+    expect(onReport).toHaveBeenCalledWith('comment-1');
+  });
+
+  it('does not expose a visible report button without long press', () => {
+    const { queryByText } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+        onReport={jest.fn()}
+      />
+    );
+
+    expect(queryByText('Report')).toBeNull();
+  });
+
   it('navigates to the author profile when the avatar is pressed', () => {
     const { getByTestId } = render(
       <Comment

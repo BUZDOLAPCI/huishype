@@ -7,6 +7,7 @@ import { useComments, useSubmitComment, useLikeComment, type CommentSortBy } fro
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 import { SectionCard } from './SectionCard';
+import { ReportModal } from '../ReportModal';
 
 interface CommentsSectionProps extends SectionProps {
   onViewAll?: () => void;
@@ -31,6 +32,7 @@ export function CommentsSection({
     content: string;
     parentId?: string;
   } | null>(null);
+  const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
   const { isAuthenticated } = useAuthContext();
 
@@ -226,6 +228,7 @@ export function CommentsSection({
                 comment={comment}
                 onLike={handleLike}
                 onReply={handleReply}
+                onReport={setReportCommentId}
                 isLiked={comment.isLiked}
               />
             </View>
@@ -265,6 +268,14 @@ export function CommentsSection({
           }
         />
       </View>
+      {reportCommentId ? (
+        <ReportModal
+          visible
+          target={{ type: 'comment', id: reportCommentId }}
+          targetLabel="Tell us what is wrong with this comment."
+          onClose={() => setReportCommentId(null)}
+        />
+      ) : null}
     </SectionCard>
   );
 }

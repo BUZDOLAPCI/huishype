@@ -33,6 +33,8 @@ export interface User {
   karmaRank: KarmaRank;
   /** When the user joined */
   createdAt: string;
+  /** Whether the user can access moderation/admin surfaces. */
+  isAdmin?: boolean;
 }
 
 /**

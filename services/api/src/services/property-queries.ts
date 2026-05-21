@@ -242,6 +242,7 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
         FROM comments c
         WHERE c.property_id = ${idColumn}
           AND c.parent_id IS NULL
+          AND c.hidden_at IS NULL
       ),
       replies AS (
         SELECT
@@ -253,6 +254,7 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
         FROM comments c
         WHERE c.property_id = ${idColumn}
           AND c.parent_id IS NOT NULL
+          AND c.hidden_at IS NULL
       ),
       property_likes AS (
         SELECT
@@ -278,6 +280,7 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
         WHERE r.target_type = 'comment'
           AND r.reaction_type = 'like'
           AND c.property_id = ${idColumn}
+          AND c.hidden_at IS NULL
       ),
       guesses AS (
         SELECT
@@ -365,6 +368,7 @@ export function buildPropertyFollowingSocialFactsJoin(
         FROM comments c
         WHERE c.property_id = ${idColumn}
           AND c.parent_id IS NULL
+          AND c.hidden_at IS NULL
           AND EXISTS (
             SELECT 1
             FROM user_follows uf
@@ -382,6 +386,7 @@ export function buildPropertyFollowingSocialFactsJoin(
         FROM comments c
         WHERE c.property_id = ${idColumn}
           AND c.parent_id IS NOT NULL
+          AND c.hidden_at IS NULL
           AND EXISTS (
             SELECT 1
             FROM user_follows uf

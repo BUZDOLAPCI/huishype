@@ -18,6 +18,7 @@ import { leaderboardHandlers } from './leaderboard.js';
 import { activityHandlers } from './activity.js';
 import { achievementHandlers } from './achievements.js';
 import { emailAuthHandlers } from './email-auth.js';
+import { reportHandlers } from './reports.js';
 
 /**
  * All API mock handlers combined.
@@ -34,6 +35,7 @@ export const handlers = [
   ...listingHandlers,
   ...propertyHandlers,
   ...guessHandlers,
+  ...reportHandlers,
   ...commentHandlers,
   ...geocodeHandlers,
   ...notificationHandlers,
@@ -56,6 +58,7 @@ export { leaderboardHandlers } from './leaderboard.js';
 export { activityHandlers } from './activity.js';
 export { achievementHandlers } from './achievements.js';
 export { emailAuthHandlers } from './email-auth.js';
+export { reportHandlers, resetMockReports } from './reports.js';
 
 // Export auth helpers
 export { validateMockToken, getMockAuthUser, resetMockSessions } from './auth.js';

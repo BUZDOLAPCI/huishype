@@ -160,6 +160,20 @@ export const osmBuildings = pgTable(
 // Enums
 export const reactionTypeEnum = pgEnum('reaction_type', ['like', 'love', 'wow', 'angry']);
 export const targetTypeEnum = pgEnum('target_type', ['property', 'comment']);
+export const contentReportStatusEnum = pgEnum('content_report_status', [
+  'unresolved',
+  'resolved',
+]);
+export const contentReportReviewActionEnum = pgEnum('content_report_review_action', [
+  'dismiss_reports',
+  'mark_property_reviewed',
+  'hide_comment',
+]);
+export const adminLogActionEnum = pgEnum('admin_log_action', [
+  'dismiss_reports',
+  'mark_property_reviewed',
+  'hide_comment',
+]);
 // listing_source changed from enum to varchar(50) for multi-country extensibility
 export const propertyStatusEnum = pgEnum('property_status', ['active', 'inactive', 'demolished']);
 export const listingStatusEnum = pgEnum('listing_status', ['active', 'sold', 'rented', 'withdrawn']);
@@ -339,6 +353,7 @@ export const users = pgTable(
     profilePhotoUrl: text('profile_photo_url'),
     karma: integer('karma').notNull().default(0),
     internalKarma: integer('internal_karma').notNull().default(0), // Can go negative for tracking bad actors
+    isAdmin: boolean('is_admin').notNull().default(false),
     homeCountry: varchar('home_country', { length: 2 }), // ISO 3166-1 alpha-2 country code
     lastDisplayNameChangeAt: timestamp('last_display_name_change_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1300,6 +1315,9 @@ export const comments = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     parentId: uuid('parent_id'), // Self-referencing for replies (1-level deep)
     content: text('content').notNull(),
+    hiddenAt: timestamp('hidden_at', { withTimezone: true }),
+    hiddenBy: uuid('hidden_by').references(() => users.id, { onDelete: 'set null' }),
+    moderationReason: varchar('moderation_reason', { length: 140 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1311,11 +1329,92 @@ export const comments = pgTable(
     index('idx_comments_property_created').on(table.propertyId, sql`created_at DESC`),
     index('comments_top_level_property_created_idx')
       .on(table.propertyId, sql`created_at DESC`)
-      .where(sql`parent_id IS NULL`),
+      .where(sql`parent_id IS NULL AND hidden_at IS NULL`),
     index('comments_replies_property_created_idx')
       .on(table.propertyId, sql`created_at DESC`)
-      .where(sql`parent_id IS NOT NULL`),
+      .where(sql`parent_id IS NOT NULL AND hidden_at IS NULL`),
+    index('comments_hidden_at_idx').on(table.hiddenAt),
   ]
+);
+
+// Content reports table (public reports queued for admin moderation)
+export const contentReports = pgTable(
+  'content_reports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    targetType: targetTypeEnum('target_type').notNull(),
+    targetId: uuid('target_id').notNull(),
+    reporterUserId: uuid('reporter_user_id').references(() => users.id, { onDelete: 'set null' }),
+    reporterDeviceId: varchar('reporter_device_id', { length: 128 }),
+    reason: varchar('reason', { length: 64 }).notNull(),
+    details: varchar('details', { length: 140 }),
+    status: contentReportStatusEnum('status').notNull().default('unresolved'),
+    reviewAction: contentReportReviewActionEnum('review_action'),
+    reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'content_reports_reason_target_check',
+      sql`(
+        (target_type = 'property' AND reason IN (
+          'incorrect_property_data',
+          'wrong_location',
+          'wrong_listing',
+          'privacy_safety',
+          'spam_scam',
+          'other'
+        ))
+        OR
+        (target_type = 'comment' AND reason IN (
+          'harassment_hate',
+          'spam',
+          'privacy_personal_info',
+          'misleading',
+          'illegal',
+          'other'
+        ))
+      )`,
+    ),
+    index('content_reports_status_target_created_idx').on(
+      table.status,
+      table.targetType,
+      sql`created_at DESC`,
+    ),
+    index('content_reports_unresolved_property_queue_idx')
+      .on(sql`created_at DESC`)
+      .where(sql`status = 'unresolved' AND target_type = 'property'`),
+    index('content_reports_unresolved_comment_queue_idx')
+      .on(sql`created_at DESC`)
+      .where(sql`status = 'unresolved' AND target_type = 'comment'`),
+    index('content_reports_target_idx').on(table.targetType, table.targetId),
+    index('content_reports_reporter_user_idx').on(table.reporterUserId),
+    index('content_reports_created_at_idx').on(table.createdAt),
+    index('content_reports_updated_at_idx').on(table.updatedAt),
+  ],
+);
+
+// Admin moderation audit log
+export const adminLogs = pgTable(
+  'admin_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    adminUserId: uuid('admin_user_id').references(() => users.id, { onDelete: 'set null' }),
+    action: adminLogActionEnum('action').notNull(),
+    reportId: uuid('report_id').references(() => contentReports.id, { onDelete: 'set null' }),
+    targetType: targetTypeEnum('target_type').notNull(),
+    targetId: uuid('target_id').notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('admin_logs_admin_created_idx').on(table.adminUserId, sql`created_at DESC`),
+    index('admin_logs_action_created_idx').on(table.action, sql`created_at DESC`),
+    index('admin_logs_report_idx').on(table.reportId),
+    index('admin_logs_target_idx').on(table.targetType, table.targetId),
+  ],
 );
 
 // Reactions table (likes on properties or comments)

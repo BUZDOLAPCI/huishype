@@ -8,6 +8,7 @@
 import { http, HttpResponse } from 'msw';
 import { mockComments, getMockProperty } from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
+import { isMockCommentHidden } from './reports.js';
 import type {
   GetCommentsResponse,
   CreateCommentResponse,
@@ -22,7 +23,7 @@ export const commentHandlers = [
   /**
    * GET /properties/:id/comments - Get comments for a property
    */
-  http.get('/properties/:propertyId/comments', ({ params, request }) => {
+  http.get('*/properties/:propertyId/comments', ({ params, request }) => {
     const { propertyId } = params;
     const url = new URL(request.url);
     const sort = url.searchParams.get('sort') || 'popular_recent';
@@ -38,7 +39,7 @@ export const commentHandlers = [
     }
 
     let comments = [...mockComments, ...sessionComments].filter(
-      (c) => c.propertyId === propertyId && !c.parentId
+      (c) => c.propertyId === propertyId && !c.parentId && !isMockCommentHidden(c.id)
     );
 
     switch (sort) {
@@ -76,9 +77,12 @@ export const commentHandlers = [
     const hasMore = comments.length > limit;
     comments = comments.slice(0, limit);
 
-    const allComments = [...mockComments, ...sessionComments].filter(
-      (c) => c.propertyId === propertyId
-    );
+    const allComments = [...mockComments, ...sessionComments].filter((c) => {
+      if (c.propertyId !== propertyId || isMockCommentHidden(c.id)) {
+        return false;
+      }
+      return true;
+    });
 
     const response: GetCommentsResponse = {
       thread: {
@@ -95,7 +99,7 @@ export const commentHandlers = [
   /**
    * POST /properties/:id/comments - Create a comment
    */
-  http.post('/properties/:propertyId/comments', async ({ params, request }) => {
+  http.post('*/properties/:propertyId/comments', async ({ params, request }) => {
     const authUser = getMockAuthUser(request.headers.get('Authorization'));
 
     if (!authUser) {

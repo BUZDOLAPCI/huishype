@@ -2101,6 +2101,7 @@ async function fetchGroupingCandidatesInBBoxes(
           FROM comments c
           INNER JOIN candidate_properties cp ON cp.id = c.property_id
           WHERE c.parent_id IS NULL
+            AND c.hidden_at IS NULL
             AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
           GROUP BY c.property_id
         ),
@@ -2115,6 +2116,7 @@ async function fetchGroupingCandidatesInBBoxes(
           FROM comments c
           INNER JOIN candidate_properties cp ON cp.id = c.property_id
           WHERE c.parent_id IS NOT NULL
+            AND c.hidden_at IS NULL
             AND ${buildClosedSocialActivityPredicate(sql.raw('c.created_at'), options)}
           GROUP BY c.property_id
         ),
@@ -2146,6 +2148,7 @@ async function fetchGroupingCandidatesInBBoxes(
           INNER JOIN candidate_properties cp ON cp.id = c.property_id
           WHERE r.target_type = 'comment'
             AND r.reaction_type = 'like'
+            AND c.hidden_at IS NULL
             AND ${buildClosedSocialActivityPredicate(sql.raw('r.created_at'), options)}
           GROUP BY c.property_id
         ),

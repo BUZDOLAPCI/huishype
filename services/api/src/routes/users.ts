@@ -224,7 +224,7 @@ export async function userRoutes(fastify: FastifyInstance) {
       const [commentCountResult] = await db
         .select({ value: count() })
         .from(comments)
-        .where(eq(comments.userId, id));
+        .where(sql`${comments.userId} = ${id} AND ${comments.hiddenAt} IS NULL`);
       const relationshipPayload = await getFollowRelationshipPayload(id, viewerId);
 
       const rank = getKarmaRank(user.karma);
@@ -286,7 +286,9 @@ export async function userRoutes(fastify: FastifyInstance) {
         averageAccuracyResult,
       ] = await Promise.all([
         db.select({ value: count() }).from(priceGuesses).where(eq(priceGuesses.userId, userId)),
-        db.select({ value: count() }).from(comments).where(eq(comments.userId, userId)),
+        db.select({ value: count() }).from(comments).where(
+          sql`${comments.userId} = ${userId} AND ${comments.hiddenAt} IS NULL`
+        ),
         db
           .select({ value: count() })
           .from(savedProperties)

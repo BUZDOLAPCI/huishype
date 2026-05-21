@@ -403,6 +403,7 @@ export async function authRoutes(fastify: FastifyInstance) {
                 karma: z.number(),
                 karmaRank: z.string(),
                 createdAt: z.string(),
+                isAdmin: z.boolean(),
               }),
               accessToken: z.string(),
               refreshToken: z.string(),
@@ -490,6 +491,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             karma: user.karma,
             karmaRank: getKarmaRank(user.karma).title,
             createdAt: user.createdAt.toISOString(),
+            isAdmin: user.isAdmin,
           },
           accessToken,
           refreshToken,
@@ -524,6 +526,7 @@ export async function authRoutes(fastify: FastifyInstance) {
                 karma: z.number(),
                 karmaRank: z.string(),
                 createdAt: z.string(),
+                isAdmin: z.boolean(),
               }),
               accessToken: z.string(),
               refreshToken: z.string(),
@@ -612,6 +615,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             karma: user.karma,
             karmaRank: getKarmaRank(user.karma).title,
             createdAt: user.createdAt.toISOString(),
+            isAdmin: user.isAdmin,
           },
           accessToken,
           refreshToken,
@@ -738,6 +742,7 @@ export async function authRoutes(fastify: FastifyInstance) {
               karma: z.number(),
               karmaRank: z.string(),
               createdAt: z.string(),
+              isAdmin: z.boolean(),
             }),
           }),
           401: z.object({
@@ -778,6 +783,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           karma: user.karma,
           karmaRank: getKarmaRank(user.karma).title,
           createdAt: user.createdAt.toISOString(),
+          isAdmin: user.isAdmin,
         },
       };
     }

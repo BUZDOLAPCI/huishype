@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, Text, View, Animated, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -29,6 +29,7 @@ export interface CommentProps {
   comment: CommentData;
   onLike: (commentId: string) => void;
   onReply: (commentId: string, username: string) => void;
+  onReport?: (commentId: string) => void;
   isReply?: boolean;
   isLiked?: boolean;
 }
@@ -64,9 +65,11 @@ export function Comment({
   comment,
   onLike,
   onReply,
+  onReport,
   isReply = false,
   isLiked = false,
 }: CommentProps) {
+  const [showActionMenu, setShowActionMenu] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const reducedMotion = useReducedMotion();
   const hydratedNow = useHydratedNow();
@@ -100,12 +103,25 @@ export function Comment({
     router.push(`/user/${comment.user.id}`);
   }, [comment.user.id]);
 
+  const handleLongPress = useCallback(() => {
+    if (onReport) {
+      setShowActionMenu(true);
+    }
+  }, [onReport]);
+
+  const handleReport = useCallback(() => {
+    setShowActionMenu(false);
+    onReport?.(comment.id);
+  }, [comment.id, onReport]);
+
   const displayName = comment.user.displayName || comment.user.username;
 
   return (
     <View testID={isReply ? 'comment-reply' : 'comment'}>
-      <View
+      <Pressable
+        onLongPress={handleLongPress}
         className={`py-3 ${isReply ? 'ml-10 pl-3 border-l-2 border-warm-200' : ''}`}
+        testID={isReply ? 'comment-reply-long-press-target' : 'comment-long-press-target'}
       >
         {/* Header: Avatar, Username, Badge, Timestamp */}
         <View className="flex-row items-center mb-2">
@@ -191,7 +207,21 @@ export function Comment({
             </Pressable>
           )}
         </View>
-      </View>
+        {showActionMenu ? (
+          <View style={styles.actionMenu} testID="comment-action-menu">
+            <Pressable
+              onPress={handleReport}
+              style={styles.actionMenuItem}
+              testID="comment-report-menu-item"
+              accessibilityRole="button"
+              accessibilityLabel="Report comment"
+            >
+              <Ionicons name="flag-outline" size={15} color="#B91C1C" />
+              <Text style={styles.actionMenuText}>Report</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </Pressable>
 
       {/* Render Replies */}
       {!isReply && comment.replies && comment.replies.length > 0 && (
@@ -202,6 +232,7 @@ export function Comment({
               comment={reply}
               onLike={onLike}
               onReply={onReply}
+              onReport={onReport}
               isReply
               isLiked={reply.isLiked}
             />
@@ -211,3 +242,26 @@ export function Comment({
     </View>
   );
 }
+
+const styles = {
+  actionMenu: {
+    alignSelf: 'flex-start' as const,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F5EBDD',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden' as const,
+  },
+  actionMenuItem: {
+    minHeight: 38,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 7,
+    paddingHorizontal: 12,
+  },
+  actionMenuText: {
+    fontSize: 13,
+    fontWeight: '700' as const,
+    color: '#B91C1C',
+  },
+};

@@ -30,6 +30,7 @@ import {
 } from '@/src/hooks/useComments';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
+import { ReportModal } from '@/src/components/ReportModal';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import {
   resolvePropertyImageWithType,
@@ -119,6 +120,7 @@ export function CommentsRouteScreen({
   );
   const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
   const { data: property } = useProperty(propertyId ?? null);
   const {
@@ -329,6 +331,7 @@ export function CommentsRouteScreen({
                   comment={item}
                   onLike={handleLike}
                   onReply={handleReply}
+                  onReport={setReportCommentId}
                 />
               )}
               contentContainerStyle={[
@@ -357,6 +360,14 @@ export function CommentsRouteScreen({
         visible={showAuthModal}
         onClose={() => setShowAuthModal(false)}
       />
+      {reportCommentId ? (
+        <ReportModal
+          visible
+          target={{ type: 'comment', id: reportCommentId }}
+          targetLabel="Tell us what is wrong with this comment."
+          onClose={() => setReportCommentId(null)}
+        />
+      ) : null}
     </>
   );
 }

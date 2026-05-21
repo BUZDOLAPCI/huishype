@@ -606,6 +606,7 @@ describe('Generated OpenAPI types', () => {
       '/properties/{id}',
       '/properties/{id}/save',
       '/properties/{id}/like',
+      '/properties/{id}/report',
       '/properties/{id}/guesses',
       '/properties/{id}/comments',
       '/properties/{id}/view',
@@ -613,6 +614,10 @@ describe('Generated OpenAPI types', () => {
       '/properties/{id}/price-history',
       '/saved-properties',
       '/comments/{id}/like',
+      '/comments/{id}/report',
+      '/admin/reports/properties',
+      '/admin/reports/comments',
+      '/admin/reports/{id}',
       '/feed',
       '/geocode/search',
       '/users/me',
@@ -687,6 +692,7 @@ describe('HuisHypeApiClient', () => {
     // Properties
     expect(typeof client.resolveProperty).toBe('function');
     expect(typeof client.getProperty).toBe('function');
+    expect(typeof client.reportProperty).toBe('function');
     expect(typeof client.getFollowingPropertyTiles).toBe('function');
     expect(typeof client.getFollowingNearbyProperty).toBe('function');
     expect('getMapProperties' in client).toBe(false);
@@ -698,6 +704,13 @@ describe('HuisHypeApiClient', () => {
     expect(typeof client.getComments).toBe('function');
     expect(typeof client.createComment).toBe('function');
     expect(typeof client.toggleCommentLike).toBe('function');
+    expect(typeof client.reportComment).toBe('function');
+
+    // Admin reports
+    expect(typeof client.getAdminPropertyReports).toBe('function');
+    expect(typeof client.getAdminCommentReports).toBe('function');
+    expect(typeof client.getAdminReport).toBe('function');
+    expect(typeof client.patchAdminReport).toBe('function');
 
     // Feed
     expect(typeof client.getFeed).toBe('function');
@@ -800,6 +813,118 @@ describe('HuisHypeApiClient', () => {
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'x-session-id': 'session-123',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes public report creation without requiring auth', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+    });
+    const report = {
+      id: 'a0000000-0000-4000-a000-000000000010',
+      targetType: 'property',
+      targetId: 'a0000000-0000-4000-a000-000000000001',
+      reporterUserId: null,
+      reporterDeviceId: 'device-1',
+      reason: 'wrong_location',
+      details: 'Marker is off.',
+      status: 'unresolved',
+      reviewAction: null,
+      reviewedBy: null,
+      reviewedAt: null,
+      createdAt: '2026-05-20T12:00:00.000Z',
+      updatedAt: '2026-05-20T12:00:00.000Z',
+    };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ report }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    try {
+      await expect(
+        client.reportProperty('a0000000-0000-4000-a000-000000000001', {
+          reason: 'wrong_location',
+          details: 'Marker is off.',
+          reporterDeviceId: 'device-1',
+        })
+      ).resolves.toEqual({ report });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/properties/a0000000-0000-4000-a000-000000000001/report',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({
+            reason: 'wrong_location',
+            details: 'Marker is off.',
+            reporterDeviceId: 'device-1',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes admin report moderation with auth', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      accessToken: 'admin-token',
+    });
+    const responseBody = {
+      report: {
+        id: 'a0000000-0000-4000-a000-000000000010',
+        targetType: 'comment',
+        targetId: 'a0000000-0000-4000-a000-000000000002',
+        reporterUserId: null,
+        reporterDeviceId: 'device-1',
+        reason: 'spam',
+        details: null,
+        status: 'resolved',
+        reviewAction: 'hide_comment',
+        reviewedBy: 'a0000000-0000-4000-a000-000000000099',
+        reviewedAt: '2026-05-20T12:05:00.000Z',
+        createdAt: '2026-05-20T12:00:00.000Z',
+        updatedAt: '2026-05-20T12:05:00.000Z',
+      },
+      resolvedCount: 1,
+      hiddenCommentId: 'a0000000-0000-4000-a000-000000000002',
+    };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(responseBody), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    try {
+      await expect(
+        client.patchAdminReport('a0000000-0000-4000-a000-000000000010', {
+          action: 'hide_comment',
+          moderationReason: 'Spam report verified',
+        })
+      ).resolves.toEqual(responseBody);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/admin/reports/a0000000-0000-4000-a000-000000000010',
+        expect.objectContaining({
+          method: 'PATCH',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer admin-token',
+          }),
+          body: JSON.stringify({
+            action: 'hide_comment',
+            moderationReason: 'Spam report verified',
           }),
         })
       );

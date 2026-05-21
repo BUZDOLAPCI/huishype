@@ -26,6 +26,7 @@ import { activityRoutes } from './routes/activity.js';
 import { achievementRoutes } from './routes/achievements.js';
 import { emailAuthRoutes } from './routes/email-auth.js';
 import { contactRoutes } from './routes/contact.js';
+import { reportRoutes } from './routes/reports.js';
 import { closeConnection } from './db/index.js';
 import { closeRedisConnection } from './lib/redis.js';
 import { setNotificationLogger } from './services/notifications.js';
@@ -171,6 +172,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   await app.register(achievementRoutes);
   await app.register(emailAuthRoutes);
   await app.register(contactRoutes);
+  await app.register(reportRoutes);
 
   // Not found handler
   app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {

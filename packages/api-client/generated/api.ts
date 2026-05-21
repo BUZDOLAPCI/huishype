@@ -313,6 +313,7 @@ export interface paths {
                                     karma: number;
                                     karmaRank: string;
                                     createdAt: string;
+                                    isAdmin: boolean;
                                 };
                                 accessToken: string;
                                 refreshToken: string;
@@ -398,6 +399,7 @@ export interface paths {
                                     karma: number;
                                     karmaRank: string;
                                     createdAt: string;
+                                    isAdmin: boolean;
                                 };
                                 accessToken: string;
                                 refreshToken: string;
@@ -578,6 +580,7 @@ export interface paths {
                                 karma: number;
                                 karmaRank: string;
                                 createdAt: string;
+                                isAdmin: boolean;
                             };
                         };
                     };
@@ -5935,6 +5938,7 @@ export interface paths {
                                     karma: number;
                                     karmaRank: string;
                                     createdAt: string;
+                                    isAdmin: boolean;
                                 };
                                 accessToken: string;
                                 refreshToken: string;
@@ -6062,6 +6066,987 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/properties/{id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report a property */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        reason: "incorrect_property_data" | "wrong_location" | "wrong_listing" | "privacy_safety" | "spam_scam" | "other";
+                        details?: string;
+                        reporterDeviceId?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            report: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                reporterUserId: string | null;
+                                reporterDeviceId: string | null;
+                                reason: string;
+                                details: string | null;
+                                /** @enum {string} */
+                                status: "unresolved" | "resolved";
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewedBy: string | null;
+                                reviewedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                reporter?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                    karma: number | null;
+                                } | null;
+                                property?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    street: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    countryCode: string;
+                                } | null;
+                                comment?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    text: string;
+                                    author?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        username: string;
+                                        displayName: string | null;
+                                        karma: number | null;
+                                    } | null;
+                                    property?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        address: string;
+                                        street: string;
+                                        city: string;
+                                        postalCode: string | null;
+                                        houseNumber: number;
+                                        houseNumberAddition: string | null;
+                                        countryCode: string;
+                                    } | null;
+                                } | null;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comments/{id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report a comment */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        reason: "harassment_hate" | "spam" | "privacy_personal_info" | "misleading" | "illegal" | "other";
+                        details?: string;
+                        reporterDeviceId?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            report: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                reporterUserId: string | null;
+                                reporterDeviceId: string | null;
+                                reason: string;
+                                details: string | null;
+                                /** @enum {string} */
+                                status: "unresolved" | "resolved";
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewedBy: string | null;
+                                reviewedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                reporter?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                    karma: number | null;
+                                } | null;
+                                property?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    street: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    countryCode: string;
+                                } | null;
+                                comment?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    text: string;
+                                    author?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        username: string;
+                                        displayName: string | null;
+                                        karma: number | null;
+                                    } | null;
+                                    property?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        address: string;
+                                        street: string;
+                                        city: string;
+                                        postalCode: string | null;
+                                        houseNumber: number;
+                                        houseNumberAddition: string | null;
+                                        countryCode: string;
+                                    } | null;
+                                } | null;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/reports/properties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List property reports */
+        get: {
+            parameters: {
+                query?: {
+                    status?: "unresolved" | "resolved" | "all";
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                reporterUserId: string | null;
+                                reporterDeviceId: string | null;
+                                reason: string;
+                                details: string | null;
+                                /** @enum {string} */
+                                status: "unresolved" | "resolved";
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewedBy: string | null;
+                                reviewedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                reporter?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                    karma: number | null;
+                                } | null;
+                                property?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    street: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    countryCode: string;
+                                } | null;
+                                comment?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    text: string;
+                                    author?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        username: string;
+                                        displayName: string | null;
+                                        karma: number | null;
+                                    } | null;
+                                    property?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        address: string;
+                                        street: string;
+                                        city: string;
+                                        postalCode: string | null;
+                                        houseNumber: number;
+                                        houseNumberAddition: string | null;
+                                        countryCode: string;
+                                    } | null;
+                                } | null;
+                            }[];
+                            meta: {
+                                limit: number;
+                                offset: number;
+                                total: number;
+                            };
+                            recentModerationActions?: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** @enum {string} */
+                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment";
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                details: {
+                                    [key: string]: unknown;
+                                };
+                                admin?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                } | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/reports/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List comment reports */
+        get: {
+            parameters: {
+                query?: {
+                    status?: "unresolved" | "resolved" | "all";
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                reporterUserId: string | null;
+                                reporterDeviceId: string | null;
+                                reason: string;
+                                details: string | null;
+                                /** @enum {string} */
+                                status: "unresolved" | "resolved";
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewedBy: string | null;
+                                reviewedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                reporter?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                    karma: number | null;
+                                } | null;
+                                property?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    street: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    countryCode: string;
+                                } | null;
+                                comment?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    text: string;
+                                    author?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        username: string;
+                                        displayName: string | null;
+                                        karma: number | null;
+                                    } | null;
+                                    property?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        address: string;
+                                        street: string;
+                                        city: string;
+                                        postalCode: string | null;
+                                        houseNumber: number;
+                                        houseNumberAddition: string | null;
+                                        countryCode: string;
+                                    } | null;
+                                } | null;
+                            }[];
+                            meta: {
+                                limit: number;
+                                offset: number;
+                                total: number;
+                            };
+                            recentModerationActions?: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** @enum {string} */
+                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment";
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                details: {
+                                    [key: string]: unknown;
+                                };
+                                admin?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                } | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/reports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a report */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            report: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                reporterUserId: string | null;
+                                reporterDeviceId: string | null;
+                                reason: string;
+                                details: string | null;
+                                /** @enum {string} */
+                                status: "unresolved" | "resolved";
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewedBy: string | null;
+                                reviewedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                reporter?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                    karma: number | null;
+                                } | null;
+                                property?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    street: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    countryCode: string;
+                                } | null;
+                                comment?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    text: string;
+                                    author?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        username: string;
+                                        displayName: string | null;
+                                        karma: number | null;
+                                    } | null;
+                                    property?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        address: string;
+                                        street: string;
+                                        city: string;
+                                        postalCode: string | null;
+                                        houseNumber: number;
+                                        houseNumberAddition: string | null;
+                                        countryCode: string;
+                                    } | null;
+                                } | null;
+                            };
+                            target: (({
+                                /** Format: uuid */
+                                id: string;
+                                address: string;
+                                street: string;
+                                city: string;
+                                postalCode: string | null;
+                                houseNumber: number;
+                                houseNumberAddition: string | null;
+                                countryCode: string;
+                            } | null) | ({
+                                /** Format: uuid */
+                                id: string;
+                                text: string;
+                                author?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    karma: number | null;
+                                } | null;
+                                property?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    street: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    countryCode: string;
+                                } | null;
+                            } | null)) | null;
+                            activeReports: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                reporterUserId: string | null;
+                                reporterDeviceId: string | null;
+                                reason: string;
+                                details: string | null;
+                                /** @enum {string} */
+                                status: "unresolved" | "resolved";
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewedBy: string | null;
+                                reviewedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                reporter?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                    karma: number | null;
+                                } | null;
+                                property?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    street: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    countryCode: string;
+                                } | null;
+                                comment?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    text: string;
+                                    author?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        username: string;
+                                        displayName: string | null;
+                                        karma: number | null;
+                                    } | null;
+                                    property?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        address: string;
+                                        street: string;
+                                        city: string;
+                                        postalCode: string | null;
+                                        houseNumber: number;
+                                        houseNumberAddition: string | null;
+                                        countryCode: string;
+                                    } | null;
+                                } | null;
+                            }[];
+                            recentModerationActions: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** @enum {string} */
+                                action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment";
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                details: {
+                                    [key: string]: unknown;
+                                };
+                                admin?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                } | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Resolve a report with a moderation action */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        action: "dismiss_reports" | "mark_property_reviewed" | "hide_comment";
+                        moderationReason?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            report: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                targetType: "property" | "comment";
+                                /** Format: uuid */
+                                targetId: string;
+                                reporterUserId: string | null;
+                                reporterDeviceId: string | null;
+                                reason: string;
+                                details: string | null;
+                                /** @enum {string} */
+                                status: "unresolved" | "resolved";
+                                reviewAction: ("dismiss_reports" | "mark_property_reviewed" | "hide_comment") | null;
+                                reviewedBy: string | null;
+                                reviewedAt: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                                reporter?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    username: string;
+                                    displayName: string | null;
+                                    email: string | null;
+                                    karma: number | null;
+                                } | null;
+                                property?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    street: string;
+                                    city: string;
+                                    postalCode: string | null;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    countryCode: string;
+                                } | null;
+                                comment?: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    text: string;
+                                    author?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        username: string;
+                                        displayName: string | null;
+                                        karma: number | null;
+                                    } | null;
+                                    property?: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        address: string;
+                                        street: string;
+                                        city: string;
+                                        postalCode: string | null;
+                                        houseNumber: number;
+                                        houseNumberAddition: string | null;
+                                        countryCode: string;
+                                    } | null;
+                                } | null;
+                            };
+                            resolvedCount: number;
+                            /** Format: uuid */
+                            hiddenCommentId?: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
 }

@@ -9,12 +9,15 @@ import fp from 'fastify-plugin';
 import jwt from '@fastify/jwt';
 import jwtLib from 'jsonwebtoken';
 import { config } from '../config.js';
+import { db, users } from '../db/index.js';
+import { eq } from 'drizzle-orm';
 
 // Extend FastifyInstance to include auth decorators
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     optionalAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     userId?: string;
@@ -92,6 +95,41 @@ async function authPlugin(fastify: FastifyInstance) {
       } catch {
         // Token invalid or expired, continue without auth
         // This is intentional - optionalAuth doesn't fail on bad tokens
+      }
+    }
+  );
+
+  /**
+   * Decorator for routes that require an authenticated admin user.
+   * Fails closed: missing users and non-admin users are both denied.
+   */
+  fastify.decorate(
+    'requireAdmin',
+    async function (request: FastifyRequest, reply: FastifyReply) {
+      await fastify.authenticate(request, reply);
+      if (reply.sent) {
+        return;
+      }
+
+      const userId = request.userId;
+      if (!userId) {
+        return reply.status(403).send({
+          error: 'FORBIDDEN',
+          message: 'Admin access required',
+        });
+      }
+
+      const [user] = await db
+        .select({ isAdmin: users.isAdmin })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!user?.isAdmin) {
+        return reply.status(403).send({
+          error: 'FORBIDDEN',
+          message: 'Admin access required',
+        });
       }
     }
   );

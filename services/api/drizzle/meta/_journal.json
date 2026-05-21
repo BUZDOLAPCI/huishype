@@ -281,6 +281,13 @@
       "when": 1778198400013,
       "tag": "0039_property_tile_pyramid_promoted_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1778198400014,
+      "tag": "0040_reports_admin_moderation",
+      "breakpoints": true
     }
   ]
 }

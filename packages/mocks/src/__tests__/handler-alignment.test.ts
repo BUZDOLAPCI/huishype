@@ -23,7 +23,9 @@ import {
   activityHandlers,
   achievementHandlers,
   emailAuthHandlers,
+  reportHandlers,
   resetMockFollowState,
+  resetMockReports,
   resetMockReadState,
   resetMockSessions,
 } from '../handlers/index.js';
@@ -93,6 +95,7 @@ describe('Mock handler runtime parity', () => {
     resetMockSessions();
     resetMockFollowState();
     resetMockReadState();
+    resetMockReports();
   });
 
   afterAll(() => {
@@ -142,6 +145,97 @@ describe('Mock handler runtime parity', () => {
       error: 'NOT_FOUND',
       message: 'Property not found',
     });
+  });
+
+  it('matches report creation and admin moderation mock envelopes', async () => {
+    const propertyResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/report`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: 'wrong_location',
+          details: 'Marker is off.',
+          reporterDeviceId: 'mock-device',
+        }),
+      }
+    );
+    const propertyBody = await propertyResponse.json();
+
+    expect(propertyResponse.status).toBe(201);
+    expect(propertyBody.report).toMatchObject({
+      targetType: 'property',
+      targetId: mockPropertyIds.prinsengracht263,
+      reporterUserId: null,
+      reporterDeviceId: 'mock-device',
+      reason: 'wrong_location',
+      status: 'unresolved',
+    });
+
+    const deniedResponse = await fetch('http://localhost/admin/reports/properties');
+    expect(deniedResponse.status).toBe(401);
+
+    const queueResponse = await fetch('http://localhost/admin/reports/properties', {
+      headers: { Authorization: 'Bearer mock-admin-token' },
+    });
+    const queueBody = await queueResponse.json();
+    expect(queueResponse.status).toBe(200);
+    expect(queueBody.data).toHaveLength(1);
+    expect(queueBody.meta.total).toBe(1);
+
+    const patchResponse = await fetch(
+      `http://localhost/admin/reports/${propertyBody.report.id as string}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: 'Bearer mock-admin-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'mark_property_reviewed' }),
+      }
+    );
+    const patchBody = await patchResponse.json();
+    expect(patchResponse.status).toBe(200);
+    expect(patchBody.report.status).toBe('resolved');
+    expect(patchBody.report.reviewAction).toBe('mark_property_reviewed');
+  });
+
+  it('hides comments through admin report mocks', async () => {
+    const commentId = getMockComments(mockPropertyIds.prinsengracht263)[0].id;
+    const reportResponse = await fetch(`http://localhost/comments/${commentId}/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reason: 'spam',
+        reporterDeviceId: 'mock-device',
+      }),
+    });
+    const reportBody = await reportResponse.json();
+    expect(reportResponse.status).toBe(201);
+
+    const beforeResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/comments`
+    );
+    const beforeBody = await beforeResponse.json();
+    expect(beforeBody.thread.comments.some((comment: { id: string }) => comment.id === commentId)).toBe(true);
+
+    const patchResponse = await fetch(`http://localhost/admin/reports/${reportBody.report.id as string}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer mock-admin-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action: 'hide_comment' }),
+    });
+    const patchBody = await patchResponse.json();
+    expect(patchResponse.status).toBe(200);
+    expect(patchBody.hiddenCommentId).toBe(commentId);
+
+    const afterResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/comments`
+    );
+    const afterBody = await afterResponse.json();
+    expect(afterBody.thread.comments.some((comment: { id: string }) => comment.id === commentId)).toBe(false);
   });
 
   it('matches live /saved-properties query params and envelope', async () => {
@@ -1142,6 +1236,7 @@ describe('Handler wiring', () => {
       ...listingHandlers,
       ...propertyHandlers,
       ...guessHandlers,
+      ...reportHandlers,
       ...commentHandlers,
       ...geocodeHandlers,
       ...notificationHandlers,
@@ -1325,5 +1420,9 @@ describe('Fixture data integrity', () => {
   it('getMockGuesses returns guesses for valid property', () => {
     const guesses = getMockGuesses(mockPropertyIds.prinsengracht263);
     expect(guesses.length).toBeGreaterThan(0);
+  });
+
+  it('exports report handlers', () => {
+    expect(reportHandlers.length).toBeGreaterThanOrEqual(6);
   });
 });

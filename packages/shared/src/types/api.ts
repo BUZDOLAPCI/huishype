@@ -30,6 +30,17 @@ import type {
 } from './user.js';
 import type { PriceGuess, FMV, UserGuessHistory } from './guess.js';
 import type { CommentThread, Comment } from './comment.js';
+import type {
+  AdminPatchReportRequest,
+  AdminPatchReportResponse,
+  AdminReportDetailResponse,
+  AdminReportListResponse,
+  AdminLogResponse,
+  ContentReportResponse,
+  CreateCommentReportRequest,
+  CreateContentReportResponse,
+  CreatePropertyReportRequest,
+} from './report.js';
 import type { ReactionCounts } from './reaction.js';
 import type { NotificationsResponse, UnreadCountResponse } from './notification.js';
 import type { AchievementsResponse } from './achievement.js';
@@ -61,6 +72,17 @@ export type {
 };
 export type { PriceGuess, FMV, UserGuessHistory };
 export type { CommentThread, Comment };
+export type {
+  AdminPatchReportRequest,
+  AdminPatchReportResponse,
+  AdminReportDetailResponse,
+  AdminReportListResponse,
+  AdminLogResponse,
+  ContentReportResponse,
+  CreateCommentReportRequest,
+  CreateContentReportResponse,
+  CreatePropertyReportRequest,
+};
 export type { ReactionCounts };
 export type { NotificationsResponse, UnreadCountResponse };
 export type { AchievementsResponse };
@@ -138,6 +160,7 @@ export interface AuthMeResponse {
   user: User & {
     email: string;
     profilePhotoUrl: string | null;
+    isAdmin: boolean;
   };
 }
 
@@ -328,6 +351,19 @@ export interface GetListingsRequest {
 }
 
 export type GetListingsResponse = PaginatedResponse<ListingSummary>;
+
+// ============================================
+// Report / Admin Moderation API Types
+// ============================================
+
+export type ReportPropertyRequest = CreatePropertyReportRequest;
+export type ReportCommentRequest = CreateCommentReportRequest;
+export type ReportPropertyResponse = CreateContentReportResponse;
+export type ReportCommentResponse = CreateContentReportResponse;
+export type GetAdminReportsResponse = AdminReportListResponse;
+export type GetAdminReportResponse = AdminReportDetailResponse;
+export type PatchAdminReportRequest = AdminPatchReportRequest;
+export type PatchAdminReportResponse = AdminPatchReportResponse;
 
 // ============================================
 // Guess API Types

@@ -87,6 +87,7 @@ function RootLayoutNav() {
               <Stack>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
+                <Stack.Screen name="admin" options={{ headerShown: false }} />
                 <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
                 <Stack.Screen name="notifications" options={{ headerShown: false }} />
               </Stack>

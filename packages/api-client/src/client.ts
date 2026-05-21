@@ -31,7 +31,15 @@ import type {
   UpdateUserProfileRequest,
   UpdateUserProfileResponse,
   GetFeedResponse,
+  GetAdminReportResponse,
+  GetAdminReportsResponse,
   RegisterPushTokenRequest,
+  PatchAdminReportRequest,
+  PatchAdminReportResponse,
+  ReportCommentRequest,
+  ReportCommentResponse,
+  ReportPropertyRequest,
+  ReportPropertyResponse,
   SearchUsersRequest,
 } from '@huishype/shared';
 import type { paths } from '../generated/api.js';
@@ -86,6 +94,8 @@ type ContactRequest =
   paths['/contact']['post']['requestBody']['content']['application/json'];
 type ContactResponse =
   paths['/contact']['post']['responses'][200]['content']['application/json'];
+type AdminReportsQuery =
+  NonNullable<paths['/admin/reports/properties']['get']['parameters']['query']>;
 
 /**
  * API client configuration options
@@ -405,6 +415,15 @@ export class HuisHypeApiClient {
     return this.request<PropertyResponse>('GET', `/properties/${propertyId}`);
   }
 
+  async reportProperty(
+    propertyId: string,
+    request: ReportPropertyRequest
+  ): Promise<ReportPropertyResponse> {
+    return this.request<ReportPropertyResponse>('POST', `/properties/${propertyId}/report`, {
+      body: request,
+    });
+  }
+
   async getNearbyProperty(request: NearbyPropertyQuery): Promise<NearbyPropertyResponse> {
     const marketState =
       Array.isArray(request.marketState) ? request.marketState.join(',') : request.marketState;
@@ -518,6 +537,57 @@ export class HuisHypeApiClient {
       `/comments/${commentId}/like`,
       { requiresAuth: true }
     );
+  }
+
+  async reportComment(
+    commentId: string,
+    request: ReportCommentRequest
+  ): Promise<ReportCommentResponse> {
+    return this.request<ReportCommentResponse>('POST', `/comments/${commentId}/report`, {
+      body: request,
+    });
+  }
+
+  // ============================================
+  // Admin Report Endpoints  (paths: /admin/reports/*)
+  // ============================================
+
+  async getAdminPropertyReports(params: AdminReportsQuery = {}): Promise<GetAdminReportsResponse> {
+    return this.request<GetAdminReportsResponse>('GET', '/admin/reports/properties', {
+      query: {
+        status: params.status,
+        limit: params.limit,
+        offset: params.offset,
+      },
+      requiresAuth: true,
+    });
+  }
+
+  async getAdminCommentReports(params: AdminReportsQuery = {}): Promise<GetAdminReportsResponse> {
+    return this.request<GetAdminReportsResponse>('GET', '/admin/reports/comments', {
+      query: {
+        status: params.status,
+        limit: params.limit,
+        offset: params.offset,
+      },
+      requiresAuth: true,
+    });
+  }
+
+  async getAdminReport(reportId: string): Promise<GetAdminReportResponse> {
+    return this.request<GetAdminReportResponse>('GET', `/admin/reports/${reportId}`, {
+      requiresAuth: true,
+    });
+  }
+
+  async patchAdminReport(
+    reportId: string,
+    request: PatchAdminReportRequest
+  ): Promise<PatchAdminReportResponse> {
+    return this.request<PatchAdminReportResponse>('PATCH', `/admin/reports/${reportId}`, {
+      body: request,
+      requiresAuth: true,
+    });
   }
 
   // ============================================

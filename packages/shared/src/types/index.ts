@@ -112,6 +112,26 @@ export type {
   CommentNotification,
 } from './comment.js';
 
+// Report/moderation types and category constants
+export {
+  propertyReportCategories,
+  commentReportCategories,
+} from './report.js';
+export type {
+  PropertyReportCategory,
+  CommentReportCategory,
+  ReportTargetType,
+  ContentReportStatus,
+  ContentReportReviewAction,
+  CreatePropertyReportRequest,
+  CreateCommentReportRequest,
+  ContentReportResponse,
+  CreateContentReportResponse,
+  AdminReportListResponse,
+  AdminPatchReportRequest,
+  AdminPatchReportResponse,
+} from './report.js';
+
 // Like types (renamed from Reaction — DB table is still `reactions`, API contract is likes-only)
 export type {
   LikeStatus,
@@ -211,6 +231,15 @@ export type {
   UpdateCommentResponse,
   DeleteCommentResponse,
   LikeCommentResponse,
+  // Reports/Admin
+  ReportPropertyRequest,
+  ReportCommentRequest,
+  ReportPropertyResponse,
+  ReportCommentResponse,
+  GetAdminReportsResponse,
+  GetAdminReportResponse,
+  PatchAdminReportRequest,
+  PatchAdminReportResponse,
   // Reaction / Likes
   // Feed
   FeedTab,

@@ -167,7 +167,7 @@ export async function commentRoutes(app: FastifyInstance) {
         .select({ count: sql<number>`count(*)::int` })
         .from(comments)
         .where(
-          sql`${comments.propertyId} = ${propertyId} AND ${comments.parentId} IS NULL`
+          sql`${comments.propertyId} = ${propertyId} AND ${comments.parentId} IS NULL AND ${comments.hiddenAt} IS NULL`
         );
       const total = countResult[0]?.count ?? 0;
 
@@ -204,7 +204,9 @@ export async function commentRoutes(app: FastifyInstance) {
                 )::int as like_count
               FROM comments c
               INNER JOIN users u ON c.user_id = u.id
-              WHERE c.property_id = ${propertyId} AND c.parent_id IS NULL
+              WHERE c.property_id = ${propertyId}
+                AND c.parent_id IS NULL
+                AND c.hidden_at IS NULL
             ) sub
             ORDER BY comment_score DESC, created_at DESC
             LIMIT ${limit}
@@ -230,7 +232,9 @@ export async function commentRoutes(app: FastifyInstance) {
               )::int as like_count
             FROM comments c
             INNER JOIN users u ON c.user_id = u.id
-            WHERE c.property_id = ${propertyId} AND c.parent_id IS NULL
+            WHERE c.property_id = ${propertyId}
+              AND c.parent_id IS NULL
+              AND c.hidden_at IS NULL
             ORDER BY c.created_at DESC
             LIMIT ${limit}
             OFFSET ${offset}
@@ -265,6 +269,7 @@ export async function commentRoutes(app: FastifyInstance) {
           FROM comments c
           INNER JOIN users u ON c.user_id = u.id
           WHERE c.parent_id IN (${sql.join(commentIds.map(id => sql`${id}`), sql`, `)})
+            AND c.hidden_at IS NULL
           ORDER BY c.created_at ASC
         `);
 

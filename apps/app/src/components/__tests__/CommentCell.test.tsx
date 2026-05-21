@@ -90,6 +90,24 @@ describe('CommentCell', () => {
     expect(onReply).toHaveBeenCalledWith('comment-1');
   });
 
+  it('shows the report action only after long-pressing a comment', () => {
+    const onReport = jest.fn();
+    render(<CommentCell comment={mockComment} onReport={onReport} />);
+
+    expect(screen.queryByTestId('comment-report-menu-item')).toBeNull();
+
+    fireEvent(screen.getByTestId('comment-cell'), 'longPress');
+    fireEvent.press(screen.getByTestId('comment-report-menu-item'));
+
+    expect(onReport).toHaveBeenCalledWith('comment-1');
+  });
+
+  it('does not expose a visible report button without long press', () => {
+    render(<CommentCell comment={mockComment} onReport={jest.fn()} />);
+
+    expect(screen.queryByText('Report')).toBeNull();
+  });
+
   it('navigates to the author profile when avatar is pressed', () => {
     render(<CommentCell comment={mockComment} />);
     fireEvent.press(screen.getByTestId('comment-author-avatar-button'));

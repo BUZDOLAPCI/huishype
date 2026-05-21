@@ -204,7 +204,8 @@ export async function fetchActivityFeed(params: {
         INNER JOIN users u ON u.id = c.user_id
         INNER JOIN properties p ON p.id = c.property_id
         ${buildPropertyThumbnailLateralJoin('p', 'lt')}
-        WHERE ${commentActorPredicate}
+        WHERE c.hidden_at IS NULL
+          AND ${commentActorPredicate}
       )
       UNION ALL
       (

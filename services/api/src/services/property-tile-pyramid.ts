@@ -999,6 +999,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           MAX(c.created_at) AS latest
         FROM comments c
         WHERE c.parent_id IS NULL
+          AND c.hidden_at IS NULL
           AND c.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
         GROUP BY c.property_id
       ),
@@ -1013,6 +1014,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           MAX(c.created_at) AS latest
         FROM comments c
         WHERE c.parent_id IS NOT NULL
+          AND c.hidden_at IS NULL
           AND c.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
         GROUP BY c.property_id
       ),
@@ -1044,6 +1046,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         INNER JOIN comments c ON c.id = r.target_id
         WHERE r.target_type = 'comment'
           AND r.reaction_type = 'like'
+          AND c.hidden_at IS NULL
           AND r.created_at <= ${closedSocialActivityCutoffAt}::timestamptz
         GROUP BY c.property_id
       ),

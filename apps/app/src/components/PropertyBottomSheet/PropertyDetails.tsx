@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { SectionProps } from './types';
@@ -56,7 +56,11 @@ function formatCompactCount(value: number): string {
   return String(value);
 }
 
-export function PropertyDetails({ property }: SectionProps) {
+interface PropertyDetailsProps extends SectionProps {
+  onReport?: () => void;
+}
+
+export function PropertyDetails({ property, onReport }: PropertyDetailsProps) {
   const statusLabels: Record<string, string> = {
     active: 'Active',
     inactive: 'Inactive',
@@ -112,6 +116,20 @@ export function PropertyDetails({ property }: SectionProps) {
             helperText={property.commentCount === 0 ? 'Start the conversation' : undefined}
           />
         </View>
+        {onReport ? (
+          <View style={styles.reportRow}>
+            <Pressable
+              onPress={onReport}
+              style={styles.reportButton}
+              testID="property-report-button"
+              accessibilityRole="button"
+              accessibilityLabel="Report property"
+            >
+              <Ionicons name="flag-outline" size={15} color="#8C8479" />
+              <Text style={styles.reportText}>Report</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </SectionCard>
     </View>
   );
@@ -182,5 +200,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     color: '#AEA699',
+  },
+  reportRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+  },
+  reportButton: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    backgroundColor: '#F5EFE6',
+  },
+  reportText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8C8479',
   },
 });
