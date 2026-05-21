@@ -579,6 +579,7 @@ export default function ProfileScreen() {
               </View>
             ) : (
               <View style={styles.identityDisplayRow} testID="profile-display-name-row">
+                <View style={styles.identityEditButtonSpacer} />
                 <Text style={styles.displayName} numberOfLines={1}>
                   {profile.displayName}
                 </Text>
@@ -632,17 +633,19 @@ export default function ProfileScreen() {
               </View>
             ) : (
               <View style={styles.identityDisplayRow} testID="profile-handle-row">
+                <View style={styles.handleEditButtonSpacer} />
                 <Text style={styles.handleText} numberOfLines={1}>
                   @{profile.handle}
                 </Text>
                 <Pressable
                   onPress={handleStartHandleEdit}
-                  style={styles.identityEditButton}
+                  hitSlop={6}
+                  style={styles.handleEditButton}
                   testID="profile-handle-edit"
                   accessibilityRole="button"
                   accessibilityLabel="Edit handle"
                 >
-                  <Icon name="PencilSimple" size="sm" color="#8A6426" />
+                  <Icon name="PencilSimple" size="xs" color="#B59F80" />
                 </Pressable>
               </View>
             )}
@@ -952,6 +955,24 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 248, 226, 0.78)',
     borderWidth: 1,
     borderColor: 'rgba(214, 147, 36, 0.24)',
+  },
+  identityEditButtonSpacer: {
+    width: 28,
+    height: 28,
+  },
+  handleEditButton: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 248, 226, 0.38)',
+    borderWidth: 1,
+    borderColor: 'rgba(214, 147, 36, 0.12)',
+  },
+  handleEditButtonSpacer: {
+    width: 22,
+    height: 22,
   },
   identityActionButton: {
     width: 32,
