@@ -34,6 +34,7 @@ const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthC
 const signOut = jest.fn().mockResolvedValue(undefined);
 const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
+const originalWindowOpen = window.open;
 const getRouterReplace = () =>
   (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
 const getRouterPush = () =>
@@ -83,6 +84,7 @@ describe('ProfileSettingsScreen', () => {
       value: originalPlatform,
     });
     globalThis.confirm = originalConfirm;
+    window.open = originalWindowOpen;
   });
 
   it('shows the login row and version when signed out', () => {
@@ -91,7 +93,7 @@ describe('ProfileSettingsScreen', () => {
     const { getByTestId, getByText, queryByText } = render(<ProfileSettingsScreen />);
 
     expect(getByText('Legal')).toBeTruthy();
-    expect(getByText('Help Center')).toBeTruthy();
+    expect(getByText('Need help?')).toBeTruthy();
     expect(getByText('Contact')).toBeTruthy();
     expect(getByText('Log in')).toBeTruthy();
     expect(queryByText('Account email')).toBeNull();
@@ -111,17 +113,13 @@ describe('ProfileSettingsScreen', () => {
 
     expect(getByText('Account email')).toBeTruthy();
     expect(getByTestId('settings-account-email-row').props.accessibilityRole).toBe('text');
-    expect(getByTestId('settings-account-email-value').props.children).toBe(
-      'test@example.com'
-    );
+    expect(getByTestId('settings-account-email-value').props.children).toBe('test@example.com');
     expect(getByText('Log out')).toBeTruthy();
 
     fireEvent.press(getByTestId('settings-auth-row'));
 
     await waitFor(() => {
-      expect(globalThis.confirm).toHaveBeenCalledWith(
-        'Are you sure you want to sign out?'
-      );
+      expect(globalThis.confirm).toHaveBeenCalledWith('Are you sure you want to sign out?');
       expect(signOut).toHaveBeenCalledTimes(1);
     });
   });
@@ -139,6 +137,7 @@ describe('ProfileSettingsScreen', () => {
     expect(getByText('Cookies')).toBeTruthy();
     expect(getByText('Data & privacy choices')).toBeTruthy();
     expect(getByText('Sharing permissions')).toBeTruthy();
+    expect(getByText('Open source licenses')).toBeTruthy();
     expect(queryByTestId('settings-auth-row')).toBeNull();
 
     fireEvent.press(getByTestId('settings-terms-row'));
@@ -158,6 +157,63 @@ describe('ProfileSettingsScreen', () => {
 
     fireEvent.press(getByTestId('profile-settings-back'));
     expect(getByTestId('settings-auth-row')).toBeTruthy();
+  });
+
+  it('opens open source licenses from legal and backs to the legal submenu', () => {
+    mockAuthContext(null);
+
+    window.open = jest.fn();
+
+    const {
+      getAllByLabelText,
+      getAllByText,
+      getByLabelText,
+      getByTestId,
+      getByText,
+      queryByTestId,
+    } = render(<ProfileSettingsScreen />);
+
+    fireEvent.press(getByTestId('settings-legal-row'));
+    fireEvent.press(getByTestId('settings-open-source-licenses-row'));
+
+    expect(getByText('Open source licenses')).toBeTruthy();
+    expect(getByTestId('settings-open-source-licenses-subview')).toBeTruthy();
+    expect(queryByTestId('settings-legal-submenu')).toBeNull();
+
+    expect(getByText('OpenStreetMap contributors')).toBeTruthy();
+    expect(getByText('Map data - ODbL-1.0')).toBeTruthy();
+    expect(getByText('https://www.openstreetmap.org/copyright')).toBeTruthy();
+    expect(getByText('OpenMapTiles')).toBeTruthy();
+    expect(getByText('Vector tile schema - BSD-3-Clause / CC-BY-4.0')).toBeTruthy();
+    expect(getByText('https://openmaptiles.org/')).toBeTruthy();
+    expect(getByText('@maplibre/maplibre-react-native')).toBeTruthy();
+    expect(getByText('11.0.0-beta.10 - MIT')).toBeTruthy();
+    expect(getByText('https://github.com/maplibre/maplibre-react-native#readme')).toBeTruthy();
+    expect(getByText('maplibre-gl')).toBeTruthy();
+    expect(getByText('5.21.1 - BSD-3-Clause')).toBeTruthy();
+    expect(getByText('https://maplibre.org/')).toBeTruthy();
+    expect(getByText('react-native')).toBeTruthy();
+    expect(getAllByText('0.81.5 - MIT').length).toBeGreaterThan(0);
+
+    fireEvent.press(getAllByLabelText('Open BSD-3-Clause license')[0]);
+    expect(window.open).toHaveBeenCalledWith(
+      'https://spdx.org/licenses/BSD-3-Clause.html',
+      '_blank',
+      'noopener,noreferrer'
+    );
+
+    fireEvent.press(getByLabelText('Open source link for maplibre-gl'));
+    expect(window.open).toHaveBeenLastCalledWith(
+      'https://maplibre.org/',
+      '_blank',
+      'noopener,noreferrer'
+    );
+
+    fireEvent.press(getByTestId('profile-settings-back'));
+
+    expect(getByTestId('settings-legal-submenu')).toBeTruthy();
+    expect(getByTestId('settings-open-source-licenses-row')).toBeTruthy();
+    expect(queryByTestId('settings-open-source-licenses-subview')).toBeNull();
   });
 
   it('navigates help center and contact rows', () => {

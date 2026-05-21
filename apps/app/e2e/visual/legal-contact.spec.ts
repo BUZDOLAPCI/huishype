@@ -2,10 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { expect, test } from '@playwright/test';
 
-import {
-  attachConsoleErrorCollector,
-  expectNoConsoleErrors,
-} from '../helpers/console';
+import { attachConsoleErrorCollector, expectNoConsoleErrors } from '../helpers/console';
 
 const EXPECTATION_NAME = 'static-support';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
@@ -92,11 +89,34 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(page.getByTestId('settings-cookies-row')).toBeVisible();
     await expect(page.getByTestId('settings-data-privacy-row')).toBeVisible();
     await expect(page.getByTestId('settings-sharing-permissions-row')).toBeVisible();
+    await expect(page.getByTestId('settings-open-source-licenses-row')).toBeVisible();
     await expectProfileTabVisuallySelected(page);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/settings-legal-current.png`,
       fullPage: false,
     });
+
+    await page.getByTestId('settings-open-source-licenses-row').click();
+    await expect(page.getByTestId('settings-open-source-licenses-subview')).toBeVisible();
+    await expect(page.getByText('@maplibre/maplibre-react-native')).toBeVisible();
+    await expect(page.getByText('maplibre-gl', { exact: true })).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/open-source-licenses-current.png`,
+      fullPage: false,
+    });
+    const licensePagePromise = page.waitForEvent('popup');
+    await page.getByLabel('Open BSD-3-Clause license').first().click();
+    const licensePage = await licensePagePromise;
+    await expect.poll(() => licensePage.url()).toBe('https://spdx.org/licenses/BSD-3-Clause.html');
+    await licensePage.close();
+    const sourcePagePromise = page.waitForEvent('popup');
+    await page.getByLabel('Open source link for maplibre-gl').click();
+    const sourcePage = await sourcePagePromise;
+    await expect.poll(() => sourcePage.url()).toBe('https://maplibre.org/');
+    await sourcePage.close();
+    await page.getByTestId('profile-settings-back').click();
+    await expect(page.getByTestId('settings-terms-row')).toBeVisible();
 
     await page.getByTestId('settings-terms-row').click();
     await expect(page.getByTestId('terms-screen')).toBeVisible();
@@ -161,9 +181,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
 async function expectProfileTabVisuallySelected(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('tab-profile')).toBeVisible();
-  await expect.poll(async () => {
-    return await page.getByTestId('tab-profile').evaluate((node) => {
-      return window.getComputedStyle(node).backgroundColor;
-    });
-  }).not.toBe('rgba(0, 0, 0, 0)');
+  await expect
+    .poll(async () => {
+      return await page.getByTestId('tab-profile').evaluate((node) => {
+        return window.getComputedStyle(node).backgroundColor;
+      });
+    })
+    .not.toBe('rgba(0, 0, 0, 0)');
 }

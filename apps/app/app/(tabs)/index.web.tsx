@@ -816,7 +816,7 @@ if (typeof document !== 'undefined' && !document.getElementById(MAP_ATTRIBUTION_
       box-shadow: none;
       color: rgb(34, 34, 34);
       font: 12px/20px "Helvetica Neue", Arial, Helvetica, sans-serif;
-      pointer-events: auto;
+      pointer-events: none;
     }
     .maplibregl-ctrl-attrib a {
       color: rgb(34, 34, 34);
