@@ -93,6 +93,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
+import { TAB_BAR_DOCK_HEIGHT } from '@/src/components/navigation/tabBarMetrics';
 import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
@@ -116,6 +117,8 @@ const STYLE_URL = `${API_URL}/tiles/style.json`;
 const FLOATING_ZOOM_CONTROL_RIGHT = 18;
 const FLOATING_ZOOM_CONTROL_TOP = 118;
 const FLOATING_ZOOM_CONTROL_SIZE = 40;
+const MAP_ATTRIBUTION_BOTTOM_GAP = 2;
+const MAP_ATTRIBUTION_BOTTOM_OFFSET = TAB_BAR_DOCK_HEIGHT + MAP_ATTRIBUTION_BOTTOM_GAP;
 const WEB_TOUCH_LONG_PRESS_MS = 550;
 const HOUSE_NUMBER_LAYER_ID = 'housenumber';
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
@@ -786,6 +789,50 @@ if (typeof document !== 'undefined' && !document.getElementById(FLOATING_ZOOM_CO
         pointer-events: none;
         transform: translateY(4px);
         transition: opacity 180ms ease, transform 180ms ease, visibility 0s linear 180ms;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+const MAP_ATTRIBUTION_CSS_ID = 'map-attribution-css';
+if (typeof document !== 'undefined' && !document.getElementById(MAP_ATTRIBUTION_CSS_ID)) {
+  const style = document.createElement('style');
+  style.id = MAP_ATTRIBUTION_CSS_ID;
+  style.textContent = `
+    .maplibregl-ctrl-bottom-left {
+      left: 0;
+      bottom: ${MAP_ATTRIBUTION_BOTTOM_OFFSET}px;
+      z-index: 4;
+      pointer-events: none;
+    }
+    .maplibregl-ctrl-attrib {
+      max-width: min(520px, 100vw);
+      margin: 0 !important;
+      padding: 0 5px;
+      border-radius: 0;
+      background: rgba(255, 255, 255, 0.5);
+      border: 0;
+      box-shadow: none;
+      color: rgb(34, 34, 34);
+      font: 12px/20px "Helvetica Neue", Arial, Helvetica, sans-serif;
+      pointer-events: auto;
+    }
+    .maplibregl-ctrl-attrib a {
+      color: rgb(34, 34, 34);
+      text-decoration: none;
+    }
+    .maplibregl-ctrl-attrib a:hover {
+      text-decoration: underline;
+    }
+    @media (max-width: 640px) {
+      .maplibregl-ctrl-bottom-left {
+        left: 0;
+        bottom: ${MAP_ATTRIBUTION_BOTTOM_OFFSET}px;
+        display: flex;
+      }
+      .maplibregl-ctrl-attrib {
+        max-width: 100vw;
       }
     }
   `;
@@ -1916,6 +1963,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         maxPitch: 70,
         touchPitch: false,
         pitchWithRotate: false,
+        attributionControl: false,
         transformRequest: (url: string) => {
           const token = followingTileAuthTokenRef.current;
           const pattern = followingTileRequestPatternRef.current;
@@ -1957,6 +2005,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       lastSettledAmbientBubbleZoomRef.current = initialMapCamera.zoom;
 
       map.keyboard.disableRotation();
+      map.addControl(new maplibregl.AttributionControl({ compact: false }), 'bottom-left');
 
       const zoomControl = new maplibregl.NavigationControl({
         showZoom: true,

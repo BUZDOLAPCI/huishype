@@ -217,7 +217,7 @@ const OPENFREEMAP_VECTOR_SOURCE = {
   maxzoom: 14,
   bounds: [-180, -85.05113, 180, 85.05113],
   attribution:
-    '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+    '<a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap</a> | <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a>',
 } satisfies Record<string, unknown>;
 const pendingDefaultPropertyTileSnapshotRefreshes = new Set<Promise<unknown>>();
 

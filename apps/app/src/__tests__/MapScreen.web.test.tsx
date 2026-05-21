@@ -567,6 +567,7 @@ jest.mock('maplibre-gl', () => {
     return instance;
   });
 
+  const AttributionControl = jest.fn();
   const NavigationControl = jest.fn();
   const Marker = jest.fn().mockImplementation(() => ({
     setLngLat: jest.fn().mockReturnThis(),
@@ -576,6 +577,7 @@ jest.mock('maplibre-gl', () => {
 
   return {
     Map,
+    AttributionControl,
     Marker,
     NavigationControl,
   };
