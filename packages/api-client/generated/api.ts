@@ -307,7 +307,7 @@ export interface paths {
                             session: {
                                 user: {
                                     id: string;
-                                    username: string;
+                                    handle: string;
                                     displayName: string;
                                     profilePhotoUrl: string | null;
                                     email: string;
@@ -394,7 +394,7 @@ export interface paths {
                             session: {
                                 user: {
                                     id: string;
-                                    username: string;
+                                    handle: string;
                                     displayName: string;
                                     profilePhotoUrl: string | null;
                                     email: string;
@@ -575,7 +575,7 @@ export interface paths {
                         "application/json": {
                             user: {
                                 id: string;
-                                username: string;
+                                handle: string;
                                 displayName: string;
                                 profilePhotoUrl: string | null;
                                 email: string;
@@ -4136,6 +4136,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4206,6 +4208,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4266,7 +4270,11 @@ export interface paths {
                             averageAccuracy: number | null;
                             savedCount: number;
                             likedCount: number;
-                            lastNameChangeAt: string | null;
+                            lastDisplayNameChangeAt: string | null;
+                            lastHandleChangeAt: string | null;
+                            displayNameChangeAvailableAt: string | null;
+                            handleChangeAvailableAt: string | null;
+                            lastNameChangeAt?: string | null;
                         };
                     };
                 };
@@ -4279,6 +4287,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4347,6 +4357,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4415,6 +4427,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4471,6 +4485,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4483,6 +4499,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4495,6 +4513,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4536,6 +4556,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4548,6 +4570,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4560,6 +4584,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4590,6 +4616,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         displayName?: string;
+                        handle?: string;
                         /** Format: uri */
                         profilePhotoUrl?: string;
                         homeCountry?: string | null;
@@ -4607,9 +4634,14 @@ export interface paths {
                             /** Format: uuid */
                             id: string;
                             displayName: string;
+                            handle: string;
                             profilePhotoUrl: string | null;
                             homeCountry: string | null;
-                            lastNameChangeAt: string | null;
+                            lastDisplayNameChangeAt: string | null;
+                            lastHandleChangeAt: string | null;
+                            displayNameChangeAvailableAt: string | null;
+                            handleChangeAvailableAt: string | null;
+                            lastNameChangeAt?: string | null;
                         };
                     };
                 };
@@ -4622,6 +4654,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4634,6 +4668,22 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4646,6 +4696,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -4709,6 +4761,8 @@ export interface paths {
                         "application/json": {
                             error: string;
                             message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
                         };
                     };
                 };
@@ -5934,7 +5988,7 @@ export interface paths {
                             session: {
                                 user: {
                                     id: string;
-                                    username: string;
+                                    handle: string;
                                     displayName: string;
                                     profilePhotoUrl: string | null;
                                     email: string;

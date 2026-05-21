@@ -122,7 +122,7 @@ describe('Auth routes', () => {
         testUserIds.push(secondBody.session.user.id);
 
         expect(secondBody.session.user.id).not.toBe(firstBody.session.user.id);
-        expect(secondBody.session.user.username).not.toBe(firstBody.session.user.username);
+        expect(secondBody.session.user.handle).not.toBe(firstBody.session.user.handle);
       } finally {
         randomSpy.mockRestore();
       }
@@ -157,7 +157,8 @@ describe('Auth routes', () => {
 
       const { user } = session;
       expect(user).toHaveProperty('id');
-      expect(user).toHaveProperty('username');
+      expect(user).toHaveProperty('handle');
+      expect(user).not.toHaveProperty('username');
       expect(user).toHaveProperty('displayName');
       expect(user.email).toBe(`${uniqueId}@gmail.com`);
       expect(user).toHaveProperty('karma');
@@ -462,7 +463,8 @@ describe('Auth routes', () => {
       expect(body).toHaveProperty('user');
       expect(body.user.id).toBe(loginBody.session.user.id);
       expect(body.user).toHaveProperty('email');
-      expect(body.user).toHaveProperty('username');
+      expect(body.user).toHaveProperty('handle');
+      expect(body.user).not.toHaveProperty('username');
       expect(body.user).toHaveProperty('karma');
       expect(body.user).toHaveProperty('karmaRank');
       expect(body.user).not.toHaveProperty('isPlus');

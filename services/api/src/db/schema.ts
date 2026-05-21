@@ -356,6 +356,7 @@ export const users = pgTable(
     isAdmin: boolean('is_admin').notNull().default(false),
     homeCountry: varchar('home_country', { length: 2 }), // ISO 3166-1 alpha-2 country code
     lastDisplayNameChangeAt: timestamp('last_display_name_change_at', { withTimezone: true }),
+    lastUsernameChangeAt: timestamp('last_username_change_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -24,10 +24,10 @@ import {
   achievementHandlers,
   emailAuthHandlers,
   reportHandlers,
-  resetMockFollowState,
   resetMockReports,
   resetMockReadState,
   resetMockSessions,
+  resetMockUserState,
 } from '../handlers/index.js';
 import {
   mockUsers,
@@ -86,6 +86,22 @@ describe('Mock handler runtime parity', () => {
   ].sort();
   const nearbyClusterKeys = [...nearbyGroupedBaseKeys].sort();
 
+  async function loginMockUser(idToken = 'mock-google-token') {
+    const loginResponse = await fetch('http://localhost/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    });
+    const loginBody = (await loginResponse.json()) as {
+      session: { accessToken: string; user: { id: string } };
+    };
+
+    return {
+      token: loginBody.session.accessToken,
+      userId: loginBody.session.user.id,
+    };
+  }
+
   beforeAll(() => {
     server.listen({ onUnhandledRequest: 'error' });
   });
@@ -93,7 +109,7 @@ describe('Mock handler runtime parity', () => {
   afterEach(() => {
     server.resetHandlers();
     resetMockSessions();
-    resetMockFollowState();
+    resetMockUserState();
     resetMockReadState();
     resetMockReports();
   });
@@ -1023,6 +1039,190 @@ describe('Mock handler runtime parity', () => {
         followerCount: 1,
       })
     );
+  });
+
+  it('persists mock profile display name and handle across identity endpoints', async () => {
+    const { token, userId } = await loginMockUser();
+
+    const updateResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        displayName: '  HuisHype Tester  ',
+        handle: '@Fresh_Handle',
+      }),
+    });
+    const updateBody = await updateResponse.json();
+
+    expect(updateResponse.status).toBe(200);
+    expect(updateBody).toMatchObject({
+      id: userId,
+      displayName: 'HuisHype Tester',
+      handle: 'fresh_handle',
+      lastNameChangeAt: expect.any(String),
+    });
+
+    const myProfileResponse = await fetch('http://localhost/users/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await expect(myProfileResponse.json()).resolves.toMatchObject({
+      id: userId,
+      displayName: 'HuisHype Tester',
+      handle: 'fresh_handle',
+    });
+
+    const publicProfileResponse = await fetch(`http://localhost/users/${userId}/profile`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await expect(publicProfileResponse.json()).resolves.toMatchObject({
+      id: userId,
+      displayName: 'HuisHype Tester',
+      handle: 'fresh_handle',
+      relationship: 'self',
+    });
+
+    const searchResponse = await fetch('http://localhost/users/search?q=fresh_handle', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const searchBody = await searchResponse.json();
+    expect(searchResponse.status).toBe(200);
+    expect(searchBody.items[0]).toMatchObject({
+      id: userId,
+      displayName: 'HuisHype Tester',
+      handle: 'fresh_handle',
+    });
+
+    const authMeResponse = await fetch('http://localhost/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await expect(authMeResponse.json()).resolves.toMatchObject({
+      user: {
+        id: userId,
+        displayName: 'HuisHype Tester',
+        username: 'fresh_handle',
+      },
+    });
+  });
+
+  it('validates profile identity updates and duplicate handles', async () => {
+    const { token } = await loginMockUser();
+
+    const invalidDisplayResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ displayName: ' A ' }),
+    });
+    expect(invalidDisplayResponse.status).toBe(400);
+    await expect(invalidDisplayResponse.json()).resolves.toMatchObject({
+      error: 'VALIDATION_ERROR',
+    });
+
+    const invalidHandleResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ handle: '@bad-handle' }),
+    });
+    expect(invalidHandleResponse.status).toBe(400);
+    await expect(invalidHandleResponse.json()).resolves.toMatchObject({
+      error: 'VALIDATION_ERROR',
+    });
+
+    const duplicateResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ handle: 'mariabakker' }),
+    });
+    expect(duplicateResponse.status).toBe(409);
+    await expect(duplicateResponse.json()).resolves.toEqual({
+      error: 'HANDLE_TAKEN',
+      message: 'Handle is already taken.',
+    });
+  });
+
+  it('enforces identity cooldowns without consuming cooldown on no-op updates', async () => {
+    const { token } = await loginMockUser();
+
+    const noOpResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        displayName: '  Jan de Vries  ',
+        handle: '@JANDEVRIES',
+      }),
+    });
+    expect(noOpResponse.status).toBe(200);
+    await expect(noOpResponse.json()).resolves.toMatchObject({
+      displayName: 'Jan de Vries',
+      handle: 'jandevries',
+      lastNameChangeAt: '2026-03-01T10:00:00.000Z',
+    });
+
+    const firstChangeResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        displayName: 'Cooldown Tester',
+        handle: 'cooldown_tester',
+      }),
+    });
+    expect(firstChangeResponse.status).toBe(200);
+
+    const displayCooldownResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ displayName: 'Second Tester' }),
+    });
+    expect(displayCooldownResponse.status).toBe(429);
+    await expect(displayCooldownResponse.json()).resolves.toMatchObject({
+      error: 'DISPLAY_NAME_COOLDOWN',
+    });
+
+    const handleCooldownResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ handle: 'second_tester' }),
+    });
+    expect(handleCooldownResponse.status).toBe(429);
+    await expect(handleCooldownResponse.json()).resolves.toMatchObject({
+      error: 'HANDLE_COOLDOWN',
+    });
+
+    const noOpDuringCooldownResponse = await fetch('http://localhost/users/me/profile', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        displayName: 'Cooldown Tester',
+        handle: '@COOLDOWN_TESTER',
+      }),
+    });
+    expect(noOpDuringCooldownResponse.status).toBe(200);
   });
 
   it('resets follow-state mutations between tests', async () => {

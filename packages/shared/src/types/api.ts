@@ -173,6 +173,7 @@ export type GetMyProfileResponse = MyUserProfile;
 
 export interface UpdateUserProfileRequest {
   displayName?: string;
+  handle?: string;
   profilePhotoUrl?: string;
   homeCountry?: string | null;
 }
@@ -180,9 +181,15 @@ export interface UpdateUserProfileRequest {
 export interface UpdateUserProfileResponse {
   id: string;
   displayName: string;
+  handle: string;
   profilePhotoUrl: string | null;
   homeCountry: string | null;
-  lastNameChangeAt: string | null;
+  lastDisplayNameChangeAt: string | null;
+  lastHandleChangeAt: string | null;
+  displayNameChangeAvailableAt: string | null;
+  handleChangeAvailableAt: string | null;
+  /** @deprecated Use lastDisplayNameChangeAt. */
+  lastNameChangeAt?: string | null;
 }
 
 export interface GetUserGuessHistoryResponse {

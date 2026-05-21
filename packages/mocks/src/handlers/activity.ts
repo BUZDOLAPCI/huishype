@@ -60,7 +60,7 @@ function toActivityActor(userId: string) {
   return {
     id: actor.id,
     displayName: actor.displayName,
-    handle: actor.username,
+    handle: actor.handle,
     profilePhotoUrl: actor.profilePhotoUrl ?? null,
   };
 }
@@ -202,7 +202,7 @@ function mapActivityEvent<TEventType extends ActivityEventType>(
     actor: {
       id: actor.id,
       displayName: actor.displayName,
-      handle: actor.username,
+      handle: actor.handle,
       profilePhotoUrl: actor.profilePhotoUrl ?? null,
     },
     property,

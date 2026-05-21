@@ -10,18 +10,25 @@ import {
   useUserSearch,
   usePublicProfile,
   useUnfollowUser,
+  useUpdateProfile,
   normalizeUserSearchQuery,
   userKeys,
 } from '../useUserProfile';
 import { activityFeedKeys } from '../useActivityFeed';
+import { commentKeys } from '../useComments';
+import { feedKeys } from '../useFeed';
+import { leaderboardKeys } from '../useLeaderboard';
 import { propertyKeys } from '../useProperties';
+import { userActivityKeys } from '../useUserActivity';
 
 const mockFetch = jest.fn();
 const mockGetAccessToken = jest.fn();
+const mockUpdateAuthUserProfile = jest.fn();
 const mockUser = {
   id: 'viewer-1',
   email: 'viewer@example.com',
   displayName: 'Viewer',
+  username: 'viewer',
 };
 
 let mockAuthUser: typeof mockUser | null = mockUser;
@@ -41,6 +48,7 @@ jest.mock('../../providers/AuthProvider', () => ({
     signOut: jest.fn(),
     refreshAuth: jest.fn(),
     getAccessToken: mockGetAccessToken,
+    updateAuthUserProfile: mockUpdateAuthUserProfile,
   }),
 }));
 
@@ -88,6 +96,7 @@ describe('useUserProfile follow surfaces', () => {
     mockAuthUser = mockUser;
     mockAccessToken = null;
     mockGetAccessToken.mockResolvedValue('viewer-token');
+    mockUpdateAuthUserProfile.mockClear();
     mockFetch.mockReset();
     (globalThis as typeof globalThis & { __HUISHYPE_ANALYTICS_EVENTS__?: unknown[] })
       .__HUISHYPE_ANALYTICS_EVENTS__ = [];
@@ -394,6 +403,104 @@ describe('useUserProfile follow surfaces', () => {
         }),
       ])
     );
+  });
+});
+
+describe('useUserProfile profile update', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createQueryClient();
+    mockAuthUser = mockUser;
+    mockAccessToken = null;
+    mockGetAccessToken.mockClear();
+    mockGetAccessToken.mockResolvedValue('viewer-token');
+    mockUpdateAuthUserProfile.mockClear();
+    mockUpdateAuthUserProfile.mockResolvedValue(undefined);
+    mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it('sends narrow identity payloads and syncs auth plus identity query families', async () => {
+    const invalidateQueries = jest.spyOn(queryClient, 'invalidateQueries');
+
+    queryClient.setQueryData(userKeys.me('viewer-1'), {
+      id: 'viewer-1',
+      displayName: 'Viewer',
+      handle: 'viewer',
+      profilePhotoUrl: null,
+      homeCountry: 'NL',
+      karma: 10,
+      karmaRank: { title: 'Contributor', level: 2 },
+      guessCount: 2,
+      commentCount: 1,
+      joinedAt: '2026-01-01T00:00:00.000Z',
+      followerCount: 3,
+      followingCount: 4,
+      relationship: 'self',
+      email: 'viewer@example.com',
+      averageAccuracy: null,
+      savedCount: 1,
+      likedCount: 2,
+      lastNameChangeAt: null,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 'viewer-1',
+        displayName: 'New Viewer',
+        handle: 'new_viewer',
+        profilePhotoUrl: 'https://example.test/avatar.jpg',
+        lastDisplayNameChangeAt: '2026-05-21T10:00:00.000Z',
+        lastHandleChangeAt: '2026-05-21T10:00:00.000Z',
+        displayNameChangeAvailableAt: '2026-05-28T10:00:00.000Z',
+        handleChangeAvailableAt: '2026-06-20T10:00:00.000Z',
+      }),
+    });
+
+    const { result } = renderHook(() => useUpdateProfile(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ handle: 'new_viewer' });
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/users/me/profile',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer viewer-token',
+        },
+        body: JSON.stringify({ handle: 'new_viewer' }),
+      })
+    );
+    expect(mockUpdateAuthUserProfile).toHaveBeenCalledWith({
+      displayName: 'New Viewer',
+      handle: 'new_viewer',
+      profilePhotoUrl: 'https://example.test/avatar.jpg',
+    });
+    expect(queryClient.getQueryData(userKeys.me('viewer-1'))).toEqual(
+      expect.objectContaining({
+        displayName: 'New Viewer',
+        handle: 'new_viewer',
+        profilePhotoUrl: 'https://example.test/avatar.jpg',
+        displayNameChangeAvailableAt: '2026-05-28T10:00:00.000Z',
+        handleChangeAvailableAt: '2026-06-20T10:00:00.000Z',
+      })
+    );
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: userKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: activityFeedKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: userActivityKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: feedKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: commentKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: leaderboardKeys.all });
   });
 });
 

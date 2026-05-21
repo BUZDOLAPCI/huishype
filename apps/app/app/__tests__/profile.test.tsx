@@ -10,6 +10,20 @@ import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity } from '@/src/hooks/useUserActivity';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 
+jest.mock('react-native', () => {
+  const ReactNative = jest.requireActual('react-native');
+  return {
+    ...ReactNative,
+    Alert: {
+      alert: jest.fn(),
+    },
+  };
+});
+
+const mockAlert = jest.requireMock('react-native').Alert as {
+  alert: jest.Mock;
+};
+
 jest.mock('expo-router', () => ({
   router: {
     push: jest.fn(),
@@ -101,6 +115,8 @@ const mockUseUserActivity = useUserActivity as jest.MockedFunction<typeof useUse
 const mockUseHydratedNow = useHydratedNow as jest.MockedFunction<typeof useHydratedNow>;
 
 const signOut = jest.fn().mockResolvedValue(undefined);
+const updateAuthUserProfile = jest.fn().mockResolvedValue(undefined);
+const mutateProfileAsync = jest.fn().mockResolvedValue(undefined);
 const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
 const getRouterPush = () =>
@@ -124,6 +140,7 @@ function seedSignedOutAuth() {
     signOut,
     refreshAuth: jest.fn(),
     getAccessToken: jest.fn(),
+    updateAuthUserProfile,
   });
 }
 
@@ -132,6 +149,7 @@ function seedMocks() {
     user: {
       id: 'user-1',
       username: 'test-user',
+      handle: 'test-user',
       displayName: 'Test User',
       profilePhotoUrl: undefined,
       karma: 42,
@@ -149,6 +167,7 @@ function seedMocks() {
     signOut,
     refreshAuth: jest.fn(),
     getAccessToken: jest.fn(),
+    updateAuthUserProfile,
   });
 
   mockUseMyProfile.mockReturnValue({
@@ -172,13 +191,17 @@ function seedMocks() {
       savedCount: 3,
       likedCount: 4,
       lastNameChangeAt: null,
+      lastDisplayNameChangeAt: null,
+      lastHandleChangeAt: null,
+      displayNameChangeAvailableAt: null,
+      handleChangeAvailableAt: null,
     },
     isLoading: false,
     refetch: jest.fn().mockResolvedValue(undefined),
   } as unknown as ReturnType<typeof useMyProfile>);
 
   mockUseUpdateProfile.mockReturnValue({
-    mutateAsync: jest.fn().mockResolvedValue(undefined),
+    mutateAsync: mutateProfileAsync,
   } as unknown as ReturnType<typeof useUpdateProfile>);
 
   mockUseAchievements.mockReturnValue({
@@ -199,6 +222,7 @@ function seedMocks() {
 describe('ProfileScreen sign out', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mutateProfileAsync.mockResolvedValue(undefined);
     seedMocks();
     Object.defineProperty(Platform, 'OS', {
       configurable: true,
@@ -312,6 +336,128 @@ describe('ProfileScreen sign out', () => {
     fireEvent.press(getByTestId('profile-search-user-button'));
 
     expect(getRouterPush()).toHaveBeenCalledWith('/user/search');
+  });
+
+  it('renders display name above the handle with separate edit buttons', () => {
+    const { getByText, getByTestId } = render(<ProfileScreen />);
+
+    expect(getByText('Test User')).toBeTruthy();
+    expect(getByText('@test-user')).toBeTruthy();
+    expect(getByTestId('profile-display-name-edit')).toBeTruthy();
+    expect(getByTestId('profile-handle-edit')).toBeTruthy();
+  });
+
+  it('saves a trimmed display name from the inline editor', async () => {
+    const { getByTestId, queryByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-display-name-edit'));
+    fireEvent.changeText(getByTestId('profile-display-name-input'), '  New Name  ');
+    fireEvent.press(getByTestId('profile-display-name-save'));
+
+    await waitFor(() => {
+      expect(mutateProfileAsync).toHaveBeenCalledWith({ displayName: 'New Name' });
+    });
+    expect(queryByTestId('profile-display-name-input')).toBeNull();
+  });
+
+  it('normalizes and saves a handle from the inline editor', async () => {
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-handle-edit'));
+    fireEvent.changeText(getByTestId('profile-handle-input'), '  @New_Handle  ');
+    fireEvent.press(getByTestId('profile-handle-save'));
+
+    await waitFor(() => {
+      expect(mutateProfileAsync).toHaveBeenCalledWith({ handle: 'new_handle' });
+    });
+  });
+
+  it('cancels display-name editing without saving', () => {
+    const { getByTestId, queryByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-display-name-edit'));
+    expect(getByTestId('profile-display-name-input')).toBeTruthy();
+
+    fireEvent.press(getByTestId('profile-display-name-cancel'));
+
+    expect(queryByTestId('profile-display-name-input')).toBeNull();
+    expect(getByTestId('profile-display-name-row')).toBeTruthy();
+    expect(mutateProfileAsync).not.toHaveBeenCalled();
+  });
+
+  it('blocks invalid display names and handles before submit', () => {
+    mockAlert.alert.mockClear();
+
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-display-name-edit'));
+    fireEvent.changeText(getByTestId('profile-display-name-input'), ' A ');
+    fireEvent.press(getByTestId('profile-display-name-save'));
+
+    fireEvent.press(getByTestId('profile-handle-edit'));
+    fireEvent.changeText(getByTestId('profile-handle-input'), '@bad-handle');
+    fireEvent.press(getByTestId('profile-handle-save'));
+
+    expect(mockAlert.alert).toHaveBeenCalledWith(
+      'Invalid Display Name',
+      'Display name must be between 2 and 50 characters.'
+    );
+    expect(mockAlert.alert).toHaveBeenCalledWith(
+      'Invalid Handle',
+      'Handle must be 3 to 20 letters, numbers, or underscores.'
+    );
+    expect(mutateProfileAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows cooldown alerts with the next available dates', () => {
+    mockAlert.alert.mockClear();
+    mockUseHydratedNow.mockReturnValue(new Date('2026-05-21T12:00:00.000Z').getTime());
+    mockUseMyProfile.mockReturnValue({
+      data: {
+        id: 'user-1',
+        handle: 'test-user',
+        displayName: 'Test User',
+        profilePhotoUrl: null,
+        karma: 42,
+        karmaRank: {
+          title: 'Contributor',
+          level: 2,
+        },
+        guessCount: 5,
+        commentCount: 2,
+        joinedAt: '2026-01-01T00:00:00.000Z',
+        followerCount: 4,
+        followingCount: 5,
+        relationship: 'self',
+        homeCountry: 'NL',
+        email: 'test@example.com',
+        averageAccuracy: 67,
+        savedCount: 3,
+        likedCount: 4,
+        lastNameChangeAt: null,
+        lastDisplayNameChangeAt: '2026-05-20T00:00:00.000Z',
+        lastHandleChangeAt: '2026-05-01T00:00:00.000Z',
+        displayNameChangeAvailableAt: '2026-05-27T00:00:00.000Z',
+        handleChangeAvailableAt: '2026-05-31T00:00:00.000Z',
+      },
+      isLoading: false,
+      refetch: jest.fn().mockResolvedValue(undefined),
+    } as unknown as ReturnType<typeof useMyProfile>);
+
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-display-name-edit'));
+    fireEvent.press(getByTestId('profile-handle-edit'));
+
+    expect(mockAlert.alert).toHaveBeenCalledWith(
+      'Display Name Cooldown',
+      expect.stringContaining('You can change your display name again on')
+    );
+    expect(mockAlert.alert).toHaveBeenCalledWith(
+      'Handle Cooldown',
+      expect.stringContaining('You can change your handle again on')
+    );
+    expect(mutateProfileAsync).not.toHaveBeenCalled();
   });
 
   it('closes the settings dropdown on web popstate before route navigation', () => {

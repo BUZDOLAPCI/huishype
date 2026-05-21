@@ -10,6 +10,8 @@ export {
   validatePostalCode,
   normalizePostalCode,
   postalCodeSchemaForCountry,
+  normalizeHandle,
+  handleSchema,
   usernameSchema,
   displayNameSchema,
   priceSchema,

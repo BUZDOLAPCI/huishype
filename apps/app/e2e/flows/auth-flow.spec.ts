@@ -103,7 +103,7 @@ test.describe('Auth Flow', () => {
     expect(body.session).toHaveProperty('refreshToken');
     expect(body.session).toHaveProperty('user');
     expect(body.session.user).toHaveProperty('id');
-    expect(body.session.user).toHaveProperty('username');
+    expect(body.session.user).toHaveProperty('handle');
     expect(body.session.user).toHaveProperty('karma');
     expect(body.session.user).toHaveProperty('karmaRank');
   });

@@ -33,6 +33,41 @@ import { withGeneratedUniqueUsername } from '../utils/username.js';
 const TOKEN_TTL_MS = 15 * 60 * 1000;
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
+const authUserSchema = z.object({
+  id: z.string(),
+  handle: z.string(),
+  displayName: z.string(),
+  profilePhotoUrl: z.string().nullable(),
+  email: z.string(),
+  karma: z.number(),
+  karmaRank: z.string(),
+  createdAt: z.string(),
+  isAdmin: z.boolean(),
+});
+
+function authUserPayload(user: {
+  id: string;
+  username: string;
+  displayName: string | null;
+  profilePhotoUrl: string | null;
+  email: string;
+  karma: number;
+  createdAt: Date;
+  isAdmin: boolean;
+}) {
+  return {
+    id: user.id,
+    handle: user.username,
+    displayName: user.displayName || user.username,
+    profilePhotoUrl: user.profilePhotoUrl,
+    email: user.email,
+    karma: user.karma,
+    karmaRank: getKarmaRank(user.karma).title,
+    createdAt: user.createdAt.toISOString(),
+    isAdmin: user.isAdmin,
+  };
+}
+
 function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
@@ -219,17 +254,7 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
         response: {
           200: z.object({
             session: z.object({
-              user: z.object({
-                id: z.string(),
-                username: z.string(),
-                displayName: z.string(),
-                profilePhotoUrl: z.string().nullable(),
-                email: z.string(),
-                karma: z.number(),
-                karmaRank: z.string(),
-                createdAt: z.string(),
-                isAdmin: z.boolean(),
-              }),
+              user: authUserSchema,
               accessToken: z.string(),
               refreshToken: z.string(),
               expiresAt: z.string(),
@@ -316,15 +341,7 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
       return {
         session: {
           user: {
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName || user.username,
-            profilePhotoUrl: user.profilePhotoUrl,
-            email: user.email,
-            karma: user.karma,
-            karmaRank: getKarmaRank(user.karma).title,
-            createdAt: user.createdAt.toISOString(),
-            isAdmin: user.isAdmin,
+            ...authUserPayload(user),
           },
           accessToken,
           refreshToken,

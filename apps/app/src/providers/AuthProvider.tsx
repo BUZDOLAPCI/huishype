@@ -59,6 +59,11 @@ export interface AuthContextValue extends AuthState {
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<boolean>;
   getAccessToken: () => Promise<string | null>;
+  updateAuthUserProfile?: (updates: {
+    displayName?: string;
+    handle?: string;
+    profilePhotoUrl?: string | null;
+  }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -304,6 +309,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return token;
   }, [refreshAuth]);
+
+  const updateAuthUserProfile = useCallback(
+    async (updates: {
+      displayName?: string;
+      handle?: string;
+      profilePhotoUrl?: string | null;
+    }) => {
+      if (!state.user) {
+        return;
+      }
+
+      const nextUser: AuthUser = {
+        ...state.user,
+        ...(updates.displayName !== undefined
+          ? { displayName: updates.displayName }
+          : {}),
+        ...(updates.profilePhotoUrl !== undefined
+          ? { profilePhotoUrl: updates.profilePhotoUrl ?? undefined }
+          : {}),
+        handle: updates.handle ?? state.user.handle,
+        username: updates.handle ?? state.user.username,
+      };
+
+      await setSecureItem(USER_KEY, JSON.stringify(nextUser));
+      setState((prev) => ({
+        ...prev,
+        user: prev.user ? nextUser : prev.user,
+      }));
+    },
+    [state.user]
+  );
 
   useEffect(() => {
     setApiAccessTokenResolver(() => getAccessToken());
@@ -722,6 +758,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signOut,
     refreshAuth,
     getAccessToken,
+    updateAuthUserProfile,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

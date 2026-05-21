@@ -85,7 +85,7 @@ export const guessHandlers = [
           isMemeGuess: false,
           user: {
             id: user?.id ?? guess.userId,
-            username: user?.username ?? 'unknown',
+            username: user?.username ?? user?.handle ?? 'unknown',
             displayName: user?.displayName ?? null,
             karma: user?.karma ?? 0,
             karmaRank: getKarmaRankSummary(user?.karmaRank),

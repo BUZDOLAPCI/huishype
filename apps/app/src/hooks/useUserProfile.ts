@@ -12,7 +12,11 @@ import {
 import { useAuthContext } from '../providers/AuthProvider';
 import { API_URL } from '../utils/api';
 import { activityFeedKeys } from './useActivityFeed';
+import { commentKeys } from './useComments';
+import { feedKeys } from './useFeed';
+import { leaderboardKeys } from './useLeaderboard';
 import { getViewerCacheKey, propertyKeys } from './useProperties';
+import { userActivityKeys } from './useUserActivity';
 import type {
   PublicUserProfile as PublicProfile,
   MyUserProfile as MyProfile,
@@ -60,6 +64,26 @@ export interface UserSearchResponse {
     offset: number;
     hasMore: boolean;
   };
+}
+
+export interface UpdateMyProfileInput {
+  displayName?: string;
+  handle?: string;
+  profilePhotoUrl?: string;
+  homeCountry?: string | null;
+}
+
+export interface UpdateMyProfileResponse {
+  id: string;
+  displayName: string;
+  handle: string;
+  profilePhotoUrl: string | null;
+  homeCountry: string | null;
+  lastDisplayNameChangeAt: string | null;
+  lastHandleChangeAt: string | null;
+  displayNameChangeAvailableAt: string | null;
+  handleChangeAvailableAt: string | null;
+  lastNameChangeAt?: string | null;
 }
 
 export type SocialFollowAnalyticsEventName =
@@ -164,8 +188,8 @@ async function fetchMyProfile(accessToken: string): Promise<MyProfile> {
 
 async function updateMyProfile(
   accessToken: string,
-  data: { displayName?: string; profilePhotoUrl?: string; homeCountry?: string | null }
-): Promise<{ id: string; displayName: string; profilePhotoUrl: string | null; lastNameChangeAt: string | null }> {
+  data: UpdateMyProfileInput
+): Promise<UpdateMyProfileResponse> {
   const resp = await fetch(`${API_URL}/users/me/profile`, {
     method: 'PUT',
     headers: {
@@ -320,16 +344,75 @@ export function useMyProfile() {
 /** Update authenticated user's profile */
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
-  const { getAccessToken } = useAuthContext();
+  const { getAccessToken, updateAuthUserProfile, user } = useAuthContext();
 
   return useMutation({
-    mutationFn: async (data: { displayName?: string; profilePhotoUrl?: string; homeCountry?: string | null }) => {
+    mutationFn: async (data: UpdateMyProfileInput) => {
       const token = await getAccessToken();
       if (!token) throw new Error('Not authenticated');
       return updateMyProfile(token, data);
     },
-    onSuccess: () => {
+    onSuccess: async (updated) => {
+      await updateAuthUserProfile?.({
+        displayName: updated.displayName,
+        handle: updated.handle,
+        profilePhotoUrl: updated.profilePhotoUrl,
+      });
+
+      queryClient.setQueriesData<MyProfile>(
+        {
+          queryKey: userKeys.all,
+          predicate: (query) =>
+            Array.isArray(query.queryKey) &&
+            query.queryKey[0] === 'users' &&
+            query.queryKey[1] === 'me',
+        },
+        (old) =>
+          old
+            ? {
+                ...old,
+                displayName: updated.displayName,
+                handle: updated.handle,
+                profilePhotoUrl: updated.profilePhotoUrl,
+                homeCountry: updated.homeCountry,
+                lastNameChangeAt:
+                  updated.lastDisplayNameChangeAt ?? updated.lastNameChangeAt ?? null,
+                lastDisplayNameChangeAt: updated.lastDisplayNameChangeAt,
+                lastHandleChangeAt: updated.lastHandleChangeAt,
+                displayNameChangeAvailableAt: updated.displayNameChangeAvailableAt,
+                handleChangeAvailableAt: updated.handleChangeAvailableAt,
+              }
+            : old
+      );
+
+      if (user?.id) {
+        queryClient.setQueriesData<PublicProfile>(
+          {
+            queryKey: userKeys.all,
+            predicate: (query) =>
+              Array.isArray(query.queryKey) &&
+              query.queryKey[0] === 'users' &&
+              query.queryKey[1] === 'profile' &&
+              query.queryKey[2] === user.id,
+          },
+          (old) =>
+            old
+              ? {
+                  ...old,
+                  displayName: updated.displayName,
+                  handle: updated.handle,
+                  profilePhotoUrl: updated.profilePhotoUrl,
+                }
+              : old
+        );
+      }
+
       queryClient.invalidateQueries({ queryKey: userKeys.all });
+      queryClient.invalidateQueries({ queryKey: activityFeedKeys.all });
+      queryClient.invalidateQueries({ queryKey: userActivityKeys.all });
+      queryClient.invalidateQueries({ queryKey: feedKeys.all });
+      queryClient.invalidateQueries({ queryKey: commentKeys.all });
+      queryClient.invalidateQueries({ queryKey: leaderboardKeys.all });
     },
   });
 }

@@ -46,6 +46,7 @@ function mockAuthContext(user: { id: string; email?: string } | null) {
           id: user.id,
           email: user.email ?? 'test@example.com',
           username: 'test-user',
+          handle: 'test-user',
           displayName: 'Test User',
           profilePhotoUrl: undefined,
           karma: 42,

@@ -3,6 +3,9 @@ import {
   validatePostalCode,
   normalizePostalCode,
   postalCodeSchemaForCountry,
+  normalizeHandle,
+  handleSchema,
+  displayNameSchema,
   feedQuerySchema,
   propertyFeedFilterSchema,
 } from '../utils/validation';
@@ -165,6 +168,29 @@ describe('postalCodeSchemaForCountry', () => {
   it('GB schema rejects "12345"', () => {
     const schema = postalCodeSchemaForCountry('GB');
     expect(schema.safeParse('12345').success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// profile identity schemas
+// ---------------------------------------------------------------------------
+
+describe('profile identity schemas', () => {
+  it('normalizes handles by trimming, stripping leading @, and lowercasing', () => {
+    expect(normalizeHandle('  @Nieuwe_Handle  ')).toBe('nieuwe_handle');
+    expect(handleSchema.parse('@@Mixed_123')).toBe('mixed_123');
+  });
+
+  it('rejects handles outside the 3-20 letter/number/underscore contract', () => {
+    expect(handleSchema.safeParse('@ab').success).toBe(false);
+    expect(handleSchema.safeParse('has-dash').success).toBe(false);
+    expect(handleSchema.safeParse('a'.repeat(21)).success).toBe(false);
+  });
+
+  it('trims display names and requires 2-50 visible characters', () => {
+    expect(displayNameSchema.parse('  Nieuwe Naam  ')).toBe('Nieuwe Naam');
+    expect(displayNameSchema.safeParse(' A ').success).toBe(false);
+    expect(displayNameSchema.safeParse('x'.repeat(51)).success).toBe(false);
   });
 });
 

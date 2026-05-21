@@ -81,7 +81,7 @@ export const emailAuthHandlers = [
 
     // Find or create user — use first mock user for existing, fifth for new
     const existingUser = mockUsers.find(
-      (u) => pending.email.includes(u.username.toLowerCase().slice(0, 5))
+      (u) => pending.email.includes(u.handle.toLowerCase().slice(0, 5))
     );
     const isNewUser = !existingUser;
     const user = existingUser || mockUsers[4];

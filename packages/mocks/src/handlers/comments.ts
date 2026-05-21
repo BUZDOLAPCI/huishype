@@ -154,7 +154,7 @@ export const commentHandlers = [
       }
       mentionedUser = {
         id: parentComment.userId,
-        username: parentComment.user.username,
+        username: parentComment.user.username ?? parentComment.user.handle,
       };
     }
 
@@ -164,7 +164,8 @@ export const commentHandlers = [
       userId: authUser.id,
       user: {
         id: authUser.id,
-        username: authUser.username,
+        username: authUser.username ?? authUser.handle,
+        handle: authUser.handle,
         displayName: authUser.displayName,
         profilePhotoUrl: authUser.profilePhotoUrl,
         karma: authUser.karma,

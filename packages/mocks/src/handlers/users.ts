@@ -7,8 +7,22 @@
 
 import { http, HttpResponse } from 'msw';
 import type { FollowRelationship, UserSearchItem } from '@huishype/shared';
-import { mockComments, mockGuesses, mockUserIds, mockUserProfiles } from '../data/fixtures.js';
+import {
+  mockComments,
+  mockGuesses,
+  mockUserIds,
+  mockUserIdentityState,
+  mockUserProfiles,
+  mockUsers,
+  resetMockUserIdentityState,
+} from '../data/fixtures.js';
 import { getMockAuthUser } from './auth.js';
+
+const DISPLAY_NAME_COOLDOWN_DAYS = 7;
+const HANDLE_COOLDOWN_DAYS = 30;
+const DISPLAY_NAME_MIN_LENGTH = 2;
+const DISPLAY_NAME_MAX_LENGTH = 50;
+const handlePattern = /^[a-z0-9_]{3,20}$/;
 
 const karmaRankLevels: Record<string, number> = {
   Newcomer: 1,
@@ -86,6 +100,68 @@ function mapKarmaRank(title: string) {
   };
 }
 
+function getIdentityState(userId: string) {
+  let state = mockUserIdentityState.get(userId);
+  if (!state) {
+    state = {
+      lastDisplayNameChangeAt: null,
+      lastUsernameChangeAt: null,
+      homeCountry: null,
+    };
+    mockUserIdentityState.set(userId, state);
+  }
+  return state;
+}
+
+function normalizeHandle(handle: string) {
+  return handle.trim().replace(/^@+/, '').toLowerCase();
+}
+
+function normalizeDisplayName(displayName: string) {
+  return displayName.trim();
+}
+
+function visibleLength(value: string) {
+  return Array.from(value).length;
+}
+
+function addDays(isoDate: string, days: number) {
+  const date = new Date(isoDate);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function isoOrNull(date: Date | null) {
+  return date ? date.toISOString() : null;
+}
+
+function availableAt(lastChangedAt: string | null, cooldownDays: number) {
+  return lastChangedAt ? isoOrNull(addDays(lastChangedAt, cooldownDays)) : null;
+}
+
+function updateUserIdentity(
+  userId: string,
+  updates: {
+    displayName?: string;
+    username?: string;
+    profilePhotoUrl?: string;
+  }
+) {
+  const user = mockUsers.find((item) => item.id === userId);
+  const profile = mockUserProfiles.find((item) => item.id === userId);
+  const nextUpdates = updates.username
+    ? { ...updates, handle: updates.username }
+    : updates;
+
+  if (user) {
+    Object.assign(user, nextUpdates);
+  }
+
+  if (profile) {
+    Object.assign(profile, nextUpdates);
+  }
+}
+
 function buildPublicProfile(userId: string, viewerId: string | null) {
   const profile = mockUserProfiles.find((user) => user.id === userId);
   if (!profile) {
@@ -102,9 +178,9 @@ function buildPublicProfile(userId: string, viewerId: string | null) {
   return {
     id: profile.id,
     displayName: profile.displayName,
-    handle: profile.username,
+    handle: profile.handle,
     profilePhotoUrl: profile.profilePhotoUrl ?? null,
-    homeCountry: null,
+    homeCountry: getIdentityState(profile.id).homeCountry,
     karma: profile.karma,
     karmaRank: mapKarmaRank(profile.karmaRank),
     guessCount,
@@ -128,7 +204,17 @@ function buildMyProfileResponse(userId: string) {
     averageAccuracy: mockUserProfiles.find((user) => user.id === userId)?.averageAccuracy ?? null,
     savedCount: 4,
     likedCount: 7,
-    lastNameChangeAt: '2026-03-01T10:00:00.000Z',
+    lastDisplayNameChangeAt: getIdentityState(userId).lastDisplayNameChangeAt,
+    lastHandleChangeAt: getIdentityState(userId).lastUsernameChangeAt,
+    displayNameChangeAvailableAt: availableAt(
+      getIdentityState(userId).lastDisplayNameChangeAt,
+      DISPLAY_NAME_COOLDOWN_DAYS
+    ),
+    handleChangeAvailableAt: availableAt(
+      getIdentityState(userId).lastUsernameChangeAt,
+      HANDLE_COOLDOWN_DAYS
+    ),
+    lastNameChangeAt: getIdentityState(userId).lastDisplayNameChangeAt,
   };
 }
 
@@ -159,7 +245,7 @@ function listFollowUsers(
       return {
         id: profile.id,
         displayName: profile.displayName,
-        handle: profile.username,
+        handle: profile.handle,
         profilePhotoUrl: profile.profilePhotoUrl ?? null,
         followedAt: new Date(Date.parse('2026-04-18T09:00:00.000Z') - index * 60_000).toISOString(),
         relationship: getRelationship(viewerId, profile.id),
@@ -190,7 +276,7 @@ function normalizeSearchQuery(query: string | null) {
 }
 
 function rankSearchMatch(profile: (typeof mockUserProfiles)[number], query: string) {
-  const username = profile.username.toLowerCase();
+  const username = profile.handle.toLowerCase();
   const displayName = profile.displayName.toLowerCase();
 
   if (username === query) {
@@ -238,7 +324,7 @@ function searchUsers(request: Request) {
         return followerCountDelta;
       }
 
-      return left.profile.username.localeCompare(right.profile.username);
+      return left.profile.handle.localeCompare(right.profile.handle);
     });
 
   const items: UserSearchItem[] = rankedUsers
@@ -246,7 +332,7 @@ function searchUsers(request: Request) {
     .map(({ profile }) => ({
       id: profile.id,
       displayName: profile.displayName,
-      handle: profile.username,
+      handle: profile.handle,
       profilePhotoUrl: profile.profilePhotoUrl ?? null,
       relationship: getRelationship(viewerId, profile.id),
       followerCount: getFollowerCount(profile.id),
@@ -287,17 +373,158 @@ export const userHandlers = [
     }
 
     const body = (await request.json()) as {
-      displayName?: string;
-      profilePhotoUrl?: string;
-      homeCountry?: string | null;
+      displayName?: unknown;
+      handle?: unknown;
+      profilePhotoUrl?: unknown;
+      homeCountry?: unknown;
     };
+    const identityState = getIdentityState(authUser.id);
+    const identityUpdates: {
+      displayName?: string;
+      username?: string;
+      profilePhotoUrl?: string;
+    } = {};
+    let nextDisplayNameChangeAt = identityState.lastDisplayNameChangeAt;
+    let nextUsernameChangeAt = identityState.lastUsernameChangeAt;
+
+    if (body.displayName !== undefined) {
+      if (typeof body.displayName !== 'string') {
+        return HttpResponse.json(
+          { error: 'VALIDATION_ERROR', message: 'Display name must be a string.' },
+          { status: 400 }
+        );
+      }
+
+      const displayName = normalizeDisplayName(body.displayName);
+      const length = visibleLength(displayName);
+
+      if (length < DISPLAY_NAME_MIN_LENGTH || length > DISPLAY_NAME_MAX_LENGTH) {
+        return HttpResponse.json(
+          {
+            error: 'VALIDATION_ERROR',
+            message: `Display name must be between ${DISPLAY_NAME_MIN_LENGTH} and ${DISPLAY_NAME_MAX_LENGTH} characters.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (displayName !== authUser.displayName) {
+        if (identityState.lastDisplayNameChangeAt) {
+          const cooldownEnd = addDays(
+            identityState.lastDisplayNameChangeAt,
+            DISPLAY_NAME_COOLDOWN_DAYS
+          );
+
+          if (new Date() < cooldownEnd) {
+            const nextAvailableAt = cooldownEnd.toISOString();
+            return HttpResponse.json(
+              {
+                error: 'DISPLAY_NAME_COOLDOWN',
+                message: `Display name can only be changed once every ${DISPLAY_NAME_COOLDOWN_DAYS} days.`,
+                nextAvailableAt,
+              },
+              { status: 429 }
+            );
+          }
+        }
+
+        identityUpdates.displayName = displayName;
+        nextDisplayNameChangeAt = new Date().toISOString();
+      }
+    }
+
+    if (body.handle !== undefined) {
+      if (typeof body.handle !== 'string') {
+        return HttpResponse.json(
+          { error: 'VALIDATION_ERROR', message: 'Handle must be a string.' },
+          { status: 400 }
+        );
+      }
+
+      const handle = normalizeHandle(body.handle);
+
+      if (!handlePattern.test(handle)) {
+        return HttpResponse.json(
+          {
+            error: 'VALIDATION_ERROR',
+            message: 'Handle must be 3-20 characters and use only letters, numbers, and underscores.',
+          },
+          { status: 400 }
+        );
+      }
+
+      if (handle !== authUser.handle) {
+        const duplicate = mockUserProfiles.some(
+          (profile) => profile.id !== authUser.id && profile.handle.toLowerCase() === handle
+        );
+
+        if (duplicate) {
+          return HttpResponse.json(
+            { error: 'HANDLE_TAKEN', message: 'Handle is already taken.' },
+            { status: 409 }
+          );
+        }
+
+        if (identityState.lastUsernameChangeAt) {
+          const cooldownEnd = addDays(identityState.lastUsernameChangeAt, HANDLE_COOLDOWN_DAYS);
+
+          if (new Date() < cooldownEnd) {
+            const nextAvailableAt = cooldownEnd.toISOString();
+            return HttpResponse.json(
+              {
+                error: 'HANDLE_COOLDOWN',
+                message: `Handle can only be changed once every ${HANDLE_COOLDOWN_DAYS} days.`,
+                nextAvailableAt,
+              },
+              { status: 429 }
+            );
+          }
+        }
+
+        identityUpdates.username = handle;
+        nextUsernameChangeAt = new Date().toISOString();
+      }
+    }
+
+    if (body.profilePhotoUrl !== undefined) {
+      if (typeof body.profilePhotoUrl !== 'string') {
+        return HttpResponse.json(
+          { error: 'VALIDATION_ERROR', message: 'Profile photo URL must be a string.' },
+          { status: 400 }
+        );
+      }
+
+      identityUpdates.profilePhotoUrl = body.profilePhotoUrl;
+    }
+
+    if (body.homeCountry !== undefined) {
+      identityState.homeCountry =
+        typeof body.homeCountry === 'string' ? body.homeCountry.toUpperCase() : null;
+    }
+
+    updateUserIdentity(authUser.id, identityUpdates);
+    identityState.lastDisplayNameChangeAt = nextDisplayNameChangeAt;
+    identityState.lastUsernameChangeAt = nextUsernameChangeAt;
+
+    const updatedProfile = mockUserProfiles.find((profile) => profile.id === authUser.id) ?? authUser;
 
     return HttpResponse.json({
       id: authUser.id,
-      displayName: body.displayName ?? authUser.displayName,
-      profilePhotoUrl: body.profilePhotoUrl ?? authUser.profilePhotoUrl ?? null,
-      homeCountry: body.homeCountry ?? null,
-      lastNameChangeAt: new Date().toISOString(),
+      displayName: updatedProfile.displayName,
+      handle: updatedProfile.handle,
+      profilePhotoUrl: updatedProfile.profilePhotoUrl ?? null,
+      homeCountry: identityState.homeCountry,
+      lastDisplayNameChangeAt: identityState.lastDisplayNameChangeAt,
+      lastHandleChangeAt: identityState.lastUsernameChangeAt,
+      displayNameChangeAvailableAt: availableAt(
+        identityState.lastDisplayNameChangeAt,
+        DISPLAY_NAME_COOLDOWN_DAYS
+      ),
+      handleChangeAvailableAt: availableAt(
+        identityState.lastUsernameChangeAt,
+        HANDLE_COOLDOWN_DAYS
+      ),
+      lastNameChangeAt: identityState.lastDisplayNameChangeAt,
     });
   }),
 
@@ -444,4 +671,9 @@ export const userHandlers = [
 
 export function resetMockFollowState() {
   followEdges = new Set(initialFollowEdges);
+}
+
+export function resetMockUserState() {
+  resetMockFollowState();
+  resetMockUserIdentityState();
 }

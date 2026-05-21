@@ -102,7 +102,7 @@ function createReport(
           text: comment.content,
           author: {
             id: comment.user.id,
-            username: comment.user.username,
+            username: comment.user.username ?? comment.user.handle,
             displayName: comment.user.displayName,
             karma: comment.user.karma,
           },
@@ -126,7 +126,7 @@ function createReport(
           return user
             ? {
                 id: user.id,
-                username: user.username,
+                username: user.username ?? user.handle,
                 displayName: user.displayName,
                 email: null,
                 karma: user.karma,

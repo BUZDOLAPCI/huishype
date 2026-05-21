@@ -7,11 +7,13 @@
  * - After login, profile content is displayed
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
-import { getPlaywrightArtifactPath } from '../helpers/runtime';
+import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runtime';
 
+const API_BASE_URL = getPlaywrightApiUrl();
 const SCREENSHOT_DIR = getPlaywrightArtifactPath('flows');
+const PROFILE_API_REQUEST_TIMEOUT_MS = 45_000;
 
 // Known acceptable console errors
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
@@ -20,6 +22,30 @@ test.use({ trace: 'off' });
 
 test.describe('Profile Tab Flow', () => {
   let consoleErrors: string[] = [];
+
+  async function createProfileEditSession(request: APIRequestContext) {
+    const unique = `profileedit${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const response = await request.post(`${API_BASE_URL}/auth/google`, {
+      data: {
+        idToken: `mock-google-${unique}-gid${unique}`,
+      },
+      timeout: PROFILE_API_REQUEST_TIMEOUT_MS,
+    });
+
+    expect(response.ok()).toBe(true);
+    const body = await response.json();
+    return body.session as {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: string;
+      user: {
+        id: string;
+        handle: string;
+        username: string;
+        displayName: string;
+      };
+    };
+  }
 
   async function isAnyVisible(
     page: import('@playwright/test').Page,
@@ -140,5 +166,61 @@ test.describe('Profile Tab Flow', () => {
     expect(feedVisible, 'Should navigate from Profile to Feed tab').toBe(true);
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/profile-tab-navigation.png` });
+  });
+
+  test('Signed-in profile edits display name and handle inline', async ({ page, request }) => {
+    const session = await createProfileEditSession(request);
+    const nextDisplayName = `E2E Profile ${Date.now().toString().slice(-5)}`;
+    const nextHandle = `hh${Date.now().toString(36).slice(-10)}`;
+
+    await page.addInitScript((storedSession) => {
+      window.localStorage.setItem('huishype_access_token', storedSession.accessToken);
+      window.localStorage.setItem('huishype_refresh_token', storedSession.refreshToken);
+      window.localStorage.setItem('huishype_token_expiry', storedSession.expiresAt);
+      window.localStorage.setItem('huishype_user', JSON.stringify(storedSession.user));
+    }, session);
+
+    await page.goto('/profile', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid="profile-screen"]', { timeout: 30000 });
+    await expect(page.locator('[data-testid="profile-display-name-row"]')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-testid="profile-handle-row"]')).toContainText(
+      `@${session.user.handle}`,
+    );
+
+    await page.locator('[data-testid="profile-display-name-edit"]').click();
+    await page.locator('[data-testid="profile-display-name-input"]').fill(nextDisplayName);
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().includes('/users/me/profile') && response.request().method() === 'PUT',
+      ),
+      page.locator('[data-testid="profile-display-name-save"]').click(),
+    ]);
+    await expect(page.locator('[data-testid="profile-display-name-row"]')).toContainText(
+      nextDisplayName,
+      { timeout: 15000 },
+    );
+
+    await page.locator('[data-testid="profile-handle-edit"]').click();
+    await page.locator('[data-testid="profile-handle-input"]').fill(`@${nextHandle.toUpperCase()}`);
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().includes('/users/me/profile') && response.request().method() === 'PUT',
+      ),
+      page.locator('[data-testid="profile-handle-save"]').click(),
+    ]);
+    await expect(page.locator('[data-testid="profile-handle-row"]')).toContainText(
+      `@${nextHandle}`,
+      { timeout: 15000 },
+    );
+
+    const storedUser = await page.evaluate(() =>
+      JSON.parse(window.localStorage.getItem('huishype_user') ?? '{}'),
+    );
+    expect(storedUser.displayName).toBe(nextDisplayName);
+    expect(storedUser.handle).toBe(nextHandle);
+
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/profile-identity-edit.png` });
   });
 });

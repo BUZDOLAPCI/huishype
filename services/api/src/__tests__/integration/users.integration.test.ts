@@ -416,7 +416,10 @@ describe('User profile routes', () => {
       expect(body).toHaveProperty('handle');
       expect(body).toHaveProperty('savedCount');
       expect(body).toHaveProperty('likedCount');
-      expect(body).toHaveProperty('lastNameChangeAt');
+      expect(body).toHaveProperty('lastDisplayNameChangeAt');
+      expect(body).toHaveProperty('lastHandleChangeAt');
+      expect(body).toHaveProperty('displayNameChangeAvailableAt');
+      expect(body).toHaveProperty('handleChangeAvailableAt');
       expect(body).toHaveProperty('karmaRank');
       expect(body.relationship).toBe('self');
       expect(body.followerCount).toBe(1);
@@ -435,23 +438,31 @@ describe('User profile routes', () => {
   // ---------- PUT /users/me/profile ----------
 
   describe('PUT /users/me/profile', () => {
-    it('should update display name', async () => {
-      const { accessToken } = await createTestUser('update');
+    it('updates display name and handle with trimming and @ normalization', async () => {
+      const { accessToken, userId } = await createTestUser('update');
 
       const resp = await app.inject({
         method: 'PUT',
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${accessToken}` },
-        payload: { displayName: 'Nieuwe Naam' },
+        payload: { displayName: '  Nieuwe Naam  ', handle: '  @Nieuwe_Handle  ' },
       });
 
       expect(resp.statusCode).toBe(200);
       const body = JSON.parse(resp.body);
       expect(body.displayName).toBe('Nieuwe Naam');
-      expect(body.lastNameChangeAt).toBeTruthy();
+      expect(body.handle).toBe('nieuwe_handle');
+      expect(body.lastDisplayNameChangeAt).toBeTruthy();
+      expect(body.lastHandleChangeAt).toBeTruthy();
+      expect(body.displayNameChangeAvailableAt).toBeTruthy();
+      expect(body.handleChangeAvailableAt).toBeTruthy();
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(stored?.username).toBe('nieuwe_handle');
+      expect(stored?.displayName).toBe('Nieuwe Naam');
     });
 
-    it('should enforce 30-day cooldown on display name change', async () => {
+    it('enforces the 7-day display-name cooldown and returns the next timestamp', async () => {
       const { accessToken } = await createTestUser('cooldown');
 
       // First change — should succeed
@@ -473,21 +484,101 @@ describe('User profile routes', () => {
       expect(second.statusCode).toBe(429);
       const body = JSON.parse(second.body);
       expect(body.error).toBe('DISPLAY_NAME_COOLDOWN');
+      expect(body.nextAvailableAt).toBeTruthy();
+      const firstBody = JSON.parse(first.body);
+      expect(body.nextAvailableAt).toBe(firstBody.displayNameChangeAvailableAt);
     });
 
-    it('should allow updating profile photo without cooldown', async () => {
+    it('enforces the 30-day handle cooldown and returns the next timestamp', async () => {
+      const { accessToken } = await createTestUser('handlecooldown');
+
+      const first = await app.inject({
+        method: 'PUT',
+        url: '/users/me/profile',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { handle: 'first_handle' },
+      });
+      expect(first.statusCode).toBe(200);
+
+      const second = await app.inject({
+        method: 'PUT',
+        url: '/users/me/profile',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { handle: 'second_handle' },
+      });
+      expect(second.statusCode).toBe(429);
+      const body = JSON.parse(second.body);
+      expect(body.error).toBe('HANDLE_COOLDOWN');
+      expect(body.nextAvailableAt).toBe(JSON.parse(first.body).handleChangeAvailableAt);
+    });
+
+    it('does not consume cooldowns for no-op display name and handle saves', async () => {
+      const { accessToken, userId } = await createTestUser('noop');
+      const oldDisplayChange = new Date('2026-01-01T12:00:00.000Z');
+      const oldHandleChange = new Date('2026-01-02T12:00:00.000Z');
+
+      await db
+        .update(users)
+        .set({
+          username: 'noop_handle',
+          displayName: 'Noop Name',
+          lastDisplayNameChangeAt: oldDisplayChange,
+          lastUsernameChangeAt: oldHandleChange,
+        })
+        .where(eq(users.id, userId));
+
+      const resp = await app.inject({
+        method: 'PUT',
+        url: '/users/me/profile',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { displayName: '  Noop Name  ', handle: '@NOOP_HANDLE' },
+      });
+
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body);
+      expect(body.displayName).toBe('Noop Name');
+      expect(body.handle).toBe('noop_handle');
+      expect(body.lastDisplayNameChangeAt).toBe(oldDisplayChange.toISOString());
+      expect(body.lastHandleChangeAt).toBe(oldHandleChange.toISOString());
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(stored?.lastDisplayNameChangeAt?.toISOString()).toBe(oldDisplayChange.toISOString());
+      expect(stored?.lastUsernameChangeAt?.toISOString()).toBe(oldHandleChange.toISOString());
+    });
+
+    it('returns 409 when the requested handle is taken', async () => {
+      const target = await createTestUser('dupetarget');
+      const owner = await createTestUser('dupeowner');
+
+      await db.update(users).set({ username: 'taken_handle' }).where(eq(users.id, owner.userId));
+
+      const resp = await app.inject({
+        method: 'PUT',
+        url: '/users/me/profile',
+        headers: { authorization: `Bearer ${target.accessToken}` },
+        payload: { handle: '@TAKEN_HANDLE' },
+      });
+
+      expect(resp.statusCode).toBe(409);
+      expect(JSON.parse(resp.body).error).toBe('HANDLE_TAKEN');
+    });
+
+    it('allows profile photo and home country updates without identity cooldowns', async () => {
       const { accessToken } = await createTestUser('photo');
 
       const resp = await app.inject({
         method: 'PUT',
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${accessToken}` },
-        payload: { profilePhotoUrl: 'https://example.com/photo.jpg' },
+        payload: { profilePhotoUrl: 'https://example.com/photo.jpg', homeCountry: 'be' },
       });
 
       expect(resp.statusCode).toBe(200);
       const body = JSON.parse(resp.body);
       expect(body.profilePhotoUrl).toBe('https://example.com/photo.jpg');
+      expect(body.homeCountry).toBe('BE');
+      expect(body.lastDisplayNameChangeAt).toBeNull();
+      expect(body.lastHandleChangeAt).toBeNull();
     });
 
     it('should reject too-short display name', async () => {
@@ -498,6 +589,18 @@ describe('User profile routes', () => {
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${accessToken}` },
         payload: { displayName: 'A' },
+      });
+      expect(resp.statusCode).toBe(400);
+    });
+
+    it('rejects invalid handles', async () => {
+      const { accessToken } = await createTestUser('badhandle');
+
+      const resp = await app.inject({
+        method: 'PUT',
+        url: '/users/me/profile',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { handle: '@ab' },
       });
       expect(resp.statusCode).toBe(400);
     });

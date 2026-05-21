@@ -77,6 +77,7 @@ import { AuthProvider, useAuthContext } from '../AuthProvider';
 const STORED_USER = {
   id: 'u1',
   email: 'test@example.com',
+  username: 'test',
   displayName: 'Test',
 };
 
@@ -261,6 +262,38 @@ describe('AuthProvider startup token refresh', () => {
     expect(mockFetch).toHaveBeenCalledWith('http://localhost:3100/auth/me', {
       headers: { Authorization: 'Bearer fresh-access-token' },
     });
+  });
+
+  it('updates the in-memory and persisted auth user after profile sync', async () => {
+    seedStorage({
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      accessToken: 'fresh-access-token',
+    });
+
+    const { result } = renderHook(() => useAuthContext(), { wrapper });
+    await settleAuthBoot();
+
+    await act(async () => {
+      await result.current.updateAuthUserProfile?.({
+        displayName: 'Updated Test',
+        handle: 'updated_test',
+        profilePhotoUrl: null,
+      });
+    });
+
+    expect(result.current.user).toEqual(
+      expect.objectContaining({
+        displayName: 'Updated Test',
+        username: 'updated_test',
+        profilePhotoUrl: undefined,
+      })
+    );
+    expect(JSON.parse(mockSecureStore['huishype_user'] ?? '{}')).toEqual(
+      expect.objectContaining({
+        displayName: 'Updated Test',
+        username: 'updated_test',
+      })
+    );
   });
 
   it('clears auth and stops loading when refresh fails on boot', async () => {

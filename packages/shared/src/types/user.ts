@@ -21,9 +21,11 @@ export type KarmaRank =
  */
 export interface User {
   id: string;
-  /** Unique username handle (cannot be changed) */
-  username: string;
-  /** Display name (can be changed once per 30 days) */
+  /** Public handle backed internally by users.username */
+  handle: string;
+  /** @deprecated Use handle for external API contracts. */
+  username?: string;
+  /** Display name (can be changed once per 7 days) */
   displayName: string;
   /** Profile photo URL (optional) */
   profilePhotoUrl?: string;
@@ -53,6 +55,8 @@ export interface UserProfile extends User {
   badges: UserBadge[];
   /** Date when display name can next be changed */
   displayNameChangeAvailableAt?: string;
+  /** Date when handle can next be changed */
+  handleChangeAvailableAt?: string;
 }
 
 export type FollowRelationship = 'self' | 'none' | 'following' | 'followed_by' | 'mutual';
@@ -83,7 +87,12 @@ export interface MyUserProfile extends PublicUserProfile {
   averageAccuracy: number | null;
   savedCount: number;
   likedCount: number;
-  lastNameChangeAt: string | null;
+  lastDisplayNameChangeAt: string | null;
+  lastHandleChangeAt: string | null;
+  displayNameChangeAvailableAt: string | null;
+  handleChangeAvailableAt: string | null;
+  /** @deprecated Use lastDisplayNameChangeAt. */
+  lastNameChangeAt?: string | null;
 }
 
 export interface FollowListUser {
@@ -160,7 +169,7 @@ export interface UserSession {
  */
 export type UserSummary = Pick<
   User,
-  'id' | 'username' | 'displayName' | 'profilePhotoUrl' | 'karma' | 'karmaRank'
+  'id' | 'handle' | 'username' | 'displayName' | 'profilePhotoUrl' | 'karma' | 'karmaRank'
 >;
 
 /**

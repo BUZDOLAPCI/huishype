@@ -288,6 +288,13 @@
       "when": 1778198400014,
       "tag": "0040_reports_admin_moderation",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1778198400015,
+      "tag": "0041_user_handle_cooldown",
+      "breakpoints": true
     }
   ]
 }

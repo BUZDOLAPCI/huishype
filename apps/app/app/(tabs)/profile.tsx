@@ -41,7 +41,7 @@ import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity'
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 
-import type { AchievementDefinition } from '@huishype/shared';
+import type { AchievementDefinition, MyUserProfile } from '@huishype/shared';
 import { shadows } from '@/src/lib/shadows';
 import { PROFILE_TAB_BAR_SPACER } from '@/src/components/navigation/tabBarMetrics';
 
@@ -61,6 +61,19 @@ const ACTIVITY_LABELS: Record<string, string> = {
   save: 'Saved',
 };
 
+type IdentityField = 'displayName' | 'handle';
+
+type ProfileIdentityCooldowns = MyUserProfile & {
+  lastDisplayNameChangeAt?: string | null;
+  lastHandleChangeAt?: string | null;
+  displayNameChangeAvailableAt?: string | null;
+  handleChangeAvailableAt?: string | null;
+};
+
+const DISPLAY_NAME_COOLDOWN_DAYS = 7;
+const HANDLE_COOLDOWN_DAYS = 30;
+const HANDLE_PATTERN = /^[a-z0-9_]{3,20}$/;
+
 function formatRelativeTime(isoDate: string, nowMs: number): string {
   const diffMs = nowMs - new Date(isoDate).getTime();
   const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
@@ -69,6 +82,24 @@ function formatRelativeTime(isoDate: string, nowMs: number): string {
   const diffDays = Math.floor(diffHrs / 24);
   if (diffDays < 7) return `${diffDays}d`;
   return `${Math.floor(diffDays / 7)}w`;
+}
+
+function addDays(isoDate: string, days: number): number {
+  const date = new Date(isoDate);
+  date.setDate(date.getDate() + days);
+  return date.getTime();
+}
+
+function formatAvailabilityDate(timestampMs: number): string {
+  return new Date(timestampMs).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function normalizeHandleInput(input: string): string {
+  return input.trim().replace(/^@+/, '').toLowerCase();
 }
 
 // --- Settings dropdown ---
@@ -212,8 +243,9 @@ export default function ProfileScreen() {
   const { data: activityData } = useUserActivity();
   const hydratedNow = useHydratedNow();
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState('');
+  const [editingField, setEditingField] = useState<IdentityField | null>(null);
+  const [displayNameDraft, setDisplayNameDraft] = useState('');
+  const [handleDraft, setHandleDraft] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -228,25 +260,53 @@ export default function ProfileScreen() {
     enabled: Platform.OS === 'web',
   });
 
-  const canChangeName = useMemo(() => {
-    if (!profile?.lastNameChangeAt) return true;
-    if (hydratedNow === null) return false;
-    const cooldownEnd = new Date(profile.lastNameChangeAt);
-    cooldownEnd.setDate(cooldownEnd.getDate() + 30);
-    return hydratedNow >= cooldownEnd.getTime();
-  }, [hydratedNow, profile?.lastNameChangeAt]);
+  const identityProfile = profile as ProfileIdentityCooldowns | undefined;
 
-  const nextNameChangeDate = useMemo(() => {
-    if (!profile?.lastNameChangeAt || hydratedNow === null) return null;
-    const cooldownEnd = new Date(profile.lastNameChangeAt);
-    cooldownEnd.setDate(cooldownEnd.getDate() + 30);
-    if (hydratedNow >= cooldownEnd.getTime()) return null;
-    return cooldownEnd.toLocaleDateString(undefined, {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  }, [hydratedNow, profile?.lastNameChangeAt]);
+  const displayNameChangeAvailableAt = useMemo(() => {
+    if (!identityProfile) return null;
+    if (identityProfile.displayNameChangeAvailableAt) {
+      return new Date(identityProfile.displayNameChangeAvailableAt).getTime();
+    }
+    const lastChangedAt =
+      identityProfile.lastDisplayNameChangeAt ?? identityProfile.lastNameChangeAt;
+    return lastChangedAt
+      ? addDays(lastChangedAt, DISPLAY_NAME_COOLDOWN_DAYS)
+      : null;
+  }, [identityProfile]);
+
+  const handleChangeAvailableAt = useMemo(() => {
+    if (!identityProfile) return null;
+    if (identityProfile.handleChangeAvailableAt) {
+      return new Date(identityProfile.handleChangeAvailableAt).getTime();
+    }
+    return identityProfile.lastHandleChangeAt
+      ? addDays(identityProfile.lastHandleChangeAt, HANDLE_COOLDOWN_DAYS)
+      : null;
+  }, [identityProfile]);
+
+  const canChangeDisplayName = useMemo(() => {
+    if (!displayNameChangeAvailableAt) return true;
+    if (hydratedNow === null) return false;
+    return hydratedNow >= displayNameChangeAvailableAt;
+  }, [displayNameChangeAvailableAt, hydratedNow]);
+
+  const canChangeHandle = useMemo(() => {
+    if (!handleChangeAvailableAt) return true;
+    if (hydratedNow === null) return false;
+    return hydratedNow >= handleChangeAvailableAt;
+  }, [handleChangeAvailableAt, hydratedNow]);
+
+  const nextDisplayNameChangeDate = useMemo(() => {
+    if (!displayNameChangeAvailableAt || hydratedNow === null) return null;
+    if (hydratedNow >= displayNameChangeAvailableAt) return null;
+    return formatAvailabilityDate(displayNameChangeAvailableAt);
+  }, [displayNameChangeAvailableAt, hydratedNow]);
+
+  const nextHandleChangeDate = useMemo(() => {
+    if (!handleChangeAvailableAt || hydratedNow === null) return null;
+    if (hydratedNow >= handleChangeAvailableAt) return null;
+    return formatAvailabilityDate(handleChangeAvailableAt);
+  }, [handleChangeAvailableAt, hydratedNow]);
 
   const recentActivities = useMemo(() => {
     if (!activityData?.pages) return [];
@@ -273,36 +333,73 @@ export default function ProfileScreen() {
     setIsRefreshing(false);
   }, [refetch]);
 
-  const handleStartEdit = useCallback(() => {
-    if (!canChangeName) {
+  const handleStartDisplayNameEdit = useCallback(() => {
+    if (!canChangeDisplayName) {
       Alert.alert(
-        'Name Change Cooldown',
-        nextNameChangeDate
-          ? `You can change your display name again on ${nextNameChangeDate}.`
+        'Display Name Cooldown',
+        nextDisplayNameChangeDate
+          ? `You can change your display name again on ${nextDisplayNameChangeDate}.`
           : 'You can change your display name again a little later.'
       );
       return;
     }
-    setEditName(profile?.displayName || '');
-    setIsEditing(true);
-  }, [canChangeName, nextNameChangeDate, profile?.displayName]);
+    setDisplayNameDraft(profile?.displayName || '');
+    setEditingField('displayName');
+  }, [canChangeDisplayName, nextDisplayNameChangeDate, profile?.displayName]);
 
-  const handleSaveEdit = useCallback(async () => {
-    if (editName.length < 2 || editName.length > 50) {
+  const handleStartHandleEdit = useCallback(() => {
+    if (!canChangeHandle) {
       Alert.alert(
-        'Invalid Name',
+        'Handle Cooldown',
+        nextHandleChangeDate
+          ? `You can change your handle again on ${nextHandleChangeDate}.`
+          : 'You can change your handle again a little later.'
+      );
+      return;
+    }
+    setHandleDraft(profile?.handle ? `@${profile.handle}` : '');
+    setEditingField('handle');
+  }, [canChangeHandle, nextHandleChangeDate, profile?.handle]);
+
+  const handleCancelIdentityEdit = useCallback(() => {
+    setEditingField(null);
+  }, []);
+
+  const handleSaveDisplayName = useCallback(async () => {
+    const nextDisplayName = displayNameDraft.trim();
+    if (nextDisplayName.length < 2 || nextDisplayName.length > 50) {
+      Alert.alert(
+        'Invalid Display Name',
         'Display name must be between 2 and 50 characters.'
       );
       return;
     }
     try {
-      await updateProfile.mutateAsync({ displayName: editName });
-      setIsEditing(false);
+      await updateProfile.mutateAsync({ displayName: nextDisplayName });
+      setEditingField(null);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to update name';
       Alert.alert('Error', message);
     }
-  }, [editName, updateProfile]);
+  }, [displayNameDraft, updateProfile]);
+
+  const handleSaveHandle = useCallback(async () => {
+    const nextHandle = normalizeHandleInput(handleDraft);
+    if (!HANDLE_PATTERN.test(nextHandle)) {
+      Alert.alert(
+        'Invalid Handle',
+        'Handle must be 3 to 20 letters, numbers, or underscores.'
+      );
+      return;
+    }
+    try {
+      await updateProfile.mutateAsync({ handle: nextHandle });
+      setEditingField(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update handle';
+      Alert.alert('Error', message);
+    }
+  }, [handleDraft, updateProfile]);
 
   const handleLogout = useCallback(() => {
     setShowSettings(false);
@@ -445,41 +542,107 @@ export default function ProfileScreen() {
             />
           </View>
 
-          {/* Name + Edit */}
-          {isEditing ? (
-            <View style={styles.editRow}>
-              <TextInput
-                value={editName}
-                onChangeText={setEditName}
-                style={styles.editInput}
-                autoFocus
-                maxLength={50}
-              />
-              <Pressable onPress={handleSaveEdit} style={styles.editAction}>
-                <Icon name="Check" size="md" color="#4CAF50" />
-              </Pressable>
-              <Pressable
-                onPress={() => setIsEditing(false)}
-                style={styles.editAction}
-              >
-                <Icon name="X" size="md" color="#E53935" />
-              </Pressable>
-            </View>
-          ) : (
-            <Text style={styles.displayName}>{profile.displayName}</Text>
-          )}
+          <View style={styles.identitySection}>
+            {editingField === 'displayName' ? (
+              <View style={styles.identityEditRow}>
+                <TextInput
+                  value={displayNameDraft}
+                  onChangeText={setDisplayNameDraft}
+                  style={[styles.identityEditInput, styles.displayNameEditInput]}
+                  autoFocus
+                  maxLength={50}
+                  testID="profile-display-name-input"
+                  accessibilityLabel="Display name"
+                />
+                <Pressable
+                  onPress={handleSaveDisplayName}
+                  style={styles.identityActionButton}
+                  testID="profile-display-name-save"
+                  accessibilityRole="button"
+                  accessibilityLabel="Save display name"
+                >
+                  <Icon name="Check" size="md" color="#3F8F43" />
+                </Pressable>
+                <Pressable
+                  onPress={handleCancelIdentityEdit}
+                  style={styles.identityActionButton}
+                  testID="profile-display-name-cancel"
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel display name edit"
+                >
+                  <Icon name="X" size="md" color="#C43D32" />
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.identityDisplayRow} testID="profile-display-name-row">
+                <Text style={styles.displayName} numberOfLines={1}>
+                  {profile.displayName}
+                </Text>
+                <Pressable
+                  onPress={handleStartDisplayNameEdit}
+                  style={styles.identityEditButton}
+                  testID="profile-display-name-edit"
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit display name"
+                >
+                  <Icon name="PencilSimple" size="sm" color="#8A6426" />
+                </Pressable>
+              </View>
+            )}
+
+            {editingField === 'handle' ? (
+              <View style={styles.identityEditRow}>
+                <TextInput
+                  value={handleDraft}
+                  onChangeText={setHandleDraft}
+                  style={[styles.identityEditInput, styles.handleEditInput]}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={21}
+                  testID="profile-handle-input"
+                  accessibilityLabel="Handle"
+                />
+                <Pressable
+                  onPress={handleSaveHandle}
+                  style={styles.identityActionButton}
+                  testID="profile-handle-save"
+                  accessibilityRole="button"
+                  accessibilityLabel="Save handle"
+                >
+                  <Icon name="Check" size="md" color="#3F8F43" />
+                </Pressable>
+                <Pressable
+                  onPress={handleCancelIdentityEdit}
+                  style={styles.identityActionButton}
+                  testID="profile-handle-cancel"
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel handle edit"
+                >
+                  <Icon name="X" size="md" color="#C43D32" />
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.identityDisplayRow} testID="profile-handle-row">
+                <Text style={styles.handleText} numberOfLines={1}>
+                  @{profile.handle}
+                </Text>
+                <Pressable
+                  onPress={handleStartHandleEdit}
+                  style={styles.identityEditButton}
+                  testID="profile-handle-edit"
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit handle"
+                >
+                  <Icon name="PencilSimple" size="sm" color="#8A6426" />
+                </Pressable>
+              </View>
+            )}
+          </View>
 
           {/* Karma Badge */}
           <View style={styles.karmaRow}>
             <KarmaBadge karma={profile.karma} size="md" />
           </View>
-
-          {/* Edit display name link */}
-          {!isEditing && (
-            <Pressable onPress={handleStartEdit}>
-              <Text style={styles.editLink}>Edit display name</Text>
-            </Pressable>
-          )}
 
           <View style={styles.followCountsRow}>
             <Pressable
@@ -700,39 +863,87 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 12,
   },
+  identitySection: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 10,
+  },
+  identityDisplayRow: {
+    maxWidth: '88%',
+    minHeight: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   displayName: {
     fontSize: 20,
     fontWeight: '700',
     color: '#2D2926',
-    marginBottom: 8,
-  },
-  editRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  editInput: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#2D2926',
-    borderBottomWidth: 2,
-    borderBottomColor: '#F5A623',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    minWidth: 160,
+    lineHeight: 26,
+    letterSpacing: 0,
+    flexShrink: 1,
     textAlign: 'center',
   },
-  editAction: {
-    padding: 8,
-    marginLeft: 4,
+  handleText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#857D72',
+    lineHeight: 20,
+    letterSpacing: 0,
+    flexShrink: 1,
+    textAlign: 'center',
+  },
+  identityEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 34,
+  },
+  identityEditInput: {
+    color: '#2D2926',
+    borderBottomWidth: 2,
+    borderBottomColor: '#D69324',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    textAlign: 'center',
+  },
+  displayNameEditInput: {
+    fontSize: 20,
+    fontWeight: '700',
+    minWidth: 160,
+    maxWidth: 250,
+  },
+  handleEditInput: {
+    fontSize: 14,
+    fontWeight: '600',
+    minWidth: 126,
+    maxWidth: 180,
+  },
+  identityEditButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 248, 226, 0.78)',
+    borderWidth: 1,
+    borderColor: 'rgba(214, 147, 36, 0.24)',
+  },
+  identityActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 251, 245, 0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(232, 224, 212, 0.84)',
   },
   karmaRow: {
     marginBottom: 8,
-  },
-  editLink: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#B47712', // gold-700 — AA contrast on white
   },
   followCountsRow: {
     marginTop: 18,

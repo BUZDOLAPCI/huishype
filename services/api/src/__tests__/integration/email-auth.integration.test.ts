@@ -126,6 +126,8 @@ describe('Email auth routes', () => {
       expect(verifyBody.session).toBeDefined();
       expect(verifyBody.session.user).toBeDefined();
       expect(verifyBody.session.user.email).toBe(testEmail);
+      expect(verifyBody.session.user.handle).toBeTruthy();
+      expect(verifyBody.session.user).not.toHaveProperty('username');
       expect(verifyBody.session.accessToken).toBeTruthy();
       expect(verifyBody.session.refreshToken).toBeTruthy();
       expect(verifyBody.isNewUser).toBe(true);

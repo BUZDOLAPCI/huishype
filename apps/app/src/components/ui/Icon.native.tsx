@@ -42,6 +42,7 @@ import {
   MapTrifold,
   Medal,
   PaperPlaneTilt,
+  PencilSimple,
   Plus,
   Ruler,
   ShareNetwork,
@@ -117,6 +118,7 @@ export type IconName =
   | 'MapTrifold'
   | 'Medal'
   | 'PaperPlaneTilt'
+  | 'PencilSimple'
   | 'Plus'
   | 'Ruler'
   | 'ShareNetwork'
@@ -171,6 +173,7 @@ const ICON_MAP: Record<IconName, ComponentType<any>> = {
   MapTrifold,
   Medal,
   PaperPlaneTilt,
+  PencilSimple,
   Plus,
   Ruler,
   ShareNetwork,

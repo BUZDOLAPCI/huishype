@@ -37,7 +37,7 @@ test.describe('Profile user search', () => {
       expiresAt?: string;
       user: {
         id: string;
-        username?: string;
+        handle?: string;
         displayName?: string;
         karma?: number;
         karmaRank?: string;
@@ -57,7 +57,8 @@ test.describe('Profile user search', () => {
         expiresAt: session.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         user: {
           id: session.user.id,
-          username: session.user.username ?? unique,
+          handle: session.user.handle ?? unique,
+          username: session.user.handle ?? unique,
           displayName: session.user.displayName ?? 'Search Viewer',
           karma: session.user.karma ?? 0,
           karmaRank: session.user.karmaRank ?? 'Newcomer',
@@ -83,7 +84,7 @@ test.describe('Profile user search', () => {
             {
               id: session.user.id,
               displayName: 'Search Viewer',
-              handle: session.user.username ?? unique,
+              handle: session.user.handle ?? unique,
               profilePhotoUrl: null,
               relationship: 'self',
               followerCount: 2,

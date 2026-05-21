@@ -83,6 +83,7 @@ function seedSignedInState() {
     user: {
       id: 'viewer-1',
       username: 'viewer-1',
+      handle: 'viewer-1',
       displayName: 'Viewer',
       karma: 10,
       karmaRank: 'Contributor',

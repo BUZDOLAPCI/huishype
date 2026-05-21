@@ -11,7 +11,7 @@ import { db } from '../db/index.js';
 import { users, priceGuesses, comments, savedProperties, reactions } from '../db/schema.js';
 import { getKarmaRank } from '../services/karma.js';
 import { formatDisplayAddress } from '../utils/address.js';
-import { isValidCountryCode } from '@huishype/shared';
+import { isValidCountryCode, updateUserProfileSchema } from '@huishype/shared';
 import {
   ensureUserExists,
   followUser,
@@ -24,10 +24,94 @@ import {
 } from '../services/user-follows.js';
 
 // --- Constants ---
-const DISPLAY_NAME_COOLDOWN_DAYS = 30;
-const DISPLAY_NAME_MIN_LENGTH = 2;
-const DISPLAY_NAME_MAX_LENGTH = 50;
+const DISPLAY_NAME_COOLDOWN_DAYS = 7;
+const HANDLE_COOLDOWN_DAYS = 30;
 const followRelationshipValues = ['self', 'none', 'following', 'followed_by', 'mutual'] as const;
+
+type UserIdentityUpdateError = {
+  code?: string;
+  constraint?: string;
+  constraint_name?: string;
+  detail?: string;
+  cause?: unknown;
+};
+
+function addDays(value: Date, days: number): Date {
+  return new Date(value.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function changeAvailableAt(lastChangedAt: Date | null, cooldownDays: number): Date | null {
+  return lastChangedAt ? addDays(lastChangedAt, cooldownDays) : null;
+}
+
+function isoOrNull(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function isInCooldown(lastChangedAt: Date | null, cooldownDays: number, now: Date): Date | null {
+  const availableAt = changeAvailableAt(lastChangedAt, cooldownDays);
+  return availableAt && now < availableAt ? availableAt : null;
+}
+
+function profileIdentityPayload(user: {
+  id: string;
+  username: string;
+  displayName: string | null;
+  profilePhotoUrl: string | null;
+  homeCountry: string | null;
+  lastDisplayNameChangeAt: Date | null;
+  lastUsernameChangeAt: Date | null;
+}) {
+  const lastDisplayNameChangeAt = isoOrNull(user.lastDisplayNameChangeAt);
+  const displayNameChangeAvailableAt = isoOrNull(
+    changeAvailableAt(user.lastDisplayNameChangeAt, DISPLAY_NAME_COOLDOWN_DAYS)
+  );
+
+  return {
+    id: user.id,
+    displayName: user.displayName || user.username,
+    handle: user.username,
+    profilePhotoUrl: user.profilePhotoUrl,
+    homeCountry: user.homeCountry ?? null,
+    lastDisplayNameChangeAt,
+    lastHandleChangeAt: isoOrNull(user.lastUsernameChangeAt),
+    displayNameChangeAvailableAt,
+    handleChangeAvailableAt: isoOrNull(
+      changeAvailableAt(user.lastUsernameChangeAt, HANDLE_COOLDOWN_DAYS)
+    ),
+    lastNameChangeAt: lastDisplayNameChangeAt,
+  };
+}
+
+function isUsernameUniqueViolation(error: unknown): boolean {
+  const pending: unknown[] = [error];
+
+  while (pending.length > 0) {
+    const candidate = pending.pop();
+    if (!candidate || typeof candidate !== 'object') {
+      continue;
+    }
+
+    const dbError = candidate as UserIdentityUpdateError;
+    if (dbError.code === '23505') {
+      const constraintName = dbError.constraint_name ?? dbError.constraint ?? '';
+      if (
+        constraintName === 'users_username_idx' ||
+        constraintName === 'users_username_key' ||
+        constraintName === 'users_username_unique' ||
+        (dbError.detail ?? '').includes('(username)')
+      ) {
+        return true;
+      }
+    }
+
+    if ('cause' in dbError) {
+      pending.push(dbError.cause);
+    }
+  }
+
+  return false;
+}
 
 // --- Schema Definitions ---
 
@@ -57,7 +141,11 @@ const myProfileSchema = publicProfileSchema.extend({
   averageAccuracy: z.number().nullable(),
   savedCount: z.number(),
   likedCount: z.number(),
-  lastNameChangeAt: z.string().datetime().nullable(),
+  lastDisplayNameChangeAt: z.string().datetime().nullable(),
+  lastHandleChangeAt: z.string().datetime().nullable(),
+  displayNameChangeAvailableAt: z.string().datetime().nullable(),
+  handleChangeAvailableAt: z.string().datetime().nullable(),
+  lastNameChangeAt: z.string().datetime().nullable().optional(),
 });
 
 const followActionResponseSchema = z.object({
@@ -113,18 +201,17 @@ const userSearchResponseSchema = z.object({
   }),
 });
 
-const updateProfileSchema = z.object({
-  displayName: z.string().min(DISPLAY_NAME_MIN_LENGTH).max(DISPLAY_NAME_MAX_LENGTH).optional(),
-  profilePhotoUrl: z.string().url().optional(),
-  homeCountry: z
-    .string()
-    .length(2)
-    .toUpperCase()
-    .refine((val) => isValidCountryCode(val), {
-      message: 'Invalid country code. Must be a supported 2-letter ISO country code.',
-    })
-    .nullable()
-    .optional(),
+const updateProfileResponseSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  handle: z.string(),
+  profilePhotoUrl: z.string().nullable(),
+  homeCountry: z.string().nullable(),
+  lastDisplayNameChangeAt: z.string().datetime().nullable(),
+  lastHandleChangeAt: z.string().datetime().nullable(),
+  displayNameChangeAvailableAt: z.string().datetime().nullable(),
+  handleChangeAvailableAt: z.string().datetime().nullable(),
+  lastNameChangeAt: z.string().datetime().nullable().optional(),
 });
 
 const guessHistoryItemSchema = z.object({
@@ -139,6 +226,7 @@ const guessHistoryItemSchema = z.object({
 const errorResponseSchema = z.object({
   error: z.string(),
   message: z.string(),
+  nextAvailableAt: z.string().datetime().optional(),
 });
 
 export async function userRoutes(fastify: FastifyInstance) {
@@ -321,13 +409,10 @@ export async function userRoutes(fastify: FastifyInstance) {
       const rank = getKarmaRank(user.karma);
       const averageAccuracy = Array.from(averageAccuracyResult)[0]?.average_accuracy ?? null;
       const followCounts = await getFollowRelationshipPayload(userId, userId);
+      const profileIdentity = profileIdentityPayload(user);
 
       return {
-        id: user.id,
-        displayName: user.displayName || user.username,
-        handle: user.username,
-        profilePhotoUrl: user.profilePhotoUrl,
-        homeCountry: user.homeCountry ?? null,
+        ...profileIdentity,
         email: user.email,
         karma: Math.max(0, user.karma),
         karmaRank: rank,
@@ -337,7 +422,6 @@ export async function userRoutes(fastify: FastifyInstance) {
           averageAccuracy != null ? Math.max(0, Math.min(100, Number(averageAccuracy))) : null,
         savedCount: Number(savedCountResult[0].value),
         likedCount: Number(likedCountResult[0].value),
-        lastNameChangeAt: user.lastDisplayNameChangeAt?.toISOString() ?? null,
         joinedAt: user.createdAt.toISOString(),
         followerCount: followCounts.followerCount,
         followingCount: followCounts.followingCount,
@@ -476,24 +560,19 @@ export async function userRoutes(fastify: FastifyInstance) {
       schema: {
         tags: ['Users'],
         summary: 'Update user profile',
-        body: updateProfileSchema,
+        body: updateUserProfileSchema,
         response: {
-          200: z.object({
-            id: z.string().uuid(),
-            displayName: z.string(),
-            profilePhotoUrl: z.string().nullable(),
-            homeCountry: z.string().nullable(),
-            lastNameChangeAt: z.string().datetime().nullable(),
-          }),
+          200: updateProfileResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          409: errorResponseSchema,
           429: errorResponseSchema,
         },
       },
     },
     async (request, reply) => {
       const userId = request.userId!;
-      const { displayName, profilePhotoUrl, homeCountry } = request.body;
+      const { displayName, handle, profilePhotoUrl, homeCountry } = request.body;
 
       const user = await db.query.users.findFirst({
         where: eq(users.id, userId),
@@ -506,51 +585,94 @@ export async function userRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const updates: Record<string, unknown> = {
-        updatedAt: new Date(),
-      };
+      const now = new Date();
+      const updates: Record<string, unknown> = {};
 
-      // Handle display name change with 30-day cooldown
-      if (displayName !== undefined) {
-        if (user.lastDisplayNameChangeAt) {
-          const cooldownEnd = new Date(user.lastDisplayNameChangeAt);
-          cooldownEnd.setDate(cooldownEnd.getDate() + DISPLAY_NAME_COOLDOWN_DAYS);
+      if (displayName !== undefined && displayName !== (user.displayName || user.username)) {
+        const cooldownEnd = isInCooldown(
+          user.lastDisplayNameChangeAt,
+          DISPLAY_NAME_COOLDOWN_DAYS,
+          now
+        );
 
-          if (new Date() < cooldownEnd) {
-            return reply.status(429).send({
-              error: 'DISPLAY_NAME_COOLDOWN',
-              message: `Display name can only be changed once every ${DISPLAY_NAME_COOLDOWN_DAYS} days. Next change available at ${cooldownEnd.toISOString()}`,
-            });
-          }
+        if (cooldownEnd) {
+          const nextAvailableAt = cooldownEnd.toISOString();
+          return reply.status(429).send({
+            error: 'DISPLAY_NAME_COOLDOWN',
+            message: `Display name can only be changed once every ${DISPLAY_NAME_COOLDOWN_DAYS} days.`,
+            nextAvailableAt,
+          });
         }
 
         updates.displayName = displayName;
-        updates.lastDisplayNameChangeAt = new Date();
+        updates.lastDisplayNameChangeAt = now;
       }
 
-      if (profilePhotoUrl !== undefined) {
+      if (handle !== undefined && handle !== user.username) {
+        const existing = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(sql`${users.username} = ${handle} AND ${users.id} <> ${userId}`)
+          .limit(1);
+
+        if (existing.length > 0) {
+          return reply.status(409).send({
+            error: 'HANDLE_TAKEN',
+            message: 'That handle is already taken.',
+          });
+        }
+
+        const cooldownEnd = isInCooldown(user.lastUsernameChangeAt, HANDLE_COOLDOWN_DAYS, now);
+
+        if (cooldownEnd) {
+          const nextAvailableAt = cooldownEnd.toISOString();
+          return reply.status(429).send({
+            error: 'HANDLE_COOLDOWN',
+            message: `Handle can only be changed once every ${HANDLE_COOLDOWN_DAYS} days.`,
+            nextAvailableAt,
+          });
+        }
+
+        updates.username = handle;
+        updates.lastUsernameChangeAt = now;
+      }
+
+      if (profilePhotoUrl !== undefined && profilePhotoUrl !== user.profilePhotoUrl) {
         updates.profilePhotoUrl = profilePhotoUrl;
       }
 
-      if (homeCountry !== undefined) {
+      if (homeCountry !== undefined && homeCountry !== (user.homeCountry ?? null)) {
         updates.homeCountry = homeCountry;
       }
 
-      const [updated] = await db.update(users).set(updates).where(eq(users.id, userId)).returning({
-        id: users.id,
-        displayName: users.displayName,
-        profilePhotoUrl: users.profilePhotoUrl,
-        homeCountry: users.homeCountry,
-        lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
-      });
+      if (Object.keys(updates).length === 0) {
+        return profileIdentityPayload(user);
+      }
 
-      return {
-        id: updated.id,
-        displayName: updated.displayName || user.username,
-        profilePhotoUrl: updated.profilePhotoUrl,
-        homeCountry: updated.homeCountry ?? null,
-        lastNameChangeAt: updated.lastDisplayNameChangeAt?.toISOString() ?? null,
-      };
+      updates.updatedAt = now;
+
+      try {
+        const [updated] = await db.update(users).set(updates).where(eq(users.id, userId)).returning({
+          id: users.id,
+          username: users.username,
+          displayName: users.displayName,
+          profilePhotoUrl: users.profilePhotoUrl,
+          homeCountry: users.homeCountry,
+          lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
+          lastUsernameChangeAt: users.lastUsernameChangeAt,
+        });
+
+        return profileIdentityPayload(updated);
+      } catch (error) {
+        if (isUsernameUniqueViolation(error)) {
+          return reply.status(409).send({
+            error: 'HANDLE_TAKEN',
+            message: 'That handle is already taken.',
+          });
+        }
+
+        throw error;
+      }
     }
   );
 

@@ -47,6 +47,7 @@ export const mockUsers: User[] = [
   {
     id: mockUserIds.jan,
     username: 'jandevries',
+    handle: 'jandevries',
     displayName: 'Jan de Vries',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
     karma: 2500,
@@ -56,6 +57,7 @@ export const mockUsers: User[] = [
   {
     id: mockUserIds.maria,
     username: 'mariabakker',
+    handle: 'mariabakker',
     displayName: 'Maria Bakker',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
     karma: 850,
@@ -65,6 +67,7 @@ export const mockUsers: User[] = [
   {
     id: mockUserIds.pieter,
     username: 'pieterjansen',
+    handle: 'pieterjansen',
     displayName: 'Pieter Jansen',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
     karma: 125,
@@ -74,6 +77,7 @@ export const mockUsers: User[] = [
   {
     id: mockUserIds.sophie,
     username: 'sophiemeijer',
+    handle: 'sophiemeijer',
     displayName: 'Sophie Meijer',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
     karma: 5200,
@@ -83,6 +87,7 @@ export const mockUsers: User[] = [
   {
     id: mockUserIds.newcomer,
     username: 'newuser',
+    handle: 'newuser',
     displayName: 'New User',
     karma: 0,
     karmaRank: 'Newcomer',
@@ -91,6 +96,7 @@ export const mockUsers: User[] = [
   {
     id: mockUserIds.emma,
     username: 'emmavandijk',
+    handle: 'emmavandijk',
     displayName: 'Emma van Dijk',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=emma',
     karma: 1800,
@@ -100,6 +106,7 @@ export const mockUsers: User[] = [
   {
     id: mockUserIds.lars,
     username: 'larshendriks',
+    handle: 'larshendriks',
     displayName: 'Lars Hendriks',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lars',
     karma: 620,
@@ -109,6 +116,7 @@ export const mockUsers: User[] = [
   {
     id: mockUserIds.anna,
     username: 'annadegroot',
+    handle: 'annadegroot',
     displayName: 'Anna de Groot',
     profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=anna',
     karma: 450,
@@ -153,6 +161,55 @@ export const mockUserProfiles: UserProfile[] = mockUsers.map((user, index) => ({
         ]
       : [],
 }));
+
+export interface MockUserIdentityState {
+  lastDisplayNameChangeAt: string | null;
+  lastUsernameChangeAt: string | null;
+  homeCountry: string | null;
+}
+
+const INITIAL_DISPLAY_NAME_CHANGE_AT = '2026-03-01T10:00:00.000Z';
+
+const initialMockUsers: User[] = mockUsers.map((user) => ({ ...user }));
+const initialMockUserProfiles: UserProfile[] = mockUserProfiles.map((profile) => ({
+  ...profile,
+  activeAreas: [...profile.activeAreas],
+  badges: profile.badges.map((badge) => ({ ...badge })),
+}));
+
+export const mockUserIdentityState = new Map<string, MockUserIdentityState>(
+  mockUsers.map((user) => [
+    user.id,
+    {
+      lastDisplayNameChangeAt: INITIAL_DISPLAY_NAME_CHANGE_AT,
+      lastUsernameChangeAt: null,
+      homeCountry: null,
+    },
+  ])
+);
+
+export function resetMockUserIdentityState() {
+  initialMockUsers.forEach((initialUser, index) => {
+    Object.assign(mockUsers[index], initialUser);
+  });
+
+  initialMockUserProfiles.forEach((initialProfile, index) => {
+    Object.assign(mockUserProfiles[index], {
+      ...initialProfile,
+      activeAreas: [...initialProfile.activeAreas],
+      badges: initialProfile.badges.map((badge) => ({ ...badge })),
+    });
+  });
+
+  mockUserIdentityState.clear();
+  initialMockUsers.forEach((user) => {
+    mockUserIdentityState.set(user.id, {
+      lastDisplayNameChangeAt: INITIAL_DISPLAY_NAME_CHANGE_AT,
+      lastUsernameChangeAt: null,
+      homeCountry: null,
+    });
+  });
+}
 
 // ============================================
 // Properties
@@ -462,6 +519,7 @@ export const mockComments: CommentWithReplies[] = [
     user: {
       id: mockUserIds.jan,
       username: 'jandevries',
+      handle: 'jandevries',
       displayName: 'Jan de Vries',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jan',
       karma: 2500,
@@ -482,6 +540,7 @@ export const mockComments: CommentWithReplies[] = [
         user: {
           id: mockUserIds.maria,
           username: 'mariabakker',
+          handle: 'mariabakker',
           displayName: 'Maria Bakker',
           profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
           karma: 850,
@@ -503,6 +562,7 @@ export const mockComments: CommentWithReplies[] = [
         user: {
           id: mockUserIds.sophie,
           username: 'sophiemeijer',
+          handle: 'sophiemeijer',
           displayName: 'Sophie Meijer',
           profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
           karma: 5200,
@@ -524,6 +584,7 @@ export const mockComments: CommentWithReplies[] = [
     user: {
       id: mockUserIds.pieter,
       username: 'pieterjansen',
+      handle: 'pieterjansen',
       displayName: 'Pieter Jansen',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
       karma: 125,
@@ -543,6 +604,7 @@ export const mockComments: CommentWithReplies[] = [
     user: {
       id: mockUserIds.sophie,
       username: 'sophiemeijer',
+      handle: 'sophiemeijer',
       displayName: 'Sophie Meijer',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
       karma: 5200,

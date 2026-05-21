@@ -31,6 +31,8 @@ import type {
   PropertyResolveResponse,
   SearchUsersRequest,
   SearchUsersResponse,
+  UpdateUserProfileRequest,
+  UpdateUserProfileResponse,
 } from '@huishype/shared';
 import { HuisHypeApiClient, createApiClient, ApiError } from '../client.js';
 
@@ -177,6 +179,11 @@ type CanonicalPropertyListingReadItem = {
 type CanonicalPropertyListingsResponse = {
   data: CanonicalPropertyListingReadItem[];
 };
+type CanonicalErrorResponse = {
+  error: string;
+  message: string;
+  nextAvailableAt?: string;
+};
 type CanonicalOpsPropertyTilePyramidResponse = {
   status: 'ok' | 'degraded';
   currentVersionId: string | null;
@@ -247,6 +254,12 @@ type PublicProfileResponseFromOpenApi =
   paths['/users/{id}/profile']['get']['responses'][200]['content']['application/json'];
 type MyProfileResponseFromOpenApi =
   paths['/users/me']['get']['responses'][200]['content']['application/json'];
+type UpdateProfileRequestFromOpenApi =
+  NonNullable<paths['/users/me/profile']['put']['requestBody']>['content']['application/json'];
+type UpdateProfileResponseFromOpenApi =
+  paths['/users/me/profile']['put']['responses'][200]['content']['application/json'];
+type UpdateProfileConflictFromOpenApi =
+  paths['/users/me/profile']['put']['responses'][409]['content']['application/json'];
 type FollowersResponseFromOpenApi =
   paths['/users/me/followers']['get']['responses'][200]['content']['application/json'];
 type FollowingResponseFromOpenApi =
@@ -399,6 +412,10 @@ const feedContractAssertions = [
   true as Assert<IsExact<PropertyResponseFromOpenApi, CanonicalPropertyResponse>>,
   true as Assert<IsExact<PublicProfileResponseFromOpenApi, GetUserProfileResponse>>,
   true as Assert<IsExact<MyProfileResponseFromOpenApi, GetMyProfileResponse>>,
+  true as Assert<IsExact<UpdateProfileRequestFromOpenApi, UpdateUserProfileRequest>>,
+  true as Assert<IsExact<UpdateProfileResponseFromOpenApi, UpdateUserProfileResponse>>,
+  true as Expect<Equal<UpdateProfileConflictFromOpenApi['error'], string>>,
+  true as Expect<Equal<UpdateProfileConflictFromOpenApi['nextAvailableAt'], string | undefined>>,
   true as Assert<IsExact<FollowersResponseFromOpenApi, GetFollowersResponse>>,
   true as Assert<IsExact<FollowingResponseFromOpenApi, GetFollowingResponse>>,
   true as Expect<
@@ -572,7 +589,7 @@ const feedContractAssertions = [
   true as Expect<Equal<HasGeneratedUserSearchPath, '/users/search'>>,
   true as Expect<Equal<UserSearchQueryFromOpenApi['q'], string | undefined>>,
   true as Assert<IsExact<UserSearchResponseFromOpenApi, SearchUsersResponse>>,
-  true as Assert<IsExact<UserSearchErrorFromOpenApi, { error: string; message: string }>>,
+  true as Assert<IsExact<UserSearchErrorFromOpenApi, CanonicalErrorResponse>>,
   true as Assert<
     IsExact<OpsPropertyTilePyramidResponseFromOpenApi, CanonicalOpsPropertyTilePyramidResponse>
   >,

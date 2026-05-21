@@ -34,6 +34,7 @@ export {
   getMockAuthUser,
   resetMockSessions,
   resetMockFollowState,
+  resetMockUserState,
 } from './handlers/index.js';
 
 // Export fixtures for direct use in tests

@@ -51,22 +51,35 @@ export function postalCodeSchemaForCountry(countryCode: CountryCode) {
   );
 }
 
-/** Username: alphanumeric, underscores, 3-20 chars */
-export const usernameSchema = z
+export function normalizeHandle(value: string): string {
+  return value.trim().replace(/^@+/, '').toLowerCase();
+}
+
+/** User handle: alphanumeric, underscores, 3-20 chars */
+export const handleSchema = z
   .string()
-  .min(3, 'Username must be at least 3 characters')
-  .max(20, 'Username must be at most 20 characters')
-  .regex(
-    /^[a-zA-Z0-9_]+$/,
-    'Username can only contain letters, numbers, and underscores'
+  .transform(normalizeHandle)
+  .pipe(
+    z
+      .string()
+      .min(3, 'Handle must be at least 3 characters')
+      .max(20, 'Handle must be at most 20 characters')
+      .regex(/^[a-z0-9_]+$/, 'Handle can only contain letters, numbers, and underscores')
   );
 
-/** Display name: 1-50 chars */
+/** Internal username stores the canonical external handle. */
+export const usernameSchema = handleSchema;
+
+/** Display name: 2-50 visible chars after trimming */
 export const displayNameSchema = z
   .string()
-  .min(1, 'Display name is required')
-  .max(50, 'Display name must be at most 50 characters')
-  .trim();
+  .transform((value) => value.trim())
+  .pipe(
+    z
+      .string()
+      .min(2, 'Display name must be at least 2 characters')
+      .max(50, 'Display name must be at most 50 characters')
+  );
 
 /** Price in euros (positive integer) */
 export const priceSchema = z
@@ -110,6 +123,17 @@ export const authRefreshSchema = z.object({
 
 export const updateUserProfileSchema = z.object({
   displayName: displayNameSchema.optional(),
+  handle: handleSchema.optional(),
+  profilePhotoUrl: z.string().url('Invalid profile photo URL').optional(),
+  homeCountry: z
+    .string()
+    .length(2, 'Home country must be a 2-letter country code')
+    .transform((value) => value.toUpperCase())
+    .refine((value) => isValidCountryCode(value), {
+      message: 'Invalid country code. Must be a supported 2-letter ISO country code.',
+    })
+    .nullable()
+    .optional(),
 });
 
 // ============================================

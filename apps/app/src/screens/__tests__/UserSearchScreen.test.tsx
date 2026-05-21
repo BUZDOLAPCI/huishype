@@ -96,6 +96,7 @@ function seedViewer(user: { id: string } | null = { id: 'viewer-1' }) {
       ? {
           id: user.id,
           username: 'viewer',
+          handle: 'viewer',
           displayName: 'Viewer',
           karma: 0,
           karmaRank: 'Newcomer',

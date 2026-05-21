@@ -24,7 +24,8 @@ export async function createTestUser(request: APIRequestContext, suffix: string 
       return {
         userId: body.session.user.id as string,
         accessToken: body.session.accessToken as string,
-        username: body.session.user.username as string,
+        username: body.session.user.handle as string,
+        handle: body.session.user.handle as string,
       };
     }
 
