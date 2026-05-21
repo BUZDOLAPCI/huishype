@@ -85,7 +85,15 @@ const PROFILE_ROUTE_NAMES = new Set([
   'profile-settings',
   'terms',
   'privacy',
+  'cookies',
+  'data-privacy',
+  'sharing-permissions',
   'contact',
+  'help/index',
+  'help/category/[slug]',
+  'help/article/[slug]',
+  'glossary/index',
+  'glossary/[slug]',
 ]);
 
 /** Palette derived from the selected pen frame. */

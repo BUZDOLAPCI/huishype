@@ -91,7 +91,8 @@ describe('ProfileSettingsScreen', () => {
     const { getByTestId, getByText, queryByText } = render(<ProfileSettingsScreen />);
 
     expect(getByText('Legal')).toBeTruthy();
-    expect(getByText('Need help?')).toBeTruthy();
+    expect(getByText('Help Center')).toBeTruthy();
+    expect(getByText('Contact')).toBeTruthy();
     expect(getByText('Log in')).toBeTruthy();
     expect(queryByText('Account email')).toBeNull();
     expect(queryByText('Terms and Conditions')).toBeNull();
@@ -135,6 +136,9 @@ describe('ProfileSettingsScreen', () => {
     expect(getByTestId('settings-legal-submenu')).toBeTruthy();
     expect(getByText('Terms and Conditions')).toBeTruthy();
     expect(getByText('Privacy Policy')).toBeTruthy();
+    expect(getByText('Cookies')).toBeTruthy();
+    expect(getByText('Data & privacy choices')).toBeTruthy();
+    expect(getByText('Sharing permissions')).toBeTruthy();
     expect(queryByTestId('settings-auth-row')).toBeNull();
 
     fireEvent.press(getByTestId('settings-terms-row'));
@@ -143,14 +147,26 @@ describe('ProfileSettingsScreen', () => {
     fireEvent.press(getByTestId('settings-privacy-row'));
     expect(getRouterPush()).toHaveBeenCalledWith('/privacy');
 
+    fireEvent.press(getByTestId('settings-cookies-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/cookies');
+
+    fireEvent.press(getByTestId('settings-data-privacy-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/data-privacy');
+
+    fireEvent.press(getByTestId('settings-sharing-permissions-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/sharing-permissions');
+
     fireEvent.press(getByTestId('profile-settings-back'));
     expect(getByTestId('settings-auth-row')).toBeTruthy();
   });
 
-  it('navigates the help row to contact', () => {
+  it('navigates help center and contact rows', () => {
     mockAuthContext(null);
 
     const { getByTestId } = render(<ProfileSettingsScreen />);
+
+    fireEvent.press(getByTestId('settings-help-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/help');
 
     fireEvent.press(getByTestId('settings-contact-row'));
 

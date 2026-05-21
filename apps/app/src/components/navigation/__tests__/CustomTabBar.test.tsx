@@ -60,7 +60,15 @@ describe('CustomTabBar', () => {
             { key: 'map-key', name: 'map/[...address]' },
             { key: 'terms-key', name: 'terms' },
             { key: 'privacy-key', name: 'privacy' },
+            { key: 'cookies-key', name: 'cookies' },
+            { key: 'data-privacy-key', name: 'data-privacy' },
+            { key: 'sharing-permissions-key', name: 'sharing-permissions' },
             { key: 'contact-key', name: 'contact' },
+            { key: 'help-key', name: 'help/index' },
+            { key: 'help-category-key', name: 'help/category/[slug]' },
+            { key: 'help-article-key', name: 'help/article/[slug]' },
+            { key: 'glossary-key', name: 'glossary/index' },
+            { key: 'glossary-term-key', name: 'glossary/[slug]' },
           ],
         }}
         descriptors={descriptors}
@@ -77,7 +85,15 @@ describe('CustomTabBar', () => {
     expect(queryByTestId('tab-map/[...address]')).toBeNull();
     expect(queryByTestId('tab-terms')).toBeNull();
     expect(queryByTestId('tab-privacy')).toBeNull();
+    expect(queryByTestId('tab-cookies')).toBeNull();
+    expect(queryByTestId('tab-data-privacy')).toBeNull();
+    expect(queryByTestId('tab-sharing-permissions')).toBeNull();
     expect(queryByTestId('tab-contact')).toBeNull();
+    expect(queryByTestId('tab-help/index')).toBeNull();
+    expect(queryByTestId('tab-help/category/[slug]')).toBeNull();
+    expect(queryByTestId('tab-help/article/[slug]')).toBeNull();
+    expect(queryByTestId('tab-glossary/index')).toBeNull();
+    expect(queryByTestId('tab-glossary/[slug]')).toBeNull();
   });
 
   it('keeps the map tab selected for deep-link map routes', () => {
@@ -108,6 +124,8 @@ describe('CustomTabBar', () => {
             { key: 'terms-key', name: 'terms' },
             { key: 'privacy-key', name: 'privacy' },
             { key: 'contact-key', name: 'contact' },
+            { key: 'help-key', name: 'help/index' },
+            { key: 'glossary-key', name: 'glossary/index' },
           ],
         }}
         descriptors={descriptors}

@@ -87,12 +87,8 @@ export default function ProfileSettingsScreen() {
     setShowAuth(true);
   }, [handleLogout, user]);
 
-  const navigateToTerms = useCallback(() => {
-    router.push('/terms');
-  }, []);
-
-  const navigateToPrivacy = useCallback(() => {
-    router.push('/privacy');
+  const navigateToHelp = useCallback(() => {
+    router.push('/help');
   }, []);
 
   const navigateToContact = useCallback(() => {
@@ -133,7 +129,7 @@ export default function ProfileSettingsScreen() {
           <View testID="settings-legal-submenu">
             <Pressable
               style={styles.row}
-              onPress={navigateToTerms}
+              onPress={() => router.push('/terms')}
               accessibilityRole="button"
               testID="settings-terms-row"
             >
@@ -142,11 +138,38 @@ export default function ProfileSettingsScreen() {
             </Pressable>
             <Pressable
               style={styles.row}
-              onPress={navigateToPrivacy}
+              onPress={() => router.push('/privacy')}
               accessibilityRole="button"
               testID="settings-privacy-row"
             >
               <Text style={styles.rowText}>Privacy Policy</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+            <Pressable
+              style={styles.row}
+              onPress={() => router.push('/cookies')}
+              accessibilityRole="button"
+              testID="settings-cookies-row"
+            >
+              <Text style={styles.rowText}>Cookies</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+            <Pressable
+              style={styles.row}
+              onPress={() => router.push('/data-privacy')}
+              accessibilityRole="button"
+              testID="settings-data-privacy-row"
+            >
+              <Text style={styles.rowText}>Data & privacy choices</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+            <Pressable
+              style={styles.row}
+              onPress={() => router.push('/sharing-permissions')}
+              accessibilityRole="button"
+              testID="settings-sharing-permissions-row"
+            >
+              <Text style={styles.rowText}>Sharing permissions</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
           </View>
@@ -181,11 +204,20 @@ export default function ProfileSettingsScreen() {
             </Pressable>
             <Pressable
               style={styles.row}
+              onPress={navigateToHelp}
+              accessibilityRole="button"
+              testID="settings-help-row"
+            >
+              <Text style={styles.rowText}>Help Center</Text>
+              <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            </Pressable>
+            <Pressable
+              style={styles.row}
               onPress={navigateToContact}
               accessibilityRole="button"
               testID="settings-contact-row"
             >
-              <Text style={styles.rowText}>Need help?</Text>
+              <Text style={styles.rowText}>Contact</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable

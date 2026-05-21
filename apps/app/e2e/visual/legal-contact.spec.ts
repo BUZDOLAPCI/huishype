@@ -7,7 +7,7 @@ import {
   expectNoConsoleErrors,
 } from '../helpers/console';
 
-const EXPECTATION_NAME = 'legal-contact';
+const EXPECTATION_NAME = 'static-support';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
 test.use({ trace: 'off', video: 'off' });
@@ -30,11 +30,68 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expectNoConsoleErrors(consoleErrors);
   });
 
-  test('captures settings legal submenu and direct legal/contact pages', async ({ page }) => {
+  test('captures help, glossary, legal submenu, and contact pages', async ({ page }) => {
     await page.goto('/profile-settings', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('profile-settings-screen')).toBeVisible();
+    await expect(page.getByTestId('settings-help-row')).toBeVisible();
+    await expect(page.getByTestId('settings-contact-row')).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/settings-main-current.png`,
+      fullPage: false,
+    });
+
+    await page.getByTestId('settings-help-row').click();
+    await expect(page.getByTestId('help-screen')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Help Center' })).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/help-hub-current.png`,
+      fullPage: false,
+    });
+
+    await page.getByTestId('help-category-prices-and-valuations').click();
+    await expect(page.getByTestId('help-category-screen')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Prices and valuations' })).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/help-category-current.png`,
+      fullPage: false,
+    });
+
+    await page.getByTestId('category-article-price-guesses').click();
+    await expect(page.getByTestId('help-article-screen')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'How do price guesses work?' })).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/help-article-current.png`,
+      fullPage: false,
+    });
+
+    await page.goto('/glossary', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('glossary-screen')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Glossary' })).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/glossary-current.png`,
+      fullPage: false,
+    });
+
+    await page.getByTestId('glossary-term-woz-value').click();
+    await expect(page.getByTestId('glossary-term-screen')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'WOZ value' })).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/glossary-term-current.png`,
+      fullPage: false,
+    });
+
+    await page.goto('/profile-settings', { waitUntil: 'domcontentloaded' });
     await page.getByTestId('settings-legal-row').click();
     await expect(page.getByTestId('settings-legal-submenu')).toBeVisible();
+    await expect(page.getByTestId('settings-cookies-row')).toBeVisible();
+    await expect(page.getByTestId('settings-data-privacy-row')).toBeVisible();
+    await expect(page.getByTestId('settings-sharing-permissions-row')).toBeVisible();
     await expectProfileTabVisuallySelected(page);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/settings-legal-current.png`,
@@ -43,7 +100,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     await page.getByTestId('settings-terms-row').click();
     await expect(page.getByTestId('terms-screen')).toBeVisible();
-    await expect(page.getByText('Last updated: May 20, 2026')).toBeVisible();
+    await expect(page.getByText('Last updated: May 21, 2026')).toBeVisible();
     await expectProfileTabVisuallySelected(page);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/terms-current.png`,
@@ -53,12 +110,27 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/privacy', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('privacy-screen')).toBeVisible();
     await expect(page.getByText('Privacy Policy')).toBeVisible();
-    await expect(page.getByText(/EU or UK data protection law/)).toBeVisible();
+    await expect(page.getByText(/including in the EU/)).toBeVisible();
     await expectProfileTabVisuallySelected(page);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/privacy-current.png`,
       fullPage: false,
     });
+
+    await page.goto('/cookies', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('cookies-screen')).toBeVisible();
+    await expect(page.getByText('Cookie Policy')).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+
+    await page.goto('/data-privacy', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('data-privacy-screen')).toBeVisible();
+    await expect(page.getByText('Data and Privacy Choices')).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+
+    await page.goto('/sharing-permissions', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('sharing-permissions-screen')).toBeVisible();
+    await expect(page.getByText('Sharing Permissions')).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
 
     await page.goto('/contact', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('contact-screen')).toBeVisible();

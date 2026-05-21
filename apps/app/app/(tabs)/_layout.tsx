@@ -55,7 +55,55 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="cookies"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="data-privacy"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="sharing-permissions"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="contact"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="help/index"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="help/category/[slug]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="help/article/[slug]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="glossary/index"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="glossary/[slug]"
         options={{
           href: null,
         }}
