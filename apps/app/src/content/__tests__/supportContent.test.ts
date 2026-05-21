@@ -41,6 +41,17 @@ const representativeSourceConcepts: Array<{
     ],
   },
   {
+    sourceUrl: `${SOURCE}/begrippenlijst/bieden-onder-voorbehoud`,
+    targetId: 'conditional-offer',
+    concepts: [
+      /financing approval/i,
+      /building inspection/i,
+      /withdrawal[\s\S]*serious financial consequences/i,
+      /around 10% of the agreed purchase price/i,
+      /does not submit conditional offers/i,
+    ],
+  },
+  {
     sourceUrl: `${SOURCE}/begrippenlijst/biedlogboek`,
     targetId: 'bid-logbook',
     concepts: [
@@ -82,6 +93,56 @@ const representativeSourceConcepts: Array<{
     ],
   },
   {
+    sourceUrl: `${SOURCE}/begrippenlijst/in-prijs-verlaagd`,
+    targetId: 'price-reductions',
+    concepts: [
+      /decrease in the asking price/i,
+      /seller strategy/i,
+      /price-history signals/i,
+      /Confirm the current asking price/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/10275/hoe-werkt-de-tijdlijn-met-prijsaanpassingen`,
+    targetId: 'price-history',
+    concepts: [
+      /timeline of known price changes/i,
+      /asking-price increases/i,
+      /reductions/i,
+      /confirm live asking price/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/begrippenlijst/alleen-bij-goed-bod`,
+    targetId: 'availability-status',
+    concepts: [
+      /only worth discussing if the owner receives a strong offer/i,
+      /owner intent/i,
+      /no fixed asking price/i,
+      /good offer is subjective/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/10413/hoe-zet-ik-mijn-woning-op-open-voor-interesse`,
+    targetId: 'availability-status',
+    concepts: [
+      /owner intent/i,
+      /rather than a live listing/i,
+      /no active sale process/i,
+      /no obligation for the owner to respond/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/10417/wat-is-de-richtprijs-bij-open-voor-interesse`,
+    targetId: 'price-guesses',
+    concepts: [
+      /orientation signals/i,
+      /not recommended offer amounts/i,
+      /not calculated to win a property/i,
+      /not sent to the seller or agent/i,
+    ],
+  },
+  {
     sourceUrl: `${SOURCE}/help/artikel/10509/kan-ik-mijn-wadres-laten-verwijderen`,
     targetId: 'remove-property-address',
     concepts: [
@@ -89,6 +150,55 @@ const representativeSourceConcepts: Array<{
       /factual errors/i,
       /photos, sensitive information/i,
       /does not automatically erase public property facts/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/356/wat-is-een-woningprofiel`,
+    targetId: 'property-pages',
+    concepts: [
+      /app page for an address/i,
+      /listing-source links/i,
+      /official values/i,
+      /not proof that a home is available/i,
+      /Corrections/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/10412/hoe-claim-ik-mijn-woning`,
+    targetId: 'account-login',
+    concepts: [
+      /prove their relationship to a property/i,
+      /previous owner/i,
+      /property URL/i,
+      /Do not post ownership proof/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/431/ik-wil-geen-e-mails-ontvangen-hoe-stel-ik-dat-in`,
+    targetId: 'account-login',
+    concepts: [
+      /notification preference/i,
+      /unwanted messages/i,
+      /non-essential notifications/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/433/ik-ben-mijn-wachtwoord-vergeten`,
+    targetId: 'account-login',
+    concepts: [
+      /magic link/i,
+      /does not require a separate password/i,
+      /check spam folders/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/362/hoe-deel-ik-suggesties-of-feedback`,
+    targetId: 'contact-support',
+    concepts: [
+      /product feedback/i,
+      /what you expected to happen/i,
+      /web, iOS, Android/i,
+      /wrong property data/i,
     ],
   },
   {
@@ -270,6 +380,14 @@ describe('support content registry', () => {
       )
     ).toMatchObject({
       status: 'excluded',
+    });
+    expect(coverageByUrl.get('https://huispedia.nl/begrippenlijst/alles-over-kopen')).toMatchObject({
+      status: 'merged',
+      targetId: 'search-and-browse',
+    });
+    expect(coverageByUrl.get('https://huispedia.nl/begrippenlijst/alles-over-verkopen')).toMatchObject({
+      status: 'merged',
+      targetId: 'owner-listing-source-workflows',
     });
   });
 

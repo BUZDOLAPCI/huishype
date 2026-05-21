@@ -187,7 +187,7 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['search-and-browse', 'price-guesses', 'listing-source-links'],
+    relatedIds: ['property-pages', 'search-and-browse', 'price-guesses', 'listing-source-links'],
     sourceUrls: [
       `${SOURCE}/help/artikel/353/wat-is-huispedia`,
       `${SOURCE}/help/artikel/7298/hoe-werkt-huispedia`,
@@ -196,6 +196,40 @@ export const supportArticles: SupportArticle[] = [
       `${SOURCE}/help`,
       `${SOURCE}/help/zoeken`,
     ],
+    status: 'adapted',
+  },
+  {
+    id: 'property-pages',
+    slug: 'property-pages',
+    title: 'What is on a property page?',
+    summary: 'A property page combines address facts, source links, price signals, and public activity when available.',
+    category: 'basics',
+    audience: 'everyone',
+    bodySections: [
+      {
+        title: 'What a page can show',
+        paragraphs: [
+          'A HuisHype property page is the app page for an address or listing-backed home. It can show address details, property characteristics, listing-source links, photos or status signals, price history, official values where available, comments, saves, reactions, and price guesses.',
+          'The page may look different from home to home because source data, public records, listing availability, photos, sale-price history, and community activity are not equally available for every address.',
+        ],
+      },
+      {
+        title: 'For listed and unlisted homes',
+        paragraphs: [
+          'For a home with a current listing, the page may help you compare asking price, listing status, price insight, and activity around that source listing. For a home without a current listing, the page can still be useful for address context, public property data, official values where available, and crowd price opinion.',
+          'A property page is not proof that a home is available, for sale, for rent, or open to offers. Always verify transaction facts with the original source, owner, agent, landlord, or official register.',
+        ],
+      },
+      {
+        title: 'Corrections',
+        paragraphs: [
+          'If your property page shows wrong floor area, status, photos, source links, or other facts, report the exact field and include evidence such as an official record, current listing, or owner or agent confirmation.',
+          'HuisHype can review its own display and correction queue. If the underlying public register or listing source is wrong, that source may also need to be corrected before every display changes.',
+        ],
+      },
+    ],
+    relatedIds: ['what-is-huishype', 'incorrect-property-data', 'price-guesses', 'availability-status'],
+    sourceUrls: [`${SOURCE}/help/artikel/356/wat-is-een-woningprofiel`],
     status: 'adapted',
   },
   {
@@ -265,6 +299,13 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
       {
+        title: 'Not bid advice',
+        paragraphs: [
+          'Some market tools describe a realistic bid, low bid, or all-in amount as bid advice. In HuisHype, price guesses and price labels are only orientation signals.',
+          'They are not recommended offer amounts, not instructions to overbid or underbid, not calculated to win a property, and not sent to the seller or agent.',
+        ],
+      },
+      {
         title: 'Use it as context',
         paragraphs: [
           'Compare guesses with asking price, official valuation where available, source listings, and professional advice. The real sale price or rental outcome can differ from any estimate shown in the app.',
@@ -286,8 +327,8 @@ export const supportArticles: SupportArticle[] = [
       `${SOURCE}/help/artikel/10271/hoe-kiest-huispedia-vergelijkbare-woningen`,
       `${SOURCE}/help/artikel/10273/hoe-check-je-het-biedgedrag-in-de-buurt`,
       `${SOURCE}/help/artikel/10274/hoe-wordt-de-waardeontwikkeling-berekend`,
-      `${SOURCE}/help/artikel/10275/hoe-werkt-de-tijdlijn-met-prijsaanpassingen`,
       `${SOURCE}/help/artikel/10277/wat-zegt-de-populariteit-van-een-woning`,
+      `${SOURCE}/help/artikel/10417/wat-is-de-richtprijs-bij-open-voor-interesse`,
     ],
     status: 'merged',
   },
@@ -381,7 +422,7 @@ export const supportArticles: SupportArticle[] = [
       {
         title: 'No bidding flow',
         paragraphs: [
-          'HuisHype does not submit offers, run public or private bidding, act like an auction, schedule viewings, or negotiate with sellers, landlords, or agents.',
+          'HuisHype does not take, route, verify, register, compare, or submit bids. It does not run open or closed bidding rounds, set bidding deadlines, share bid logs, verify bidders, help sellers choose an offer, act like an auction, schedule viewings, or negotiate with sellers, landlords, or agents.',
           'If you want to make an offer or ask about a transaction, use the original listing source or contact the responsible professional directly.',
         ],
       },
@@ -398,8 +439,15 @@ export const supportArticles: SupportArticle[] = [
           'For buying, ask the agent or seller how offers must be submitted and what conditions, deadlines, documents, and bid transparency rules apply. For renting, verify identity, contract terms, deposits, and viewing arrangements through traceable channels.',
         ],
       },
+      {
+        title: 'Conditions and withdrawal risk',
+        paragraphs: [
+          'A real offer can include conditions such as financing, a building inspection, document review, transfer timing, or included items. Those conditions can affect whether a buyer can withdraw without serious financial consequences.',
+          'Submitting or signing without conditions can be risky. In some Dutch purchase situations, withdrawal after the cooling-off period can trigger a contractual penalty, often discussed as around 10% of the agreed purchase price. Check the exact contract and get professional advice before relying on this.',
+        ],
+      },
     ],
-    relatedIds: ['price-guesses', 'online-bidding', 'bid-logbook', 'listing-source-links'],
+    relatedIds: ['price-guesses', 'conditional-offer', 'online-bidding', 'bid-logbook', 'listing-source-links'],
     sourceUrls: [
       `${SOURCE}/help/categorie/18/huispedia-online-bieden`,
       `${SOURCE}/help/artikel/7856/wat-is-huispedia-online-bieden`,
@@ -439,9 +487,6 @@ export const supportArticles: SupportArticle[] = [
     sourceUrls: [
       `${SOURCE}/help/artikel/10201/hoe-komt-huispedia-aan-de-gegevens-van-mijn-woning`,
       `${SOURCE}/help/artikel/366/mijn-woning-staat-op-huispedia-hoe-kan-dat`,
-      `${SOURCE}/help/artikel/10413/hoe-zet-ik-mijn-woning-op-open-voor-interesse`,
-      `${SOURCE}/help/artikel/10417/wat-is-de-richtprijs-bij-open-voor-interesse`,
-      `${SOURCE}/help/artikel/400/wat-betekent-op-termijn-beschikbaar`,
     ],
     status: 'merged',
   },
@@ -688,11 +733,25 @@ export const supportArticles: SupportArticle[] = [
         title: 'When login is needed',
         paragraphs: [
           'You can browse without an account. HuisHype may ask you to log in when you save a property, post a comment, react, submit a price guess, or manage profile-related activity.',
-          'If you use email login, follow the magic link or verification flow shown in the app. If the email does not arrive, check spam folders and confirm that you used the intended address.',
+          'If you use email login, follow the magic link or verification flow shown in the app. HuisHype does not require a separate password for magic-link login. If the email does not arrive, check spam folders and confirm that you used the intended address.',
+        ],
+      },
+      {
+        title: 'Email address and preferences',
+        paragraphs: [
+          'Use the account area when an email address, display details, or notification preference can be changed in the app. Save the change before leaving the screen, then check the new inbox if the app asks you to verify it.',
+          'If a setting is not available yet, contact support from the email address currently linked to your account and explain the change you need. For unwanted messages, include the email address receiving them and whether you want fewer product emails, support replies, or all non-essential notifications stopped.',
+        ],
+      },
+      {
+        title: 'Owner links and property access',
+        paragraphs: [
+          'HuisHype may ask account users to prove their relationship to a property before owner-specific corrections or sensitive requests are handled. That can involve the property page, your account email, address details, and evidence that you are the owner, resident, agent, landlord, or otherwise authorized.',
+          'If a home appears connected to a previous owner or the wrong person, contact support with the property URL, your role, and evidence for the correction. Do not post ownership proof or identity documents in public comments.',
         ],
       },
     ],
-    relatedIds: ['saving-properties', 'delete-account-or-data'],
+    relatedIds: ['saving-properties', 'delete-account-or-data', 'incorrect-property-data', 'contact-support'],
     sourceUrls: [
       `${SOURCE}/help/artikel/10411/hoe-kan-ik-mijn-e-mail-wijzigen`,
       `${SOURCE}/help/artikel/10412/hoe-claim-ik-mijn-woning`,
@@ -739,10 +798,7 @@ export const supportArticles: SupportArticle[] = [
       },
     ],
     relatedIds: ['terms', 'contact-support'],
-    sourceUrls: [
-      `${SOURCE}/help/artikel/362/hoe-deel-ik-suggesties-of-feedback`,
-      `${SOURCE}/begrippenlijst/zoeken`,
-    ],
+    sourceUrls: [`${SOURCE}/begrippenlijst/zoeken`],
     status: 'merged',
   },
   {
@@ -831,9 +887,19 @@ export const supportArticles: SupportArticle[] = [
           'For privacy or account requests, contact us from the email address linked to your account when possible.',
         ],
       },
+      {
+        title: 'Feedback and bugs',
+        paragraphs: [
+          'For product feedback, send the screen or flow involved, what you expected to happen, what actually happened, and whether you saw the issue on web, iOS, Android, or another device.',
+          'For wrong property data, include the property page and the exact field to review. For ideas or critical feedback, describe the use case rather than posting private account or property evidence in a public comment.',
+        ],
+      },
     ],
-    relatedIds: ['incorrect-property-data', 'data-privacy'],
-    sourceUrls: [`${SOURCE}/help/artikel/364/huispedia-zakelijk`],
+    relatedIds: ['incorrect-property-data', 'account-login', 'data-privacy'],
+    sourceUrls: [
+      `${SOURCE}/help/artikel/362/hoe-deel-ik-suggesties-of-feedback`,
+      `${SOURCE}/help/artikel/364/huispedia-zakelijk`,
+    ],
     status: 'merged',
   },
 ];
@@ -899,6 +965,7 @@ export const glossaryTerms: GlossaryTerm[] = [
     `${SOURCE}/begrippenlijst/prijshistorie-van-een-huis`,
     `${SOURCE}/begrippenlijst/prijsaanpassingen-van-een-huis`,
     `${SOURCE}/begrippenlijst/prijsinzicht-van-een-huis`,
+    `${SOURCE}/help/artikel/10275/hoe-werkt-de-tijdlijn-met-prijsaanpassingen`,
   ], [
     section('What it shows', [
       'Price history is a timeline of known price changes for a property, such as asking-price increases, reductions, relists, or available sale-price information.',
@@ -924,7 +991,10 @@ export const glossaryTerms: GlossaryTerm[] = [
       'HuisHype may show price guesses and property signals to help orientation. They are not bids, valuation reports, mortgage checks, or promises about the eventual sale price.',
     ]),
   ], ['market-value', 'price-guesses', 'valuation', 'woz-value']),
-  term('price-reductions', 'price-reductions', 'Price reductions and adjustments', 'Changes to a property asking price or price display over time.', 'prices', [`${SOURCE}/begrippenlijst/prijsaanpassingen-van-een-huis`], [
+  term('price-reductions', 'price-reductions', 'Price reductions and adjustments', 'Changes to a property asking price or price display over time.', 'prices', [
+    `${SOURCE}/begrippenlijst/prijsaanpassingen-van-een-huis`,
+    `${SOURCE}/begrippenlijst/in-prijs-verlaagd`,
+  ], [
     section('What they are', [
       'A price reduction is a decrease in the asking price or public price display. A price adjustment can also be an increase, relist, correction, or source refresh that changes how a price appears.',
       'Price changes usually reflect seller strategy, market feedback, limited interest, renewed marketing, corrected information, or changed circumstances. One adjustment does not explain the whole transaction.',
@@ -1031,7 +1101,20 @@ export const glossaryTerms: GlossaryTerm[] = [
     section('In HuisHype', [
       'HuisHype price guesses can support orientation, but they are not bidding advice and do not create an offer. A real bid should be checked through the correct transaction channel and, when needed, with an adviser.',
     ]),
-  ], ['all-in-bidding', 'opening-bid', 'price-guesses']),
+  ], ['conditional-offer', 'all-in-bidding', 'opening-bid', 'price-guesses']),
+  term('conditional-offer', 'conditional-offer', 'Conditional offer', 'A real property offer that includes conditions such as financing or inspection.', 'buying', [`${SOURCE}/begrippenlijst/bieden-onder-voorbehoud`], [
+    section('What it means', [
+      'A conditional offer is a real bid or offer that includes reservations, such as financing approval, a building inspection, document review, transfer timing, or other agreed conditions.',
+      'The point of conditions is risk control. If an important condition is not met, the contract or bidding rules may allow withdrawal or renegotiation without the same serious financial consequences, depending on the exact wording and local law.',
+    ]),
+    section('Why conditions matter', [
+      'Bidding without conditions can make an offer look cleaner to a seller, but it can also increase financial risk. Financing can fall through, hidden defects can appear, documents can raise concerns, or repair costs can change what the buyer can responsibly do.',
+      'In some Dutch purchase situations, a buyer who withdraws after the cooling-off period without a valid condition may face a contractual penalty, often discussed as around 10% of the agreed purchase price. The contract language and legal context decide the actual outcome.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype does not submit conditional offers, check conditions, or advise you to bid with or without reservations. Price guesses and comments are social signals only; submit real offers through the source listing, agent, seller, or official bidding channel.',
+    ]),
+  ], ['offers-and-transactions', 'cooling-off-period', 'hidden-defects', 'valuation-report']),
   term('all-in-bidding', 'all-in-bidding', 'All-in bidding', 'Bidding above a realistic or market-oriented amount to maximize chance, with clear overpay risk.', 'buying', [`${SOURCE}/begrippenlijst/all-in-bieden-op-een-huis`], [
     section('What it means', [
       'All-in bidding means offering above what you see as a realistic or market-oriented bid because you want to maximize your chance of winning the property.',
@@ -1086,6 +1169,7 @@ export const glossaryTerms: GlossaryTerm[] = [
     ]),
     section('Why it matters', [
       'The period gives buyers time to review a major decision, check documents, and get advice after the contract is signed. Exact rules, start time, weekends, and exceptions can matter.',
+      'The timing is connected to a signed purchase contract, not to a HuisHype comment, save, price guess, listing view, or external source link.',
     ]),
     section('HuisHype context', [
       'HuisHype does not provide legal advice or manage contracts. If timing matters, check the signed contract and ask a notary, agent, or legal adviser.',
@@ -1171,10 +1255,18 @@ export const glossaryTerms: GlossaryTerm[] = [
   term('availability-status', 'availability-status', 'Availability and listing status', 'Labels that describe whether a source suggests a home is available, unavailable, sold, or open for interest.', 'property-data', [
     `${SOURCE}/help/artikel/400/wat-betekent-op-termijn-beschikbaar`,
     `${SOURCE}/help/artikel/402/wat-betekent-niet-beschikbaar`,
+    `${SOURCE}/help/artikel/10413/hoe-zet-ik-mijn-woning-op-open-voor-interesse`,
+    `${SOURCE}/begrippenlijst/alleen-bij-goed-bod`,
+    `${SOURCE}/begrippenlijst/binnenkort-te-koop`,
+    `${SOURCE}/begrippenlijst/wat-betekent-open-voor-interesse`,
   ], [
     section('What status labels mean', [
-      'Availability and status labels summarize what a source or public signal appears to say about a property. Examples include available, sold, unavailable, under offer, rented, withdrawn, or open for future interest.',
+      'Availability and status labels summarize what a source or public signal appears to say about a property. Examples include available, sold, unavailable, under offer, rented, withdrawn, open for future interest, likely to list later, or only worth discussing if the owner receives a strong offer.',
       'A label is a signal, not a guarantee. Listings can be paused, duplicated, delayed, sold subject to conditions, or changed at the source before every app display catches up.',
+    ]),
+    section('Owner-intent labels', [
+      'Some sources use labels that describe possible owner intent rather than a live listing. A home that is open for interest, soon to be sold, or only open to a good offer may still have no fixed asking price, no active sale process, and no obligation for the owner to respond.',
+      'A good offer is subjective. It depends on the owner expectations, timing, comparable homes, property condition, and whether the owner actually wants to proceed.',
     ]),
     section('What to verify', [
       'Before arranging a viewing, making plans, or sharing documents, check the original listing or contact the responsible agent, seller, landlord, or source owner for the current status.',

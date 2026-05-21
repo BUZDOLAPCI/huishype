@@ -114,6 +114,16 @@ const categoryTargetsByUrl: Array<[string, string, string]> = [
 
 const glossaryTargetsByUrl: Array<[string, string, string]> = [
   [
+    'alles-over-kopen',
+    'search-and-browse',
+    'General buying overview represented by current browsing, source-verification, and transaction-boundary guidance.',
+  ],
+  [
+    'alles-over-verkopen',
+    'owner-listing-source-workflows',
+    'General selling overview represented by current owner and source-listing workflow guidance.',
+  ],
+  [
     'alleen-bij-goed-bod',
     'availability-status',
     'Availability-style term merged into current status and source-verification guidance.',
@@ -135,8 +145,8 @@ const glossaryTargetsByUrl: Array<[string, string, string]> = [
   ],
   [
     'bieden-onder-voorbehoud',
-    'offers-and-transactions',
-    'Conditional-bid term merged into current offer and transaction guidance.',
+    'conditional-offer',
+    'Conditional-bid term adapted into current conditional-offer education with HuisHype transaction limits.',
   ],
   [
     'bieden-op-een-huis',
@@ -145,8 +155,8 @@ const glossaryTargetsByUrl: Array<[string, string, string]> = [
   ],
   [
     'laag-inzetten-bij-bieden-op-een-huis',
-    'price-guesses',
-    'Bidding-strategy term rewritten as current price-guess guidance that does not provide bidding advice.',
+    'underbidding',
+    'Bidding-strategy term adapted into underbidding education while making clear HuisHype does not negotiate or advise bids.',
   ],
   [
     'hoog-in-de-markt',
