@@ -1,9 +1,13 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
+import { router } from 'expo-router';
+import { Platform } from 'react-native';
 
+import FlaggedCommentsRoute from '@/app/admin/comments';
 import FlaggedPropertiesRoute from '@/app/admin/properties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
+  useAdminCommentReports,
   useAdminPropertyReports,
   useAdminReportAction,
 } from '@/src/hooks/admin/useAdminModeration';
@@ -13,15 +17,21 @@ jest.mock('@/src/providers/AuthProvider', () => ({
 }));
 
 jest.mock('@/src/hooks/admin/useAdminModeration', () => ({
+  useAdminCommentReports: jest.fn(),
   useAdminPropertyReports: jest.fn(),
   useAdminReportAction: jest.fn(),
 }));
 
 const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthContext>;
+const mockUseAdminCommentReports =
+  useAdminCommentReports as jest.MockedFunction<typeof useAdminCommentReports>;
 const mockUseAdminPropertyReports =
   useAdminPropertyReports as jest.MockedFunction<typeof useAdminPropertyReports>;
 const mockUseAdminReportAction =
   useAdminReportAction as jest.MockedFunction<typeof useAdminReportAction>;
+const mockRouterPush = router.push as jest.MockedFunction<typeof router.push>;
+const mockWindowOpen = jest.fn();
+const originalPlatform = Platform.OS;
 
 function seedAuth(overrides: Partial<ReturnType<typeof useAuthContext>> = {}) {
   mockUseAuthContext.mockReturnValue({
@@ -50,8 +60,16 @@ function seedAuth(overrides: Partial<ReturnType<typeof useAuthContext>> = {}) {
 }
 
 describe('admin routes', () => {
+  beforeAll(() => {
+    Object.defineProperty(window, 'open', {
+      configurable: true,
+      value: mockWindowOpen,
+    });
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
+    Platform.OS = 'web';
     mockUseAdminPropertyReports.mockReturnValue({
       data: {
         items: [],
@@ -64,10 +82,26 @@ describe('admin routes', () => {
       error: null,
       refetch: jest.fn(),
     } as unknown as ReturnType<typeof useAdminPropertyReports>);
+    mockUseAdminCommentReports.mockReturnValue({
+      data: {
+        items: [],
+        recentReports: [],
+        recentModerationActions: [],
+        pendingCount: 0,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    } as unknown as ReturnType<typeof useAdminCommentReports>);
     mockUseAdminReportAction.mockReturnValue({
       mutate: jest.fn(),
       isPending: false,
     } as unknown as ReturnType<typeof useAdminReportAction>);
+  });
+
+  afterAll(() => {
+    Platform.OS = originalPlatform;
   });
 
   it('renders forbidden state when auth exposes a non-admin user', () => {
@@ -157,6 +191,15 @@ describe('admin routes', () => {
     expect(screen.getByText('Beeldbuisring 41')).toBeTruthy();
     expect(screen.getByText('Eindhoven - 5651 HA')).toBeTruthy();
 
+    fireEvent.press(screen.getByTestId('open-property-property-p1'));
+
+    expect(mockWindowOpen).toHaveBeenCalledWith(
+      '/eindhoven/5651ha/beeldbuisring/41?returnTo=%2Fadmin%2Fproperties',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(mockRouterPush).not.toHaveBeenCalled();
+
     fireEvent.press(screen.getByTestId('review-property-property-p1'));
 
     expect(mutate).toHaveBeenCalledWith({
@@ -168,5 +211,67 @@ describe('admin routes', () => {
         targetType: 'property',
       },
     });
+  });
+
+  it('renders a flagged comment view button and opens the canonical comments route in a new page', () => {
+    seedAuth();
+    mockUseAdminCommentReports.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: 'comment-c1',
+            targetType: 'comment',
+            targetId: 'c1',
+            reportCount: 1,
+            latestReportAt: '2026-05-20T11:00:00.000Z',
+            reasons: ['harassment'],
+            comment: {
+              id: 'c1',
+              text: 'This discussion needs moderator review.',
+              author: {
+                id: 'user-2',
+                username: 'reported-user',
+              },
+              property: {
+                id: 'p1',
+                address: 'Beeldbuisring 41',
+                city: 'Eindhoven',
+                postalCode: '5651 HA',
+              },
+            },
+            reports: [
+              {
+                id: 'report-comment-1',
+                targetType: 'comment',
+                targetId: 'c1',
+                reason: 'harassment',
+                createdAt: '2026-05-20T11:00:00.000Z',
+              },
+            ],
+          },
+        ],
+        recentReports: [],
+        recentModerationActions: [],
+        pendingCount: 1,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    } as unknown as ReturnType<typeof useAdminCommentReports>);
+
+    const screen = render(<FlaggedCommentsRoute />);
+
+    expect(screen.getByText('This discussion needs moderator review.')).toBeTruthy();
+    expect(screen.getByText('View comment')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('view-comment-comment-c1'));
+
+    expect(mockWindowOpen).toHaveBeenCalledWith(
+      '/eindhoven/5651ha/beeldbuisring/41/comments?returnTo=%2Fadmin%2Fcomments',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 });

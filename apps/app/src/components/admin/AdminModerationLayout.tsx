@@ -1,5 +1,6 @@
 import React, { type ReactNode } from 'react';
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +21,7 @@ import {
   AdminForbiddenError,
 } from '@/src/services/admin-moderation';
 import {
+  buildPropertyCommentsRoute,
   buildPropertyRoute,
   toInternalAppHref,
 } from '@/src/utils/property-route';
@@ -294,7 +296,8 @@ export function PropertyReportCard({
             label="Open public detail"
             variant="ghost"
             size="sm"
-            onPress={() => router.push(toInternalAppHref(propertyHref))}
+            onPress={() => openPublicHref(propertyHref)}
+            testID={`open-property-${group.id}`}
           />
         ) : null}
         <Button
@@ -330,6 +333,7 @@ export function CommentReportCard({
   disabled?: boolean;
 }) {
   const comment = group.comment;
+  const commentHref = getCommentHref(comment);
 
   return (
     <AdminCard>
@@ -352,6 +356,15 @@ export function CommentReportCard({
       </Text>
 
       <View style={styles.actionsRow}>
+        {commentHref ? (
+          <Button
+            label="View comment"
+            variant="ghost"
+            size="sm"
+            onPress={() => openPublicHref(commentHref)}
+            testID={`view-comment-${group.id}`}
+          />
+        ) : null}
         <Button
           label="Dismiss reports"
           variant="secondary"
@@ -548,6 +561,31 @@ function getPropertyHref(property?: AdminPropertyTarget | null): string | null {
   } catch {
     return null;
   }
+}
+
+function getCommentHref(comment?: AdminCommentTarget | null): string | null {
+  if (!comment?.property) {
+    return null;
+  }
+
+  try {
+    return buildPropertyCommentsRoute(comment.property, '/admin/comments');
+  } catch {
+    return null;
+  }
+}
+
+function openPublicHref(href: string) {
+  if (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    typeof window.open === 'function'
+  ) {
+    window.open(href, '_blank', 'noopener,noreferrer');
+    return;
+  }
+
+  router.push(toInternalAppHref(href));
 }
 
 function formatDetails(details: string | Record<string, unknown>): string {
