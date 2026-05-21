@@ -17,6 +17,7 @@ export interface SourceCoverageRecord {
 }
 
 const sourceTargetByUrl = new Map<string, { id: string; status: SourceCoverageStatus }>();
+const recordById = new Map(allSupportRecords.map((record) => [record.id, record]));
 
 for (const record of allSupportRecords) {
   for (const sourceUrl of record.sourceUrls) {
@@ -26,6 +27,196 @@ for (const record of allSupportRecords) {
     });
   }
 }
+
+const duplicateSourceTargetIds = new Map<string, string>([
+  [
+    'https://huispedia.nl/help/artikel/8765/uitzonderingen-beschikbare-informatie',
+    'data-availability-exceptions',
+  ],
+  [
+    'https://huispedia.nl/help/artikel/10509/kan-ik-mijn-wadres-laten-verwijderen',
+    'remove-property-address',
+  ],
+  [
+    'https://huispedia.nl/help/artikel/10510/wanneer-zijn-koopsommen-bekend',
+    'sale-price-availability',
+  ],
+]);
+
+for (const [sourceUrl, targetId] of duplicateSourceTargetIds) {
+  const record = recordById.get(targetId);
+
+  if (record) {
+    sourceTargetByUrl.set(sourceUrl, {
+      id: targetId,
+      status: record.status,
+    });
+  }
+}
+
+const categoryTargetsByUrl: Array<[string, string, string]> = [
+  [
+    'huispedia-online-bieden',
+    'offers-and-transactions',
+    'Bidding category merged into current guidance that HuisHype does not handle offers, bids, or transactions.',
+  ],
+  [
+    'huispedia-plus',
+    'free-account-and-support',
+    'Paid-product category merged into current free account and support guidance.',
+  ],
+  [
+    'mijn-woning-op-huispedia',
+    'data',
+    'Property-owner category merged into current data, visibility, correction, and privacy guidance.',
+  ],
+  [
+    'geschatte-woningwaarde',
+    'prices',
+    'Valuation category merged into current price signal and valuation guidance.',
+  ],
+  [
+    'woningen-algemeen',
+    'basics',
+    'General housing category merged into current browsing and source-verification guidance.',
+  ],
+  [
+    'mijn-woning-verkopen',
+    'listings',
+    'Selling category merged into current source-listing and external-contact guidance.',
+  ],
+  [
+    'mijn-huispedia-account',
+    'account',
+    'Account category merged into current login, account, and privacy guidance.',
+  ],
+  [
+    'woning-verhuren',
+    'listings',
+    'Rental category merged into current listing-source, rental-safety, and contact guidance.',
+  ],
+  [
+    'voor-makelaars-bij-huispedia',
+    'listings',
+    'Agent category merged into current listing-source and agent guidance.',
+  ],
+  [
+    'huispedia-vraagprijsinzicht',
+    'prices',
+    'Price-insight category merged into current price guesses and price label guidance.',
+  ],
+  [
+    'huispedia-algemeen',
+    'basics',
+    'General help category merged into current HuisHype basics.',
+  ],
+];
+
+const glossaryTargetsByUrl: Array<[string, string, string]> = [
+  [
+    'alleen-bij-goed-bod',
+    'availability-status',
+    'Availability-style term merged into current status and source-verification guidance.',
+  ],
+  [
+    'binnenkort-te-koop',
+    'availability-status',
+    'Future-availability term merged into current status and source-verification guidance.',
+  ],
+  [
+    'wat-betekent-open-voor-interesse',
+    'availability-status',
+    'Open-for-interest term merged into current availability-status guidance.',
+  ],
+  [
+    'biedadvies',
+    'price-guesses',
+    'Bid-advice term rewritten as current price-guess guidance that does not provide bidding advice.',
+  ],
+  [
+    'bieden-onder-voorbehoud',
+    'offers-and-transactions',
+    'Conditional-bid term merged into current offer and transaction guidance.',
+  ],
+  [
+    'bieden-op-een-huis',
+    'offers-and-transactions',
+    'Home-bidding term merged into current offer and transaction guidance.',
+  ],
+  [
+    'laag-inzetten-bij-bieden-op-een-huis',
+    'price-guesses',
+    'Bidding-strategy term rewritten as current price-guess guidance that does not provide bidding advice.',
+  ],
+  [
+    'hoog-in-de-markt',
+    'price-position-labels',
+    'High-price label term merged into current low, within, and high price-label guidance.',
+  ],
+  [
+    'laag-in-de-markt',
+    'price-position-labels',
+    'Low-price label term merged into current low, within, and high price-label guidance.',
+  ],
+];
+
+const helpArticleTargetsByCategory: Array<[string, string, string]> = [
+  [
+    'Huispedia Plus',
+    'free-account-and-support',
+    'Paid-product article merged into current free account and support guidance.',
+  ],
+  [
+    'Online bieden',
+    'offers-and-transactions',
+    'Online-bidding article rewritten as current no-offers, no-transactions guidance.',
+  ],
+  [
+    'vraagprijsinzicht',
+    'price-guesses',
+    'Price-insight article merged into current price guesses and valuation guidance.',
+  ],
+  [
+    'woningwaarde',
+    'price-guesses',
+    'Property-value article merged into current price guesses and valuation guidance.',
+  ],
+  [
+    'mijn-woning-op',
+    'incorrect-property-data',
+    'Owner-data article merged into current property visibility, correction, and privacy guidance.',
+  ],
+  [
+    'mijn-huispedia-account',
+    'account-login',
+    'Account article merged into current login, email, and data request guidance.',
+  ],
+  [
+    'woningen-algemeen',
+    'search-and-browse',
+    'General housing article merged into current browsing, source-link, and availability guidance.',
+  ],
+  [
+    'verkopen',
+    'listing-source-links',
+    'Selling article merged into current source-listing and external-contact guidance.',
+  ],
+  [
+    'verhuren',
+    'listing-source-links',
+    'Rental article merged into current source-listing, rental-safety, and external-contact guidance.',
+  ],
+  [
+    'makelaars',
+    'agents-and-listing-sources',
+    'Agent article merged into current listing-source and correction support guidance.',
+  ],
+  [
+    'algemeen',
+    'what-is-huishype',
+    'General product article merged into current HuisHype basics and contact guidance.',
+  ],
+];
 
 export function getSourceCoverage(
   sourcePages: ExportedSourcePage[]
@@ -48,11 +239,11 @@ export function classifySourcePage(page: ExportedSourcePage): SourceCoverageReco
   }
 
   if (page.type === 'glossary_index' || page.type === 'glossary_search') {
-    return merged(page, 'glossary', 'Merged into the HuisHype glossary index and term search surface.');
+    return merged(page, 'search-and-browse', 'Index or search surface represented by current browse and search guidance.');
   }
 
   if (page.type === 'help_home' || page.type === 'help_search') {
-    return merged(page, 'help', 'Merged into the HuisHype help center hub and in-page search.');
+    return merged(page, 'what-is-huishype', 'Help index or search surface represented by current HuisHype basics and support navigation.');
   }
 
   if (page.type === 'help_category') {
@@ -75,15 +266,13 @@ export function classifySourcePage(page: ExportedSourcePage): SourceCoverageReco
 }
 
 function classifyHelpCategory(page: ExportedSourcePage): SourceCoverageRecord {
-  if (page.url.includes('huispedia-plus')) {
-    return merged(page, 'free-account-and-support', 'Subscription category merged into current free account and support guidance.');
+  const target = findRuleTarget(page.url, categoryTargetsByUrl);
+
+  if (target) {
+    return merged(page, target.id, target.reason);
   }
 
-  if (page.url.includes('huispedia-online-bieden')) {
-    return merged(page, 'offers-and-transactions', 'Bidding category rewritten as current guidance that HuisHype does not handle offers or transactions.');
-  }
-
-  return merged(page, 'help', 'Category landing page merged into current HuisHype help navigation.');
+  return excluded(page, 'Unrecognized category landing page with no current HuisHype category equivalent.');
 }
 
 function classifyGlossaryEntry(page: ExportedSourcePage): SourceCoverageRecord {
@@ -97,33 +286,13 @@ function classifyGlossaryEntry(page: ExportedSourcePage): SourceCoverageRecord {
     return excluded(page, 'Product-specific glossary term for an unavailable competitor product.');
   }
 
-  if (
-    url.includes('alleen-bij-goed-bod') ||
-    url.includes('binnenkort-te-koop') ||
-    url.includes('wat-betekent-open-voor-interesse')
-  ) {
-    return merged(page, 'why-is-my-home-visible', 'Availability-style term merged into current property visibility and source-status guidance.');
+  const target = findRuleTarget(url, glossaryTargetsByUrl);
+
+  if (target) {
+    return merged(page, target.id, target.reason);
   }
 
-  if (
-    url.includes('bied') ||
-    url.includes('bod') ||
-    url.includes('overbieden') ||
-    url.includes('onderbieden')
-  ) {
-    return merged(page, 'offers-and-transactions', 'Buying or bidding term merged into guidance that HuisHype price guesses are not offers.');
-  }
-
-  if (
-    url.includes('alles-over-kopen') ||
-    url.includes('alles-over-verkopen') ||
-    url.includes('nederlandse-vereniging-van-makelaars-nvm') ||
-    url.includes('nwwi')
-  ) {
-    return merged(page, 'glossary', 'General real-estate topic represented by the current glossary and support articles.');
-  }
-
-  return merged(page, 'glossary', 'Real-estate term merged into the current HuisHype glossary topic set.');
+  return excluded(page, 'Glossary topic has no explicit current HuisHype record or verified merged target.');
 }
 
 function classifyHelpArticle(page: ExportedSourcePage): SourceCoverageRecord {
@@ -142,43 +311,30 @@ function classifyHelpArticle(page: ExportedSourcePage): SourceCoverageRecord {
     return excluded(page, 'Lead-routing or match product documentation is not a current HuisHype app flow.');
   }
 
-  if (category.includes('Huispedia Plus')) {
-    return merged(page, 'free-account-and-support', 'Paid-product topic merged into current free account and support guidance.');
+  const target = findRuleTarget(category, helpArticleTargetsByCategory);
+
+  if (target) {
+    return merged(page, target.id, target.reason);
   }
 
-  if (category.includes('Online bieden')) {
-    return merged(page, 'offers-and-transactions', 'Online bidding topic rewritten as current no-offers, no-transactions guidance.');
+  return excluded(page, 'Support article has no explicit current HuisHype record or verified merged target.');
+}
+
+function findRuleTarget(
+  value: string,
+  rules: Array<[string, string, string]>
+): { id: string; reason: string } | undefined {
+  const normalized = value.toLowerCase();
+  const match = rules.find(([needle]) => normalized.includes(needle.toLowerCase()));
+
+  if (!match) {
+    return undefined;
   }
 
-  if (category.includes('vraagprijsinzicht') || category.includes('Woningwaarde')) {
-    return merged(page, 'price-guesses', 'Price and value topic merged into current price guesses and valuation guidance.');
-  }
-
-  if (category.includes('Mijn woning op')) {
-    return merged(page, 'incorrect-property-data', 'Owner and data topic merged into property visibility, correction, and privacy guidance.');
-  }
-
-  if (category.includes('Mijn Huispedia-account')) {
-    return merged(page, 'account-login', 'Account topic merged into current HuisHype login, email, and data request guidance.');
-  }
-
-  if (category.includes('Woningen algemeen')) {
-    return merged(page, 'search-and-browse', 'General housing topic merged into browse, save, source-link, and availability guidance.');
-  }
-
-  if (category.includes('verkopen') || category.includes('verhuren')) {
-    return merged(page, 'listing-source-links', 'Selling or renting topic merged into current source-listing and external-contact guidance.');
-  }
-
-  if (category.includes('makelaars')) {
-    return merged(page, 'agents-and-listing-sources', 'Agent topic merged into current listing-source and correction support guidance.');
-  }
-
-  if (category.includes('Algemeen')) {
-    return merged(page, 'what-is-huishype', 'General product topic merged into current HuisHype basics and contact guidance.');
-  }
-
-  return merged(page, 'help', 'Support article merged into the current HuisHype help center.');
+  return {
+    id: match[1],
+    reason: match[2],
+  };
 }
 
 function merged(
@@ -201,4 +357,3 @@ function excluded(page: ExportedSourcePage, reason: string): SourceCoverageRecor
     reason,
   };
 }
-

@@ -21,6 +21,116 @@ const sourceContent = require(path.resolve(
   '../../../../../docs/research/huispedia-help-2026-05-21/huispedia-help-content.json',
 )) as { pages: SourcePage[] };
 
+const SOURCE = 'https://huispedia.nl';
+
+const pseudoCoverageTargets = new Set(['glossary', 'help']);
+
+const representativeSourceConcepts: Array<{
+  sourceUrl: string;
+  targetId: string;
+  concepts: RegExp[];
+}> = [
+  {
+    sourceUrl: `${SOURCE}/begrippenlijst/all-in-bieden-op-een-huis`,
+    targetId: 'all-in-bidding',
+    concepts: [
+      /realistic or market-oriented bid/i,
+      /maximize your chance/i,
+      /overpay risk/i,
+      /price guesses are not bids/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/begrippenlijst/biedlogboek`,
+    targetId: 'bid-logbook',
+    concepts: [
+      /record of bids submitted/i,
+      /transparency after bidding/i,
+      /timing/i,
+      /conditions/i,
+      /HuisHype does not maintain bid logbooks/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/begrippenlijst/bezichtiging`,
+    targetId: 'viewing',
+    concepts: [
+      /inspect a property/i,
+      /duty to disclose/i,
+      /duty to investigate/i,
+      /source listing, agent, seller, or landlord/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/451/waar-moet-ik-op-letten-bij-huren`,
+    targetId: 'rental-safety',
+    concepts: [
+      /Verify before paying/i,
+      /deposit[\s\S]*before[\s\S]*viewed[\s\S]*signed contract/i,
+      /far below the local market/i,
+      /traceable channel/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/10510/wanneer-zijn-koopsommen-bekend`,
+    targetId: 'sale-price-availability',
+    concepts: [
+      /sold status and sale price are different/i,
+      /notary processing/i,
+      /registry publication/i,
+      /weeks or months/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/10509/kan-ik-mijn-wadres-laten-verwijderen`,
+    targetId: 'remove-property-address',
+    concepts: [
+      /Public data can remain visible/i,
+      /factual errors/i,
+      /photos, sensitive information/i,
+      /does not automatically erase public property facts/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/help/artikel/8765/uitzonderingen-beschikbare-informatie`,
+    targetId: 'data-availability-exceptions',
+    concepts: [
+      /sale price/i,
+      /year built/i,
+      /floor area/i,
+      /parcel size/i,
+      /map shape/i,
+      /zoning/i,
+      /New-build homes/i,
+      /split apartments/i,
+      /combined sales/i,
+      /inherited homes/i,
+      /auctions/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/begrippenlijst/nederlandse-vereniging-van-makelaars-nvm`,
+    targetId: 'nvm',
+    concepts: [
+      /Dutch professional association/i,
+      /association rules[\s\S]*professional standards/i,
+      /Not every real estate agent[\s\S]*NVM member/i,
+      /not affiliated with NVM/i,
+    ],
+  },
+  {
+    sourceUrl: `${SOURCE}/begrippenlijst/nwwi`,
+    targetId: 'nwwi',
+    concepts: [
+      /validation body[\s\S]*valuation reports/i,
+      /quality requirements/i,
+      /not the same as[\s\S]*model value/i,
+      /not NWWI reports/i,
+      /inspection-based valuation/i,
+    ],
+  },
+];
+
 function visibleTextForRecord(record: (typeof allSupportRecords)[number]): string {
   return [
     record.title,
@@ -94,6 +204,7 @@ describe('support content registry', () => {
     const coverage = getSourceCoverage(sourceContent.pages);
     const coverageUrls = coverage.map((record) => record.url).sort();
     const sourceUrls = sourceContent.pages.map((page) => page.url).sort();
+    const recordsById = new Map(allSupportRecords.map((record) => [record.id, record]));
 
     expect(coverage).toHaveLength(sourceContent.pages.length);
     expect(coverageUrls).toEqual(sourceUrls);
@@ -102,6 +213,43 @@ describe('support content registry', () => {
     for (const record of coverage) {
       expect(['adapted', 'merged', 'excluded']).toContain(record.status);
       expect(record.reason.trim().length).toBeGreaterThan(12);
+    }
+
+    const missingTargets = coverage
+      .filter((record) => record.status !== 'excluded')
+      .filter((record) => !record.targetId || !recordsById.has(record.targetId))
+      .map((record) => `${record.url} -> ${record.targetId ?? '(missing target)'}`);
+
+    const pseudoTargets = coverage
+      .filter((record) => record.status !== 'excluded')
+      .filter((record) => record.targetId && pseudoCoverageTargets.has(record.targetId))
+      .map((record) => `${record.url} -> ${record.targetId}`);
+
+    expect(missingTargets).toEqual([]);
+    expect(pseudoTargets).toEqual([]);
+  });
+
+  it('keeps representative restored source pages mapped to visible HuisHype concepts', () => {
+    const coverageByUrl = new Map(
+      getSourceCoverage(sourceContent.pages).map((record) => [record.url, record])
+    );
+    const recordsById = new Map(allSupportRecords.map((record) => [record.id, record]));
+
+    for (const expectation of representativeSourceConcepts) {
+      const coverage = coverageByUrl.get(expectation.sourceUrl);
+      const target = recordsById.get(expectation.targetId);
+
+      expect(coverage).toMatchObject({
+        status: expect.not.stringMatching(/^excluded$/),
+        targetId: expectation.targetId,
+      });
+      expect(target).toBeTruthy();
+
+      const visibleText = visibleTextForRecord(target!);
+
+      for (const concept of expectation.concepts) {
+        expect(visibleText).toMatch(concept);
+      }
     }
   });
 

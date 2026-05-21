@@ -258,13 +258,21 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
       {
+        title: 'How the signal is shaped',
+        paragraphs: [
+          'Price guesses can be compared with asking prices, known historical prices, public property characteristics, local activity, and comparable homes. They are social and model-assisted signals, not a certified calculation.',
+          'A property with little public data, unusual layout, recent renovation, split ownership, leasehold, missing floor area, or limited comparable sales may have a weaker signal. Treat those cases with extra caution.',
+        ],
+      },
+      {
         title: 'Use it as context',
         paragraphs: [
           'Compare guesses with asking price, official valuation where available, source listings, and professional advice. The real sale price or rental outcome can differ from any estimate shown in the app.',
+          'If you later make a real bid, do that through the seller, agent, source listing, or other official channel. A price guess in HuisHype does not reserve the property, notify the seller, create a bid logbook, or start a negotiation.',
         ],
       },
     ],
-    relatedIds: ['market-value', 'official-valuation-woz', 'offers-and-transactions'],
+    relatedIds: ['market-value', 'realistic-bid', 'price-insight', 'offers-and-transactions'],
     sourceUrls: [
       `${SOURCE}/help/artikel/10261/wat-is-het-huispedia-vraagprijsinzicht`,
       `${SOURCE}/help/artikel/10262/hoe-wordt-het-huispedia-vraagprijsinzicht-berekend`,
@@ -298,8 +306,22 @@ export const supportArticles: SupportArticle[] = [
           'Both can be useful context, but neither should replace a professional valuation, legal advice, source listing verification, or your own due diligence.',
         ],
       },
+      {
+        title: 'Formal valuations involve standards',
+        paragraphs: [
+          'A formal valuation report can involve a qualified valuer, inspection, lender requirements, professional standards, and validation rules. In the Netherlands, some mortgage valuations are validated by a quality-control body such as NWWI.',
+          'A model value or crowd estimate does not inspect defects, verify documents, or confirm a lender value. It should not be presented as an official report.',
+        ],
+      },
+      {
+        title: 'WOZ uses a public-purpose reference date',
+        paragraphs: [
+          'WOZ values are set for municipal and tax purposes and use a reference date that may be behind the current market. A current asking price or recent local sale can therefore point in a different direction.',
+          'Use HuisHype to compare signals, then rely on the municipality, notary, valuer, or adviser when a decision requires an official answer.',
+        ],
+      },
     ],
-    relatedIds: ['woz-value', 'market-value', 'taxation'],
+    relatedIds: ['woz-value', 'nwwi', 'valuation', 'market-value'],
     sourceUrls: [
       `${SOURCE}/help/artikel/377/hoe-worden-de-geschatte-woningwaardes-berekend`,
       `${SOURCE}/help/artikel/380/mijn-woningwaarde-klopt-niet-wat-kan-ik-doen`,
@@ -325,8 +347,15 @@ export const supportArticles: SupportArticle[] = [
           'The source listing is where you should check availability, viewing options, seller or landlord contact, conditions, documents, and the latest asking price.',
         ],
       },
+      {
+        title: 'Source owners control source facts',
+        paragraphs: [
+          'If you own or manage the original listing, update the listing system or website where the information is published. HuisHype can then refresh or review its own display, but it does not become the broker, landlord, or source of the transaction.',
+          'For rights or correction requests, send the affected HuisHype page, the original source URL, the exact field that is wrong, and proof that you are authorized to request the change.',
+        ],
+      },
     ],
-    relatedIds: ['offers-and-transactions', 'incorrect-property-data'],
+    relatedIds: ['offers-and-transactions', 'viewing', 'agents-and-listing-sources', 'incorrect-property-data'],
     sourceUrls: [
       `${SOURCE}/help/artikel/394/hoe-kom-ik-aan-de-contactgegevens-van-de-eigenaar`,
       `${SOURCE}/help/artikel/402/wat-betekent-niet-beschikbaar`,
@@ -356,8 +385,21 @@ export const supportArticles: SupportArticle[] = [
           'If you want to make an offer or ask about a transaction, use the original listing source or contact the responsible professional directly.',
         ],
       },
+      {
+        title: 'No transaction record',
+        paragraphs: [
+          'A comment, save, reaction, report, or price guess in HuisHype is not a bid and does not create an offer record, bid logbook entry, viewing appointment, purchase contract, tenancy agreement, or right to the property.',
+          'If another party asks you to treat HuisHype activity as proof of a bid or transaction, verify the claim with the agent, owner, source listing, notary, or legal adviser before acting on it.',
+        ],
+      },
+      {
+        title: 'When you want to proceed',
+        paragraphs: [
+          'For buying, ask the agent or seller how offers must be submitted and what conditions, deadlines, documents, and bid transparency rules apply. For renting, verify identity, contract terms, deposits, and viewing arrangements through traceable channels.',
+        ],
+      },
     ],
-    relatedIds: ['price-guesses', 'listing-source-links'],
+    relatedIds: ['price-guesses', 'online-bidding', 'bid-logbook', 'listing-source-links'],
     sourceUrls: [
       `${SOURCE}/help/categorie/18/huispedia-online-bieden`,
       `${SOURCE}/help/artikel/7856/wat-is-huispedia-online-bieden`,
@@ -385,8 +427,15 @@ export const supportArticles: SupportArticle[] = [
           'Showing a property does not mean HuisHype owns the listing, represents the owner, or says the home is available. Availability should be checked with the original source.',
         ],
       },
+      {
+        title: 'Visibility is not the same as availability',
+        paragraphs: [
+          'A home can be visible because the address exists, because historical property information is available, because a listing was previously detected, or because people interacted with the property page.',
+          'Public property facts may remain visible even when a home is not for sale or rent. HuisHype can review errors and sensitive items, but ordinary public address or registry-derived facts are not automatically deleted on request.',
+        ],
+      },
     ],
-    relatedIds: ['incorrect-property-data', 'data-privacy'],
+    relatedIds: ['remove-property-address', 'availability-status', 'incorrect-property-data', 'data-privacy'],
     sourceUrls: [
       `${SOURCE}/help/artikel/10201/hoe-komt-huispedia-aan-de-gegevens-van-mijn-woning`,
       `${SOURCE}/help/artikel/366/mijn-woning-staat-op-huispedia-hoe-kan-dat`,
@@ -411,8 +460,21 @@ export const supportArticles: SupportArticle[] = [
           'Some facts come from external sources, so HuisHype may need to update its own display, point you to the source provider, or wait for a refreshed source feed.',
         ],
       },
+      {
+        title: 'How corrections are handled',
+        paragraphs: [
+          'Send the exact page, field, current value, preferred value, and evidence such as an official record, current source listing, or owner or agent confirmation. Screenshots help when a source page changes often.',
+          'HuisHype can correct its own presentation, hide a broken source link, review sensitive media, or queue a source refresh. If the underlying public register or listing provider is wrong, that source may also need to be corrected.',
+        ],
+      },
+      {
+        title: 'What may not change immediately',
+        paragraphs: [
+          'Cached source data, public records, map tiles, sold-price records, and third-party listing feeds can update on different schedules. Some disputed facts must stay visible with context until a reliable source confirms the correction.',
+        ],
+      },
     ],
-    relatedIds: ['photos-and-public-information', 'contact-support'],
+    relatedIds: ['remove-property-address', 'data-availability-exceptions', 'photos-and-public-information', 'contact-support'],
     sourceUrls: [
       `${SOURCE}/help/artikel/369/wat-moet-ik-doen-als-de-gegevens-niet-kloppen`,
       `${SOURCE}/help/artikel/371/het-woonoppervlakte-klopt-niet-hoe-kan-dat`,
@@ -441,6 +503,178 @@ export const supportArticles: SupportArticle[] = [
     relatedIds: ['data-privacy', 'incorrect-property-data'],
     sourceUrls: [`${SOURCE}/help/artikel/375/hoe-verwijder-ik-de-fotos-van-mijn-woning-van-huispedia`],
     status: 'merged',
+  },
+  {
+    id: 'remove-property-address',
+    slug: 'remove-property-address',
+    title: 'Can I remove my property or address?',
+    summary: 'Public property records may remain visible, but factual errors and sensitive items can be reviewed.',
+    category: 'data',
+    audience: 'owners',
+    bodySections: [
+      {
+        title: 'Public data can remain visible',
+        paragraphs: [
+          'HuisHype can show property pages because addresses, buildings, transactions, map features, or listing signals are available from public or third-party sources. A removal request does not automatically erase public property facts from the app.',
+          'Visibility on HuisHype does not mean the home is for sale or rent, and it does not make HuisHype the owner, listing source, broker, or transaction party.',
+        ],
+      },
+      {
+        title: 'What we can review',
+        paragraphs: [
+          'Report factual errors such as wrong status, address details, floor area, source links, photos, sensitive information, or rights concerns. Include the property page, the exact item, and evidence for the correction or removal request.',
+          'When a photo, document, or listing item is still published by the original source, you may also need to contact that source so the underlying publication changes.',
+        ],
+      },
+      {
+        title: 'Privacy and safety requests',
+        paragraphs: [
+          'If a public item creates a concrete privacy, safety, or rights concern, explain the risk clearly. HuisHype can review its display, restrict specific media, correct wrong facts, or point you to the responsible source where the underlying data is controlled elsewhere.',
+        ],
+      },
+    ],
+    relatedIds: ['why-is-my-home-visible', 'incorrect-property-data', 'photos-and-public-information', 'data-privacy'],
+    sourceUrls: [
+      `${SOURCE}/help/artikel/10509/kan-ik-mijn-wadres-laten-verwijderen`,
+      `${SOURCE}/help/artikel/366/mijn-woning-staat-op-huispedia-hoe-kan-dat`,
+      `${SOURCE}/help/artikel/10201/hoe-komt-huispedia-aan-de-gegevens-van-mijn-woning`,
+    ],
+    status: 'adapted',
+  },
+  {
+    id: 'data-availability-exceptions',
+    slug: 'data-availability-exceptions',
+    title: 'Why is some property data missing or unusual?',
+    summary: 'Sale prices, year built, surface area, parcel details, maps, and zoning can be delayed or unavailable.',
+    category: 'data',
+    audience: 'everyone',
+    bodySections: [
+      {
+        title: 'Common missing fields',
+        paragraphs: [
+          'A property page may miss sale price, year built, usable floor area, parcel size, map shape, energy label, zoning context, listing status, or photos because the relevant source does not publish it, publishes it late, or uses a format HuisHype cannot safely match yet.',
+          'New-build homes, split apartments, combined sales, inherited homes, auctions, portfolio transfers, renovations, address changes, and merged parcels can be harder to match than ordinary single-home transactions.',
+        ],
+      },
+      {
+        title: 'Why timing differs',
+        paragraphs: [
+          'Public registers, listing providers, map datasets, and user reports update on different schedules. A sold label can appear before a final sale price is known, and a corrected source may take time to reach every display in HuisHype.',
+        ],
+      },
+      {
+        title: 'How to use incomplete data',
+        paragraphs: [
+          'Treat missing or unusual fields as a warning to verify, not as proof that the property has no value, no sale, or no restriction. Check the source listing, official register, municipality, notary, agent, or owner when a decision depends on the detail.',
+        ],
+      },
+    ],
+    relatedIds: ['sale-price-availability', 'incorrect-property-data', 'land-registry', 'price-guesses'],
+    sourceUrls: [
+      `${SOURCE}/help/artikel/8765/uitzonderingen-beschikbare-informatie`,
+      `${SOURCE}/help/artikel/371/het-woonoppervlakte-klopt-niet-hoe-kan-dat`,
+      `${SOURCE}/help/artikel/10510/wanneer-zijn-koopsommen-bekend`,
+    ],
+    status: 'adapted',
+  },
+  {
+    id: 'sale-price-availability',
+    slug: 'sale-price-availability',
+    title: 'When are sale prices available?',
+    summary: 'A sold status does not always mean the final registered sale price is already known.',
+    category: 'prices',
+    audience: 'everyone',
+    bodySections: [
+      {
+        title: 'Sold status and sale price are different',
+        paragraphs: [
+          'A property can be marked sold by a listing source before the final sale price is available in a public or commercial dataset. Agreement, contract signing, transfer, notary processing, registry publication, and source refreshes can happen at different times.',
+        ],
+      },
+      {
+        title: 'Delays are normal',
+        paragraphs: [
+          'Sale-price availability can take weeks or months, and some records may never be usable in HuisHype because the transaction is combined with another property, relates to an inheritance or auction, has unusual parcel structure, or cannot be confidently matched to one address.',
+        ],
+      },
+      {
+        title: 'How HuisHype uses it',
+        paragraphs: [
+          'When a sale price is shown, use it as historical context for comparable homes and market movement. It is not a live bid, current valuation, or guarantee that every similar property will sell for the same amount.',
+        ],
+      },
+    ],
+    relatedIds: ['sale-price', 'price-history', 'land-registry', 'data-availability-exceptions'],
+    sourceUrls: [`${SOURCE}/help/artikel/10510/wanneer-zijn-koopsommen-bekend`],
+    status: 'adapted',
+  },
+  {
+    id: 'rental-safety',
+    slug: 'rental-safety',
+    title: 'How can I stay safe when renting?',
+    summary: 'Verify the listing, landlord, contract, and payment request before sending money or documents.',
+    category: 'listings',
+    audience: 'everyone',
+    bodySections: [
+      {
+        title: 'Verify before paying',
+        paragraphs: [
+          'Be careful with rental requests that ask for a deposit, fee, passport copy, or rent payment before you have viewed the home, verified the landlord or agent, and received a clear signed contract through a traceable channel.',
+          'Prices that look far below the local market, pressure to pay quickly, refusal to arrange a viewing, vague identity details, foreign bank accounts without explanation, or copied photos can be warning signs.',
+        ],
+      },
+      {
+        title: 'Use traceable channels',
+        paragraphs: [
+          'Use the original listing source, a known agent, official email domains, written agreements, and payment methods that leave a record. Check whether the person offering the home is allowed to do so.',
+        ],
+      },
+      {
+        title: 'HuisHype role',
+        paragraphs: [
+          'HuisHype may link to a rental source or show discussion signals, but it does not screen tenants, hold deposits, guarantee availability, or mediate rental contracts. Report suspicious links or messages so the displayed source can be reviewed.',
+        ],
+      },
+    ],
+    relatedIds: ['listing-source-links', 'offers-and-transactions', 'viewing', 'contact-support'],
+    sourceUrls: [`${SOURCE}/help/artikel/451/waar-moet-ik-op-letten-bij-huren`],
+    status: 'adapted',
+  },
+  {
+    id: 'owner-listing-source-workflows',
+    slug: 'owner-listing-source-workflows',
+    title: 'What should owners and listing sources do when information changes?',
+    summary: 'Update the original source first, then ask HuisHype to review its display when needed.',
+    category: 'listings',
+    audience: 'owners',
+    bodySections: [
+      {
+        title: 'Start with the source',
+        paragraphs: [
+          'If a property is actively listed, the original listing source, agent system, owner publication, or rental platform should be corrected first. HuisHype can display source signals, but it does not replace the publication workflow used by the seller, landlord, or agent.',
+        ],
+      },
+      {
+        title: 'Send a precise request',
+        paragraphs: [
+          'For support, include your role, organization if relevant, the HuisHype property URL, the original source URL, the field that changed, and proof that the source has been updated or that you are authorized to request the correction.',
+        ],
+      },
+      {
+        title: 'What HuisHype can do',
+        paragraphs: [
+          'HuisHype can review its own source link, status label, media display, public-data merge, or correction queue. It cannot force a third-party website to change, approve a transaction, schedule viewings, or guarantee that external feeds update instantly.',
+        ],
+      },
+    ],
+    relatedIds: ['agents-and-listing-sources', 'listing-source-links', 'incorrect-property-data', 'availability-status'],
+    sourceUrls: [
+      `${SOURCE}/help/artikel/406/hoe-verkoop-ik-mijn-woning-op-huispedia`,
+      `${SOURCE}/help/artikel/415/kan-mijn-makelaar-de-woning-op-huispedia-zetten`,
+      `${SOURCE}/help/artikel/437/hoe-verhuur-ik-mijn-woning-op-huispedia`,
+      `${SOURCE}/help/artikel/445/kan-ik-op-huispedia-zelf-mijn-huis-verhuren`,
+    ],
+    status: 'adapted',
   },
   {
     id: 'account-login',
@@ -526,8 +760,21 @@ export const supportArticles: SupportArticle[] = [
           'If the issue is with an original listing, update that source as well so HuisHype can receive corrected information during later refreshes.',
         ],
       },
+      {
+        title: 'Source responsibility',
+        paragraphs: [
+          'Agents, landlords, portals, and other source owners remain responsible for the listings, media, availability, contact options, viewings, and transaction statements they publish or provide to users.',
+          'HuisHype may aggregate or link to source information for discovery, but it does not take over the agency relationship, buyer or tenant screening, negotiation, bid handling, or listing compliance obligations.',
+        ],
+      },
+      {
+        title: 'Rights and corrections',
+        paragraphs: [
+          'When reporting an issue, include the original listing URL, the HuisHype URL, the affected media or data field, the preferred correction, and evidence of your authority or rights. For copyright-sensitive photos or documents, identify the rights holder where possible.',
+        ],
+      },
     ],
-    relatedIds: ['listing-source-links', 'contact-support'],
+    relatedIds: ['owner-listing-source-workflows', 'listing-source-links', 'incorrect-property-data', 'contact-support'],
     sourceUrls: [
       `${SOURCE}/help/artikel/10383/hoe-promoot-ik-mijn-woning-op-huispedia`,
       `${SOURCE}/help/artikel/10384/hoe-promoot-ik-mijn-objecten-op-huispedia`,
@@ -664,6 +911,59 @@ export const glossaryTerms: GlossaryTerm[] = [
       'Use price history together with comparable homes, current source-listing details, and price guesses. Source data can lag, so confirm live asking price and status on the original listing.',
     ]),
   ], ['asking-price', 'sale-price', 'comparable-homes']),
+  term('property-value', 'property-value', 'Property value', 'An indication of what a home may be worth, depending on purpose, timing, and data quality.', 'prices', [`${SOURCE}/begrippenlijst/woningwaarde`], [
+    section('What it means', [
+      'Property value is a broad term for what a home may be worth. It can refer to a current market estimate, a model value, a formal valuation, a tax value, or an owner expectation depending on context.',
+      'The same home can have different values for different purposes: a buyer deciding what to offer, a lender checking mortgage security, a municipality setting a tax value, or an owner tracking local demand.',
+    ]),
+    section('Why values differ', [
+      'Condition, usable floor area, location, leasehold, energy performance, renovations, defects, market timing, comparable sales, and available source data can all change the value picture.',
+      'A model cannot always see recent work, unusual layout, hidden defects, or private sale conditions. That is why estimates should be checked against source documents and professional advice when stakes are high.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype may show price guesses and property signals to help orientation. They are not bids, valuation reports, mortgage checks, or promises about the eventual sale price.',
+    ]),
+  ], ['market-value', 'price-guesses', 'valuation', 'woz-value']),
+  term('price-reductions', 'price-reductions', 'Price reductions and adjustments', 'Changes to a property asking price or price display over time.', 'prices', [`${SOURCE}/begrippenlijst/prijsaanpassingen-van-een-huis`], [
+    section('What they are', [
+      'A price reduction is a decrease in the asking price or public price display. A price adjustment can also be an increase, relist, correction, or source refresh that changes how a price appears.',
+      'Price changes usually reflect seller strategy, market feedback, limited interest, renewed marketing, corrected information, or changed circumstances. One adjustment does not explain the whole transaction.',
+    ]),
+    section('How to read them', [
+      'Look at how large the change is, when it happened, how long the home has been visible, whether nearby listings changed too, and whether the property has condition, location, or documentation issues.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype may show known price-history signals when available, but source data can lag or be incomplete. Confirm the current asking price and conditions with the original listing before relying on a timeline.',
+    ]),
+  ], ['price-history', 'asking-price', 'price-insight']),
+  term('price-insight', 'price-insight', 'Price insight', 'A contextual signal that compares a price with available property and market information.', 'prices', [`${SOURCE}/begrippenlijst/prijsinzicht-van-een-huis`], [
+    section('What it means', [
+      'Price insight is a way to frame whether a visible price looks low, high, or broadly in line with available market context. It is an orientation label, not a decision rule.',
+      'The signal can depend on asking price, property characteristics, nearby comparable homes, known historical prices, public data quality, and local demand.',
+    ]),
+    section('Limits', [
+      'A label cannot inspect the home, read the seller motivation, know every bid, or account for every legal and technical detail. Unusual homes, thin data, and fast-moving markets make price insight less certain.',
+    ]),
+    section('In HuisHype', [
+      'Use price insight beside price guesses, price history, source listings, and professional advice. HuisHype does not tell you what to bid and does not guarantee that a property is cheap or expensive.',
+    ]),
+  ], ['price-position-labels', 'market-value', 'price-guesses']),
+  term('price-position-labels', 'price-position-labels', 'Low, within, and high price labels', 'Labels that describe whether a price appears below, near, or above available value signals.', 'prices', [
+    `${SOURCE}/help/artikel/10264/wat-betekent-laag-in-de-markt`,
+    `${SOURCE}/help/artikel/10265/wat-betekent-hoog-in-de-markt`,
+    `${SOURCE}/help/artikel/10266/wat-betekent-een-redelijke-vraagprijs`,
+  ], [
+    section('What the labels mean', [
+      'A low, within-range, or high price label compares a visible price with available value signals. Low can mean the price appears below the signal range, within-range means broadly aligned, and high means above the signal range.',
+      'These labels are only shorthand for a data comparison. They do not prove a bargain, overpricing, hidden defects, or seller intent.',
+    ]),
+    section('What can move a label', [
+      'Comparable homes, property size, condition, location, source updates, sale-price history, market movement, and missing data can all influence the label. A corrected floor area or new comparable sale may change the picture.',
+    ]),
+    section('In HuisHype', [
+      'Use labels as prompts for further checking. HuisHype does not set the asking price, make bids, advise you to overbid or underbid, or replace a valuer, agent, or financial adviser.',
+    ]),
+  ], ['price-insight', 'asking-price', 'realistic-bid']),
   term('comparable-homes', 'comparable-homes', 'Comparable homes', 'Similar properties used as context when judging a price or value signal.', 'prices', [`${SOURCE}/begrippenlijst/vergelijkbare-woningen`], [
     section('What makes a home comparable', [
       'Comparable homes are properties with enough shared characteristics to help judge a price: location, property type, usable floor area, plot size, age, condition, energy performance, and recent transaction timing.',
@@ -708,6 +1008,78 @@ export const glossaryTerms: GlossaryTerm[] = [
       'HuisHype can show signals that help you orient yourself, but it is not a bidding platform. Real offers belong with the agent, owner, or official source flow.',
     ]),
   ], ['asking-price', 'overbidding', 'underbidding']),
+  term('opening-bid', 'opening-bid', 'Opening bid', 'The first bid submitted in a bidding process or negotiation.', 'buying', [`${SOURCE}/begrippenlijst/openingsbod`], [
+    section('What it means', [
+      'An opening bid is the first amount a buyer submits when trying to buy a property. It can be lower than, equal to, or higher than the asking price depending on strategy and market pressure.',
+      'The bid may include conditions such as financing, building inspection, transfer date, included items, and a validity deadline. Those conditions can matter as much as the amount.',
+    ]),
+    section('How it is chosen', [
+      'Buyers usually weigh asking price, comparable homes, property condition, expected competition, financing room, desired certainty for the seller, and their own maximum budget before choosing an opening bid.',
+    ]),
+    section('In HuisHype', [
+      'A HuisHype price guess is not an opening bid and is not sent to the seller. Submit real bids only through the official channel named by the agent, seller, source listing, or bidding system.',
+    ]),
+  ], ['opening-offer', 'realistic-bid', 'online-bidding']),
+  term('realistic-bid', 'realistic-bid', 'Realistic bid', 'A market-oriented bid that balances chance of success with budget and overpay risk.', 'buying', [`${SOURCE}/begrippenlijst/realistisch-bod`], [
+    section('What it means', [
+      'A realistic bid is an amount and set of conditions that fit the property, comparable homes, asking price, market pressure, and buyer budget. It is not automatically the highest possible number.',
+      'The goal is to make a bid that has a credible chance while still respecting financing, valuation risk, repair costs, and the buyer own maximum.',
+    ]),
+    section('What shapes it', [
+      'Comparable sales, source listing details, price history, viewing findings, seller deadlines, competition, and professional advice can all shape what looks realistic in a specific case.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype price guesses can support orientation, but they are not bidding advice and do not create an offer. A real bid should be checked through the correct transaction channel and, when needed, with an adviser.',
+    ]),
+  ], ['all-in-bidding', 'opening-bid', 'price-guesses']),
+  term('all-in-bidding', 'all-in-bidding', 'All-in bidding', 'Bidding above a realistic or market-oriented amount to maximize chance, with clear overpay risk.', 'buying', [`${SOURCE}/begrippenlijst/all-in-bieden-op-een-huis`], [
+    section('What it means', [
+      'All-in bidding means offering above what you see as a realistic or market-oriented bid because you want to maximize your chance of winning the property.',
+      'It can happen in highly competitive markets, when a buyer has strong personal reasons, or when certainty matters more than a strict comparison with recent local prices.',
+    ]),
+    section('Risks', [
+      'A higher bid can improve your chance, but it can also create overpay risk, mortgage risk if the formal valuation is lower, and regret if repair costs or market conditions change.',
+      'Conditions, cash reserves, financing deadlines, and inspection results matter. A bid that is all-in on price can still fail if the conditions are weak or unclear.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype price guesses are not bids, all-in bids, or instructions to overbid. Use them as one signal, then submit any real bid through the source listing, agent, seller, or official bidding process.',
+    ]),
+  ], ['realistic-bid', 'overbidding', 'valuation-report']),
+  term('online-bidding', 'online-bidding', 'Online bidding', 'A digital process for submitting property bids through an official transaction channel.', 'buying', [`${SOURCE}/begrippenlijst/online-bieden-op-een-huis`], [
+    section('What it means', [
+      'Online bidding is a digital process where buyers submit bids through a platform or source chosen by the seller, agent, or transaction organizer.',
+      'The process can be open, where participants see parts of competing activity, or closed, where bids are not visible until a deadline or later disclosure.',
+    ]),
+    section('What to check', [
+      'Before bidding, check identity requirements, deadlines, bid conditions, whether bids are binding, how changes are handled, and what information becomes available after the process.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype does not operate an online bidding flow. Comments, saves, and price guesses in the app do not count as online bids and are not forwarded to a seller or bidding platform.',
+    ]),
+  ], ['bid-logbook', 'opening-bid', 'offers-and-transactions']),
+  term('bid-logbook', 'bid-logbook', 'Bid logbook', 'A record of submitted bids that can support transparency after a bidding process.', 'buying', [`${SOURCE}/begrippenlijst/biedlogboek`], [
+    section('What it is', [
+      'A bid logbook is a record of bids submitted during a property bidding process. Depending on the rules, it may include bid amounts, timing, conditions, deadlines, and whether bids were changed or withdrawn.',
+      'The purpose is transparency after bidding, especially so participants can understand how the process unfolded.',
+    ]),
+    section('What it may include', [
+      'A logbook may show more than price. Financing conditions, inspection conditions, transfer date, reservations, and submission time can all affect which bid a seller prefers.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype does not maintain bid logbooks because it does not collect or process real bids. Ask the agent, seller, or bidding platform whether a logbook exists and how eligible participants can request it.',
+    ]),
+  ], ['online-bidding', 'offers-and-transactions', 'all-in-bidding']),
+  term('viewing', 'viewing', 'Viewing', 'An in-person or arranged inspection of a property before deciding what to do next.', 'buying', [`${SOURCE}/begrippenlijst/bezichtiging`], [
+    section('What it is', [
+      'A viewing is a chance to inspect a property in person or through an arranged remote format. Buyers and renters use it to check layout, condition, light, surroundings, defects, documents, and whether the listing matches reality.',
+    ]),
+    section('Duties and questions', [
+      'Sellers may have a duty to disclose known relevant defects, while buyers have a duty to investigate important facts themselves. Ask direct questions and keep important answers in writing when they affect your decision.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype does not schedule viewings. Use the source listing, agent, seller, or landlord for appointments and confirm availability before travelling or paying anything.',
+    ]),
+  ], ['duty-to-disclose', 'duty-to-investigate', 'listing-source-links', 'rental-safety']),
   term('cooling-off-period', 'cooling-off-period', 'Cooling-off period', 'A legally defined period in some transactions when a buyer can withdraw.', 'buying', [`${SOURCE}/begrippenlijst/bedenktijd`], [
     section('What it means', [
       'A cooling-off period is a short legal period after signing a purchase contract when a buyer may be able to withdraw without giving a reason. In Dutch home purchases, this is commonly discussed as three days.',
@@ -796,6 +1168,55 @@ export const glossaryTerms: GlossaryTerm[] = [
       'HuisHype may use public or source data, but the app is not the register itself. Check the official registry or a notary for formal decisions.',
     ]),
   ], ['sale-price', 'notary']),
+  term('availability-status', 'availability-status', 'Availability and listing status', 'Labels that describe whether a source suggests a home is available, unavailable, sold, or open for interest.', 'property-data', [
+    `${SOURCE}/help/artikel/400/wat-betekent-op-termijn-beschikbaar`,
+    `${SOURCE}/help/artikel/402/wat-betekent-niet-beschikbaar`,
+  ], [
+    section('What status labels mean', [
+      'Availability and status labels summarize what a source or public signal appears to say about a property. Examples include available, sold, unavailable, under offer, rented, withdrawn, or open for future interest.',
+      'A label is a signal, not a guarantee. Listings can be paused, duplicated, delayed, sold subject to conditions, or changed at the source before every app display catches up.',
+    ]),
+    section('What to verify', [
+      'Before arranging a viewing, making plans, or sharing documents, check the original listing or contact the responsible agent, seller, landlord, or source owner for the current status.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype may display status context, but it does not control availability and does not reserve homes. Report outdated or conflicting status labels with the property URL and the current source link.',
+    ]),
+  ], ['listing-source-links', 'owner-listing-source-workflows', 'data-availability-exceptions']),
+  term('housing-wishes', 'housing-wishes', 'Housing wishes', 'The preferences someone uses to search for a home or follow a market.', 'basics', [`${SOURCE}/begrippenlijst/woonwensen`], [
+    section('What they are', [
+      'Housing wishes are the practical and personal preferences that shape a home search. They can include location, budget, property type, floor area, outdoor space, accessibility, energy performance, schools, commute, and neighborhood feel.',
+    ]),
+    section('How they help search', [
+      'Clear wishes make it easier to filter properties and compare tradeoffs. A bigger home may mean a longer commute, a lower price may require renovation, and a preferred neighborhood may involve fewer available listings.',
+    ]),
+    section('In HuisHype', [
+      'Use housing wishes to interpret map results, saved homes, comments, and price signals. HuisHype can help you explore, but it does not decide whether a property fits your life or finances.',
+    ]),
+  ], ['search-and-browse', 'saving-properties', 'price-guesses']),
+  term('nvm', 'nvm', 'NVM', 'A Dutch association for real estate agents and valuers. HuisHype is unaffiliated.', 'property-data', [`${SOURCE}/begrippenlijst/nederlandse-vereniging-van-makelaars-nvm`], [
+    section('What it is', [
+      'NVM is a Dutch professional association for real estate agents, appraisers, and related property professionals. Members can be subject to association rules, education, and professional standards.',
+      'Not every real estate agent in the Netherlands is an NVM member, and membership alone does not make HuisHype part of the relationship between client and agent.',
+    ]),
+    section('Why it matters', [
+      'When a listing or adviser mentions association membership, it can help you understand professional context, complaints routes, and expected conduct. You should still check who represents whom and what service agreement applies.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype is not affiliated with NVM and does not certify agents. If membership or disciplinary rules matter for your decision, verify directly with the agent and the association.',
+    ]),
+  ], ['agent', 'buying-agent', 'broker-fee']),
+  term('nwwi', 'nwwi', 'NWWI', 'A Dutch body that validates certain valuation reports for quality-control purposes.', 'prices', [`${SOURCE}/begrippenlijst/nwwi`], [
+    section('What it is', [
+      'NWWI is a Dutch validation body for certain residential valuation reports. It checks whether reports meet applicable quality requirements before they are used by lenders or other parties that require validated valuation work.',
+    ]),
+    section('What it does not do', [
+      'NWWI validation is not the same as a quick model value or crowd estimate. A validated report involves a qualified valuer, defined purpose, property review, market evidence, and checks on the report process.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype estimates, price guesses, and market labels are not NWWI reports and are not substitutes for an inspection-based valuation. Use a qualified valuer when a lender or official process requires one.',
+    ]),
+  ], ['valuation-report', 'valuer', 'official-valuation-woz']),
   term('valuation', 'valuation', 'Valuation', 'A professional or model-based estimate of value, depending on context.', 'prices', [`${SOURCE}/begrippenlijst/taxatie`], [
     section('What it means', [
       'A valuation is an assessment of property value. In a formal setting, a qualified valuer reviews the home, its characteristics, condition, location, and market evidence.',
@@ -851,6 +1272,30 @@ export const glossaryTerms: GlossaryTerm[] = [
       'HuisHype is not a mortgage adviser. Use app signals for orientation and ask a qualified adviser or lender for financing decisions.',
     ]),
   ], ['monthly-costs', 'valuation-report', 'annuity-mortgage']),
+  term('mortgage-repayment', 'mortgage-repayment', 'Mortgage repayment', 'Paying down the borrowed principal of a mortgage over time.', 'finance', [`${SOURCE}/begrippenlijst/aflossen`], [
+    section('What it means', [
+      'Mortgage repayment is the part of your payment that reduces the outstanding loan balance. It is different from interest, which is the cost of borrowing money.',
+      'Some mortgage types repay gradually, some repay a fixed principal amount, and some may have special rules for extra repayments or repayment-free periods.',
+    ]),
+    section('Why it matters', [
+      'Repayment affects equity, monthly costs, total interest, refinancing options, and the amount still owed when you sell. Extra repayment can reduce debt, but it may also affect liquidity, tax position, or lender conditions.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype can explain the concept, but it does not calculate personal affordability or recommend repayment choices. Ask a lender or mortgage adviser before changing repayment plans.',
+    ]),
+  ], ['mortgage', 'monthly-costs', 'equity']),
+  term('mortgage-term', 'mortgage-term', 'Mortgage term', 'The period over which a mortgage is scheduled to run or be repaid.', 'finance', [`${SOURCE}/begrippenlijst/looptijd-hypotheek`], [
+    section('What it means', [
+      'The mortgage term is the length of time the loan is scheduled to run. It can refer to the total repayment term, while the interest-rate fixed period may be a separate and shorter period.',
+      'A longer term can spread repayment over more years, while a shorter term usually repays faster but can mean higher monthly payments.',
+    ]),
+    section('Why it matters', [
+      'The term affects monthly costs, total interest, debt reduction, and flexibility when moving or refinancing. Lender rules, age, income, mortgage type, and tax rules may affect what terms are available.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype is not a mortgage calculator or adviser. Use property and price signals for orientation only, then verify financing choices with a qualified adviser or lender.',
+    ]),
+  ], ['mortgage', 'mortgage-repayment', 'monthly-costs']),
   term('annuity-mortgage', 'annuity-mortgage', 'Annuity mortgage', 'A mortgage where monthly payments are usually fixed while interest and repayment shares change over time.', 'finance', [`${SOURCE}/begrippenlijst/annuiteitenhypotheek`], [
     section('How it works', [
       'With an annuity mortgage, the gross monthly payment is typically stable during the fixed-rate period. Early payments contain more interest, while later payments contain more repayment.',
@@ -927,6 +1372,18 @@ export const glossaryTerms: GlossaryTerm[] = [
       'HuisHype is not an agent and does not represent either side in a transaction. Use source listing links or direct professional contact for viewings, offers, and negotiations.',
     ]),
   ], ['broker-fee', 'listing-source-links']),
+  term('buying-agent', 'buying-agent', 'Buying agent', 'An agent who supports the buyer rather than the seller in a property transaction.', 'buying', [`${SOURCE}/begrippenlijst/aankoopmakelaar`], [
+    section('What a buying agent does', [
+      'A buying agent advises and represents a buyer during a home search or purchase. Work can include finding properties, arranging viewings, assessing asking prices, reviewing documents, advising on bids, negotiating, and coordinating with other professionals.',
+    ]),
+    section('How the role differs', [
+      'A buying agent works for the buyer, while the selling agent represents the seller. That distinction matters when discussing price, strategy, defects, deadlines, and confidential information.',
+      'Fees, services, exclusivity, and cancellation rules can differ, so review the service agreement before relying on the agent.',
+    ]),
+    section('In HuisHype', [
+      'HuisHype is not a buying agent and does not negotiate or advise on a specific bid. Use app signals for orientation and choose professional help separately when you need representation.',
+    ]),
+  ], ['agent', 'broker-fee', 'viewing', 'realistic-bid']),
 ];
 
 function term(
@@ -964,7 +1421,7 @@ export const legalPages: LegalPageContent[] = [
     lastUpdated: 'May 21, 2026',
     sourceUrls: [`${SOURCE}/algemene-voorwaarden`],
     status: 'merged',
-    relatedIds: ['privacy', 'cookies'],
+    relatedIds: ['privacy', 'cookies', 'sharing-permissions', 'listing-source-links'],
     bodySections: [
       section('1. What HuisHype is', [
         'HuisHype is a social real estate browsing app for exploring properties, public listings, comments, reactions, saves, price guesses, and profile activity.',
@@ -977,22 +1434,31 @@ export const legalPages: LegalPageContent[] = [
       section('3. Comments, guesses, and community rules', [
         'Comments, reactions, reports, and price guesses must be lawful, respectful, honest, and relevant to the property or product area where they are posted.',
         'Do not post spam, harassment, discriminatory content, private personal information, unlawful material, or content intended to manipulate property attention or crowd price signals.',
+        'By submitting content, you confirm that you have the rights and permissions needed to share it and that it does not violate privacy, intellectual property, listing-source, or platform rules.',
       ]),
       section('4. Property, listing, and source information', [
         'HuisHype combines public property data, listing-source links, and user activity. Facts, photos, asking prices, availability, and source links can be incomplete, delayed, or changed by the original source.',
+        'Owners, agents, landlords, portals, and other source owners remain responsible for the content, media, status, contact options, and transaction statements they publish or provide.',
         'Always verify important information with the source provider, agent, owner, municipality, notary, valuer, or another qualified professional.',
       ]),
       section('5. Price signals and analytics', [
         'Crowd price guesses, fair-market-value signals, activity rankings, and analytics are informational product features. They are not financial, legal, tax, investment, mortgage, or valuation advice.',
+        'Model or crowd signals can be incomplete, delayed, or wrong and may use public-source data, source listings, user activity, and moderation rules. They do not create rights, offers, bids, or formal valuation reports.',
         'Do not rely on HuisHype as the only basis for a purchase, rental, financing, investment, or legal decision.',
       ]),
       section('6. Acceptable use', [
         'You may not scrape, attack, overload, reverse engineer, interfere with, or misuse HuisHype. You may not impersonate others, submit misleading data, abuse authentication, or violate third-party rights or listing-source terms.',
+        'You may not use HuisHype to submit fake activity, manipulate price signals, route unauthorized leads, harvest personal data, bypass access controls, or pressure users into off-platform payments.',
       ]),
       section('7. Moderation and availability', [
         'HuisHype may remove content, reduce visibility, restrict accounts, change features, pause routes, or correct displayed data when needed to protect users, service integrity, legal rights, or product quality.',
+        'HuisHype may also reject, hide, or edit source-linked material when rights, safety, accuracy, or abuse concerns arise, even when a third-party source remains online.',
       ]),
-      section('8. Contact', [
+      section('8. Third-party services and responsibility', [
+        'HuisHype may use infrastructure, authentication, analytics, email, mapping, support, and hosting providers. External listing links and third-party services have their own terms and privacy practices.',
+        'HuisHype is responsible for its own app experience, not for the availability, legality, completeness, or transaction handling of external sources.',
+      ]),
+      section('9. Contact', [
         'Questions about these terms can be sent to contact@huishype.nl. For support requests, email support@huishype.nl.',
       ]),
     ],
@@ -1007,30 +1473,41 @@ export const legalPages: LegalPageContent[] = [
     lastUpdated: 'May 21, 2026',
     sourceUrls: [`${SOURCE}/privacybeleid`],
     status: 'merged',
-    relatedIds: ['data-privacy', 'cookies'],
+    relatedIds: ['data-privacy', 'cookies', 'sharing-permissions'],
     bodySections: [
       section('1. Data we collect', [
         'We may collect account details, profile information, authentication identifiers, comments, replies, reactions, reports, price guesses, saved properties, followed profiles, contact messages, device and app diagnostics, analytics events, and error logs.',
         'We also process property and listing information from public or third-party sources to display map, property, and source-link experiences.',
       ]),
-      section('2. How we use data', [
-        'We use data to operate HuisHype, show property pages and map content, keep saved homes and profile activity available, display comments and guesses, protect the service from abuse, troubleshoot errors, respond to requests, and improve product quality.',
+      section('2. Controller and provider roles', [
+        'HuisHype acts as controller for the account, app, support, moderation, analytics, and community data it decides to process. Some service providers process data for us under instructions so the app can run securely.',
+        'Agents, portals, landlords, sellers, registers, and other external sources may be separate controllers for the data they publish, collect, or receive through their own services.',
       ]),
-      section('3. Public social content', [
+      section('3. How we use data', [
+        'We use data to operate HuisHype, show property pages and map content, keep saved homes and profile activity available, display comments and guesses, protect the service from abuse, troubleshoot errors, respond to requests, and improve product quality.',
+        'We may use public-source data, listing data, user content, reports, and technical signals to improve matching, map display, price-signal quality, abuse detection, and support workflows.',
+      ]),
+      section('4. Public social content', [
         'Comments, reactions, profile handles, karma-like signals, reports where shown, and price guess activity may be visible to other users as part of the social real estate experience.',
         'Avoid posting private information about yourself or others in public areas of the app.',
       ]),
-      section('4. Service providers and external sources', [
+      section('5. Service providers, transfers, and external sources', [
         'HuisHype may use providers for authentication, hosting, analytics, crash and error logging, email delivery, infrastructure, and support. When you open an external listing or source link, that provider privacy practices apply.',
+        'Providers or infrastructure may be located outside your country. Where required, HuisHype uses appropriate safeguards for international transfers and limits provider access to what is needed for their role.',
       ]),
-      section('5. Legal bases and retention', [
+      section('6. Security', [
+        'HuisHype uses technical and organizational measures intended to protect account data and service integrity. No online service can guarantee absolute security, so report suspicious account activity or data exposure promptly.',
+      ]),
+      section('7. Legal bases and retention', [
         'Where EU or UK data protection law applies, we process personal data based on contract necessity, legitimate interests such as security and product improvement, consent where required, and legal obligations where applicable.',
         'We keep personal data only as long as needed for account operation, dispute handling, abuse prevention, legal requirements, backups, and service integrity.',
+        'Public property facts, source records, moderation records, and security logs can follow different retention periods because they serve different purposes.',
       ]),
-      section('6. Your rights', [
+      section('8. Your rights', [
         'Depending on your location, including in the EU, you may have rights to access, correct, delete, restrict, object to processing, export your data, or withdraw consent.',
+        'If your request concerns data controlled by an external source, we may review the HuisHype display and also direct you to that source.',
       ]),
-      section('7. Contact', [
+      section('9. Contact', [
         'For privacy questions or rights requests, email contact@huishype.nl. For account or product support, email support@huishype.nl.',
       ]),
     ],
@@ -1054,8 +1531,12 @@ export const legalPages: LegalPageContent[] = [
         'Strictly necessary storage supports login, routing, security, session continuity, and basic app operation.',
         'Analytics and diagnostics storage helps us understand app quality, crashes, performance, and feature usage. Where consent is required, we ask for it before using optional storage.',
       ]),
-      section('3. Your choices', [
+      section('3. Third-party tools', [
+        'Some storage may be set or read through providers that support authentication, analytics, maps, email, support, crash reporting, or infrastructure. External listing sites you open from HuisHype use their own storage rules.',
+      ]),
+      section('4. Your choices', [
         'Browser and device settings can block or delete cookies and storage. Some HuisHype features may stop working if strictly necessary storage is disabled.',
+        'Where an in-app consent control is available, use it to change optional analytics or diagnostic choices. Blocking storage at browser or device level can override app preferences.',
       ]),
     ],
   },
@@ -1080,6 +1561,11 @@ export const legalPages: LegalPageContent[] = [
       ]),
       section('3. Public source limits', [
         'If a detail comes from an original listing source or public register, HuisHype can review its own display but may also direct you to the source that controls the underlying record.',
+        'Public property records, map data, sold-price records, and source-derived facts may remain visible when there is a lawful reason to show them. Factual errors and sensitive media can still be reviewed.',
+      ]),
+      section('4. Retention and restrictions', [
+        'Account deletion does not always remove every record immediately. HuisHype may retain limited data for legal obligations, security, abuse prevention, dispute handling, backups, and service integrity.',
+        'When deletion is not possible, a restriction, correction, hiding of specific content, or note to contact the original source may be the appropriate outcome.',
       ]),
     ],
   },
@@ -1100,9 +1586,15 @@ export const legalPages: LegalPageContent[] = [
       ]),
       section('2. User-submitted content', [
         'If you submit comments, reports, feedback, or other content to HuisHype, you confirm that you have the rights needed to submit it and that it does not violate law, privacy, or third-party rights.',
+        'You grant HuisHype permission to host, display, moderate, analyze, and process submitted content as needed to operate the app, support users, protect service integrity, and improve product quality.',
       ]),
       section('3. Source content', [
         'Photos, listing text, documents, and media from listing sources may be controlled by third parties. Open the original source for its usage rules.',
+        'Do not upload or request republication of source material unless you are allowed to share it. Agents, source owners, and rights holders remain responsible for permissions in the material they provide.',
+      ]),
+      section('4. Sensitive sharing', [
+        'Avoid sharing identity documents, private contact details, financial documents, exact availability plans, or private messages in public comments or screenshots.',
+        'When reporting safety, fraud, or rights issues, send sensitive evidence through support rather than posting it publicly.',
       ]),
     ],
   },
