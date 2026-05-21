@@ -1446,6 +1446,32 @@ describe('MapScreen web grouped Following mode', () => {
     });
   });
 
+  it('does not auto-locate if the user moves the web map before idle', async () => {
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    act(() => {
+      map.trigger('dragstart');
+      map.trigger('idle');
+    });
+    await flushMicrotasks();
+
+    expect(mockGetCurrentLocation).not.toHaveBeenCalled();
+    expect(map.flyTo).not.toHaveBeenCalled();
+  });
+
   it('does not auto-locate on an explicit camera route', async () => {
     mockBrowserPathname = '/@52.3626765,5.3574841,6.29z';
     mockResolvedMapRouteState = {

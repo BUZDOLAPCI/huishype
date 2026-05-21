@@ -340,6 +340,7 @@ export default function MapScreen() {
   const followingRenderRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trackedFollowingEmptyViewRef = useRef(false);
   const rootAutoLocationRequestedRef = useRef(false);
+  const rootAutoLocationCancelledByUserRef = useRef(false);
 
   // Shared map interaction state and logic
   const interaction = useMapInteraction();
@@ -719,13 +720,27 @@ export default function MapScreen() {
     cameraRef.current?.setStop({ pitch: targetPitch, duration: 0, easing: undefined });
   }, []);
 
+  const cancelRootAutoLocationAfterUserInteraction = useCallback(() => {
+    if (!rootAutoLocationRequestedRef.current) {
+      rootAutoLocationCancelledByUserRef.current = true;
+    }
+  }, []);
+
   const handleRegionIsChanging = useCallback(
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+      if (event.nativeEvent.userInteraction) {
+        cancelRootAutoLocationAfterUserInteraction();
+      }
       syncPitchForZoom(event.nativeEvent.zoom);
       void refreshNativePreviewPoint();
       void syncAmbientCommentBubbleScreenPoints();
     },
-    [refreshNativePreviewPoint, syncAmbientCommentBubbleScreenPoints, syncPitchForZoom]
+    [
+      cancelRootAutoLocationAfterUserInteraction,
+      refreshNativePreviewPoint,
+      syncAmbientCommentBubbleScreenPoints,
+      syncPitchForZoom,
+    ]
   );
 
   // Handle map region change to track zoom level and update city name
@@ -1046,6 +1061,8 @@ export default function MapScreen() {
   // Handle map press - query features at tap point, or close preview if tapping empty area
   const handleMapPress = useCallback(
     async (event: NativeSyntheticEvent<PressEvent>) => {
+      cancelRootAutoLocationAfterUserInteraction();
+
       // If the preview card was just touched, suppress this map press event.
       if (previewCardTouchedRef.current) {
         previewCardTouchedRef.current = false;
@@ -1174,6 +1191,7 @@ export default function MapScreen() {
     },
     [
       interaction,
+      cancelRootAutoLocationAfterUserInteraction,
       handleNearbyResult,
       handleEmptyMapTap,
       currentZoom,
@@ -1186,6 +1204,8 @@ export default function MapScreen() {
 
   const handleMapLongPress = useCallback(
     async (event: NativeSyntheticEvent<PressEvent>) => {
+      cancelRootAutoLocationAfterUserInteraction();
+
       if (currentZoom < PROPERTY_GHOST_REVEAL_ZOOM) {
         return;
       }
@@ -1202,7 +1222,12 @@ export default function MapScreen() {
         console.warn('[HuisHype] Physical tap resolver failed:', error);
       }
     },
-    [cameraCommands, currentZoom, handleNearbyResult],
+    [
+      cameraCommands,
+      cancelRootAutoLocationAfterUserInteraction,
+      currentZoom,
+      handleNearbyResult,
+    ],
   );
 
   // Search bar callbacks
@@ -1300,6 +1325,7 @@ export default function MapScreen() {
     if (
       DEBUG_CAMERA ||
       rootAutoLocationRequestedRef.current ||
+      rootAutoLocationCancelledByUserRef.current ||
       !isFocused ||
       !mapFullyRendered ||
       !cameraRef.current

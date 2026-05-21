@@ -1032,6 +1032,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const trackedFollowingEmptyViewRef = useRef(false);
   const propertyTileRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootAutoLocationRequestedRef = useRef(false);
+  const rootAutoLocationCancelledByUserRef = useRef(false);
 
   useEffect(() => {
     registerPropertyTileRetryProtocol(maplibregl, API_URL);
@@ -1621,6 +1622,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     }
   }, []);
 
+  const cancelRootAutoLocationAfterUserInteraction = useCallback(() => {
+    if (!rootAutoLocationRequestedRef.current) {
+      rootAutoLocationCancelledByUserRef.current = true;
+    }
+  }, []);
+
   const handleCurrentLocationPress = useCallback(() => {
     void flyToCurrentLocation();
   }, [flyToCurrentLocation]);
@@ -1629,6 +1636,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     if (
       DEBUG_CAMERA ||
       rootAutoLocationRequestedRef.current ||
+      rootAutoLocationCancelledByUserRef.current ||
       !isMapTabActive ||
       !mapRef.current ||
       !mapFirstFullRenderReady ||
@@ -2331,20 +2339,24 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
       // Track map gestures to prevent preview card from closing during pan/zoom/rotate
       map.on('dragstart', () => {
+        cancelRootAutoLocationAfterUserInteraction();
         isDragging.current = true;
         canReplaceLockedAreaPathRef.current = true;
       });
       map.on('dragend', () => { setTimeout(() => { isDragging.current = false; }, 100); });
       map.on('zoomstart', () => {
+        cancelRootAutoLocationAfterUserInteraction();
         isZooming.current = true;
         canReplaceLockedAreaPathRef.current = true;
       });
       map.on('zoomend', () => { setTimeout(() => { isZooming.current = false; }, 100); });
       map.on('rotatestart', () => {
+        cancelRootAutoLocationAfterUserInteraction();
         isRotating.current = true;
         canReplaceLockedAreaPathRef.current = true;
       });
       map.on('rotateend', () => { setTimeout(() => { isRotating.current = false; }, 100); });
+      map.on('mousedown', cancelRootAutoLocationAfterUserInteraction);
 
       const resolvePhysicalTapAtCoordinate = async (
         lon: number,
@@ -2428,6 +2440,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           points?: unknown[];
         },
       ) => {
+        cancelRootAutoLocationAfterUserInteraction();
         clearTouchLongPressTimer();
         if (map.getZoom() < PROPERTY_GHOST_REVEAL_ZOOM || (event.points?.length ?? 1) > 1) {
           return;
@@ -2646,7 +2659,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     };
   // Build the map once; refs above keep the event-time behavior fresh without
   // tearing down the MapLibre instance on Following/auth/filter state changes.
-  }, [initialMapCamera.cameraPath, initialMapCamera.center, initialMapCamera.zoom]);
+  }, [
+    cancelRootAutoLocationAfterUserInteraction,
+    initialMapCamera.cameraPath,
+    initialMapCamera.center,
+    initialMapCamera.zoom,
+  ]);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
   useEffect(() => {

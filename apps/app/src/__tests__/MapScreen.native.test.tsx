@@ -333,6 +333,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
     onDidFinishRenderingMapFully?: () => void;
     onPress?: (event: unknown) => void;
     onLongPress?: (event: unknown) => void;
+    onRegionIsChanging?: (event: unknown) => void;
     onRegionDidChange?: (event: unknown) => void;
   };
 
@@ -353,6 +354,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
       onDidFinishRenderingMapFully: props.onDidFinishRenderingMapFully,
       onPress: props.onPress,
       onLongPress: props.onLongPress,
+      onRegionIsChanging: props.onRegionIsChanging,
       onRegionDidChange: props.onRegionDidChange,
     } as unknown as React.ComponentProps<typeof Pressable>;
 
@@ -659,6 +661,27 @@ describe('MapScreen native grouped Following mode', () => {
       pitch: expect.any(Number),
       duration: 800,
     });
+  });
+
+  it('does not auto-locate if the user moves the native map before full render', async () => {
+    const screen = await renderMapScreen();
+
+    fireEvent(screen.getByTestId('native-map'), 'regionIsChanging', {
+      nativeEvent: {
+        center: [4.9, 52.37],
+        zoom: 14,
+        userInteraction: true,
+      },
+    });
+    fireEvent(screen.getByTestId('native-map'), 'didFinishRenderingMapFully');
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockGetCurrentLocation).not.toHaveBeenCalled();
+    expect(mockCameraFlyTo).not.toHaveBeenCalled();
   });
 
   it('auto-locates only once on repeated native full-render events', async () => {
