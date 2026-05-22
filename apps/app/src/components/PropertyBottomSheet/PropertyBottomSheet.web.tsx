@@ -31,6 +31,7 @@ import {
 } from './sectionScroll';
 import { useIsLandscape } from '../../hooks/useIsLandscape';
 import { TAB_BAR_DOCK_HEIGHT } from '../navigation/tabBarMetrics';
+import { useT } from '@/src/i18n';
 
 type SheetState = 'closed' | 'peek' | 'partial' | 'full';
 
@@ -214,6 +215,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     },
     ref
   ) {
+    const t = useT();
     const [sheetState, setSheetState] = useState<SheetState>('closed');
     const scrollRef = useRef<ScrollView>(null);
     const panelRef = useRef<HTMLDivElement>(null);
@@ -572,13 +574,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           {/* Header bar */}
           <div className="web-property-panel-header">
             <Text className="text-base font-semibold text-warm-900">
-              Property Details
+              {t('property.details.title')}
             </Text>
             <button
               className="web-property-panel-close"
               onClick={handleDismiss}
               data-testid="web-panel-close"
-              aria-label="Close panel"
+              aria-label={t('common.closePanel')}
             >
               <Icon name="X" size="md" color="#9C958A" />
             </button>

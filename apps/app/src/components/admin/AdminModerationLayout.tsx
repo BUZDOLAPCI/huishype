@@ -25,6 +25,7 @@ import {
   buildPropertyRoute,
   toInternalAppHref,
 } from '@/src/utils/property-route';
+import { useT, type TranslationKey } from '@/src/i18n';
 
 const COLORS = {
   background: '#F3F4F6',
@@ -45,11 +46,11 @@ const COLORS = {
 } as const;
 
 const NAV_ITEMS = [
-  { label: 'Dashboard', href: '/admin' },
-  { label: 'Flagged Properties', href: '/admin/properties' },
-  { label: 'Disabled Properties', href: '/admin/comments-disabled' },
-  { label: 'Flagged Comments', href: '/admin/comments' },
-  { label: 'Activity Logs', href: '/admin/activity' },
+  { labelKey: 'admin.nav.dashboard', href: '/admin' },
+  { labelKey: 'admin.nav.flaggedProperties', href: '/admin/properties' },
+  { labelKey: 'admin.nav.disabledProperties', href: '/admin/comments-disabled' },
+  { labelKey: 'admin.nav.flaggedComments', href: '/admin/comments' },
+  { labelKey: 'admin.nav.activityLogs', href: '/admin/activity' },
 ] as const;
 
 export function AdminShell({
@@ -61,6 +62,7 @@ export function AdminShell({
   subtitle?: string;
   children: ReactNode;
 }) {
+  const t = useT();
   const pathname = usePathname();
   const { width } = useWindowDimensions();
   const sidebar = width >= 920;
@@ -69,11 +71,11 @@ export function AdminShell({
     <View style={styles.shell}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.brand}>HuisHype Admin</Text>
-          <Text style={styles.headerMeta}>Moderation console</Text>
+          <Text style={styles.brand}>{t('admin.brand')}</Text>
+          <Text style={styles.headerMeta}>{t('admin.console')}</Text>
         </View>
         <Button
-          label="Open App"
+          label={t('admin.openApp')}
           variant="secondary"
           size="sm"
           onPress={() => router.push('/')}
@@ -119,6 +121,8 @@ function AdminNav({
   pathname: string;
   vertical?: boolean;
 }) {
+  const t = useT();
+
   return (
     <View style={vertical ? styles.navVertical : styles.navHorizontal}>
       {NAV_ITEMS.map((item) => {
@@ -136,7 +140,7 @@ function AdminNav({
             style={[styles.navItem, active && styles.navItemActive]}
           >
             <Text style={[styles.navText, active && styles.navTextActive]}>
-              {item.label}
+              {t(item.labelKey as TranslationKey)}
             </Text>
           </Pressable>
         );
@@ -220,9 +224,11 @@ export function AdminEmptyState({ title, body }: { title: string; body: string }
 }
 
 export function AdminLoadingState() {
+  const t = useT();
+
   return (
     <AdminCard>
-      <Text style={styles.stateText}>Loading moderation queue...</Text>
+      <Text style={styles.stateText}>{t('admin.loadingQueue')}</Text>
     </AdminCard>
   );
 }
@@ -234,23 +240,24 @@ export function AdminErrorState({
   error: unknown;
   onRetry?: () => void;
 }) {
+  const t = useT();
   const forbidden = error instanceof AdminForbiddenError;
 
   return (
     <AdminCard>
       <View style={styles.emptyState}>
         <Text style={styles.emptyTitle}>
-          {forbidden ? 'Forbidden' : 'Unable to load admin data'}
+          {forbidden ? t('admin.error.forbidden') : t('admin.error.loadData')}
         </Text>
         <Text style={styles.emptyBody} selectable>
           {forbidden
-            ? 'Your account is signed in but does not have admin access.'
+            ? t('admin.error.forbiddenBody')
             : error instanceof Error
               ? error.message
-              : 'The moderation API did not return a usable response.'}
+              : t('admin.error.badResponse')}
         </Text>
         {onRetry ? (
-          <Button label="Retry" variant="secondary" size="sm" onPress={onRetry} />
+          <Button label={t('common.retry')} variant="secondary" size="sm" onPress={onRetry} />
         ) : null}
       </View>
     </AdminCard>
@@ -270,6 +277,7 @@ export function PropertyReportCard({
   onDisableComments: () => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const property = group.property;
   const propertyHref = getPropertyHref(property);
 
@@ -278,25 +286,25 @@ export function PropertyReportCard({
       <View style={styles.reportCardHeader}>
         <View style={styles.reportTitleBlock}>
           <Text style={styles.reportTitle} selectable>
-            {formatPropertyTitle(property)}
+            {formatPropertyTitle(property, t('admin.propertyUnavailable'))}
           </Text>
           <Text style={styles.reportMeta} selectable>
-            {formatPropertyLocation(property)}
+            {formatPropertyLocation(property, t('admin.noAddressMetadata'))}
           </Text>
         </View>
-        <AdminBadge label={`${group.reportCount} reports`} tone="red" />
+        <AdminBadge label={t('admin.reportCount', { count: group.reportCount })} tone="red" />
       </View>
 
       <ReasonChips reasons={group.reasons} />
 
       <Text style={styles.reportMeta} selectable>
-        Latest report {formatDate(group.latestReportAt)}
+        {t('admin.latestReport', { date: formatDate(group.latestReportAt, t('admin.dateUnknown')) })}
       </Text>
 
       <View style={styles.actionsRow}>
         {propertyHref ? (
           <Button
-            label="Open public detail"
+            label={t('admin.actions.openPublicDetail')}
             variant="ghost"
             size="sm"
             onPress={() => openPublicHref(propertyHref)}
@@ -304,7 +312,7 @@ export function PropertyReportCard({
           />
         ) : null}
         <Button
-          label="Disable comments"
+          label={t('admin.actions.disableComments')}
           variant="secondary"
           size="sm"
           disabled={disabled}
@@ -312,7 +320,7 @@ export function PropertyReportCard({
           testID={`disable-comments-property-${group.id}`}
         />
         <Button
-          label="Dismiss reports"
+          label={t('admin.actions.dismissReports')}
           variant="secondary"
           size="sm"
           disabled={disabled}
@@ -320,7 +328,7 @@ export function PropertyReportCard({
           testID={`dismiss-property-${group.id}`}
         />
         <Button
-          label="Mark property reviewed"
+          label={t('admin.actions.markPropertyReviewed')}
           variant="primary"
           size="sm"
           disabled={disabled}
@@ -343,6 +351,7 @@ export function CommentReportCard({
   onHide: () => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const comment = group.comment;
   const commentHref = getCommentHref(comment);
 
@@ -351,25 +360,28 @@ export function CommentReportCard({
       <View style={styles.reportCardHeader}>
         <View style={styles.reportTitleBlock}>
           <Text style={styles.reportTitle} selectable numberOfLines={3}>
-            {comment?.text ?? 'Comment unavailable'}
+            {comment?.text ?? t('admin.commentUnavailable')}
           </Text>
           <Text style={styles.reportMeta} selectable>
-            {formatReporter(comment?.author)} on {formatPropertyTitle(comment?.property)}
+            {t('admin.commentOnProperty', {
+              reporter: formatReporter(comment?.author, t('admin.unknownReporter')),
+              property: formatPropertyTitle(comment?.property, t('admin.propertyUnavailable')),
+            })}
           </Text>
         </View>
-        <AdminBadge label={`${group.reportCount} reports`} tone="red" />
+        <AdminBadge label={t('admin.reportCount', { count: group.reportCount })} tone="red" />
       </View>
 
       <ReasonChips reasons={group.reasons} />
 
       <Text style={styles.reportMeta} selectable>
-        Latest report {formatDate(group.latestReportAt)}
+        {t('admin.latestReport', { date: formatDate(group.latestReportAt, t('admin.dateUnknown')) })}
       </Text>
 
       <View style={styles.actionsRow}>
         {commentHref ? (
           <Button
-            label="View comment"
+            label={t('admin.actions.viewComment')}
             variant="ghost"
             size="sm"
             onPress={() => openPublicHref(commentHref)}
@@ -377,7 +389,7 @@ export function CommentReportCard({
           />
         ) : null}
         <Button
-          label="Dismiss reports"
+          label={t('admin.actions.dismissReports')}
           variant="secondary"
           size="sm"
           disabled={disabled}
@@ -385,7 +397,7 @@ export function CommentReportCard({
           testID={`dismiss-comment-${group.id}`}
         />
         <Button
-          label="Hide comment"
+          label={t('admin.actions.hideComment')}
           variant="primary"
           size="sm"
           disabled={disabled}
@@ -398,8 +410,15 @@ export function CommentReportCard({
 }
 
 export function RecentReportsList({ reports }: { reports: AdminReport[] }) {
+  const t = useT();
+
   if (reports.length === 0) {
-    return <AdminEmptyState title="No recent reports" body="Incoming reports will appear here." />;
+    return (
+      <AdminEmptyState
+        title={t('admin.empty.noRecentReports.title')}
+        body={t('admin.empty.noRecentReports.body')}
+      />
+    );
   }
 
   return (
@@ -416,10 +435,10 @@ export function RecentReportsList({ reports }: { reports: AdminReport[] }) {
               {report.reason}
             </Text>
             <Text style={styles.listMeta} selectable>
-              {report.targetType} - {formatDate(report.createdAt)}
+              {report.targetType} - {formatDate(report.createdAt, t('admin.dateUnknown'))}
             </Text>
           </View>
-          <Text style={styles.listChevron}>View</Text>
+          <Text style={styles.listChevron}>{t('admin.actions.view')}</Text>
         </Pressable>
       ))}
     </View>
@@ -427,11 +446,13 @@ export function RecentReportsList({ reports }: { reports: AdminReport[] }) {
 }
 
 export function ActivityLogList({ logs }: { logs: AdminLogEntry[] }) {
+  const t = useT();
+
   if (logs.length === 0) {
     return (
       <AdminEmptyState
-        title="No activity yet"
-        body="Moderation actions returned by the admin reports API will appear here."
+        title={t('admin.empty.noActivity.title')}
+        body={t('admin.empty.noActivity.body')}
       />
     );
   }
@@ -442,7 +463,7 @@ export function ActivityLogList({ logs }: { logs: AdminLogEntry[] }) {
         <View key={entry.id} style={styles.logRow}>
           <View style={styles.logTime}>
             <Text style={styles.listMeta} selectable>
-              {formatDate(entry.createdAt)}
+              {formatDate(entry.createdAt, t('admin.dateUnknown'))}
             </Text>
           </View>
           <View style={styles.listRowMain}>
@@ -450,7 +471,7 @@ export function ActivityLogList({ logs }: { logs: AdminLogEntry[] }) {
               {entry.action}
             </Text>
             <Text style={styles.listMeta} selectable>
-              {formatReporter(entry.admin)} - {entry.targetType ?? 'target'}{' '}
+              {formatReporter(entry.admin, t('admin.unknownReporter'))} - {entry.targetType ?? t('admin.targetFallback')}{' '}
               {entry.targetId ?? ''}
             </Text>
             {entry.details ? (
@@ -466,6 +487,8 @@ export function ActivityLogList({ logs }: { logs: AdminLogEntry[] }) {
 }
 
 export function ReportDetailReportList({ reports }: { reports: AdminReport[] }) {
+  const t = useT();
+
   return (
     <View style={styles.listStack}>
       {reports.map((report) => (
@@ -476,7 +499,7 @@ export function ReportDetailReportList({ reports }: { reports: AdminReport[] }) 
                 {report.reason}
               </Text>
               <Text style={styles.listMeta} selectable>
-                {formatReporter(report.reporter)} - {formatDate(report.createdAt)}
+                {formatReporter(report.reporter, t('admin.unknownReporter'))} - {formatDate(report.createdAt, t('admin.dateUnknown'))}
               </Text>
             </View>
             {report.status ? <AdminBadge label={report.status} tone="amber" /> : null}
@@ -493,6 +516,8 @@ export function ReportDetailReportList({ reports }: { reports: AdminReport[] }) 
 }
 
 function ReasonChips({ reasons }: { reasons: string[] }) {
+  const t = useT();
+
   return (
     <View style={styles.reasonRow}>
       {reasons.length > 0 ? (
@@ -500,15 +525,15 @@ function ReasonChips({ reasons }: { reasons: string[] }) {
           <AdminBadge key={reason} label={reason} tone="amber" />
         ))
       ) : (
-        <AdminBadge label="No reason supplied" />
+        <AdminBadge label={t('admin.noReasonSupplied')} />
       )}
     </View>
   );
 }
 
-export function formatDate(value: string | null | undefined): string {
+export function formatDate(value: string | null | undefined, unknownLabel = 'unknown'): string {
   if (!value) {
-    return 'unknown';
+    return unknownLabel;
   }
 
   const date = new Date(value);
@@ -524,17 +549,23 @@ export function formatDate(value: string | null | undefined): string {
   }).format(date);
 }
 
-export function formatReporter(reporter?: AdminReporter | null): string {
+export function formatReporter(
+  reporter?: AdminReporter | null,
+  unknownReporterLabel = 'Unknown reporter',
+): string {
   if (!reporter) {
-    return 'Unknown reporter';
+    return unknownReporterLabel;
   }
 
   return reporter.displayName ?? reporter.username ?? reporter.email ?? reporter.id;
 }
 
-export function formatPropertyTitle(property?: AdminPropertyTarget | null): string {
+export function formatPropertyTitle(
+  property?: AdminPropertyTarget | null,
+  unavailableLabel = 'Property unavailable',
+): string {
   if (!property) {
-    return 'Property unavailable';
+    return unavailableLabel;
   }
 
   if (property.address) {
@@ -550,16 +581,22 @@ export function formatPropertyTitle(property?: AdminPropertyTarget | null): stri
   return title || property.id;
 }
 
-export function formatPropertyLocation(property?: AdminPropertyTarget | null): string {
+export function formatPropertyLocation(
+  property?: AdminPropertyTarget | null,
+  unavailableLabel = 'No address metadata',
+): string {
   if (!property) {
-    return 'No address metadata';
+    return unavailableLabel;
   }
 
   return [property.city, property.postalCode].filter(Boolean).join(' - ') || property.id;
 }
 
-export function formatCommentTarget(comment?: AdminCommentTarget | null): string {
-  return comment?.text ?? 'Comment unavailable';
+export function formatCommentTarget(
+  comment?: AdminCommentTarget | null,
+  unavailableLabel = 'Comment unavailable',
+): string {
+  return comment?.text ?? unavailableLabel;
 }
 
 function getPropertyHref(property?: AdminPropertyTarget | null): string | null {

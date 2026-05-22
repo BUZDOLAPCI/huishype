@@ -18,6 +18,7 @@ import { Button } from './ui/Button';
 import { Icon, type IconName } from './ui/Icon';
 import { shadows } from '../lib/shadows';
 import { useWebDismissibleLayer } from '../providers/WebDismissibleLayerProvider';
+import { useT, type TranslationKey } from '../i18n';
 
 const WARM_50 = '#FFF8F0';
 const WARM_100 = '#F5F0E8';
@@ -31,23 +32,23 @@ const COOL_BORDER = '#E4E4E7';
 
 const INTRO_ITEMS: Array<{
   icon: IconName;
-  title: string;
-  body: string;
+  titleKey: TranslationKey;
+  bodyKey: TranslationKey;
 }> = [
   {
     icon: 'MapTrifold',
-    title: 'Browse the map',
-    body: 'Explore homes, listings, and neighborhood activity.',
+    titleKey: 'welcome.feature.map.title',
+    bodyKey: 'welcome.feature.map.body',
   },
   {
     icon: 'CurrencyEur',
-    title: "Guess what it's worth",
-    body: 'Submit what you think a place is worth and compare it with the crowd estimate.',
+    titleKey: 'welcome.feature.guess.title',
+    bodyKey: 'welcome.feature.guess.body',
   },
   {
     icon: 'ChatCircle',
-    title: 'See what people notice',
-    body: 'Read comments, reactions, and activity signals around individual properties.',
+    titleKey: 'welcome.feature.activity.title',
+    bodyKey: 'welcome.feature.activity.body',
   },
 ];
 
@@ -59,6 +60,7 @@ interface WelcomeModalProps {
 export function WelcomeModal({ visible, onClose }: WelcomeModalProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const t = useT();
   const maxCardHeight = Math.max(360, height - insets.top - insets.bottom - 48);
 
   const handleClose = useCallback(() => {
@@ -107,7 +109,7 @@ export function WelcomeModal({ visible, onClose }: WelcomeModalProps) {
         />
         <View style={[StyleSheet.absoluteFillObject, styles.backdropTint]} />
         <Pressable
-          accessibilityLabel="Close HuisHype introduction backdrop"
+          accessibilityLabel={t('welcome.closeBackdrop')}
           onPress={handleClose}
           style={StyleSheet.absoluteFillObject}
         />
@@ -120,7 +122,7 @@ export function WelcomeModal({ visible, onClose }: WelcomeModalProps) {
             <View style={styles.closeRow}>
               <View style={styles.closeRowSpacer} />
               <TouchableOpacity
-                accessibilityLabel="Close HuisHype introduction"
+                accessibilityLabel={t('welcome.close')}
                 accessibilityRole="button"
                 onPress={handleClose}
                 style={styles.closeButton}
@@ -143,22 +145,21 @@ export function WelcomeModal({ visible, onClose }: WelcomeModalProps) {
               />
 
               <View style={styles.heroCopy}>
-                <Text style={styles.title}>Welcome to HuisHype</Text>
+                <Text style={styles.title}>{t('welcome.title')}</Text>
                 <Text style={styles.subtitle}>
-                  The social real estate map for exploring homes, testing your instincts,
-                  and seeing what the crowd thinks.
+                  {t('welcome.subtitle')}
                 </Text>
               </View>
 
               <View style={styles.featureList}>
                 {INTRO_ITEMS.map((item) => (
-                  <View key={item.title} style={styles.featureRow}>
+                  <View key={item.titleKey} style={styles.featureRow}>
                     <View style={styles.featureIcon}>
                       <Icon name={item.icon} size={22} color={GOLD_700} weight="duotone" />
                     </View>
                     <View style={styles.featureText}>
-                      <Text style={styles.featureTitle}>{item.title}</Text>
-                      <Text style={styles.featureBody}>{item.body}</Text>
+                      <Text style={styles.featureTitle}>{t(item.titleKey)}</Text>
+                      <Text style={styles.featureBody}>{t(item.bodyKey)}</Text>
                     </View>
                   </View>
                 ))}
@@ -167,15 +168,14 @@ export function WelcomeModal({ visible, onClose }: WelcomeModalProps) {
               <View style={styles.note}>
                 <Icon name="ShieldCheck" size={18} color={GOLD_700} weight="duotone" />
                 <Text style={styles.noteText}>
-                  You can browse freely. Sign in only when you want to save, comment,
-                  like, or submit guesses.
+                  {t('welcome.note')}
                 </Text>
               </View>
 
               <Button
-                label="Start exploring"
+                label={t('welcome.start')}
                 onPress={handleClose}
-                accessibilityLabel="Start exploring HuisHype"
+                accessibilityLabel={t('welcome.startLabel')}
                 testID="welcome-modal-dismiss-button"
                 style={styles.primaryButton}
               />

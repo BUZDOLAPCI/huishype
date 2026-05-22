@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
 import { PROFILE_TAB_BAR_SPACER } from '@/src/components/navigation/tabBarMetrics';
+import { useLanguage, type LanguageCode } from '@/src/i18n';
 import { api } from '@/src/utils/api';
 
 type FormStatus =
@@ -27,7 +28,81 @@ type ContactResponse = {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const COPY: Record<
+  LanguageCode,
+  {
+    title: string;
+    backToSettings: string;
+    lead: string;
+    general: string;
+    support: string;
+    name: string;
+    namePlaceholder: string;
+    email: string;
+    subject: string;
+    subjectPlaceholder: string;
+    message: string;
+    messagePlaceholder: string;
+    optional: string;
+    send: string;
+    sending: string;
+    missingRequired: string;
+    invalidEmail: string;
+    shortMessage: string;
+    success: string;
+    failure: string;
+  }
+> = {
+  en: {
+    title: 'Contact',
+    backToSettings: 'Back to settings',
+    lead: 'Need help with HuisHype, your account, property activity, listing source links, comments, guesses, saves, or privacy questions? Send us a message and we will route it to the right inbox.',
+    general: 'General',
+    support: 'Support',
+    name: 'Name',
+    namePlaceholder: 'Your name',
+    email: 'Email',
+    subject: 'Subject',
+    subjectPlaceholder: 'What is this about?',
+    message: 'Message',
+    messagePlaceholder: 'How can we help?',
+    optional: 'optional',
+    send: 'Send message',
+    sending: 'Sending...',
+    missingRequired: 'Enter your name, email address, and message before sending.',
+    invalidEmail: 'Enter a valid email address.',
+    shortMessage: 'Enter a message with at least 10 characters.',
+    success: 'Thanks. We received your message.',
+    failure: 'We could not send your message. Please try again or email support@huishype.nl.',
+  },
+  nl: {
+    title: 'Contact',
+    backToSettings: 'Terug naar instellingen',
+    lead: 'Hulp nodig met HuisHype, je account, woningactiviteit, advertentielinks, reacties, schattingen, opgeslagen woningen of privacyvragen? Stuur ons een bericht en wij sturen het naar de juiste inbox.',
+    general: 'Algemeen',
+    support: 'Support',
+    name: 'Naam',
+    namePlaceholder: 'Je naam',
+    email: 'E-mail',
+    subject: 'Onderwerp',
+    subjectPlaceholder: 'Waar gaat dit over?',
+    message: 'Bericht',
+    messagePlaceholder: 'Waarmee kunnen we helpen?',
+    optional: 'optioneel',
+    send: 'Bericht sturen',
+    sending: 'Versturen...',
+    missingRequired: 'Vul je naam, e-mailadres en bericht in voordat je verzendt.',
+    invalidEmail: 'Vul een geldig e-mailadres in.',
+    shortMessage: 'Vul een bericht in van minstens 10 tekens.',
+    success: 'Bedankt. We hebben je bericht ontvangen.',
+    failure:
+      'We konden je bericht niet verzenden. Probeer het opnieuw of mail support@huishype.nl.',
+  },
+};
+
 export default function ContactScreen() {
+  const { language } = useLanguage();
+  const copy = COPY[language];
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -42,7 +117,7 @@ export default function ContactScreen() {
       name.trim().length > 0 &&
       email.trim().length > 0 &&
       message.trim().length >= 10,
-    [email, isSubmitting, message, name],
+    [email, isSubmitting, message, name]
   );
 
   const handleBack = useCallback(() => {
@@ -58,7 +133,7 @@ export default function ContactScreen() {
     if (!trimmedName || !trimmedEmail || !trimmedMessage) {
       setStatus({
         type: 'error',
-        message: 'Enter your name, email address, and message before sending.',
+        message: copy.missingRequired,
       });
       return;
     }
@@ -66,7 +141,7 @@ export default function ContactScreen() {
     if (!EMAIL_PATTERN.test(trimmedEmail)) {
       setStatus({
         type: 'error',
-        message: 'Enter a valid email address.',
+        message: copy.invalidEmail,
       });
       return;
     }
@@ -74,7 +149,7 @@ export default function ContactScreen() {
     if (trimmedMessage.length < 10) {
       setStatus({
         type: 'error',
-        message: 'Enter a message with at least 10 characters.',
+        message: copy.shortMessage,
       });
       return;
     }
@@ -92,7 +167,7 @@ export default function ContactScreen() {
 
       setStatus({
         type: 'success',
-        message: response.message ?? 'Thanks. We received your message.',
+        message: language === 'en' && response.message ? response.message : copy.success,
       });
       setName('');
       setEmail('');
@@ -101,12 +176,12 @@ export default function ContactScreen() {
     } catch {
       setStatus({
         type: 'error',
-        message: 'We could not send your message. Please try again or email support@huishype.nl.',
+        message: copy.failure,
       });
     } finally {
       setIsSubmitting(false);
     }
-  }, [email, message, name, subject]);
+  }, [copy, email, language, message, name, subject]);
 
   return (
     <KeyboardAvoidingView
@@ -119,58 +194,53 @@ export default function ContactScreen() {
           onPress={handleBack}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel="Back to settings"
+          accessibilityLabel={copy.backToSettings}
           style={styles.headerButton}
           testID="contact-page-back"
         >
           <Icon name="ArrowLeft" size="lg" color="#003C32" />
         </Pressable>
         <Text style={styles.headerTitle} accessibilityRole="header">
-          Contact
+          {copy.title}
         </Text>
         <View style={styles.headerButton} />
       </View>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: PROFILE_TAB_BAR_SPACER + 32 },
-        ]}
+        contentContainerStyle={[styles.content, { paddingBottom: PROFILE_TAB_BAR_SPACER + 32 }]}
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
       >
-        <Text style={styles.lead}>
-          Need help with HuisHype, your account, property activity, listing
-          source links, comments, guesses, saves, or privacy questions? Send us
-          a message and we will route it to the right inbox.
-        </Text>
+        <Text style={styles.lead}>{copy.lead}</Text>
 
         <View style={styles.emailBlock}>
-          <Text style={styles.emailLine}>General: contact@huishype.nl</Text>
-          <Text style={styles.emailLine}>Support: support@huishype.nl</Text>
+          <Text style={styles.emailLine}>{copy.general}: contact@huishype.nl</Text>
+          <Text style={styles.emailLine}>{copy.support}: support@huishype.nl</Text>
         </View>
 
         <View style={styles.form}>
-          <FieldLabel label="Name" />
+          <FieldLabel label={copy.name} />
           <TextInput
             value={name}
             onChangeText={setName}
             style={styles.input}
-            placeholder="Your name"
+            placeholder={copy.namePlaceholder}
             placeholderTextColor="#8B8580"
+            accessibilityLabel={copy.name}
             autoCapitalize="words"
             textContentType="name"
             testID="contact-name-input"
           />
 
-          <FieldLabel label="Email" />
+          <FieldLabel label={copy.email} />
           <TextInput
             value={email}
             onChangeText={setEmail}
             style={styles.input}
             placeholder="you@example.com"
             placeholderTextColor="#8B8580"
+            accessibilityLabel={copy.email}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="email-address"
@@ -178,24 +248,26 @@ export default function ContactScreen() {
             testID="contact-email-input"
           />
 
-          <FieldLabel label="Subject" optional />
+          <FieldLabel label={copy.subject} optionalLabel={copy.optional} />
           <TextInput
             value={subject}
             onChangeText={setSubject}
             style={styles.input}
-            placeholder="What is this about?"
+            placeholder={copy.subjectPlaceholder}
             placeholderTextColor="#8B8580"
+            accessibilityLabel={copy.subject}
             autoCapitalize="sentences"
             testID="contact-subject-input"
           />
 
-          <FieldLabel label="Message" />
+          <FieldLabel label={copy.message} />
           <TextInput
             value={message}
             onChangeText={setMessage}
             style={[styles.input, styles.messageInput]}
-            placeholder="How can we help?"
+            placeholder={copy.messagePlaceholder}
             placeholderTextColor="#8B8580"
+            accessibilityLabel={copy.message}
             multiline
             textAlignVertical="top"
             testID="contact-message-input"
@@ -227,9 +299,7 @@ export default function ContactScreen() {
             testID="contact-submit-button"
           >
             <Icon name="PaperPlaneTilt" size="md" color="#FFFFFF" />
-            <Text style={styles.submitButtonText}>
-              {isSubmitting ? 'Sending...' : 'Send message'}
-            </Text>
+            <Text style={styles.submitButtonText}>{isSubmitting ? copy.sending : copy.send}</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -237,11 +307,11 @@ export default function ContactScreen() {
   );
 }
 
-function FieldLabel({ label, optional = false }: { label: string; optional?: boolean }) {
+function FieldLabel({ label, optionalLabel }: { label: string; optionalLabel?: string }) {
   return (
     <Text style={styles.label}>
       {label}
-      {optional ? <Text style={styles.optional}> optional</Text> : null}
+      {optionalLabel ? <Text style={styles.optional}> {optionalLabel}</Text> : null}
     </Text>
   );
 }

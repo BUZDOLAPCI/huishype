@@ -1,10 +1,11 @@
 import React from 'react';
-import { render, fireEvent, screen, act, waitFor } from '@testing-library/react-native';
+import { render as rtlRender, fireEvent, screen, act, waitFor } from '@testing-library/react-native';
 import { Platform } from 'react-native';
 import { SearchBar } from '../SearchBar';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { TEST_LAT, TEST_LNG } from '@/src/__tests__/fixtures/test-coordinates';
 import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from '@/src/i18n';
 
 // Mock the useAddressSearch hook
 const mockUseAddressSearch = jest.fn();
@@ -57,6 +58,10 @@ function focusNativeSearchInput() {
 
 const originalPlatform = Platform.OS;
 
+function render(ui: React.ReactElement) {
+  return rtlRender(ui, { wrapper: LanguageProvider });
+}
+
 function renderWithDismissibleLayer(ui: React.ReactElement) {
   return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
 }
@@ -75,6 +80,7 @@ describe('SearchBar', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    localStorage.clear();
 
     // Default: no search results
     mockUseAddressSearch.mockReturnValue({
@@ -109,6 +115,23 @@ describe('SearchBar', () => {
     );
 
     expect(screen.getByText('Search address...')).toBeTruthy();
+  });
+
+  it('renders Dutch placeholder text when Dutch is selected', async () => {
+    jest.useRealTimers();
+    setPlatform('web');
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'nl');
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Adres zoeken...')).toBeTruthy();
+    });
   });
 
   it('enters the focused search state when the native focus target is pressed', () => {

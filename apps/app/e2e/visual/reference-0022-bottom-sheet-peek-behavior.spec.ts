@@ -506,7 +506,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(previewVisible || clickResult.featureCount > 0, 'Should have property markers on map').toBe(true);
   });
 
-  test('verify preview card visible with bottom sheet in peek state', async ({ page }) => {
+  test('verify property peek state is visible after marker tap', async ({ page }) => {
     // Navigate to the app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -532,7 +532,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'active-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -558,6 +558,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (previewVisible) break;
       }
     }
+
+    const webPanelVisible = await page
+      .locator('[data-testid="web-property-panel"]')
+      .isVisible()
+      .catch(() => false);
+    const peekStateVisible = previewVisible || webPanelVisible;
 
     if (previewVisible) {
       await page.waitForTimeout(2000);
@@ -598,6 +604,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }
     }
 
-    expect(previewVisible, 'Preview card should be visible after clicking property').toBe(true);
+    if (!previewVisible && webPanelVisible) {
+      const backdropVisible = await isBackdropVisible(page);
+      expect(backdropVisible, 'Peek panel should not darken the map').toBe(false);
+    }
+
+    expect(peekStateVisible, 'Preview card or web property peek panel should be visible after clicking property').toBe(true);
   });
 });

@@ -9,6 +9,7 @@ import { SearchResults } from './SearchResults';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
+import { useT } from '@/src/i18n';
 
 /**
  * Design spec (Section 7.2):
@@ -85,6 +86,7 @@ export function SearchBar({
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<TextInput>(null);
   const reducedMotion = useReducedMotion();
+  const t = useT();
   const searchOperationIdRef = useRef(0);
   // When true, the next inputValue change won't trigger a new search.
   // Used after selecting a result to prevent the dropdown from reopening.
@@ -346,13 +348,13 @@ export function SearchBar({
       <TextInput
         ref={inputRef}
         testID="search-bar-input"
-        accessibilityLabel="Search address"
-        accessibilityHint="Type an address to search for properties"
+        accessibilityLabel={t('search.label')}
+        accessibilityHint={t('search.hint')}
         style={[
           styles.input,
           Platform.OS === 'web' ? { outlineStyle: 'none' as unknown as undefined } : {},
         ]}
-        placeholder="Search address..."
+        placeholder={t('search.placeholder')}
         placeholderTextColor={COLORS.warm400}
         value={inputValue}
         onChangeText={setInputValue}
@@ -373,7 +375,7 @@ export function SearchBar({
           onPress={handleClear}
           hitSlop={12}
           style={{ padding: 8, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
-          accessibilityLabel="Clear search"
+          accessibilityLabel={t('search.clear')}
           accessibilityRole="button"
         >
           <Icon name="X" size="sm" color={COLORS.warm400} />
@@ -400,7 +402,7 @@ export function SearchBar({
           inputValue.length > 0 ? styles.unfocusedValueText : styles.unfocusedPlaceholderText,
         ]}
       >
-        {inputValue.length > 0 ? inputValue : 'Search address...'}
+        {inputValue.length > 0 ? inputValue : t('search.placeholder')}
       </Text>
 
       {isResolving ? (
@@ -420,7 +422,7 @@ export function SearchBar({
         <Pressable
           testID="search-overlay-backdrop"
           onPress={handleBackdropPress}
-          accessibilityLabel="Dismiss search"
+          accessibilityLabel={t('search.dismiss')}
           accessibilityRole="button"
         style={[
           styles.backdrop,
@@ -447,8 +449,8 @@ export function SearchBar({
           <Pressable
             testID="search-bar-focus-target"
             accessibilityRole="button"
-            accessibilityLabel="Focus address search"
-            accessibilityHint="Activates the address search field"
+            accessibilityLabel={t('search.focusLabel')}
+            accessibilityHint={t('search.focusHint')}
             onPress={handleFocusTargetPress}
           >
             <BlurContainer

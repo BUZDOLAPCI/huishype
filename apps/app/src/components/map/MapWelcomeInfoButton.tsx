@@ -6,6 +6,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { useT } from '@/src/i18n';
 import { Icon } from '../ui/Icon';
 
 interface MapWelcomeInfoButtonProps {
@@ -14,9 +15,11 @@ interface MapWelcomeInfoButtonProps {
 }
 
 export function MapWelcomeInfoButton({ onPress, style }: MapWelcomeInfoButtonProps) {
+  const t = useT();
+
   return (
     <Pressable
-      accessibilityLabel="Open HuisHype introduction"
+      accessibilityLabel={t('nav.mapWelcomeInfo.open')}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
@@ -63,4 +66,3 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
 });
-

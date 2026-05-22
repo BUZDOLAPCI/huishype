@@ -32,6 +32,7 @@ import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { AchievementBadge } from '@/src/components/ui/AchievementBadge';
 import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
 import { AuthModal } from '@/src/components';
+import { useT, type TranslationKey } from '@/src/i18n';
 
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
@@ -54,11 +55,11 @@ const ACTIVITY_ICONS: Record<string, { icon: React.ComponentProps<typeof Icon>['
   save: { icon: 'BookmarkSimple', color: '#F5A623' },
 };
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  comment: 'Commented on',
-  property_like: 'Liked',
-  price_guess: 'Guessed on',
-  save: 'Saved',
+const ACTIVITY_LABEL_KEYS: Record<string, TranslationKey> = {
+  comment: 'profile.activity.comment',
+  property_like: 'profile.activity.propertyLike',
+  price_guess: 'profile.activity.priceGuess',
+  save: 'profile.activity.save',
 };
 
 type IdentityField = 'displayName' | 'handle';
@@ -74,10 +75,14 @@ const DISPLAY_NAME_COOLDOWN_DAYS = 7;
 const HANDLE_COOLDOWN_DAYS = 30;
 const HANDLE_PATTERN = /^[a-z0-9_]{3,20}$/;
 
-function formatRelativeTime(isoDate: string, nowMs: number): string {
+function formatRelativeTime(
+  isoDate: string,
+  nowMs: number,
+  t: (key: TranslationKey, values?: Record<string, string | number | Date>) => string,
+): string {
   const diffMs = nowMs - new Date(isoDate).getTime();
   const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
-  if (diffHrs < 1) return 'just now';
+  if (diffHrs < 1) return t('time.justNow');
   if (diffHrs < 24) return `${diffHrs}h`;
   const diffDays = Math.floor(diffHrs / 24);
   if (diffDays < 7) return `${diffDays}d`;
@@ -117,6 +122,8 @@ function SettingsDropdown({
   onSignOut: () => void;
   onDismiss: () => void;
 }) {
+  const t = useT();
+
   if (!visible) return null;
 
   return (
@@ -129,7 +136,7 @@ function SettingsDropdown({
           testID="settings-open"
         >
           <Icon name="GearSix" size="md" color="#504A42" />
-          <Text style={styles.dropdownItemText}>Settings</Text>
+          <Text style={styles.dropdownItemText}>{t('profile.dropdown.settings')}</Text>
         </Pressable>
         {isSignedIn ? (
           <Pressable
@@ -138,7 +145,7 @@ function SettingsDropdown({
             testID="settings-sign-out"
           >
             <Icon name="SignOut" size="md" color="#504A42" />
-            <Text style={styles.dropdownItemText}>Sign out</Text>
+            <Text style={styles.dropdownItemText}>{t('profile.dropdown.signOut')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -151,14 +158,16 @@ function ProfileSettingsButton({
 }: {
   onPress: () => void;
 }) {
+  const t = useT();
+
   return (
     <Pressable
       onPress={onPress}
       hitSlop={8}
       testID="profile-settings"
       accessibilityRole="button"
-      accessibilityLabel="Settings"
-      accessibilityHint="Opens the settings menu"
+      accessibilityLabel={t('common.settings')}
+      accessibilityHint={t('profile.settings.hint')}
       style={styles.headerIconButton}
     >
       <Icon name="DotsThreeVertical" size="lg" color="#504A42" />
@@ -187,6 +196,8 @@ function ProfileActionsHeader({
   onSignOut?: () => void;
   onDismissSettings: () => void;
 }) {
+  const t = useT();
+
   return (
     <View
       style={[styles.profileActionsHeader, { paddingTop: topInset }]}
@@ -198,7 +209,7 @@ function ProfileActionsHeader({
           numberOfLines={1}
           accessibilityRole="header"
         >
-          Profile
+          {t('profile.header')}
         </Text>
       ) : (
         <View style={styles.profileActionsTitleSpacer} />
@@ -210,8 +221,8 @@ function ProfileActionsHeader({
             hitSlop={8}
             testID="profile-notifications"
             accessibilityRole="button"
-            accessibilityLabel="Notifications"
-            accessibilityHint="Opens the notifications screen"
+            accessibilityLabel={t('common.notifications')}
+            accessibilityHint={t('profile.notifications.hint')}
             style={styles.headerIconButton}
           >
             <Icon name="Bell" size="lg" color="#504A42" />
@@ -235,6 +246,7 @@ function ProfileActionsHeader({
 // --- Main Screen ---
 
 export default function ProfileScreen() {
+  const t = useT();
   const { user, signOut } = useAuthContext();
   const insets = useSafeAreaInsets();
   const { data: profile, isLoading, refetch } = useMyProfile();
@@ -336,30 +348,30 @@ export default function ProfileScreen() {
   const handleStartDisplayNameEdit = useCallback(() => {
     if (!canChangeDisplayName) {
       Alert.alert(
-        'Display Name Cooldown',
+        t('profile.cooldown.displayNameTitle'),
         nextDisplayNameChangeDate
-          ? `You can change your display name again on ${nextDisplayNameChangeDate}.`
-          : 'You can change your display name again a little later.'
+          ? t('profile.cooldown.displayNameDate', { date: nextDisplayNameChangeDate })
+          : t('profile.cooldown.displayNameLater')
       );
       return;
     }
     setDisplayNameDraft(profile?.displayName || '');
     setEditingField('displayName');
-  }, [canChangeDisplayName, nextDisplayNameChangeDate, profile?.displayName]);
+  }, [canChangeDisplayName, nextDisplayNameChangeDate, profile?.displayName, t]);
 
   const handleStartHandleEdit = useCallback(() => {
     if (!canChangeHandle) {
       Alert.alert(
-        'Handle Cooldown',
+        t('profile.cooldown.handleTitle'),
         nextHandleChangeDate
-          ? `You can change your handle again on ${nextHandleChangeDate}.`
-          : 'You can change your handle again a little later.'
+          ? t('profile.cooldown.handleDate', { date: nextHandleChangeDate })
+          : t('profile.cooldown.handleLater')
       );
       return;
     }
     setHandleDraft(profile?.handle || '');
     setEditingField('handle');
-  }, [canChangeHandle, nextHandleChangeDate, profile?.handle]);
+  }, [canChangeHandle, nextHandleChangeDate, profile?.handle, t]);
 
   const handleCancelIdentityEdit = useCallback(() => {
     setEditingField(null);
@@ -373,8 +385,8 @@ export default function ProfileScreen() {
     const nextDisplayName = displayNameDraft.trim();
     if (nextDisplayName.length < 2 || nextDisplayName.length > 50) {
       Alert.alert(
-        'Invalid Display Name',
-        'Display name must be between 2 and 50 characters.'
+        t('profile.invalid.displayNameTitle'),
+        t('profile.invalid.displayNameBody')
       );
       return;
     }
@@ -382,17 +394,17 @@ export default function ProfileScreen() {
       await updateProfile.mutateAsync({ displayName: nextDisplayName });
       setEditingField(null);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to update name';
-      Alert.alert('Error', message);
+      const message = err instanceof Error ? err.message : t('profile.error.nameFallback');
+      Alert.alert(t('profile.error.title'), message);
     }
-  }, [displayNameDraft, updateProfile]);
+  }, [displayNameDraft, t, updateProfile]);
 
   const handleSaveHandle = useCallback(async () => {
     const nextHandle = normalizeHandleInput(handleDraft);
     if (!HANDLE_PATTERN.test(nextHandle)) {
       Alert.alert(
-        'Invalid Handle',
-        'Handle must be 3 to 20 letters, numbers, or underscores.'
+        t('profile.invalid.handleTitle'),
+        t('profile.invalid.handleBody')
       );
       return;
     }
@@ -400,10 +412,10 @@ export default function ProfileScreen() {
       await updateProfile.mutateAsync({ handle: nextHandle });
       setEditingField(null);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to update handle';
-      Alert.alert('Error', message);
+      const message = err instanceof Error ? err.message : t('profile.error.handleFallback');
+      Alert.alert(t('profile.error.title'), message);
     }
-  }, [handleDraft, updateProfile]);
+  }, [handleDraft, t, updateProfile]);
 
   const handleLogout = useCallback(() => {
     setShowSettings(false);
@@ -411,7 +423,7 @@ export default function ProfileScreen() {
     if (Platform.OS === 'web') {
       const shouldSignOut =
         typeof globalThis.confirm !== 'function' ||
-        globalThis.confirm('Are you sure you want to sign out?');
+        globalThis.confirm(t('profile.logout.confirm'));
 
       if (shouldSignOut) {
         void signOut();
@@ -419,17 +431,17 @@ export default function ProfileScreen() {
       return;
     }
 
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('profile.logout.title'), t('profile.logout.confirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Sign Out',
+        text: t('profile.logout.title'),
         style: 'destructive',
         onPress: () => {
           void signOut();
         },
       },
     ]);
-  }, [signOut]);
+  }, [signOut, t]);
 
   const toggleSettings = useCallback(() => {
     setShowSettings((visible) => !visible);
@@ -463,13 +475,13 @@ export default function ProfileScreen() {
             <Icon name="User" size="2xl" color="#DE911D" />
           </View>
           <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-            Sign in to see your profile
+            {t('profile.auth.title')}
           </Text>
           <Text className="text-warm-600 text-center mb-6">
-            Track your guess history, karma, and saved properties.
+            {t('profile.auth.body')}
           </Text>
           <Button
-            label="Sign In"
+            label={t('common.signIn')}
             onPress={() => setShowAuth(true)}
             style={{ alignSelf: 'stretch', marginHorizontal: 24 }}
             testID="profile-sign-in-button"
@@ -477,7 +489,7 @@ export default function ProfileScreen() {
           <AuthModal
             visible={showAuth}
             onClose={() => setShowAuth(false)}
-            message="Sign in to HuisHype"
+            message={t('profile.auth.modal')}
             onSuccess={() => setShowAuth(false)}
           />
         </View>
@@ -501,7 +513,7 @@ export default function ProfileScreen() {
         />
         <View className="flex-1 items-center justify-center">
           <Icon name="User" size="xl" color="#DE911D" />
-          <Text className="text-warm-600 mt-4">Loading profile...</Text>
+          <Text className="text-warm-600 mt-4">{t('profile.loading')}</Text>
         </View>
       </ScreenBackground>
     );
@@ -556,14 +568,14 @@ export default function ProfileScreen() {
                   autoFocus
                   maxLength={50}
                   testID="profile-display-name-input"
-                  accessibilityLabel="Display name"
+                  accessibilityLabel={t('profile.edit.displayNameLabel')}
                 />
                 <Pressable
                   onPress={handleSaveDisplayName}
                   style={styles.identityActionButton}
                   testID="profile-display-name-save"
                   accessibilityRole="button"
-                  accessibilityLabel="Save display name"
+                  accessibilityLabel={t('profile.edit.saveDisplayName')}
                 >
                   <Icon name="Check" size="md" color="#3F8F43" />
                 </Pressable>
@@ -572,7 +584,7 @@ export default function ProfileScreen() {
                   style={styles.identityActionButton}
                   testID="profile-display-name-cancel"
                   accessibilityRole="button"
-                  accessibilityLabel="Cancel display name edit"
+                  accessibilityLabel={t('profile.edit.cancelDisplayName')}
                 >
                   <Icon name="X" size="md" color="#C43D32" />
                 </Pressable>
@@ -588,7 +600,7 @@ export default function ProfileScreen() {
                   style={styles.identityEditButton}
                   testID="profile-display-name-edit"
                   accessibilityRole="button"
-                  accessibilityLabel="Edit display name"
+                  accessibilityLabel={t('profile.edit.displayName')}
                 >
                   <Icon name="PencilSimple" size="sm" color="#8A6426" />
                 </Pressable>
@@ -609,7 +621,7 @@ export default function ProfileScreen() {
                     autoCorrect={false}
                     maxLength={20}
                     testID="profile-handle-input"
-                    accessibilityLabel="Handle"
+                    accessibilityLabel={t('profile.edit.handleLabel')}
                   />
                 </View>
                 <Pressable
@@ -617,7 +629,7 @@ export default function ProfileScreen() {
                   style={styles.identityActionButton}
                   testID="profile-handle-save"
                   accessibilityRole="button"
-                  accessibilityLabel="Save handle"
+                  accessibilityLabel={t('profile.edit.saveHandle')}
                 >
                   <Icon name="Check" size="md" color="#3F8F43" />
                 </Pressable>
@@ -626,7 +638,7 @@ export default function ProfileScreen() {
                   style={styles.identityActionButton}
                   testID="profile-handle-cancel"
                   accessibilityRole="button"
-                  accessibilityLabel="Cancel handle edit"
+                  accessibilityLabel={t('profile.edit.cancelHandle')}
                 >
                   <Icon name="X" size="md" color="#C43D32" />
                 </Pressable>
@@ -643,7 +655,7 @@ export default function ProfileScreen() {
                   style={styles.handleEditButton}
                   testID="profile-handle-edit"
                   accessibilityRole="button"
-                  accessibilityLabel="Edit handle"
+                  accessibilityLabel={t('profile.edit.handle')}
                 >
                   <Icon name="PencilSimple" size="xs" color="#B59F80" />
                 </Pressable>
@@ -663,11 +675,11 @@ export default function ProfileScreen() {
               testID="profile-followers-link"
             >
               <Text style={styles.followCountValue}>{profile.followerCount}</Text>
-              <Text style={styles.followCountLabel}>Followers</Text>
+              <Text style={styles.followCountLabel}>{t('profile.followers')}</Text>
             </Pressable>
             <View style={styles.followingColumn}>
               <Button
-                label="Search User"
+                label={t('profile.searchUser')}
                 size="sm"
                 variant="secondary"
                 onPress={() => router.push('/user/search')}
@@ -681,7 +693,7 @@ export default function ProfileScreen() {
                 testID="profile-following-link"
               >
                 <Text style={styles.followCountValue}>{profile.followingCount}</Text>
-                <Text style={styles.followCountLabel}>Following</Text>
+                <Text style={styles.followCountLabel}>{t('common.following')}</Text>
               </Pressable>
             </View>
           </View>
@@ -691,13 +703,13 @@ export default function ProfileScreen() {
         <View style={styles.statsGrid}>
           <View style={[styles.statItem, styles.statItemPrimary, shadows.card]}>
             <Text style={styles.statValue}>{profile.guessCount}</Text>
-            <Text style={styles.statLabel}>GUESSES</Text>
+            <Text style={styles.statLabel}>{t('profile.stats.guesses')}</Text>
           </View>
           <View style={[styles.statItem, styles.statItemGold, shadows.card]}>
             <Text style={[styles.statValue, { color: '#F5A623' }]}>
               {profile.karma}
             </Text>
-            <Text style={styles.statLabel}>KARMA</Text>
+            <Text style={styles.statLabel}>{t('profile.stats.karma')}</Text>
           </View>
           <View style={[styles.statItem, styles.statItemGreen, shadows.card]}>
             <Text style={[styles.statValue, { color: '#4CAF50' }]}>
@@ -705,14 +717,14 @@ export default function ProfileScreen() {
                 ? `${Math.round(profile.averageAccuracy)}%`
                 : '-'}
             </Text>
-            <Text style={styles.statLabel}>ACCURACY</Text>
+            <Text style={styles.statLabel}>{t('profile.stats.accuracy')}</Text>
           </View>
         </View>
 
         {/* Achievements Section */}
         {earnedAchievements.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Achievements</Text>
+            <Text style={styles.sectionTitle}>{t('profile.achievements')}</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -734,19 +746,19 @@ export default function ProfileScreen() {
 
         {/* Recent Activity Section */}
         <View style={[styles.section, styles.activitySection]}>
-          <Text style={styles.sectionTitle}>Recent Activity</Text>
+          <Text style={styles.sectionTitle}>{t('profile.recentActivity')}</Text>
 
           {recentActivities.length === 0 ? (
             <View style={styles.emptyActivity}>
               <Icon name="Flame" size="xl" color="#E8E0D4" />
-              <Text style={styles.emptyActivityText}>No recent activity</Text>
+              <Text style={styles.emptyActivityText}>{t('profile.noRecentActivity')}</Text>
             </View>
           ) : (
             recentActivities.map((item: ActivityItem) => {
               const config =
                 ACTIVITY_ICONS[item.eventType] ?? ACTIVITY_ICONS.comment;
               const label =
-                ACTIVITY_LABELS[item.eventType] ?? 'Interacted with';
+                t(ACTIVITY_LABEL_KEYS[item.eventType] ?? 'profile.activity.fallback');
 
               return (
                 <Pressable
@@ -771,7 +783,9 @@ export default function ProfileScreen() {
                   </Text>
                   <View style={styles.activityMeta}>
                     <Text style={styles.activityTime}>
-                      {hydratedNow === null ? '\u00A0' : formatRelativeTime(item.createdAt, hydratedNow)}
+                      {hydratedNow === null
+                        ? '\u00A0'
+                        : formatRelativeTime(item.createdAt, hydratedNow, t)}
                     </Text>
                     <Icon name="CaretRight" size={14} color="#C7BFB3" />
                   </View>

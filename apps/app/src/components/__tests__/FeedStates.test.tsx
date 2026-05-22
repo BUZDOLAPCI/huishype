@@ -1,16 +1,48 @@
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 import { FeedLoadingState, FeedLoadingMore } from '../FeedLoadingState';
 import { FeedErrorState } from '../FeedErrorState';
 import { FeedEmptyState } from '../FeedEmptyState';
+import { LanguageProvider, useLanguage } from '@/src/i18n';
+
+function ForceDutch() {
+  const { setLanguage } = useLanguage();
+
+  React.useEffect(() => {
+    void setLanguage('nl');
+  }, [setLanguage]);
+
+  return null;
+}
+
+function renderInDutch(ui: React.ReactElement) {
+  return render(
+    <LanguageProvider>
+      <ForceDutch />
+      {ui}
+    </LanguageProvider>
+  );
+}
 
 describe('FeedLoadingState', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('renders loading indicator', () => {
     const { getByTestId, getByText } = render(<FeedLoadingState />);
 
     expect(getByTestId('feed-loading')).toBeTruthy();
     expect(getByText('Loading properties...')).toBeTruthy();
+  });
+
+  it('renders Dutch loading copy when the app language is Dutch', async () => {
+    const { getByText } = renderInDutch(<FeedLoadingState />);
+
+    await waitFor(() => {
+      expect(getByText('Woningen laden...')).toBeTruthy();
+    });
   });
 });
 
@@ -57,6 +89,10 @@ describe('FeedErrorState', () => {
 });
 
 describe('FeedEmptyState', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('renders empty state message', () => {
     const { getByTestId, getByText } = render(<FeedEmptyState />);
 
@@ -81,5 +117,16 @@ describe('FeedEmptyState', () => {
     const { getByText } = render(<FeedEmptyState filter="recent-activity" />);
 
     expect(getByText('No property posts yet. Be the first to like, comment, or guess.')).toBeTruthy();
+  });
+
+  it('renders Dutch following empty state for signed-out users', async () => {
+    const { getByText, queryByText } = renderInDutch(
+      <FeedEmptyState filter="following" signedIn={false} />
+    );
+
+    await waitFor(() => {
+      expect(getByText('Log in om Volgend te zien')).toBeTruthy();
+      expect(queryByText('Sign in to see Following')).toBeNull();
+    });
   });
 });

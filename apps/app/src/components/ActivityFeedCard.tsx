@@ -5,6 +5,7 @@ import { Icon, type IconName } from './ui/Icon';
 import { PropertyImageSurface } from './PropertyImageSurface';
 import { UserAvatar } from './ui/UserAvatar';
 import { toPropertyImageSource, withDerivedPropertyImageData } from '../utils/property-image';
+import { useT } from '@/src/i18n';
 import type {
   GroupedActivityPreview,
   GroupedPropertyActivityItem,
@@ -108,6 +109,7 @@ function ActivityFeedCardComponent({
   counts,
   onPress,
 }: ActivityFeedCardProps) {
+  const t = useT();
   const propertyWithImages = useMemo(
     () => withDerivedPropertyImageData(property),
     [property],
@@ -126,7 +128,7 @@ function ActivityFeedCardComponent({
       style={styles.pressable}
       accessibilityRole="button"
       accessibilityLabel={`Open ${property.address}`}
-      accessibilityHint="Opens property details"
+      accessibilityHint={t('common.openPropertyDetails')}
       testID="property-activity-card"
     >
       <Card shadow="card">
@@ -139,7 +141,7 @@ function ActivityFeedCardComponent({
             placeholder={(
               <View style={styles.placeholder}>
                 <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
-                <Text style={styles.placeholderText}>No image available</Text>
+                <Text style={styles.placeholderText}>{t('property.feed.noImage')}</Text>
               </View>
             )}
           />

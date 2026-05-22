@@ -6,11 +6,11 @@
  *
  * Expected layers (from the shared density-aware grouping contract):
  * - property-clusters: Active cluster circles at any zoom
+ * - property-cluster-fill: Active cluster core fill
  * - cluster-count: Active cluster count labels at any zoom
  * - active-nodes: Active singles at any zoom
- * - ghost-clusters: Ghost-only clusters once ghost reveal is active
- * - ghost-cluster-count: Ghost cluster count labels once ghost reveal is active
- * - ghost-nodes: Ghost singles once ghost reveal is active
+ * - active-node-fill: Active single core fill
+ * Removed public ghost layers remain absent from the app-side style.
  *
  * Screenshot saved to: test-results/reference-expectations/0028-e2e-test-layer-names/
  */
@@ -23,6 +23,7 @@ import {
   ALL_PROPERTY_LAYERS,
   LOW_ZOOM_LAYERS,
   HIGH_ZOOM_LAYERS,
+  REMOVED_GHOST_PROPERTY_LAYERS,
 } from './helpers/map-layer-names';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
@@ -154,7 +155,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         propertyRelatedLayers,
         currentZoom: mapInstance.getZoom(),
       };
-    }, [...LOW_ZOOM_LAYERS, MAP_LAYER_NAMES.ACTIVE_NODES, MAP_LAYER_NAMES.GHOST_NODES]);
+    }, LOW_ZOOM_LAYERS);
 
     console.log('Layer info at low zoom:', JSON.stringify(layerInfo, null, 2));
 
@@ -189,7 +190,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       { timeout: 30000, polling: 500 }
     );
 
-    // Configure map to high zoom (where ghost/active nodes are visible)
+    // Configure map to high zoom (where active nodes are visible)
     const HIGH_ZOOM = 17;
     await page.evaluate(
       ({ center, zoom }) => {
@@ -244,7 +245,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Verify high-zoom layers exist
     expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.ACTIVE_NODES], 'active-nodes layer should exist').toBe(true);
-    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.GHOST_NODES], 'ghost-nodes layer should exist').toBe(true);
+    expect(layerInfo.expectedLayerStatus![MAP_LAYER_NAMES.ACTIVE_NODE_FILL], 'active-node-fill layer should exist').toBe(true);
+
+    for (const removedLayer of REMOVED_GHOST_PROPERTY_LAYERS) {
+      expect(
+        layerInfo.propertyRelatedLayers?.includes(removedLayer),
+        `${removedLayer} should not be part of the public app-side style`
+      ).toBe(false);
+    }
 
     // Take screenshot
     await page.screenshot({
@@ -381,20 +389,20 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log('Actual property-related layers:', actualLayers);
 
     // Verify our constants include all the actual layers
-    const expectedLayerIds = [
-      MAP_LAYER_NAMES.CLUSTERS,
-      MAP_LAYER_NAMES.CLUSTER_COUNT,
-      MAP_LAYER_NAMES.ACTIVE_NODES,
-      MAP_LAYER_NAMES.GHOST_CLUSTERS,
-      MAP_LAYER_NAMES.GHOST_CLUSTER_COUNT,
-      MAP_LAYER_NAMES.GHOST_NODES,
-    ];
+    const expectedLayerIds = HIGH_ZOOM_LAYERS;
 
     for (const expectedId of expectedLayerIds) {
       expect(
         actualLayers.includes(expectedId),
         `Layer "${expectedId}" should exist in the map`
       ).toBe(true);
+    }
+
+    for (const removedId of REMOVED_GHOST_PROPERTY_LAYERS) {
+      expect(
+        actualLayers.includes(removedId),
+        `Removed layer "${removedId}" should not exist in the map`
+      ).toBe(false);
     }
 
     console.log('All expected layers verified!');

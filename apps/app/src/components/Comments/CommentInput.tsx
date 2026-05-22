@@ -8,6 +8,7 @@ import {
   type TextInput as TextInputType,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useT } from '../../i18n';
 
 export interface CommentInputProps {
   onSubmit: (content: string) => boolean | void;
@@ -28,8 +29,9 @@ export function CommentInput({
   onCancelReply,
   isSubmitting = false,
   maxLength = 500,
-  placeholder = 'Share your thoughts...',
+  placeholder,
 }: CommentInputProps) {
+  const t = useT();
   const [content, setContent] = useState('');
   const inputRef = useRef<TextInputType>(null);
 
@@ -85,7 +87,7 @@ export function CommentInput({
         >
           <Ionicons name="return-down-forward" size={16} color="#9C958A" />
           <Text className="flex-1 ml-2 text-warm-600 text-sm">
-            Replying to <Text className="font-semibold">@{replyTo.username}</Text>
+            {t('comments.replyingTo')} <Text className="font-semibold">@{replyTo.username}</Text>
           </Text>
           <Pressable
             onPress={handleCancelReply}
@@ -104,7 +106,11 @@ export function CommentInput({
             ref={inputRef}
             value={content}
             onChangeText={setContent}
-            placeholder={replyTo ? `Reply to @${replyTo.username}...` : placeholder}
+            placeholder={
+              replyTo
+                ? t('comments.input.replyPlaceholder', { username: replyTo.username })
+                : placeholder ?? t('comments.placeholder.authenticated')
+            }
             placeholderTextColor="#C7BFB3"
             multiline
             maxLength={maxLength + 50} // Allow typing over limit to show error
@@ -145,7 +151,7 @@ export function CommentInput({
       {/* Error message for over limit */}
       {isOverLimit && (
         <Text className="text-red-500 text-xs mt-1 ml-1">
-          Comment is too long. Please shorten it.
+          {t('comments.tooLong')}
         </Text>
       )}
     </View>

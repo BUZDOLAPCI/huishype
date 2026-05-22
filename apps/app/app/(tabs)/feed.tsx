@@ -35,6 +35,7 @@ import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 import { emitSocialFollowAnalyticsEvent } from '@/src/hooks/useUserProfile';
+import { useT, type TranslationKey } from '@/src/i18n';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { getDefaultCenter } from '@/src/lib/mapDefaults';
 import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
@@ -62,15 +63,16 @@ const FEED_LIST_BATCHING_PERIOD_MS = 100;
 
 // --- Header title per filter ---
 
-const FILTER_TITLES: Record<FeedTab, string> = {
-  trending: 'Trending Properties',
-  latest: 'Latest Properties',
-  'recent-activity': 'Recent Activity',
-  following: 'Following',
+const FILTER_TITLE_KEYS: Record<FeedTab, TranslationKey> = {
+  trending: 'feed.header.trending',
+  latest: 'feed.header.latest',
+  'recent-activity': 'feed.header.recentActivity',
+  following: 'feed.header.following',
 };
 
 function FeedHeaderActions() {
   const { data: unreadCount } = useUnreadNotificationCount();
+  const t = useT();
 
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -79,8 +81,8 @@ function FeedHeaderActions() {
         hitSlop={8}
         testID="feed-leaderboard-button"
         accessibilityRole="button"
-        accessibilityLabel="Leaderboard"
-        accessibilityHint="Opens the community leaderboard"
+        accessibilityLabel={t('feed.action.leaderboard')}
+        accessibilityHint={t('feed.action.leaderboardHint')}
         style={{
           minWidth: 44,
           minHeight: 44,
@@ -101,6 +103,7 @@ function FeedHeaderActions() {
 export default function FeedScreen() {
   useBenchmarkRenderProbe('feed-screen');
 
+  const t = useT();
   const { isAuthenticated } = useAuthContext();
   const { data: profile, isLoading: isProfileLoading } = useMyProfile();
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
@@ -321,7 +324,7 @@ export default function FeedScreen() {
     <AuthModal
       visible={showAuth}
       onClose={() => setShowAuth(false)}
-      message="Sign in to see activity from people you follow"
+      message={t('feed.auth.following')}
       onSuccess={() => {
         setShowAuth(false);
         setActiveFilter('following');
@@ -333,7 +336,7 @@ export default function FeedScreen() {
   if ((isBootstrappingPropertyFeed || activeQuery.isLoading) && !isRefreshing) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
+        <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
         <FeedLoadingState />
         {authModal}
@@ -345,10 +348,10 @@ export default function FeedScreen() {
   if (activeQuery.isError) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
+        <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
         <FeedErrorState
-          message={activeQuery.error?.message || 'Failed to load'}
+          message={activeQuery.error?.message || t('feed.error.default')}
           onRetry={activeQuery.refetch}
         />
         {authModal}
@@ -363,7 +366,7 @@ export default function FeedScreen() {
     const signedInFollowing = activeFilter !== 'following' || isAuthenticated;
     return (
       <ScreenBackground>
-        <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
+        <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
         <FeedEmptyState
           filter={activeFilter}
@@ -389,7 +392,7 @@ export default function FeedScreen() {
   return (
     <ScreenBackground style={{ alignItems: 'center' }} testID="feed-screen">
       <View style={FEED_LIST_CONTAINER_STYLE}>
-        <ScreenHeader title={FILTER_TITLES[activeFilter]} rightAction={headerRightAction} />
+        <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
 
         {isPropertyFeed ? (

@@ -96,6 +96,7 @@ import { LocationButton } from '@/src/components/navigation/LocationButton';
 import { TAB_BAR_DOCK_HEIGHT } from '@/src/components/navigation/tabBarMetrics';
 import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
+import { useT } from '@/src/i18n';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
@@ -935,6 +936,7 @@ const AMBIENT_BUBBLE_RESET_ZOOM_OUT_DELTA = 0.75;
 export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   useBenchmarkRenderProbe('map-screen');
 
+  const t = useT();
   const welcomeModal = useWelcomeModal();
   const isFocused = useIsFocused();
   const initialAppliedFilters = useMemo(
@@ -1177,7 +1179,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       if (!isAuthenticated) {
         interaction.handleAuthRequired(
           {
-            subtitle: 'Sign in to see homes with activity from people you follow.',
+            subtitle: t('auth.following.subtitle'),
           },
           () => {
             setSocialScope('following');
@@ -1197,7 +1199,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
       return 'following';
     });
-  }, [interaction, isAuthenticated]);
+  }, [interaction, isAuthenticated, t]);
 
   useEffect(() => {
     if (!isAuthenticated && socialScope === 'following') {
@@ -1663,11 +1665,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         essential: true,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to get current location';
+      const message = error instanceof Error ? error.message : t('map.locationUnable');
       console.warn('[MapScreen] Current location failed:', message);
-      Alert.alert('Location unavailable', message);
+      Alert.alert(t('map.locationUnavailable'), message);
     }
-  }, []);
+  }, [t]);
 
   const cancelRootAutoLocationAfterUserInteraction = useCallback(() => {
     if (!rootAutoLocationRequestedRef.current) {
@@ -2181,7 +2183,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       if (DEBUG_CAMERA) {
         const btn = document.createElement('button');
         btn.textContent = '\u{1F4CB}';
-        btn.title = 'Copy camera position';
+        btn.title = t('nav.zoom.copyCamera');
         Object.assign(btn.style, {
           position: 'absolute', bottom: '120px', right: '10px', zIndex: '2',
           width: '30px', height: '30px', borderRadius: '4px',
@@ -2713,6 +2715,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     initialMapCamera.cameraPath,
     initialMapCamera.center,
     initialMapCamera.zoom,
+    t,
   ]);
 
   // Build previewGroup from selectedProperty when single-property click data arrives (web deferred pattern)
@@ -3592,7 +3595,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
                 className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full"
                 style={MAP_LOADING_SPINNER_STYLE}
               />
-              <Text className="text-warm-600 mt-3 text-base">Loading map...</Text>
+              <Text className="text-warm-600 mt-3 text-base">{t('map.loading')}</Text>
             </View>
           </View>
         )}
@@ -3629,7 +3632,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
             onPrimaryPress={() =>
               interaction.handleAuthRequired(
                 {
-                  subtitle: 'Sign in to see homes with activity from people you follow.',
+                  subtitle: t('auth.following.subtitle'),
                 },
                 () => {
                   setSocialScope('following');
@@ -3674,7 +3677,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
             className="bg-surface-card/90 px-3 py-2 rounded-full shadow-md"
             style={MAP_DEBUG_ZOOM_STYLE}
           >
-            <Text className="text-sm text-warm-700">Zoom: {visibleZoom.toFixed(1)}</Text>
+            <Text className="text-sm text-warm-700">
+              {t('map.debug.zoom', { zoom: visibleZoom.toFixed(1) })}
+            </Text>
           </View>
         )}
 

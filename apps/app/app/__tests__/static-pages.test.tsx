@@ -8,6 +8,11 @@ import HelpCategoryScreen from '../(tabs)/help/category/[slug]';
 import HelpScreen from '../(tabs)/help/index';
 
 const mockUseLocalSearchParams = jest.fn(() => ({}));
+const mockUseLanguage = jest.fn(() => ({
+  language: 'en',
+  setLanguage: jest.fn(),
+  t: jest.fn(),
+}));
 
 jest.mock('expo-router', () => ({
   router: {
@@ -15,6 +20,10 @@ jest.mock('expo-router', () => ({
     replace: jest.fn(),
   },
   useLocalSearchParams: () => mockUseLocalSearchParams(),
+}));
+
+jest.mock('@/src/i18n', () => ({
+  useLanguage: () => mockUseLanguage(),
 }));
 
 jest.mock('@/src/components/ui/Icon', () => ({
@@ -32,6 +41,11 @@ const getRouterReplace = () =>
 describe('static help and glossary pages', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUseLanguage.mockReturnValue({
+      language: 'en',
+      setLanguage: jest.fn(),
+      t: jest.fn(),
+    });
     mockUseLocalSearchParams.mockReturnValue({});
   });
 
@@ -88,6 +102,42 @@ describe('static help and glossary pages', () => {
     expect(
       term.getAllByText(/Dutch official property value used for taxes/i).length
     ).toBeGreaterThan(0);
+  });
+
+  it('renders Dutch help, category, article, and glossary content', () => {
+    mockUseLanguage.mockReturnValue({
+      language: 'nl',
+      setLanguage: jest.fn(),
+      t: jest.fn(),
+    });
+
+    const help = render(<HelpScreen />);
+
+    expect(help.getByText('Helpcentrum')).toBeTruthy();
+    expect(help.getByText(/Vind hulp bij woningen bekijken/i)).toBeTruthy();
+    expect(help.getByText('HuisHype gebruiken')).toBeTruthy();
+
+    mockUseLocalSearchParams.mockReturnValue({ slug: 'prices-and-valuations' });
+
+    const category = render(<HelpCategoryScreen />);
+
+    expect(category.getByText('Prijzen en taxaties')).toBeTruthy();
+
+    mockUseLocalSearchParams.mockReturnValue({ slug: 'price-guesses' });
+
+    const article = render(<HelpArticleScreen />);
+
+    expect(article.getByText('Hoe werken prijsschattingen?')).toBeTruthy();
+
+    const glossary = render(<GlossaryScreen />);
+
+    expect(glossary.getAllByText('Begrippenlijst').length).toBeGreaterThan(0);
+
+    mockUseLocalSearchParams.mockReturnValue({ slug: 'woz-value' });
+
+    const term = render(<GlossaryTermScreen />);
+
+    expect(term.getByText('WOZ-waarde')).toBeTruthy();
   });
 
   it('returns from static pages through replace navigation', () => {

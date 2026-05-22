@@ -1,8 +1,9 @@
 import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render as rtlRender } from '@testing-library/react-native';
 import { Platform, Text, View } from 'react-native';
 
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
+import { LanguageProvider } from '@/src/i18n';
 import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
 import { MapFilterBar } from '../MapFilterBar';
 
@@ -32,6 +33,10 @@ function MapFilterBarHarness() {
 }
 
 const originalPlatform = Platform.OS;
+
+function render(ui: React.ReactElement) {
+  return rtlRender(ui, { wrapper: LanguageProvider });
+}
 
 function renderWithDismissibleLayer(ui: React.ReactElement) {
   return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);

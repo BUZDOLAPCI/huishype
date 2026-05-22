@@ -15,6 +15,7 @@ import React from 'react';
 import { View, Text, Platform, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HuisHypeLogo } from '../branding';
+import { useT } from '@/src/i18n';
 
 interface MapHeaderRowProps {
   /** City or location name to display on the right side. */
@@ -30,6 +31,7 @@ const COLORS = {
 
 export function MapHeaderRow({ cityName, testID }: MapHeaderRowProps) {
   const insets = useSafeAreaInsets();
+  const t = useT();
 
   return (
     <View
@@ -59,7 +61,7 @@ export function MapHeaderRow({ cityName, testID }: MapHeaderRowProps) {
         <Text
           style={styles.cityText}
           numberOfLines={1}
-          accessibilityLabel={`Current location: ${cityName}`}
+          accessibilityLabel={t('nav.mapHeader.currentLocation', { city: cityName })}
         >
           {cityName}
         </Text>

@@ -26,12 +26,15 @@ import { AdminAccessGate } from '@/src/screens/admin/AdminAccess';
 import type { AdminDisabledProperty, AdminReportGroup } from '@/src/services/admin-moderation';
 import { resolveMapRoute } from '@/src/lib/mapRoute';
 import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { useT } from '@/src/i18n';
 
 export function AdminFlaggedPropertiesScreen() {
+  const t = useT();
+
   return (
     <AdminShell
-      title="Flagged Properties"
-      subtitle="Review active property reports and mark addressed targets."
+      title={t('admin.reports.flaggedProperties.title')}
+      subtitle={t('admin.reports.flaggedProperties.subtitle')}
     >
       <AdminAccessGate>
         {(enabled) => <FlaggedPropertiesContent enabled={enabled} />}
@@ -41,10 +44,12 @@ export function AdminFlaggedPropertiesScreen() {
 }
 
 export function AdminFlaggedCommentsScreen() {
+  const t = useT();
+
   return (
     <AdminShell
-      title="Flagged Comments"
-      subtitle="Review reported discussion and hide comments when needed."
+      title={t('admin.reports.flaggedComments.title')}
+      subtitle={t('admin.reports.flaggedComments.subtitle')}
     >
       <AdminAccessGate>
         {(enabled) => <FlaggedCommentsContent enabled={enabled} />}
@@ -54,10 +59,12 @@ export function AdminFlaggedCommentsScreen() {
 }
 
 export function AdminDisabledPropertiesScreen() {
+  const t = useT();
+
   return (
     <AdminShell
-      title="Disabled Properties"
-      subtitle="Review properties where public comment threads are paused."
+      title={t('admin.reports.disabledProperties.title')}
+      subtitle={t('admin.reports.disabledProperties.subtitle')}
     >
       <AdminAccessGate>
         {(enabled) => <DisabledPropertiesContent enabled={enabled} />}
@@ -67,6 +74,7 @@ export function AdminDisabledPropertiesScreen() {
 }
 
 function FlaggedPropertiesContent({ enabled }: { enabled: boolean }) {
+  const t = useT();
   const query = useAdminPropertyReports(enabled);
   const action = useAdminReportAction();
 
@@ -89,8 +97,8 @@ function FlaggedPropertiesContent({ enabled }: { enabled: boolean }) {
   if (items.length === 0) {
     return (
       <AdminEmptyState
-        title="No flagged properties"
-        body="Pending property reports will show up in this queue."
+        title={t('admin.empty.noFlaggedProperties.title')}
+        body={t('admin.empty.noFlaggedProperties.body')}
       />
     );
   }
@@ -112,6 +120,7 @@ function FlaggedPropertiesContent({ enabled }: { enabled: boolean }) {
 }
 
 function FlaggedCommentsContent({ enabled }: { enabled: boolean }) {
+  const t = useT();
   const query = useAdminCommentReports(enabled);
   const action = useAdminReportAction();
 
@@ -134,8 +143,8 @@ function FlaggedCommentsContent({ enabled }: { enabled: boolean }) {
   if (items.length === 0) {
     return (
       <AdminEmptyState
-        title="No flagged comments"
-        body="Pending comment reports will show up in this queue."
+        title={t('admin.empty.noFlaggedComments.title')}
+        body={t('admin.empty.noFlaggedComments.body')}
       />
     );
   }
@@ -156,6 +165,7 @@ function FlaggedCommentsContent({ enabled }: { enabled: boolean }) {
 }
 
 function DisabledPropertiesContent({ enabled }: { enabled: boolean }) {
+  const t = useT();
   const query = useAdminDisabledProperties(enabled);
   const action = useAdminPropertyCommentsAction();
   const [targetInput, setTargetInput] = React.useState('');
@@ -164,8 +174,11 @@ function DisabledPropertiesContent({ enabled }: { enabled: boolean }) {
 
   const handleDisable = React.useCallback(async () => {
     setFormError(null);
-    const propertyId = await resolvePropertyIdInput(targetInput).catch((error) => {
-      setFormError(error instanceof Error ? error.message : 'Unable to resolve property.');
+    const propertyId = await resolvePropertyIdInput(targetInput, {
+      enterProperty: t('admin.disable.enterProperty'),
+      notPropertyUrl: t('admin.disable.notPropertyUrl'),
+    }).catch((error) => {
+      setFormError(error instanceof Error ? error.message : t('admin.disable.unableToResolve'));
       return null;
     });
     if (!propertyId) {
@@ -177,7 +190,7 @@ function DisabledPropertiesContent({ enabled }: { enabled: boolean }) {
       action: 'disable',
       reason: reason.trim() || undefined,
     });
-  }, [action, reason, targetInput]);
+  }, [action, reason, t, targetInput]);
 
   if (query.isLoading) {
     return <AdminLoadingState />;
@@ -200,24 +213,24 @@ function DisabledPropertiesContent({ enabled }: { enabled: boolean }) {
     <View style={styles.stack}>
       <AdminCard>
         <View style={styles.formStack}>
-          <Text style={styles.formTitle}>Disable comments by property</Text>
+          <Text style={styles.formTitle}>{t('admin.disable.formTitle')}</Text>
           <TextInput
             value={targetInput}
             onChangeText={setTargetInput}
-            placeholder="Property UUID or HuisHype URL"
+            placeholder={t('admin.disable.targetPlaceholder')}
             autoCapitalize="none"
             style={styles.input}
           />
           <TextInput
             value={reason}
             onChangeText={setReason}
-            placeholder="Optional reason"
+            placeholder={t('admin.disable.reasonPlaceholder')}
             maxLength={140}
             style={styles.input}
           />
           {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
           <Button
-            label="Disable comments"
+            label={t('admin.actions.disableComments')}
             variant="primary"
             size="sm"
             disabled={action.isPending || !targetInput.trim()}
@@ -231,8 +244,8 @@ function DisabledPropertiesContent({ enabled }: { enabled: boolean }) {
 
       {items.length === 0 ? (
         <AdminEmptyState
-          title="No disabled properties"
-          body="Properties with paused comment threads will show up here."
+          title={t('admin.empty.noDisabledProperties.title')}
+          body={t('admin.empty.noDisabledProperties.body')}
         />
       ) : (
         items.map((property) => (
@@ -262,31 +275,35 @@ function DisabledPropertyCard({
   disabled?: boolean;
   onEnable: () => void;
 }) {
+  const t = useT();
+
   return (
     <AdminCard>
       <View style={styles.reportCardShim}>
         <View style={styles.formStack}>
           <Text style={styles.formTitle} selectable>
-            {formatPropertyTitle(property)}
+            {formatPropertyTitle(property, t('admin.propertyUnavailable'))}
           </Text>
           <Text style={styles.mutedText} selectable>
-            {formatPropertyLocation(property)}
+            {formatPropertyLocation(property, t('admin.noAddressMetadata'))}
           </Text>
           <Text style={styles.mutedText} selectable>
-            Disabled {formatDate(property.commentsDisabledAt)}
+            {t('admin.disabledAt', {
+              date: formatDate(property.commentsDisabledAt, t('admin.dateUnknown')),
+            })}
             {property.commentsDisabledReason ? ` - ${property.commentsDisabledReason}` : ''}
           </Text>
         </View>
         <View style={styles.actionsRowShim}>
           <Button
-            label="Open public detail"
+            label={t('admin.actions.openPublicDetail')}
             variant="ghost"
             size="sm"
             onPress={() => router.push(toInternalAppHref(buildPropertyRoute(property, '/admin/comments-disabled')))}
             testID={`open-disabled-property-${property.id}`}
           />
           <Button
-            label="Enable comments"
+            label={t('admin.actions.enableComments')}
             variant="primary"
             size="sm"
             disabled={disabled}
@@ -299,7 +316,10 @@ function DisabledPropertyCard({
   );
 }
 
-async function resolvePropertyIdInput(value: string): Promise<string> {
+async function resolvePropertyIdInput(
+  value: string,
+  messages: { enterProperty: string; notPropertyUrl: string },
+): Promise<string> {
   const trimmed = value.trim();
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(trimmed)) {
     return trimmed;
@@ -309,7 +329,7 @@ async function resolvePropertyIdInput(value: string): Promise<string> {
   try {
     url = new URL(trimmed, 'https://huishype.nl');
   } catch {
-    throw new Error('Enter a property UUID or HuisHype URL.');
+    throw new Error(messages.enterProperty);
   }
 
   const resolved = await resolveMapRoute(url.pathname);
@@ -319,7 +339,7 @@ async function resolvePropertyIdInput(value: string): Promise<string> {
     resolved.kind !== 'comments' &&
     resolved.kind !== 'guesses'
   ) {
-    throw new Error('The URL does not point to a property.');
+    throw new Error(messages.notPropertyUrl);
   }
 
   return resolved.property.id;

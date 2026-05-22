@@ -1,16 +1,19 @@
 import { ActivityIndicator, Text, View } from 'react-native';
+import { useT } from '../i18n';
 
 /**
  * FeedLoadingState - Full-screen loading spinner for initial feed load
  */
 export function FeedLoadingState() {
+  const t = useT();
+
   return (
     <View
       className="flex-1 items-center justify-center bg-warm-50"
       testID="feed-loading"
     >
       <ActivityIndicator size="large" color="#DE911D" />
-      <Text className="text-warm-500 mt-4">Loading properties...</Text>
+      <Text className="text-warm-500 mt-4">{t('feed.loading.properties')}</Text>
     </View>
   );
 }

@@ -29,6 +29,7 @@ import { QueryProvider } from '@/src/providers/QueryProvider';
 import { AuthProvider } from '@/src/providers/AuthProvider';
 import { DeepLinkRouteSync } from '@/src/providers/DeepLinkRouteSync';
 import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
+import { LanguageProvider } from '@/src/i18n';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -81,18 +82,20 @@ function RootLayoutNav() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryProvider>
         <AuthProvider>
-          <WebDismissibleLayerProvider>
-            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-              <DeepLinkRouteSync />
-              <Stack>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
-                <Stack.Screen name="admin" options={{ headerShown: false }} />
-                <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
-                <Stack.Screen name="notifications" options={{ headerShown: false }} />
-              </Stack>
-            </ThemeProvider>
-          </WebDismissibleLayerProvider>
+          <LanguageProvider>
+            <WebDismissibleLayerProvider>
+              <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                <DeepLinkRouteSync />
+                <Stack>
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
+                  <Stack.Screen name="admin" options={{ headerShown: false }} />
+                  <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
+                  <Stack.Screen name="notifications" options={{ headerShown: false }} />
+                </Stack>
+              </ThemeProvider>
+            </WebDismissibleLayerProvider>
+          </LanguageProvider>
         </AuthProvider>
       </QueryProvider>
     </GestureHandlerRootView>

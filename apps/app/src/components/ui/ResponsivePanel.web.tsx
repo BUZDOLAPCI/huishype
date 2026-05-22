@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 
 import { useIsLandscape } from '../../hooks/useIsLandscape';
 import { Icon } from './Icon';
+import { useT } from '@/src/i18n';
 
 export interface ResponsivePanelProps {
   children: ReactNode;
@@ -113,6 +114,7 @@ if (typeof document !== 'undefined') {
 }
 
 export function ResponsivePanel({ children, title, onClose }: ResponsivePanelProps) {
+  const t = useT();
   const isLandscape = useIsLandscape();
 
   const handleClose = useCallback(() => {
@@ -157,7 +159,7 @@ export function ResponsivePanel({ children, title, onClose }: ResponsivePanelPro
             className="responsive-panel-close"
             onClick={handleClose}
             data-testid="responsive-panel-close"
-            aria-label="Close panel"
+            aria-label={t('common.closePanel')}
           >
             <Icon name="X" size="md" color="#9C958A" />
           </button>

@@ -8,13 +8,12 @@ import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 import { SectionCard } from './SectionCard';
 import { ReportModal } from '../ReportModal';
+import { useT } from '../../i18n';
 
 interface CommentsSectionProps extends SectionProps {
   onViewAll?: () => void;
   onAuthRequired?: (copy?: AuthModalCopyInput) => void;
 }
-
-const COMMENT_AUTH_REQUIRED_COPY = 'Sign in to post your comment' satisfies AuthModalCopyInput;
 
 /**
  * CommentsSection Component
@@ -25,6 +24,7 @@ export function CommentsSection({
   onViewAll,
   onAuthRequired,
 }: CommentsSectionProps) {
+  const t = useT();
   const [sortBy, setSortBy] = useState<CommentSortBy>('recent');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
   const [showAllComments, setShowAllComments] = useState(false);
@@ -66,7 +66,7 @@ export function CommentsSection({
   const handleLike = useCallback(
     (commentId: string) => {
       if (!isAuthenticated) {
-        onAuthRequired?.(COMMENT_AUTH_REQUIRED_COPY);
+        onAuthRequired?.(t('comments.auth.post') as AuthModalCopyInput);
         return;
       }
 
@@ -77,19 +77,19 @@ export function CommentsSection({
 
       likeMutation.mutate({ commentId, isCurrentlyLiked });
     },
-    [allComments, isAuthenticated, likeMutation, onAuthRequired]
+    [allComments, isAuthenticated, likeMutation, onAuthRequired, t]
   );
 
   // Handle reply
   const handleReply = useCallback(
     (commentId: string, username: string) => {
       if (!isAuthenticated) {
-        onAuthRequired?.(COMMENT_AUTH_REQUIRED_COPY);
+        onAuthRequired?.(t('comments.auth.post') as AuthModalCopyInput);
         return;
       }
       setReplyTo({ id: commentId, username });
     },
-    [isAuthenticated, onAuthRequired]
+    [isAuthenticated, onAuthRequired, t]
   );
 
   // Handle cancel reply
@@ -116,14 +116,14 @@ export function CommentsSection({
     (content: string) => {
       if (!isAuthenticated) {
         setPendingSubmitAfterAuth({ content, parentId: replyTo?.id });
-        onAuthRequired?.(COMMENT_AUTH_REQUIRED_COPY);
+        onAuthRequired?.(t('comments.auth.post') as AuthModalCopyInput);
         return false;
       }
 
       submitComment(content, replyTo?.id);
       return true;
     },
-    [isAuthenticated, onAuthRequired, replyTo?.id, submitComment]
+    [isAuthenticated, onAuthRequired, replyTo?.id, submitComment, t]
   );
 
   useEffect(() => {
@@ -157,13 +157,13 @@ export function CommentsSection({
   if (commentsDisabled) {
     return (
       <SectionCard
-        title="Comments"
+        title={t('comments.title')}
         icon="chatbubbles"
-        description="Read the neighborhood takes and add your own perspective on the address."
+        description={t('comments.description')}
       >
         <View style={styles.disabledState}>
           <Ionicons name="lock-closed-outline" size={32} color="#C7BFB3" />
-          <Text style={styles.disabledText}>Comments are disabled for this property</Text>
+          <Text style={styles.disabledText}>{t('comments.disabled')}</Text>
         </View>
       </SectionCard>
     );
@@ -171,9 +171,9 @@ export function CommentsSection({
 
   return (
     <SectionCard
-      title="Comments"
+      title={t('comments.title')}
       icon="chatbubbles"
-      description="Read the neighborhood takes and add your own perspective on the address."
+      description={t('comments.description')}
       trailing={totalComments > 0 ? (
         <View style={styles.commentBadge}>
           <Text style={styles.commentBadgeText}>{totalComments}</Text>
@@ -187,7 +187,7 @@ export function CommentsSection({
             style={[styles.sortChip, sortBy === 'recent' && styles.sortChipActive]}
           >
             <Text style={[styles.sortText, sortBy === 'recent' && styles.sortTextActive]}>
-              Recent
+              {t('comments.sort.recent')}
             </Text>
           </Pressable>
           <Pressable
@@ -195,7 +195,7 @@ export function CommentsSection({
             style={[styles.sortChip, sortBy === 'popular' && styles.sortChipActive]}
           >
             <Text style={[styles.sortText, sortBy === 'popular' && styles.sortTextActive]}>
-              Popular
+              {t('comments.sort.popular')}
             </Text>
           </Pressable>
         </View>
@@ -205,7 +205,7 @@ export function CommentsSection({
       {isLoading && (
         <View className="py-8 items-center">
           <ActivityIndicator size="small" color="#F5A623" />
-          <Text className="text-warm-500 text-sm mt-2">Loading comments...</Text>
+          <Text className="text-warm-500 text-sm mt-2">{t('comments.loading')}</Text>
         </View>
       )}
 
@@ -213,12 +213,12 @@ export function CommentsSection({
       {isError && (
         <View className="bg-red-50 rounded-xl p-4 items-center">
           <Ionicons name="alert-circle-outline" size={32} color="#EF4444" />
-          <Text className="text-red-600 mt-2">Failed to load comments</Text>
+          <Text className="text-red-600 mt-2">{t('comments.loadError')}</Text>
           <Pressable
             onPress={() => refetch()}
             className="mt-2 bg-red-100 px-3 py-1.5 rounded-lg"
           >
-            <Text className="text-red-700 text-sm font-medium">Retry</Text>
+            <Text className="text-red-700 text-sm font-medium">{t('common.retry')}</Text>
           </Pressable>
         </View>
       )}
@@ -227,9 +227,9 @@ export function CommentsSection({
       {!isLoading && !isError && allComments.length === 0 && (
         <View className="bg-warm-50 rounded-xl p-4 items-center">
           <Ionicons name="chatbubble-ellipses-outline" size={32} color="#C7BFB3" />
-          <Text className="text-warm-500 mt-2">No comments yet</Text>
+          <Text className="text-warm-500 mt-2">{t('comments.empty.title')}</Text>
           <Text className="text-xs text-warm-400 mt-1">
-            Be the first to share your thoughts!
+            {t('comments.empty.body')}
           </Text>
         </View>
       )}
@@ -261,8 +261,8 @@ export function CommentsSection({
               ) : (
                 <Text className="text-primary-600 text-sm font-medium">
                   {hasMoreComments
-                    ? `View all ${totalComments} comments`
-                    : 'Load more comments'}
+                    ? t('comments.viewAll', { count: totalComments })
+                    : t('comments.loadMore')}
                 </Text>
               )}
             </Pressable>
@@ -279,8 +279,8 @@ export function CommentsSection({
           isSubmitting={submitMutation.isPending}
           placeholder={
             isAuthenticated
-              ? 'Share your thoughts...'
-              : 'Log in to comment...'
+              ? t('comments.placeholder.authenticated')
+              : t('comments.placeholder.signedOut')
           }
         />
       </View>
@@ -288,7 +288,7 @@ export function CommentsSection({
         <ReportModal
           visible
           target={{ type: 'comment', id: reportCommentId }}
-          targetLabel="Tell us what is wrong with this comment."
+          targetLabel={t('comments.reportTarget')}
           onClose={() => setReportCommentId(null)}
         />
       ) : null}

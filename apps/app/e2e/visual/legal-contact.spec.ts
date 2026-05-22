@@ -177,6 +177,98 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: false,
     });
   });
+
+  test('switches to Nederlands and captures translated settings/support/contact pages', async ({
+    page,
+  }) => {
+    await page.goto('/profile-settings', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('profile-settings-screen')).toBeVisible();
+    await expect(page.getByTestId('settings-language-row')).toBeVisible();
+
+    await page.getByTestId('settings-language-row').click();
+    await expect(page.getByTestId('settings-language-subview')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Language' })).toBeVisible();
+
+    await page.getByTestId('settings-language-nl').click();
+    await expect(page.getByLabel('Nederlands, geselecteerd')).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.localStorage.getItem('huishype_language')))
+      .toBe('nl');
+
+    await page.getByTestId('profile-settings-back').click();
+    await expect(page.getByRole('heading', { name: 'Profiel' })).toBeVisible();
+    await expect(page.getByTestId('settings-language-row')).toContainText('Taal');
+    await expect(page.getByTestId('settings-help-row')).toContainText('Hulp nodig?');
+    await expect(page.getByTestId('settings-legal-row')).toContainText('Juridisch');
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/settings-main-nl-current.png`,
+      fullPage: false,
+    });
+
+    await page.getByTestId('settings-help-row').click();
+    await expect(page.getByTestId('help-screen')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Helpcentrum' })).toBeVisible();
+    await expect(page.getByPlaceholder('Zoek in hulp')).toBeVisible();
+    await expect(page.getByText('Veelgestelde vragen')).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/help-hub-nl-current.png`,
+      fullPage: false,
+    });
+
+    await page.goto('/profile-settings', { waitUntil: 'domcontentloaded' });
+    await page.getByTestId('settings-legal-row').click();
+    await expect(page.getByTestId('settings-legal-submenu')).toBeVisible();
+    await expect(page.getByTestId('settings-terms-row')).toContainText('Algemene voorwaarden');
+    await expect(page.getByTestId('settings-privacy-row')).toContainText('Privacybeleid');
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/settings-legal-nl-current.png`,
+      fullPage: false,
+    });
+
+    await page.getByTestId('settings-terms-row').click();
+    await expect(page.getByTestId('terms-screen')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Algemene voorwaarden' })).toBeVisible();
+    await expect(page.getByText('Laatst bijgewerkt: 21 mei 2026')).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/terms-nl-current.png`,
+      fullPage: false,
+    });
+
+    await page.goto('/contact', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('contact-screen')).toBeVisible();
+    await expect(page.getByText(/Hulp nodig met HuisHype/)).toBeVisible();
+    await expect(page.getByPlaceholder('Je naam')).toBeVisible();
+    await expect(page.getByPlaceholder('Waarmee kunnen we helpen?')).toBeVisible();
+    await expectProfileTabVisuallySelected(page);
+    await page.route('**/contact', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Message received.' }),
+      });
+    });
+    await page.getByTestId('contact-name-input').fill('Visuele Tester');
+    await page.getByTestId('contact-email-input').fill('visual@example.com');
+    await page
+      .getByTestId('contact-message-input')
+      .fill('Controleer de Nederlandse contactflow van HuisHype.');
+    await page.getByTestId('contact-submit-button').click();
+    await expect(page.getByTestId('contact-success-message')).toContainText(
+      'Bedankt. We hebben je bericht ontvangen.',
+    );
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/contact-nl-current.png`,
+      fullPage: false,
+    });
+  });
 });
 
 async function expectProfileTabVisuallySelected(page: import('@playwright/test').Page) {

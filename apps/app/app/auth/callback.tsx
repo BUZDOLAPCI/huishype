@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { useT } from '@/src/i18n';
 
 /**
  * Web auth callback route — handles magic link email verification.
@@ -14,6 +15,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 export default function AuthCallbackScreen() {
   const { isAuthenticated, isLoading, authError } = useAuthContext();
   const [timedOut, setTimedOut] = useState(false);
+  const t = useT();
 
   // Redirect to home once authenticated
   useEffect(() => {
@@ -35,13 +37,13 @@ export default function AuthCallbackScreen() {
     return (
       <View className="flex-1 items-center justify-center bg-surface-card p-8">
         <Text className="text-lg font-semibold text-warm-900 mb-2">
-          {authError || 'Link expired or invalid'}
+          {authError || t('auth.callback.expired')}
         </Text>
         <Text
           className="text-sm text-primary-600 mt-4"
           onPress={() => router.replace('/')}
         >
-          Go to home screen
+          {t('auth.callback.home')}
         </Text>
       </View>
     );
@@ -51,7 +53,7 @@ export default function AuthCallbackScreen() {
     <View className="flex-1 items-center justify-center bg-surface-card">
       <ActivityIndicator size="large" />
       <Text className="mt-4 text-warm-600">
-        {isLoading ? 'Signing you in...' : 'Verifying your link...'}
+        {isLoading ? t('auth.callback.signingIn') : t('auth.callback.verifying')}
       </Text>
     </View>
   );

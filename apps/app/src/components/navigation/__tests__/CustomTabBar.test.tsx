@@ -1,6 +1,7 @@
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render as rtlRender } from '@testing-library/react-native';
 
+import { LanguageProvider } from '@/src/i18n';
 import { CustomTabBar } from '../CustomTabBar';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -18,6 +19,10 @@ jest.mock('@/src/components/ui/Icon', () => ({
 jest.mock('@/src/components/ui/BlurContainer', () => ({
   BlurContainer: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
+
+function render(ui: React.ReactElement) {
+  return rtlRender(ui, { wrapper: LanguageProvider });
+}
 
 describe('CustomTabBar', () => {
   const baseRoutes = [

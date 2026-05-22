@@ -41,8 +41,8 @@ import { Icon } from './ui/Icon';
 import { BlurContainer } from './ui/BlurContainer';
 import { shadows } from '../lib/shadows';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useT } from '../i18n';
 import {
-  DEFAULT_AUTH_MODAL_COPY,
   resolveAuthModalCopy,
   type AuthModalCopyInput,
 } from '../lib/authModalCopy';
@@ -128,6 +128,7 @@ export function AuthModal({
   const [isMounted, setIsMounted] = useState(visible);
   const reducedMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
+  const t = useT();
   const visibleRef = useRef(visible);
   const authAttemptStartedRef = useRef(false);
   const successHandledRef = useRef(false);
@@ -239,7 +240,10 @@ export function AuthModal({
       { scale: scale.value },
     ],
   }));
-  const resolvedCopy = resolveAuthModalCopy(copy ?? message, DEFAULT_AUTH_MODAL_COPY);
+  const resolvedCopy = resolveAuthModalCopy(copy ?? message, {
+    title: t('auth.modal.title'),
+    subtitle: t('auth.modal.defaultSubtitle'),
+  });
 
   const completeSuccessfulAuth = useCallback(() => {
     if (successHandledRef.current) {
@@ -314,7 +318,7 @@ export function AuthModal({
     const trimmed = email.trim().toLowerCase();
     // Basic email validation
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setEmailError('Please enter a valid email address');
+      setEmailError(t('auth.email.invalid'));
       return;
     }
     setEmailError(null);
@@ -330,17 +334,17 @@ export function AuthModal({
       successHandledRef.current = false;
       if (err instanceof Error) {
         if (err.message.includes('RATE_LIMITED') || err.message.includes('Too many')) {
-          setEmailError('Too many requests. Please try again later.');
+          setEmailError(t('auth.email.rateLimited'));
         } else {
           setEmailError(err.message);
         }
       } else {
-        setEmailError('Something went wrong. Please try again.');
+        setEmailError(t('auth.email.genericError'));
       }
     } finally {
       setIsRequestingEmail(false);
     }
-  }, [email, onAuthStarting, requestEmailLink]);
+  }, [email, onAuthStarting, requestEmailLink, t]);
 
   const handleClose = useCallback(() => {
     clearError();
@@ -379,7 +383,7 @@ export function AuthModal({
           <Pressable
             style={StyleSheet.absoluteFillObject}
             onPress={handleClose}
-            accessibilityLabel="Close backdrop"
+            accessibilityLabel={t('auth.modal.closeBackdrop')}
           />
         </Animated.View>
 
@@ -396,7 +400,7 @@ export function AuthModal({
               <TouchableOpacity
                 onPress={handleClose}
                 style={styles.closeButton}
-                accessibilityLabel="Close"
+                accessibilityLabel={t('auth.modal.close')}
                 accessibilityRole="button"
               >
                 <Icon name="X" size={18} color={AUTH_COLORS.textMuted} />
@@ -422,7 +426,7 @@ export function AuthModal({
               onPress={handleDevLogin}
               disabled={isSigningIn}
               style={styles.devLoginButton}
-              accessibilityLabel="Dev Login"
+              accessibilityLabel={t('auth.modal.devLogin')}
               accessibilityRole="button"
               testID="dev-login-button"
             >
@@ -431,7 +435,7 @@ export function AuthModal({
               ) : (
                 <>
                   <Icon name="GearSix" size={20} color="#FFFFFF" />
-                  <Text style={styles.devLoginText}>Dev Login</Text>
+                  <Text style={styles.devLoginText}>{t('auth.modal.devLogin')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -449,7 +453,7 @@ export function AuthModal({
         <HuisHypeLogo size={72} style={styles.logoContainer} />
 
         {/* Title */}
-        <Text style={styles.title}>{DEFAULT_AUTH_MODAL_COPY.title}</Text>
+        <Text style={styles.title}>{resolvedCopy.title}</Text>
 
         {/* Context message */}
         <Text style={styles.subtitle}>{resolvedCopy.subtitle}</Text>
@@ -466,7 +470,7 @@ export function AuthModal({
           onPress={handleGoogleSignIn}
           disabled={isSigningIn}
           style={[styles.authButton, styles.googleButton]}
-          accessibilityLabel="Sign in with Google"
+          accessibilityLabel={t('auth.modal.signInWithGoogle')}
           accessibilityRole="button"
         >
           {isSigningIn ? (
@@ -474,7 +478,7 @@ export function AuthModal({
           ) : (
             <>
               <Text style={styles.googleG}>G</Text>
-              <Text style={styles.googleText}>Continue with Google</Text>
+              <Text style={styles.googleText}>{t('auth.modal.continueWithGoogle')}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -482,7 +486,7 @@ export function AuthModal({
         {/* Divider — "or" */}
         <View style={styles.divider}>
           <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
+          <Text style={styles.dividerText}>{t('auth.modal.or')}</Text>
           <View style={styles.dividerLine} />
         </View>
 
@@ -491,11 +495,11 @@ export function AuthModal({
           onPress={() => setView('email-input')}
           disabled={isSigningIn}
           style={[styles.emailButton]}
-          accessibilityLabel="Continue with email"
+          accessibilityLabel={t('auth.modal.continueWithEmailLabel')}
           accessibilityRole="button"
         >
           <Icon name="Envelope" size={16} color={GOLD_700} />
-          <Text style={styles.emailButtonText}>Continue with Email</Text>
+          <Text style={styles.emailButtonText}>{t('auth.modal.continueWithEmail')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -506,9 +510,9 @@ export function AuthModal({
       <View style={styles.content}>
         <HuisHypeLogo size={72} style={styles.logoContainer} />
 
-        <Text style={styles.title}>Sign in with Email</Text>
+        <Text style={styles.title}>{t('auth.email.title')}</Text>
         <Text style={styles.subtitle}>
-          Enter your email and we&apos;ll send you a magic link to sign in.
+          {t('auth.email.subtitle')}
         </Text>
 
         {/* Email input */}
@@ -518,7 +522,7 @@ export function AuthModal({
             setEmail(text);
             if (emailError) setEmailError(null);
           }}
-          placeholder="your@email.com"
+          placeholder={t('auth.email.placeholder')}
           placeholderTextColor={WARM_500}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -529,7 +533,7 @@ export function AuthModal({
             emailError ? styles.emailInputError : null,
           ]}
           testID="email-input"
-          accessibilityLabel="Email address"
+          accessibilityLabel={t('auth.email.label')}
           onSubmitEditing={handleEmailSubmit}
           returnKeyType="send"
           editable={!isRequestingEmail}
@@ -541,10 +545,10 @@ export function AuthModal({
 
         {/* Send magic link button */}
         <Button
-          label={isRequestingEmail ? 'Sending...' : 'Send Magic Link'}
+          label={isRequestingEmail ? t('auth.email.sending') : t('auth.email.sendMagicLink')}
           onPress={handleEmailSubmit}
           disabled={isRequestingEmail || !email.trim()}
-          accessibilityLabel="Send magic link"
+          accessibilityLabel={t('auth.email.sendMagicLinkLabel')}
           style={styles.sendLinkButton}
           testID="send-magic-link-button"
         />
@@ -556,10 +560,10 @@ export function AuthModal({
             setEmailError(null);
           }}
           style={styles.backLink}
-          accessibilityLabel="Back to sign in options"
+          accessibilityLabel={t('auth.email.backToOptions')}
           accessibilityRole="button"
         >
-          <Text style={styles.backLinkText}>Back to sign in options</Text>
+          <Text style={styles.backLinkText}>{t('auth.email.backToOptions')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -573,11 +577,11 @@ export function AuthModal({
           <Icon name="CheckCircle" size={48} weight="fill" color={GOLD_500} />
         </View>
 
-        <Text style={styles.title}>Check your email</Text>
+        <Text style={styles.title}>{t('auth.email.sentTitle')}</Text>
         <Text style={styles.subtitle}>
-          We sent a magic link to{'\n'}
+          {t('auth.email.sentPrefix')}{'\n'}
           <Text style={styles.emailHighlight}>{email.trim().toLowerCase()}</Text>
-          {'\n'}Click the link to sign in.
+          {'\n'}{t('auth.email.sentSuffix')}
         </Text>
 
         {/* Back to main */}
@@ -587,10 +591,10 @@ export function AuthModal({
             setEmail('');
           }}
           style={styles.backLink}
-          accessibilityLabel="Back to sign in options"
+          accessibilityLabel={t('auth.email.backToOptions')}
           accessibilityRole="button"
         >
-          <Text style={styles.backLinkText}>Use a different method</Text>
+          <Text style={styles.backLinkText}>{t('auth.email.useDifferentMethod')}</Text>
         </TouchableOpacity>
       </View>
     );

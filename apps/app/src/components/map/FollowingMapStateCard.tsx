@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/src/components/ui/Icon';
+import { useT } from '@/src/i18n';
 
 const COLORS = {
   white: '#FFFFFF',
@@ -24,6 +25,7 @@ export function FollowingMapStateCard({
   mode,
   onPrimaryPress,
 }: FollowingMapStateCardProps) {
+  const t = useT();
   const isSignedOut = mode === 'signed-out';
   const isError = mode === 'error';
 
@@ -40,18 +42,18 @@ export function FollowingMapStateCard({
           </View>
           <Text style={styles.title}>
             {isSignedOut
-              ? 'Following needs sign-in'
+              ? t('map.following.signedOut.title')
               : isError
-                ? 'Could not load following activity'
-                : 'Nothing from your circle here yet'}
+                ? t('map.following.error.title')
+                : t('map.following.empty.title')}
           </Text>
         </View>
         <Text style={styles.body}>
           {isSignedOut
-            ? 'This mode shows homes with activity from people you follow.'
+            ? t('map.following.signedOut.body')
             : isError
-              ? 'We could not load homes from people you follow. Try again in a moment.'
-              : 'Try another area, or follow people whose activity you want to see on the map.'}
+              ? t('map.following.error.body')
+              : t('map.following.empty.body')}
         </Text>
         {onPrimaryPress ? (
           <Pressable
@@ -64,7 +66,11 @@ export function FollowingMapStateCard({
             testID={`map-following-state-${mode}-action`}
           >
             <Text style={styles.primaryButtonText}>
-              {isSignedOut ? 'Sign in' : isError ? 'Try again' : 'Back to all'}
+              {isSignedOut
+                ? t('map.following.signIn')
+                : isError
+                  ? t('map.following.tryAgain')
+                  : t('map.following.backToAll')}
             </Text>
           </Pressable>
         ) : null}

@@ -15,6 +15,7 @@ import React, { useCallback, useState } from 'react';
 import { Pressable, Text, View, TextInput, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
 import { UserAvatar } from './ui/UserAvatar';
+import { useT } from '@/src/i18n';
 
 export type CommentInputVariant = 'compact' | 'full';
 
@@ -51,6 +52,7 @@ export function CommentInput({
   maxLength = 500,
   testID,
 }: CommentInputProps) {
+  const t = useT();
   const [content, setContent] = useState('');
 
   const handleSubmit = useCallback(() => {
@@ -73,7 +75,7 @@ export function CommentInput({
         <View style={styles.replyIndicator}>
           <Icon name="ArrowLeft" size={12} color="#9C958A" />
           <Text style={styles.replyText} numberOfLines={1}>
-            Replying to @{replyTo.username}
+            {t('comments.replyingTo')} @{replyTo.username}
           </Text>
           <Pressable
             onPress={onCancelReply}
@@ -96,7 +98,11 @@ export function CommentInput({
         <View style={styles.inputWrapper}>
           <TextInput
             style={styles.textInput}
-            placeholder={isAuthenticated ? 'Add a comment...' : 'Log in to comment...'}
+            placeholder={
+              isAuthenticated
+                ? t('comments.input.addPlaceholder')
+                : t('comments.placeholder.signedOut')
+            }
             placeholderTextColor="#C7BFB3"
             value={content}
             onChangeText={setContent}
@@ -118,7 +124,7 @@ export function CommentInput({
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           testID="comment-send-button"
           accessibilityRole="button"
-          accessibilityLabel="Send comment"
+          accessibilityLabel={t('comments.input.send')}
         >
           <Icon
             name="PaperPlaneTilt"

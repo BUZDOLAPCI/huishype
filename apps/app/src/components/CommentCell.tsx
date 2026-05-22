@@ -18,6 +18,7 @@ import { Icon } from './ui/Icon';
 import { UserAvatar, type AvatarSize } from './ui/UserAvatar';
 import { KarmaBadge } from './Comments/KarmaBadge';
 import { CommentActionMenu } from './CommentActionMenu';
+import { useT } from '@/src/i18n';
 
 export type CommentCellVariant = 'compact' | 'full';
 
@@ -66,6 +67,7 @@ export function CommentCell({
   likedCommentIds,
   testID,
 }: CommentCellProps) {
+  const t = useT();
   const [showReplies, setShowReplies] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const avatarSize: AvatarSize = isReply ? 'sm' : 'md';
@@ -119,7 +121,7 @@ export function CommentCell({
         <Pressable
           onPress={handleAuthorPress}
           accessibilityRole="link"
-          accessibilityLabel={`Open ${displayName}'s profile`}
+          accessibilityLabel={t('comments.openProfile', { name: displayName })}
           testID="comment-author-avatar-button"
         >
           <UserAvatar
@@ -147,7 +149,7 @@ export function CommentCell({
               <Pressable
                 onPress={handleAuthorPress}
                 accessibilityRole="link"
-                accessibilityLabel={`Open ${displayName}'s profile`}
+                accessibilityLabel={t('comments.openProfile', { name: displayName })}
                 testID="comment-author-button"
               >
                 <Text style={styles.authorName} numberOfLines={1}>
@@ -176,7 +178,7 @@ export function CommentCell({
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             testID="comment-like-button"
             accessibilityRole="button"
-            accessibilityLabel={isLiked ? 'Unlike' : 'Like'}
+            accessibilityLabel={isLiked ? t('comments.unlikeAction') : t('comments.likeAction')}
           >
             <Icon
               name="Heart"
@@ -204,9 +206,9 @@ export function CommentCell({
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               testID="comment-reply-button"
               accessibilityRole="button"
-              accessibilityLabel="Reply"
+              accessibilityLabel={t('comments.reply')}
             >
-              <Text style={styles.replyText}>Reply</Text>
+              <Text style={styles.replyText}>{t('comments.reply')}</Text>
             </Pressable>
           )}
         </View>
@@ -230,7 +232,12 @@ export function CommentCell({
               >
                 <View style={styles.viewRepliesLine} />
                 <Text style={styles.viewRepliesText}>
-                  View {hiddenReplyCount} {hiddenReplyCount === 1 ? 'reply' : 'replies'}
+                  {t(
+                    hiddenReplyCount === 1
+                      ? 'comments.viewReplies.one'
+                      : 'comments.viewReplies.other',
+                    { count: hiddenReplyCount },
+                  )}
                 </Text>
                 <Icon name="CaretDown" size={12} color="#9C958A" />
               </Pressable>

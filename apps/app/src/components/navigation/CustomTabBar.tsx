@@ -10,6 +10,7 @@ import { useRouter, type Href } from 'expo-router';
 
 import { Icon, type IconName } from '@/src/components/ui/Icon';
 import { BlurContainer } from '@/src/components/ui/BlurContainer';
+import { useT, type TranslationKey } from '@/src/i18n';
 import {
   TAB_BAR_DOCK_BOTTOM_PADDING,
   TAB_BAR_DOCK_HEIGHT,
@@ -54,11 +55,11 @@ const TAB_ICONS: Record<string, IconName> = {
 };
 
 /** Tab labels (uppercase in rendering). */
-const TAB_LABELS: Record<string, string> = {
-  index: 'Map',
-  feed: 'Feed',
-  saved: 'Saved',
-  profile: 'Profile',
+const TAB_LABEL_KEYS: Record<string, TranslationKey> = {
+  index: 'tabs.map',
+  feed: 'tabs.feed',
+  saved: 'tabs.saved',
+  profile: 'tabs.profile',
 };
 
 const TAB_HREFS: Record<string, Href> = {
@@ -68,7 +69,7 @@ const TAB_HREFS: Record<string, Href> = {
   profile: '/profile',
 };
 
-const VISIBLE_TAB_NAMES = new Set(Object.keys(TAB_LABELS));
+const VISIBLE_TAB_NAMES = new Set(Object.keys(TAB_LABEL_KEYS));
 
 const MAP_ROUTE_NAMES = new Set([
   'index',
@@ -110,6 +111,7 @@ const COLORS = {
 export function CustomTabBar({ state, descriptors: _descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const t = useT();
 
   const activeRoute = state.routes[state.index];
   const isMapRouteActive = !!activeRoute?.name && MAP_ROUTE_NAMES.has(activeRoute.name);
@@ -128,7 +130,8 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
     const isFocused =
       isRouteFocused || (route.name === 'profile' && isProfileRouteActive);
     const iconName = TAB_ICONS[route.name] ?? 'HouseLine';
-    const label = TAB_LABELS[route.name] ?? route.name;
+    const labelKey = TAB_LABEL_KEYS[route.name];
+    const label = labelKey ? t(labelKey) : route.name;
 
     const activeWeight = route.name === 'saved' ? 'fill' as const : 'bold' as const;
     const iconWeight = isFocused ? activeWeight : 'regular' as const;
@@ -170,7 +173,7 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
         accessibilityRole="tab"
         accessibilityState={isFocused ? { selected: true } : {}}
         accessibilityLabel={label}
-        accessibilityHint={`Switch to ${label} tab`}
+        accessibilityHint={t('tabs.switchHint', { tab: label })}
         testID={`tab-${route.name}`}
         style={({ pressed }) => [
           styles.tabItem,

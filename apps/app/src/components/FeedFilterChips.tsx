@@ -12,18 +12,19 @@ import { ScrollView, View, StyleSheet } from 'react-native';
 import { Chip } from './ui/Chip';
 import { Icon } from './ui/Icon';
 import type { FeedTab } from '../hooks/useFeed';
+import { useT, type TranslationKey } from '../i18n';
 
 interface FilterChipDef {
   key: FeedTab;
-  label: string;
+  labelKey: TranslationKey;
   leadingIcon?: boolean;
 }
 
 const FILTER_CHIPS: FilterChipDef[] = [
-  { key: 'trending', label: 'Trending', leadingIcon: true },
-  { key: 'latest', label: 'Latest' },
-  { key: 'recent-activity', label: 'Recent Activity' },
-  { key: 'following', label: 'Following' },
+  { key: 'trending', labelKey: 'feed.filter.trending', leadingIcon: true },
+  { key: 'latest', labelKey: 'feed.filter.latest' },
+  { key: 'recent-activity', labelKey: 'feed.filter.recentActivity' },
+  { key: 'following', labelKey: 'feed.filter.following' },
 ];
 
 interface FeedFilterChipsProps {
@@ -35,6 +36,8 @@ export function FeedFilterChips({
   activeFilter,
   onFilterChange,
 }: FeedFilterChipsProps) {
+  const t = useT();
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -47,7 +50,7 @@ export function FeedFilterChips({
           return (
             <Chip
               key={chip.key}
-              label={chip.label}
+              label={t(chip.labelKey)}
               active={isActive}
               onPress={() => onFilterChange(chip.key)}
               leading={

@@ -146,9 +146,7 @@ describe('OwnFollowListScreen', () => {
   });
 
   it('renders every loaded following page without truncating after the first page', () => {
-    const { getByTestId } = render(
-      <OwnFollowListScreen kind="following" title="Following" />
-    );
+    const { getByTestId } = render(<OwnFollowListScreen kind="following" />);
 
     expect(mockUseFollowers).toHaveBeenCalledWith(undefined, false);
     expect(mockUseFollowing).toHaveBeenCalledWith(undefined, true);
@@ -157,9 +155,7 @@ describe('OwnFollowListScreen', () => {
   });
 
   it('requests the next following page when the list reaches the end', () => {
-    const { UNSAFE_getByType } = render(
-      <OwnFollowListScreen kind="following" title="Following" />
-    );
+    const { UNSAFE_getByType } = render(<OwnFollowListScreen kind="following" />);
 
     fireEvent(UNSAFE_getByType(FlatList), 'onEndReached');
 
@@ -167,9 +163,7 @@ describe('OwnFollowListScreen', () => {
   });
 
   it('navigates to the tapped user profile', () => {
-    const { getByTestId } = render(
-      <OwnFollowListScreen kind="followers" title="Followers" />
-    );
+    const { getByTestId } = render(<OwnFollowListScreen kind="followers" />);
 
     expect(mockUseFollowers).toHaveBeenCalledWith(undefined, true);
     expect(mockUseFollowing).toHaveBeenCalledWith(undefined, false);
@@ -194,9 +188,7 @@ describe('OwnFollowListScreen', () => {
       getAccessToken: jest.fn(),
     });
 
-    const { getByText, queryByTestId } = render(
-      <OwnFollowListScreen kind="following" title="Following" />
-    );
+    const { getByText, queryByTestId } = render(<OwnFollowListScreen kind="following" />);
 
     expect(getByText('Sign in to see your following')).toBeTruthy();
     expect(queryByTestId('follow-list-following')).toBeNull();

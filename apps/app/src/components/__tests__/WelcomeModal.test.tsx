@@ -1,10 +1,15 @@
 import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render as rtlRender } from '@testing-library/react-native';
 import { Platform } from 'react-native';
 import { WelcomeModal } from '../WelcomeModal';
 import { WebDismissibleLayerProvider } from '../../providers/WebDismissibleLayerProvider';
+import { LanguageProvider } from '../../i18n';
 
 const originalPlatform = Platform.OS;
+
+function render(ui: React.ReactElement) {
+  return rtlRender(ui, { wrapper: LanguageProvider });
+}
 
 function renderWithDismissibleLayer(ui: React.ReactElement) {
   return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);

@@ -20,21 +20,32 @@ import {
   getOpenSourceLicenseUrl,
   openSourceLicenseCredits,
 } from '@/src/content/openSourceLicenses';
+import { useLanguage, useT, type LanguageCode, type TranslationKey } from '@/src/i18n';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
-type SettingsView = 'main' | 'legal' | 'open-source-licenses';
+type SettingsView = 'main' | 'legal' | 'open-source-licenses' | 'language';
+
+const languageOptions: Array<{ code: LanguageCode; labelKey: TranslationKey }> = [
+  { code: 'en', labelKey: 'profileSettings.language.english' },
+  { code: 'nl', labelKey: 'profileSettings.language.dutch' },
+];
 
 export default function ProfileSettingsScreen() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuthContext();
+  const { language, setLanguage } = useLanguage();
+  const t = useT();
   const [showAuth, setShowAuth] = useState(false);
   const [settingsView, setSettingsView] = useState<SettingsView>('main');
   const accountEmail = user?.email?.trim() || null;
+  const selectedLanguageLabel = t(
+    language === 'nl' ? 'profileSettings.language.dutch' : 'profileSettings.language.english'
+  );
 
   const versionLabel = useMemo(() => {
     const version = Constants.expoConfig?.version ?? '0.0.1';
-    return `Version ${version}`;
-  }, []);
+    return t('profileSettings.version', { version });
+  }, [t]);
 
   const dismissToProfile = useCallback(() => {
     router.replace('/profile');
@@ -46,7 +57,7 @@ export default function ProfileSettingsScreen() {
       return;
     }
 
-    if (settingsView === 'legal') {
+    if (settingsView === 'legal' || settingsView === 'language') {
       setSettingsView('main');
       return;
     }
@@ -70,7 +81,7 @@ export default function ProfileSettingsScreen() {
     if (Platform.OS === 'web') {
       const shouldSignOut =
         typeof globalThis.confirm !== 'function' ||
-        globalThis.confirm('Are you sure you want to sign out?');
+        globalThis.confirm(t('profileSettings.auth.logoutConfirm'));
 
       if (shouldSignOut) {
         void signOut();
@@ -78,17 +89,17 @@ export default function ProfileSettingsScreen() {
       return;
     }
 
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('profileSettings.auth.logoutTitle'), t('profileSettings.auth.logoutConfirm'), [
+      { text: t('profileSettings.auth.cancel'), style: 'cancel' },
       {
-        text: 'Sign Out',
+        text: t('profileSettings.auth.logoutTitle'),
         style: 'destructive',
         onPress: () => {
           void signOut();
         },
       },
     ]);
-  }, [signOut]);
+  }, [signOut, t]);
 
   const handleAuthRowPress = useCallback(() => {
     if (user) {
@@ -130,7 +141,7 @@ export default function ProfileSettingsScreen() {
           onPress={handleHeaderBack}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel="Back"
+          accessibilityLabel={t('common.back')}
           style={styles.headerButton}
           testID="profile-settings-back"
         >
@@ -144,10 +155,12 @@ export default function ProfileSettingsScreen() {
           minimumFontScale={0.72}
         >
           {settingsView === 'open-source-licenses'
-            ? 'Open source licenses'
+            ? t('profileSettings.header.openSourceLicenses')
             : settingsView === 'legal'
-              ? 'Legal'
-              : 'Profile'}
+              ? t('profileSettings.header.legal')
+              : settingsView === 'language'
+                ? t('profileSettings.header.language')
+                : t('profileSettings.header.profile')}
         </Text>
         <View style={styles.headerButton} />
       </View>
@@ -176,7 +189,10 @@ export default function ProfileSettingsScreen() {
                         <Pressable
                           onPress={() => openExternalUrl(licenseUrl)}
                           accessibilityRole="link"
-                          accessibilityLabel={`Open ${credit.license} license`}
+                          accessibilityLabel={t(
+                            'profileSettings.openSource.licenseLinkAccessibility',
+                            { license: credit.license }
+                          )}
                           style={styles.licenseLink}
                         >
                           <Text style={[styles.licenseMeta, styles.licenseMetaLink]}>
@@ -199,7 +215,10 @@ export default function ProfileSettingsScreen() {
                       }
                     }}
                     accessibilityRole="link"
-                    accessibilityLabel={`Open source link for ${credit.name}`}
+                    accessibilityLabel={t(
+                      'profileSettings.openSource.sourceLinkAccessibility',
+                      { name: credit.name }
+                    )}
                     style={styles.sourceLink}
                   >
                     <Text style={[styles.licenseHomepage, styles.sourceLinkText]} selectable>
@@ -218,7 +237,7 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-terms-row"
             >
-              <Text style={styles.rowText}>Terms and Conditions</Text>
+              <Text style={styles.rowText}>{t('profileSettings.legal.terms')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable
@@ -227,7 +246,7 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-privacy-row"
             >
-              <Text style={styles.rowText}>Privacy Policy</Text>
+              <Text style={styles.rowText}>{t('profileSettings.legal.privacy')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable
@@ -236,7 +255,7 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-cookies-row"
             >
-              <Text style={styles.rowText}>Cookies</Text>
+              <Text style={styles.rowText}>{t('profileSettings.legal.cookies')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable
@@ -245,7 +264,7 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-data-privacy-row"
             >
-              <Text style={styles.rowText}>Data & privacy choices</Text>
+              <Text style={styles.rowText}>{t('profileSettings.legal.dataPrivacy')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable
@@ -254,7 +273,7 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-sharing-permissions-row"
             >
-              <Text style={styles.rowText}>Sharing permissions</Text>
+              <Text style={styles.rowText}>{t('profileSettings.legal.sharingPermissions')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable
@@ -263,9 +282,39 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-open-source-licenses-row"
             >
-              <Text style={styles.rowText}>Open source licenses</Text>
+              <Text style={styles.rowText}>{t('profileSettings.legal.openSourceLicenses')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
+          </View>
+        ) : settingsView === 'language' ? (
+          <View testID="settings-language-subview">
+            {languageOptions.map((option) => {
+              const label = t(option.labelKey);
+              const isSelected = language === option.code;
+
+              return (
+                <Pressable
+                  key={option.code}
+                  style={[styles.row, isSelected ? styles.selectedRow : null]}
+                  onPress={() => {
+                    void setLanguage(option.code);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={
+                    isSelected
+                      ? t('profileSettings.language.selectedAccessibility', {
+                          language: label,
+                        })
+                      : label
+                  }
+                  testID={`settings-language-${option.code}`}
+                >
+                  <Text style={styles.rowText}>{label}</Text>
+                  {isSelected ? <Icon name="Check" size={30} color="#005E4F" /> : null}
+                </Pressable>
+              );
+            })}
           </View>
         ) : (
           <View>
@@ -273,27 +322,42 @@ export default function ProfileSettingsScreen() {
               <View
                 style={styles.accountRow}
                 accessibilityRole="text"
-                accessibilityLabel={`Account email ${accountEmail ?? 'not available'}`}
+                accessibilityLabel={t('profileSettings.account.emailAccessibility', {
+                  email: accountEmail ?? t('profileSettings.account.emailUnavailable'),
+                })}
                 testID="settings-account-email-row"
               >
-                <Text style={styles.accountLabel}>Account email</Text>
+                <Text style={styles.accountLabel}>{t('profileSettings.account.email')}</Text>
                 <Text
                   style={styles.accountEmail}
                   selectable
                   numberOfLines={2}
                   testID="settings-account-email-value"
                 >
-                  {accountEmail ?? 'Not available'}
+                  {accountEmail ?? t('profileSettings.account.emailUnavailable')}
                 </Text>
               </View>
             ) : null}
+            <Pressable
+              style={styles.row}
+              onPress={() => setSettingsView('language')}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('profileSettings.main.language')}: ${selectedLanguageLabel}`}
+              testID="settings-language-row"
+            >
+              <Text style={styles.rowText}>{t('profileSettings.main.language')}</Text>
+              <View style={styles.rowTrailing}>
+                <Text style={styles.rowValue}>{selectedLanguageLabel}</Text>
+                <Icon name="ArrowRight" size={30} color="#6E6A65" />
+              </View>
+            </Pressable>
             <Pressable
               style={styles.row}
               onPress={() => setSettingsView('legal')}
               accessibilityRole="button"
               testID="settings-legal-row"
             >
-              <Text style={styles.rowText}>Legal</Text>
+              <Text style={styles.rowText}>{t('profileSettings.legal.title')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable
@@ -302,7 +366,7 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-help-row"
             >
-              <Text style={styles.rowText}>Need help?</Text>
+              <Text style={styles.rowText}>{t('profileSettings.help')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable
@@ -311,7 +375,7 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-contact-row"
             >
-              <Text style={styles.rowText}>Contact</Text>
+              <Text style={styles.rowText}>{t('profileSettings.contact')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
             <Pressable
@@ -320,7 +384,9 @@ export default function ProfileSettingsScreen() {
               accessibilityRole="button"
               testID="settings-auth-row"
             >
-              <Text style={styles.rowText}>{user ? 'Log out' : 'Log in'}</Text>
+              <Text style={styles.rowText}>
+                {user ? t('profileSettings.auth.logout') : t('profileSettings.auth.login')}
+              </Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
           </View>
@@ -334,7 +400,7 @@ export default function ProfileSettingsScreen() {
       <AuthModal
         visible={showAuth}
         onClose={() => setShowAuth(false)}
-        message="Sign in to HuisHype"
+        message={t('profileSettings.auth.modalMessage')}
         onSuccess={() => setShowAuth(false)}
       />
     </View>
@@ -390,6 +456,22 @@ const styles = StyleSheet.create({
     lineHeight: 32,
     fontWeight: '500',
     color: '#003C32',
+  },
+  selectedRow: {
+    backgroundColor: '#F1F8F5',
+  },
+  rowTrailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    gap: 8,
+  },
+  rowValue: {
+    flexShrink: 1,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '600',
+    color: '#6E6A65',
   },
   accountRow: {
     minHeight: 96,

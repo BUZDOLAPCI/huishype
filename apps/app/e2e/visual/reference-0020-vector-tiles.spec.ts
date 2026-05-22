@@ -4,8 +4,8 @@
  * This test verifies the backend vector tile clustering implementation:
  *
  * 1. Backend serves MVT/PBF tiles at /tiles/properties/{z}/{x}/{y}.pbf
- * 2. Below ghost reveal: active nodes and active clusters render without ghost layers
- * 3. At/above ghost reveal: ghost clusters, ghost counts, and ghost nodes can render
+ * 2. Active nodes and active clusters render without public ghost layers
+ * 3. Removed public ghost layers remain absent from the app-side style
  * 4. Grouping remains density-aware instead of a hard high-zoom de-cluster split
  * 5. Final layer contract stays atomic across tiles and app interaction
  * 6. Performance: Tiles generate in <100ms
@@ -283,11 +283,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         const expectedLayers = [
           'property-clusters',
+          'property-cluster-fill',
           'cluster-count',
           'active-nodes',
-          'ghost-clusters',
-          'ghost-cluster-count',
-          'ghost-nodes',
+          'active-node-fill',
         ];
 
         const allLayers = mapInstance.getStyle()?.layers?.map((l) => l.id) || [];
@@ -305,11 +304,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       hasLayers: false,
       missingLayers: [
         'property-clusters',
+        'property-cluster-fill',
         'cluster-count',
         'active-nodes',
-        'ghost-clusters',
-        'ghost-cluster-count',
-        'ghost-nodes',
+        'active-node-fill',
       ],
       allLayers: [] as string[],
     }));
@@ -324,15 +322,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     );
   });
 
-  test('verify ghost nodes only visible at high zoom', async ({ page }) => {
+  test('verify removed public ghost layers stay absent', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
     await waitForMapStyleLoaded(page);
 
-    // Check ghost layer visibility at low zoom (Z10)
-    const ghostLayerLowZoom = await page.evaluate(
+    const removedGhostLayers = await page.evaluate(
       ({ center, zoom }) => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return null;
@@ -340,25 +337,15 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         mapInstance.setZoom(zoom);
         mapInstance.setCenter(center);
 
-        // Ghost layer should be hidden below the shared reveal threshold.
-        const ghostLayer = mapInstance.getLayer('ghost-nodes');
-        if (!ghostLayer) return null;
-
-        return {
-          minzoom: ghostLayer.minzoom ?? 0,
-          visibility: mapInstance.getLayoutProperty('ghost-nodes', 'visibility'),
-        };
+        const layerIds = ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes'];
+        return layerIds.filter((layerId) => mapInstance.getLayer(layerId));
       },
       { center: EINDHOVEN_CENTER, zoom: ZOOMED_OUT_LEVEL }
     );
 
-    if (ghostLayerLowZoom) {
-      console.log(`Ghost layer minzoom: ${ghostLayerLowZoom.minzoom}`);
-      expect(ghostLayerLowZoom.minzoom ?? 0).toBe(PROPERTY_GHOST_REVEAL_ZOOM);
-    }
+    expect(removedGhostLayers).toEqual([]);
 
-    // Check ghost layer visibility at the reveal threshold.
-    const ghostLayerHighZoom = await page.evaluate(
+    const removedGhostLayersAtHighZoom = await page.evaluate(
       ({ center, zoom }) => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return null;
@@ -366,23 +353,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         mapInstance.setZoom(zoom);
         mapInstance.setCenter(center);
 
-        const ghostLayer = mapInstance.getLayer('ghost-nodes');
-        if (!ghostLayer) return null;
-
-        // At the reveal threshold, the ghost layer should be potentially visible.
-        return {
-          currentZoom: mapInstance.getZoom(),
-          layerMinZoom: ghostLayer.minzoom ?? 0,
-          wouldBeVisible: mapInstance.getZoom() >= (ghostLayer.minzoom ?? 0),
-        };
+        const layerIds = ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes'];
+        return layerIds.filter((layerId) => mapInstance.getLayer(layerId));
       },
       { center: EINDHOVEN_CENTER, zoom: ZOOMED_IN_LEVEL }
     );
 
-    if (ghostLayerHighZoom) {
-      console.log(`At Z${ghostLayerHighZoom.currentZoom}: ghost layer visible = ${ghostLayerHighZoom.wouldBeVisible}`);
-      expect(ghostLayerHighZoom.wouldBeVisible).toBe(true);
-    }
+    expect(removedGhostLayersAtHighZoom).toEqual([]);
   });
 
   test('take main screenshot for visual comparison', async ({ page }) => {

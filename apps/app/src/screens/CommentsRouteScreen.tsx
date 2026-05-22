@@ -43,6 +43,7 @@ import {
   normalizePropertyReturnTarget,
   toInternalAppHref,
 } from '@/src/utils/property-route';
+import { useT } from '@/src/i18n';
 
 function toCommentCellData(
   comment: Comment,
@@ -73,6 +74,8 @@ function SortToggle({
   value: CommentSortBy;
   onChange: (sort: CommentSortBy) => void;
 }) {
+  const t = useT();
+
   return (
     <View style={styles.sortContainer}>
       <Pressable
@@ -82,7 +85,7 @@ function SortToggle({
         <Text
           style={[styles.sortText, value === 'popular' && styles.sortTextActive]}
         >
-          Popular
+          {t('comments.sort.popular')}
         </Text>
       </Pressable>
       <Pressable
@@ -90,7 +93,7 @@ function SortToggle({
         style={[styles.sortPill, value === 'recent' && styles.sortPillActive]}
       >
         <Text style={[styles.sortText, value === 'recent' && styles.sortTextActive]}>
-          Recent
+          {t('comments.sort.recent')}
         </Text>
       </Pressable>
     </View>
@@ -108,6 +111,7 @@ export function CommentsRouteScreen({
   returnTo,
   onNavigate,
 }: CommentsRouteScreenProps) {
+  const t = useT();
   const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAuthContext();
   const hydratedNow = useHydratedNow();
@@ -272,7 +276,7 @@ export function CommentsRouteScreen({
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <ResponsivePanel title="Comments" onClose={triggerClose}>
+      <ResponsivePanel title={t('comments.title')} onClose={triggerClose}>
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -284,7 +288,7 @@ export function CommentsRouteScreen({
               style={styles.headerBackButton}
               testID="comments-back-button"
               accessibilityRole="button"
-              accessibilityLabel="Go back"
+              accessibilityLabel={t('common.goBack')}
               activeOpacity={0.8}
             >
               <Icon name="ArrowLeft" size={20} color="#3D3832" />
@@ -316,7 +320,9 @@ export function CommentsRouteScreen({
 
           <View style={styles.subHeader}>
             <Text style={styles.commentCount}>
-              {totalComments} {totalComments === 1 ? 'comment' : 'comments'}
+              {t(totalComments === 1 ? 'comments.count.one' : 'comments.count.other', {
+                count: totalComments,
+              })}
             </Text>
             {commentsDisabled ? null : <SortToggle value={sortBy} onChange={setSortBy} />}
           </View>
@@ -324,7 +330,7 @@ export function CommentsRouteScreen({
           {commentsDisabled ? (
             <View style={styles.disabledState}>
               <Icon name="ShieldCheck" size={28} color="#C7BFB3" />
-              <Text style={styles.disabledText}>Comments are disabled for this property</Text>
+              <Text style={styles.disabledText}>{t('comments.disabled')}</Text>
             </View>
           ) : isLoading ? (
             <View style={styles.loadingContainer}>
@@ -374,7 +380,7 @@ export function CommentsRouteScreen({
         <ReportModal
           visible
           target={{ type: 'comment', id: reportCommentId }}
-          targetLabel="Tell us what is wrong with this comment."
+          targetLabel={t('comments.reportTarget')}
           onClose={() => setReportCommentId(null)}
         />
       ) : null}

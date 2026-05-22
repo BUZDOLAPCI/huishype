@@ -13,6 +13,7 @@ import { Icon } from '../ui/Icon';
 import type { PropertySharePayload } from '../../utils/property-share';
 import { buildPropertyShareLinks } from '../../utils/property-share';
 import type { PropertyDetailsData } from './types';
+import { useT } from '@/src/i18n';
 
 interface SharePropertyModalProps {
   property: PropertyDetailsData;
@@ -64,6 +65,7 @@ export function SharePropertyModal({
   onClose,
   payload,
 }: SharePropertyModalProps) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const links = buildPropertyShareLinks(property);
 
@@ -107,22 +109,22 @@ export function SharePropertyModal({
         <Pressable
           style={StyleSheet.absoluteFillObject}
           onPress={onClose}
-          accessibilityLabel="Close share modal"
+          accessibilityLabel={t('property.share.close')}
         />
 
         <View style={styles.card}>
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
-              <Text style={styles.title}>Share This Property</Text>
+              <Text style={styles.title}>{t('property.share.title')}</Text>
               <Text style={styles.subtitle}>
-                Copy the link or share it directly from HuisHype.
+                {t('property.share.subtitle')}
               </Text>
             </View>
             <Pressable
               onPress={onClose}
               style={styles.closeButton}
               accessibilityRole="button"
-              accessibilityLabel="Close share modal"
+              accessibilityLabel={t('property.share.close')}
             >
               <Icon name="X" size="md" color="#8C8479" />
             </Pressable>
@@ -146,7 +148,9 @@ export function SharePropertyModal({
                 pressed && styles.copyButtonPressed,
               ]}
               accessibilityRole="button"
-              accessibilityLabel={copied ? 'Link copied' : 'Copy link'}
+              accessibilityLabel={
+                copied ? t('property.share.linkCopied') : t('property.share.copyLink')
+              }
               testID="share-property-copy"
             >
               <Icon
@@ -159,7 +163,9 @@ export function SharePropertyModal({
           </View>
 
           <Text style={styles.feedbackText}>
-            {copied ? 'Link copied to clipboard.' : 'Share on social media'}
+            {copied
+              ? t('property.share.linkCopiedFeedback')
+              : t('property.share.socialFeedback')}
           </Text>
 
           <View style={styles.grid}>
@@ -174,7 +180,7 @@ export function SharePropertyModal({
                   pressed && styles.shareActionPressed,
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={`Share on ${action.label}`}
+                accessibilityLabel={t('property.share.shareOn', { service: action.label })}
               >
                 <View style={styles.actionContent}>
                   <View

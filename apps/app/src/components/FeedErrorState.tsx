@@ -8,6 +8,7 @@ import React from 'react';
 import { Text, View } from 'react-native';
 import { Button } from './ui/Button';
 import { Icon } from './ui/Icon';
+import { useT } from '../i18n';
 
 interface FeedErrorStateProps {
   message?: string;
@@ -15,9 +16,12 @@ interface FeedErrorStateProps {
 }
 
 export function FeedErrorState({
-  message = 'Something went wrong',
+  message,
   onRetry,
 }: FeedErrorStateProps) {
+  const t = useT();
+  const resolvedMessage = message ?? t('feed.error.defaultMessage');
+
   return (
     <View
       className="flex-1 items-center justify-center bg-warm-50 px-6"
@@ -27,12 +31,12 @@ export function FeedErrorState({
         <Icon name="WarningCircle" size="2xl" color="#E53935" />
       </View>
       <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-        Oops!
+        {t('feed.error.title')}
       </Text>
-      <Text className="text-warm-600 text-center mb-6">{message}</Text>
+      <Text className="text-warm-600 text-center mb-6">{resolvedMessage}</Text>
       {onRetry && (
         <Button
-          label="Try Again"
+          label={t('common.tryAgain')}
           onPress={onRetry}
           style={{ paddingHorizontal: 24 }}
           testID="feed-retry-button"

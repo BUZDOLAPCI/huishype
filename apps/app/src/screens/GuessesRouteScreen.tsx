@@ -37,6 +37,7 @@ import {
   normalizePropertyReturnTarget,
   toInternalAppHref,
 } from '@/src/utils/property-route';
+import { useT } from '@/src/i18n';
 
 function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
@@ -170,8 +171,9 @@ function GuessEntry({
   fmvValue: number | null;
   countryCode?: string;
 }) {
+  const t = useT();
   const hydratedNow = useHydratedNow();
-  const displayName = guess.user?.displayName || guess.user?.username || 'Anonymous';
+  const displayName = guess.user?.displayName || guess.user?.username || t('common.anonymous');
 
   const isAccurate =
     fmvValue !== null
@@ -220,6 +222,7 @@ export function GuessesRouteScreen({
   returnTo,
   onNavigate,
 }: GuessesRouteScreenProps) {
+  const t = useT();
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
@@ -376,7 +379,7 @@ export function GuessesRouteScreen({
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <ResponsivePanel title="Guesses" onClose={triggerClose}>
+      <ResponsivePanel title={t('common.guesses')} onClose={triggerClose}>
         <ScrollView
           style={styles.container}
           contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
@@ -387,7 +390,7 @@ export function GuessesRouteScreen({
               style={styles.headerBackButton}
               testID="guesses-back-button"
               accessibilityRole="button"
-              accessibilityLabel="Go back"
+              accessibilityLabel={t('common.goBack')}
               activeOpacity={0.8}
             >
               <Icon name="ArrowLeft" size={20} color="#3D3832" />

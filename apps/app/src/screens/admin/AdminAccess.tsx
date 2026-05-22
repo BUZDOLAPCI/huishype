@@ -2,6 +2,7 @@ import React, { type ReactNode } from 'react';
 import { Text } from 'react-native';
 
 import { AdminCard } from '@/src/components/admin/AdminModerationLayout';
+import { useT } from '@/src/i18n';
 import { useAuthContext, type AuthUser } from '@/src/providers/AuthProvider';
 
 type AdminAuthState = 'loading' | 'signed-out' | 'forbidden' | 'allowed';
@@ -58,12 +59,13 @@ export function AdminAccessGate({
 }: {
   children: (enabled: boolean) => ReactNode;
 }) {
+  const t = useT();
   const accessState = useAdminAccessState();
 
   if (accessState === 'loading') {
     return (
       <AdminCard>
-        <Text>Checking admin session...</Text>
+        <Text>{t('admin.access.checking')}</Text>
       </AdminCard>
     );
   }
@@ -71,7 +73,7 @@ export function AdminAccessGate({
   if (accessState === 'signed-out') {
     return (
       <AdminCard>
-        <Text>You need to sign in before opening the admin console.</Text>
+        <Text>{t('admin.access.signedOut')}</Text>
       </AdminCard>
     );
   }
@@ -79,7 +81,7 @@ export function AdminAccessGate({
   if (accessState === 'forbidden') {
     return (
       <AdminCard>
-        <Text>Your account does not have admin access.</Text>
+        <Text>{t('admin.access.forbidden')}</Text>
       </AdminCard>
     );
   }

@@ -17,11 +17,13 @@ import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useSavedProperties } from '@/src/hooks/useSavedProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { useT } from '@/src/i18n';
 import type { FeedProperty } from '@/src/hooks';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 
 export default function SavedScreen() {
+  const t = useT();
   const { user } = useAuthContext();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
@@ -43,6 +45,9 @@ export default function SavedScreen() {
   }, [data]);
 
   const totalCount = data?.pages[0]?.total ?? 0;
+  const savedCountLabel = t(totalCount === 1 ? 'saved.count.one' : 'saved.count.other', {
+    count: totalCount,
+  });
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -101,19 +106,19 @@ export default function SavedScreen() {
         testID="saved-auth-required"
         pointerEvents="box-none"
       >
-        <ScreenHeader title="Saved Properties" />
+        <ScreenHeader title={t('saved.header')} />
         <View className="flex-1 items-center justify-center px-6">
           <View className="bg-primary-100 p-5 rounded-full mb-4">
             <Icon name="BookmarkSimple" size="2xl" color="#DE911D" />
           </View>
           <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-            Sign in to see your saved properties
+            {t('saved.auth.title')}
           </Text>
           <Text className="text-warm-600 text-center mb-6">
-            Save properties while browsing the map and find them all here.
+            {t('saved.auth.body')}
           </Text>
           <Button
-            label="Sign In"
+            label={t('common.signIn')}
             onPress={() => setShowAuth(true)}
             style={{ alignSelf: 'stretch', marginHorizontal: 24 }}
             testID="saved-sign-in-button"
@@ -121,7 +126,7 @@ export default function SavedScreen() {
           <AuthModal
             visible={showAuth}
             onClose={() => setShowAuth(false)}
-            message="Sign in to HuisHype"
+            message={t('saved.auth.modal')}
             onSuccess={() => setShowAuth(false)}
           />
         </View>
@@ -133,12 +138,12 @@ export default function SavedScreen() {
   if (isLoading && !isRefreshing) {
     return (
       <ScreenBackground testID="saved-loading">
-        <ScreenHeader title="Saved Properties" />
+        <ScreenHeader title={t('saved.header')} />
         <View className="flex-1 items-center justify-center">
           <View className="items-center">
             <Icon name="BookmarkSimple" size="xl" color="#DE911D" />
             <Text className="text-warm-600 mt-4">
-              Loading saved properties...
+              {t('saved.loading')}
             </Text>
           </View>
         </View>
@@ -150,19 +155,19 @@ export default function SavedScreen() {
   if (isError) {
     return (
       <ScreenBackground testID="saved-error">
-        <ScreenHeader title="Saved Properties" />
+        <ScreenHeader title={t('saved.header')} />
         <View className="flex-1 items-center justify-center px-6">
           <View className="bg-error-red-50 p-4 rounded-full mb-4">
             <Icon name="WarningCircle" size="2xl" color="#E53935" />
           </View>
           <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-            Oops!
+            {t('feed.error.title')}
           </Text>
           <Text className="text-warm-600 text-center mb-6">
-            {error?.message || 'Failed to load saved properties'}
+            {error?.message || t('saved.error.fallback')}
           </Text>
           <Button
-            label="Try Again"
+            label={t('common.tryAgain')}
             onPress={() => refetch()}
             style={{ paddingHorizontal: 24 }}
             testID="saved-retry-button"
@@ -176,17 +181,16 @@ export default function SavedScreen() {
   if (properties.length === 0) {
     return (
       <ScreenBackground testID="saved-empty">
-        <ScreenHeader title="Saved Properties" />
+        <ScreenHeader title={t('saved.header')} />
         <View className="flex-1 items-center justify-center px-6">
           <View className="bg-warm-200 p-5 rounded-full mb-4">
             <Icon name="BookmarkSimple" size="2xl" color="#C7BFB3" />
           </View>
           <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-            No saved properties yet
+            {t('saved.empty.title')}
           </Text>
           <Text className="text-warm-600 text-center">
-            Browse the map and tap the bookmark icon to save properties you are
-            interested in.
+            {t('saved.empty.body')}
           </Text>
         </View>
       </ScreenBackground>
@@ -197,12 +201,12 @@ export default function SavedScreen() {
   return (
     <ScreenBackground style={{ alignItems: 'center' }} testID="saved-screen">
       <View style={{ width: '100%', maxWidth: 768, flex: 1 }}>
-        <ScreenHeader title="Saved Properties" />
+        <ScreenHeader title={t('saved.header')} />
 
         {/* Header count */}
         <View className="px-5 pb-2">
           <Text className="text-sm text-warm-600">
-            {totalCount} {totalCount === 1 ? 'property' : 'properties'} saved
+            {savedCountLabel}
           </Text>
         </View>
 

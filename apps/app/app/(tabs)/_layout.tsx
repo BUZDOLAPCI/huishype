@@ -2,8 +2,11 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 
 import { CustomTabBar } from '@/src/components/navigation/CustomTabBar';
+import { useT } from '@/src/i18n';
 
 export default function TabLayout() {
+  const t = useT();
+
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} />}
@@ -15,25 +18,25 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Map',
+          title: t('tabs.map'),
         }}
       />
       <Tabs.Screen
         name="feed"
         options={{
-          title: 'Feed',
+          title: t('tabs.feed'),
         }}
       />
       <Tabs.Screen
         name="saved"
         options={{
-          title: 'Saved',
+          title: t('tabs.saved'),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: t('tabs.profile'),
         }}
       />
       <Tabs.Screen

@@ -16,6 +16,7 @@ import {
   buildPropertySharePayload,
   isUnsupportedWebShareError,
 } from '../../utils/property-share';
+import { useT } from '../../i18n';
 
 interface QuickActionsProps extends SectionProps {
   onSave?: () => void;
@@ -33,6 +34,7 @@ export function QuickActions({
   onComment,
   onGuess,
 }: QuickActionsProps) {
+  const t = useT();
   const [isShareModalVisible, setIsShareModalVisible] = useState(false);
   const sharePayload = buildPropertySharePayload(property);
   const closeShareModal = useCallback(() => {
@@ -64,7 +66,7 @@ export function QuickActions({
   return (
     <>
       <SectionCard
-        title="Take Action"
+        title={t('property.actions.title')}
         icon="flash-outline"
       >
         <SharedQuickActions

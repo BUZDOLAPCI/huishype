@@ -7,10 +7,20 @@ import TermsScreen from '../(tabs)/terms';
 import PrivacyScreen from '../(tabs)/privacy';
 import SharingPermissionsScreen from '../(tabs)/sharing-permissions';
 
+const mockUseLanguage = jest.fn(() => ({
+  language: 'en',
+  setLanguage: jest.fn(),
+  t: jest.fn(),
+}));
+
 jest.mock('expo-router', () => ({
   router: {
     replace: jest.fn(),
   },
+}));
+
+jest.mock('@/src/i18n', () => ({
+  useLanguage: () => mockUseLanguage(),
 }));
 
 jest.mock('@/src/components/ui/Icon', () => ({
@@ -26,6 +36,11 @@ const getRouterReplace = () =>
 describe('Legal pages', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUseLanguage.mockReturnValue({
+      language: 'en',
+      setLanguage: jest.fn(),
+      t: jest.fn(),
+    });
   });
 
   it('renders HuisHype terms content and returns to settings', () => {
@@ -57,5 +72,23 @@ describe('Legal pages', () => {
     expect(render(<CookiesScreen />).getByText('Cookie Policy')).toBeTruthy();
     expect(render(<DataPrivacyScreen />).getByText('Data and Privacy Choices')).toBeTruthy();
     expect(render(<SharingPermissionsScreen />).getByText('Sharing Permissions')).toBeTruthy();
+  });
+
+  it('renders Dutch legal pages from the localized catalog', () => {
+    mockUseLanguage.mockReturnValue({
+      language: 'nl',
+      setLanguage: jest.fn(),
+      t: jest.fn(),
+    });
+
+    const terms = render(<TermsScreen />);
+
+    expect(terms.getByText('Algemene voorwaarden')).toBeTruthy();
+    expect(terms.getByText('Laatst bijgewerkt: 21 mei 2026')).toBeTruthy();
+    expect(terms.getByText(/HuisHype is geen makelaar/i)).toBeTruthy();
+
+    expect(render(<PrivacyScreen />).getByText('Privacybeleid')).toBeTruthy();
+    expect(render(<DataPrivacyScreen />).getByText('Gegevens- en privacykeuzes')).toBeTruthy();
+    expect(render(<SharingPermissionsScreen />).getByText('Machtigingen delen')).toBeTruthy();
   });
 });

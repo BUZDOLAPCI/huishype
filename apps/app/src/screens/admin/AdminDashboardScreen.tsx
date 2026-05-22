@@ -12,12 +12,15 @@ import {
 } from '@/src/components/admin/AdminModerationLayout';
 import { useAdminDashboard } from '@/src/hooks/admin/useAdminModeration';
 import { AdminAccessGate } from '@/src/screens/admin/AdminAccess';
+import { useT } from '@/src/i18n';
 
 export function AdminDashboardScreen() {
+  const t = useT();
+
   return (
     <AdminShell
-      title="Dashboard"
-      subtitle="Pending reports and recent moderation activity."
+      title={t('admin.dashboard.title')}
+      subtitle={t('admin.dashboard.subtitle')}
     >
       <AdminAccessGate>
         {(enabled) => <DashboardContent enabled={enabled} />}
@@ -27,6 +30,7 @@ export function AdminDashboardScreen() {
 }
 
 function DashboardContent({ enabled }: { enabled: boolean }) {
+  const t = useT();
   const { propertyReports, commentReports, isLoading, isError, error } =
     useAdminDashboard(enabled);
 
@@ -60,12 +64,12 @@ function DashboardContent({ enabled }: { enabled: boolean }) {
     <>
       <View style={styles.statsGrid}>
         <AdminStatCard
-          label="Pending property reports"
+          label={t('admin.dashboard.pendingPropertyReports')}
           value={propertyReports.data?.pendingCount ?? 0}
           tone="amber"
         />
         <AdminStatCard
-          label="Pending comment reports"
+          label={t('admin.dashboard.pendingCommentReports')}
           value={commentReports.data?.pendingCount ?? 0}
           tone="blue"
         />
@@ -74,12 +78,12 @@ function DashboardContent({ enabled }: { enabled: boolean }) {
       <View style={styles.twoColumn}>
         <AdminCard>
           <View style={styles.section}>
-            <SectionTitle title="Recent reports" />
+            <SectionTitle title={t('admin.dashboard.recentReports')} />
             {recentReports.length > 0 ? (
               <RecentReportsList reports={recentReports} />
             ) : (
               <Text style={styles.emptyText}>
-                New property and comment reports will appear here.
+                {t('admin.dashboard.emptyReports')}
               </Text>
             )}
           </View>
@@ -87,12 +91,12 @@ function DashboardContent({ enabled }: { enabled: boolean }) {
 
         <AdminCard>
           <View style={styles.section}>
-            <SectionTitle title="Recent moderation actions" />
+            <SectionTitle title={t('admin.dashboard.recentActions')} />
             {recentModerationActions.length > 0 ? (
               <ActivityLogList logs={recentModerationActions.slice(0, 6)} />
             ) : (
               <Text style={styles.emptyText}>
-                Moderation actions returned by the API will appear here.
+                {t('admin.dashboard.emptyActions')}
               </Text>
             )}
           </View>

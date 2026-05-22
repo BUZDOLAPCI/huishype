@@ -1,12 +1,9 @@
 /**
- * Reference Expectation E2E Test: ghost-vs-active-nodes
+ * Reference Expectation E2E Test: active-nodes-with-removed-ghost-layers
  *
- * This test verifies the visual distinction between Ghost Nodes and Active Nodes:
- * - Ghost Nodes: Small, low-opacity gray dots (inactive properties)
- * - Active Nodes: Larger, colored (orange/red), high-opacity markers (socially active properties)
- *
- * The contrast between these node types is a key UX pattern that shows data coverage
- * while highlighting engaging content.
+ * This test verifies the current public map-layer contract:
+ * - Active Nodes: colored markers for socially active properties
+ * - Public ghost layers are no longer part of the app-side style
  *
  * Screenshot saved to: test-results/reference-expectations/ghost-vs-active-nodes/
  */
@@ -94,7 +91,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     ).toHaveLength(0);
   });
 
-  test('capture ghost vs active nodes visual distinction', async ({ page }) => {
+  test('capture active node visual state with removed ghost layers absent', async ({ page }) => {
     // Navigate to the app
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -172,13 +169,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const layerInfo = await page.evaluate(() => {
       const mapInstance = window.__mapInstance;
       if (mapInstance) {
-        const ghostLayer = mapInstance.getLayer('ghost-nodes');
         const activeLayer = mapInstance.getLayer('active-nodes');
+        const removedGhostLayers = ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes']
+          .filter((layerId) => mapInstance.getLayer(layerId));
         const zoom = mapInstance.getZoom?.() ?? 0;
 
         return {
-          hasGhostLayer: ghostLayer !== undefined,
           hasActiveLayer: activeLayer !== undefined,
+          removedGhostLayers,
           zoom,
         };
       }
@@ -188,12 +186,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     console.log('Layer info:', layerInfo);
 
     // Verify property layers exist
-    expect(layerInfo?.hasGhostLayer, 'Ghost points layer should exist').toBe(true);
     expect(layerInfo?.hasActiveLayer, 'Active points layer should exist').toBe(true);
+    expect(layerInfo?.removedGhostLayers, 'Removed ghost layers should stay absent').toEqual([]);
     expect(layerInfo?.zoom, 'Zoom should be at unclustered level').toBeGreaterThanOrEqual(14);
   });
 
-  test('verify ghost and active node layer configurations', async ({ page }) => {
+  test('verify active node layer configuration and removed ghost layers', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -205,7 +203,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.waitForFunction(
       () => {
         const mapInstance = window.__mapInstance;
-        return mapInstance?.getLayer?.('ghost-nodes') !== undefined;
+        return mapInstance?.getLayer?.('active-nodes') !== undefined;
       },
       { timeout: 15000 }
     );
@@ -216,16 +214,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const mapInstance = window.__mapInstance;
 
       if (mapInstance) {
-        const ghostLayer = mapInstance.getLayer('ghost-nodes');
         const activeLayer = mapInstance.getLayer('active-nodes');
+        const removedGhostLayers = ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes']
+          .filter((layerId) => mapInstance.getLayer(layerId));
 
         // Get paint properties
-        const ghostPaint = ghostLayer ? {
-          radius: mapInstance.getPaintProperty('ghost-nodes', 'circle-radius'),
-          color: mapInstance.getPaintProperty('ghost-nodes', 'circle-color'),
-          opacity: mapInstance.getPaintProperty('ghost-nodes', 'circle-opacity'),
-        } : null;
-
         const activePaint = activeLayer ? {
           radius: mapInstance.getPaintProperty('active-nodes', 'circle-radius'),
           color: mapInstance.getPaintProperty('active-nodes', 'circle-color'),
@@ -233,9 +226,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         } : null;
 
         return {
-          ghostExists: ghostLayer !== undefined,
           activeExists: activeLayer !== undefined,
-          ghostPaint,
+          removedGhostLayers,
           activePaint,
           zoom: mapInstance.getZoom?.() ?? 0,
         };
@@ -248,16 +240,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Verify layers exist
     expect(layerConfig).not.toBeNull();
     if (layerConfig) {
-      expect(layerConfig.ghostExists, 'Ghost points layer should exist').toBe(true);
       expect(layerConfig.activeExists, 'Active points layer should exist').toBe(true);
-
-      // Verify ghost nodes have low opacity
-      if (layerConfig.ghostPaint?.opacity) {
-        const ghostOpacity = typeof layerConfig.ghostPaint.opacity === 'number'
-          ? layerConfig.ghostPaint.opacity
-          : 0.4; // default from code
-        expect(ghostOpacity, 'Ghost nodes should have low opacity').toBeLessThanOrEqual(0.5);
-      }
+      expect(layerConfig.removedGhostLayers, 'Removed ghost layers should stay absent').toEqual([]);
 
       // Verify active nodes have higher opacity
       if (layerConfig.activePaint?.opacity) {
@@ -296,15 +280,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for map to be idle (tiles loaded)
     await waitForMapIdle(page);
 
-    // Query for visible features in both layers
+    // Query for visible active features. Removed public ghost layers are optional in
+    // old fixtures but should not be queried when absent.
     const featureInfo = await page.evaluate(() => {
       const mapInstance = window.__mapInstance;
       if (!mapInstance) return null;
 
-      // Query rendered features for both layers
-      const ghostFeatures = mapInstance.queryRenderedFeatures?.(undefined, {
-        layers: ['ghost-nodes'],
-      }) || [];
       const activeFeatures = mapInstance.queryRenderedFeatures?.(undefined, {
         layers: ['active-nodes'],
       }) || [];
@@ -313,10 +294,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       }) || [];
 
       return {
-        ghostCount: ghostFeatures.length,
         activeCount: activeFeatures.length,
         clusterCount: clusterFeatures.length,
-        totalVisible: ghostFeatures.length + activeFeatures.length,
+        totalVisible: activeFeatures.length,
+        removedGhostLayers: ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes']
+          .filter((layerId) => mapInstance.getLayer(layerId)),
         zoom: mapInstance.getZoom?.() ?? 0,
       };
     });
@@ -333,6 +315,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(featureInfo).not.toBeNull();
     if (featureInfo) {
       expect(featureInfo.zoom, 'Should be at unclustered zoom level').toBeGreaterThanOrEqual(14);
+      expect(featureInfo.removedGhostLayers, 'Removed ghost layers should stay absent').toEqual([]);
     }
 
     // Verify map canvas is visible

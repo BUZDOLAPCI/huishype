@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from './ui/Icon';
+import { useT } from '../i18n';
 
 export interface CommentActionMenuProps {
   visible: boolean;
@@ -15,6 +16,7 @@ export function CommentActionMenu({
   onReport,
   onCopy,
 }: CommentActionMenuProps) {
+  const t = useT();
   const handleReport = useCallback(() => {
     onClose();
     onReport();
@@ -44,7 +46,7 @@ export function CommentActionMenu({
           style={StyleSheet.absoluteFillObject}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="Close comment actions"
+          accessibilityLabel={t('comments.actions.close')}
           testID="comment-action-menu-backdrop"
         />
         <View style={styles.menu} testID="comment-action-menu">
@@ -53,10 +55,10 @@ export function CommentActionMenu({
             style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
             testID="comment-report-menu-item"
             accessibilityRole="button"
-            accessibilityLabel="Report comment"
+            accessibilityLabel={t('comments.actions.report')}
           >
             <Icon name="Flag" size="lg" color="#B91C1C" />
-            <Text style={[styles.menuItemText, styles.reportText]}>Report</Text>
+            <Text style={[styles.menuItemText, styles.reportText]}>{t('property.report.action')}</Text>
           </Pressable>
           <View style={styles.divider} />
           <Pressable
@@ -64,10 +66,10 @@ export function CommentActionMenu({
             style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
             testID="comment-copy-menu-item"
             accessibilityRole="button"
-            accessibilityLabel="Copy comment"
+            accessibilityLabel={t('comments.actions.copy')}
           >
             <Icon name="CopySimple" size="lg" color="#2D2926" />
-            <Text style={styles.menuItemText}>Copy</Text>
+            <Text style={styles.menuItemText}>{t('comments.actions.copyLabel')}</Text>
           </Pressable>
         </View>
       </View>

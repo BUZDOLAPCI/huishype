@@ -5,6 +5,7 @@ import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huish
 import { shadows } from '../../lib/shadows';
 import type { SectionProps } from './types';
 import { SectionCard } from './SectionCard';
+import { useT, type TranslationKey } from '../../i18n';
 
 function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
@@ -34,34 +35,38 @@ interface MiniPriceCardProps {
 
 function getConfidenceBadgeInfo(
   confidence: 'none' | 'low' | 'medium' | 'high' | undefined,
-  guessCount: number
+  guessCount: number,
+  t: (key: TranslationKey, values?: Record<string, string | number | Date>) => string
 ): ConfidenceBadgeInfo | null {
   if (!confidence || confidence === 'none' || guessCount <= 0) {
     return null;
   }
 
-  const guessLabel = `${guessCount} ${guessCount === 1 ? 'guess' : 'guesses'}`;
+  const guessLabel = t(
+    guessCount === 1 ? 'property.price.guessCount.one' : 'property.price.guessCount.other',
+    { count: guessCount }
+  );
 
   switch (confidence) {
     case 'high':
       return {
         bg: '#C8F0D8',
         text: '#3D8A5A',
-        label: `High confidence (${guessLabel})`,
+        label: t('property.price.confidence.high', { guesses: guessLabel }),
         icon: 'checkmark-circle',
       };
     case 'medium':
       return {
         bg: '#FFF3D6',
         text: '#C48B1B',
-        label: `Medium confidence (${guessLabel})`,
+        label: t('property.price.confidence.medium', { guesses: guessLabel }),
         icon: 'remove-circle',
       };
     case 'low':
       return {
         bg: '#FFE7D6',
         text: '#D86D2C',
-        label: `Low confidence (${guessLabel})`,
+        label: t('property.price.confidence.low', { guesses: guessLabel }),
         icon: 'alert-circle',
       };
   }
@@ -90,6 +95,7 @@ function MiniPriceCard({
 }
 
 export function PriceSection({ property }: SectionProps) {
+  const t = useT();
   const {
     officialValuation,
     officialValuationYear,
@@ -100,14 +106,14 @@ export function PriceSection({ property }: SectionProps) {
   } = property;
   const fmv = fmvData?.fmv ?? undefined;
   const crowdGuessCount = fmvData?.guessCount ?? guessCount;
-  const confidenceBadge = getConfidenceBadgeInfo(fmvData?.confidence, crowdGuessCount);
+  const confidenceBadge = getConfidenceBadgeInfo(fmvData?.confidence, crowdGuessCount, t);
   const hasSecondaryRow = officialValuation || askingPrice;
 
   return (
     <SectionCard
-      title="Price Snapshot"
+      title={t('property.price.title')}
       icon="stats-chart"
-      description="Ground the listing with the official valuation, live asking price, and the crowd signal."
+      description={t('property.price.description')}
     >
       <View style={styles.grid}>
         <View testID="price-snapshot-crowd-card" style={[styles.crowdCard, shadows['card-alt']]}>
@@ -115,18 +121,23 @@ export function PriceSection({ property }: SectionProps) {
             <View style={styles.crowdIconBg}>
               <Ionicons name="people-outline" size={16} color="#3D8A5A" />
             </View>
-            <Text style={styles.crowdLabel}>Crowd Estimate</Text>
+            <Text style={styles.crowdLabel}>{t('property.price.crowdEstimate')}</Text>
           </View>
 
           {fmv ? (
             <Text style={styles.crowdValue}>{formatPrice(fmv, countryCode)}</Text>
           ) : (
             <>
-              <Text style={styles.crowdEmptyValue}>Not enough signal yet</Text>
+              <Text style={styles.crowdEmptyValue}>{t('property.price.notEnoughSignal')}</Text>
               <Text style={styles.crowdHint}>
                 {crowdGuessCount > 0
-                  ? `${crowdGuessCount} ${crowdGuessCount === 1 ? 'guess' : 'guesses'} so far`
-                  : 'More guesses will tighten the estimate.'}
+                  ? t(
+                      crowdGuessCount === 1
+                        ? 'property.price.guessesSoFar.one'
+                        : 'property.price.guessesSoFar.other',
+                      { count: crowdGuessCount }
+                    )
+                  : t('property.price.moreGuesses')}
               </Text>
             </>
           )}
@@ -166,7 +177,7 @@ export function PriceSection({ property }: SectionProps) {
                   icon="pricetag-outline"
                   iconBg="#FFF3E0"
                   iconColor="#F5A623"
-                  label="Asking Price"
+                  label={t('property.price.asking')}
                   value={formatPrice(askingPrice, countryCode)}
                   valueColor="#F5A623"
                 />

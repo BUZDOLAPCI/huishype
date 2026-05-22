@@ -10,6 +10,7 @@ import {
   type ListRenderItemInfo,
 } from 'react-native';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
+import { useT } from '@/src/i18n';
 import { Icon } from './ui/Icon';
 /**
  * Design spec (Section 7.3):
@@ -53,6 +54,8 @@ export function SearchResults({
   query,
   onResultPress,
 }: SearchResultsProps) {
+  const t = useT();
+
   // Don't render anything if query is too short
   if (query.length < 2) return null;
 
@@ -73,7 +76,7 @@ export function SearchResults({
       >
         <ActivityIndicator size="small" color={COLORS.gold500} />
         <Text style={styles.statusText}>
-          Searching...
+          {t('search.loading')}
         </Text>
       </View>
     );
@@ -95,7 +98,7 @@ export function SearchResults({
         testID="search-results-empty"
       >
         <Text style={styles.statusText}>
-          No addresses found
+          {t('search.empty')}
         </Text>
       </View>
     );

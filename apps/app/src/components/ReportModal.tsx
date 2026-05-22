@@ -20,39 +20,40 @@ import {
 
 import { useSubmitReport } from '@/src/hooks/useReport';
 import type { ReportTarget, ReportTargetType } from '@/src/services/reports';
+import { useT, type TranslationKey } from '@/src/i18n';
 
 const DETAILS_MAX_LENGTH = 140;
 const SUCCESS_CLOSE_DELAY_MS = 2000;
 
-const PROPERTY_REPORT_LABELS: Record<PropertyReportCategory, string> = {
-  incorrect_property_data: 'Incorrect property data',
-  wrong_location: 'Wrong location',
-  wrong_listing: 'Wrong listing',
-  privacy_safety: 'Privacy or safety issue',
-  spam_scam: 'Spam or scam',
-  other: 'Other',
+const PROPERTY_REPORT_LABEL_KEYS: Record<PropertyReportCategory, TranslationKey> = {
+  incorrect_property_data: 'report.category.incorrectPropertyData',
+  wrong_location: 'report.category.wrongLocation',
+  wrong_listing: 'report.category.wrongListing',
+  privacy_safety: 'report.category.privacySafety',
+  spam_scam: 'report.category.spamScam',
+  other: 'report.category.other',
 };
 
-const COMMENT_REPORT_LABELS: Record<CommentReportCategory, string> = {
-  harassment_hate: 'Harassment or hate',
-  spam: 'Spam',
-  privacy_personal_info: 'Private information',
-  misleading: 'Misleading content',
-  illegal: 'Illegal content',
-  other: 'Other',
+const COMMENT_REPORT_LABEL_KEYS: Record<CommentReportCategory, TranslationKey> = {
+  harassment_hate: 'report.category.harassmentHate',
+  spam: 'report.category.spam',
+  privacy_personal_info: 'report.category.privateInfo',
+  misleading: 'report.category.misleading',
+  illegal: 'report.category.illegal',
+  other: 'report.category.other',
 };
 
 const REPORT_CATEGORY_OPTIONS: Record<
   ReportTargetType,
-  Array<{ value: string; label: string }>
+  Array<{ value: string; labelKey: TranslationKey }>
 > = {
   property: propertyReportCategories.map((value) => ({
     value,
-    label: PROPERTY_REPORT_LABELS[value],
+    labelKey: PROPERTY_REPORT_LABEL_KEYS[value],
   })),
   comment: commentReportCategories.map((value) => ({
     value,
-    label: COMMENT_REPORT_LABELS[value],
+    labelKey: COMMENT_REPORT_LABEL_KEYS[value],
   })),
 };
 
@@ -63,8 +64,8 @@ interface ReportModalProps {
   targetLabel?: string;
 }
 
-function getTargetNoun(type: ReportTargetType): string {
-  return type === 'property' ? 'property' : 'comment';
+function getTargetNounKey(type: ReportTargetType): TranslationKey {
+  return type === 'property' ? 'report.property' : 'report.comment';
 }
 
 export function ReportModal({
@@ -73,12 +74,13 @@ export function ReportModal({
   onClose,
   targetLabel,
 }: ReportModalProps) {
+  const t = useT();
   const [reason, setReason] = useState('');
   const [details, setDetails] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const reportMutation = useSubmitReport();
   const targetType = target?.type ?? 'property';
-  const targetNoun = getTargetNoun(targetType);
+  const targetNoun = t(getTargetNounKey(targetType));
   const categoryOptions = useMemo(
     () => REPORT_CATEGORY_OPTIONS[targetType],
     [targetType],
@@ -156,11 +158,11 @@ export function ReportModal({
       },
       {
         onSuccess: () => {
-          setSuccessMessage('Thanks. We will review this report.');
+          setSuccessMessage(t('report.success'));
         },
       },
     );
-  }, [details, reason, reportMutation, target]);
+  }, [details, reason, reportMutation, t, target]);
 
   if (!visible || !target) {
     return null;
@@ -179,7 +181,7 @@ export function ReportModal({
           onPress={closeAndReset}
           testID="report-modal-backdrop"
           accessibilityRole="button"
-          accessibilityLabel="Close report dialog"
+          accessibilityLabel={t('report.closeDialog')}
         />
 
         <View style={styles.card} testID="report-modal-card">
@@ -188,9 +190,9 @@ export function ReportModal({
               <Ionicons name="flag-outline" size={20} color="#B47712" />
             </View>
             <View style={styles.headerText}>
-              <Text style={styles.title}>Report {targetNoun}</Text>
+              <Text style={styles.title}>{t('report.title', { target: targetNoun })}</Text>
               <Text style={styles.subtitle}>
-                {targetLabel ?? `Tell us what is wrong with this ${targetNoun}.`}
+                {targetLabel ?? t('report.subtitle', { target: targetNoun })}
               </Text>
             </View>
           </View>
@@ -213,7 +215,7 @@ export function ReportModal({
                       selected && styles.categoryTextSelected,
                     ]}
                   >
-                    {option.label}
+                    {t(option.labelKey)}
                   </Text>
                   {selected ? (
                     <Ionicons name="checkmark-circle" size={18} color="#B47712" />
@@ -227,7 +229,7 @@ export function ReportModal({
             <TextInput
               value={details}
               onChangeText={(value) => setDetails(value.slice(0, DETAILS_MAX_LENGTH))}
-              placeholder="Add details (optional)"
+              placeholder={t('report.detailsPlaceholder')}
               placeholderTextColor="#AEA699"
               multiline
               maxLength={DETAILS_MAX_LENGTH}
@@ -257,7 +259,7 @@ export function ReportModal({
               testID="report-cancel-button"
               accessibilityRole="button"
             >
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={styles.cancelText}>{t('common.cancel')}</Text>
             </Pressable>
             <Pressable
               onPress={handleSubmit}
@@ -274,7 +276,7 @@ export function ReportModal({
               {reportMutation.isPending ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text style={styles.submitText}>Submit report</Text>
+                <Text style={styles.submitText}>{t('report.submit')}</Text>
               )}
             </Pressable>
           </View>

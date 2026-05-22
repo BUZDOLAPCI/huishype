@@ -17,6 +17,7 @@ import {
 } from '../../utils/property-image';
 import { PropertyImageSurface } from '../PropertyImageSurface';
 import { Card } from '../ui/Card';
+import { useT } from '@/src/i18n';
 
 // Import the placeholder image as a static asset
 const placeholderImage = require('../../../assets/images/property-placeholder.png');
@@ -144,6 +145,7 @@ export function PropertyHeader({
   containerWidth: _containerWidth,
   onHalfExpandedBodyPress,
 }: PropertyHeaderProps) {
+  const t = useT();
   const activity = ACTIVITY_CONFIG[property.activityLevel];
   const city = normalizePropertyText(property.city);
   const postalCode = normalizePropertyText(property.postalCode);
@@ -216,7 +218,7 @@ export function PropertyHeader({
         <View style={styles.mapLinkRow}>
           <Pressable
             accessibilityRole="link"
-            accessibilityLabel="Open property in Google Maps"
+            accessibilityLabel={t('property.map.openPropertyInGoogleMaps')}
             onPress={handleOpenGoogleMaps}
             style={({ pressed }) => [
               styles.mapLinkButton,
@@ -224,7 +226,7 @@ export function PropertyHeader({
             ]}
           >
             <Ionicons name="map-outline" size={14} color="#8C8479" />
-            <Text style={styles.mapLinkText}>Open in Google Maps</Text>
+            <Text style={styles.mapLinkText}>{t('property.map.openInGoogleMaps')}</Text>
             <Ionicons name="open-outline" size={13} color="#B8AFA3" />
           </Pressable>
         </View>

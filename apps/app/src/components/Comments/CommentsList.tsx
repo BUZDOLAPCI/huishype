@@ -12,6 +12,7 @@ import { Comment, type CommentData } from './Comment';
 import { CommentInput } from './CommentInput';
 import { useComments, useSubmitComment, useLikeComment, type CommentSortBy } from '../../hooks/useComments';
 import { useAuthContext } from '../../providers/AuthProvider';
+import { useT } from '../../i18n';
 
 export interface CommentsListProps {
   propertyId: string;
@@ -23,6 +24,7 @@ export interface CommentsListProps {
  * Full comments list with sorting, pagination, and interaction handling
  */
 export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) {
+  const t = useT();
   const [sortBy, setSortBy] = useState<CommentSortBy>('recent');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
 
@@ -155,13 +157,13 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
     return (
       <View className="py-12 items-center">
         <Ionicons name="chatbubble-ellipses-outline" size={48} color="#E8E0D4" />
-        <Text className="text-warm-500 mt-3 text-base">No comments yet</Text>
+        <Text className="text-warm-500 mt-3 text-base">{t('comments.empty.title')}</Text>
         <Text className="text-warm-400 text-sm mt-1">
-          Be the first to share your thoughts!
+          {t('comments.empty.body')}
         </Text>
       </View>
     );
-  }, [isLoading]);
+  }, [isLoading, t]);
 
   // Render header with sort toggle
   const renderHeader = useCallback(
@@ -170,7 +172,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
         <View className="flex-row items-center">
           <Ionicons name="chatbubbles" size={20} color="#F5A623" />
           <Text className="text-lg font-semibold text-warm-900 ml-2">
-            Comments
+            {t('comments.title')}
           </Text>
           {totalComments > 0 && (
             <View className="ml-2 bg-warm-100 px-2 py-0.5 rounded-full">
@@ -195,7 +197,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
                   : 'text-warm-500'
               }`}
             >
-              Recent
+              {t('comments.sort.recent')}
             </Text>
           </Pressable>
           <Pressable
@@ -212,13 +214,13 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
                   : 'text-warm-500'
               }`}
             >
-              Popular
+              {t('comments.sort.popular')}
             </Text>
           </Pressable>
         </View>
       </View>
     ),
-    [sortBy, totalComments, handleSortChange]
+    [sortBy, totalComments, handleSortChange, t]
   );
 
   // Error state
@@ -227,16 +229,16 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
       <View className="flex-1 py-12 items-center justify-center">
         <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
         <Text className="text-warm-700 mt-3 text-base">
-          Failed to load comments
+          {t('comments.loadError')}
         </Text>
         <Text className="text-warm-500 text-sm mt-1">
-          {error?.message || 'Please try again'}
+          {error?.message || t('profile.follow.errorFallback')}
         </Text>
         <Pressable
           onPress={() => refetch()}
           className="mt-4 bg-primary-500 px-4 py-2 rounded-lg"
         >
-          <Text className="text-white font-medium">Retry</Text>
+          <Text className="text-white font-medium">{t('common.retry')}</Text>
         </Pressable>
       </View>
     );
@@ -249,7 +251,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
         {renderHeader()}
         <View className="flex-1 py-12 items-center justify-center">
           <ActivityIndicator size="large" color="#F5A623" />
-          <Text className="text-warm-500 mt-3">Loading comments...</Text>
+          <Text className="text-warm-500 mt-3">{t('comments.loading')}</Text>
         </View>
       </View>
     );
@@ -290,8 +292,8 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
           isSubmitting={submitMutation.isPending}
           placeholder={
             isAuthenticated
-              ? 'Share your thoughts...'
-              : 'Log in to comment...'
+              ? t('comments.placeholder.authenticated')
+              : t('comments.placeholder.signedOut')
           }
         />
       </View>

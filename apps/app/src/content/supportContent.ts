@@ -1,3 +1,6 @@
+import { nlSupportCatalogText } from './supportContent.nl';
+import type { LanguageCode } from '@/src/i18n';
+
 export type SupportAudience = 'everyone' | 'buyers' | 'owners' | 'agents';
 
 export type SupportContentStatus = 'adapted' | 'merged';
@@ -59,6 +62,29 @@ export interface LegalPageContent {
   lastUpdated: string;
 }
 
+export interface LocalizedSupportRecordText {
+  title: string;
+  summary: string;
+  bodySections: SupportBodySection[];
+}
+
+export interface LocalizedSupportCatalogText {
+  categories: Record<string, LocalizedSupportRecordText>;
+  articles: Record<string, LocalizedSupportRecordText>;
+  glossary: Record<string, LocalizedSupportRecordText>;
+  legal: Record<string, LocalizedSupportRecordText>;
+}
+
+export interface SupportCatalog {
+  supportCategories: SupportCategory[];
+  supportArticles: SupportArticle[];
+  glossaryTerms: GlossaryTerm[];
+  legalPages: LegalPageContent[];
+  allSupportRecords: Array<SupportCategory | SupportArticle | GlossaryTerm | LegalPageContent>;
+}
+
+export type SupportCatalogInput = LanguageCode | SupportCatalog;
+
 const SOURCE = 'https://huispedia.nl';
 
 export const supportCategories: SupportCategory[] = [
@@ -66,7 +92,8 @@ export const supportCategories: SupportCategory[] = [
     id: 'basics',
     slug: 'basics',
     title: 'Using HuisHype',
-    summary: 'Browsing homes, reading activity, saving places, and understanding what HuisHype is for.',
+    summary:
+      'Browsing homes, reading activity, saving places, and understanding what HuisHype is for.',
     audience: 'everyone',
     bodySections: [
       {
@@ -87,7 +114,8 @@ export const supportCategories: SupportCategory[] = [
     id: 'prices',
     slug: 'prices-and-valuations',
     title: 'Prices and valuations',
-    summary: 'Price guesses, asking prices, official valuations, and why estimates are only signals.',
+    summary:
+      'Price guesses, asking prices, official valuations, and why estimates are only signals.',
     audience: 'buyers',
     bodySections: [
       {
@@ -118,7 +146,11 @@ export const supportCategories: SupportCategory[] = [
         ],
       },
     ],
-    relatedIds: ['why-is-my-home-visible', 'incorrect-property-data', 'photos-and-public-information'],
+    relatedIds: [
+      'why-is-my-home-visible',
+      'incorrect-property-data',
+      'photos-and-public-information',
+    ],
     sourceUrls: [`${SOURCE}/help/categorie/10/mijn-woning-op-huispedia`],
     status: 'merged',
   },
@@ -169,7 +201,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'what-is-huishype',
     slug: 'what-is-huishype',
     title: 'What is HuisHype?',
-    summary: 'HuisHype is a social map for exploring properties, listings, comments, saves, and price guesses.',
+    summary:
+      'HuisHype is a social map for exploring properties, listings, comments, saves, and price guesses.',
     category: 'basics',
     audience: 'everyone',
     bodySections: [
@@ -202,7 +235,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'property-pages',
     slug: 'property-pages',
     title: 'What is on a property page?',
-    summary: 'A property page combines address facts, source links, price signals, and public activity when available.',
+    summary:
+      'A property page combines address facts, source links, price signals, and public activity when available.',
     category: 'basics',
     audience: 'everyone',
     bodySections: [
@@ -228,7 +262,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['what-is-huishype', 'incorrect-property-data', 'price-guesses', 'availability-status'],
+    relatedIds: [
+      'what-is-huishype',
+      'incorrect-property-data',
+      'price-guesses',
+      'availability-status',
+    ],
     sourceUrls: [`${SOURCE}/help/artikel/356/wat-is-een-woningprofiel`],
     status: 'adapted',
   },
@@ -236,7 +275,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'search-and-browse',
     slug: 'search-and-browse',
     title: 'How do I search and browse homes?',
-    summary: 'Use the map, search, feed, and filters to find addresses and listing-backed properties.',
+    summary:
+      'Use the map, search, feed, and filters to find addresses and listing-backed properties.',
     category: 'basics',
     audience: 'everyone',
     bodySections: [
@@ -280,7 +320,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'price-guesses',
     slug: 'price-guesses',
     title: 'How do price guesses work?',
-    summary: 'Price guesses are user opinions about a property value, not bids and not formal valuations.',
+    summary:
+      'Price guesses are user opinions about a property value, not bids and not formal valuations.',
     category: 'prices',
     audience: 'buyers',
     bodySections: [
@@ -377,7 +418,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'listing-source-links',
     slug: 'listing-source-links',
     title: 'How do listing source links work?',
-    summary: 'HuisHype points you to original listing sources for current details, viewings, and contact.',
+    summary:
+      'HuisHype points you to original listing sources for current details, viewings, and contact.',
     category: 'listings',
     audience: 'everyone',
     bodySections: [
@@ -396,7 +438,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['offers-and-transactions', 'viewing', 'agents-and-listing-sources', 'incorrect-property-data'],
+    relatedIds: [
+      'offers-and-transactions',
+      'viewing',
+      'agents-and-listing-sources',
+      'incorrect-property-data',
+    ],
     sourceUrls: [
       `${SOURCE}/help/artikel/394/hoe-kom-ik-aan-de-contactgegevens-van-de-eigenaar`,
       `${SOURCE}/help/artikel/402/wat-betekent-niet-beschikbaar`,
@@ -447,7 +494,13 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['price-guesses', 'conditional-offer', 'online-bidding', 'bid-logbook', 'listing-source-links'],
+    relatedIds: [
+      'price-guesses',
+      'conditional-offer',
+      'online-bidding',
+      'bid-logbook',
+      'listing-source-links',
+    ],
     sourceUrls: [
       `${SOURCE}/help/categorie/18/huispedia-online-bieden`,
       `${SOURCE}/help/artikel/7856/wat-is-huispedia-online-bieden`,
@@ -464,7 +517,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'why-is-my-home-visible',
     slug: 'why-is-my-home-visible',
     title: 'Why is my home or address visible?',
-    summary: 'Addresses can appear because HuisHype uses public property data and listing-source information.',
+    summary:
+      'Addresses can appear because HuisHype uses public property data and listing-source information.',
     category: 'data',
     audience: 'owners',
     bodySections: [
@@ -483,7 +537,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['remove-property-address', 'availability-status', 'incorrect-property-data', 'data-privacy'],
+    relatedIds: [
+      'remove-property-address',
+      'availability-status',
+      'incorrect-property-data',
+      'data-privacy',
+    ],
     sourceUrls: [
       `${SOURCE}/help/artikel/10201/hoe-komt-huispedia-aan-de-gegevens-van-mijn-woning`,
       `${SOURCE}/help/artikel/366/mijn-woning-staat-op-huispedia-hoe-kan-dat`,
@@ -494,7 +553,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'incorrect-property-data',
     slug: 'incorrect-property-data',
     title: 'What should I do if property details are wrong?',
-    summary: 'Report incorrect facts, outdated listing status, or source problems from the property page or support channels.',
+    summary:
+      'Report incorrect facts, outdated listing status, or source problems from the property page or support channels.',
     category: 'data',
     audience: 'owners',
     bodySections: [
@@ -519,7 +579,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['remove-property-address', 'data-availability-exceptions', 'photos-and-public-information', 'contact-support'],
+    relatedIds: [
+      'remove-property-address',
+      'data-availability-exceptions',
+      'photos-and-public-information',
+      'contact-support',
+    ],
     sourceUrls: [
       `${SOURCE}/help/artikel/369/wat-moet-ik-doen-als-de-gegevens-niet-kloppen`,
       `${SOURCE}/help/artikel/371/het-woonoppervlakte-klopt-niet-hoe-kan-dat`,
@@ -546,14 +611,17 @@ export const supportArticles: SupportArticle[] = [
       },
     ],
     relatedIds: ['data-privacy', 'incorrect-property-data'],
-    sourceUrls: [`${SOURCE}/help/artikel/375/hoe-verwijder-ik-de-fotos-van-mijn-woning-van-huispedia`],
+    sourceUrls: [
+      `${SOURCE}/help/artikel/375/hoe-verwijder-ik-de-fotos-van-mijn-woning-van-huispedia`,
+    ],
     status: 'merged',
   },
   {
     id: 'remove-property-address',
     slug: 'remove-property-address',
     title: 'Can I remove my property or address?',
-    summary: 'Public property records may remain visible, but factual errors and sensitive items can be reviewed.',
+    summary:
+      'Public property records may remain visible, but factual errors and sensitive items can be reviewed.',
     category: 'data',
     audience: 'owners',
     bodySections: [
@@ -578,7 +646,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['why-is-my-home-visible', 'incorrect-property-data', 'photos-and-public-information', 'data-privacy'],
+    relatedIds: [
+      'why-is-my-home-visible',
+      'incorrect-property-data',
+      'photos-and-public-information',
+      'data-privacy',
+    ],
     sourceUrls: [
       `${SOURCE}/help/artikel/10509/kan-ik-mijn-wadres-laten-verwijderen`,
       `${SOURCE}/help/artikel/366/mijn-woning-staat-op-huispedia-hoe-kan-dat`,
@@ -590,7 +663,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'data-availability-exceptions',
     slug: 'data-availability-exceptions',
     title: 'Why is some property data missing or unusual?',
-    summary: 'Sale prices, year built, surface area, parcel details, maps, and zoning can be delayed or unavailable.',
+    summary:
+      'Sale prices, year built, surface area, parcel details, maps, and zoning can be delayed or unavailable.',
     category: 'data',
     audience: 'everyone',
     bodySections: [
@@ -614,7 +688,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['sale-price-availability', 'incorrect-property-data', 'land-registry', 'price-guesses'],
+    relatedIds: [
+      'sale-price-availability',
+      'incorrect-property-data',
+      'land-registry',
+      'price-guesses',
+    ],
     sourceUrls: [
       `${SOURCE}/help/artikel/8765/uitzonderingen-beschikbare-informatie`,
       `${SOURCE}/help/artikel/371/het-woonoppervlakte-klopt-niet-hoe-kan-dat`,
@@ -657,7 +736,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'rental-safety',
     slug: 'rental-safety',
     title: 'How can I stay safe when renting?',
-    summary: 'Verify the listing, landlord, contract, and payment request before sending money or documents.',
+    summary:
+      'Verify the listing, landlord, contract, and payment request before sending money or documents.',
     category: 'listings',
     audience: 'everyone',
     bodySections: [
@@ -689,7 +769,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'owner-listing-source-workflows',
     slug: 'owner-listing-source-workflows',
     title: 'What should owners and listing sources do when information changes?',
-    summary: 'Update the original source first, then ask HuisHype to review its display when needed.',
+    summary:
+      'Update the original source first, then ask HuisHype to review its display when needed.',
     category: 'listings',
     audience: 'owners',
     bodySections: [
@@ -712,7 +793,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['agents-and-listing-sources', 'listing-source-links', 'incorrect-property-data', 'availability-status'],
+    relatedIds: [
+      'agents-and-listing-sources',
+      'listing-source-links',
+      'incorrect-property-data',
+      'availability-status',
+    ],
     sourceUrls: [
       `${SOURCE}/help/artikel/406/hoe-verkoop-ik-mijn-woning-op-huispedia`,
       `${SOURCE}/help/artikel/415/kan-mijn-makelaar-de-woning-op-huispedia-zetten`,
@@ -725,7 +811,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'account-login',
     slug: 'account-login',
     title: 'How do accounts, login, and email work?',
-    summary: 'HuisHype uses account login for saved homes, comments, guesses, and profile activity.',
+    summary:
+      'HuisHype uses account login for saved homes, comments, guesses, and profile activity.',
     category: 'account',
     audience: 'everyone',
     bodySections: [
@@ -751,7 +838,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['saving-properties', 'delete-account-or-data', 'incorrect-property-data', 'contact-support'],
+    relatedIds: [
+      'saving-properties',
+      'delete-account-or-data',
+      'incorrect-property-data',
+      'contact-support',
+    ],
     sourceUrls: [
       `${SOURCE}/help/artikel/10411/hoe-kan-ik-mijn-e-mail-wijzigen`,
       `${SOURCE}/help/artikel/10412/hoe-claim-ik-mijn-woning`,
@@ -785,7 +877,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'comments-and-reports',
     slug: 'comments-and-reports',
     title: 'How do comments, reactions, and reports work?',
-    summary: 'Public social activity should stay lawful, respectful, and useful for property discussion.',
+    summary:
+      'Public social activity should stay lawful, respectful, and useful for property discussion.',
     category: 'basics',
     audience: 'everyone',
     bodySections: [
@@ -830,7 +923,12 @@ export const supportArticles: SupportArticle[] = [
         ],
       },
     ],
-    relatedIds: ['owner-listing-source-workflows', 'listing-source-links', 'incorrect-property-data', 'contact-support'],
+    relatedIds: [
+      'owner-listing-source-workflows',
+      'listing-source-links',
+      'incorrect-property-data',
+      'contact-support',
+    ],
     sourceUrls: [
       `${SOURCE}/help/artikel/10383/hoe-promoot-ik-mijn-woning-op-huispedia`,
       `${SOURCE}/help/artikel/10384/hoe-promoot-ik-mijn-objecten-op-huispedia`,
@@ -849,7 +947,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'free-account-and-support',
     slug: 'free-account-and-support',
     title: 'Is HuisHype free to use?',
-    summary: 'Core browsing, support, and account help should not be confused with unavailable paid products.',
+    summary:
+      'Core browsing, support, and account help should not be confused with unavailable paid products.',
     category: 'account',
     audience: 'everyone',
     bodySections: [
@@ -876,7 +975,8 @@ export const supportArticles: SupportArticle[] = [
     id: 'contact-support',
     slug: 'contact-support',
     title: 'How do I contact HuisHype?',
-    summary: 'Use the contact page or support email for feedback, corrections, privacy requests, and source questions.',
+    summary:
+      'Use the contact page or support email for feedback, corrections, privacy requests, and source questions.',
     category: 'account',
     audience: 'everyone',
     bodySections: [
@@ -905,577 +1005,982 @@ export const supportArticles: SupportArticle[] = [
 ];
 
 export const glossaryTerms: GlossaryTerm[] = [
-  term('market-value', 'market-value', 'Market value', 'An estimate of what a property could sell for in the current market.', 'prices', [
-    `${SOURCE}/begrippenlijst/marktwaarde-van-een-huis`,
-    `${SOURCE}/begrippenlijst/woningwaarde`,
-  ], [
-    section('What it means', [
-      'Market value is the amount a property could reasonably sell for at a specific moment. It moves with demand, supply, property condition, location, financing climate, and comparable sales.',
-      'A model estimate or crowd signal can point toward market value, but it is still an indication. A real sale price is only known after buyer and seller agree and the transaction is completed.',
-    ]),
-    section('How it differs from official values', [
-      'Market value is more current than a WOZ value because WOZ is set by the municipality for a past reference date. It is also different from a formal valuation report, which is prepared by a qualified valuer for a defined purpose such as a mortgage.',
-    ]),
-    section('How to use it in HuisHype', [
-      'Use HuisHype price guesses, asking prices, source listings, and comparable homes as orientation signals. For buying, selling, financing, tax, or legal decisions, verify with the original source and a qualified professional.',
-    ]),
-  ], ['woz-value', 'valuation', 'comparable-homes']),
-  term('woz-value', 'woz-value', 'WOZ value', 'A Dutch official property value used for taxes and public purposes.', 'prices', [`${SOURCE}/begrippenlijst/woz-waarde`], [
-    section('What WOZ means', [
-      'WOZ stands for Waardering Onroerende Zaken. In the Netherlands, the municipality sets this official property value each year for homes and other real estate.',
-      'The WOZ value is based on a reference date, usually January 1 of the previous year. That timing matters: the housing market may have changed by the time you see the value.',
-    ]),
-    section('How it is determined', [
-      'Municipalities estimate WOZ by looking at comparable homes, sale prices around the reference date, location, usable floor area, plot size, property type, and other registered characteristics.',
-      'It is sometimes described as a municipal valuation, but it is not the same as a valuer visiting the property for a mortgage valuation report.',
-    ]),
-    section('WOZ, valuation, and market value', [
-      'WOZ is used for taxes and official public purposes. Market value is about what the home may sell for now. A formal valuation report is a professional assessment for a specific transaction, mortgage, or objection process.',
-      'Because WOZ uses a past reference date, it can be lower or higher than the current market value. Treat it as one useful signal, not as the final answer on what a property is worth today.',
-    ]),
-    section('What you can do with it', [
-      'Only the municipality can set the official WOZ value. Owners can usually review the municipal assessment and follow the local objection process if they think it is wrong.',
-      'In HuisHype, compare WOZ or other official values with price guesses, asking prices, comparable homes, and source listings. HuisHype does not replace the municipality, a tax adviser, or a certified valuer.',
-    ]),
-  ], ['market-value', 'valuation', 'valuation-report']),
-  term('asking-price', 'asking-price', 'Asking price', 'The price requested by the seller or listing source.', 'prices', [`${SOURCE}/begrippenlijst/vraagprijs-van-een-huis`], [
-    section('What it means', [
-      'The asking price is the amount a seller or listing source presents to the market. It is an invitation to start from, not proof of what the home is worth or what it will sell for.',
-      'A property can sell below, at, or above the asking price depending on competition, timing, condition, negotiation, financing, and seller expectations.',
-    ]),
-    section('Reading the signal', [
-      'A high asking price may leave room for negotiation, or it may reflect a seller testing demand. A low asking price can attract attention, create competition, or reflect drawbacks that need careful checking.',
-    ]),
-    section('In HuisHype', [
-      'Use asking price alongside source listings, price history, comparable homes, and user price guesses. HuisHype does not set the asking price and does not negotiate with the seller.',
-    ]),
-  ], ['sale-price', 'price-history', 'price-guesses']),
-  term('sale-price', 'sale-price', 'Sale price', 'The final registered price paid for a property when that data is available.', 'prices', [`${SOURCE}/begrippenlijst/koopsom-van-een-huis`], [
-    section('What it means', [
-      'The sale price is the amount buyer and seller actually agreed for the property. It can differ from the asking price because negotiation, competition, conditions, and timing all matter.',
-    ]),
-    section('Why it matters', [
-      'Recent sale prices help people understand a local market better than asking prices alone. They are useful when comparing similar homes, estimating market value, or checking whether a listing looks expensive or cheap.',
-    ]),
-    section('Availability', [
-      'Sale-price data may become visible only after registration or source updates. If HuisHype shows it, treat it as historical context and verify important records with the official source or a professional.',
-    ]),
-  ], ['asking-price', 'market-value', 'comparable-homes']),
-  term('price-history', 'price-history', 'Price history', 'A timeline of known asking-price or sale-price changes.', 'prices', [
-    `${SOURCE}/begrippenlijst/prijshistorie-van-een-huis`,
-    `${SOURCE}/begrippenlijst/prijsaanpassingen-van-een-huis`,
-    `${SOURCE}/begrippenlijst/prijsinzicht-van-een-huis`,
-    `${SOURCE}/help/artikel/10275/hoe-werkt-de-tijdlijn-met-prijsaanpassingen`,
-  ], [
-    section('What it shows', [
-      'Price history is a timeline of known price changes for a property, such as asking-price increases, reductions, relists, or available sale-price information.',
-      'A reduction can mean the seller is adjusting expectations, trying to renew attention, or responding to limited demand. It does not automatically mean the property is a bargain.',
-    ]),
-    section('How to read it', [
-      'Look at the size of each change, how long the property has been visible, and whether similar homes nearby changed price too. The surrounding market often explains more than one price change in isolation.',
-    ]),
-    section('In HuisHype', [
-      'Use price history together with comparable homes, current source-listing details, and price guesses. Source data can lag, so confirm live asking price and status on the original listing.',
-    ]),
-  ], ['asking-price', 'sale-price', 'comparable-homes']),
-  term('property-value', 'property-value', 'Property value', 'An indication of what a home may be worth, depending on purpose, timing, and data quality.', 'prices', [`${SOURCE}/begrippenlijst/woningwaarde`], [
-    section('What it means', [
-      'Property value is a broad term for what a home may be worth. It can refer to a current market estimate, a model value, a formal valuation, a tax value, or an owner expectation depending on context.',
-      'The same home can have different values for different purposes: a buyer deciding what to offer, a lender checking mortgage security, a municipality setting a tax value, or an owner tracking local demand.',
-    ]),
-    section('Why values differ', [
-      'Condition, usable floor area, location, leasehold, energy performance, renovations, defects, market timing, comparable sales, and available source data can all change the value picture.',
-      'A model cannot always see recent work, unusual layout, hidden defects, or private sale conditions. That is why estimates should be checked against source documents and professional advice when stakes are high.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype may show price guesses and property signals to help orientation. They are not bids, valuation reports, mortgage checks, or promises about the eventual sale price.',
-    ]),
-  ], ['market-value', 'price-guesses', 'valuation', 'woz-value']),
-  term('price-reductions', 'price-reductions', 'Price reductions and adjustments', 'Changes to a property asking price or price display over time.', 'prices', [
-    `${SOURCE}/begrippenlijst/prijsaanpassingen-van-een-huis`,
-    `${SOURCE}/begrippenlijst/in-prijs-verlaagd`,
-  ], [
-    section('What they are', [
-      'A price reduction is a decrease in the asking price or public price display. A price adjustment can also be an increase, relist, correction, or source refresh that changes how a price appears.',
-      'Price changes usually reflect seller strategy, market feedback, limited interest, renewed marketing, corrected information, or changed circumstances. One adjustment does not explain the whole transaction.',
-    ]),
-    section('How to read them', [
-      'Look at how large the change is, when it happened, how long the home has been visible, whether nearby listings changed too, and whether the property has condition, location, or documentation issues.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype may show known price-history signals when available, but source data can lag or be incomplete. Confirm the current asking price and conditions with the original listing before relying on a timeline.',
-    ]),
-  ], ['price-history', 'asking-price', 'price-insight']),
-  term('price-insight', 'price-insight', 'Price insight', 'A contextual signal that compares a price with available property and market information.', 'prices', [`${SOURCE}/begrippenlijst/prijsinzicht-van-een-huis`], [
-    section('What it means', [
-      'Price insight is a way to frame whether a visible price looks low, high, or broadly in line with available market context. It is an orientation label, not a decision rule.',
-      'The signal can depend on asking price, property characteristics, nearby comparable homes, known historical prices, public data quality, and local demand.',
-    ]),
-    section('Limits', [
-      'A label cannot inspect the home, read the seller motivation, know every bid, or account for every legal and technical detail. Unusual homes, thin data, and fast-moving markets make price insight less certain.',
-    ]),
-    section('In HuisHype', [
-      'Use price insight beside price guesses, price history, source listings, and professional advice. HuisHype does not tell you what to bid and does not guarantee that a property is cheap or expensive.',
-    ]),
-  ], ['price-position-labels', 'market-value', 'price-guesses']),
-  term('price-position-labels', 'price-position-labels', 'Low, within, and high price labels', 'Labels that describe whether a price appears below, near, or above available value signals.', 'prices', [
-    `${SOURCE}/help/artikel/10264/wat-betekent-laag-in-de-markt`,
-    `${SOURCE}/help/artikel/10265/wat-betekent-hoog-in-de-markt`,
-    `${SOURCE}/help/artikel/10266/wat-betekent-een-redelijke-vraagprijs`,
-  ], [
-    section('What the labels mean', [
-      'A low, within-range, or high price label compares a visible price with available value signals. Low can mean the price appears below the signal range, within-range means broadly aligned, and high means above the signal range.',
-      'These labels are only shorthand for a data comparison. They do not prove a bargain, overpricing, hidden defects, or seller intent.',
-    ]),
-    section('What can move a label', [
-      'Comparable homes, property size, condition, location, source updates, sale-price history, market movement, and missing data can all influence the label. A corrected floor area or new comparable sale may change the picture.',
-    ]),
-    section('In HuisHype', [
-      'Use labels as prompts for further checking. HuisHype does not set the asking price, make bids, advise you to overbid or underbid, or replace a valuer, agent, or financial adviser.',
-    ]),
-  ], ['price-insight', 'asking-price', 'realistic-bid']),
-  term('comparable-homes', 'comparable-homes', 'Comparable homes', 'Similar properties used as context when judging a price or value signal.', 'prices', [`${SOURCE}/begrippenlijst/vergelijkbare-woningen`], [
-    section('What makes a home comparable', [
-      'Comparable homes are properties with enough shared characteristics to help judge a price: location, property type, usable floor area, plot size, age, condition, energy performance, and recent transaction timing.',
-    ]),
-    section('Why they matter', [
-      'Looking at comparable homes helps you check whether an asking price, price guess, WOZ value, or valuation seems plausible. The closer the match and the more recent the data, the more useful the comparison tends to be.',
-    ]),
-    section('Limits', [
-      'No comparison is perfect. Renovations, layout, views, defects, leasehold, neighborhood changes, and seller urgency can make two similar homes sell very differently.',
-    ]),
-  ], ['market-value', 'asking-price', 'price-history']),
-  term('overbidding', 'overbidding', 'Overbidding', 'Offering more than the asking price. HuisHype price guesses are not offers.', 'buying', [`${SOURCE}/begrippenlijst/overbieden`], [
-    section('What it means', [
-      'Overbidding means offering more than the asking price. It usually happens when demand is high, supply is limited, or several buyers want the same home.',
-    ]),
-    section('Risks to check', [
-      'An overbid can improve your chance, but it can also create financing risk if the formal valuation comes in lower than your offer. Extra conditions, savings, and mortgage advice matter before making that decision.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype price guesses can help you sense crowd opinion, but they are not offers and do not reach the seller. Make real bids through the source listing, agent, or responsible transaction channel.',
-    ]),
-  ], ['underbidding', 'opening-offer', 'valuation']),
-  term('underbidding', 'underbidding', 'Underbidding', 'Offering less than the asking price. HuisHype does not submit offers.', 'buying', [`${SOURCE}/begrippenlijst/onderbieden`], [
-    section('What it means', [
-      'Underbidding means offering less than the asking price. It can be realistic when demand is limited, the property has been listed for a long time, the asking price looks high, or important work is needed.',
-    ]),
-    section('What to consider', [
-      'A lower offer can open negotiation, but it can also be rejected quickly in a competitive market. Compare similar homes, price history, condition, and your own maximum budget before deciding.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype does not submit underbids or negotiate for you. Use app signals for orientation, then contact the responsible listing source or professional if you want to make an offer.',
-    ]),
-  ], ['overbidding', 'asking-price', 'price-history']),
-  term('opening-offer', 'opening-offer', 'Opening offer', 'The first offer in a negotiation. HuisHype does not run negotiations.', 'buying', [`${SOURCE}/begrippenlijst/openingsbod`], [
-    section('What it means', [
-      'The opening offer is the first amount a buyer puts forward. It sets the tone for a negotiation and can include conditions such as financing, inspection, timing, or movable items.',
-    ]),
-    section('How it is shaped', [
-      'A strong opening offer depends on the asking price, comparable homes, buyer competition, property condition, financing room, and the buyer risk tolerance.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype can show signals that help you orient yourself, but it is not a bidding platform. Real offers belong with the agent, owner, or official source flow.',
-    ]),
-  ], ['asking-price', 'overbidding', 'underbidding']),
-  term('opening-bid', 'opening-bid', 'Opening bid', 'The first bid submitted in a bidding process or negotiation.', 'buying', [`${SOURCE}/begrippenlijst/openingsbod`], [
-    section('What it means', [
-      'An opening bid is the first amount a buyer submits when trying to buy a property. It can be lower than, equal to, or higher than the asking price depending on strategy and market pressure.',
-      'The bid may include conditions such as financing, building inspection, transfer date, included items, and a validity deadline. Those conditions can matter as much as the amount.',
-    ]),
-    section('How it is chosen', [
-      'Buyers usually weigh asking price, comparable homes, property condition, expected competition, financing room, desired certainty for the seller, and their own maximum budget before choosing an opening bid.',
-    ]),
-    section('In HuisHype', [
-      'A HuisHype price guess is not an opening bid and is not sent to the seller. Submit real bids only through the official channel named by the agent, seller, source listing, or bidding system.',
-    ]),
-  ], ['opening-offer', 'realistic-bid', 'online-bidding']),
-  term('realistic-bid', 'realistic-bid', 'Realistic bid', 'A market-oriented bid that balances chance of success with budget and overpay risk.', 'buying', [`${SOURCE}/begrippenlijst/realistisch-bod`], [
-    section('What it means', [
-      'A realistic bid is an amount and set of conditions that fit the property, comparable homes, asking price, market pressure, and buyer budget. It is not automatically the highest possible number.',
-      'The goal is to make a bid that has a credible chance while still respecting financing, valuation risk, repair costs, and the buyer own maximum.',
-    ]),
-    section('What shapes it', [
-      'Comparable sales, source listing details, price history, viewing findings, seller deadlines, competition, and professional advice can all shape what looks realistic in a specific case.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype price guesses can support orientation, but they are not bidding advice and do not create an offer. A real bid should be checked through the correct transaction channel and, when needed, with an adviser.',
-    ]),
-  ], ['conditional-offer', 'all-in-bidding', 'opening-bid', 'price-guesses']),
-  term('conditional-offer', 'conditional-offer', 'Conditional offer', 'A real property offer that includes conditions such as financing or inspection.', 'buying', [`${SOURCE}/begrippenlijst/bieden-onder-voorbehoud`], [
-    section('What it means', [
-      'A conditional offer is a real bid or offer that includes reservations, such as financing approval, a building inspection, document review, transfer timing, or other agreed conditions.',
-      'The point of conditions is risk control. If an important condition is not met, the contract or bidding rules may allow withdrawal or renegotiation without the same serious financial consequences, depending on the exact wording and local law.',
-    ]),
-    section('Why conditions matter', [
-      'Bidding without conditions can make an offer look cleaner to a seller, but it can also increase financial risk. Financing can fall through, hidden defects can appear, documents can raise concerns, or repair costs can change what the buyer can responsibly do.',
-      'In some Dutch purchase situations, a buyer who withdraws after the cooling-off period without a valid condition may face a contractual penalty, often discussed as around 10% of the agreed purchase price. The contract language and legal context decide the actual outcome.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype does not submit conditional offers, check conditions, or advise you to bid with or without reservations. Price guesses and comments are social signals only; submit real offers through the source listing, agent, seller, or official bidding channel.',
-    ]),
-  ], ['offers-and-transactions', 'cooling-off-period', 'hidden-defects', 'valuation-report']),
-  term('all-in-bidding', 'all-in-bidding', 'All-in bidding', 'Bidding above a realistic or market-oriented amount to maximize chance, with clear overpay risk.', 'buying', [`${SOURCE}/begrippenlijst/all-in-bieden-op-een-huis`], [
-    section('What it means', [
-      'All-in bidding means offering above what you see as a realistic or market-oriented bid because you want to maximize your chance of winning the property.',
-      'It can happen in highly competitive markets, when a buyer has strong personal reasons, or when certainty matters more than a strict comparison with recent local prices.',
-    ]),
-    section('Risks', [
-      'A higher bid can improve your chance, but it can also create overpay risk, mortgage risk if the formal valuation is lower, and regret if repair costs or market conditions change.',
-      'Conditions, cash reserves, financing deadlines, and inspection results matter. A bid that is all-in on price can still fail if the conditions are weak or unclear.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype price guesses are not bids, all-in bids, or instructions to overbid. Use them as one signal, then submit any real bid through the source listing, agent, seller, or official bidding process.',
-    ]),
-  ], ['realistic-bid', 'overbidding', 'valuation-report']),
-  term('online-bidding', 'online-bidding', 'Online bidding', 'A digital process for submitting property bids through an official transaction channel.', 'buying', [`${SOURCE}/begrippenlijst/online-bieden-op-een-huis`], [
-    section('What it means', [
-      'Online bidding is a digital process where buyers submit bids through a platform or source chosen by the seller, agent, or transaction organizer.',
-      'The process can be open, where participants see parts of competing activity, or closed, where bids are not visible until a deadline or later disclosure.',
-    ]),
-    section('What to check', [
-      'Before bidding, check identity requirements, deadlines, bid conditions, whether bids are binding, how changes are handled, and what information becomes available after the process.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype does not operate an online bidding flow. Comments, saves, and price guesses in the app do not count as online bids and are not forwarded to a seller or bidding platform.',
-    ]),
-  ], ['bid-logbook', 'opening-bid', 'offers-and-transactions']),
-  term('bid-logbook', 'bid-logbook', 'Bid logbook', 'A record of submitted bids that can support transparency after a bidding process.', 'buying', [`${SOURCE}/begrippenlijst/biedlogboek`], [
-    section('What it is', [
-      'A bid logbook is a record of bids submitted during a property bidding process. Depending on the rules, it may include bid amounts, timing, conditions, deadlines, and whether bids were changed or withdrawn.',
-      'The purpose is transparency after bidding, especially so participants can understand how the process unfolded.',
-    ]),
-    section('What it may include', [
-      'A logbook may show more than price. Financing conditions, inspection conditions, transfer date, reservations, and submission time can all affect which bid a seller prefers.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype does not maintain bid logbooks because it does not collect or process real bids. Ask the agent, seller, or bidding platform whether a logbook exists and how eligible participants can request it.',
-    ]),
-  ], ['online-bidding', 'offers-and-transactions', 'all-in-bidding']),
-  term('viewing', 'viewing', 'Viewing', 'An in-person or arranged inspection of a property before deciding what to do next.', 'buying', [`${SOURCE}/begrippenlijst/bezichtiging`], [
-    section('What it is', [
-      'A viewing is a chance to inspect a property in person or through an arranged remote format. Buyers and renters use it to check layout, condition, light, surroundings, defects, documents, and whether the listing matches reality.',
-    ]),
-    section('Duties and questions', [
-      'Sellers may have a duty to disclose known relevant defects, while buyers have a duty to investigate important facts themselves. Ask direct questions and keep important answers in writing when they affect your decision.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype does not schedule viewings. Use the source listing, agent, seller, or landlord for appointments and confirm availability before travelling or paying anything.',
-    ]),
-  ], ['duty-to-disclose', 'duty-to-investigate', 'listing-source-links', 'rental-safety']),
-  term('cooling-off-period', 'cooling-off-period', 'Cooling-off period', 'A legally defined period in some transactions when a buyer can withdraw.', 'buying', [`${SOURCE}/begrippenlijst/bedenktijd`], [
-    section('What it means', [
-      'A cooling-off period is a short legal period after signing a purchase contract when a buyer may be able to withdraw without giving a reason. In Dutch home purchases, this is commonly discussed as three days.',
-    ]),
-    section('Why it matters', [
-      'The period gives buyers time to review a major decision, check documents, and get advice after the contract is signed. Exact rules, start time, weekends, and exceptions can matter.',
-      'The timing is connected to a signed purchase contract, not to a HuisHype comment, save, price guess, listing view, or external source link.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype does not provide legal advice or manage contracts. If timing matters, check the signed contract and ask a notary, agent, or legal adviser.',
-    ]),
-  ], ['purchase-contract', 'notary']),
-  term('purchase-contract', 'purchase-contract', 'Purchase contract', 'The legal agreement for buying a home.', 'buying', [`${SOURCE}/begrippenlijst/koopcontract-huis`], [
-    section('What it contains', [
-      'A purchase contract records the agreement between buyer and seller. It usually includes the sale price, transfer date, included items, conditions, deposit or guarantee, and deadlines.',
-    ]),
-    section('Why it is important', [
-      'Once signed, the contract creates legal obligations. Conditions such as financing or inspection can determine whether a buyer may still withdraw without penalty.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype does not draft, store, or validate purchase contracts. Use the app for orientation only and rely on the agent, notary, or legal adviser for contract decisions.',
-    ]),
-  ], ['cooling-off-period', 'notary', 'duty-to-investigate']),
-  term('duty-to-disclose', 'duty-to-disclose', 'Duty to disclose', 'A seller-side obligation to share known relevant defects or facts.', 'buying', [`${SOURCE}/begrippenlijst/mededelingsplicht`], [
-    section('What it means', [
-      'Duty to disclose means a seller must share known facts that are relevant to a buyer decision, especially defects or circumstances that are not obvious during a normal viewing.',
-    ]),
-    section('During a viewing', [
-      'Examples can include leaks, structural issues, disputes, rights, obligations, or other known matters that affect use or value. The exact scope depends on the situation and local law.',
-    ]),
-    section('HuisHype context', [
-      'Comments and reports in HuisHype are not a substitute for seller disclosures. Ask direct questions through the official transaction channel and keep important answers in writing.',
-    ]),
-  ], ['duty-to-investigate', 'hidden-defects']),
-  term('duty-to-investigate', 'duty-to-investigate', 'Duty to investigate', 'A buyer-side responsibility to check important property facts.', 'buying', [`${SOURCE}/begrippenlijst/onderzoeksplicht`], [
-    section('What it means', [
-      'Duty to investigate means buyers are expected to check important property facts themselves before buying. A viewing is not only about whether a home feels right; it is also a chance to ask and verify.',
-    ]),
-    section('What to check', [
-      'Relevant checks can include condition, permits, floor area, ownership restrictions, leasehold, energy label, defects, documents, financing, and neighborhood factors.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype can surface signals and source links, but it cannot inspect the property for you. Use professionals when the stakes are legal, technical, or financial.',
-    ]),
-  ], ['duty-to-disclose', 'hidden-defects', 'valuation']),
-  term('hidden-defects', 'hidden-defects', 'Hidden defects', 'Property defects that are not obvious during normal inspection.', 'buying', [`${SOURCE}/begrippenlijst/verborgen-gebreken`], [
-    section('What they are', [
-      'Hidden defects are problems that are not easily visible during a normal viewing, such as concealed leaks, structural problems, moisture, unsafe installations, or defects that were not disclosed.',
-    ]),
-    section('Why they matter', [
-      'They can affect comfort, value, safety, and repair costs. The outcome often depends on what the seller knew, what the buyer could reasonably have discovered, and what the contract says.',
-    ]),
-    section('HuisHype context', [
-      'Use comments and reports as signals only. For serious concerns, arrange technical inspection and legal advice before making binding decisions.',
-    ]),
-  ], ['duty-to-disclose', 'duty-to-investigate']),
-  term('energy-label', 'energy-label', 'Energy label', 'A rating that describes a property energy performance.', 'property-data', [`${SOURCE}/begrippenlijst/energielabel`], [
-    section('What it means', [
-      'An energy label indicates how energy efficient a home is. It can affect expected energy use, comfort, sustainability plans, and buyer or renter preferences.',
-    ]),
-    section('Why it matters', [
-      'A better label can make a home more attractive, while a weaker label may point to insulation or installation improvements. Actual costs still depend on behavior, energy prices, and property condition.',
-    ]),
-    section('HuisHype context', [
-      'If HuisHype shows an energy label, treat it as source data that may need verification. Check the original listing or official register when it matters.',
-    ]),
-  ], ['duty-to-investigate', 'market-value']),
-  term('ground-lease', 'ground-lease', 'Ground lease', 'A situation where land is leased rather than fully owned.', 'property-data', [`${SOURCE}/begrippenlijst/erfpacht`], [
-    section('What it means', [
-      'Ground lease means you may own the home but not the land underneath it. The landowner, often a municipality or other party, grants a right to use the land in exchange for conditions and sometimes a recurring fee.',
-    ]),
-    section('Why it matters', [
-      'Ground-lease terms can affect monthly costs, financing, resale value, and future obligations. Details such as duration, canon, indexation, buyout, and renewal are important.',
-    ]),
-    section('HuisHype context', [
-      'If a property may involve ground lease, verify the deed, listing documents, municipal information, and notary guidance before relying on a price comparison.',
-    ]),
-  ], ['monthly-costs', 'notary', 'duty-to-investigate']),
-  term('land-registry', 'land-registry', 'Land registry', 'A public registry for property ownership and transaction information.', 'property-data', [`${SOURCE}/begrippenlijst/kadaster`], [
-    section('What it is', [
-      'The land registry records official property information such as ownership, boundaries, rights, mortgage registrations, and transaction records depending on the country and dataset.',
-    ]),
-    section('Why it matters', [
-      'Registry information can support checks on ownership, sale prices, plot details, and legal restrictions. It is often more authoritative than copied listing text.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype may use public or source data, but the app is not the register itself. Check the official registry or a notary for formal decisions.',
-    ]),
-  ], ['sale-price', 'notary']),
-  term('availability-status', 'availability-status', 'Availability and listing status', 'Labels that describe whether a source suggests a home is available, unavailable, sold, or open for interest.', 'property-data', [
-    `${SOURCE}/help/artikel/400/wat-betekent-op-termijn-beschikbaar`,
-    `${SOURCE}/help/artikel/402/wat-betekent-niet-beschikbaar`,
-    `${SOURCE}/help/artikel/10413/hoe-zet-ik-mijn-woning-op-open-voor-interesse`,
-    `${SOURCE}/begrippenlijst/alleen-bij-goed-bod`,
-    `${SOURCE}/begrippenlijst/binnenkort-te-koop`,
-    `${SOURCE}/begrippenlijst/wat-betekent-open-voor-interesse`,
-  ], [
-    section('What status labels mean', [
-      'Availability and status labels summarize what a source or public signal appears to say about a property. Examples include available, sold, unavailable, under offer, rented, withdrawn, open for future interest, likely to list later, or only worth discussing if the owner receives a strong offer.',
-      'A label is a signal, not a guarantee. Listings can be paused, duplicated, delayed, sold subject to conditions, or changed at the source before every app display catches up.',
-    ]),
-    section('Owner-intent labels', [
-      'Some sources use labels that describe possible owner intent rather than a live listing. A home that is open for interest, soon to be sold, or only open to a good offer may still have no fixed asking price, no active sale process, and no obligation for the owner to respond.',
-      'A good offer is subjective. It depends on the owner expectations, timing, comparable homes, property condition, and whether the owner actually wants to proceed.',
-    ]),
-    section('What to verify', [
-      'Before arranging a viewing, making plans, or sharing documents, check the original listing or contact the responsible agent, seller, landlord, or source owner for the current status.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype may display status context, but it does not control availability and does not reserve homes. Report outdated or conflicting status labels with the property URL and the current source link.',
-    ]),
-  ], ['listing-source-links', 'owner-listing-source-workflows', 'data-availability-exceptions']),
-  term('housing-wishes', 'housing-wishes', 'Housing wishes', 'The preferences someone uses to search for a home or follow a market.', 'basics', [`${SOURCE}/begrippenlijst/woonwensen`], [
-    section('What they are', [
-      'Housing wishes are the practical and personal preferences that shape a home search. They can include location, budget, property type, floor area, outdoor space, accessibility, energy performance, schools, commute, and neighborhood feel.',
-    ]),
-    section('How they help search', [
-      'Clear wishes make it easier to filter properties and compare tradeoffs. A bigger home may mean a longer commute, a lower price may require renovation, and a preferred neighborhood may involve fewer available listings.',
-    ]),
-    section('In HuisHype', [
-      'Use housing wishes to interpret map results, saved homes, comments, and price signals. HuisHype can help you explore, but it does not decide whether a property fits your life or finances.',
-    ]),
-  ], ['search-and-browse', 'saving-properties', 'price-guesses']),
-  term('nvm', 'nvm', 'NVM', 'A Dutch association for real estate agents and valuers. HuisHype is unaffiliated.', 'property-data', [`${SOURCE}/begrippenlijst/nederlandse-vereniging-van-makelaars-nvm`], [
-    section('What it is', [
-      'NVM is a Dutch professional association for real estate agents, appraisers, and related property professionals. Members can be subject to association rules, education, and professional standards.',
-      'Not every real estate agent in the Netherlands is an NVM member, and membership alone does not make HuisHype part of the relationship between client and agent.',
-    ]),
-    section('Why it matters', [
-      'When a listing or adviser mentions association membership, it can help you understand professional context, complaints routes, and expected conduct. You should still check who represents whom and what service agreement applies.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype is not affiliated with NVM and does not certify agents. If membership or disciplinary rules matter for your decision, verify directly with the agent and the association.',
-    ]),
-  ], ['agent', 'buying-agent', 'broker-fee']),
-  term('nwwi', 'nwwi', 'NWWI', 'A Dutch body that validates certain valuation reports for quality-control purposes.', 'prices', [`${SOURCE}/begrippenlijst/nwwi`], [
-    section('What it is', [
-      'NWWI is a Dutch validation body for certain residential valuation reports. It checks whether reports meet applicable quality requirements before they are used by lenders or other parties that require validated valuation work.',
-    ]),
-    section('What it does not do', [
-      'NWWI validation is not the same as a quick model value or crowd estimate. A validated report involves a qualified valuer, defined purpose, property review, market evidence, and checks on the report process.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype estimates, price guesses, and market labels are not NWWI reports and are not substitutes for an inspection-based valuation. Use a qualified valuer when a lender or official process requires one.',
-    ]),
-  ], ['valuation-report', 'valuer', 'official-valuation-woz']),
-  term('valuation', 'valuation', 'Valuation', 'A professional or model-based estimate of value, depending on context.', 'prices', [`${SOURCE}/begrippenlijst/taxatie`], [
-    section('What it means', [
-      'A valuation is an assessment of property value. In a formal setting, a qualified valuer reviews the home, its characteristics, condition, location, and market evidence.',
-    ]),
-    section('Formal valuation vs estimate', [
-      'A formal valuation report can be required for a mortgage or legal process. A model estimate or price guess is useful for orientation, but it does not replace a professional report.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype may show price opinions and market signals. It does not inspect the home, validate mortgage value, or certify a valuation.',
-    ]),
-  ], ['valuation-report', 'valuer', 'market-value']),
-  term('valuation-report', 'valuation-report', 'Valuation report', 'A formal report prepared by a qualified valuer or appraiser.', 'prices', [`${SOURCE}/begrippenlijst/taxatierapport`], [
-    section('What it contains', [
-      'A valuation report explains how a qualified valuer arrived at a property value. It can include location, condition, layout, floor area, comparable sales, rights and obligations, market context, and photos or documents.',
-    ]),
-    section('When it is needed', [
-      'Mortgage providers often require a formal report before lending. Reports may also be used for disputes, tax questions, estate matters, or owner decisions.',
-    ]),
-    section('HuisHype context', [
-      'A HuisHype signal is not a valuation report. If a bank, notary, municipality, or court asks for a report, use a qualified professional.',
-    ]),
-  ], ['valuation', 'valuer', 'mortgage']),
-  term('valuer', 'valuer', 'Valuer', 'A professional who estimates property value for a defined purpose.', 'prices', [`${SOURCE}/begrippenlijst/taxateur`], [
-    section('What a valuer does', [
-      'A valuer estimates property value using professional guidelines, market evidence, property characteristics, and inspection. For formal work, independence and qualification matter.',
-    ]),
-    section('Why independence matters', [
-      'A valuation used for lending or legal decisions should not be shaped by the buyer or seller desired outcome. Validation bodies and lender rules may apply depending on the market.',
-    ]),
-    section('HuisHype context', [
-      'Use a valuer when you need an official value. HuisHype can help you prepare questions and compare signals, but it does not certify value.',
-    ]),
-  ], ['valuation', 'valuation-report']),
-  term('notary', 'notary', 'Notary', 'A legal professional who handles formal transfer steps in many property transactions.', 'buying', [`${SOURCE}/begrippenlijst/notaris`], [
-    section('What a notary does', [
-      'A notary handles formal legal documents and transfer steps in many property transactions. This can include the deed of transfer, mortgage deed, identity checks, funds flow, and registration.',
-    ]),
-    section('Why it matters', [
-      'The notary makes the legal transfer official and checks documents that affect ownership. Timing, documents, and obligations should be clear before completion.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype does not replace notarial checks. For ownership, transfer, rights, or contract questions, rely on the notary or legal adviser.',
-    ]),
-  ], ['purchase-contract', 'land-registry']),
-  term('mortgage', 'mortgage', 'Mortgage', 'A loan secured against a property.', 'finance', [`${SOURCE}/begrippenlijst/hypotheek`], [
-    section('What it means', [
-      'A mortgage is a loan used to finance a home, with the property serving as security for the lender. If repayments are not made, the lender may have rights against the property.',
-    ]),
-    section('What affects it', [
-      'Borrowing capacity, interest rate, mortgage type, repayment schedule, valuation, income, debts, and personal risk all affect the final monthly cost and approval.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype is not a mortgage adviser. Use app signals for orientation and ask a qualified adviser or lender for financing decisions.',
-    ]),
-  ], ['monthly-costs', 'valuation-report', 'annuity-mortgage']),
-  term('mortgage-repayment', 'mortgage-repayment', 'Mortgage repayment', 'Paying down the borrowed principal of a mortgage over time.', 'finance', [`${SOURCE}/begrippenlijst/aflossen`], [
-    section('What it means', [
-      'Mortgage repayment is the part of your payment that reduces the outstanding loan balance. It is different from interest, which is the cost of borrowing money.',
-      'Some mortgage types repay gradually, some repay a fixed principal amount, and some may have special rules for extra repayments or repayment-free periods.',
-    ]),
-    section('Why it matters', [
-      'Repayment affects equity, monthly costs, total interest, refinancing options, and the amount still owed when you sell. Extra repayment can reduce debt, but it may also affect liquidity, tax position, or lender conditions.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype can explain the concept, but it does not calculate personal affordability or recommend repayment choices. Ask a lender or mortgage adviser before changing repayment plans.',
-    ]),
-  ], ['mortgage', 'monthly-costs', 'equity']),
-  term('mortgage-term', 'mortgage-term', 'Mortgage term', 'The period over which a mortgage is scheduled to run or be repaid.', 'finance', [`${SOURCE}/begrippenlijst/looptijd-hypotheek`], [
-    section('What it means', [
-      'The mortgage term is the length of time the loan is scheduled to run. It can refer to the total repayment term, while the interest-rate fixed period may be a separate and shorter period.',
-      'A longer term can spread repayment over more years, while a shorter term usually repays faster but can mean higher monthly payments.',
-    ]),
-    section('Why it matters', [
-      'The term affects monthly costs, total interest, debt reduction, and flexibility when moving or refinancing. Lender rules, age, income, mortgage type, and tax rules may affect what terms are available.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype is not a mortgage calculator or adviser. Use property and price signals for orientation only, then verify financing choices with a qualified adviser or lender.',
-    ]),
-  ], ['mortgage', 'mortgage-repayment', 'monthly-costs']),
-  term('annuity-mortgage', 'annuity-mortgage', 'Annuity mortgage', 'A mortgage where monthly payments are usually fixed while interest and repayment shares change over time.', 'finance', [`${SOURCE}/begrippenlijst/annuiteitenhypotheek`], [
-    section('How it works', [
-      'With an annuity mortgage, the gross monthly payment is typically stable during the fixed-rate period. Early payments contain more interest, while later payments contain more repayment.',
-    ]),
-    section('What to consider', [
-      'The mortgage debt falls gradually. Net monthly costs can change over time because interest deductibility, tax rules, interest resets, and personal circumstances can change.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype can explain the term but does not calculate or recommend a mortgage. Ask a qualified adviser before choosing a mortgage type.',
-    ]),
-  ], ['mortgage', 'linear-mortgage', 'monthly-costs']),
-  term('linear-mortgage', 'linear-mortgage', 'Linear mortgage', 'A mortgage where a fixed principal amount is repaid each period.', 'finance', [`${SOURCE}/begrippenlijst/lineaire-hypotheek`], [
-    section('How it works', [
-      'With a linear mortgage, you repay the same amount of principal each period. Because the outstanding debt falls steadily, the interest part usually decreases over time.',
-    ]),
-    section('What to consider', [
-      'Initial monthly costs are often higher than with an annuity mortgage, but the debt declines faster and total interest can be lower. Affordability depends on income, rate, and personal plans.',
-    ]),
-    section('HuisHype context', [
-      'Use this glossary as orientation only. Mortgage suitability depends on financial advice, lender rules, and local tax treatment.',
-    ]),
-  ], ['mortgage', 'annuity-mortgage', 'monthly-costs']),
-  term('monthly-costs', 'monthly-costs', 'Monthly costs', 'Recurring housing costs such as mortgage or rent, service charges, energy, insurance, and taxes.', 'finance', [
-    `${SOURCE}/begrippenlijst/maandlasten`,
-    `${SOURCE}/begrippenlijst/aflossen`,
-    `${SOURCE}/begrippenlijst/looptijd-hypotheek`,
-  ], [
-    section('What they include', [
-      'Monthly housing costs can include mortgage interest, repayment, rent, service charges, energy, insurance, municipal taxes, ground lease, maintenance reserves, and association fees.',
-    ]),
-    section('What changes them', [
-      'Loan amount, interest rate, mortgage type, repayment term, energy label, property condition, household behavior, and local taxes all affect the monthly picture.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype may show price and property signals, but it does not calculate personal affordability. Check costs with your lender, adviser, landlord, source listing, or owner association.',
-    ]),
-  ], ['mortgage', 'annuity-mortgage', 'linear-mortgage']),
-  term('equity', 'equity', 'Equity', 'The difference between property value and remaining debt.', 'finance', [`${SOURCE}/begrippenlijst/overwaarde`], [
-    section('What it means', [
-      'Equity is the part of property value that is not covered by remaining mortgage debt. It can grow when the property value rises or when the mortgage is repaid.',
-    ]),
-    section('Why it matters', [
-      'Equity can affect moving plans, refinancing, renovation budgets, and financial planning. It is not the same as cash in your account because selling costs, taxes, financing rules, and new-home prices may apply.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype signals can help you estimate the market side of the calculation. Verify debt, costs, and tax effects with your lender or adviser.',
-    ]),
-  ], ['market-value', 'mortgage']),
-  term('broker-fee', 'broker-fee', 'Broker fee', 'A fee paid to an agent or broker for services.', 'finance', [
-    `${SOURCE}/begrippenlijst/courtage`,
-    `${SOURCE}/begrippenlijst/makelaarskosten`,
-  ], [
-    section('What it means', [
-      'A broker fee is compensation paid to a real estate agent or broker. It may be a percentage of the sale price, a fixed fee, startup costs, marketing costs, or another agreed structure.',
-    ]),
-    section('What to compare', [
-      'Compare what is included: valuation advice, photography, listing placement, viewings, negotiation, legal coordination, rental screening, and aftercare. The cheapest fee is not always the best deal.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype does not set agent fees. If a listing source or agent is involved, check their own terms before committing.',
-    ]),
-  ], ['agent']),
-  term('agent', 'agent', 'Real estate agent', 'A professional who helps buy, sell, rent, or let property.', 'property-data', [
-    `${SOURCE}/begrippenlijst/makelaar`,
-    `${SOURCE}/begrippenlijst/aankoopmakelaar`,
-  ], [
-    section('What an agent does', [
-      'A real estate agent helps with buying, selling, renting, or letting property. Work can include market advice, viewings, pricing, negotiation, documents, listing presentation, and communication with other parties.',
-    ]),
-    section('Buying and selling roles', [
-      'A buying agent supports the buyer interests. A selling agent represents the seller. Their incentives, duties, and fees are different, so it matters who the agent works for.',
-    ]),
-    section('HuisHype context', [
-      'HuisHype is not an agent and does not represent either side in a transaction. Use source listing links or direct professional contact for viewings, offers, and negotiations.',
-    ]),
-  ], ['broker-fee', 'listing-source-links']),
-  term('buying-agent', 'buying-agent', 'Buying agent', 'An agent who supports the buyer rather than the seller in a property transaction.', 'buying', [`${SOURCE}/begrippenlijst/aankoopmakelaar`], [
-    section('What a buying agent does', [
-      'A buying agent advises and represents a buyer during a home search or purchase. Work can include finding properties, arranging viewings, assessing asking prices, reviewing documents, advising on bids, negotiating, and coordinating with other professionals.',
-    ]),
-    section('How the role differs', [
-      'A buying agent works for the buyer, while the selling agent represents the seller. That distinction matters when discussing price, strategy, defects, deadlines, and confidential information.',
-      'Fees, services, exclusivity, and cancellation rules can differ, so review the service agreement before relying on the agent.',
-    ]),
-    section('In HuisHype', [
-      'HuisHype is not a buying agent and does not negotiate or advise on a specific bid. Use app signals for orientation and choose professional help separately when you need representation.',
-    ]),
-  ], ['agent', 'broker-fee', 'viewing', 'realistic-bid']),
+  term(
+    'market-value',
+    'market-value',
+    'Market value',
+    'An estimate of what a property could sell for in the current market.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/marktwaarde-van-een-huis`, `${SOURCE}/begrippenlijst/woningwaarde`],
+    [
+      section('What it means', [
+        'Market value is the amount a property could reasonably sell for at a specific moment. It moves with demand, supply, property condition, location, financing climate, and comparable sales.',
+        'A model estimate or crowd signal can point toward market value, but it is still an indication. A real sale price is only known after buyer and seller agree and the transaction is completed.',
+      ]),
+      section('How it differs from official values', [
+        'Market value is more current than a WOZ value because WOZ is set by the municipality for a past reference date. It is also different from a formal valuation report, which is prepared by a qualified valuer for a defined purpose such as a mortgage.',
+      ]),
+      section('How to use it in HuisHype', [
+        'Use HuisHype price guesses, asking prices, source listings, and comparable homes as orientation signals. For buying, selling, financing, tax, or legal decisions, verify with the original source and a qualified professional.',
+      ]),
+    ],
+    ['woz-value', 'valuation', 'comparable-homes']
+  ),
+  term(
+    'woz-value',
+    'woz-value',
+    'WOZ value',
+    'A Dutch official property value used for taxes and public purposes.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/woz-waarde`],
+    [
+      section('What WOZ means', [
+        'WOZ stands for Waardering Onroerende Zaken. In the Netherlands, the municipality sets this official property value each year for homes and other real estate.',
+        'The WOZ value is based on a reference date, usually January 1 of the previous year. That timing matters: the housing market may have changed by the time you see the value.',
+      ]),
+      section('How it is determined', [
+        'Municipalities estimate WOZ by looking at comparable homes, sale prices around the reference date, location, usable floor area, plot size, property type, and other registered characteristics.',
+        'It is sometimes described as a municipal valuation, but it is not the same as a valuer visiting the property for a mortgage valuation report.',
+      ]),
+      section('WOZ, valuation, and market value', [
+        'WOZ is used for taxes and official public purposes. Market value is about what the home may sell for now. A formal valuation report is a professional assessment for a specific transaction, mortgage, or objection process.',
+        'Because WOZ uses a past reference date, it can be lower or higher than the current market value. Treat it as one useful signal, not as the final answer on what a property is worth today.',
+      ]),
+      section('What you can do with it', [
+        'Only the municipality can set the official WOZ value. Owners can usually review the municipal assessment and follow the local objection process if they think it is wrong.',
+        'In HuisHype, compare WOZ or other official values with price guesses, asking prices, comparable homes, and source listings. HuisHype does not replace the municipality, a tax adviser, or a certified valuer.',
+      ]),
+    ],
+    ['market-value', 'valuation', 'valuation-report']
+  ),
+  term(
+    'asking-price',
+    'asking-price',
+    'Asking price',
+    'The price requested by the seller or listing source.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/vraagprijs-van-een-huis`],
+    [
+      section('What it means', [
+        'The asking price is the amount a seller or listing source presents to the market. It is an invitation to start from, not proof of what the home is worth or what it will sell for.',
+        'A property can sell below, at, or above the asking price depending on competition, timing, condition, negotiation, financing, and seller expectations.',
+      ]),
+      section('Reading the signal', [
+        'A high asking price may leave room for negotiation, or it may reflect a seller testing demand. A low asking price can attract attention, create competition, or reflect drawbacks that need careful checking.',
+      ]),
+      section('In HuisHype', [
+        'Use asking price alongside source listings, price history, comparable homes, and user price guesses. HuisHype does not set the asking price and does not negotiate with the seller.',
+      ]),
+    ],
+    ['sale-price', 'price-history', 'price-guesses']
+  ),
+  term(
+    'sale-price',
+    'sale-price',
+    'Sale price',
+    'The final registered price paid for a property when that data is available.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/koopsom-van-een-huis`],
+    [
+      section('What it means', [
+        'The sale price is the amount buyer and seller actually agreed for the property. It can differ from the asking price because negotiation, competition, conditions, and timing all matter.',
+      ]),
+      section('Why it matters', [
+        'Recent sale prices help people understand a local market better than asking prices alone. They are useful when comparing similar homes, estimating market value, or checking whether a listing looks expensive or cheap.',
+      ]),
+      section('Availability', [
+        'Sale-price data may become visible only after registration or source updates. If HuisHype shows it, treat it as historical context and verify important records with the official source or a professional.',
+      ]),
+    ],
+    ['asking-price', 'market-value', 'comparable-homes']
+  ),
+  term(
+    'price-history',
+    'price-history',
+    'Price history',
+    'A timeline of known asking-price or sale-price changes.',
+    'prices',
+    [
+      `${SOURCE}/begrippenlijst/prijshistorie-van-een-huis`,
+      `${SOURCE}/begrippenlijst/prijsaanpassingen-van-een-huis`,
+      `${SOURCE}/begrippenlijst/prijsinzicht-van-een-huis`,
+      `${SOURCE}/help/artikel/10275/hoe-werkt-de-tijdlijn-met-prijsaanpassingen`,
+    ],
+    [
+      section('What it shows', [
+        'Price history is a timeline of known price changes for a property, such as asking-price increases, reductions, relists, or available sale-price information.',
+        'A reduction can mean the seller is adjusting expectations, trying to renew attention, or responding to limited demand. It does not automatically mean the property is a bargain.',
+      ]),
+      section('How to read it', [
+        'Look at the size of each change, how long the property has been visible, and whether similar homes nearby changed price too. The surrounding market often explains more than one price change in isolation.',
+      ]),
+      section('In HuisHype', [
+        'Use price history together with comparable homes, current source-listing details, and price guesses. Source data can lag, so confirm live asking price and status on the original listing.',
+      ]),
+    ],
+    ['asking-price', 'sale-price', 'comparable-homes']
+  ),
+  term(
+    'property-value',
+    'property-value',
+    'Property value',
+    'An indication of what a home may be worth, depending on purpose, timing, and data quality.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/woningwaarde`],
+    [
+      section('What it means', [
+        'Property value is a broad term for what a home may be worth. It can refer to a current market estimate, a model value, a formal valuation, a tax value, or an owner expectation depending on context.',
+        'The same home can have different values for different purposes: a buyer deciding what to offer, a lender checking mortgage security, a municipality setting a tax value, or an owner tracking local demand.',
+      ]),
+      section('Why values differ', [
+        'Condition, usable floor area, location, leasehold, energy performance, renovations, defects, market timing, comparable sales, and available source data can all change the value picture.',
+        'A model cannot always see recent work, unusual layout, hidden defects, or private sale conditions. That is why estimates should be checked against source documents and professional advice when stakes are high.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype may show price guesses and property signals to help orientation. They are not bids, valuation reports, mortgage checks, or promises about the eventual sale price.',
+      ]),
+    ],
+    ['market-value', 'price-guesses', 'valuation', 'woz-value']
+  ),
+  term(
+    'price-reductions',
+    'price-reductions',
+    'Price reductions and adjustments',
+    'Changes to a property asking price or price display over time.',
+    'prices',
+    [
+      `${SOURCE}/begrippenlijst/prijsaanpassingen-van-een-huis`,
+      `${SOURCE}/begrippenlijst/in-prijs-verlaagd`,
+    ],
+    [
+      section('What they are', [
+        'A price reduction is a decrease in the asking price or public price display. A price adjustment can also be an increase, relist, correction, or source refresh that changes how a price appears.',
+        'Price changes usually reflect seller strategy, market feedback, limited interest, renewed marketing, corrected information, or changed circumstances. One adjustment does not explain the whole transaction.',
+      ]),
+      section('How to read them', [
+        'Look at how large the change is, when it happened, how long the home has been visible, whether nearby listings changed too, and whether the property has condition, location, or documentation issues.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype may show known price-history signals when available, but source data can lag or be incomplete. Confirm the current asking price and conditions with the original listing before relying on a timeline.',
+      ]),
+    ],
+    ['price-history', 'asking-price', 'price-insight']
+  ),
+  term(
+    'price-insight',
+    'price-insight',
+    'Price insight',
+    'A contextual signal that compares a price with available property and market information.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/prijsinzicht-van-een-huis`],
+    [
+      section('What it means', [
+        'Price insight is a way to frame whether a visible price looks low, high, or broadly in line with available market context. It is an orientation label, not a decision rule.',
+        'The signal can depend on asking price, property characteristics, nearby comparable homes, known historical prices, public data quality, and local demand.',
+      ]),
+      section('Limits', [
+        'A label cannot inspect the home, read the seller motivation, know every bid, or account for every legal and technical detail. Unusual homes, thin data, and fast-moving markets make price insight less certain.',
+      ]),
+      section('In HuisHype', [
+        'Use price insight beside price guesses, price history, source listings, and professional advice. HuisHype does not tell you what to bid and does not guarantee that a property is cheap or expensive.',
+      ]),
+    ],
+    ['price-position-labels', 'market-value', 'price-guesses']
+  ),
+  term(
+    'price-position-labels',
+    'price-position-labels',
+    'Low, within, and high price labels',
+    'Labels that describe whether a price appears below, near, or above available value signals.',
+    'prices',
+    [
+      `${SOURCE}/help/artikel/10264/wat-betekent-laag-in-de-markt`,
+      `${SOURCE}/help/artikel/10265/wat-betekent-hoog-in-de-markt`,
+      `${SOURCE}/help/artikel/10266/wat-betekent-een-redelijke-vraagprijs`,
+    ],
+    [
+      section('What the labels mean', [
+        'A low, within-range, or high price label compares a visible price with available value signals. Low can mean the price appears below the signal range, within-range means broadly aligned, and high means above the signal range.',
+        'These labels are only shorthand for a data comparison. They do not prove a bargain, overpricing, hidden defects, or seller intent.',
+      ]),
+      section('What can move a label', [
+        'Comparable homes, property size, condition, location, source updates, sale-price history, market movement, and missing data can all influence the label. A corrected floor area or new comparable sale may change the picture.',
+      ]),
+      section('In HuisHype', [
+        'Use labels as prompts for further checking. HuisHype does not set the asking price, make bids, advise you to overbid or underbid, or replace a valuer, agent, or financial adviser.',
+      ]),
+    ],
+    ['price-insight', 'asking-price', 'realistic-bid']
+  ),
+  term(
+    'comparable-homes',
+    'comparable-homes',
+    'Comparable homes',
+    'Similar properties used as context when judging a price or value signal.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/vergelijkbare-woningen`],
+    [
+      section('What makes a home comparable', [
+        'Comparable homes are properties with enough shared characteristics to help judge a price: location, property type, usable floor area, plot size, age, condition, energy performance, and recent transaction timing.',
+      ]),
+      section('Why they matter', [
+        'Looking at comparable homes helps you check whether an asking price, price guess, WOZ value, or valuation seems plausible. The closer the match and the more recent the data, the more useful the comparison tends to be.',
+      ]),
+      section('Limits', [
+        'No comparison is perfect. Renovations, layout, views, defects, leasehold, neighborhood changes, and seller urgency can make two similar homes sell very differently.',
+      ]),
+    ],
+    ['market-value', 'asking-price', 'price-history']
+  ),
+  term(
+    'overbidding',
+    'overbidding',
+    'Overbidding',
+    'Offering more than the asking price. HuisHype price guesses are not offers.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/overbieden`],
+    [
+      section('What it means', [
+        'Overbidding means offering more than the asking price. It usually happens when demand is high, supply is limited, or several buyers want the same home.',
+      ]),
+      section('Risks to check', [
+        'An overbid can improve your chance, but it can also create financing risk if the formal valuation comes in lower than your offer. Extra conditions, savings, and mortgage advice matter before making that decision.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype price guesses can help you sense crowd opinion, but they are not offers and do not reach the seller. Make real bids through the source listing, agent, or responsible transaction channel.',
+      ]),
+    ],
+    ['underbidding', 'opening-offer', 'valuation']
+  ),
+  term(
+    'underbidding',
+    'underbidding',
+    'Underbidding',
+    'Offering less than the asking price. HuisHype does not submit offers.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/onderbieden`],
+    [
+      section('What it means', [
+        'Underbidding means offering less than the asking price. It can be realistic when demand is limited, the property has been listed for a long time, the asking price looks high, or important work is needed.',
+      ]),
+      section('What to consider', [
+        'A lower offer can open negotiation, but it can also be rejected quickly in a competitive market. Compare similar homes, price history, condition, and your own maximum budget before deciding.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype does not submit underbids or negotiate for you. Use app signals for orientation, then contact the responsible listing source or professional if you want to make an offer.',
+      ]),
+    ],
+    ['overbidding', 'asking-price', 'price-history']
+  ),
+  term(
+    'opening-offer',
+    'opening-offer',
+    'Opening offer',
+    'The first offer in a negotiation. HuisHype does not run negotiations.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/openingsbod`],
+    [
+      section('What it means', [
+        'The opening offer is the first amount a buyer puts forward. It sets the tone for a negotiation and can include conditions such as financing, inspection, timing, or movable items.',
+      ]),
+      section('How it is shaped', [
+        'A strong opening offer depends on the asking price, comparable homes, buyer competition, property condition, financing room, and the buyer risk tolerance.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype can show signals that help you orient yourself, but it is not a bidding platform. Real offers belong with the agent, owner, or official source flow.',
+      ]),
+    ],
+    ['asking-price', 'overbidding', 'underbidding']
+  ),
+  term(
+    'opening-bid',
+    'opening-bid',
+    'Opening bid',
+    'The first bid submitted in a bidding process or negotiation.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/openingsbod`],
+    [
+      section('What it means', [
+        'An opening bid is the first amount a buyer submits when trying to buy a property. It can be lower than, equal to, or higher than the asking price depending on strategy and market pressure.',
+        'The bid may include conditions such as financing, building inspection, transfer date, included items, and a validity deadline. Those conditions can matter as much as the amount.',
+      ]),
+      section('How it is chosen', [
+        'Buyers usually weigh asking price, comparable homes, property condition, expected competition, financing room, desired certainty for the seller, and their own maximum budget before choosing an opening bid.',
+      ]),
+      section('In HuisHype', [
+        'A HuisHype price guess is not an opening bid and is not sent to the seller. Submit real bids only through the official channel named by the agent, seller, source listing, or bidding system.',
+      ]),
+    ],
+    ['opening-offer', 'realistic-bid', 'online-bidding']
+  ),
+  term(
+    'realistic-bid',
+    'realistic-bid',
+    'Realistic bid',
+    'A market-oriented bid that balances chance of success with budget and overpay risk.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/realistisch-bod`],
+    [
+      section('What it means', [
+        'A realistic bid is an amount and set of conditions that fit the property, comparable homes, asking price, market pressure, and buyer budget. It is not automatically the highest possible number.',
+        'The goal is to make a bid that has a credible chance while still respecting financing, valuation risk, repair costs, and the buyer own maximum.',
+      ]),
+      section('What shapes it', [
+        'Comparable sales, source listing details, price history, viewing findings, seller deadlines, competition, and professional advice can all shape what looks realistic in a specific case.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype price guesses can support orientation, but they are not bidding advice and do not create an offer. A real bid should be checked through the correct transaction channel and, when needed, with an adviser.',
+      ]),
+    ],
+    ['conditional-offer', 'all-in-bidding', 'opening-bid', 'price-guesses']
+  ),
+  term(
+    'conditional-offer',
+    'conditional-offer',
+    'Conditional offer',
+    'A real property offer that includes conditions such as financing or inspection.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/bieden-onder-voorbehoud`],
+    [
+      section('What it means', [
+        'A conditional offer is a real bid or offer that includes reservations, such as financing approval, a building inspection, document review, transfer timing, or other agreed conditions.',
+        'The point of conditions is risk control. If an important condition is not met, the contract or bidding rules may allow withdrawal or renegotiation without the same serious financial consequences, depending on the exact wording and local law.',
+      ]),
+      section('Why conditions matter', [
+        'Bidding without conditions can make an offer look cleaner to a seller, but it can also increase financial risk. Financing can fall through, hidden defects can appear, documents can raise concerns, or repair costs can change what the buyer can responsibly do.',
+        'In some Dutch purchase situations, a buyer who withdraws after the cooling-off period without a valid condition may face a contractual penalty, often discussed as around 10% of the agreed purchase price. The contract language and legal context decide the actual outcome.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype does not submit conditional offers, check conditions, or advise you to bid with or without reservations. Price guesses and comments are social signals only; submit real offers through the source listing, agent, seller, or official bidding channel.',
+      ]),
+    ],
+    ['offers-and-transactions', 'cooling-off-period', 'hidden-defects', 'valuation-report']
+  ),
+  term(
+    'all-in-bidding',
+    'all-in-bidding',
+    'All-in bidding',
+    'Bidding above a realistic or market-oriented amount to maximize chance, with clear overpay risk.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/all-in-bieden-op-een-huis`],
+    [
+      section('What it means', [
+        'All-in bidding means offering above what you see as a realistic or market-oriented bid because you want to maximize your chance of winning the property.',
+        'It can happen in highly competitive markets, when a buyer has strong personal reasons, or when certainty matters more than a strict comparison with recent local prices.',
+      ]),
+      section('Risks', [
+        'A higher bid can improve your chance, but it can also create overpay risk, mortgage risk if the formal valuation is lower, and regret if repair costs or market conditions change.',
+        'Conditions, cash reserves, financing deadlines, and inspection results matter. A bid that is all-in on price can still fail if the conditions are weak or unclear.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype price guesses are not bids, all-in bids, or instructions to overbid. Use them as one signal, then submit any real bid through the source listing, agent, seller, or official bidding process.',
+      ]),
+    ],
+    ['realistic-bid', 'overbidding', 'valuation-report']
+  ),
+  term(
+    'online-bidding',
+    'online-bidding',
+    'Online bidding',
+    'A digital process for submitting property bids through an official transaction channel.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/online-bieden-op-een-huis`],
+    [
+      section('What it means', [
+        'Online bidding is a digital process where buyers submit bids through a platform or source chosen by the seller, agent, or transaction organizer.',
+        'The process can be open, where participants see parts of competing activity, or closed, where bids are not visible until a deadline or later disclosure.',
+      ]),
+      section('What to check', [
+        'Before bidding, check identity requirements, deadlines, bid conditions, whether bids are binding, how changes are handled, and what information becomes available after the process.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype does not operate an online bidding flow. Comments, saves, and price guesses in the app do not count as online bids and are not forwarded to a seller or bidding platform.',
+      ]),
+    ],
+    ['bid-logbook', 'opening-bid', 'offers-and-transactions']
+  ),
+  term(
+    'bid-logbook',
+    'bid-logbook',
+    'Bid logbook',
+    'A record of submitted bids that can support transparency after a bidding process.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/biedlogboek`],
+    [
+      section('What it is', [
+        'A bid logbook is a record of bids submitted during a property bidding process. Depending on the rules, it may include bid amounts, timing, conditions, deadlines, and whether bids were changed or withdrawn.',
+        'The purpose is transparency after bidding, especially so participants can understand how the process unfolded.',
+      ]),
+      section('What it may include', [
+        'A logbook may show more than price. Financing conditions, inspection conditions, transfer date, reservations, and submission time can all affect which bid a seller prefers.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype does not maintain bid logbooks because it does not collect or process real bids. Ask the agent, seller, or bidding platform whether a logbook exists and how eligible participants can request it.',
+      ]),
+    ],
+    ['online-bidding', 'offers-and-transactions', 'all-in-bidding']
+  ),
+  term(
+    'viewing',
+    'viewing',
+    'Viewing',
+    'An in-person or arranged inspection of a property before deciding what to do next.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/bezichtiging`],
+    [
+      section('What it is', [
+        'A viewing is a chance to inspect a property in person or through an arranged remote format. Buyers and renters use it to check layout, condition, light, surroundings, defects, documents, and whether the listing matches reality.',
+      ]),
+      section('Duties and questions', [
+        'Sellers may have a duty to disclose known relevant defects, while buyers have a duty to investigate important facts themselves. Ask direct questions and keep important answers in writing when they affect your decision.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype does not schedule viewings. Use the source listing, agent, seller, or landlord for appointments and confirm availability before travelling or paying anything.',
+      ]),
+    ],
+    ['duty-to-disclose', 'duty-to-investigate', 'listing-source-links', 'rental-safety']
+  ),
+  term(
+    'cooling-off-period',
+    'cooling-off-period',
+    'Cooling-off period',
+    'A legally defined period in some transactions when a buyer can withdraw.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/bedenktijd`],
+    [
+      section('What it means', [
+        'A cooling-off period is a short legal period after signing a purchase contract when a buyer may be able to withdraw without giving a reason. In Dutch home purchases, this is commonly discussed as three days.',
+      ]),
+      section('Why it matters', [
+        'The period gives buyers time to review a major decision, check documents, and get advice after the contract is signed. Exact rules, start time, weekends, and exceptions can matter.',
+        'The timing is connected to a signed purchase contract, not to a HuisHype comment, save, price guess, listing view, or external source link.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype does not provide legal advice or manage contracts. If timing matters, check the signed contract and ask a notary, agent, or legal adviser.',
+      ]),
+    ],
+    ['purchase-contract', 'notary']
+  ),
+  term(
+    'purchase-contract',
+    'purchase-contract',
+    'Purchase contract',
+    'The legal agreement for buying a home.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/koopcontract-huis`],
+    [
+      section('What it contains', [
+        'A purchase contract records the agreement between buyer and seller. It usually includes the sale price, transfer date, included items, conditions, deposit or guarantee, and deadlines.',
+      ]),
+      section('Why it is important', [
+        'Once signed, the contract creates legal obligations. Conditions such as financing or inspection can determine whether a buyer may still withdraw without penalty.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype does not draft, store, or validate purchase contracts. Use the app for orientation only and rely on the agent, notary, or legal adviser for contract decisions.',
+      ]),
+    ],
+    ['cooling-off-period', 'notary', 'duty-to-investigate']
+  ),
+  term(
+    'duty-to-disclose',
+    'duty-to-disclose',
+    'Duty to disclose',
+    'A seller-side obligation to share known relevant defects or facts.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/mededelingsplicht`],
+    [
+      section('What it means', [
+        'Duty to disclose means a seller must share known facts that are relevant to a buyer decision, especially defects or circumstances that are not obvious during a normal viewing.',
+      ]),
+      section('During a viewing', [
+        'Examples can include leaks, structural issues, disputes, rights, obligations, or other known matters that affect use or value. The exact scope depends on the situation and local law.',
+      ]),
+      section('HuisHype context', [
+        'Comments and reports in HuisHype are not a substitute for seller disclosures. Ask direct questions through the official transaction channel and keep important answers in writing.',
+      ]),
+    ],
+    ['duty-to-investigate', 'hidden-defects']
+  ),
+  term(
+    'duty-to-investigate',
+    'duty-to-investigate',
+    'Duty to investigate',
+    'A buyer-side responsibility to check important property facts.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/onderzoeksplicht`],
+    [
+      section('What it means', [
+        'Duty to investigate means buyers are expected to check important property facts themselves before buying. A viewing is not only about whether a home feels right; it is also a chance to ask and verify.',
+      ]),
+      section('What to check', [
+        'Relevant checks can include condition, permits, floor area, ownership restrictions, leasehold, energy label, defects, documents, financing, and neighborhood factors.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype can surface signals and source links, but it cannot inspect the property for you. Use professionals when the stakes are legal, technical, or financial.',
+      ]),
+    ],
+    ['duty-to-disclose', 'hidden-defects', 'valuation']
+  ),
+  term(
+    'hidden-defects',
+    'hidden-defects',
+    'Hidden defects',
+    'Property defects that are not obvious during normal inspection.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/verborgen-gebreken`],
+    [
+      section('What they are', [
+        'Hidden defects are problems that are not easily visible during a normal viewing, such as concealed leaks, structural problems, moisture, unsafe installations, or defects that were not disclosed.',
+      ]),
+      section('Why they matter', [
+        'They can affect comfort, value, safety, and repair costs. The outcome often depends on what the seller knew, what the buyer could reasonably have discovered, and what the contract says.',
+      ]),
+      section('HuisHype context', [
+        'Use comments and reports as signals only. For serious concerns, arrange technical inspection and legal advice before making binding decisions.',
+      ]),
+    ],
+    ['duty-to-disclose', 'duty-to-investigate']
+  ),
+  term(
+    'energy-label',
+    'energy-label',
+    'Energy label',
+    'A rating that describes a property energy performance.',
+    'property-data',
+    [`${SOURCE}/begrippenlijst/energielabel`],
+    [
+      section('What it means', [
+        'An energy label indicates how energy efficient a home is. It can affect expected energy use, comfort, sustainability plans, and buyer or renter preferences.',
+      ]),
+      section('Why it matters', [
+        'A better label can make a home more attractive, while a weaker label may point to insulation or installation improvements. Actual costs still depend on behavior, energy prices, and property condition.',
+      ]),
+      section('HuisHype context', [
+        'If HuisHype shows an energy label, treat it as source data that may need verification. Check the original listing or official register when it matters.',
+      ]),
+    ],
+    ['duty-to-investigate', 'market-value']
+  ),
+  term(
+    'ground-lease',
+    'ground-lease',
+    'Ground lease',
+    'A situation where land is leased rather than fully owned.',
+    'property-data',
+    [`${SOURCE}/begrippenlijst/erfpacht`],
+    [
+      section('What it means', [
+        'Ground lease means you may own the home but not the land underneath it. The landowner, often a municipality or other party, grants a right to use the land in exchange for conditions and sometimes a recurring fee.',
+      ]),
+      section('Why it matters', [
+        'Ground-lease terms can affect monthly costs, financing, resale value, and future obligations. Details such as duration, canon, indexation, buyout, and renewal are important.',
+      ]),
+      section('HuisHype context', [
+        'If a property may involve ground lease, verify the deed, listing documents, municipal information, and notary guidance before relying on a price comparison.',
+      ]),
+    ],
+    ['monthly-costs', 'notary', 'duty-to-investigate']
+  ),
+  term(
+    'land-registry',
+    'land-registry',
+    'Land registry',
+    'A public registry for property ownership and transaction information.',
+    'property-data',
+    [`${SOURCE}/begrippenlijst/kadaster`],
+    [
+      section('What it is', [
+        'The land registry records official property information such as ownership, boundaries, rights, mortgage registrations, and transaction records depending on the country and dataset.',
+      ]),
+      section('Why it matters', [
+        'Registry information can support checks on ownership, sale prices, plot details, and legal restrictions. It is often more authoritative than copied listing text.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype may use public or source data, but the app is not the register itself. Check the official registry or a notary for formal decisions.',
+      ]),
+    ],
+    ['sale-price', 'notary']
+  ),
+  term(
+    'availability-status',
+    'availability-status',
+    'Availability and listing status',
+    'Labels that describe whether a source suggests a home is available, unavailable, sold, or open for interest.',
+    'property-data',
+    [
+      `${SOURCE}/help/artikel/400/wat-betekent-op-termijn-beschikbaar`,
+      `${SOURCE}/help/artikel/402/wat-betekent-niet-beschikbaar`,
+      `${SOURCE}/help/artikel/10413/hoe-zet-ik-mijn-woning-op-open-voor-interesse`,
+      `${SOURCE}/begrippenlijst/alleen-bij-goed-bod`,
+      `${SOURCE}/begrippenlijst/binnenkort-te-koop`,
+      `${SOURCE}/begrippenlijst/wat-betekent-open-voor-interesse`,
+    ],
+    [
+      section('What status labels mean', [
+        'Availability and status labels summarize what a source or public signal appears to say about a property. Examples include available, sold, unavailable, under offer, rented, withdrawn, open for future interest, likely to list later, or only worth discussing if the owner receives a strong offer.',
+        'A label is a signal, not a guarantee. Listings can be paused, duplicated, delayed, sold subject to conditions, or changed at the source before every app display catches up.',
+      ]),
+      section('Owner-intent labels', [
+        'Some sources use labels that describe possible owner intent rather than a live listing. A home that is open for interest, soon to be sold, or only open to a good offer may still have no fixed asking price, no active sale process, and no obligation for the owner to respond.',
+        'A good offer is subjective. It depends on the owner expectations, timing, comparable homes, property condition, and whether the owner actually wants to proceed.',
+      ]),
+      section('What to verify', [
+        'Before arranging a viewing, making plans, or sharing documents, check the original listing or contact the responsible agent, seller, landlord, or source owner for the current status.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype may display status context, but it does not control availability and does not reserve homes. Report outdated or conflicting status labels with the property URL and the current source link.',
+      ]),
+    ],
+    ['listing-source-links', 'owner-listing-source-workflows', 'data-availability-exceptions']
+  ),
+  term(
+    'housing-wishes',
+    'housing-wishes',
+    'Housing wishes',
+    'The preferences someone uses to search for a home or follow a market.',
+    'basics',
+    [`${SOURCE}/begrippenlijst/woonwensen`],
+    [
+      section('What they are', [
+        'Housing wishes are the practical and personal preferences that shape a home search. They can include location, budget, property type, floor area, outdoor space, accessibility, energy performance, schools, commute, and neighborhood feel.',
+      ]),
+      section('How they help search', [
+        'Clear wishes make it easier to filter properties and compare tradeoffs. A bigger home may mean a longer commute, a lower price may require renovation, and a preferred neighborhood may involve fewer available listings.',
+      ]),
+      section('In HuisHype', [
+        'Use housing wishes to interpret map results, saved homes, comments, and price signals. HuisHype can help you explore, but it does not decide whether a property fits your life or finances.',
+      ]),
+    ],
+    ['search-and-browse', 'saving-properties', 'price-guesses']
+  ),
+  term(
+    'nvm',
+    'nvm',
+    'NVM',
+    'A Dutch association for real estate agents and valuers. HuisHype is unaffiliated.',
+    'property-data',
+    [`${SOURCE}/begrippenlijst/nederlandse-vereniging-van-makelaars-nvm`],
+    [
+      section('What it is', [
+        'NVM is a Dutch professional association for real estate agents, appraisers, and related property professionals. Members can be subject to association rules, education, and professional standards.',
+        'Not every real estate agent in the Netherlands is an NVM member, and membership alone does not make HuisHype part of the relationship between client and agent.',
+      ]),
+      section('Why it matters', [
+        'When a listing or adviser mentions association membership, it can help you understand professional context, complaints routes, and expected conduct. You should still check who represents whom and what service agreement applies.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype is not affiliated with NVM and does not certify agents. If membership or disciplinary rules matter for your decision, verify directly with the agent and the association.',
+      ]),
+    ],
+    ['agent', 'buying-agent', 'broker-fee']
+  ),
+  term(
+    'nwwi',
+    'nwwi',
+    'NWWI',
+    'A Dutch body that validates certain valuation reports for quality-control purposes.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/nwwi`],
+    [
+      section('What it is', [
+        'NWWI is a Dutch validation body for certain residential valuation reports. It checks whether reports meet applicable quality requirements before they are used by lenders or other parties that require validated valuation work.',
+      ]),
+      section('What it does not do', [
+        'NWWI validation is not the same as a quick model value or crowd estimate. A validated report involves a qualified valuer, defined purpose, property review, market evidence, and checks on the report process.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype estimates, price guesses, and market labels are not NWWI reports and are not substitutes for an inspection-based valuation. Use a qualified valuer when a lender or official process requires one.',
+      ]),
+    ],
+    ['valuation-report', 'valuer', 'official-valuation-woz']
+  ),
+  term(
+    'valuation',
+    'valuation',
+    'Valuation',
+    'A professional or model-based estimate of value, depending on context.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/taxatie`],
+    [
+      section('What it means', [
+        'A valuation is an assessment of property value. In a formal setting, a qualified valuer reviews the home, its characteristics, condition, location, and market evidence.',
+      ]),
+      section('Formal valuation vs estimate', [
+        'A formal valuation report can be required for a mortgage or legal process. A model estimate or price guess is useful for orientation, but it does not replace a professional report.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype may show price opinions and market signals. It does not inspect the home, validate mortgage value, or certify a valuation.',
+      ]),
+    ],
+    ['valuation-report', 'valuer', 'market-value']
+  ),
+  term(
+    'valuation-report',
+    'valuation-report',
+    'Valuation report',
+    'A formal report prepared by a qualified valuer or appraiser.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/taxatierapport`],
+    [
+      section('What it contains', [
+        'A valuation report explains how a qualified valuer arrived at a property value. It can include location, condition, layout, floor area, comparable sales, rights and obligations, market context, and photos or documents.',
+      ]),
+      section('When it is needed', [
+        'Mortgage providers often require a formal report before lending. Reports may also be used for disputes, tax questions, estate matters, or owner decisions.',
+      ]),
+      section('HuisHype context', [
+        'A HuisHype signal is not a valuation report. If a bank, notary, municipality, or court asks for a report, use a qualified professional.',
+      ]),
+    ],
+    ['valuation', 'valuer', 'mortgage']
+  ),
+  term(
+    'valuer',
+    'valuer',
+    'Valuer',
+    'A professional who estimates property value for a defined purpose.',
+    'prices',
+    [`${SOURCE}/begrippenlijst/taxateur`],
+    [
+      section('What a valuer does', [
+        'A valuer estimates property value using professional guidelines, market evidence, property characteristics, and inspection. For formal work, independence and qualification matter.',
+      ]),
+      section('Why independence matters', [
+        'A valuation used for lending or legal decisions should not be shaped by the buyer or seller desired outcome. Validation bodies and lender rules may apply depending on the market.',
+      ]),
+      section('HuisHype context', [
+        'Use a valuer when you need an official value. HuisHype can help you prepare questions and compare signals, but it does not certify value.',
+      ]),
+    ],
+    ['valuation', 'valuation-report']
+  ),
+  term(
+    'notary',
+    'notary',
+    'Notary',
+    'A legal professional who handles formal transfer steps in many property transactions.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/notaris`],
+    [
+      section('What a notary does', [
+        'A notary handles formal legal documents and transfer steps in many property transactions. This can include the deed of transfer, mortgage deed, identity checks, funds flow, and registration.',
+      ]),
+      section('Why it matters', [
+        'The notary makes the legal transfer official and checks documents that affect ownership. Timing, documents, and obligations should be clear before completion.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype does not replace notarial checks. For ownership, transfer, rights, or contract questions, rely on the notary or legal adviser.',
+      ]),
+    ],
+    ['purchase-contract', 'land-registry']
+  ),
+  term(
+    'mortgage',
+    'mortgage',
+    'Mortgage',
+    'A loan secured against a property.',
+    'finance',
+    [`${SOURCE}/begrippenlijst/hypotheek`],
+    [
+      section('What it means', [
+        'A mortgage is a loan used to finance a home, with the property serving as security for the lender. If repayments are not made, the lender may have rights against the property.',
+      ]),
+      section('What affects it', [
+        'Borrowing capacity, interest rate, mortgage type, repayment schedule, valuation, income, debts, and personal risk all affect the final monthly cost and approval.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype is not a mortgage adviser. Use app signals for orientation and ask a qualified adviser or lender for financing decisions.',
+      ]),
+    ],
+    ['monthly-costs', 'valuation-report', 'annuity-mortgage']
+  ),
+  term(
+    'mortgage-repayment',
+    'mortgage-repayment',
+    'Mortgage repayment',
+    'Paying down the borrowed principal of a mortgage over time.',
+    'finance',
+    [`${SOURCE}/begrippenlijst/aflossen`],
+    [
+      section('What it means', [
+        'Mortgage repayment is the part of your payment that reduces the outstanding loan balance. It is different from interest, which is the cost of borrowing money.',
+        'Some mortgage types repay gradually, some repay a fixed principal amount, and some may have special rules for extra repayments or repayment-free periods.',
+      ]),
+      section('Why it matters', [
+        'Repayment affects equity, monthly costs, total interest, refinancing options, and the amount still owed when you sell. Extra repayment can reduce debt, but it may also affect liquidity, tax position, or lender conditions.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype can explain the concept, but it does not calculate personal affordability or recommend repayment choices. Ask a lender or mortgage adviser before changing repayment plans.',
+      ]),
+    ],
+    ['mortgage', 'monthly-costs', 'equity']
+  ),
+  term(
+    'mortgage-term',
+    'mortgage-term',
+    'Mortgage term',
+    'The period over which a mortgage is scheduled to run or be repaid.',
+    'finance',
+    [`${SOURCE}/begrippenlijst/looptijd-hypotheek`],
+    [
+      section('What it means', [
+        'The mortgage term is the length of time the loan is scheduled to run. It can refer to the total repayment term, while the interest-rate fixed period may be a separate and shorter period.',
+        'A longer term can spread repayment over more years, while a shorter term usually repays faster but can mean higher monthly payments.',
+      ]),
+      section('Why it matters', [
+        'The term affects monthly costs, total interest, debt reduction, and flexibility when moving or refinancing. Lender rules, age, income, mortgage type, and tax rules may affect what terms are available.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype is not a mortgage calculator or adviser. Use property and price signals for orientation only, then verify financing choices with a qualified adviser or lender.',
+      ]),
+    ],
+    ['mortgage', 'mortgage-repayment', 'monthly-costs']
+  ),
+  term(
+    'annuity-mortgage',
+    'annuity-mortgage',
+    'Annuity mortgage',
+    'A mortgage where monthly payments are usually fixed while interest and repayment shares change over time.',
+    'finance',
+    [`${SOURCE}/begrippenlijst/annuiteitenhypotheek`],
+    [
+      section('How it works', [
+        'With an annuity mortgage, the gross monthly payment is typically stable during the fixed-rate period. Early payments contain more interest, while later payments contain more repayment.',
+      ]),
+      section('What to consider', [
+        'The mortgage debt falls gradually. Net monthly costs can change over time because interest deductibility, tax rules, interest resets, and personal circumstances can change.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype can explain the term but does not calculate or recommend a mortgage. Ask a qualified adviser before choosing a mortgage type.',
+      ]),
+    ],
+    ['mortgage', 'linear-mortgage', 'monthly-costs']
+  ),
+  term(
+    'linear-mortgage',
+    'linear-mortgage',
+    'Linear mortgage',
+    'A mortgage where a fixed principal amount is repaid each period.',
+    'finance',
+    [`${SOURCE}/begrippenlijst/lineaire-hypotheek`],
+    [
+      section('How it works', [
+        'With a linear mortgage, you repay the same amount of principal each period. Because the outstanding debt falls steadily, the interest part usually decreases over time.',
+      ]),
+      section('What to consider', [
+        'Initial monthly costs are often higher than with an annuity mortgage, but the debt declines faster and total interest can be lower. Affordability depends on income, rate, and personal plans.',
+      ]),
+      section('HuisHype context', [
+        'Use this glossary as orientation only. Mortgage suitability depends on financial advice, lender rules, and local tax treatment.',
+      ]),
+    ],
+    ['mortgage', 'annuity-mortgage', 'monthly-costs']
+  ),
+  term(
+    'monthly-costs',
+    'monthly-costs',
+    'Monthly costs',
+    'Recurring housing costs such as mortgage or rent, service charges, energy, insurance, and taxes.',
+    'finance',
+    [
+      `${SOURCE}/begrippenlijst/maandlasten`,
+      `${SOURCE}/begrippenlijst/aflossen`,
+      `${SOURCE}/begrippenlijst/looptijd-hypotheek`,
+    ],
+    [
+      section('What they include', [
+        'Monthly housing costs can include mortgage interest, repayment, rent, service charges, energy, insurance, municipal taxes, ground lease, maintenance reserves, and association fees.',
+      ]),
+      section('What changes them', [
+        'Loan amount, interest rate, mortgage type, repayment term, energy label, property condition, household behavior, and local taxes all affect the monthly picture.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype may show price and property signals, but it does not calculate personal affordability. Check costs with your lender, adviser, landlord, source listing, or owner association.',
+      ]),
+    ],
+    ['mortgage', 'annuity-mortgage', 'linear-mortgage']
+  ),
+  term(
+    'equity',
+    'equity',
+    'Equity',
+    'The difference between property value and remaining debt.',
+    'finance',
+    [`${SOURCE}/begrippenlijst/overwaarde`],
+    [
+      section('What it means', [
+        'Equity is the part of property value that is not covered by remaining mortgage debt. It can grow when the property value rises or when the mortgage is repaid.',
+      ]),
+      section('Why it matters', [
+        'Equity can affect moving plans, refinancing, renovation budgets, and financial planning. It is not the same as cash in your account because selling costs, taxes, financing rules, and new-home prices may apply.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype signals can help you estimate the market side of the calculation. Verify debt, costs, and tax effects with your lender or adviser.',
+      ]),
+    ],
+    ['market-value', 'mortgage']
+  ),
+  term(
+    'broker-fee',
+    'broker-fee',
+    'Broker fee',
+    'A fee paid to an agent or broker for services.',
+    'finance',
+    [`${SOURCE}/begrippenlijst/courtage`, `${SOURCE}/begrippenlijst/makelaarskosten`],
+    [
+      section('What it means', [
+        'A broker fee is compensation paid to a real estate agent or broker. It may be a percentage of the sale price, a fixed fee, startup costs, marketing costs, or another agreed structure.',
+      ]),
+      section('What to compare', [
+        'Compare what is included: valuation advice, photography, listing placement, viewings, negotiation, legal coordination, rental screening, and aftercare. The cheapest fee is not always the best deal.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype does not set agent fees. If a listing source or agent is involved, check their own terms before committing.',
+      ]),
+    ],
+    ['agent']
+  ),
+  term(
+    'agent',
+    'agent',
+    'Real estate agent',
+    'A professional who helps buy, sell, rent, or let property.',
+    'property-data',
+    [`${SOURCE}/begrippenlijst/makelaar`, `${SOURCE}/begrippenlijst/aankoopmakelaar`],
+    [
+      section('What an agent does', [
+        'A real estate agent helps with buying, selling, renting, or letting property. Work can include market advice, viewings, pricing, negotiation, documents, listing presentation, and communication with other parties.',
+      ]),
+      section('Buying and selling roles', [
+        'A buying agent supports the buyer interests. A selling agent represents the seller. Their incentives, duties, and fees are different, so it matters who the agent works for.',
+      ]),
+      section('HuisHype context', [
+        'HuisHype is not an agent and does not represent either side in a transaction. Use source listing links or direct professional contact for viewings, offers, and negotiations.',
+      ]),
+    ],
+    ['broker-fee', 'listing-source-links']
+  ),
+  term(
+    'buying-agent',
+    'buying-agent',
+    'Buying agent',
+    'An agent who supports the buyer rather than the seller in a property transaction.',
+    'buying',
+    [`${SOURCE}/begrippenlijst/aankoopmakelaar`],
+    [
+      section('What a buying agent does', [
+        'A buying agent advises and represents a buyer during a home search or purchase. Work can include finding properties, arranging viewings, assessing asking prices, reviewing documents, advising on bids, negotiating, and coordinating with other professionals.',
+      ]),
+      section('How the role differs', [
+        'A buying agent works for the buyer, while the selling agent represents the seller. That distinction matters when discussing price, strategy, defects, deadlines, and confidential information.',
+        'Fees, services, exclusivity, and cancellation rules can differ, so review the service agreement before relying on the agent.',
+      ]),
+      section('In HuisHype', [
+        'HuisHype is not a buying agent and does not negotiate or advise on a specific bid. Use app signals for orientation and choose professional help separately when you need representation.',
+      ]),
+    ],
+    ['agent', 'broker-fee', 'viewing', 'realistic-bid']
+  ),
 ];
 
 function term(
@@ -1507,7 +2012,8 @@ export const legalPages: LegalPageContent[] = [
     id: 'terms',
     slug: 'terms',
     title: 'Terms and Conditions',
-    summary: 'Rules for using HuisHype, including accounts, social content, data accuracy, and transaction disclaimers.',
+    summary:
+      'Rules for using HuisHype, including accounts, social content, data accuracy, and transaction disclaimers.',
     category: 'legal',
     audience: 'everyone',
     lastUpdated: 'May 21, 2026',
@@ -1559,7 +2065,8 @@ export const legalPages: LegalPageContent[] = [
     id: 'privacy',
     slug: 'privacy',
     title: 'Privacy Policy',
-    summary: 'How HuisHype handles account data, public social activity, support messages, analytics, and rights requests.',
+    summary:
+      'How HuisHype handles account data, public social activity, support messages, analytics, and rights requests.',
     category: 'legal',
     audience: 'everyone',
     lastUpdated: 'May 21, 2026',
@@ -1608,7 +2115,8 @@ export const legalPages: LegalPageContent[] = [
     id: 'cookies',
     slug: 'cookies',
     title: 'Cookie Policy',
-    summary: 'How HuisHype uses cookies and similar storage for login, security, preferences, analytics, and diagnostics.',
+    summary:
+      'How HuisHype uses cookies and similar storage for login, security, preferences, analytics, and diagnostics.',
     category: 'legal',
     audience: 'everyone',
     lastUpdated: 'May 21, 2026',
@@ -1636,7 +2144,8 @@ export const legalPages: LegalPageContent[] = [
     id: 'data-privacy',
     slug: 'data-privacy',
     title: 'Data and Privacy Choices',
-    summary: 'How to request access, correction, deletion, objection, export, or review of data shown in HuisHype.',
+    summary:
+      'How to request access, correction, deletion, objection, export, or review of data shown in HuisHype.',
     category: 'legal',
     audience: 'everyone',
     lastUpdated: 'May 21, 2026',
@@ -1665,7 +2174,8 @@ export const legalPages: LegalPageContent[] = [
     id: 'sharing-permissions',
     slug: 'sharing-permissions',
     title: 'Sharing Permissions',
-    summary: 'What to know before sharing comments, property links, screenshots, reports, or rights-sensitive material.',
+    summary:
+      'What to know before sharing comments, property links, screenshots, reports, or rights-sensitive material.',
     category: 'legal',
     audience: 'everyone',
     lastUpdated: 'May 21, 2026',
@@ -1703,22 +2213,102 @@ export const allSupportRecords = [
   ...legalPages,
 ];
 
-export function getSupportCategory(slug: string) {
-  return supportCategories.find((category) => category.slug === slug);
+const englishSupportCatalog: SupportCatalog = {
+  supportCategories,
+  supportArticles,
+  glossaryTerms,
+  legalPages,
+  allSupportRecords,
+};
+
+const localizedSupportCatalogs: Partial<Record<LanguageCode, SupportCatalog>> = {
+  en: englishSupportCatalog,
+  nl: createLocalizedSupportCatalog(nlSupportCatalogText),
+};
+
+export function getSupportCatalog(language: LanguageCode = 'en'): SupportCatalog {
+  return localizedSupportCatalogs[language] ?? englishSupportCatalog;
 }
 
-export function getSupportArticle(slug: string) {
-  return supportArticles.find((article) => article.slug === slug);
+export function resolveSupportCatalog(input?: SupportCatalogInput): SupportCatalog {
+  if (!input) {
+    return englishSupportCatalog;
+  }
+
+  return typeof input === 'string' ? getSupportCatalog(input) : input;
 }
 
-export function getGlossaryTerm(slug: string) {
-  return glossaryTerms.find((termRecord) => termRecord.slug === slug);
+export function getSupportCategory(slug: string, catalogOrLanguage?: SupportCatalogInput) {
+  const catalog = resolveSupportCatalog(catalogOrLanguage);
+
+  return catalog.supportCategories.find((category) => category.slug === slug);
 }
 
-export function getLegalPage(slug: string) {
-  return legalPages.find((page) => page.slug === slug);
+export function getSupportArticle(slug: string, catalogOrLanguage?: SupportCatalogInput) {
+  const catalog = resolveSupportCatalog(catalogOrLanguage);
+
+  return catalog.supportArticles.find((article) => article.slug === slug);
 }
 
-export function getArticlesForCategory(categoryId: string) {
-  return supportArticles.filter((article) => article.category === categoryId);
+export function getGlossaryTerm(slug: string, catalogOrLanguage?: SupportCatalogInput) {
+  const catalog = resolveSupportCatalog(catalogOrLanguage);
+
+  return catalog.glossaryTerms.find((termRecord) => termRecord.slug === slug);
+}
+
+export function getLegalPage(slug: string, catalogOrLanguage?: SupportCatalogInput) {
+  const catalog = resolveSupportCatalog(catalogOrLanguage);
+
+  return catalog.legalPages.find((page) => page.slug === slug);
+}
+
+export function getArticlesForCategory(
+  categoryId: string,
+  catalogOrLanguage?: SupportCatalogInput
+) {
+  const catalog = resolveSupportCatalog(catalogOrLanguage);
+
+  return catalog.supportArticles.filter((article) => article.category === categoryId);
+}
+
+function createLocalizedSupportCatalog(text: LocalizedSupportCatalogText): SupportCatalog {
+  const localizedSupportCategories = localizeRecords(supportCategories, text.categories);
+  const localizedSupportArticles = localizeRecords(supportArticles, text.articles);
+  const localizedGlossaryTerms = localizeRecords(glossaryTerms, text.glossary);
+  const localizedLegalPages = localizeRecords(legalPages, text.legal);
+
+  return {
+    supportCategories: localizedSupportCategories,
+    supportArticles: localizedSupportArticles,
+    glossaryTerms: localizedGlossaryTerms,
+    legalPages: localizedLegalPages,
+    allSupportRecords: [
+      ...localizedSupportCategories,
+      ...localizedSupportArticles,
+      ...localizedGlossaryTerms,
+      ...localizedLegalPages,
+    ],
+  };
+}
+
+function localizeRecords<
+  T extends { id: string; title: string; summary: string; bodySections: SupportBodySection[] },
+>(records: T[], textById: Record<string, LocalizedSupportRecordText>): T[] {
+  return records.map((record) => {
+    const text = textById[record.id];
+
+    if (!text) {
+      return record;
+    }
+
+    return {
+      ...record,
+      title: text.title,
+      summary: text.summary,
+      bodySections: text.bodySections.map((section) => ({
+        title: section.title,
+        paragraphs: [...section.paragraphs],
+      })),
+    };
+  });
 }

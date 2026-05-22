@@ -28,12 +28,17 @@ jest.mock('../../hooks/useAuth', () => ({
 
 
 import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render as rtlRender, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { BackHandler, Platform } from 'react-native';
 import { AuthModal } from '../AuthModal';
 import { WebDismissibleLayerProvider } from '../../providers/WebDismissibleLayerProvider';
+import { LanguageProvider } from '../../i18n';
 
 const originalPlatform = Platform.OS;
+
+function render(ui: React.ReactElement) {
+  return rtlRender(ui, { wrapper: LanguageProvider });
+}
 
 function renderWithDismissibleLayer(ui: React.ReactElement) {
   return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);

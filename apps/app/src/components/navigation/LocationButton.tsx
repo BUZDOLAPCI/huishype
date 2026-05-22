@@ -17,6 +17,7 @@ import { Pressable, Platform, StyleSheet, type ViewStyle } from 'react-native';
 
 import { Icon } from '@/src/components/ui/Icon';
 import { BlurContainer } from '@/src/components/ui/BlurContainer';
+import { useT } from '@/src/i18n';
 
 interface LocationButtonProps {
   onPress?: () => void;
@@ -40,13 +41,15 @@ const nativeShadow: ViewStyle = Platform.select({
 }) ?? {};
 
 export function LocationButton({ onPress, testID }: LocationButtonProps) {
+  const t = useT();
+
   if (Platform.OS === 'web') {
     return (
       <Pressable
         onPress={onPress}
         testID={testID ?? 'location-button'}
-        accessibilityLabel="Current location"
-        accessibilityHint="Centers the map on your current location"
+        accessibilityLabel={t('nav.currentLocation.label')}
+        accessibilityHint={t('nav.currentLocation.hint')}
         accessibilityRole="button"
         style={[styles.button, styles.webButton]}
       >
@@ -60,8 +63,8 @@ export function LocationButton({ onPress, testID }: LocationButtonProps) {
     <Pressable
       onPress={onPress}
       testID={testID ?? 'location-button'}
-      accessibilityLabel="Current location"
-      accessibilityHint="Centers the map on your current location"
+      accessibilityLabel={t('nav.currentLocation.label')}
+      accessibilityHint={t('nav.currentLocation.hint')}
       accessibilityRole="button"
       style={[styles.shadowWrapper, nativeShadow]}
     >

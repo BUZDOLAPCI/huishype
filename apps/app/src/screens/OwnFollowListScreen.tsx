@@ -3,6 +3,7 @@ import { FlatList, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { AuthModal } from '@/src/components';
+import { useT } from '@/src/i18n';
 import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Button } from '@/src/components/ui/Button';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
@@ -14,12 +15,12 @@ type FollowListKind = 'followers' | 'following';
 
 interface OwnFollowListScreenProps {
   kind: FollowListKind;
-  title: string;
 }
 
 type FollowListItem = FollowListResponse['items'][number];
 
-export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
+export function OwnFollowListScreen({ kind }: OwnFollowListScreenProps) {
+  const t = useT();
   const { user } = useAuthContext();
   const [showAuth, setShowAuth] = React.useState(false);
   const followersQuery = useFollowers(undefined, kind === 'followers');
@@ -29,22 +30,23 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
     () => query.data?.pages.flatMap((page) => page.items) ?? [],
     [query.data?.pages]
   );
+  const localizedTitle = kind === 'followers' ? t('common.followers') : t('common.following');
 
   if (!user) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={title} />
+        <ScreenHeader title={localizedTitle} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
-            Sign in to see your {title.toLowerCase()}
+            {t('profile.followList.authTitle', { title: localizedTitle.toLowerCase() })}
           </Text>
           <Text className="text-sm text-warm-500 text-center mt-2">
             {kind === 'followers'
-              ? 'See who follows your activity and profile updates.'
-              : 'Keep track of the people whose housing activity you follow.'}
+              ? t('profile.followList.followersBody')
+              : t('profile.followList.followingBody')}
           </Text>
           <Button
-            label="Sign In"
+            label={t('common.signIn')}
             onPress={() => setShowAuth(true)}
             style={{ alignSelf: 'stretch', marginTop: 24 }}
             testID={`follow-list-sign-in-${kind}`}
@@ -53,7 +55,7 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
         <AuthModal
           visible={showAuth}
           onClose={() => setShowAuth(false)}
-          message={`Sign in to see your ${title.toLowerCase()}`}
+          message={t('profile.followList.authTitle', { title: localizedTitle.toLowerCase() })}
           onSuccess={() => setShowAuth(false)}
         />
       </ScreenBackground>
@@ -63,9 +65,11 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
   if (query.isLoading) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={title} />
+        <ScreenHeader title={localizedTitle} />
         <View className="flex-1 items-center justify-center">
-          <Text className="text-warm-500">Loading {title.toLowerCase()}...</Text>
+          <Text className="text-warm-500">
+            {t('profile.followList.loading', { title: localizedTitle.toLowerCase() })}
+          </Text>
         </View>
       </ScreenBackground>
     );
@@ -74,13 +78,13 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
   if (query.isError) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={title} />
+        <ScreenHeader title={localizedTitle} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
-            Could not load {title.toLowerCase()}
+            {t('profile.followList.errorTitle', { title: localizedTitle.toLowerCase() })}
           </Text>
           <Text className="text-sm text-warm-500 text-center mt-2">
-            {query.error instanceof Error ? query.error.message : 'Please try again.'}
+            {query.error instanceof Error ? query.error.message : t('profile.follow.errorFallback')}
           </Text>
         </View>
       </ScreenBackground>
@@ -90,15 +94,15 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
   if (items.length === 0) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={title} />
+        <ScreenHeader title={localizedTitle} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
-            No {title.toLowerCase()} yet
+            {t('profile.followList.emptyTitle', { title: localizedTitle.toLowerCase() })}
           </Text>
           <Text className="text-sm text-warm-500 text-center mt-2">
             {kind === 'followers'
-              ? 'When people follow you, they will appear here.'
-            : 'People you follow will appear here.'}
+              ? t('profile.followList.followersEmptyBody')
+              : t('profile.followList.followingEmptyBody')}
           </Text>
         </View>
       </ScreenBackground>
@@ -107,7 +111,7 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
 
   return (
     <ScreenBackground>
-      <ScreenHeader title={title} />
+      <ScreenHeader title={localizedTitle} />
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
@@ -121,7 +125,7 @@ export function OwnFollowListScreen({ kind, title }: OwnFollowListScreenProps) {
         ListFooterComponent={
           query.isFetchingNextPage ? (
             <Text className="text-sm text-warm-500 text-center py-4">
-              Loading more...
+              {t('profile.followList.loadingMore')}
             </Text>
           ) : null
         }

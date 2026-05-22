@@ -17,6 +17,7 @@ import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { useT } from '@/src/i18n';
 import {
   emitSocialFollowAnalyticsEvent,
   normalizeUserSearchQuery,
@@ -42,6 +43,7 @@ function getUnfollowedRelationship(current: UserSearchRelationship): UserSearchR
 }
 
 export function UserSearchScreen() {
+  const t = useT();
   const { user, isAuthenticated } = useAuthContext();
   const [query, setQuery] = React.useState('');
   const [showAuth, setShowAuth] = React.useState(false);
@@ -128,14 +130,15 @@ export function UserSearchScreen() {
       } catch (error) {
         updateOverride(item, previous);
         Alert.alert(
-          'Could not update follow status',
-          error instanceof Error ? error.message : 'Please try again.',
+          t('profile.follow.errorTitle'),
+          error instanceof Error ? error.message : t('profile.follow.errorFallback'),
         );
       }
     },
     [
       followMutation,
       isAuthenticated,
+      t,
       unfollowMutation,
       updateOverride,
       user,
@@ -154,7 +157,10 @@ export function UserSearchScreen() {
             onPress={() => router.push(`/user/${item.id}`)}
             style={styles.resultIdentity}
             accessibilityRole="button"
-            accessibilityLabel={`${item.displayName}, @${item.handle}`}
+            accessibilityLabel={t('userSearch.openProfile', {
+              name: item.displayName,
+              handle: item.handle,
+            })}
           >
             <UserAvatar
               username={item.handle}
@@ -173,11 +179,11 @@ export function UserSearchScreen() {
           </Pressable>
           {isSelf ? (
             <View style={styles.selfBadge} testID={`user-search-self-${item.id}`}>
-              <Text style={styles.selfBadgeText}>You</Text>
+              <Text style={styles.selfBadgeText}>{t('userSearch.self')}</Text>
             </View>
           ) : (
             <Button
-              label={isFollowing ? 'Unfollow' : 'Follow'}
+              label={isFollowing ? t('userSearch.unfollow') : t('common.follow')}
               size="sm"
               variant={isFollowing ? 'secondary' : 'primary'}
               disabled={isPending}
@@ -189,7 +195,7 @@ export function UserSearchScreen() {
         </View>
       );
     },
-    [handleToggleFollow, pendingUserId, user?.id],
+    [handleToggleFollow, pendingUserId, t, user?.id],
   );
 
   const showReadyPrompt = normalizedQuery.length < 2;
@@ -206,7 +212,7 @@ export function UserSearchScreen() {
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search users"
+          placeholder={t('userSearch.placeholder')}
           placeholderTextColor="#9C958A"
           autoCapitalize="none"
           autoCorrect={false}
@@ -219,7 +225,7 @@ export function UserSearchScreen() {
             onPress={() => setQuery('')}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="Clear search"
+            accessibilityLabel={t('userSearch.clear')}
             testID="user-search-clear"
           >
             <Icon name="X" size="sm" color="#9C958A" />
@@ -229,9 +235,9 @@ export function UserSearchScreen() {
 
       {searchQuery.isError ? (
         <View style={styles.stateBlock} testID="user-search-error">
-          <Text style={styles.stateTitle}>Could not load users</Text>
+          <Text style={styles.stateTitle}>{t('userSearch.loadErrorTitle')}</Text>
           <Text style={styles.stateText}>
-            {searchQuery.error instanceof Error ? searchQuery.error.message : 'Please try again.'}
+            {searchQuery.error instanceof Error ? searchQuery.error.message : t('profile.follow.errorFallback')}
           </Text>
         </View>
       ) : showReadyPrompt ? (
@@ -239,11 +245,11 @@ export function UserSearchScreen() {
       ) : searchQuery.isLoading ? (
         <View style={styles.stateBlock} testID="user-search-loading">
           <ActivityIndicator color="#DE911D" />
-          <Text style={styles.stateText}>Loading...</Text>
+          <Text style={styles.stateText}>{t('userSearch.loading')}</Text>
         </View>
       ) : showNoResults ? (
         <View style={styles.stateBlock} testID="user-search-empty">
-          <Text style={styles.stateTitle}>No results</Text>
+          <Text style={styles.stateTitle}>{t('userSearch.noResults')}</Text>
         </View>
       ) : (
         <FlatList
@@ -259,7 +265,7 @@ export function UserSearchScreen() {
       <AuthModal
         visible={showAuth}
         onClose={() => setShowAuth(false)}
-        message="Sign in to follow people"
+        message={t('profile.follow.auth')}
         onSuccess={() => setShowAuth(false)}
       />
     </ScreenBackground>

@@ -20,6 +20,7 @@ import {
   getPropertyImageCandidates,
   toPropertyImageSource,
 } from '@/src/utils/property-image';
+import { useT } from '@/src/i18n';
 
 const CARD_WIDTH = 280;
 const COMPACT_CLUSTER_CARD_WIDTH = Math.round(CARD_WIDTH * 0.85);
@@ -189,6 +190,7 @@ export function GroupPreviewCard({
   arrowDirection = 'down',
   onTouchStart,
 }: GroupPreviewCardProps) {
+  const t = useT();
   const isCluster = properties.length > 1;
   const currentIndex = controlledIndex ?? 0;
   const currentProperty = properties[currentIndex];
@@ -472,8 +474,12 @@ export function GroupPreviewCard({
                 !canGoLeft && styles.navArrowDisabled,
               ]}
               testID="group-preview-nav-left"
-              accessibilityLabel="Previous property"
-              accessibilityHint={canGoLeft ? `Go to property ${currentIndex}` : 'No previous property'}
+              accessibilityLabel={t('property.preview.previous')}
+              accessibilityHint={
+                canGoLeft
+                  ? t('property.preview.goToProperty', { index: currentIndex })
+                  : t('property.preview.noPrevious')
+              }
               accessibilityRole="button"
               accessibilityState={{ disabled: !canGoLeft }}
             >
@@ -487,7 +493,10 @@ export function GroupPreviewCard({
             <View style={styles.pageIndicator} testID="group-preview-page-indicator">
               <Icon name="ListBullets" size={13} color={COLORS.white} />
               <Text style={styles.pageText} testID="group-preview-page-text">
-                {currentIndex + 1} of {properties.length}
+                {t('property.preview.pageCount', {
+                  current: currentIndex + 1,
+                  total: properties.length,
+                })}
               </Text>
             </View>
 
@@ -501,8 +510,12 @@ export function GroupPreviewCard({
                 !canGoRight && styles.navArrowGoldDisabled,
               ]}
               testID="group-preview-nav-right"
-              accessibilityLabel="Next property"
-              accessibilityHint={canGoRight ? `Go to property ${currentIndex + 2}` : 'No next property'}
+              accessibilityLabel={t('property.preview.next')}
+              accessibilityHint={
+                canGoRight
+                  ? t('property.preview.goToProperty', { index: currentIndex + 2 })
+                  : t('property.preview.noNext')
+              }
               accessibilityRole="button"
               accessibilityState={{ disabled: !canGoRight }}
             >

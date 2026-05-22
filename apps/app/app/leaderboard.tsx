@@ -39,13 +39,14 @@ import { shadows } from '@/src/lib/shadows';
 import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import { toPropertyImageSource } from '@/src/utils/property-image';
+import { useT, type TranslationKey } from '@/src/i18n';
 
 // --- Period config ---
 
-const PERIODS: Array<{ key: LeaderboardPeriod; label: string }> = [
-  { key: 'week', label: 'This Week' },
-  { key: 'month', label: 'This Month' },
-  { key: 'all', label: 'All Time' },
+const PERIODS: Array<{ key: LeaderboardPeriod; labelKey: TranslationKey }> = [
+  { key: 'week', labelKey: 'leaderboard.period.week' },
+  { key: 'month', labelKey: 'leaderboard.period.month' },
+  { key: 'all', labelKey: 'leaderboard.period.all' },
 ];
 
 const placeholderImage = require('../assets/images/property-placeholder.png');
@@ -61,6 +62,7 @@ function PodiumEntry({
   position: 1 | 2 | 3;
   isCurrentUser: boolean;
 }) {
+  const t = useT();
   const isFirst = position === 1;
   const nameFontSize = isFirst ? 14 : 13;
 
@@ -72,7 +74,12 @@ function PodiumEntry({
         isCurrentUser && styles.podiumCardCurrentUser,
         shadows.card,
       ]}
-      accessibilityLabel={`Rank ${position}: ${entry.displayName}, ${entry.karma} karma points${isCurrentUser ? ', you' : ''}`}
+      accessibilityLabel={t('leaderboard.podiumA11y', {
+        rank: position,
+        name: entry.displayName,
+        karma: entry.karma,
+        you: isCurrentUser ? t('leaderboard.youSuffix') : '',
+      })}
       accessibilityRole="summary"
     >
       {/* Crown for 1st place */}
@@ -117,7 +124,7 @@ function PodiumEntry({
 
       {/* Points */}
       <Text style={[styles.podiumPoints, isFirst && styles.podiumPointsFirst]}>
-        {entry.karma.toLocaleString()} pts
+        {t('leaderboard.points', { count: entry.karma.toLocaleString() })}
       </Text>
 
       {/* Stats (1st only) */}
@@ -150,13 +157,22 @@ function RankingRow({
   entry: LeaderboardEntry;
   isCurrentUser: boolean;
 }) {
+  const t = useT();
+
   return (
     <View
       style={[
         styles.rankingRow,
         isCurrentUser && styles.rankingRowCurrentUser,
       ]}
-      accessibilityLabel={`Rank ${entry.rank}: ${entry.displayName}, ${entry.karma} karma, ${entry.commentCount} comments, ${entry.guessCount} guesses${isCurrentUser ? ', you' : ''}`}
+      accessibilityLabel={t('leaderboard.rowA11y', {
+        rank: entry.rank,
+        name: entry.displayName,
+        karma: entry.karma,
+        comments: entry.commentCount,
+        guesses: entry.guessCount,
+        you: isCurrentUser ? t('leaderboard.youSuffix') : '',
+      })}
       accessibilityRole="summary"
     >
       <Text
@@ -182,7 +198,10 @@ function RankingRow({
         <View style={styles.rankingMeta}>
           <KarmaBadge karma={entry.karma} size="sm" />
           <Text style={styles.rankingMetaText}>
-            {entry.commentCount} comments · {entry.guessCount} guesses
+            {t('leaderboard.meta', {
+              comments: entry.commentCount,
+              guesses: entry.guessCount,
+            })}
           </Text>
         </View>
       </View>
@@ -208,13 +227,14 @@ function FeaturedPropertyCard({
   property: FeaturedProperty;
   period: LeaderboardPeriod;
 }) {
+  const t = useT();
   const imageSource = toPropertyImageSource(property);
   const periodLabel =
     period === 'week'
-      ? 'This week'
+      ? t('leaderboard.periodBadge.week')
       : period === 'month'
-        ? 'This month'
-        : 'All time';
+        ? t('leaderboard.periodBadge.month')
+        : t('leaderboard.periodBadge.all');
 
   return (
     <Pressable
@@ -223,7 +243,10 @@ function FeaturedPropertyCard({
         router.push(toInternalAppHref(buildPropertyRoute(property, '/leaderboard')))
       }
       accessibilityRole="button"
-      accessibilityLabel={`Featured property: ${property.address}, ${property.city}`}
+      accessibilityLabel={t('leaderboard.featuredA11y', {
+        address: property.address,
+        city: property.city,
+      })}
     >
       <View style={styles.featuredMedia}>
         <PropertyImageSurface
@@ -254,7 +277,9 @@ function FeaturedPropertyCard({
       </View>
 
       <View style={styles.featuredBadge}>
-        <Text style={styles.featuredBadgeText}>{`MOST DISCUSSED · ${periodLabel}`}</Text>
+        <Text style={styles.featuredBadgeText}>
+          {t('leaderboard.featured.mostDiscussedPeriod', { period: periodLabel })}
+        </Text>
       </View>
 
       <View style={styles.featuredContentBackdrop} />
@@ -301,6 +326,7 @@ type ListItem =
   | { type: 'ranking'; data: LeaderboardEntry; id: string };
 
 export default function LeaderboardScreen() {
+  const t = useT();
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const [period, setPeriod] = useState<LeaderboardPeriod>('week');
@@ -354,7 +380,7 @@ export default function LeaderboardScreen() {
       if (item.type === 'rankings-header') {
         return (
           <View style={styles.rankingsHeader}>
-            <Text style={styles.rankingsHeaderText}>ALL RANKINGS</Text>
+            <Text style={styles.rankingsHeaderText}>{t('leaderboard.rankingsHeader')}</Text>
           </View>
         );
       }
@@ -366,7 +392,7 @@ export default function LeaderboardScreen() {
         />
       );
     },
-    [podiumEntries, currentUserId]
+    [podiumEntries, currentUserId, t]
   );
 
   const keyExtractor = useCallback((item: ListItem) => item.id, []);
@@ -381,13 +407,13 @@ export default function LeaderboardScreen() {
             onPress={() => router.back()}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('leaderboard.goBack')}
             style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
           >
             <Icon name="ArrowLeft" size="lg" color="#2D2926" />
           </Pressable>
           <Icon name="Trophy" size="lg" weight="fill" color="#F5A623" />
-          <Text style={styles.headerTitle}>Leaderboard</Text>
+          <Text style={styles.headerTitle}>{t('leaderboard.title')}</Text>
         </View>
       </View>
 
@@ -396,7 +422,7 @@ export default function LeaderboardScreen() {
         {PERIODS.map((p) => (
           <Chip
             key={p.key}
-            label={p.label}
+            label={t(p.labelKey)}
             active={period === p.key}
             onPress={() => setPeriod(p.key)}
             testID={`period-${p.key}`}
@@ -408,7 +434,7 @@ export default function LeaderboardScreen() {
       {data?.featuredProperty && (
         <View style={styles.featuredSection}>
           <Text style={styles.sectionLabel}>
-            {`MOST DISCUSSED${period === 'week' ? ' THIS WEEK' : period === 'month' ? ' THIS MONTH' : ''}`}
+            {t('leaderboard.featured.mostDiscussed')}
           </Text>
           <FeaturedPropertyCard property={data.featuredProperty} period={period} />
         </View>
@@ -418,15 +444,14 @@ export default function LeaderboardScreen() {
       {isLoading ? (
         <View style={styles.emptyContainer}>
           <Icon name="Trophy" size="xl" color="#DE911D" />
-          <Text style={styles.emptyText}>Loading leaderboard...</Text>
+          <Text style={styles.emptyText}>{t('leaderboard.loading')}</Text>
         </View>
       ) : listItems.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Icon name="Trophy" size="2xl" color="#C7BFB3" />
-          <Text style={styles.emptyTitle}>No rankings yet</Text>
+          <Text style={styles.emptyTitle}>{t('leaderboard.empty.title')}</Text>
           <Text style={styles.emptyText}>
-            Be the first to comment, guess, or like to appear on the
-            leaderboard.
+            {t('leaderboard.empty.body')}
           </Text>
         </View>
       ) : (

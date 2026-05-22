@@ -26,6 +26,7 @@ import { getCountryConfig, isValidCountryCode } from '@huishype/shared/config';
 import { toPropertyImageSource } from '../utils/property-image';
 import { PropertyImageSurface } from './PropertyImageSurface';
 import type { WebViewStyle } from '@/src/lib/webStyle';
+import { useT } from '@/src/i18n';
 
 // ─── Warm palette constants ──────────────────────────────────────────────
 
@@ -249,6 +250,7 @@ export function PropertyPreviewCard({
   closeButtonTestID = 'property-preview-close-button',
   showArrow = false,
 }: PropertyPreviewCardProps) {
+  const t = useT();
   const activityLevel = property.activityLevel ?? 'cold';
   const activity = ACTIVITY_CONFIG[activityLevel];
   const displayPrice = getDisplayPrice(property);
@@ -354,7 +356,7 @@ export function PropertyPreviewCard({
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-like-button"
             accessibilityRole="button"
-            accessibilityLabel={isLiked ? 'Liked' : 'Like'}
+            accessibilityLabel={isLiked ? t('property.preview.liked') : t('property.preview.like')}
           >
             <Icon
               name="Heart"
@@ -363,7 +365,7 @@ export function PropertyPreviewCard({
               color={isLiked ? COLORS.hotRed500 : COLORS.heartPink}
             />
             <Text style={[styles.actionLabel, { color: isLiked ? COLORS.hotRed500 : COLORS.heartPink }]}>
-              {isLiked ? 'Liked' : 'Like'}
+              {isLiked ? t('property.preview.liked') : t('property.preview.like')}
             </Text>
           </Pressable>
 
@@ -376,10 +378,12 @@ export function PropertyPreviewCard({
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-comment-button"
             accessibilityRole="button"
-            accessibilityLabel="Comment"
+            accessibilityLabel={t('property.preview.comment')}
           >
             <Icon name="ChatCircle" size={18} color={COLORS.commentGreen} />
-            <Text style={[styles.actionLabel, { color: COLORS.commentGreen }]}>Comment</Text>
+            <Text style={[styles.actionLabel, { color: COLORS.commentGreen }]}>
+              {t('property.preview.comment')}
+            </Text>
           </Pressable>
 
           <Pressable
@@ -391,10 +395,12 @@ export function PropertyPreviewCard({
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-guess-button"
             accessibilityRole="button"
-            accessibilityLabel="Guess"
+            accessibilityLabel={t('property.preview.guess')}
           >
             <Icon name="Tag" size={18} color={COLORS.guessOlive} />
-            <Text style={[styles.actionLabel, { color: COLORS.guessOlive }]}>Guess</Text>
+            <Text style={[styles.actionLabel, { color: COLORS.guessOlive }]}>
+              {t('property.preview.guess')}
+            </Text>
           </Pressable>
         </View>
       </Pressable>
@@ -411,8 +417,8 @@ export function PropertyPreviewCard({
           style={styles.closeButtonHitArea}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           testID={closeButtonTestID}
-          accessibilityLabel="Close preview"
-          accessibilityHint="Closes this property preview card"
+          accessibilityLabel={t('property.preview.close')}
+          accessibilityHint={t('property.preview.closeHint')}
           accessibilityRole="button"
         >
           <View pointerEvents="none" style={styles.closeButton}>

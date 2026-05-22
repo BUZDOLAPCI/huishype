@@ -2,8 +2,8 @@
  * Reference Expectation E2E Test: map-view-property-markers
  *
  * This test verifies the map view displays property markers with:
- * - Ghost Nodes (low-opacity dots for inactive properties)
- * - Active Nodes (larger, colored markers for active properties)
+ * - Active Nodes (colored markers for active properties)
+ * - Removed public ghost layers stay absent from the app-side style
  * - Visual activity indicators (pulses for recent activity)
  * - Clear visual hierarchy between marker types
  *
@@ -22,7 +22,7 @@ import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../he
 const EXPECTATION_NAME = 'map-view-property-markers';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
-// Zoom level for viewing active and ghost map nodes under the canonical contract.
+// Zoom level for viewing active map nodes under the canonical contract.
 const MARKER_VIEW_ZOOM_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM;
 const PITCH_3D = 45; // Slight 3D perspective
 
@@ -173,7 +173,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!canvas) return false;
 
         // Check for any property features at the current zoom
-        const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
+        const layerIds = ['active-nodes', 'property-clusters']
           .filter(l => mapInstance.getLayer(l));
         if (layerIds.length === 0) return false;
 
@@ -225,15 +225,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         // Query rendered features using all available property layers
         const canvas = mapInstance.getCanvas();
-        let ghostNodes = 0, activeNodes = 0, clusters = 0;
-
-        try {
-          const ghostFeatures = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-nodes'].filter(l => mapInstance.getLayer(l)) }
-          ) || [];
-          ghostNodes = ghostFeatures.length;
-        } catch { /* ignore */ }
+        let activeNodes = 0, clusters = 0;
+        const removedGhostLayers = ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes']
+          .filter((layerId) => mapInstance.getLayer(layerId));
 
         try {
           const activeFeatures = mapInstance.queryRenderedFeatures(
@@ -258,10 +252,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
           renderedMarkers: {
-            ghostNodes,
             activeNodes,
             clusters,
           },
+          removedGhostLayers,
         };
       }
       return null;
@@ -273,14 +267,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     if (markerInfo) {
       expect(markerInfo.zoom).toBeGreaterThanOrEqual(PROPERTY_GHOST_REVEAL_ZOOM);
 
-      // Verify expected layers exist
-      expect(markerInfo.markerLayerIds).toContain('ghost-nodes');
+      // Verify expected public layers exist and removed ghost layers stay absent.
       expect(markerInfo.markerLayerIds).toContain('active-nodes');
+      expect(markerInfo.removedGhostLayers).toEqual([]);
 
-      // At the reveal threshold, ghost nodes may appear and active nodes remain queryable.
-      const totalFeatures = markerInfo.renderedMarkers.ghostNodes +
-                           markerInfo.renderedMarkers.activeNodes;
-      expect(totalFeatures, 'Should have rendered property features (ghost or active nodes) on map').toBeGreaterThan(0);
+      const totalFeatures = markerInfo.renderedMarkers.activeNodes;
+      expect(totalFeatures, 'Should have rendered active property features on map').toBeGreaterThan(0);
     }
   });
 

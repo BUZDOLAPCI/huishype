@@ -1,25 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatPropertyPrice } from '@huishype/shared';
 
 import { Icon } from '@/src/components/ui/Icon';
 import type { UseMapFilterControllerReturn } from '@/src/hooks/useMapFilterController';
 import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
+import { useT, type TranslationKey } from '@/src/i18n';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import {
-  getMapActivityFilterLabel,
-  getMapFilterPillLabel,
-  getMapFilterPillSummary,
-  getMapMarketStateLabel,
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
   isMapFilterCategoryActive,
   isMapStatusPillActive,
   MAP_ACTIVITY_TIME_FILTERS,
   MAP_STATUS_PILL_STATES,
+  type MapActivityFilter,
   type MapActivityTimeFilter,
   type MapFilterCategory,
   type MapFilterDraftState,
+  type MapFilters,
+  type MapMarketState,
   type MapPriceMode,
   type MapPriceSuggestion,
   type MapStatusPillState,
@@ -87,6 +88,7 @@ function MapFilterPill({
   testID,
   variant = 'panel',
 }: MapFilterPillProps) {
+  const t = useT();
   const showsExpandedState = variant === 'panel';
 
   return (
@@ -119,7 +121,7 @@ function MapFilterPill({
           ) : null
         ) : active ? (
           <View style={styles.pillActiveBadge}>
-            <Text style={styles.pillActiveBadgeText}>On</Text>
+            <Text style={styles.pillActiveBadgeText}>{t('filter.on')}</Text>
           </View>
         ) : (
           <Icon name="CaretDown" size="sm" color={COLORS.warm700} />
@@ -127,7 +129,7 @@ function MapFilterPill({
       </Pressable>
       {active && onDismiss ? (
         <Pressable
-          accessibilityLabel={`Clear ${label}`}
+          accessibilityLabel={t('filter.clear', { label })}
           accessibilityRole="button"
           hitSlop={10}
           onPress={onDismiss}
@@ -149,6 +151,8 @@ function OptionedFilterPill({
   onArrowPress,
   testID,
 }: OptionedFilterPillProps) {
+  const t = useT();
+
   return (
     <View style={styles.pillShell}>
       <View
@@ -175,7 +179,7 @@ function OptionedFilterPill({
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Open ${label} options`}
+          accessibilityLabel={t('filter.openOptions', { label })}
           accessibilityState={{ expanded: open }}
           onPress={onArrowPress}
           style={({ pressed }) => [styles.optionedPillArrow, pressed && styles.pillPressed]}
@@ -188,9 +192,25 @@ function OptionedFilterPill({
   );
 }
 
-const PRICE_MODE_META: Record<MapPriceMode, { title: string; testId: string }> = {
-  sale: { title: 'Sale Price', testId: 'sale' },
-  rent: { title: 'Rent Price', testId: 'rent' },
+const PRICE_MODE_META: Record<MapPriceMode, { titleKey: TranslationKey; testId: string }> = {
+  sale: { titleKey: 'filter.price.sale', testId: 'sale' },
+  rent: { titleKey: 'filter.price.rent', testId: 'rent' },
+};
+
+const MARKET_STATE_LABEL_KEYS: Record<MapMarketState, TranslationKey> = {
+  'for-sale': 'filter.status.forSale',
+  'for-rent': 'filter.status.forRent',
+  sold: 'filter.status.sold',
+  rented: 'filter.status.rented',
+  'not-listed': 'filter.status.notListed',
+};
+
+const ACTIVITY_LABEL_KEYS: Record<MapActivityFilter, TranslationKey> = {
+  all: 'filter.activity.any',
+  today: 'filter.activity.today',
+  '10d': 'filter.activity.10d',
+  '30d': 'filter.activity.30d',
+  'all-time': 'filter.activity.allTime',
 };
 
 function parseDraftInputValue(value: string): number | null {
@@ -203,7 +223,11 @@ function parseDraftInputValue(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getPriceFieldError(draftFilters: MapFilterDraftState, mode: MapPriceMode): string | null {
+function getPriceFieldError(
+  draftFilters: MapFilterDraftState,
+  mode: MapPriceMode,
+  t: ReturnType<typeof useT>
+): string | null {
   const fromValue = parseDraftInputValue(
     mode === 'sale' ? draftFilters.salePriceFrom : draftFilters.rentPriceFrom
   );
@@ -212,10 +236,92 @@ function getPriceFieldError(draftFilters: MapFilterDraftState, mode: MapPriceMod
   );
 
   if (fromValue != null && toValue != null && fromValue > toValue) {
-    return 'Minimum price cannot be higher than maximum price.';
+    return t('filter.price.errorRange');
   }
 
   return null;
+}
+
+function formatCompactPrice(value: number | null): string | null {
+  if (value == null) {
+    return null;
+  }
+
+  return formatPropertyPrice(value, 'NL', { compact: true }).replace(/\s+/g, ' ').trim();
+}
+
+function getPriceBoundsForMode(filters: MapFilters, mode: MapPriceMode): [number | null, number | null] {
+  return mode === 'sale'
+    ? [filters.salePriceFrom, filters.salePriceTo]
+    : [filters.rentPriceFrom, filters.rentPriceTo];
+}
+
+function summarizePriceBounds(
+  from: number | null,
+  to: number | null,
+  t: ReturnType<typeof useT>
+): string | null {
+  const fromLabel = formatCompactPrice(from);
+  const toLabel = formatCompactPrice(to);
+
+  if (fromLabel && toLabel) {
+    return `${fromLabel} - ${toLabel}`;
+  }
+
+  if (fromLabel) {
+    return t('filter.price.fromSummary', { price: fromLabel });
+  }
+
+  if (toLabel) {
+    return t('filter.price.toSummary', { price: toLabel });
+  }
+
+  return null;
+}
+
+function getMapActivityFilterLabel(activity: MapActivityFilter, t: ReturnType<typeof useT>): string {
+  return t(ACTIVITY_LABEL_KEYS[activity]);
+}
+
+function getMapMarketStateLabel(state: MapMarketState, t: ReturnType<typeof useT>): string {
+  return t(MARKET_STATE_LABEL_KEYS[state]);
+}
+
+function getMapFilterPillSummary(
+  category: MapFilterCategory,
+  filters: MapFilters,
+  t: ReturnType<typeof useT>
+): string | null {
+  if (category === 'price') {
+    const segments = getMapVisiblePriceModes(filters.marketState)
+      .map((mode) => {
+        const [from, to] = getPriceBoundsForMode(filters, mode);
+        const summary = summarizePriceBounds(from, to, t);
+
+        if (!summary) {
+          return null;
+        }
+
+        return mode === 'sale'
+          ? t('filter.price.saleSummary', { summary })
+          : t('filter.price.rentSummary', { summary });
+      })
+      .filter((summary): summary is string => summary != null);
+
+    return segments.length > 0 ? segments.join(' · ') : null;
+  }
+
+  if (category === 'marketState') {
+    if (filters.marketState.length === 1) {
+      return getMapMarketStateLabel(filters.marketState[0]!, t);
+    }
+
+    return filters.marketState.length > 0
+      ? t('filter.selectedCount', { count: filters.marketState.length })
+      : null;
+  }
+
+  return filters.activity === 'all' ? null : getMapActivityFilterLabel(filters.activity, t);
 }
 
 export function MapFilterBar({
@@ -227,6 +333,7 @@ export function MapFilterBar({
   onFollowingActivityChange,
 }: MapFilterBarProps) {
   const insets = useSafeAreaInsets();
+  const t = useT();
   const [activePriceInput, setActivePriceInput] = useState<ActivePriceInputState | null>(null);
   const [openOptionsPanel, setOpenOptionsPanel] = useState<'activity' | 'following' | null>(null);
   const priceInputBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -283,10 +390,10 @@ export function MapFilterBar({
   );
   const priceErrors = useMemo(
     () => ({
-      sale: getPriceFieldError(draftFilters, 'sale'),
-      rent: getPriceFieldError(draftFilters, 'rent'),
+      sale: getPriceFieldError(draftFilters, 'sale', t),
+      rent: getPriceFieldError(draftFilters, 'rent', t),
     }),
-    [draftFilters]
+    [draftFilters, t]
   );
   const hasPriceRangeError = visiblePriceModes.some((mode) => priceErrors[mode] != null);
 
@@ -452,7 +559,7 @@ export function MapFilterBar({
     [onFollowingActivityChange, onToggleFollowing, socialScope]
   );
 
-  const panelTitle = isPricePanelOpen ? getMapFilterPillLabel('price') : null;
+  const panelTitle = isPricePanelOpen ? t('filter.price') : null;
   const priceSuggestions = useMemo(() => {
     if (!isPricePanelOpen || activePriceInput == null) {
       return [];
@@ -702,8 +809,8 @@ export function MapFilterBar({
             .filter((category) => category === 'price')
             .map((category) => {
               const active = isMapFilterCategoryActive(appliedFilters, category);
-              const summary = getMapFilterPillSummary(category, appliedFilters);
-              const label = getMapFilterPillLabel(category);
+              const summary = getMapFilterPillSummary(category, appliedFilters, t);
+              const label = t('filter.price');
               const pillLabel = active && summary ? `${label}: ${summary}` : label;
 
               return (
@@ -723,7 +830,7 @@ export function MapFilterBar({
             <MapFilterPill
               key={state}
               active={isMapStatusPillActive(appliedFilters, state)}
-              label={getMapMarketStateLabel(state)}
+              label={getMapMarketStateLabel(state, t)}
               onPress={() => toggleStatusPill(state)}
               open={false}
               testID={`map-filter-pill-market-state-${state}`}
@@ -735,8 +842,8 @@ export function MapFilterBar({
             active={appliedFilters.activity !== 'all'}
             label={
               appliedFilters.activity === 'all'
-                ? 'Activity'
-                : `Activity: ${getMapActivityFilterLabel(appliedFilters.activity)}`
+                ? t('filter.activity')
+                : `${t('filter.activity')}: ${getMapActivityFilterLabel(appliedFilters.activity, t)}`
             }
             onArrowPress={openActivityPanel}
             onBodyPress={handleActivityBodyPress}
@@ -749,8 +856,8 @@ export function MapFilterBar({
               active={socialScope === 'following'}
               label={
                 socialScope === 'following'
-                  ? `Following: ${getMapActivityFilterLabel(followingActivity)}`
-                  : 'Following'
+                  ? `${t('filter.following')}: ${getMapActivityFilterLabel(followingActivity, t)}`
+                  : t('filter.following')
               }
               onArrowPress={openFollowingPanel}
               onBodyPress={handleFollowingBodyPress}
@@ -765,7 +872,7 @@ export function MapFilterBar({
             <View style={styles.panelHeader}>
               <Text style={styles.panelTitle}>{panelTitle}</Text>
               <Pressable
-                accessibilityLabel="Close filters"
+                accessibilityLabel={t('filter.closeFilters')}
                 accessibilityRole="button"
                 hitSlop={10}
                 onPress={handlePanelBackdropPress}
@@ -778,7 +885,7 @@ export function MapFilterBar({
             {openCategory === 'price' ? (
               <>
                 <Text style={styles.panelHint}>
-                  Draft edits stay local until you apply, press Enter, or close the panel.
+                  {t('filter.price.hint')}
                 </Text>
 
                 {visiblePriceModes.map((mode) => {
@@ -788,12 +895,12 @@ export function MapFilterBar({
                   return (
                     <View key={mode} style={styles.priceSection}>
                       {visiblePriceModes.length > 1 ? (
-                        <Text style={styles.priceSectionTitle}>{meta.title}</Text>
+                        <Text style={styles.priceSectionTitle}>{t(meta.titleKey)}</Text>
                       ) : null}
 
                       <View style={styles.priceInputRow}>
                         <View style={styles.priceInputColumn}>
-                          <Text style={styles.inputLabel}>From</Text>
+                          <Text style={styles.inputLabel}>{t('filter.from')}</Text>
                           <TextInput
                             keyboardType="number-pad"
                             onBlur={schedulePriceInputBlur}
@@ -858,7 +965,7 @@ export function MapFilterBar({
                                         suggestion.custom && styles.suggestionOptionTextCustom,
                                       ]}
                                     >
-                                      {suggestion.label}
+                                      {suggestion.value ? suggestion.label : t('filter.noMax')}
                                     </Text>
                                   </Pressable>
                                 ))}
@@ -868,7 +975,7 @@ export function MapFilterBar({
                         </View>
 
                         <View style={styles.priceInputColumn}>
-                          <Text style={styles.inputLabel}>To</Text>
+                          <Text style={styles.inputLabel}>{t('filter.to')}</Text>
                           <TextInput
                             keyboardType="number-pad"
                             onBlur={schedulePriceInputBlur}
@@ -877,7 +984,7 @@ export function MapFilterBar({
                             onKeyPress={(event) => handlePriceInputKeyPress(mode, 'to', event)}
                             onPressIn={() => openPriceSuggestions(mode, 'to', false)}
                             onSubmitEditing={commitAndClosePricePanel}
-                            placeholder="No max"
+                            placeholder={t('filter.noMax')}
                             placeholderTextColor={COLORS.warm400}
                             returnKeyType="done"
                             style={[
@@ -933,7 +1040,7 @@ export function MapFilterBar({
                                         suggestion.custom && styles.suggestionOptionTextCustom,
                                       ]}
                                     >
-                                      {suggestion.label}
+                                      {suggestion.value ? suggestion.label : t('filter.noMax')}
                                     </Text>
                                   </Pressable>
                                 ))}
@@ -964,7 +1071,7 @@ export function MapFilterBar({
                     ]}
                     testID="map-filter-reset-price"
                   >
-                    <Text style={styles.secondaryActionText}>Reset</Text>
+                    <Text style={styles.secondaryActionText}>{t('filter.reset')}</Text>
                   </Pressable>
 
                   <Pressable
@@ -977,7 +1084,7 @@ export function MapFilterBar({
                     ]}
                     testID="map-filter-apply-price"
                   >
-                    <Text style={styles.primaryActionText}>Apply</Text>
+                    <Text style={styles.primaryActionText}>{t('filter.apply')}</Text>
                   </Pressable>
                 </View>
               </>
@@ -988,9 +1095,9 @@ export function MapFilterBar({
         {isActivityPanelOpen ? (
           <View style={styles.panel} testID="map-filter-panel-activity">
             <View style={styles.panelHeader}>
-              <Text style={styles.panelTitle}>Activity</Text>
+              <Text style={styles.panelTitle}>{t('filter.activity')}</Text>
               <Pressable
-                accessibilityLabel="Close activity options"
+                accessibilityLabel={t('filter.closeActivity')}
                 accessibilityRole="button"
                 hitSlop={10}
                 onPress={handlePanelBackdropPress}
@@ -1017,7 +1124,7 @@ export function MapFilterBar({
                     testID={`map-filter-option-activity-${activity}`}
                   >
                     <Text style={[styles.optionRowText, selected && styles.optionRowTextSelected]}>
-                      {getMapActivityFilterLabel(activity)}
+                      {getMapActivityFilterLabel(activity, t)}
                     </Text>
                     {selected ? <Icon name="Check" size="sm" color={COLORS.gold600} /> : null}
                   </Pressable>
@@ -1030,9 +1137,9 @@ export function MapFilterBar({
         {isFollowingPanelOpen ? (
           <View style={styles.panel} testID="map-filter-panel-following">
             <View style={styles.panelHeader}>
-              <Text style={styles.panelTitle}>Following</Text>
+              <Text style={styles.panelTitle}>{t('filter.following')}</Text>
               <Pressable
-                accessibilityLabel="Close following options"
+                accessibilityLabel={t('filter.closeFollowing')}
                 accessibilityRole="button"
                 hitSlop={10}
                 onPress={handlePanelBackdropPress}
@@ -1059,7 +1166,7 @@ export function MapFilterBar({
                     testID={`map-filter-option-following-${activity}`}
                   >
                     <Text style={[styles.optionRowText, selected && styles.optionRowTextSelected]}>
-                      {getMapActivityFilterLabel(activity)}
+                      {getMapActivityFilterLabel(activity, t)}
                     </Text>
                     {selected ? <Icon name="Check" size="sm" color={COLORS.gold600} /> : null}
                   </Pressable>

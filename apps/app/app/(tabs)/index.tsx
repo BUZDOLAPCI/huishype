@@ -88,6 +88,7 @@ import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
 import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
+import { useT } from '@/src/i18n';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
@@ -275,6 +276,7 @@ const PROPERTY_LAYER_IDS = [...PROPERTY_QUERY_LAYER_IDS];
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const t = useT();
   const isFocused = useIsFocused();
   const welcomeModal = useWelcomeModal();
   const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
@@ -456,7 +458,7 @@ export default function MapScreen() {
       if (!isAuthenticated) {
         interaction.handleAuthRequired(
           {
-            subtitle: 'Sign in to see homes with activity from people you follow.',
+            subtitle: t('auth.following.subtitle'),
           },
           () => {
             setSocialScope('following');
@@ -476,7 +478,7 @@ export default function MapScreen() {
 
       return 'following';
     });
-  }, [interaction, isAuthenticated]);
+  }, [interaction, isAuthenticated, t]);
 
   useEffect(() => {
     if (!isAuthenticated && socialScope === 'following') {
@@ -1304,11 +1306,11 @@ export default function MapScreen() {
         duration: 800,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to get current location';
+      const message = error instanceof Error ? error.message : t('map.locationUnable');
       console.warn('[MapScreen] Current location failed:', message);
-      Alert.alert('Location unavailable', message);
+      Alert.alert(t('map.locationUnavailable'), message);
     }
-  }, [currentZoom]);
+  }, [currentZoom, t]);
 
   const handleCurrentLocationPress = useCallback(() => {
     void flyToCurrentLocation();
@@ -1576,7 +1578,7 @@ export default function MapScreen() {
           <View style={styles.mapLoadingIndicator} testID="map-loading-indicator">
             <ActivityIndicator size="large" color={COLORS.blue500} />
             <Text style={{ color: COLORS.gray600, marginTop: 12, fontSize: 16 }}>
-              Loading map...
+              {t('map.loading')}
             </Text>
           </View>
         )}
@@ -1612,7 +1614,7 @@ export default function MapScreen() {
             onPrimaryPress={() =>
               interaction.handleAuthRequired(
                 {
-                  subtitle: 'Sign in to see homes with activity from people you follow.',
+                  subtitle: t('auth.following.subtitle'),
                 },
                 () => {
                   setSocialScope('following');
@@ -1663,7 +1665,7 @@ export default function MapScreen() {
             }}
           >
             <Text style={{ fontSize: 12, color: COLORS.gray700 }}>
-              Zoom: {currentZoom.toFixed(1)}
+              {t('map.debug.zoom', { zoom: currentZoom.toFixed(1) })}
             </Text>
           </View>
         )}
@@ -1676,7 +1678,7 @@ export default function MapScreen() {
             testID="zoom-in-button"
             onPress={handleZoomIn}
             style={({ pressed }) => [styles.roundControl, pressed && styles.roundControlPressed]}
-            accessibilityLabel="Zoom in"
+            accessibilityLabel={t('nav.zoom.in')}
             accessibilityRole="button"
           >
             <Text style={styles.roundControlText}>+</Text>
@@ -1685,7 +1687,7 @@ export default function MapScreen() {
             testID="zoom-out-button"
             onPress={handleZoomOut}
             style={({ pressed }) => [styles.roundControl, pressed && styles.roundControlPressed]}
-            accessibilityLabel="Zoom out"
+            accessibilityLabel={t('nav.zoom.out')}
             accessibilityRole="button"
           >
             <Text style={styles.roundControlText}>{'\u2212'}</Text>
@@ -1699,7 +1701,7 @@ export default function MapScreen() {
                 pressed && styles.roundControlPressed,
                 copiedFlash && styles.roundControlCopied,
               ]}
-              accessibilityLabel="Copy camera position"
+              accessibilityLabel={t('nav.zoom.copyCamera')}
               accessibilityRole="button"
             >
               <Text style={[styles.copyControlText, copiedFlash && styles.copyControlTextCopied]}>

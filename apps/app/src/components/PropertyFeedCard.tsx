@@ -15,6 +15,7 @@ import { Card } from './ui/Card';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 import { PropertyImageSurface } from './PropertyImageSurface';
 import { toPropertyImageSource } from '../utils/property-image';
+import { useT } from '@/src/i18n';
 
 export interface PropertyFeedCardProps {
   id: string;
@@ -74,6 +75,7 @@ function PropertyFeedCardComponent({
   viewCount = 0,
   onPress,
 }: PropertyFeedCardProps) {
+  const t = useT();
   const activityConfig = ACTIVITY_CONFIG[activityLevel];
   const imageSource = useMemo(
     () =>
@@ -108,7 +110,7 @@ function PropertyFeedCardComponent({
       style={styles.pressable}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityHint="Opens property details"
+      accessibilityHint={t('common.openPropertyDetails')}
       testID="property-feed-card"
     >
       <Card shadow="card">
@@ -123,7 +125,7 @@ function PropertyFeedCardComponent({
             placeholder={
               <View style={styles.placeholder}>
                 <Icon name="HouseLine" size="2xl" color="#C7BFB3" />
-                <Text style={styles.placeholderText}>No image available</Text>
+                <Text style={styles.placeholderText}>{t('property.feed.noImage')}</Text>
               </View>
             }
           />
@@ -171,7 +173,7 @@ function PropertyFeedCardComponent({
             <View>
               {askingPrice != null && askingPrice > 0 && (
                 <>
-                  <Text style={styles.priceLabel}>Asking Price</Text>
+                  <Text style={styles.priceLabel}>{t('property.price.asking')}</Text>
                   <Text style={styles.askingPrice}>
                     {formatPrice(askingPrice, countryCode)}
                   </Text>

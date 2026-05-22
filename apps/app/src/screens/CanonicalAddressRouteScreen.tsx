@@ -20,16 +20,19 @@ import {
   buildPropertyRoute,
   toInternalAppHref,
 } from '@/src/utils/property-route';
+import { useT } from '@/src/i18n';
 
 const NON_MAP_TAB_PATHNAMES = new Set(['/feed', '/saved', '/profile']);
 
 function RedirectingScreen() {
+  const t = useT();
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <RouteLoadingShell
-        title="Loading route"
-        subtitle="Resolving address details..."
+        title={t('route.loading.title')}
+        subtitle={t('route.loading.subtitle')}
       />
     </>
   );

@@ -4,7 +4,7 @@
  * Captures screenshots of the map at different zoom levels to verify:
  * - Z12: Cluster circles with counts visible
  * - Z15: Single active points visible (transition zone)
- * - Z18: Individual nodes (active + ghost) visible
+ * - Z18: Individual active nodes visible, with public ghost layers absent
  *
  * Screenshots saved to: test-results/visual/map-clusters/
  */
@@ -251,7 +251,7 @@ test.describe('Map Clusters Visual Tests', () => {
     });
   });
 
-  test('zoom 18 - individual nodes (active + ghost)', async ({ page }) => {
+  test('zoom 18 - individual active nodes', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
@@ -270,7 +270,7 @@ test.describe('Map Clusters Visual Tests', () => {
 
     await waitForMapIdle(page);
 
-    // Check active and ghost node layers
+    // Check active node layer and verify public ghost layers remain absent.
     const nodeInfo = await page.evaluate(
       ({ activeLayer, ghostLayer }) => {
         const map = window.__mapInstance;
@@ -309,7 +309,7 @@ test.describe('Map Clusters Visual Tests', () => {
     // At z18, the high-zoom layers should exist
     if (nodeInfo) {
       expect(nodeInfo.hasActive).toBe(true);
-      expect(nodeInfo.hasGhost).toBe(true);
+      expect(nodeInfo.hasGhost).toBe(false);
     }
 
     await page.screenshot({

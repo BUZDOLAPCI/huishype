@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import ProfileSettingsScreen from '../(tabs)/profile-settings';
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from '@/src/i18n';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
 jest.mock('expo-router', () => ({
@@ -17,9 +18,9 @@ jest.mock('@/src/providers/AuthProvider', () => ({
 }));
 
 jest.mock('@/src/components', () => ({
-  AuthModal: ({ visible }: { visible: boolean }) => {
+  AuthModal: ({ message, visible }: { message: string; visible: boolean }) => {
     const ReactNative = require('react-native');
-    return visible ? <ReactNative.Text>AuthModal</ReactNative.Text> : null;
+    return visible ? <ReactNative.Text>{message}</ReactNative.Text> : null;
   },
 }));
 
@@ -69,9 +70,18 @@ function mockAuthContext(user: { id: string; email?: string } | null) {
   });
 }
 
+function renderSettings() {
+  return render(
+    <LanguageProvider>
+      <ProfileSettingsScreen />
+    </LanguageProvider>
+  );
+}
+
 describe('ProfileSettingsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
     Object.defineProperty(Platform, 'OS', {
       configurable: true,
       value: 'web',
@@ -90,8 +100,10 @@ describe('ProfileSettingsScreen', () => {
   it('shows the login row and version when signed out', () => {
     mockAuthContext(null);
 
-    const { getByTestId, getByText, queryByText } = render(<ProfileSettingsScreen />);
+    const { getByTestId, getByText, queryByText } = renderSettings();
 
+    expect(getByText('Language')).toBeTruthy();
+    expect(getByText('English')).toBeTruthy();
     expect(getByText('Legal')).toBeTruthy();
     expect(getByText('Need help?')).toBeTruthy();
     expect(getByText('Contact')).toBeTruthy();
@@ -102,18 +114,19 @@ describe('ProfileSettingsScreen', () => {
 
     fireEvent.press(getByTestId('settings-auth-row'));
 
-    expect(getByText('AuthModal')).toBeTruthy();
+    expect(getByText('Sign in to HuisHype')).toBeTruthy();
   });
 
   it('signs out from the settings row after web confirmation', async () => {
     mockAuthContext({ id: 'user-1' });
     globalThis.confirm = jest.fn(() => true);
 
-    const { getByTestId, getByText } = render(<ProfileSettingsScreen />);
+    const { getByTestId, getByText } = renderSettings();
 
     expect(getByText('Account email')).toBeTruthy();
     expect(getByTestId('settings-account-email-row').props.accessibilityRole).toBe('text');
     expect(getByTestId('settings-account-email-value').props.children).toBe('test@example.com');
+    expect(getByTestId('settings-language-row')).toBeTruthy();
     expect(getByText('Log out')).toBeTruthy();
 
     fireEvent.press(getByTestId('settings-auth-row'));
@@ -127,7 +140,7 @@ describe('ProfileSettingsScreen', () => {
   it('opens the legal submenu, navigates legal rows, and backs to main settings', () => {
     mockAuthContext(null);
 
-    const { getByTestId, getByText, queryByTestId } = render(<ProfileSettingsScreen />);
+    const { getByTestId, getByText, queryByTestId } = renderSettings();
 
     fireEvent.press(getByTestId('settings-legal-row'));
 
@@ -171,7 +184,7 @@ describe('ProfileSettingsScreen', () => {
       getByTestId,
       getByText,
       queryByTestId,
-    } = render(<ProfileSettingsScreen />);
+    } = renderSettings();
 
     fireEvent.press(getByTestId('settings-legal-row'));
     fireEvent.press(getByTestId('settings-open-source-licenses-row'));
@@ -219,7 +232,7 @@ describe('ProfileSettingsScreen', () => {
   it('navigates help center and contact rows', () => {
     mockAuthContext(null);
 
-    const { getByTestId } = render(<ProfileSettingsScreen />);
+    const { getByTestId } = renderSettings();
 
     fireEvent.press(getByTestId('settings-help-row'));
     expect(getRouterPush()).toHaveBeenCalledWith('/help');
@@ -232,7 +245,7 @@ describe('ProfileSettingsScreen', () => {
   it('dismisses to the profile tab from the back arrow', () => {
     mockAuthContext(null);
 
-    const { getByTestId } = render(<ProfileSettingsScreen />);
+    const { getByTestId } = renderSettings();
 
     fireEvent.press(getByTestId('profile-settings-back'));
 
@@ -242,12 +255,62 @@ describe('ProfileSettingsScreen', () => {
   it('dismisses to the profile tab on browser back', () => {
     mockAuthContext(null);
 
-    render(<ProfileSettingsScreen />);
+    renderSettings();
 
     act(() => {
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
 
     expect(getRouterReplace()).toHaveBeenCalledWith('/profile');
+  });
+
+  it('selects and persists Dutch from the language subview while signed out', async () => {
+    mockAuthContext(null);
+
+    const { getByLabelText, getByTestId, getByText } = renderSettings();
+
+    fireEvent.press(getByTestId('settings-language-row'));
+
+    expect(getByTestId('settings-language-subview')).toBeTruthy();
+    expect(getByLabelText('English, selected')).toBeTruthy();
+    expect(getByTestId('settings-language-en').props.accessibilityState).toEqual({
+      selected: true,
+    });
+
+    fireEvent.press(getByTestId('settings-language-nl'));
+
+    await waitFor(() => {
+      expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('nl');
+    });
+
+    expect(getByLabelText('Nederlands, geselecteerd')).toBeTruthy();
+    expect(getByTestId('settings-language-nl').props.accessibilityState).toEqual({
+      selected: true,
+    });
+    expect(getByText('Taal')).toBeTruthy();
+
+    fireEvent.press(getByTestId('profile-settings-back'));
+
+    expect(getByText('Juridisch')).toBeTruthy();
+    expect(getByText('Inloggen')).toBeTruthy();
+    expect(getByTestId('settings-version').props.children).toBe('Versie 0.0.1');
+  });
+
+  it('loads the persisted language and translates signed-in account settings', async () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'nl');
+    mockAuthContext({ id: 'user-1' });
+
+    const { getByTestId, getByText } = renderSettings();
+
+    await waitFor(() => {
+      expect(getByText('Account-e-mail')).toBeTruthy();
+    });
+
+    expect(getByTestId('settings-account-email-row').props.accessibilityLabel).toBe(
+      'Account-e-mail test@example.com'
+    );
+    expect(getByText('Taal')).toBeTruthy();
+    expect(getByText('Nederlands')).toBeTruthy();
+    expect(getByText('Uitloggen')).toBeTruthy();
   });
 });

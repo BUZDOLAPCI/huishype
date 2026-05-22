@@ -13,6 +13,7 @@ import {
   usePublicProfile,
   useUnfollowUser,
 } from '@/src/hooks/useUserProfile';
+import { useT } from '@/src/i18n';
 
 function KarmaRankBadge({ title, level }: { title: string; level: number }) {
   const colors = [
@@ -39,6 +40,7 @@ function StatItem({ label, value, iconName }: { label: string; value: number; ic
 }
 
 export default function PublicProfileScreen() {
+  const t = useT();
   const { isAuthenticated, user } = useAuthContext();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [showAuth, setShowAuth] = React.useState(false);
@@ -85,19 +87,19 @@ export default function PublicProfileScreen() {
       }
     } catch (error) {
       Alert.alert(
-        'Could not update follow status',
-        error instanceof Error ? error.message : 'Please try again.',
+        t('profile.follow.errorTitle'),
+        error instanceof Error ? error.message : t('profile.follow.errorFallback'),
       );
     }
-  }, [followMutation, isAuthenticated, isFollowing, profile, unfollowMutation, user]);
+  }, [followMutation, isAuthenticated, isFollowing, profile, t, unfollowMutation, user]);
 
   if (isLoading) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Profile' }} />
+        <Stack.Screen options={{ title: t('profile.header') }} />
         <ScreenBackground style={{ alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="User" size={32} color="#DE911D" />
-          <Text className="text-warm-500 mt-4">Loading profile...</Text>
+          <Text className="text-warm-500 mt-4">{t('profile.public.loading')}</Text>
         </ScreenBackground>
       </>
     );
@@ -106,10 +108,12 @@ export default function PublicProfileScreen() {
   if (isError || !profile) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Profile' }} />
+        <Stack.Screen options={{ title: t('profile.header') }} />
         <ScreenBackground style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
           <Icon name="WarningCircle" size={48} color="#C7BFB3" />
-          <Text className="text-lg font-semibold text-warm-900 mt-4">User not found</Text>
+          <Text className="text-lg font-semibold text-warm-900 mt-4">
+            {t('profile.public.notFound')}
+          </Text>
         </ScreenBackground>
       </>
     );
@@ -131,10 +135,12 @@ export default function PublicProfileScreen() {
 
             <KarmaRankBadge title={profile.karmaRank.title} level={profile.karmaRank.level} />
 
-            <Text className="text-sm text-warm-500 mt-2">{profile.karma} karma</Text>
+            <Text className="text-sm text-warm-500 mt-2">
+              {t('profile.public.karma', { count: profile.karma })}
+            </Text>
             {!isOwnProfile ? (
               <Button
-                label={isFollowing ? 'Following' : 'Follow'}
+                label={isFollowing ? t('profile.public.following') : t('common.follow')}
                 onPress={() => void handleFollowPress()}
                 variant={isFollowing ? 'secondary' : 'primary'}
                 disabled={isFollowPending}
@@ -142,33 +148,37 @@ export default function PublicProfileScreen() {
                 testID="public-profile-follow-button"
               />
             ) : (
-              <Text className="text-xs text-warm-500 mt-4">This is your public profile</Text>
+              <Text className="text-xs text-warm-500 mt-4">
+                {t('profile.public.ownProfile')}
+              </Text>
             )}
           </View>
 
           {/* Stats */}
           <View className="bg-surface-card mt-2 px-6 py-5 flex-row border-b border-warm-100">
-            <StatItem label="Guesses" value={profile.guessCount} iconName="Crosshair" />
-            <StatItem label="Comments" value={profile.commentCount} iconName="ChatCircle" />
+            <StatItem label={t('common.guesses')} value={profile.guessCount} iconName="Crosshair" />
+            <StatItem label={t('common.comments')} value={profile.commentCount} iconName="ChatCircle" />
           </View>
 
           <View className="bg-surface-card mt-2 px-6 py-4 flex-row justify-between border-b border-warm-100">
             <View className="items-center flex-1">
               <Text className="text-lg font-bold text-warm-900">{profile.followerCount}</Text>
-              <Text className="text-xs text-warm-500">Followers</Text>
+              <Text className="text-xs text-warm-500">{t('common.followers')}</Text>
             </View>
             <View className="items-center flex-1">
               <Text className="text-lg font-bold text-warm-900">{profile.followingCount}</Text>
-              <Text className="text-xs text-warm-500">Following</Text>
+              <Text className="text-xs text-warm-500">{t('common.following')}</Text>
             </View>
           </View>
 
           {/* Member since */}
           <View className="bg-surface-card mt-2 px-6 py-4">
             <Text className="text-sm text-warm-500">
-              Member since {new Date(profile.joinedAt).toLocaleDateString(undefined, {
-                month: 'long',
-                year: 'numeric',
+              {t('profile.public.memberSince', {
+                date: new Date(profile.joinedAt).toLocaleDateString(undefined, {
+                  month: 'long',
+                  year: 'numeric',
+                }),
               })}
             </Text>
           </View>
@@ -177,7 +187,7 @@ export default function PublicProfileScreen() {
       <AuthModal
         visible={showAuth}
         onClose={() => setShowAuth(false)}
-        message="Sign in to follow people"
+        message={t('profile.follow.auth')}
         onSuccess={() => setShowAuth(false)}
       />
     </>

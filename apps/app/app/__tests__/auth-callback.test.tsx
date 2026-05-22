@@ -6,9 +6,10 @@
  */
 
 import React from 'react';
-import { render, act, fireEvent } from '@testing-library/react-native';
+import { render as rtlRender, act, fireEvent } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import AuthCallbackScreen from '../auth/callback';
+import { LanguageProvider } from '@/src/i18n';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
 jest.mock('expo-router', () => ({
@@ -20,6 +21,10 @@ jest.mock('@/src/providers/AuthProvider', () => ({
 }));
 
 const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthContext>;
+
+function render(ui: React.ReactElement) {
+  return rtlRender(ui, { wrapper: LanguageProvider });
+}
 
 function mockAuth(overrides: Partial<ReturnType<typeof useAuthContext>> = {}) {
   mockUseAuthContext.mockReturnValue({

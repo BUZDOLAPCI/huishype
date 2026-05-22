@@ -34,10 +34,17 @@ import {
 import { fetchPropertyById } from '@/src/hooks/useProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { useT, type TranslationKey } from '@/src/i18n';
 
 // --- Time grouping ---
 
-type TimeGroup = 'Today' | 'This Week' | 'Earlier';
+type TimeGroup = 'today' | 'thisWeek' | 'earlier';
+
+const TIME_GROUP_LABEL_KEYS: Record<TimeGroup, TranslationKey> = {
+  today: 'notifications.group.today',
+  thisWeek: 'notifications.group.thisWeek',
+  earlier: 'notifications.group.earlier',
+};
 
 function getTimeGroup(isoDate: string): TimeGroup {
   const now = new Date();
@@ -45,21 +52,27 @@ function getTimeGroup(isoDate: string): TimeGroup {
   const diffMs = now.getTime() - then.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return 'Today';
-  if (diffDays < 7) return 'This Week';
-  return 'Earlier';
+  if (diffDays === 0) return 'today';
+  if (diffDays < 7) return 'thisWeek';
+  return 'earlier';
 }
 
-function formatRelativeTime(isoDate: string): string {
+function formatRelativeTime(
+  isoDate: string,
+  t: (key: TranslationKey, values?: Record<string, string | number | Date>) => string
+): string {
   const diffMs = Date.now() - new Date(isoDate).getTime();
   const diffMin = Math.floor(diffMs / (1000 * 60));
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 1) return t('time.justNow');
+  if (diffMin < 60) return t('time.minutesAgo', { count: diffMin });
   const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
+  if (diffHrs < 24) return t('time.hoursAgo', { count: diffHrs });
   const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
+  if (diffDays < 7) return t('time.daysAgo', { count: diffDays });
+  if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    return t(weeks === 1 ? 'time.weekAgo' : 'time.weeksAgo', { count: weeks });
+  }
   return new Date(isoDate).toLocaleDateString();
 }
 
@@ -73,37 +86,45 @@ interface NotificationDescriptionContext {
 
 const NOTIFICATION_DESCRIPTION_BUILDERS: Record<
   NotificationEventType,
-  (context: NotificationDescriptionContext) => string
+  (context: NotificationDescriptionContext, t: (key: TranslationKey, values?: Record<string, string | number | Date>) => string) => string
 > = {
-  property_comment: ({ actorName, propertyAddress }) =>
-    `${actorName} commented on ${propertyAddress}`,
-  comment_reply: ({ actorName, propertyAddress }) =>
-    `${actorName} replied to your comment on ${propertyAddress}`,
-  comment_like: ({ actorName, propertyAddress }) =>
-    `${actorName} liked your comment on ${propertyAddress}`,
-  property_like: ({ actorName, propertyAddress }) =>
-    `${actorName} liked ${propertyAddress}`,
-  property_guess: ({ actorName, propertyAddress }) =>
-    `${actorName} made a price guess on ${propertyAddress}`,
-  new_follower: ({ actorName }) => `${actorName} started following you`,
-  achievement_unlocked: ({ payload }) => {
+  property_comment: ({ actorName, propertyAddress }, t) =>
+    t('notifications.description.propertyComment', { actor: actorName, property: propertyAddress }),
+  comment_reply: ({ actorName, propertyAddress }, t) =>
+    t('notifications.description.commentReply', { actor: actorName, property: propertyAddress }),
+  comment_like: ({ actorName, propertyAddress }, t) =>
+    t('notifications.description.commentLike', { actor: actorName, property: propertyAddress }),
+  property_like: ({ actorName, propertyAddress }, t) =>
+    t('notifications.description.propertyLike', { actor: actorName, property: propertyAddress }),
+  property_guess: ({ actorName, propertyAddress }, t) =>
+    t('notifications.description.propertyGuess', { actor: actorName, property: propertyAddress }),
+  new_follower: ({ actorName }, t) =>
+    t('notifications.description.newFollower', { actor: actorName }),
+  achievement_unlocked: ({ payload }, t) => {
     const achievementName =
       typeof payload.achievementName === 'string' ? payload.achievementName : null;
-    return `You unlocked ${achievementName ?? 'a new achievement'}`;
+    return t('notifications.description.achievementUnlocked', {
+      achievement: achievementName ?? t('notifications.achievementFallback'),
+    });
   },
 };
 
-function getNotificationDescription(item: NotificationItem): string {
-  const actorName = item.actor?.displayName ?? 'Someone';
+function getNotificationDescription(
+  item: NotificationItem,
+  t: (key: TranslationKey, values?: Record<string, string | number | Date>) => string
+): string {
+  const actorName = item.actor?.displayName ?? t('notifications.actorSomeone');
   const payload = item.payload as Record<string, unknown>;
   const propertyAddress =
-    typeof payload.propertyAddress === 'string' ? payload.propertyAddress : 'a property';
+    typeof payload.propertyAddress === 'string'
+      ? payload.propertyAddress
+      : t('notifications.propertyFallback');
 
   return NOTIFICATION_DESCRIPTION_BUILDERS[item.eventType]({
     actorName,
     propertyAddress,
     payload,
-  });
+  }, t);
 }
 
 // --- List item types ---
@@ -115,6 +136,7 @@ type ListItem =
 // --- Component ---
 
 export default function NotificationsScreen() {
+  const t = useT();
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const {
@@ -137,7 +159,7 @@ export default function NotificationsScreen() {
     const allNotifications = data.pages.flatMap((page) => page.items);
 
     const groups = new Map<TimeGroup, NotificationItem[]>();
-    const groupOrder: TimeGroup[] = ['Today', 'This Week', 'Earlier'];
+    const groupOrder: TimeGroup[] = ['today', 'thisWeek', 'earlier'];
 
     for (const n of allNotifications) {
       const group = getTimeGroup(n.createdAt);
@@ -199,7 +221,7 @@ export default function NotificationsScreen() {
       if (item.type === 'header') {
         return (
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionHeaderText}>{item.title}</Text>
+            <Text style={styles.sectionHeaderText}>{t(TIME_GROUP_LABEL_KEYS[item.title])}</Text>
           </View>
         );
       }
@@ -243,10 +265,10 @@ export default function NotificationsScreen() {
           {/* Content */}
           <View style={styles.notificationContent}>
             <Text style={styles.notificationText} numberOfLines={2}>
-              {getNotificationDescription(notification)}
+              {getNotificationDescription(notification, t)}
             </Text>
             <Text style={styles.notificationTime}>
-              {formatRelativeTime(notification.createdAt)}
+              {formatRelativeTime(notification.createdAt, t)}
             </Text>
           </View>
 
@@ -255,7 +277,7 @@ export default function NotificationsScreen() {
         </Pressable>
       );
     },
-    [handleNotificationPress]
+    [handleNotificationPress, t]
   );
 
   const keyExtractor = useCallback((item: ListItem) => item.id, []);
@@ -268,13 +290,13 @@ export default function NotificationsScreen() {
           <Pressable onPress={() => router.back()} hitSlop={8}>
             <Icon name="ArrowLeft" size="lg" color="#2D2926" />
           </Pressable>
-          <Text style={styles.headerTitle}>Notifications</Text>
+          <Text style={styles.headerTitle}>{t('common.notifications')}</Text>
           <View style={{ width: 22 }} />
         </View>
         <View style={styles.emptyContainer}>
           <Icon name="Bell" size="2xl" color="#C7BFB3" />
           <Text style={styles.emptyText}>
-            Sign in to see your notifications
+            {t('notifications.auth')}
           </Text>
         </View>
       </View>
@@ -288,13 +310,13 @@ export default function NotificationsScreen() {
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Icon name="ArrowLeft" size="lg" color="#2D2926" />
         </Pressable>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <Text style={styles.headerTitle}>{t('common.notifications')}</Text>
         <Pressable
           onPress={() => markAllRead.mutate()}
           hitSlop={8}
           testID="mark-all-read"
         >
-          <Text style={styles.markAllRead}>Mark all read</Text>
+          <Text style={styles.markAllRead}>{t('notifications.markAllRead')}</Text>
         </Pressable>
       </View>
 
@@ -302,14 +324,14 @@ export default function NotificationsScreen() {
       {isLoading && !isRefreshing ? (
         <View style={styles.emptyContainer}>
           <Icon name="Bell" size="xl" color="#DE911D" />
-          <Text style={styles.emptyText}>Loading notifications...</Text>
+          <Text style={styles.emptyText}>{t('notifications.loading')}</Text>
         </View>
       ) : listItems.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Icon name="Bell" size="2xl" color="#C7BFB3" />
-          <Text style={styles.emptyTitle}>No notifications yet</Text>
+          <Text style={styles.emptyTitle}>{t('notifications.empty.title')}</Text>
           <Text style={styles.emptyText}>
-            Activity on your properties will show up here.
+            {t('notifications.empty.body')}
           </Text>
         </View>
       ) : (

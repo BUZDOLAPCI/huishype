@@ -8,12 +8,15 @@ import {
 } from '@/src/components/admin/AdminModerationLayout';
 import { useAdminActivityLogs } from '@/src/hooks/admin/useAdminModeration';
 import { AdminAccessGate } from '@/src/screens/admin/AdminAccess';
+import { useT } from '@/src/i18n';
 
 export function AdminActivityScreen() {
+  const t = useT();
+
   return (
     <AdminShell
-      title="Activity Logs"
-      subtitle="Recent admin log entries from moderation actions."
+      title={t('admin.activity.title')}
+      subtitle={t('admin.activity.subtitle')}
     >
       <AdminAccessGate>
         {(enabled) => <ActivityContent enabled={enabled} />}

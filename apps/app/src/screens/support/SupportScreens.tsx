@@ -9,17 +9,16 @@ import {
   getArticlesForCategory,
   getGlossaryTerm,
   getLegalPage,
+  getSupportCatalog,
   getSupportArticle,
   getSupportCategory,
-  glossaryTerms,
-  legalPages,
-  supportArticles,
-  supportCategories,
   type GlossaryTerm,
   type LegalPageContent,
+  type SupportCatalog,
   type SupportArticle,
   type SupportBodySection,
 } from '@/src/content/supportContent';
+import { useLanguage, type LanguageCode } from '@/src/i18n';
 
 const COLORS = {
   ink: '#003C32',
@@ -31,44 +30,149 @@ const COLORS = {
   accent: '#DE911D',
 } as const;
 
+const COPY: Record<
+  LanguageCode,
+  {
+    helpTitle: string;
+    helpLead: string;
+    helpSearchPlaceholder: string;
+    helpSearchAccessibility: string;
+    categories: string;
+    matchingArticles: string;
+    commonQuestions: string;
+    moreResources: string;
+    glossaryTitle: string;
+    glossarySummary: string;
+    legalTitle: string;
+    legalSummary: string;
+    contactTitle: string;
+    contactSummary: string;
+    backToSettings: string;
+    backToHelp: string;
+    backToGlossary: string;
+    glossaryLead: string;
+    glossarySearchPlaceholder: string;
+    glossarySearchAccessibility: string;
+    terms: string;
+    articles: string;
+    related: string;
+    categoryNotFound: string;
+    articleNotFound: string;
+    termNotFound: string;
+    pageNotFound: string;
+    back: string;
+    missingPage: string;
+    lastUpdated: string;
+  }
+> = {
+  en: {
+    helpTitle: 'Help Center',
+    helpLead:
+      'Find help for browsing homes, price guesses, listing links, public property data, accounts, privacy, and support requests.',
+    helpSearchPlaceholder: 'Search help',
+    helpSearchAccessibility: 'Search help',
+    categories: 'Categories',
+    matchingArticles: 'Matching articles',
+    commonQuestions: 'Common questions',
+    moreResources: 'More resources',
+    glossaryTitle: 'Glossary',
+    glossarySummary: 'Plain-English real estate terms used across HuisHype.',
+    legalTitle: 'Legal and privacy',
+    legalSummary: 'Terms, privacy, cookies, data choices, and sharing permissions.',
+    contactTitle: 'Contact support',
+    contactSummary: 'Send corrections, rights requests, feedback, and account questions.',
+    backToSettings: 'Back to settings',
+    backToHelp: 'Back to help',
+    backToGlossary: 'Back to glossary',
+    glossaryLead:
+      'Real estate terms in plain English, with notes about what each term means inside HuisHype.',
+    glossarySearchPlaceholder: 'Search glossary',
+    glossarySearchAccessibility: 'Search glossary',
+    terms: 'Terms',
+    articles: 'Articles',
+    related: 'Related',
+    categoryNotFound: 'Category not found',
+    articleNotFound: 'Article not found',
+    termNotFound: 'Term not found',
+    pageNotFound: 'Page not found',
+    back: 'Back',
+    missingPage: 'The requested support page could not be found.',
+    lastUpdated: 'Last updated',
+  },
+  nl: {
+    helpTitle: 'Helpcentrum',
+    helpLead:
+      'Vind hulp bij woningen bekijken, prijsschattingen, advertentielinks, openbare woninggegevens, accounts, privacy en supportverzoeken.',
+    helpSearchPlaceholder: 'Zoek in hulp',
+    helpSearchAccessibility: 'Zoek in hulp',
+    categories: 'Categorieen',
+    matchingArticles: 'Passende artikelen',
+    commonQuestions: 'Veelgestelde vragen',
+    moreResources: 'Meer bronnen',
+    glossaryTitle: 'Begrippenlijst',
+    glossarySummary: 'Vastgoedtermen in duidelijke taal zoals ze in HuisHype worden gebruikt.',
+    legalTitle: 'Juridisch en privacy',
+    legalSummary: 'Voorwaarden, privacy, cookies, gegevenskeuzes en deelrechten.',
+    contactTitle: 'Neem contact op',
+    contactSummary: 'Stuur correcties, rechtenverzoeken, feedback en accountvragen.',
+    backToSettings: 'Terug naar instellingen',
+    backToHelp: 'Terug naar hulp',
+    backToGlossary: 'Terug naar begrippenlijst',
+    glossaryLead:
+      'Vastgoedtermen in duidelijke taal, met uitleg over wat elke term binnen HuisHype betekent.',
+    glossarySearchPlaceholder: 'Zoek in begrippenlijst',
+    glossarySearchAccessibility: 'Zoek in begrippenlijst',
+    terms: 'Termen',
+    articles: 'Artikelen',
+    related: 'Gerelateerd',
+    categoryNotFound: 'Categorie niet gevonden',
+    articleNotFound: 'Artikel niet gevonden',
+    termNotFound: 'Term niet gevonden',
+    pageNotFound: 'Pagina niet gevonden',
+    back: 'Terug',
+    missingPage: 'De gevraagde supportpagina kon niet worden gevonden.',
+    lastUpdated: 'Laatst bijgewerkt',
+  },
+};
+
 export function HelpHubScreen() {
+  const { language } = useLanguage();
+  const copy = COPY[language];
+  const catalog = getSupportCatalog(language);
   const [query, setQuery] = useState('');
   const normalizedQuery = query.trim().toLowerCase();
 
   const searchResults = useMemo(() => {
     if (!normalizedQuery) {
-      return supportArticles.slice(0, 6);
+      return catalog.supportArticles.slice(0, 6);
     }
 
-    return supportArticles.filter((article) => {
+    return catalog.supportArticles.filter((article) => {
       return `${article.title} ${article.summary}`.toLowerCase().includes(normalizedQuery);
     });
-  }, [normalizedQuery]);
+  }, [catalog.supportArticles, normalizedQuery]);
 
   return (
     <SupportPage
-      title="Help Center"
+      title={copy.helpTitle}
       testID="help-screen"
-      backLabel="Back to settings"
+      backLabel={copy.backToSettings}
       onBack={() => router.replace('/profile-settings')}
     >
-      <Text style={styles.lead}>
-        Find help for browsing homes, price guesses, listing links, public property
-        data, accounts, privacy, and support requests.
-      </Text>
+      <Text style={styles.lead}>{copy.helpLead}</Text>
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="Search help"
-        accessibilityLabel="Search help"
+        placeholder={copy.helpSearchPlaceholder}
+        accessibilityLabel={copy.helpSearchAccessibility}
         testID="help-search-input"
         style={styles.searchInput}
       />
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Categories</Text>
+        <Text style={styles.sectionTitle}>{copy.categories}</Text>
         <View style={styles.grid}>
-          {supportCategories.map((category) => (
+          {catalog.supportCategories.map((category) => (
             <SupportTile
               key={category.id}
               title={category.title}
@@ -82,7 +186,7 @@ export function HelpHubScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>
-          {normalizedQuery ? 'Matching articles' : 'Common questions'}
+          {normalizedQuery ? copy.matchingArticles : copy.commonQuestions}
         </Text>
         {searchResults.map((article) => (
           <ListRow
@@ -96,22 +200,22 @@ export function HelpHubScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>More resources</Text>
+        <Text style={styles.sectionTitle}>{copy.moreResources}</Text>
         <ListRow
-          title="Glossary"
-          summary="Plain-English real estate terms used across HuisHype."
+          title={copy.glossaryTitle}
+          summary={copy.glossarySummary}
           testID="help-glossary-row"
           onPress={() => router.push('/glossary')}
         />
         <ListRow
-          title="Legal and privacy"
-          summary="Terms, privacy, cookies, data choices, and sharing permissions."
+          title={copy.legalTitle}
+          summary={copy.legalSummary}
           testID="help-legal-row"
           onPress={() => router.push('/privacy')}
         />
         <ListRow
-          title="Contact support"
-          summary="Send corrections, rights requests, feedback, and account questions."
+          title={copy.contactTitle}
+          summary={copy.contactSummary}
           testID="help-contact-row"
           onPress={() => router.push('/contact')}
         />
@@ -121,25 +225,28 @@ export function HelpHubScreen() {
 }
 
 export function HelpCategoryScreen({ slug }: { slug: string }) {
-  const category = getSupportCategory(slug);
+  const { language } = useLanguage();
+  const copy = COPY[language];
+  const catalog = getSupportCatalog(language);
+  const category = getSupportCategory(slug, catalog);
 
   if (!category) {
-    return <MissingSupportScreen title="Category not found" backPath="/help" />;
+    return <MissingSupportScreen title={copy.categoryNotFound} backPath="/help" copy={copy} />;
   }
 
-  const articles = getArticlesForCategory(category.id);
+  const articles = getArticlesForCategory(category.id, catalog);
 
   return (
     <SupportPage
       title={category.title}
       testID="help-category-screen"
-      backLabel="Back to help"
+      backLabel={copy.backToHelp}
       onBack={() => router.replace('/help')}
     >
       <Text style={styles.lead}>{category.summary}</Text>
       <BodySections sections={category.bodySections} />
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Articles</Text>
+        <Text style={styles.sectionTitle}>{copy.articles}</Text>
         {articles.map((article) => (
           <ListRow
             key={article.id}
@@ -155,17 +262,22 @@ export function HelpCategoryScreen({ slug }: { slug: string }) {
 }
 
 export function HelpArticleScreen({ slug }: { slug: string }) {
-  const article = getSupportArticle(slug);
+  const { language } = useLanguage();
+  const copy = COPY[language];
+  const catalog = getSupportCatalog(language);
+  const article = getSupportArticle(slug, catalog);
 
   if (!article) {
-    return <MissingSupportScreen title="Article not found" backPath="/help" />;
+    return <MissingSupportScreen title={copy.articleNotFound} backPath="/help" copy={copy} />;
   }
 
   return (
     <SupportContentDetail
       content={article}
+      catalog={catalog}
+      copy={copy}
       testID="help-article-screen"
-      backLabel="Back to help"
+      backLabel={copy.backToHelp}
       onBack={() => router.replace('/help')}
       relatedPrefix="help"
     />
@@ -173,39 +285,39 @@ export function HelpArticleScreen({ slug }: { slug: string }) {
 }
 
 export function GlossaryIndexScreen() {
+  const { language } = useLanguage();
+  const copy = COPY[language];
+  const catalog = getSupportCatalog(language);
   const [query, setQuery] = useState('');
   const normalizedQuery = query.trim().toLowerCase();
   const filteredTerms = useMemo(() => {
     if (!normalizedQuery) {
-      return glossaryTerms;
+      return catalog.glossaryTerms;
     }
 
-    return glossaryTerms.filter((termRecord) => {
+    return catalog.glossaryTerms.filter((termRecord) => {
       return `${termRecord.title} ${termRecord.summary}`.toLowerCase().includes(normalizedQuery);
     });
-  }, [normalizedQuery]);
+  }, [catalog.glossaryTerms, normalizedQuery]);
 
   return (
     <SupportPage
-      title="Glossary"
+      title={copy.glossaryTitle}
       testID="glossary-screen"
-      backLabel="Back to help"
+      backLabel={copy.backToHelp}
       onBack={() => router.replace('/help')}
     >
-      <Text style={styles.lead}>
-        Real estate terms in plain English, with notes about what each term means
-        inside HuisHype.
-      </Text>
+      <Text style={styles.lead}>{copy.glossaryLead}</Text>
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="Search glossary"
-        accessibilityLabel="Search glossary"
+        placeholder={copy.glossarySearchPlaceholder}
+        accessibilityLabel={copy.glossarySearchAccessibility}
         testID="glossary-search-input"
         style={styles.searchInput}
       />
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Terms</Text>
+        <Text style={styles.sectionTitle}>{copy.terms}</Text>
         {filteredTerms.map((termRecord) => (
           <ListRow
             key={termRecord.id}
@@ -221,17 +333,22 @@ export function GlossaryIndexScreen() {
 }
 
 export function GlossaryTermScreen({ slug }: { slug: string }) {
-  const termRecord = getGlossaryTerm(slug);
+  const { language } = useLanguage();
+  const copy = COPY[language];
+  const catalog = getSupportCatalog(language);
+  const termRecord = getGlossaryTerm(slug, catalog);
 
   if (!termRecord) {
-    return <MissingSupportScreen title="Term not found" backPath="/glossary" />;
+    return <MissingSupportScreen title={copy.termNotFound} backPath="/glossary" copy={copy} />;
   }
 
   return (
     <SupportContentDetail
       content={termRecord}
+      catalog={catalog}
+      copy={copy}
       testID="glossary-term-screen"
-      backLabel="Back to glossary"
+      backLabel={copy.backToGlossary}
       onBack={() => router.replace('/glossary')}
       relatedPrefix="glossary"
     />
@@ -239,36 +356,54 @@ export function GlossaryTermScreen({ slug }: { slug: string }) {
 }
 
 export function LegalContentScreen({ slug }: { slug: string }) {
-  const page = getLegalPage(slug);
+  const { language } = useLanguage();
+  const copy = COPY[language];
+  const page = getLegalPage(slug, language);
 
   if (!page) {
-    return <MissingSupportScreen title="Page not found" backPath="/profile-settings" />;
+    return (
+      <MissingSupportScreen title={copy.pageNotFound} backPath="/profile-settings" copy={copy} />
+    );
   }
 
   return (
     <SupportPage
       title={page.title}
       testID={`${page.slug}-screen`}
-      backLabel="Back to settings"
+      backLabel={copy.backToSettings}
       onBack={() => router.replace('/profile-settings')}
       backTestID="static-page-back"
       maxWidth={760}
     >
-      <Text style={styles.kicker}>Last updated: {page.lastUpdated}</Text>
+      <Text style={styles.kicker}>
+        {copy.lastUpdated}: {formatLegalDate(page.lastUpdated, language)}
+      </Text>
       <Text style={styles.lead}>{page.summary}</Text>
       <BodySections sections={page.bodySections} />
     </SupportPage>
   );
 }
 
+function formatLegalDate(date: string, language: LanguageCode): string {
+  if (language !== 'nl') {
+    return date;
+  }
+
+  return date.replace(/^May (\d{1,2}), (\d{4})$/, '$1 mei $2');
+}
+
 function SupportContentDetail({
   content,
+  catalog,
+  copy,
   testID,
   backLabel,
   onBack,
   relatedPrefix,
 }: {
   content: SupportArticle | GlossaryTerm | LegalPageContent;
+  catalog: SupportCatalog;
+  copy: (typeof COPY)[LanguageCode];
   testID: string;
   backLabel: string;
   onBack: () => void;
@@ -276,9 +411,11 @@ function SupportContentDetail({
 }) {
   const related = content.relatedIds
     .map((id) => {
-      return supportArticles.find((article) => article.id === id) ??
-        glossaryTerms.find((termRecord) => termRecord.id === id) ??
-        legalPages.find((page) => page.id === id);
+      return (
+        catalog.supportArticles.find((article) => article.id === id) ??
+        catalog.glossaryTerms.find((termRecord) => termRecord.id === id) ??
+        catalog.legalPages.find((page) => page.id === id)
+      );
     })
     .filter((record): record is SupportArticle | GlossaryTerm | LegalPageContent => !!record);
 
@@ -288,7 +425,7 @@ function SupportContentDetail({
       <BodySections sections={content.bodySections} />
       {related.length > 0 ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Related</Text>
+          <Text style={styles.sectionTitle}>{copy.related}</Text>
           {related.map((record) => (
             <ListRow
               key={record.id}
@@ -296,12 +433,12 @@ function SupportContentDetail({
               summary={record.summary}
               testID={`${relatedPrefix}-related-${record.slug}`}
               onPress={() => {
-                if (getSupportArticle(record.slug)) {
+                if (getSupportArticle(record.slug, catalog)) {
                   router.push(`/help/article/${record.slug}`);
                   return;
                 }
 
-                if (getGlossaryTerm(record.slug)) {
+                if (getGlossaryTerm(record.slug, catalog)) {
                   router.push(`/glossary/${record.slug}`);
                   return;
                 }
@@ -438,15 +575,23 @@ function ListRow({
   );
 }
 
-function MissingSupportScreen({ title, backPath }: { title: string; backPath: Href }) {
+function MissingSupportScreen({
+  title,
+  backPath,
+  copy,
+}: {
+  title: string;
+  backPath: Href;
+  copy: (typeof COPY)[LanguageCode];
+}) {
   return (
     <SupportPage
       title={title}
       testID="support-missing-screen"
-      backLabel="Back"
+      backLabel={copy.back}
       onBack={() => router.replace(backPath)}
     >
-      <Text style={styles.lead}>The requested support page could not be found.</Text>
+      <Text style={styles.lead}>{copy.missingPage}</Text>
     </SupportPage>
   );
 }

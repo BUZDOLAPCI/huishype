@@ -11,6 +11,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Icon } from './Icon';
+import { useT } from '@/src/i18n';
 
 export interface NotificationBellProps {
   /** Number of unread notifications. 0 hides the badge. */
@@ -33,6 +34,7 @@ export function NotificationBell({
   color = '#504A42',
   testID,
 }: NotificationBellProps) {
+  const t = useT();
   const iconSize = SIZE_MAP[size];
   const showBadge = unreadCount > 0;
   const badgeText = unreadCount > 99 ? '99+' : String(unreadCount);
@@ -44,10 +46,10 @@ export function NotificationBell({
       testID={testID ?? 'notification-bell'}
       accessibilityLabel={
         showBadge
-          ? `Notifications, ${unreadCount} unread`
-          : 'Notifications'
+          ? t('notifications.unreadLabel', { count: unreadCount })
+          : t('common.notifications')
       }
-      accessibilityHint="Opens the notifications screen"
+      accessibilityHint={t('profile.notifications.hint')}
       accessibilityRole="button"
       style={styles.container}
     >

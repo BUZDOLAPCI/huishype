@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import type { SectionProps } from './types';
 import { SectionCard } from './SectionCard';
+import { useT, type TranslationKey } from '../../i18n';
 
 interface DetailRowProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -61,59 +62,64 @@ interface PropertyDetailsProps extends SectionProps {
 }
 
 export function PropertyDetails({ property, onReport }: PropertyDetailsProps) {
-  const statusLabels: Record<string, string> = {
-    active: 'Active',
-    inactive: 'Inactive',
-    demolished: 'Demolished',
+  const t = useT();
+  const statusLabelKeys: Record<string, TranslationKey> = {
+    active: 'property.status.active',
+    inactive: 'property.status.inactive',
+    demolished: 'property.status.demolished',
   };
 
   return (
     <View style={styles.stack}>
       <SectionCard
-        title="Property Details"
+        title={t('property.details.title')}
         icon="information-circle"
-        description="Core reference details for the address itself."
+        description={t('property.details.description')}
       >
         <View style={styles.detailTable}>
           <DetailRow
             icon="calendar-outline"
-            label="Year Built"
+            label={t('property.details.yearBuilt')}
             value={property.yearBuilt}
           />
           <DetailRow
             icon="resize-outline"
-            label="Surface Area"
+            label={t('property.details.surfaceArea')}
             value={property.floorAreaM2 ? `${property.floorAreaM2} m²` : null}
           />
           <DetailRow
             icon="pin-outline"
-            label="Postal code"
+            label={t('property.details.postalCode')}
             value={property.postalCode}
           />
           <DetailRow
             icon="checkmark-circle-outline"
-            label="Status"
-            value={property.status ? statusLabels[property.status] : null}
+            label={t('property.details.status')}
+            value={
+              property.status && statusLabelKeys[property.status]
+                ? t(statusLabelKeys[property.status])
+                : null
+            }
           />
         </View>
       </SectionCard>
 
       <SectionCard
-        title="Activity"
+        title={t('property.activity.title')}
         icon="pulse"
-        description="How much attention this property is getting right now."
+        description={t('property.activity.description')}
       >
         <View style={styles.activityGrid}>
-          <ActivityStat label="Views" value={formatCompactCount(property.viewCount)} />
+          <ActivityStat label={t('common.views')} value={formatCompactCount(property.viewCount)} />
           <ActivityStat
-            label="Guesses"
+            label={t('common.guesses')}
             value={property.guessCount > 0 ? formatCompactCount(property.guessCount) : '0'}
-            helperText={property.guessCount === 0 ? 'Be the first to guess' : undefined}
+            helperText={property.guessCount === 0 ? t('property.activity.beFirstGuess') : undefined}
           />
           <ActivityStat
-            label="Comments"
+            label={t('common.comments')}
             value={property.commentCount > 0 ? formatCompactCount(property.commentCount) : '0'}
-            helperText={property.commentCount === 0 ? 'Start the conversation' : undefined}
+            helperText={property.commentCount === 0 ? t('property.activity.startConversation') : undefined}
           />
         </View>
         {onReport ? (
@@ -123,10 +129,10 @@ export function PropertyDetails({ property, onReport }: PropertyDetailsProps) {
               style={styles.reportButton}
               testID="property-report-button"
               accessibilityRole="button"
-              accessibilityLabel="Report property"
+              accessibilityLabel={t('property.report.a11y')}
             >
               <Ionicons name="flag-outline" size={15} color="#8C8479" />
-              <Text style={styles.reportText}>Report</Text>
+              <Text style={styles.reportText}>{t('property.report.action')}</Text>
             </Pressable>
           </View>
         ) : null}

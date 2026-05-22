@@ -16,6 +16,9 @@ import { API_URL } from '../../utils/api';
 import { useAuthContext } from '../../providers/AuthProvider';
 import { useWebDismissibleLayer } from '../../providers/WebDismissibleLayerProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
+import { useT } from '@/src/i18n';
+
+type TFunction = ReturnType<typeof useT>;
 
 type PreviewAddressObject = {
   street?: unknown;
@@ -53,12 +56,12 @@ function isProvisionalPreview(preview: ListingPreviewResponse) {
   );
 }
 
-function getValidationBadge(preview: ListingPreviewResponse) {
+function getValidationBadge(preview: ListingPreviewResponse, readyLabel: string) {
   if (isProvisionalPreview(preview)) {
-    return { label: 'Ready', color: '#22C55E', icon: 'checkmark-circle' as const };
+    return { label: readyLabel, color: '#22C55E', icon: 'checkmark-circle' as const };
   }
 
-  return { label: 'Ready', color: '#22C55E', icon: 'checkmark-circle' as const };
+  return { label: readyLabel, color: '#22C55E', icon: 'checkmark-circle' as const };
 }
 
 function getHandoffLabel(handoffState: ListingPreviewResponse['handoffState'] | null) {
@@ -78,42 +81,54 @@ function canSubmitPreview(preview: ListingPreviewResponse) {
   return isValidatedPreview(preview) || isProvisionalPreview(preview);
 }
 
-function getPreviewStatusMessage(preview: ListingPreviewResponse) {
+function getPreviewStatusMessage(
+  preview: ListingPreviewResponse,
+  t: TFunction,
+) {
   if (isProvisionalPreview(preview)) {
-    return 'This listing will be added to HuisHype immediately.';
+    return t('property.listing.status.provisional');
   }
 
   if (isValidatedPreview(preview)) {
-    return 'This listing is ready to add.';
+    return t('property.listing.status.validated');
   }
 
-  return 'This preview cannot be added.';
+  return t('property.listing.status.invalid');
 }
 
-function getPreviewErrorMessage(status: number, message: unknown) {
+function getPreviewErrorMessage(
+  status: number,
+  message: unknown,
+  t: TFunction,
+) {
   if (status === 409) {
-    return 'This listing has already been added';
+    return t('property.listing.error.alreadyAdded');
   }
 
   const rawMessage = typeof message === 'string' ? message : '';
   if (rawMessage.includes('source_not_supported')) {
-    return 'That listing site is not supported yet.';
+    return t('property.listing.error.unsupportedSource');
   }
   if (rawMessage.includes('address_mismatch')) {
-    return 'This listing does not appear to match this property.';
+    return t('property.listing.error.addressMismatch');
   }
   if (rawMessage.includes('source_not_found')) {
-    return 'We could not find that listing. Check the link and try again.';
+    return t('property.listing.error.sourceNotFound');
   }
 
-  return 'We could not validate this listing. Please check the link and try again.';
+  return t('property.listing.error.validationFailed');
 }
 
-function getPreviewTitle(preview: ListingPreviewResponse) {
+function getPreviewTitle(
+  preview: ListingPreviewResponse,
+  t: TFunction,
+) {
   const sourceLabel = getSourceLabel(preview.sourceName);
   return (
     preview.title?.trim() ||
-    (sourceLabel === 'Listing' ? 'Listing preview' : `${sourceLabel} listing`)
+    (sourceLabel === 'Listing'
+      ? t('property.listing.previewTitleFallback')
+      : t('property.listing.sourceListing', { source: sourceLabel }))
   );
 }
 
@@ -242,6 +257,7 @@ export function ListingSubmissionSheet({
   onSubmitted,
   onAuthRequired,
 }: ListingSubmissionSheetProps) {
+  const t = useT();
   const [url, setUrl] = useState('');
   const [step, setStep] = useState<Step>('input');
   const [previewData, setPreviewData] = useState<ListingPreviewResponse | null>(null);
@@ -270,8 +286,8 @@ export function ListingSubmissionSheet({
   const requestAuthForSubmit = useCallback(() => {
     pendingSubmitAfterAuthRef.current = true;
     setPendingSubmitAfterAuth(true);
-    onAuthRequired?.('Sign in to add this listing', resumePendingSubmit);
-  }, [onAuthRequired, resumePendingSubmit]);
+    onAuthRequired?.(t('property.listing.authRequired'), resumePendingSubmit);
+  }, [onAuthRequired, resumePendingSubmit, t]);
 
   const reset = useCallback(() => {
     setUrl('');
@@ -291,7 +307,7 @@ export function ListingSubmissionSheet({
   const handlePreview = useCallback(async () => {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
-      setError('Please enter a URL');
+      setError(t('property.listing.enterUrl'));
       return;
     }
 
@@ -310,8 +326,8 @@ export function ListingSubmissionSheet({
       if (!response.ok) {
         const errorData = await response
           .json()
-          .catch(() => ({ message: 'Failed to load preview' }));
-        setError(getPreviewErrorMessage(response.status, errorData.message));
+          .catch(() => ({ message: t('property.listing.previewLoadFailed') }));
+        setError(getPreviewErrorMessage(response.status, errorData.message, t));
         setIsLoadingPreview(false);
         return;
       }
@@ -320,11 +336,11 @@ export function ListingSubmissionSheet({
       setPreviewData(data);
       setStep('preview');
     } catch {
-      setError('Network error. Please check your connection and try again.');
+      setError(t('property.listing.networkError'));
     } finally {
       setIsLoadingPreview(false);
     }
-  }, [url, propertyId]);
+  }, [url, propertyId, t]);
 
   const handleSubmit = useCallback(async () => {
     if (!previewData) return;
@@ -364,12 +380,14 @@ export function ListingSubmissionSheet({
           return;
         }
         if (response.status === 409) {
-          setError('This listing has already been added');
+          setError(t('property.listing.error.alreadyAdded'));
         } else {
           const responseMessage = typeof (responseBody as { message?: unknown }).message === 'string'
             ? (responseBody as { message: string }).message
             : null;
-          setError(responseMessage || `Failed to submit listing (${response.status})`);
+          setError(
+            responseMessage || t('property.listing.submitFailed', { status: response.status }),
+          );
         }
         setStep('error');
         return;
@@ -385,10 +403,10 @@ export function ListingSubmissionSheet({
         reset();
       }, 1200);
     } catch {
-      setError('Network error. Please check your connection and try again.');
+      setError(t('property.listing.networkError'));
       setStep('error');
     }
-  }, [previewData, getAccessToken, requestAuthForSubmit, onSubmitted, reset]);
+  }, [previewData, getAccessToken, requestAuthForSubmit, onSubmitted, reset, t]);
 
   handleSubmitRef.current = handleSubmit;
 
@@ -456,7 +474,9 @@ export function ListingSubmissionSheet({
           <Pressable onPress={handleClose} className="p-1">
             <Ionicons name="close" size={24} color="#9C958A" />
           </Pressable>
-          <Text className="text-lg font-semibold text-warm-900">Add Listing</Text>
+          <Text className="text-lg font-semibold text-warm-900">
+            {t('property.listing.addTitle')}
+          </Text>
           <View className="w-8" />
         </View>
 
@@ -465,13 +485,13 @@ export function ListingSubmissionSheet({
           {(step === 'input' || (step === 'preview' && !previewData)) && (
             <View>
               <Text className="text-sm text-warm-600 mb-2">
-                Paste a link to a property listing on Funda or Pararius.
+                {t('property.listing.description')}
               </Text>
               <View className="flex-row items-center bg-warm-50 rounded-xl border border-warm-200 px-3">
                 <Ionicons name="link-outline" size={20} color="#C7BFB3" />
                 <TextInput
                   className="flex-1 py-3 px-2 text-base text-warm-900"
-                  placeholder="Paste a Funda or Pararius link"
+                  placeholder={t('property.listing.placeholder')}
                   placeholderTextColor="#C7BFB3"
                   value={url}
                   onChangeText={(text) => {
@@ -506,7 +526,9 @@ export function ListingSubmissionSheet({
                 {isLoadingPreview ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Text className="text-white font-semibold text-base">Preview</Text>
+                  <Text className="text-white font-semibold text-base">
+                    {t('property.listing.preview')}
+                  </Text>
                 )}
               </Pressable>
             </View>
@@ -517,7 +539,9 @@ export function ListingSubmissionSheet({
             <View>
               <Pressable onPress={handleBack} className="flex-row items-center mb-4">
                 <Ionicons name="arrow-back" size={20} color="#F5A623" />
-                <Text className="text-primary-500 ml-1 text-sm">Change URL</Text>
+                <Text className="text-primary-500 ml-1 text-sm">
+                  {t('property.listing.changeUrl')}
+                </Text>
               </Pressable>
 
               {/* Preview Card */}
@@ -531,12 +555,14 @@ export function ListingSubmissionSheet({
                 ) : (
                   <View className="h-28 bg-warm-100 items-center justify-center">
                     <Ionicons name="image-outline" size={28} color="#9C958A" />
-                    <Text className="text-xs text-warm-500 mt-1">No preview image</Text>
+                    <Text className="text-xs text-warm-500 mt-1">
+                      {t('property.listing.noPreviewImage')}
+                    </Text>
                   </View>
                 )}
                 <View className="p-3">
                   <Text className="text-base font-semibold text-warm-900 mb-1">
-                    {getPreviewTitle(previewData)}
+                    {getPreviewTitle(previewData, t)}
                   </Text>
                   {previewPriceLabel ? (
                     <Text className="text-sm font-semibold text-warm-800 mb-1">
@@ -556,7 +582,10 @@ export function ListingSubmissionSheet({
                       </Text>
                     </View>
                     {(() => {
-                      const validationBadge = getValidationBadge(previewData);
+                      const validationBadge = getValidationBadge(
+                        previewData,
+                        t('property.listing.ready'),
+                      );
                       return (
                         <View
                           style={{ backgroundColor: validationBadge.color }}
@@ -590,7 +619,7 @@ export function ListingSubmissionSheet({
                     color="#22C55E"
                   />
                   <Text className="text-sm ml-2 flex-1 text-green-700">
-                    {getPreviewStatusMessage(previewData)}
+                    {getPreviewStatusMessage(previewData, t)}
                   </Text>
                 </View>
               )}
@@ -608,7 +637,9 @@ export function ListingSubmissionSheet({
                     previewCanSubmit ? 'text-white' : 'text-warm-500'
                   }`}
                 >
-                  {previewCanSubmit ? 'Confirm & Add Listing' : 'Cannot Add Listing'}
+                  {previewCanSubmit
+                    ? t('property.listing.confirmAdd')
+                    : t('property.listing.cannotAdd')}
                 </Text>
               </Pressable>
             </View>
@@ -618,7 +649,9 @@ export function ListingSubmissionSheet({
           {step === 'submitting' && (
             <View className="flex-1 items-center justify-center py-12">
               <ActivityIndicator size="large" color="#F5A623" />
-              <Text className="text-warm-500 mt-3">Submitting listing...</Text>
+              <Text className="text-warm-500 mt-3">
+                {t('property.listing.submitting')}
+              </Text>
             </View>
           )}
 
@@ -628,8 +661,12 @@ export function ListingSubmissionSheet({
               <View className="w-16 h-16 rounded-full bg-green-100 items-center justify-center mb-3">
                 <Ionicons name="checkmark" size={32} color="#22C55E" />
               </View>
-              <Text className="text-lg font-semibold text-warm-900">Listing Added</Text>
-              <Text className="text-sm text-warm-500 mt-1">Your listing is live on HuisHype.</Text>
+              <Text className="text-lg font-semibold text-warm-900">
+                {t('property.listing.addedTitle')}
+              </Text>
+              <Text className="text-sm text-warm-500 mt-1">
+                {t('property.listing.addedBody')}
+              </Text>
             </View>
           )}
 
@@ -639,18 +676,20 @@ export function ListingSubmissionSheet({
               <View className="w-16 h-16 rounded-full bg-red-100 items-center justify-center mb-3">
                 <Ionicons name="alert-circle" size={32} color="#EF4444" />
               </View>
-              <Text className="text-lg font-semibold text-warm-900">Something went wrong</Text>
+              <Text className="text-lg font-semibold text-warm-900">
+                {t('property.listing.errorTitle')}
+              </Text>
               <Text className="text-sm text-red-500 mt-1 text-center px-4">
-                {error || 'An unexpected error occurred.'}
+                {error || t('property.listing.errorFallback')}
               </Text>
               <Pressable
                 onPress={() => setStep('preview')}
                 className="mt-4 px-6 py-2.5 rounded-xl bg-warm-100 active:bg-warm-200"
               >
-                <Text className="text-warm-700 font-medium">Try Again</Text>
+                <Text className="text-warm-700 font-medium">{t('common.tryAgain')}</Text>
               </Pressable>
               <Pressable onPress={handleClose} className="mt-2 px-6 py-2.5">
-                <Text className="text-warm-400 text-sm">Cancel</Text>
+                <Text className="text-warm-400 text-sm">{t('common.cancel')}</Text>
               </Pressable>
             </View>
           )}

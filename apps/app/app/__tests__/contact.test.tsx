@@ -4,10 +4,20 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import ContactScreen from '../(tabs)/contact';
 import { api } from '@/src/utils/api';
 
+const mockUseLanguage = jest.fn(() => ({
+  language: 'en',
+  setLanguage: jest.fn(),
+  t: jest.fn(),
+}));
+
 jest.mock('expo-router', () => ({
   router: {
     replace: jest.fn(),
   },
+}));
+
+jest.mock('@/src/i18n', () => ({
+  useLanguage: () => mockUseLanguage(),
 }));
 
 jest.mock('@/src/utils/api', () => ({
@@ -30,6 +40,11 @@ const getRouterReplace = () =>
 describe('ContactScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUseLanguage.mockReturnValue({
+      language: 'en',
+      setLanguage: jest.fn(),
+      t: jest.fn(),
+    });
   });
 
   it('renders support details and returns to settings', () => {
@@ -64,20 +79,23 @@ describe('ContactScreen', () => {
     fireEvent.changeText(getByTestId('contact-name-input'), 'Casey');
     fireEvent.changeText(getByTestId('contact-email-input'), 'casey@example.com');
     fireEvent.changeText(getByTestId('contact-subject-input'), 'Listing source');
-    fireEvent.changeText(getByTestId('contact-message-input'), 'A listing source link looks wrong.');
+    fireEvent.changeText(
+      getByTestId('contact-message-input'),
+      'A listing source link looks wrong.'
+    );
     fireEvent.press(getByTestId('contact-submit-button'));
 
     expect(getByText('Sending...')).toBeTruthy();
 
     await waitFor(() => {
       expect(mockApi.post).toHaveBeenCalledWith('/contact', {
-          name: 'Casey',
-          email: 'casey@example.com',
-          subject: 'Listing source',
-          message: 'A listing source link looks wrong.',
-        });
-        expect(getByText('Message received.')).toBeTruthy();
+        name: 'Casey',
+        email: 'casey@example.com',
+        subject: 'Listing source',
+        message: 'A listing source link looks wrong.',
       });
+      expect(getByText('Message received.')).toBeTruthy();
+    });
   });
 
   it('shows an error when the contact request fails', async () => {
@@ -92,6 +110,43 @@ describe('ContactScreen', () => {
 
     await waitFor(() => {
       expect(getByText(/We could not send your message/i)).toBeTruthy();
+    });
+  });
+
+  it('renders Dutch contact copy and keeps the POST payload unchanged', async () => {
+    mockUseLanguage.mockReturnValue({
+      language: 'nl',
+      setLanguage: jest.fn(),
+      t: jest.fn(),
+    });
+    mockApi.post.mockResolvedValueOnce({ message: 'Message received.' });
+
+    const { getByTestId, getByText, getByPlaceholderText } = render(<ContactScreen />);
+
+    expect(getByText(/Hulp nodig met HuisHype/i)).toBeTruthy();
+    expect(getByText('Algemeen: contact@huishype.nl')).toBeTruthy();
+    expect(getByPlaceholderText('Je naam')).toBeTruthy();
+    expect(getByText('Bericht sturen')).toBeTruthy();
+
+    fireEvent.changeText(getByTestId('contact-name-input'), 'Casey');
+    fireEvent.changeText(getByTestId('contact-email-input'), 'casey@example.com');
+    fireEvent.changeText(getByTestId('contact-subject-input'), 'Listing source');
+    fireEvent.changeText(
+      getByTestId('contact-message-input'),
+      'A listing source link looks wrong.'
+    );
+    fireEvent.press(getByTestId('contact-submit-button'));
+
+    expect(getByText('Versturen...')).toBeTruthy();
+
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenCalledWith('/contact', {
+        name: 'Casey',
+        email: 'casey@example.com',
+        subject: 'Listing source',
+        message: 'A listing source link looks wrong.',
+      });
+      expect(getByText('Bedankt. We hebben je bericht ontvangen.')).toBeTruthy();
     });
   });
 });

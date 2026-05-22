@@ -1,5 +1,6 @@
 import {
   allSupportRecords,
+  getSupportCatalog,
   glossaryTerms,
   legalPages,
   supportArticles,
@@ -217,20 +218,12 @@ const representativeSourceConcepts: Array<{
   {
     sourceUrl: `${SOURCE}/help/artikel/431/ik-wil-geen-e-mails-ontvangen-hoe-stel-ik-dat-in`,
     targetId: 'account-login',
-    concepts: [
-      /notification preference/i,
-      /unwanted messages/i,
-      /non-essential notifications/i,
-    ],
+    concepts: [/notification preference/i, /unwanted messages/i, /non-essential notifications/i],
   },
   {
     sourceUrl: `${SOURCE}/help/artikel/433/ik-ben-mijn-wachtwoord-vergeten`,
     targetId: 'account-login',
-    concepts: [
-      /magic link/i,
-      /does not require a separate password/i,
-      /check spam folders/i,
-    ],
+    concepts: [/magic link/i, /does not require a separate password/i, /check spam folders/i],
   },
   {
     sourceUrl: `${SOURCE}/help/artikel/362/hoe-deel-ik-suggesties-of-feedback`,
@@ -287,11 +280,41 @@ function visibleTextForRecord(record: (typeof allSupportRecords)[number]): strin
     record.title,
     record.summary,
     (record as { category?: string }).category ?? '',
-    record.bodySections.map((section) => [
-      section.title,
-      ...section.paragraphs,
-    ].join(' ')).join(' '),
+    record.bodySections
+      .map((section) => [section.title, ...section.paragraphs].join(' '))
+      .join(' '),
   ].join(' ');
+}
+
+function metadataForRecord(record: (typeof allSupportRecords)[number]) {
+  return {
+    id: record.id,
+    slug: record.slug,
+    category: (record as { category?: string }).category,
+    audience: record.audience,
+    relatedIds: record.relatedIds,
+    sourceUrls: record.sourceUrls,
+    status: record.status,
+    lastUpdated: (record as { lastUpdated?: string }).lastUpdated,
+  };
+}
+
+function expectSameTextShape(
+  source: (typeof allSupportRecords)[number],
+  localized: (typeof allSupportRecords)[number]
+) {
+  expect(localized.title.trim().length).toBeGreaterThan(2);
+  expect(localized.summary.trim().length).toBeGreaterThan(10);
+  expect(localized.bodySections).toHaveLength(source.bodySections.length);
+
+  localized.bodySections.forEach((section, index) => {
+    expect(section.title.trim().length).toBeGreaterThan(0);
+    expect(section.paragraphs).toHaveLength(source.bodySections[index].paragraphs.length);
+    section.paragraphs.forEach((paragraph) => {
+      expect(paragraph.trim().length).toBeGreaterThan(10);
+      expect(paragraph).not.toMatch(/HHXBRAND|HHXEMAIL|HHXURL/);
+    });
+  });
 }
 
 describe('support content registry', () => {
@@ -327,20 +350,51 @@ describe('support content registry', () => {
     }
   });
 
+  it('keeps English and Dutch localized catalog shapes and metadata in parity', () => {
+    const englishCatalog = getSupportCatalog('en');
+    const dutchCatalog = getSupportCatalog('nl');
+
+    const groups = [
+      [englishCatalog.supportCategories, dutchCatalog.supportCategories],
+      [englishCatalog.supportArticles, dutchCatalog.supportArticles],
+      [englishCatalog.glossaryTerms, dutchCatalog.glossaryTerms],
+      [englishCatalog.legalPages, dutchCatalog.legalPages],
+    ] as const;
+
+    for (const [englishRecords, dutchRecords] of groups) {
+      expect(dutchRecords.map((record) => record.id)).toEqual(
+        englishRecords.map((record) => record.id)
+      );
+
+      englishRecords.forEach((englishRecord, index) => {
+        const dutchRecord = dutchRecords[index];
+
+        expect(metadataForRecord(dutchRecord)).toEqual(metadataForRecord(englishRecord));
+        expectSameTextShape(englishRecord, dutchRecord);
+      });
+    }
+
+    expect(dutchCatalog.allSupportRecords).toHaveLength(englishCatalog.allSupportRecords.length);
+    expect(
+      getSupportCatalog('nl').supportArticles.find((article) => article.id === 'price-guesses')
+        ?.title
+    ).toBe('Hoe werken prijsschattingen?');
+  });
+
   it('keeps glossary entries as adapted educational pages instead of placeholder definitions', () => {
     for (const term of glossaryTerms) {
-      const bodyText = term.bodySections.map((section) => [
-        section.title,
-        ...section.paragraphs,
-      ].join(' ')).join(' ');
+      const bodyText = term.bodySections
+        .map((section) => [section.title, ...section.paragraphs].join(' '))
+        .join(' ');
 
       expect(term.bodySections.length).toBeGreaterThanOrEqual(3);
       expect(bodyText.length).toBeGreaterThan(450);
       expect(bodyText).not.toContain('When this term relates to a transaction');
     }
 
-    expect(visibleTextForRecord(glossaryTerms.find((term) => term.slug === 'woz-value')!))
-      .toMatch(/reference date, usually January 1 of the previous year/i);
+    expect(visibleTextForRecord(glossaryTerms.find((term) => term.slug === 'woz-value')!)).toMatch(
+      /reference date, usually January 1 of the previous year/i
+    );
   });
 
   it('keeps visible copy branded for HuisHype and free of unsupported launch wording', () => {
@@ -422,11 +476,15 @@ describe('support content registry', () => {
     ).toMatchObject({
       status: 'excluded',
     });
-    expect(coverageByUrl.get('https://huispedia.nl/begrippenlijst/alles-over-kopen')).toMatchObject({
-      status: 'merged',
-      targetId: 'search-and-browse',
-    });
-    expect(coverageByUrl.get('https://huispedia.nl/begrippenlijst/alles-over-verkopen')).toMatchObject({
+    expect(coverageByUrl.get('https://huispedia.nl/begrippenlijst/alles-over-kopen')).toMatchObject(
+      {
+        status: 'merged',
+        targetId: 'search-and-browse',
+      }
+    );
+    expect(
+      coverageByUrl.get('https://huispedia.nl/begrippenlijst/alles-over-verkopen')
+    ).toMatchObject({
       status: 'merged',
       targetId: 'owner-listing-source-workflows',
     });

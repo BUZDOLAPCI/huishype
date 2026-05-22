@@ -7,6 +7,7 @@ import { UserAvatar } from '../ui/UserAvatar';
 import { CommentActionMenu } from '../CommentActionMenu';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
+import { useT } from '@/src/i18n';
 
 export interface CommentUser {
   id: string;
@@ -70,6 +71,7 @@ export function Comment({
   isReply = false,
   isLiked = false,
 }: CommentProps) {
+  const t = useT();
   const [showActionMenu, setShowActionMenu] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const reducedMotion = useReducedMotion();
@@ -134,7 +136,7 @@ export function Comment({
             onPress={handleAuthorPress}
             testID="comment-author-avatar-button"
             accessibilityRole="link"
-            accessibilityLabel={`Open ${displayName}'s profile`}
+            accessibilityLabel={t('comments.openProfile', { name: displayName })}
           >
             <UserAvatar
               username={comment.user.username}
@@ -148,7 +150,7 @@ export function Comment({
               onPress={handleAuthorPress}
               testID="comment-author-button"
               accessibilityRole="link"
-              accessibilityLabel={`Open ${displayName}'s profile`}
+              accessibilityLabel={t('comments.openProfile', { name: displayName })}
             >
               <View className="flex-row items-center flex-wrap">
                 <Text className="font-semibold text-warm-900 mr-1.5">
@@ -178,7 +180,7 @@ export function Comment({
             hitSlop={4}
             testID="like-button"
             accessibilityRole="button"
-            accessibilityLabel={resolvedIsLiked ? 'Unlike comment' : 'Like comment'}
+            accessibilityLabel={resolvedIsLiked ? t('comments.unlike') : t('comments.like')}
             accessibilityState={{ selected: resolvedIsLiked }}
           >
             <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
@@ -205,10 +207,10 @@ export function Comment({
               hitSlop={4}
               testID="reply-button"
               accessibilityRole="button"
-              accessibilityLabel={`Reply to ${displayName}`}
+              accessibilityLabel={t('comments.replyTo', { name: displayName })}
             >
               <Ionicons name="chatbubble-outline" size={16} color="#9C958A" />
-              <Text className="ml-1 text-sm text-warm-500">Reply</Text>
+              <Text className="ml-1 text-sm text-warm-500">{t('comments.reply')}</Text>
             </Pressable>
           )}
         </View>

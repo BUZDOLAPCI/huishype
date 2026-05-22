@@ -9,6 +9,7 @@ import { Text, View } from 'react-native';
 import { Icon } from './ui/Icon';
 import type { FeedTab } from '../hooks/useFeed';
 import { Button } from './ui/Button';
+import { useT } from '../i18n';
 
 interface FeedEmptyStateProps {
   filter?: FeedTab;
@@ -17,27 +18,28 @@ interface FeedEmptyStateProps {
 }
 
 export function FeedEmptyState({ filter, signedIn = true, onPrimaryAction }: FeedEmptyStateProps) {
+  const t = useT();
   const isFollowing = filter === 'following';
   const title = isFollowing
     ? signedIn
-      ? 'Nothing from people you follow yet'
-      : 'Sign in to see Following'
-    : 'No properties found';
+      ? t('feed.empty.title.followingSignedIn')
+      : t('feed.empty.title.followingSignedOut')
+    : t('feed.empty.title.default');
 
   const getMessage = () => {
     switch (filter) {
       case 'latest':
-        return 'No recent properties found. Check back later!';
+        return t('feed.empty.latest');
       case 'trending':
-        return 'No trending properties at the moment.';
+        return t('feed.empty.trending');
       case 'recent-activity':
-        return 'No property posts yet. Be the first to like, comment, or guess.';
+        return t('feed.empty.recentActivity');
       case 'following':
         return signedIn
-          ? 'Follow people from their profiles to build a personal feed.'
-          : 'Follow people from profiles to build a personal feed.';
+          ? t('feed.empty.followingSignedIn')
+          : t('feed.empty.followingSignedOut');
       default:
-        return 'No properties to show.';
+        return t('feed.empty.default');
     }
   };
 
@@ -53,7 +55,7 @@ export function FeedEmptyState({ filter, signedIn = true, onPrimaryAction }: Fee
       <Text className="text-warm-500 text-center">{getMessage()}</Text>
       {isFollowing && onPrimaryAction ? (
         <Button
-          label={signedIn ? 'Explore Activity' : 'Sign In'}
+          label={signedIn ? t('feed.empty.exploreActivity') : t('common.signIn')}
           onPress={onPrimaryAction}
           style={{ alignSelf: 'stretch', marginTop: 24 }}
           testID="feed-empty-primary-action"

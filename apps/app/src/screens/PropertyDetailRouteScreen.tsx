@@ -31,26 +31,31 @@ import {
   normalizePropertyReturnTarget,
   toInternalAppHref,
 } from '@/src/utils/property-route';
+import { useT } from '@/src/i18n';
 
 function PropertyDetailSkeleton() {
+  const t = useT();
+
   return (
     <RouteLoadingShell
-      title="Loading property"
-      subtitle="Preparing the property detail surface..."
+      title={t('property.loading.title')}
+      subtitle={t('property.loading.subtitle')}
     />
   );
 }
 
 function PropertyNotFound({ onGoBack }: { onGoBack: () => void }) {
+  const t = useT();
+
   return (
     <View style={styles.notFoundContainer}>
       <Icon name="HouseLine" size={64} color="#E8E0D4" />
-      <Text style={styles.notFoundTitle}>Property not found</Text>
+      <Text style={styles.notFoundTitle}>{t('property.notFound.title')}</Text>
       <Text style={styles.notFoundMessage}>
-        The property you're looking for doesn't exist or has been removed.
+        {t('property.notFound.body')}
       </Text>
       <TouchableOpacity onPress={onGoBack} style={styles.goBackButton}>
-        <Text style={styles.goBackText}>Go Back</Text>
+        <Text style={styles.goBackText}>{t('property.goBack')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -67,6 +72,7 @@ export function PropertyDetailRouteScreen({
   returnTo,
   onNavigate,
 }: PropertyDetailRouteScreenProps) {
+  const t = useT();
   const insets = useSafeAreaInsets();
   const { data: property, isLoading, error } = useProperty(propertyId ?? null);
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
@@ -283,7 +289,7 @@ export function PropertyDetailRouteScreen({
             style={styles.floatingButton}
             testID="property-back-button"
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('common.back')}
             activeOpacity={0.8}
           >
             <Icon name="CaretLeft" size={20} color="#FFFFFF" />

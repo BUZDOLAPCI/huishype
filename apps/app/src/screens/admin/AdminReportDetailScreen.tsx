@@ -21,15 +21,17 @@ import {
 import { AdminAccessGate } from '@/src/screens/admin/AdminAccess';
 import type { AdminCommentTarget, AdminPropertyTarget } from '@/src/services/admin-moderation';
 import { Button } from '@/src/components/ui/Button';
+import { useT } from '@/src/i18n';
 
 export function AdminReportDetailScreen() {
+  const t = useT();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const reportId = Array.isArray(params.id) ? params.id[0] : params.id;
 
   return (
     <AdminShell
-      title="Report Detail"
-      subtitle="Active reports, reporter metadata, and target preview."
+      title={t('admin.detail.title')}
+      subtitle={t('admin.detail.subtitle')}
     >
       <AdminAccessGate>
         {(enabled) => (
@@ -47,13 +49,14 @@ function DetailContent({
   reportId: string;
   enabled: boolean;
 }) {
+  const t = useT();
   const query = useAdminReportDetail(reportId, enabled);
   const action = useAdminReportAction();
 
   if (!reportId) {
     return (
       <AdminCard>
-        <Text style={styles.bodyText}>Missing report id.</Text>
+        <Text style={styles.bodyText}>{t('admin.detail.missingReportId')}</Text>
       </AdminCard>
     );
   }
@@ -77,7 +80,7 @@ function DetailContent({
   if (!detail) {
     return (
       <AdminCard>
-        <Text style={styles.bodyText}>Report detail unavailable.</Text>
+        <Text style={styles.bodyText}>{t('admin.detail.unavailable')}</Text>
       </AdminCard>
     );
   }
@@ -89,7 +92,7 @@ function DetailContent({
       <AdminCard>
         <View style={styles.headerRow}>
           <View style={styles.titleBlock}>
-            <Text style={styles.cardTitle}>Target preview</Text>
+            <Text style={styles.cardTitle}>{t('admin.detail.targetPreview')}</Text>
             <TargetPreview
               targetType={targetType}
               property={detail.report.property ?? (detail.target as AdminPropertyTarget)}
@@ -101,7 +104,7 @@ function DetailContent({
 
         <View style={styles.actionRow}>
           <Button
-            label="Dismiss reports"
+            label={t('admin.actions.dismissReports')}
             variant="secondary"
             size="sm"
             disabled={action.isPending}
@@ -119,7 +122,7 @@ function DetailContent({
           />
           {targetType === 'property' ? (
             <Button
-              label="Mark property reviewed"
+              label={t('admin.actions.markPropertyReviewed')}
               variant="primary"
               size="sm"
               disabled={action.isPending}
@@ -137,7 +140,7 @@ function DetailContent({
             />
           ) : (
             <Button
-              label="Hide comment"
+              label={t('admin.actions.hideComment')}
               variant="primary"
               size="sm"
               disabled={action.isPending}
@@ -158,17 +161,17 @@ function DetailContent({
       </AdminCard>
 
       <AdminCard>
-        <Text style={styles.cardTitle}>Active reports</Text>
+        <Text style={styles.cardTitle}>{t('admin.detail.activeReports')}</Text>
         <ReportDetailReportList reports={detail.activeReports} />
       </AdminCard>
 
       <AdminCard>
-        <Text style={styles.cardTitle}>Recent moderation actions</Text>
+        <Text style={styles.cardTitle}>{t('admin.dashboard.recentActions')}</Text>
         {detail.recentModerationActions.length > 0 ? (
           <ActivityLogList logs={detail.recentModerationActions} />
         ) : (
           <Text style={styles.bodyText}>
-            No moderation actions were returned for this target.
+            {t('admin.detail.noActions')}
           </Text>
         )}
       </AdminCard>
@@ -185,14 +188,16 @@ function TargetPreview({
   property?: AdminPropertyTarget | null;
   comment?: AdminCommentTarget | null;
 }) {
+  const t = useT();
+
   if (targetType === 'comment') {
     return (
       <View style={styles.previewBlock}>
         <Text style={styles.previewTitle} selectable>
-          {formatCommentTarget(comment)}
+          {formatCommentTarget(comment, t('admin.commentUnavailable'))}
         </Text>
         <Text style={styles.previewMeta} selectable>
-          {formatPropertyTitle(comment?.property ?? property)}
+          {formatPropertyTitle(comment?.property ?? property, t('admin.propertyUnavailable'))}
         </Text>
       </View>
     );
@@ -201,10 +206,10 @@ function TargetPreview({
   return (
     <View style={styles.previewBlock}>
       <Text style={styles.previewTitle} selectable>
-        {formatPropertyTitle(property)}
+        {formatPropertyTitle(property, t('admin.propertyUnavailable'))}
       </Text>
       <Text style={styles.previewMeta} selectable>
-        {formatPropertyLocation(property)}
+        {formatPropertyLocation(property, t('admin.noAddressMetadata'))}
       </Text>
     </View>
   );
