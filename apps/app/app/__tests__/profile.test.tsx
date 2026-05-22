@@ -27,6 +27,7 @@ const mockAlert = jest.requireMock('react-native').Alert as {
 jest.mock('expo-router', () => ({
   router: {
     push: jest.fn(),
+    replace: jest.fn(),
   },
 }));
 
@@ -121,6 +122,8 @@ const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
 const getRouterPush = () =>
   (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
+const getRouterReplace = () =>
+  (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
 
 function renderWithDismissibleLayer(ui: React.ReactElement) {
   return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
@@ -283,7 +286,7 @@ describe('ProfileScreen sign out', () => {
 
     fireEvent.press(getByTestId('settings-open'));
 
-    expect(getRouterPush()).toHaveBeenCalledWith('/profile-settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/profile-settings');
   });
 
   it('shows settings and sign out from the signed-in loading profile state', () => {
@@ -305,7 +308,7 @@ describe('ProfileScreen sign out', () => {
 
     fireEvent.press(getByTestId('settings-open'));
 
-    expect(getRouterPush()).toHaveBeenCalledWith('/profile-settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/profile-settings');
   });
 
   it('opens settings from the signed-in profile menu', () => {
@@ -317,7 +320,7 @@ describe('ProfileScreen sign out', () => {
     fireEvent.press(getByTestId('profile-settings'));
     fireEvent.press(getByTestId('settings-open'));
 
-    expect(getRouterPush()).toHaveBeenCalledWith('/profile-settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/profile-settings');
   });
 
   it('keeps self follower and following counts as navigation entrypoints', () => {

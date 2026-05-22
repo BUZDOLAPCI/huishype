@@ -448,8 +448,8 @@ export default function ProfileScreen() {
   }, []);
 
   const handleOpenSettings = useCallback(() => {
+    router.replace('/profile-settings');
     setShowSettings(false);
-    router.push('/profile-settings');
   }, []);
 
   const profileHeaderTopInset = Platform.OS === 'web' ? 16 : insets.top + 8;
