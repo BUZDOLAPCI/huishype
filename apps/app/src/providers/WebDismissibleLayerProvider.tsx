@@ -26,9 +26,10 @@ type LayerRecord = {
   order: number;
   priority: number;
   stateKey?: string;
+  url: string;
 };
 
-type LayerRegistration = Omit<LayerRecord, 'order'>;
+type LayerRegistration = Omit<LayerRecord, 'order' | 'url'>;
 
 type WebDismissibleLayerContextValue = {
   registerLayer: (layer: LayerRegistration) => () => void;
@@ -80,6 +81,25 @@ function createLayerHistoryState(currentState: unknown, layer: LayerRecord) {
 
 function getCurrentSamePathUrl() {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function isCurrentLayerHistoryEntry(layer: LayerRecord) {
+  if (getCurrentSamePathUrl() !== layer.url) {
+    return false;
+  }
+
+  const state = window.history.state;
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return false;
+  }
+
+  const marker = (state as Record<string, unknown>)[HUIS_HYPE_LAYER_STATE_KEY];
+  return (
+    !!marker &&
+    typeof marker === 'object' &&
+    !Array.isArray(marker) &&
+    (marker as { key?: unknown }).key === layer.key
+  );
 }
 
 export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
@@ -136,7 +156,10 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
       }
 
       const topLayer = getTopLayer();
-      const shouldConsumeHistory = topLayer?.key === key && !popDismissedKeysRef.current.has(key);
+      const shouldConsumeHistory =
+        topLayer?.key === key &&
+        !popDismissedKeysRef.current.has(key) &&
+        isCurrentLayerHistoryEntry(existingLayer);
 
       layersRef.current.delete(key);
 
@@ -174,6 +197,7 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
       const record: LayerRecord = {
         ...layer,
         order: nextOrderRef.current,
+        url: getCurrentSamePathUrl(),
       };
       nextOrderRef.current += 1;
       layersRef.current.set(layer.key, record);

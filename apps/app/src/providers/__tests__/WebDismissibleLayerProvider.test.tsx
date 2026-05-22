@@ -136,6 +136,32 @@ describe('WebDismissibleLayerProvider', () => {
     expect(stopImmediatePropagation).toHaveBeenCalledTimes(1);
   });
 
+  it('does not consume history when closing after route navigation already changed location', () => {
+    const onDismiss = jest.fn();
+    const backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {});
+
+    const { rerender } = renderHook(
+      ({ active }: { active: boolean }) =>
+        useWebDismissibleLayer({
+          id: 'sheet',
+          active,
+          onDismiss,
+        }),
+      {
+        wrapper,
+        initialProps: { active: true },
+      },
+    );
+
+    act(() => {
+      window.history.pushState({ expo: 'next-route' }, '', '/profile-settings');
+    });
+    rerender({ active: false });
+
+    expect(backSpy).not.toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
   it('does not call history.back again when a popstate dismissal deactivates the layer', () => {
     const onDismiss = jest.fn();
     const backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {});
