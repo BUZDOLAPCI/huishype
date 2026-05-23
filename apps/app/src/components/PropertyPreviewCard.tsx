@@ -17,16 +17,13 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View, Platform, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
-import {
-  formatPropertyPrice,
-  getValuationLabel,
-  type CountryCode,
-} from '@huishype/shared';
+import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 import { getCountryConfig, isValidCountryCode } from '@huishype/shared/config';
 import { toPropertyImageSource } from '../utils/property-image';
 import { PropertyImageSurface } from './PropertyImageSurface';
 import type { WebViewStyle } from '@/src/lib/webStyle';
 import { useT } from '@/src/i18n';
+import { ActivityPill, ListingPill, type ListingMarketState } from './PropertyStatusPills';
 
 // ─── Warm palette constants ──────────────────────────────────────────────
 
@@ -50,12 +47,6 @@ const COLORS = {
   heartPink: '#8C6B76',
   commentGreen: '#607A6A',
   guessOlive: '#7A7A5C',
-} as const;
-
-const ACTIVITY_CONFIG = {
-  hot: { dot: '#FF6B35', label: 'Hot', bg: 'rgba(255, 107, 53, 0.12)', textColor: '#E6662F' },
-  warm: { dot: '#4CAF50', label: 'Active', bg: 'rgba(76, 175, 80, 0.12)', textColor: '#4A9B55' },
-  cold: { dot: '#C7BFB3', label: 'Quiet', bg: 'rgba(231, 223, 213, 0.68)', textColor: '#9C958A' },
 } as const;
 
 const IMAGE_HEIGHT = 100;
@@ -83,6 +74,7 @@ export interface PropertyPreviewData {
   askingPrice?: number | null;
   fmv?: number | null;
   activityLevel?: 'hot' | 'warm' | 'cold';
+  marketState?: ListingMarketState | null;
   activityScore?: number;
   thumbnailUrl?: string | null;
   /** Listing photo URL (highest priority image). */
@@ -129,9 +121,7 @@ function AutoFitAddressText({ address }: { address: string }) {
     ADDRESS_MIN_FONT_SIZE,
     Math.round(ADDRESS_BASE_FONT_SIZE * scale * 10) / 10
   );
-  const lineHeight = Math.round(
-    ADDRESS_BASE_LINE_HEIGHT * (fontSize / ADDRESS_BASE_FONT_SIZE)
-  );
+  const lineHeight = Math.round(ADDRESS_BASE_LINE_HEIGHT * (fontSize / ADDRESS_BASE_FONT_SIZE));
 
   return (
     <View
@@ -177,13 +167,14 @@ function AutoFitAddressText({ address }: { address: string }) {
   );
 }
 
-function getPreviewAddressLine(property: Pick<
-  PropertyPreviewData,
-  'address' | 'streetName' | 'houseNumber' | 'houseNumberAddition' | 'countryCode'
->): string {
+function getPreviewAddressLine(
+  property: Pick<
+    PropertyPreviewData,
+    'address' | 'streetName' | 'houseNumber' | 'houseNumberAddition' | 'countryCode'
+  >
+): string {
   const streetName = property.streetName?.trim();
-  const houseNumber =
-    property.houseNumber != null ? String(property.houseNumber).trim() : '';
+  const houseNumber = property.houseNumber != null ? String(property.houseNumber).trim() : '';
 
   if (streetName && houseNumber) {
     const countryCode: CountryCode =
@@ -252,7 +243,6 @@ export function PropertyPreviewCard({
 }: PropertyPreviewCardProps) {
   const t = useT();
   const activityLevel = property.activityLevel ?? 'cold';
-  const activity = ACTIVITY_CONFIG[activityLevel];
   const displayPrice = getDisplayPrice(property);
   const formattedPrice = formatPrice(displayPrice?.price, property.countryCode);
   const previewAddressLine = getPreviewAddressLine(property);
@@ -267,11 +257,7 @@ export function PropertyPreviewCard({
 
   const cardContent = (
     <View style={styles.cardContentContainer}>
-      <Pressable
-        onPress={onPress}
-        style={styles.cardPressable}
-        testID="property-preview-card"
-      >
+      <Pressable onPress={onPress} style={styles.cardPressable} testID="property-preview-card">
         {/* Image area */}
         <View style={styles.imageWrapper}>
           <PropertyImageSurface
@@ -290,22 +276,25 @@ export function PropertyPreviewCard({
 
         {/* Body section */}
         <View style={styles.body}>
-          {/* Address row + activity badge */}
+          {/* Address row + status pills */}
           <View style={styles.addressRow}>
             <AutoFitAddressText address={previewAddressLine} />
-            <View style={[styles.activityBadge, { backgroundColor: activity.bg }]}>
-              <View style={[styles.activityDot, { backgroundColor: activity.dot }]} />
-              <Text style={[styles.activityLabel, { color: activity.textColor }]}>
-                {activity.label}
-              </Text>
+            <View style={styles.statusPillsStack} testID="property-preview-status-pills">
+              <ActivityPill level={activityLevel} testID="property-preview-activity-pill" />
             </View>
           </View>
 
           {/* City */}
-          <Text style={styles.city} numberOfLines={1}>
-            {property.city}
-            {property.postalCode ? `, ${property.postalCode}` : ''}
-          </Text>
+          <View style={styles.cityRow} testID="property-preview-city-row">
+            <Text style={styles.city} numberOfLines={1}>
+              {property.city}
+              {property.postalCode ? `, ${property.postalCode}` : ''}
+            </Text>
+            <ListingPill
+              marketState={property.marketState}
+              testID="property-preview-listing-pill"
+            />
+          </View>
 
           {/* Stat pills row: like count | comment count | price */}
           <View style={styles.statPillsRow}>
@@ -364,7 +353,9 @@ export function PropertyPreviewCard({
               weight={isLiked ? 'fill' : 'regular'}
               color={isLiked ? COLORS.hotRed500 : COLORS.heartPink}
             />
-            <Text style={[styles.actionLabel, { color: isLiked ? COLORS.hotRed500 : COLORS.heartPink }]}>
+            <Text
+              style={[styles.actionLabel, { color: isLiked ? COLORS.hotRed500 : COLORS.heartPink }]}
+            >
               {isLiked ? t('property.preview.liked') : t('property.preview.like')}
             </Text>
           </Pressable>
@@ -553,25 +544,20 @@ const styles = StyleSheet.create({
     top: 0,
     opacity: 0,
   },
-  activityBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 4,
+  statusPillsStack: {
+    alignItems: 'flex-end',
     marginTop: 1,
+    maxWidth: 92,
   },
-  activityDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  activityLabel: {
-    fontSize: 11,
-    fontWeight: '600',
+  cityRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   city: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 13.5,
     lineHeight: 18,
     color: COLORS.warm600,

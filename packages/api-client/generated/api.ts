@@ -4857,6 +4857,8 @@ export interface paths {
                                 viewCount: number;
                                 /** @enum {string} */
                                 activityLevel: "hot" | "warm" | "cold";
+                                /** @enum {string} */
+                                marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
                                 /** Format: date-time */
                                 lastActivityAt: string;
                                 hasListing: boolean;

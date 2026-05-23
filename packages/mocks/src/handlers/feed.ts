@@ -40,6 +40,11 @@ export const feedHandlers = [
         address: p.address,
         city: p.city,
         zipCode: p.postalCode,
+        countryCode: p.countryCode,
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [p.coordinates.lon, p.coordinates.lat] as [number, number],
+        },
         askingPrice: p.activeListing?.askingPrice ?? null,
         fmv: p.fmv?.value ?? null,
         officialValuation: p.officialValuation ?? null,
@@ -55,6 +60,7 @@ export const feedHandlers = [
             : p.activity.trend === 'falling'
               ? ('cold' as const)
               : ('warm' as const),
+        marketState: 'for-sale' as const,
         lastActivityAt: p.activity.lastActivityAt ?? new Date().toISOString(),
         hasListing: true,
       }));

@@ -1,12 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  Image,
-  Linking,
-  Pressable,
-  Text,
-  View,
-  StyleSheet,
-} from 'react-native';
+import { Image, Linking, Pressable, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MetricPills } from '../MetricPills';
 import type { PropertyDetailsData } from './types';
@@ -18,6 +11,7 @@ import {
 import { PropertyImageSurface } from '../PropertyImageSurface';
 import { Card } from '../ui/Card';
 import { useT } from '@/src/i18n';
+import { ActivityPill, ListingPill, StatusPillRow } from '../PropertyStatusPills';
 
 // Import the placeholder image as a static asset
 const placeholderImage = require('../../../assets/images/property-placeholder.png');
@@ -41,11 +35,7 @@ function PropertyHeroImage({ property }: PropertyHeroImageProps) {
 
   const placeholder = (
     <View style={styles.imageContainer} testID="property-header-placeholder">
-      <Image
-        source={placeholderImage}
-        style={styles.placeholderImage}
-        resizeMode="contain"
-      />
+      <Image source={placeholderImage} style={styles.placeholderImage} resizeMode="contain" />
     </View>
   );
 
@@ -72,9 +62,9 @@ function PropertyHeroImage({ property }: PropertyHeroImageProps) {
 }
 
 const ACTIVITY_CONFIG = {
-  hot: { dot: '#FF6B35', label: 'Hot', desc: 'Lots of activity this week', textColor: '#C43E00', bg: '#FFF5F0' },
-  warm: { dot: '#F5A623', label: 'Active', desc: 'Some recent activity', textColor: '#B47712', bg: '#FFFBEB' },
-  cold: { dot: '#C7BFB3', label: 'Quiet', desc: 'No recent activity', textColor: '#9C958A', bg: '#F5F0E8' },
+  hot: { desc: 'Lots of activity this week' },
+  warm: { desc: 'Some recent activity' },
+  cold: { desc: 'No recent activity' },
 } as const;
 
 interface PropertyHeaderProps {
@@ -103,8 +93,7 @@ function formatGoogleMapsAddressPart(
 
   return trimmed.replace(
     /\b([1-9]\d{3})\s+([A-Za-z]{2})\b/g,
-    (_match: string, digits: string, letters: string) =>
-      `${digits}${letters.toUpperCase()}`
+    (_match: string, digits: string, letters: string) => `${digits}${letters.toUpperCase()}`
   );
 }
 
@@ -187,18 +176,22 @@ export function PropertyHeader({
               <Text style={styles.address} numberOfLines={2}>
                 {addressTitle}
               </Text>
-              {hasSecondaryLocation && (
-                <Text style={styles.location}>{secondaryLocation}</Text>
-              )}
+              {hasSecondaryLocation && <Text style={styles.location}>{secondaryLocation}</Text>}
             </View>
 
             <View style={styles.activityColumn}>
-              <View style={[styles.activityBadge, { backgroundColor: activity.bg }]}>
-                <View style={[styles.activityDot, { backgroundColor: activity.dot }]} />
-                <Text style={[styles.activityLabel, { color: activity.textColor }]}>
-                  {activity.label}
-                </Text>
-              </View>
+              <StatusPillRow style={styles.statusPills} testID="property-header-status-pills">
+                <ActivityPill
+                  level={property.activityLevel}
+                  size="md"
+                  testID="property-header-activity-pill"
+                />
+                <ListingPill
+                  marketState={property.marketState}
+                  size="md"
+                  testID="property-header-listing-pill"
+                />
+              </StatusPillRow>
               <Text style={styles.activityDescription}>{activity.desc}</Text>
             </View>
           </View>
@@ -220,10 +213,7 @@ export function PropertyHeader({
             accessibilityRole="link"
             accessibilityLabel={t('property.map.openPropertyInGoogleMaps')}
             onPress={handleOpenGoogleMaps}
-            style={({ pressed }) => [
-              styles.mapLinkButton,
-              pressed && styles.mapLinkButtonPressed,
-            ]}
+            style={({ pressed }) => [styles.mapLinkButton, pressed && styles.mapLinkButtonPressed]}
           >
             <Ionicons name="map-outline" size={14} color="#8C8479" />
             <Text style={styles.mapLinkText}>{t('property.map.openInGoogleMaps')}</Text>
@@ -302,24 +292,10 @@ const styles = StyleSheet.create({
   },
   activityColumn: {
     alignItems: 'flex-end',
-    maxWidth: 116,
+    maxWidth: 210,
   },
-  activityBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  activityDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 7,
-  },
-  activityLabel: {
-    fontSize: 12,
-    fontWeight: '700',
+  statusPills: {
+    justifyContent: 'flex-end',
   },
   activityDescription: {
     marginTop: 6,

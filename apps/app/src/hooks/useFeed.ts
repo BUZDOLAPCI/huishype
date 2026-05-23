@@ -7,7 +7,7 @@
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { Platform } from 'react-native';
 import { API_URL } from '../utils/api';
-import type { CountryCode, PropertyFeedFilter } from '@huishype/shared';
+import type { CountryCode, MapMarketState, PropertyFeedFilter } from '@huishype/shared';
 import { getPropertyThumbnailFromGeometry } from '../lib/propertyThumbnail';
 
 export type { FeedTab, PropertyFeedFilter } from '@huishype/shared';
@@ -39,8 +39,10 @@ export interface FeedProperty {
   guessCount: number;
   viewCount: number;
   activityLevel: 'hot' | 'warm' | 'cold';
+  marketState: MapMarketState | null;
   lastActivityAt: string;
   hasListing: boolean;
+  hasActiveListing?: boolean;
   // Computed on the client from address parts (kept for component compat)
   postalCode: string | null;
   coordinates: { lat: number; lon: number } | null;
@@ -68,6 +70,7 @@ interface FeedApiResponse {
     guessCount: number;
     viewCount: number;
     activityLevel: 'hot' | 'warm' | 'cold';
+    marketState: MapMarketState;
     lastActivityAt: string;
     hasListing: boolean;
   }>;
@@ -102,6 +105,7 @@ function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
       ? { lon: item.geometry.coordinates[0], lat: item.geometry.coordinates[1] }
       : null,
     fmvValue: item.fmv ?? undefined,
+    hasActiveListing: item.hasListing,
     yearBuilt: null, // not returned by feed endpoint
     floorAreaM2: null, // not returned by feed endpoint
   };

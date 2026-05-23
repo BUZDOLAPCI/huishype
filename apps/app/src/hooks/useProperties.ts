@@ -11,10 +11,7 @@ import {
 } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { withDerivedPropertyImageData } from '../utils/property-image';
-import {
-  type MapFilters,
-  type MapMarketState,
-} from '@/src/lib/sharedMapFilters';
+import { type MapFilters, type MapMarketState } from '@/src/lib/sharedMapFilters';
 
 // Types for property data
 export interface PropertyGeometry {
@@ -126,7 +123,7 @@ const HOT_ACTIVITY_SCORE_THRESHOLD = 50;
 
 export function getViewerCacheKey(
   user: { id: string } | null | undefined,
-  isAuthenticated: boolean,
+  isAuthenticated: boolean
 ): string {
   return isAuthenticated && user?.id ? `auth:${user.id}` : 'anon';
 }
@@ -148,12 +145,11 @@ function withDerivedPropertyImages<T extends Property>(property: T): T {
   return withDerivedPropertyImageData(property);
 }
 
-export function deriveCompatibilityActivityLevel(property: Pick<
-  Property,
-  'socialScore' | 'recentSocialScore'
-> & {
-  hasActiveListing?: boolean | null;
-}): 'hot' | 'warm' | 'cold' {
+export function deriveCompatibilityActivityLevel(
+  property: Pick<Property, 'socialScore' | 'recentSocialScore'> & {
+    hasActiveListing?: boolean | null;
+  }
+): 'hot' | 'warm' | 'cold' {
   if ((property.recentSocialScore ?? 0) > RECENT_HOT_SCORE_THRESHOLD) {
     return 'hot';
   }
@@ -162,30 +158,23 @@ export function deriveCompatibilityActivityLevel(property: Pick<
     return 'hot';
   }
 
-  if (
-    (property.socialScore ?? 0) >= ACTIVE_SOCIAL_SCORE_THRESHOLD ||
-    property.hasActiveListing
-  ) {
+  if ((property.socialScore ?? 0) >= ACTIVE_SOCIAL_SCORE_THRESHOLD) {
     return 'warm';
   }
 
   return 'cold';
 }
 
-function isActivityLevel(
-  value: unknown,
-): value is NonNullable<PropertyDetails['activityLevel']> {
+function isActivityLevel(value: unknown): value is NonNullable<PropertyDetails['activityLevel']> {
   return value === 'hot' || value === 'warm' || value === 'cold';
 }
 
-export function resolvePropertyCommentCount(
-  property: {
-    commentCount?: number | null;
-    topLevelCommentCount?: number | null;
-    replyCount?: number | null;
-    commentsDisabled?: boolean | null;
-  },
-): number {
+export function resolvePropertyCommentCount(property: {
+  commentCount?: number | null;
+  topLevelCommentCount?: number | null;
+  replyCount?: number | null;
+  commentsDisabled?: boolean | null;
+}): number {
   if (property.commentsDisabled) {
     return 0;
   }
@@ -204,12 +193,10 @@ export function resolvePropertyActivityLevel(
   property: Pick<Property, 'socialScore' | 'recentSocialScore'> & {
     hasActiveListing?: boolean | null;
     activityLevel?: PropertyDetails['activityLevel'] | null;
-  },
+  }
 ): 'hot' | 'warm' | 'cold' {
   const hasModernSignals =
-    typeof property.socialScore === 'number' ||
-    typeof property.recentSocialScore === 'number' ||
-    property.hasActiveListing === true;
+    typeof property.socialScore === 'number' || typeof property.recentSocialScore === 'number';
 
   if (hasModernSignals) {
     return deriveCompatibilityActivityLevel(property);
@@ -240,11 +227,11 @@ function normalizePropertyResponse<T extends PropertyResponseLike>(property: T):
     uniqueViewers:
       'uniqueViewers' in property && typeof property.uniqueViewers === 'number'
         ? property.uniqueViewers
-        : property.uniqueViewerCount ?? 0,
+        : (property.uniqueViewerCount ?? 0),
     likeCount:
       'likeCount' in property && typeof property.likeCount === 'number'
         ? property.likeCount
-        : property.propertyLikeCount ?? 0,
+        : (property.propertyLikeCount ?? 0),
     activityLevel: resolvePropertyActivityLevel(property),
   };
 
@@ -261,15 +248,13 @@ function hasCurrentOfficialValuation(property: Property): boolean {
 }
 
 function supportsOfficialValuationSourceFetch(
-  hint: OfficialValuationSourceFetch | null | undefined,
+  hint: OfficialValuationSourceFetch | null | undefined
 ): boolean {
   if (!hint) {
     return false;
   }
 
-  return Platform.OS === 'web'
-    ? hint.supportsClientFetch.web
-    : hint.supportsClientFetch.native;
+  return Platform.OS === 'web' ? hint.supportsClientFetch.web : hint.supportsClientFetch.native;
 }
 
 function shouldFetchOfficialValuationPreview(property: PropertyDetails): boolean {
@@ -283,7 +268,7 @@ function shouldFetchOfficialValuationPreview(property: PropertyDetails): boolean
 
 function mergeServerPropertyWithPreview<T extends PropertyDetails | null>(
   serverProperty: T,
-  previousProperty: PropertyDetails | null | undefined,
+  previousProperty: PropertyDetails | null | undefined
 ): T {
   if (!serverProperty || !previousProperty || !hasCurrentOfficialValuation(previousProperty)) {
     return serverProperty;
@@ -317,7 +302,7 @@ function mergeServerPropertyWithPreview<T extends PropertyDetails | null>(
 
 function mergeHydrateResponse(
   property: PropertyDetails,
-  response: OfficialValuationHydrateResponse,
+  response: OfficialValuationHydrateResponse
 ): PropertyDetails {
   if (response.officialValuation == null || response.officialValuationYear == null) {
     return property;
@@ -333,7 +318,7 @@ function mergeHydrateResponse(
 
 function applyOfficialValuationPreview(
   property: PropertyDetails,
-  result: OfficialValuationSourceResult,
+  result: OfficialValuationSourceResult
 ): PropertyDetails {
   return {
     ...property,
@@ -373,20 +358,20 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
 export const fetchPropertyById = async (
   id: string,
   accessToken?: string | null,
-  previousProperty?: PropertyDetails | null,
+  previousProperty?: PropertyDetails | null
 ): Promise<PropertyDetails | null> => {
   try {
-    const property = await api.get<PropertyDetails>(`/properties/${id}`, accessToken
-      ? {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      : undefined);
-    return mergeServerPropertyWithPreview(
-      normalizePropertyResponse(property),
-      previousProperty,
+    const property = await api.get<PropertyDetails>(
+      `/properties/${id}`,
+      accessToken
+        ? {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        : undefined
     );
+    return mergeServerPropertyWithPreview(normalizePropertyResponse(property), previousProperty);
   } catch (error) {
     console.error('Failed to fetch property:', error);
     return null;
@@ -427,19 +412,22 @@ async function hydrateOfficialValuationPreview({
 
     if (sourceResult) {
       queryClient.setQueryData<PropertyDetails | null>(queryKey, (current) =>
-        current ? applyOfficialValuationPreview(current, sourceResult) : current,
+        current ? applyOfficialValuationPreview(current, sourceResult) : current
       );
     }
 
     const hydrateResponse = await submitOfficialValuationHydration(
       property.id,
       sourceResult,
-      accessToken,
+      accessToken
     );
     queryClient.setQueryData<PropertyDetails | null>(queryKey, (current) =>
-      current ? mergeHydrateResponse(current, hydrateResponse) : current,
+      current ? mergeHydrateResponse(current, hydrateResponse) : current
     );
-    if (hydrateResponse.officialValuation == null || hydrateResponse.officialValuationYear == null) {
+    if (
+      hydrateResponse.officialValuation == null ||
+      hydrateResponse.officialValuationYear == null
+    ) {
       queryClient.invalidateQueries({ queryKey });
     }
   } catch (error) {
@@ -471,7 +459,7 @@ export const propertyKeys = {
     filters: Pick<
       MapFilters,
       'salePriceFrom' | 'salePriceTo' | 'rentPriceFrom' | 'rentPriceTo' | 'marketState'
-    >,
+    >
   ) => [...propertyKeys.followingViewportRoot(viewerKey), bbox, filters] as const,
 };
 
@@ -486,15 +474,15 @@ export function useProperties(params: PropertyQueryParams = {}) {
 }
 
 // Hook to fetch properties within map bounds
-export function useMapProperties(bounds: {
-  north: number;
-  south: number;
-  east: number;
-  west: number;
-} | null) {
-  const bbox = bounds
-    ? `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`
-    : undefined;
+export function useMapProperties(
+  bounds: {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+  } | null
+) {
+  const bbox = bounds ? `${bounds.west},${bounds.south},${bounds.east},${bounds.north}` : undefined;
 
   return useQuery({
     queryKey: propertyKeys.map(bounds ?? undefined),
@@ -540,7 +528,7 @@ export function useProperty(id: string | null) {
       }
 
       const previousProperty = queryClient.getQueryData<PropertyDetails | null>(
-        propertyKeys.detail(id, viewerKey),
+        propertyKeys.detail(id, viewerKey)
       );
       return fetchPropertyById(id, accessToken, previousProperty);
     },
@@ -549,11 +537,7 @@ export function useProperty(id: string | null) {
 
   useEffect(() => {
     const property = query.data;
-    if (
-      !id ||
-      !property ||
-      !shouldFetchOfficialValuationPreview(property)
-    ) {
+    if (!id || !property || !shouldFetchOfficialValuationPreview(property)) {
       return;
     }
 

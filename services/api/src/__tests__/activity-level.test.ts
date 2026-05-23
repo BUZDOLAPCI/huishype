@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { calculateActivityLevel } from '../routes/views.js';
+import { calculateActivityLevel, computeActivityLevel } from '../routes/views.js';
 
 describe('calculateActivityLevel', () => {
   describe('hot activity', () => {
@@ -88,5 +88,20 @@ describe('calculateActivityLevel', () => {
     it('should return warm at exactly 5 guesses (not hot)', () => {
       expect(calculateActivityLevel(0, 0, 5)).toBe('warm');
     });
+  });
+});
+
+describe('computeActivityLevel', () => {
+  it('does not warm up a feed item without engagement timestamps', () => {
+    expect(computeActivityLevel(0, null)).toBe('cold');
+  });
+
+  it('still classifies recent engagement as warm when score is zero', () => {
+    expect(computeActivityLevel(0, new Date())).toBe('warm');
+  });
+
+  it('classifies scored engagement as warm or hot', () => {
+    expect(computeActivityLevel(0.5, null)).toBe('warm');
+    expect(computeActivityLevel(5, null)).toBe('hot');
   });
 });

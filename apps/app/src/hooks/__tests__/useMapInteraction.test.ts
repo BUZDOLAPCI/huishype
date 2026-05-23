@@ -2,18 +2,12 @@ import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
-import {
-  useMapInteraction,
-  getActivityLevel,
-  estimateZoomForBbox,
-} from '../useMapInteraction';
+import { useMapInteraction, getActivityLevel, estimateZoomForBbox } from '../useMapInteraction';
 import type { MapCameraCommands, PreviewGroup } from '../useMapInteraction';
 import type { NearbyPropertyGroup, PropertyResolveResult } from '../../utils/api';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR } from '../../lib/mapCameraAnchor';
 import { fetchBatchProperties } from '../../utils/api';
-import {
-  getPropertyAerialImageFromGeometry,
-} from '../../lib/propertyThumbnail';
+import { getPropertyAerialImageFromGeometry } from '../../lib/propertyThumbnail';
 import { useProperty } from '../useProperties';
 
 const mockRouterPush = jest.fn();
@@ -94,11 +88,7 @@ type MockBottomSheetHandle = {
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: PropsWithChildren) {
-    return React.createElement(
-      QueryClientProvider,
-      { client: queryClient },
-      children,
-    );
+    return React.createElement(QueryClientProvider, { client: queryClient }, children);
   };
 }
 
@@ -207,11 +197,13 @@ describe('useMapInteraction', () => {
       });
 
       const group: PreviewGroup = {
-        properties: [{
-          id: 'prop-1',
-          address: '123 Main St',
-          city: 'Amsterdam',
-        }],
+        properties: [
+          {
+            id: 'prop-1',
+            address: '123 Main St',
+            city: 'Amsterdam',
+          },
+        ],
         coordinate: [4.9, 52.37],
       };
 
@@ -472,7 +464,9 @@ describe('useMapInteraction', () => {
       const snapToIndex = jest.fn();
 
       act(() => {
-        (result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>).current = {
+        (
+          result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>
+        ).current = {
           expand: jest.fn(),
           collapse: jest.fn(),
           close: jest.fn(),
@@ -556,7 +550,9 @@ describe('useMapInteraction', () => {
       const scrollToComments = jest.fn();
 
       act(() => {
-        (result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>).current = {
+        (
+          result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>
+        ).current = {
           expand: jest.fn(),
           collapse: jest.fn(),
           close: jest.fn(),
@@ -626,7 +622,9 @@ describe('useMapInteraction', () => {
       const scrollToComments = jest.fn();
 
       act(() => {
-        (result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>).current = {
+        (
+          result.current.bottomSheetRef as React.MutableRefObject<MockBottomSheetHandle | null>
+        ).current = {
           expand: jest.fn(),
           collapse: jest.fn(),
           close: jest.fn(),
@@ -648,12 +646,14 @@ describe('useMapInteraction', () => {
       });
 
       expect(result.current.previewGroup).toMatchObject({
-        properties: [{
-          id: 'prop-9',
-          address: 'Stationsplein 1',
-          city: 'Eindhoven',
-          coordinate: [5.48, 51.44],
-        }],
+        properties: [
+          {
+            id: 'prop-9',
+            address: 'Stationsplein 1',
+            city: 'Eindhoven',
+            coordinate: [5.48, 51.44],
+          },
+        ],
         coordinate: [5.48, 51.44],
       });
       expect(result.current.highlightedCoordinate).toEqual([5.48, 51.44]);
@@ -1411,11 +1411,12 @@ describe('useMapInteraction', () => {
       expect(result.current.previewGroup).not.toBeNull();
       expect(result.current.previewGroup?.properties[0]).toMatchObject({
         hasActiveListing: true,
-        activityLevel: 'warm',
+        marketState: 'for-sale',
       });
+      expect(result.current.previewGroup?.properties[0]?.activityLevel).not.toBe('warm');
       expect(getPropertyAerialImageFromGeometry).toHaveBeenLastCalledWith(
         { type: 'Point', coordinates: [4.9, 52.37] },
-        'NL',
+        'NL'
       );
     });
 
@@ -1438,7 +1439,7 @@ describe('useMapInteraction', () => {
             hasActiveListing: false,
             marketState: 'not-listed',
           } as PropertyResolveResult,
-          camera,
+          camera
         );
       });
 
@@ -1456,11 +1457,7 @@ describe('useMapInteraction', () => {
       const camera = createMockCamera();
 
       act(() => {
-        result.current.handleLocationResolved(
-          { lon: 4.9, lat: 52.37 },
-          'Amsterdam',
-          camera,
-        );
+        result.current.handleLocationResolved({ lon: 4.9, lat: 52.37 }, 'Amsterdam', camera);
       });
 
       expect(camera.flyTo).toHaveBeenCalledWith({
@@ -1481,13 +1478,15 @@ describe('useMapInteraction', () => {
 
       act(() => {
         result.current.setPreviewGroup({
-          properties: [{
-            id: 'prop-123',
-            address: 'Routelaan 12',
-            city: 'Eindhoven',
-            postalCode: '5600 AA',
-            countryCode: 'NL',
-          }],
+          properties: [
+            {
+              id: 'prop-123',
+              address: 'Routelaan 12',
+              city: 'Eindhoven',
+              postalCode: '5600 AA',
+              countryCode: 'NL',
+            },
+          ],
           coordinate: [5.4697, 51.4416],
         });
       });
@@ -1497,7 +1496,7 @@ describe('useMapInteraction', () => {
       });
 
       expect(mockRouterPush).toHaveBeenCalledWith(
-        '/eindhoven/5600aa/routelaan/12/guesses?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12',
+        '/eindhoven/5600aa/routelaan/12/guesses?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12'
       );
     });
 
@@ -1508,13 +1507,15 @@ describe('useMapInteraction', () => {
 
       act(() => {
         result.current.setPreviewGroup({
-          properties: [{
-            id: 'prop-456',
-            address: 'Routelaan 12',
-            city: 'Eindhoven',
-            postalCode: '5600 AA',
-            countryCode: 'NL',
-          }],
+          properties: [
+            {
+              id: 'prop-456',
+              address: 'Routelaan 12',
+              city: 'Eindhoven',
+              postalCode: '5600 AA',
+              countryCode: 'NL',
+            },
+          ],
           coordinate: [5.4697, 51.4416],
         });
       });
@@ -1524,7 +1525,7 @@ describe('useMapInteraction', () => {
       });
 
       expect(mockRouterPush).toHaveBeenCalledWith(
-        '/eindhoven/5600aa/routelaan/12/comments?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12',
+        '/eindhoven/5600aa/routelaan/12/comments?returnTo=%2Feindhoven%2F5600aa%2Froutelaan%2F12'
       );
     });
   });
@@ -1589,7 +1590,7 @@ describe('useMapInteraction', () => {
 
       expect(getPropertyAerialImageFromGeometry).toHaveBeenLastCalledWith(
         { type: 'Point', coordinates: [4.91, 52.38] },
-        undefined,
+        undefined
       );
     });
 
@@ -1600,14 +1601,14 @@ describe('useMapInteraction', () => {
 
       const gpp = result.current.toGroupProperty(
         { id: 'prop-1', address: 'A', city: 'B', activityScore: 10 },
-        75,
+        75
       );
 
       expect(gpp.activityScore).toBe(75);
       expect(gpp.activityLevel).toBe('hot');
     });
 
-    it('derives warm activity for listing-backed previews even without social score', () => {
+    it('keeps listing-backed previews cold without social score', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -1619,7 +1620,7 @@ describe('useMapInteraction', () => {
         hasActiveListing: true,
       });
 
-      expect(gpp.activityLevel).toBe('warm');
+      expect(gpp.activityLevel).toBe('cold');
       expect(gpp.hasActiveListing).toBe(true);
     });
 
@@ -1668,20 +1669,22 @@ describe('useMapInteraction', () => {
 
       act(() => {
         result.current.setPreviewGroup({
-          properties: [{
-            id: 'prop-1',
-            address: '123 Main St',
-            city: 'Amsterdam',
-            thumbnailUrl: null,
-            aerialImageUrl: 'https://preview-cache.test/pdok.png',
-          }],
+          properties: [
+            {
+              id: 'prop-1',
+              address: '123 Main St',
+              city: 'Amsterdam',
+              thumbnailUrl: null,
+              aerialImageUrl: 'https://preview-cache.test/pdok.png',
+            },
+          ],
           coordinate: [4.9, 52.37],
         });
       });
 
       await waitFor(() => {
         expect(result.current.selectedPropertyForSheet?.aerialImageUrl).toBe(
-          'https://preview-cache.test/pdok.png',
+          'https://preview-cache.test/pdok.png'
         );
         expect(result.current.selectedPropertyForSheet?.thumbnailUrl).toBeNull();
       });
@@ -1715,26 +1718,28 @@ describe('useMapInteraction', () => {
 
       act(() => {
         result.current.setPreviewGroup({
-          properties: [{
-            id: 'prop-1',
-            address: '123 Main St',
-            city: 'Amsterdam',
-            thumbnailUrl: null,
-            aerialImageUrl: 'https://preview-cache.test/pdok.png',
-          }],
+          properties: [
+            {
+              id: 'prop-1',
+              address: '123 Main St',
+              city: 'Amsterdam',
+              thumbnailUrl: null,
+              aerialImageUrl: 'https://preview-cache.test/pdok.png',
+            },
+          ],
           coordinate: [4.9, 52.37],
         });
       });
 
       await waitFor(() => {
         expect(result.current.selectedPropertyForSheet?.thumbnailUrl).toBe(
-          'https://cdn.example.com/listing.jpg',
+          'https://cdn.example.com/listing.jpg'
         );
         expect(result.current.previewGroup?.properties[0]?.thumbnailUrl).toBe(
-          'https://cdn.example.com/listing.jpg',
+          'https://cdn.example.com/listing.jpg'
         );
         expect(result.current.previewGroup?.properties[0]?.aerialImageUrl).toBe(
-          'https://preview-cache.test/pdok.png',
+          'https://preview-cache.test/pdok.png'
         );
       });
     });
@@ -1783,23 +1788,25 @@ describe('useMapInteraction', () => {
 
       act(() => {
         result.current.setPreviewGroup({
-          properties: [{
-            id: 'prop-1',
-            address: '123 Main St',
-            city: 'Amsterdam',
-            postalCode: '1012AB',
-            countryCode: 'NL',
-            officialValuation: null,
-            askingPrice: null,
-            activityLevel: 'warm',
-            activityScore: 7,
-            fmv: null,
-            likeCount: 0,
-            commentCount: 0,
-            guessCount: 0,
-            thumbnailUrl: null,
-            aerialImageUrl: 'https://preview-cache.test/pdok.png',
-          }],
+          properties: [
+            {
+              id: 'prop-1',
+              address: '123 Main St',
+              city: 'Amsterdam',
+              postalCode: '1012AB',
+              countryCode: 'NL',
+              officialValuation: null,
+              askingPrice: null,
+              activityLevel: 'warm',
+              activityScore: 7,
+              fmv: null,
+              likeCount: 0,
+              commentCount: 0,
+              guessCount: 0,
+              thumbnailUrl: null,
+              aerialImageUrl: 'https://preview-cache.test/pdok.png',
+            },
+          ],
           coordinate: [4.9, 52.37],
         });
       });
@@ -1850,11 +1857,13 @@ describe('useMapInteraction', () => {
 
       act(() => {
         result.current.setPreviewGroup({
-          properties: [{
-            id: 'prop-1',
-            address: '123 Main St',
-            city: 'Amsterdam',
-          }],
+          properties: [
+            {
+              id: 'prop-1',
+              address: '123 Main St',
+              city: 'Amsterdam',
+            },
+          ],
           coordinate: [4.9, 52.37],
         });
       });

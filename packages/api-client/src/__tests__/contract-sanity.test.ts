@@ -254,8 +254,9 @@ type PublicProfileResponseFromOpenApi =
   paths['/users/{id}/profile']['get']['responses'][200]['content']['application/json'];
 type MyProfileResponseFromOpenApi =
   paths['/users/me']['get']['responses'][200]['content']['application/json'];
-type UpdateProfileRequestFromOpenApi =
-  NonNullable<paths['/users/me/profile']['put']['requestBody']>['content']['application/json'];
+type UpdateProfileRequestFromOpenApi = NonNullable<
+  paths['/users/me/profile']['put']['requestBody']
+>['content']['application/json'];
 type UpdateProfileResponseFromOpenApi =
   paths['/users/me/profile']['put']['responses'][200]['content']['application/json'];
 type UpdateProfileConflictFromOpenApi =
@@ -405,6 +406,12 @@ const feedContractAssertions = [
   true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
   true as Expect<
     Equal<FeedResponseFromOpenApi['items'][number]['activityLevel'], 'hot' | 'warm' | 'cold'>
+  >,
+  true as Expect<
+    Equal<
+      FeedResponseFromOpenApi['items'][number]['marketState'],
+      'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed'
+    >
   >,
   true as Expect<Equal<Extract<PathKeys, '/properties/map'>, never>>,
   true as Expect<Equal<keyof SavedPropertiesQueryFromOpenApi, 'limit' | 'offset'>>,

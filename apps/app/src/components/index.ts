@@ -21,6 +21,7 @@ export { PropertyCard } from './PropertyCard';
 export { PropertyFeedCard } from './PropertyFeedCard';
 export { PropertyMarker } from './PropertyMarker';
 export { PropertyPreviewCard } from './PropertyPreviewCard';
+export { ActivityPill, ListingPill, StatusPillRow } from './PropertyStatusPills';
 export { SearchBar } from './SearchBar';
 export type { SearchBarProps } from './SearchBar';
 export { SearchResults } from './SearchResults';

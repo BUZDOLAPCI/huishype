@@ -49,6 +49,7 @@ describe('Feed routes', () => {
     officialValuation: number | null;
     officialValuationYear: number | null;
     thumbnailUrl: string | null;
+    marketState: 'for-sale' | 'for-rent';
     lastActivityAt: string;
     commentCount: number;
     guessCount: number;
@@ -197,6 +198,8 @@ describe('Feed routes', () => {
         officialValuation: 405000,
         officialValuationYear: 2021,
         thumbnailUrl: 'https://cdn.example.com/feed-recent.jpg',
+        priceType: 'sale',
+        marketState: 'for-sale' as const,
         listingCreatedAt: atOffset({ minutes: 5 }),
         lastActivityAt: atOffset({ minutes: 5 }),
         commentCount: 0,
@@ -217,6 +220,8 @@ describe('Feed routes', () => {
         officialValuation: 540000,
         officialValuationYear: 2022,
         thumbnailUrl: 'https://cdn.example.com/feed-hot.jpg',
+        priceType: 'sale',
+        marketState: 'for-sale' as const,
         listingCreatedAt: atOffset({ days: 2 }),
         lastActivityAt: atOffset({ minutes: 10 }),
         commentCount: 1,
@@ -237,6 +242,8 @@ describe('Feed routes', () => {
         officialValuation: 465000,
         officialValuationYear: 2023,
         thumbnailUrl: 'https://cdn.example.com/feed-warm.jpg',
+        priceType: 'rent',
+        marketState: 'for-rent' as const,
         listingCreatedAt: atOffset({ days: 3 }),
         lastActivityAt: atOffset({ minutes: 20 }),
         commentCount: 2,
@@ -257,6 +264,8 @@ describe('Feed routes', () => {
         officialValuation: 388000,
         officialValuationYear: 2024,
         thumbnailUrl: 'https://cdn.example.com/feed-like.jpg',
+        priceType: 'sale',
+        marketState: 'for-sale' as const,
         listingCreatedAt: atOffset({ days: 4 }),
         lastActivityAt: atOffset({ minutes: 30 }),
         commentCount: 0,
@@ -277,6 +286,8 @@ describe('Feed routes', () => {
         officialValuation: 310000,
         officialValuationYear: 2020,
         thumbnailUrl: 'https://cdn.example.com/feed-cold.jpg',
+        priceType: 'sale',
+        marketState: 'for-sale' as const,
         listingCreatedAt: atOffset({ days: 40 }),
         lastActivityAt: atOffset({ days: 40 }),
         commentCount: 0,
@@ -297,6 +308,8 @@ describe('Feed routes', () => {
         officialValuation: 998000,
         officialValuationYear: 2019,
         thumbnailUrl: 'https://cdn.example.com/feed-remote.jpg',
+        priceType: 'sale',
+        marketState: 'for-sale' as const,
         listingCreatedAt: atOffset({ minutes: 15 }),
         lastActivityAt: atOffset({ minutes: 15 }),
         commentCount: 0,
@@ -325,6 +338,7 @@ describe('Feed routes', () => {
         propertyId: property.id,
         askingPrice: definition.askingPrice,
         thumbnailUrl: definition.thumbnailUrl,
+        priceType: definition.priceType,
         createdAt: definition.listingCreatedAt,
         updatedAt: definition.listingCreatedAt,
       });
@@ -347,6 +361,7 @@ describe('Feed routes', () => {
         officialValuation: definition.officialValuation,
         officialValuationYear: definition.officialValuationYear,
         thumbnailUrl: definition.thumbnailUrl,
+        marketState: definition.marketState,
         lastActivityAt: definition.lastActivityAt.toISOString(),
         commentCount: definition.commentCount,
         guessCount: definition.guessCount,
@@ -537,8 +552,41 @@ describe('Feed routes', () => {
         guessCount: feedFixtures.hot.guessCount,
         viewCount: feedFixtures.hot.viewCount,
         activityLevel: 'hot',
+        marketState: 'for-sale',
         lastActivityAt: feedFixtures.hot.lastActivityAt,
         hasListing: true,
+      });
+    });
+
+    it('keeps zero-engagement active listings cold while exposing listing market state', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: buildFeedUrl({ filter: 'latest', limit: 5 }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const recent = body.items.find(
+        (entry: { id: string }) => entry.id === feedFixtures.recent.propertyId
+      );
+      const rent = body.items.find(
+        (entry: { id: string }) => entry.id === feedFixtures.warm.propertyId
+      );
+
+      expect(recent).toMatchObject({
+        id: feedFixtures.recent.propertyId,
+        commentCount: 0,
+        guessCount: 0,
+        likeCount: 0,
+        viewCount: 0,
+        activityLevel: 'cold',
+        marketState: 'for-sale',
+        lastActivityAt: feedFixtures.recent.lastActivityAt,
+      });
+      expect(rent).toMatchObject({
+        id: feedFixtures.warm.propertyId,
+        activityLevel: 'warm',
+        marketState: 'for-rent',
       });
     });
 

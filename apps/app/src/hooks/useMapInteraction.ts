@@ -36,10 +36,7 @@ import {
   type NearbyPropertyGroup,
   type PhysicalTapPreviewProperty,
 } from '@/src/utils/api';
-import {
-  PROPERTY_GHOST_REVEAL_ZOOM,
-  PROPERTY_PREVIEW_MEMBER_LIMIT,
-} from '@huishype/shared/config';
+import { PROPERTY_GHOST_REVEAL_ZOOM, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared/config';
 import {
   buildPropertyCommentsRoute,
   buildPropertyGuessesRoute,
@@ -63,7 +60,10 @@ export interface MapCameraCommands {
     duration: number;
     anchor?: ViewportAnchor;
   }) => void;
-  fitBounds: (bounds: [number, number, number, number], opts: { padding: number; duration: number }) => void;
+  fitBounds: (
+    bounds: [number, number, number, number],
+    opts: { padding: number; duration: number }
+  ) => void;
   /** For web: returns estimated zoom from cameraForBounds. For native: not used. */
   estimateZoomForBounds?: (bounds: [[number, number], [number, number]]) => number | null;
 }
@@ -125,22 +125,34 @@ export interface UseMapInteractionReturn {
   handlePropertyResolved: (
     property: PropertyResolveResult,
     camera: MapCameraCommands,
-    resolvedAddress?: ResolvedAddress,
+    resolvedAddress?: ResolvedAddress
   ) => void;
-  handleLocationResolved: (coordinates: { lon: number; lat: number }, address: string, camera: MapCameraCommands) => void;
+  handleLocationResolved: (
+    coordinates: { lon: number; lat: number },
+    address: string,
+    camera: MapCameraCommands
+  ) => void;
 
   // ── Feature-press / map-tap logic ───────────────────────────
   /** Process rendered features at a tap point. Returns true if a feature was handled. */
-  handleFeaturePress: (features: GeoJSON.Feature[], currentZoom: number, camera: MapCameraCommands) => Promise<boolean>;
+  handleFeaturePress: (
+    features: GeoJSON.Feature[],
+    currentZoom: number,
+    camera: MapCameraCommands
+  ) => Promise<boolean>;
   /** Process a nearby grouped API result (native fallback). Returns true if handled. */
-  handleNearbyResult: (result: NearbyPropertyGroup, currentZoom: number, camera: MapCameraCommands) => void;
+  handleNearbyResult: (
+    result: NearbyPropertyGroup,
+    currentZoom: number,
+    camera: MapCameraCommands
+  ) => void;
   /** Decide whether to dismiss the preview (empty background tap). */
   handleEmptyMapTap: () => void;
   /** Open a cluster preview by batch-fetching property IDs and geo-anchoring. */
   openClusterPreviewAtCoord: (
     propertyIds: string[],
     coordinate: [number, number],
-    nodeClass?: 'active' | 'ghost',
+    nodeClass?: 'active' | 'ghost'
   ) => Promise<void>;
 
   // ── Conversion helpers ──────────────────────────────────────
@@ -206,18 +218,11 @@ function derivePreviewActivity(input: {
   hasActiveListing?: boolean | null;
   bootstrapNeutral?: boolean;
 }): DerivedPreviewActivity {
-  const socialScore =
-    typeof input.socialScore === 'number' ? input.socialScore : undefined;
+  const socialScore = typeof input.socialScore === 'number' ? input.socialScore : undefined;
   const recentSocialScore =
     typeof input.recentSocialScore === 'number' ? input.recentSocialScore : undefined;
-  const activityScore =
-    typeof input.activityScore === 'number'
-      ? input.activityScore
-      : socialScore;
-  const hasModernSignals =
-    typeof socialScore === 'number' ||
-    typeof recentSocialScore === 'number' ||
-    input.hasActiveListing === true;
+  const activityScore = typeof input.activityScore === 'number' ? input.activityScore : socialScore;
+  const hasModernSignals = typeof socialScore === 'number' || typeof recentSocialScore === 'number';
 
   if (hasModernSignals) {
     return {
@@ -272,7 +277,12 @@ function derivePreviewActivity(input: {
 }
 
 /** Estimate the zoom level that would show a bbox, conservatively accounting for padding. */
-export function estimateZoomForBbox(west: number, south: number, east: number, north: number): number {
+export function estimateZoomForBbox(
+  west: number,
+  south: number,
+  east: number,
+  north: number
+): number {
   const lonSpan = Math.abs(east - west);
   const latSpan = Math.abs(north - south);
   const maxSpan = Math.max(lonSpan, latSpan, 0.0001);
@@ -290,7 +300,7 @@ function shouldOpenClusterPreview(
   pointCount: number,
   estimatedZoom: number | null,
   hasBbox: boolean,
-  currentZoom: number,
+  currentZoom: number
 ): boolean {
   if (previewPropertyCount === 0) {
     return false;
@@ -311,7 +321,7 @@ function flyToPreviewAnchor(
   camera: MapCameraCommands,
   center: [number, number],
   zoom: number,
-  duration: number,
+  duration: number
 ): void {
   camera.flyTo({
     center,
@@ -324,13 +334,13 @@ function flyToPreviewAnchor(
 function focusClusterExtent(
   camera: MapCameraCommands,
   group: Pick<NearbyPropertyGroup, 'bbox' | 'coordinate'>,
-  currentZoom: number,
+  currentZoom: number
 ): void {
   if (group.bbox) {
-    camera.fitBounds(
-      [group.bbox.west, group.bbox.south, group.bbox.east, group.bbox.north],
-      { padding: 80, duration: 500 },
-    );
+    camera.fitBounds([group.bbox.west, group.bbox.south, group.bbox.east, group.bbox.north], {
+      padding: 80,
+      duration: 500,
+    });
     return;
   }
 
@@ -341,7 +351,9 @@ function focusClusterExtent(
   });
 }
 
-function shouldUsePreviewIdsOnly(group: Pick<NearbyPropertyGroup, 'membershipComplete' | 'readStateCoverage'>): boolean {
+function shouldUsePreviewIdsOnly(
+  group: Pick<NearbyPropertyGroup, 'membershipComplete' | 'readStateCoverage'>
+): boolean {
   return group.membershipComplete === false || group.readStateCoverage === 'partial';
 }
 
@@ -354,7 +366,7 @@ function shouldResolvePyramidClusterOnServer(
     | 'membershipComplete'
     | 'readStateCoverage'
     | 'previewPropertyIds'
-  >,
+  >
 ): boolean {
   return (
     group.groupKind === 'cluster' &&
@@ -367,41 +379,30 @@ function shouldResolvePyramidClusterOnServer(
 
 function mergeHydratedPreviewProperty(
   currentProperty: GroupPreviewProperty,
-  selectedProperty: NonNullable<ReturnType<typeof useProperty>['data']>,
+  selectedProperty: NonNullable<ReturnType<typeof useProperty>['data']>
 ): GroupPreviewProperty {
   const mergedActivity = derivePreviewActivity({
     socialScore: selectedProperty.socialScore ?? currentProperty.socialScore,
-    recentSocialScore:
-      selectedProperty.recentSocialScore ?? currentProperty.recentSocialScore,
+    recentSocialScore: selectedProperty.recentSocialScore ?? currentProperty.recentSocialScore,
     activityScore: selectedProperty.socialScore ?? currentProperty.activityScore,
     activityLevel: selectedProperty.activityLevel ?? currentProperty.activityLevel,
-    hasActiveListing:
-      selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing,
+    hasActiveListing: selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing,
   });
   const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
   const mergedOfficialValuation =
     currentProperty.officialValuation ?? selectedProperty.officialValuation ?? null;
-  const mergedAskingPrice =
-    currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
+  const mergedAskingPrice = currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
   const mergedFmv =
     currentProperty.fmv ??
     (typeof selectedProperty.fmv === 'number'
       ? selectedProperty.fmv
-      : selectedProperty.fmv?.fmv ?? null);
+      : (selectedProperty.fmv?.fmv ?? null));
   const mergedAerialImageUrl =
-    currentProperty.aerialImageUrl ??
-    selectedProperty.aerialImageUrl ??
-    nextAerialImageUrl;
-  const mergedThumbnailUrl =
-    currentProperty.thumbnailUrl ??
-    selectedProperty.thumbnailUrl ??
-    null;
+    currentProperty.aerialImageUrl ?? selectedProperty.aerialImageUrl ?? nextAerialImageUrl;
+  const mergedThumbnailUrl = currentProperty.thumbnailUrl ?? selectedProperty.thumbnailUrl ?? null;
   const mergedCommentCount =
-    resolvePropertyCommentCount(selectedProperty) ??
-    currentProperty.commentCount ??
-    0;
-  const mergedGuessCount =
-    selectedProperty.guessCount ?? currentProperty.guessCount ?? 0;
+    resolvePropertyCommentCount(selectedProperty) ?? currentProperty.commentCount ?? 0;
+  const mergedGuessCount = selectedProperty.guessCount ?? currentProperty.guessCount ?? 0;
   const mergedLikeCount =
     selectedProperty.likeCount ??
     selectedProperty.propertyLikeCount ??
@@ -413,7 +414,9 @@ function mergeHydratedPreviewProperty(
     nodeClass: currentProperty.nodeClass,
     coordinate:
       currentProperty.coordinate ??
-      (selectedProperty.geometry?.type === 'Point' ? selectedProperty.geometry.coordinates : undefined),
+      (selectedProperty.geometry?.type === 'Point'
+        ? selectedProperty.geometry.coordinates
+        : undefined),
     address: selectedProperty.address,
     city: selectedProperty.city,
     postalCode: selectedProperty.postalCode,
@@ -421,8 +424,7 @@ function mergeHydratedPreviewProperty(
     officialValuation: mergedOfficialValuation,
     askingPrice: mergedAskingPrice,
     fmv: mergedFmv,
-    hasActiveListing:
-      selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing ?? null,
+    hasActiveListing: selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing ?? null,
     marketState: selectedProperty.marketState ?? currentProperty.marketState ?? null,
     socialScore: mergedActivity.socialScore,
     recentSocialScore: mergedActivity.recentSocialScore,
@@ -442,7 +444,7 @@ function mergeHydratedPreviewProperty(
 /** Convert a property-like object to GroupPreviewProperty. */
 function convertToGroupProperty(
   p: ToGroupPropertyInput,
-  activityScore?: number,
+  activityScore?: number
 ): GroupPreviewProperty {
   const derivedActivity = derivePreviewActivity({
     socialScore: p.socialScore,
@@ -473,7 +475,7 @@ function convertToGroupProperty(
     officialValuation: p.officialValuation,
     officialValuationYear: p.officialValuationYear ?? null,
     askingPrice: p.askingPrice ?? null,
-    fmv: typeof p.fmv === 'number' ? p.fmv : p.fmv?.fmv ?? null,
+    fmv: typeof p.fmv === 'number' ? p.fmv : (p.fmv?.fmv ?? null),
     hasActiveListing: p.hasActiveListing ?? null,
     marketState: p.marketState ?? null,
     socialScore: derivedActivity.socialScore,
@@ -494,7 +496,7 @@ function convertToGroupProperty(
 function physicalTapPreviewToGroupPropertyInput(
   property: PhysicalTapPreviewProperty,
   fallbackCoordinate: [number, number],
-  nodeClass?: 'active' | 'ghost',
+  nodeClass?: 'active' | 'ghost'
 ): ToGroupPropertyInput {
   const coordinate = property.geometry?.coordinates ?? fallbackCoordinate;
 
@@ -540,7 +542,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
   // ── Selection state ─────────────────────────────────────────
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [highlightedCoordinate, setHighlightedCoordinate] = useState<[number, number] | null>(null);
-  const { data: selectedProperty, isLoading: selectedPropertyLoading } = useProperty(selectedPropertyId);
+  const { data: selectedProperty, isLoading: selectedPropertyLoading } =
+    useProperty(selectedPropertyId);
 
   // ── Preview group state ─────────────────────────────────────
   const [previewGroup, setPreviewGroup] = useState<PreviewGroup | null>(null);
@@ -558,7 +561,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
     const previewThumbnailUrl = currentPreviewProperty?.thumbnailUrl ?? null;
     const previewAerialImageUrl = currentPreviewProperty?.aerialImageUrl ?? null;
     const derivedAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
-    const aerialImageUrl = selectedProperty.aerialImageUrl ?? previewAerialImageUrl ?? derivedAerialImageUrl ?? null;
+    const aerialImageUrl =
+      selectedProperty.aerialImageUrl ?? previewAerialImageUrl ?? derivedAerialImageUrl ?? null;
     const thumbnailUrl = selectedProperty.thumbnailUrl ?? previewThumbnailUrl ?? null;
     if (
       selectedProperty.aerialImageUrl === aerialImageUrl &&
@@ -664,35 +668,34 @@ export function useMapInteraction(): UseMapInteractionReturn {
   }, []);
 
   // ── Like / Save ─────────────────────────────────────────────
-  const defaultAuthCopy = useMemo(
-    () => resolveAuthModalCopy('Sign in to continue'),
-    [],
-  );
+  const defaultAuthCopy = useMemo(() => resolveAuthModalCopy('Sign in to continue'), []);
   const pendingAuthSuccessRef = useRef<(() => void) | null>(null);
   const latestToggleLikeRef = useRef<() => void>(() => {});
   const latestToggleSaveRef = useRef<() => Promise<void> | void>(() => {});
 
-  const handleAuthRequired = useCallback((
-    copy?: AuthModalCopyInput,
-    onAuthenticated?: () => void,
-  ) => {
-    pendingAuthSuccessRef.current = onAuthenticated ?? null;
-    setAuthCopy(resolveAuthModalCopy(copy, defaultAuthCopy));
-    setShowAuthModal(true);
-  }, [defaultAuthCopy]);
+  const handleAuthRequired = useCallback(
+    (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => {
+      pendingAuthSuccessRef.current = onAuthenticated ?? null;
+      setAuthCopy(resolveAuthModalCopy(copy, defaultAuthCopy));
+      setShowAuthModal(true);
+    },
+    [defaultAuthCopy]
+  );
 
   const { isLiked, toggleLike } = usePropertyLike({
     propertyId: selectedPropertyId,
-    onAuthRequired: () => handleAuthRequired('Sign in to like this property', () => {
-      latestToggleLikeRef.current();
-    }),
+    onAuthRequired: () =>
+      handleAuthRequired('Sign in to like this property', () => {
+        latestToggleLikeRef.current();
+      }),
   });
 
   const { isSaved, toggleSave } = usePropertySave({
     propertyId: selectedPropertyId,
-    onAuthRequired: () => handleAuthRequired('Sign in to save this property', () => {
-      void latestToggleSaveRef.current();
-    }),
+    onAuthRequired: () =>
+      handleAuthRequired('Sign in to save this property', () => {
+        void latestToggleSaveRef.current();
+      }),
   });
 
   latestToggleLikeRef.current = toggleLike;
@@ -752,134 +755,143 @@ export function useMapInteraction(): UseMapInteractionReturn {
     }, duration);
   }, []);
 
-  useEffect(() => () => {
-    if (previewActivationTimeoutRef.current) {
-      clearTimeout(previewActivationTimeoutRef.current);
-      previewActivationTimeoutRef.current = null;
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (previewActivationTimeoutRef.current) {
+        clearTimeout(previewActivationTimeoutRef.current);
+        previewActivationTimeoutRef.current = null;
+      }
+    },
+    []
+  );
 
   const handleAuthStarting = useCallback(() => {}, []);
 
   // ── Quick-action handlers ───────────────────────────────────
-  const handleLike = useCallback((_property?: string | GroupPreviewProperty | null) => {
-    toggleLike();
-  }, [toggleLike]);
+  const handleLike = useCallback(
+    (_property?: string | GroupPreviewProperty | null) => {
+      toggleLike();
+    },
+    [toggleLike]
+  );
 
-  const handleComment = useCallback((property?: string | GroupPreviewProperty | null) => {
-    const targetProperty =
-      typeof property === 'string'
-        ? previewGroup?.properties.find((entry) => entry.id === property) ?? null
-        : property ?? null;
-    const targetId =
-      typeof property === 'string'
-        ? property
-        : targetProperty?.id ?? selectedPropertyId;
+  const handleComment = useCallback(
+    (property?: string | GroupPreviewProperty | null) => {
+      const targetProperty =
+        typeof property === 'string'
+          ? (previewGroup?.properties.find((entry) => entry.id === property) ?? null)
+          : (property ?? null);
+      const targetId =
+        typeof property === 'string' ? property : (targetProperty?.id ?? selectedPropertyId);
 
-    if (!targetId) {
+      if (!targetId) {
+        bottomSheetRef.current?.scrollToComments();
+        return;
+      }
+
+      if (previewGroup) {
+        const previewIndex = previewGroup.properties.findIndex((entry) => entry.id === targetId);
+        if (previewIndex >= 0 && previewIndex !== currentPreviewIndex) {
+          setCurrentPreviewIndex(previewIndex);
+        }
+      }
+
+      if (targetProperty) {
+        const targetCoordinate =
+          targetProperty.coordinate ??
+          previewGroup?.coordinate ??
+          highlightedCoordinate ??
+          (selectedProperty?.geometry?.type === 'Point'
+            ? selectedProperty.geometry.coordinates
+            : null);
+
+        if (targetCoordinate) {
+          setHighlightedCoordinate(targetCoordinate);
+        }
+
+        const targetAlreadyInPreview =
+          previewGroup?.properties.some((entry) => entry.id === targetProperty.id) ?? false;
+
+        if (targetCoordinate && (!previewGroup || !targetAlreadyInPreview)) {
+          setPreviewGroup({
+            properties: [targetProperty],
+            coordinate: targetCoordinate,
+          });
+          setCurrentPreviewIndex(0);
+        }
+      }
+
+      if (selectedPropertyId !== targetId) {
+        pendingSheetSectionRef.current = 'comments';
+        setSelectedPropertyId(targetId);
+        bottomSheetRef.current?.openFromPreview();
+        return;
+      }
+
+      if (!selectedPropertyForSheet) {
+        pendingSheetSectionRef.current = 'comments';
+        bottomSheetRef.current?.openFromPreview();
+        return;
+      }
+
       bottomSheetRef.current?.scrollToComments();
-      return;
-    }
-
-    if (previewGroup) {
-      const previewIndex = previewGroup.properties.findIndex((entry) => entry.id === targetId);
-      if (previewIndex >= 0 && previewIndex !== currentPreviewIndex) {
-        setCurrentPreviewIndex(previewIndex);
-      }
-    }
-
-    if (targetProperty) {
-      const targetCoordinate =
-        targetProperty.coordinate ??
-        previewGroup?.coordinate ??
-        highlightedCoordinate ??
-        (selectedProperty?.geometry?.type === 'Point' ? selectedProperty.geometry.coordinates : null);
-
-      if (targetCoordinate) {
-        setHighlightedCoordinate(targetCoordinate);
-      }
-
-      const targetAlreadyInPreview = previewGroup?.properties.some(
-        (entry) => entry.id === targetProperty.id,
-      ) ?? false;
-
-      if (targetCoordinate && (!previewGroup || !targetAlreadyInPreview)) {
-        setPreviewGroup({
-          properties: [targetProperty],
-          coordinate: targetCoordinate,
-        });
-        setCurrentPreviewIndex(0);
-      }
-    }
-
-    if (selectedPropertyId !== targetId) {
-      pendingSheetSectionRef.current = 'comments';
-      setSelectedPropertyId(targetId);
-      bottomSheetRef.current?.openFromPreview();
-      return;
-    }
-
-    if (!selectedPropertyForSheet) {
-      pendingSheetSectionRef.current = 'comments';
-      bottomSheetRef.current?.openFromPreview();
-      return;
-    }
-
-    bottomSheetRef.current?.scrollToComments();
-  }, [
-    currentPreviewIndex,
-    highlightedCoordinate,
-    previewGroup,
-    selectedProperty,
-    selectedPropertyForSheet,
-    selectedPropertyId,
-  ]);
+    },
+    [
+      currentPreviewIndex,
+      highlightedCoordinate,
+      previewGroup,
+      selectedProperty,
+      selectedPropertyForSheet,
+      selectedPropertyId,
+    ]
+  );
 
   const handleGuess = useCallback((_property?: string | GroupPreviewProperty | null) => {
     bottomSheetRef.current?.scrollToGuess();
   }, []);
 
-  const handleSave = useCallback((_propertyId?: string) => {
-    void toggleSave();
-  }, [toggleSave]);
+  const handleSave = useCallback(
+    (_propertyId?: string) => {
+      void toggleSave();
+    },
+    [toggleSave]
+  );
 
   const handleShare = useCallback((_propertyId: string) => {
     // Sharing is handled within QuickActions component
   }, []);
 
-  const handleGuessPress = useCallback((_propertyId: string) => {
-    const routeProperty =
-      selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
-    if (!routeProperty) {
-      return;
-    }
+  const handleGuessPress = useCallback(
+    (_propertyId: string) => {
+      const routeProperty = selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+      if (!routeProperty) {
+        return;
+      }
 
-    router.push(
-      toInternalAppHref(
-        buildPropertyGuessesRoute(
-          routeProperty,
-          buildPropertyRoute(routeProperty),
-        ),
-      ),
-    );
-  }, [currentPreviewProperty, selectedProperty, selectedPropertyForSheet]);
+      router.push(
+        toInternalAppHref(
+          buildPropertyGuessesRoute(routeProperty, buildPropertyRoute(routeProperty))
+        )
+      );
+    },
+    [currentPreviewProperty, selectedProperty, selectedPropertyForSheet]
+  );
 
-  const handleCommentPress = useCallback((_propertyId: string) => {
-    const routeProperty =
-      selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
-    if (!routeProperty) {
-      return;
-    }
+  const handleCommentPress = useCallback(
+    (_propertyId: string) => {
+      const routeProperty = selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+      if (!routeProperty) {
+        return;
+      }
 
-    router.push(
-      toInternalAppHref(
-        buildPropertyCommentsRoute(
-          routeProperty,
-          buildPropertyRoute(routeProperty),
-        ),
-      ),
-    );
-  }, [currentPreviewProperty, selectedProperty, selectedPropertyForSheet]);
+      router.push(
+        toInternalAppHref(
+          buildPropertyCommentsRoute(routeProperty, buildPropertyRoute(routeProperty))
+        )
+      );
+    },
+    [currentPreviewProperty, selectedProperty, selectedPropertyForSheet]
+  );
 
   // ── Preview card interaction handlers ───────────────────────
   const handlePreviewPropertyTap = useCallback((property: GroupPreviewProperty) => {
@@ -893,25 +905,20 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
   // ── Conversion helper (stable ref) ─────────────────────────
   const toGroupProperty = useCallback(
-    (p: ToGroupPropertyInput, activityScore?: number) =>
-      convertToGroupProperty(p, activityScore),
-    [],
+    (p: ToGroupPropertyInput, activityScore?: number) => convertToGroupProperty(p, activityScore),
+    []
   );
 
   // ── Cluster preview ─────────────────────────────────────────
   const openClusterPreviewAtCoord = useCallback(
-    async (
-      propertyIds: string[],
-      coordinate: [number, number],
-      nodeClass?: 'active' | 'ghost',
-    ) => {
+    async (propertyIds: string[], coordinate: [number, number], nodeClass?: 'active' | 'ghost') => {
       try {
         const batch = await fetchBatchProperties(
-          propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT),
+          propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)
         );
         if (batch.length > 0) {
           setPreviewGroup({
-            properties: batch.map(b => toGroupProperty({ ...b, nodeClass })),
+            properties: batch.map((b) => toGroupProperty({ ...b, nodeClass })),
             coordinate,
           });
           setCurrentPreviewIndex(0);
@@ -920,7 +927,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
         console.warn('[HuisHype] Batch fetch for cluster preview failed:', err);
       }
     },
-    [toGroupProperty],
+    [toGroupProperty]
   );
 
   // ── Feature press (shared logic for both web click and native tap) ──
@@ -928,7 +935,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     async (
       features: GeoJSON.Feature[],
       currentZoom: number,
-      camera: MapCameraCommands,
+      camera: MapCameraCommands
     ): Promise<boolean> => {
       if (!features.length) return false;
       const group = normalizeRenderedPropertyGroup(features[0]);
@@ -940,25 +947,28 @@ export function useMapInteraction(): UseMapInteractionReturn {
         }
 
         const previewOnly = shouldUsePreviewIdsOnly(group);
-        const previewPropertyIds = group.previewPropertyIds.length > 0 || previewOnly
-          ? group.previewPropertyIds
-          : group.propertyIds;
+        const previewPropertyIds =
+          group.previewPropertyIds.length > 0 || previewOnly
+            ? group.previewPropertyIds
+            : group.propertyIds;
         const estimatedZoom = group.bbox
           ? estimateZoomForBbox(
               group.bbox.west,
               group.bbox.south,
               group.bbox.east,
-              group.bbox.north,
+              group.bbox.north
             )
           : null;
 
-        if (shouldOpenClusterPreview(
-          previewPropertyIds.length,
-          group.pointCount,
-          estimatedZoom,
-          !!group.bbox,
-          currentZoom,
-        )) {
+        if (
+          shouldOpenClusterPreview(
+            previewPropertyIds.length,
+            group.pointCount,
+            estimatedZoom,
+            !!group.bbox,
+            currentZoom
+          )
+        ) {
           const coord = group.coordinate;
           setHighlightedCoordinate(coord);
           flyToPreviewAnchor(camera, coord, currentZoom, PREVIEW_FLY_DURATION_MS);
@@ -982,36 +992,38 @@ export function useMapInteraction(): UseMapInteractionReturn {
           });
           setSelectedPropertyId(group.primaryPropertyId);
           setPreviewGroup({
-            properties: [{
-              id: group.primaryPropertyId,
-              nodeClass: group.nodeClass,
-              coordinate: coord,
-              address: group.address ?? '',
-              streetName: group.streetName ?? null,
-              houseNumber: group.houseNumber ?? null,
-              houseNumberAddition: group.houseNumberAddition ?? null,
-              city: group.city ?? '',
-              postalCode: group.postalCode ?? null,
-              countryCode: group.countryCode ?? undefined,
-              officialValuation: group.officialValuation ?? null,
-              askingPrice: group.askingPrice ?? null,
-              hasActiveListing: group.hasActiveListing ?? null,
-              marketState: group.marketState ?? null,
-              socialScore: derivedActivity.socialScore,
-              recentSocialScore: derivedActivity.recentSocialScore,
-              activityLevel: derivedActivity.activityLevel,
-              activityScore: derivedActivity.activityScore,
-              thumbnailUrl: group.thumbnailUrl ?? null,
-              aerialImageUrl: derivePropertyAerialImageUrl({
-                geometry: { type: 'Point', coordinates: coord },
+            properties: [
+              {
+                id: group.primaryPropertyId,
+                nodeClass: group.nodeClass,
+                coordinate: coord,
+                address: group.address ?? '',
+                streetName: group.streetName ?? null,
+                houseNumber: group.houseNumber ?? null,
+                houseNumberAddition: group.houseNumberAddition ?? null,
+                city: group.city ?? '',
+                postalCode: group.postalCode ?? null,
                 countryCode: group.countryCode ?? undefined,
-              }),
-              yearBuilt: group.yearBuilt ?? null,
-              floorAreaM2: group.floorAreaM2 ?? null,
-              commentCount: group.commentCount ?? 0,
-              guessCount: 0,
-              likeCount: 0,
-            }],
+                officialValuation: group.officialValuation ?? null,
+                askingPrice: group.askingPrice ?? null,
+                hasActiveListing: group.hasActiveListing ?? null,
+                marketState: group.marketState ?? null,
+                socialScore: derivedActivity.socialScore,
+                recentSocialScore: derivedActivity.recentSocialScore,
+                activityLevel: derivedActivity.activityLevel,
+                activityScore: derivedActivity.activityScore,
+                thumbnailUrl: group.thumbnailUrl ?? null,
+                aerialImageUrl: derivePropertyAerialImageUrl({
+                  geometry: { type: 'Point', coordinates: coord },
+                  countryCode: group.countryCode ?? undefined,
+                }),
+                yearBuilt: group.yearBuilt ?? null,
+                floorAreaM2: group.floorAreaM2 ?? null,
+                commentCount: group.commentCount ?? 0,
+                guessCount: 0,
+                likeCount: 0,
+              },
+            ],
             coordinate: coord,
           });
           setCurrentPreviewIndex(0);
@@ -1020,7 +1032,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
       }
       return false;
     },
-    [openClusterPreviewAtCoord, schedulePreviewActivation],
+    [openClusterPreviewAtCoord, schedulePreviewActivation]
   );
 
   // ── Handle nearby cluster result (native fallback) ──────────
@@ -1043,58 +1055,63 @@ export function useMapInteraction(): UseMapInteractionReturn {
           });
           setSelectedPropertyId(result.primaryPropertyId);
           setPreviewGroup({
-            properties: [{
-              id: result.primaryPropertyId,
-              nodeClass: result.nodeClass,
-              coordinate: coord,
-              address: result.address ?? '',
-              streetName: result.streetName ?? null,
-              houseNumber: result.houseNumber ?? null,
-              houseNumberAddition: result.houseNumberAddition ?? null,
-              city: result.city ?? '',
-              postalCode: result.postalCode,
-              countryCode: result.countryCode ?? undefined,
-              officialValuation: result.officialValuation,
-              askingPrice: result.askingPrice,
-              thumbnailUrl: result.thumbnailUrl,
-              hasActiveListing: result.hasActiveListing ?? null,
-              marketState: result.marketState ?? null,
-              socialScore: derivedActivity.socialScore,
-              recentSocialScore: derivedActivity.recentSocialScore,
-              activityLevel: derivedActivity.activityLevel,
-              activityScore: derivedActivity.activityScore,
-              aerialImageUrl: previewAerialImageUrl,
-              yearBuilt: result.yearBuilt ?? null,
-              floorAreaM2: result.floorAreaM2 ?? null,
-              commentCount: result.commentCount ?? 0,
-              guessCount: 0,
-              likeCount: 0,
-            }],
+            properties: [
+              {
+                id: result.primaryPropertyId,
+                nodeClass: result.nodeClass,
+                coordinate: coord,
+                address: result.address ?? '',
+                streetName: result.streetName ?? null,
+                houseNumber: result.houseNumber ?? null,
+                houseNumberAddition: result.houseNumberAddition ?? null,
+                city: result.city ?? '',
+                postalCode: result.postalCode,
+                countryCode: result.countryCode ?? undefined,
+                officialValuation: result.officialValuation,
+                askingPrice: result.askingPrice,
+                thumbnailUrl: result.thumbnailUrl,
+                hasActiveListing: result.hasActiveListing ?? null,
+                marketState: result.marketState ?? null,
+                socialScore: derivedActivity.socialScore,
+                recentSocialScore: derivedActivity.recentSocialScore,
+                activityLevel: derivedActivity.activityLevel,
+                activityScore: derivedActivity.activityScore,
+                aerialImageUrl: previewAerialImageUrl,
+                yearBuilt: result.yearBuilt ?? null,
+                floorAreaM2: result.floorAreaM2 ?? null,
+                commentCount: result.commentCount ?? 0,
+                guessCount: 0,
+                likeCount: 0,
+              },
+            ],
             coordinate: coord,
           });
           setCurrentPreviewIndex(0);
         });
       } else if (result.groupKind === 'cluster') {
         const previewOnly = shouldUsePreviewIdsOnly(result);
-        const previewIds = result.previewPropertyIds.length > 0 || previewOnly
-          ? result.previewPropertyIds
-          : result.propertyIds;
+        const previewIds =
+          result.previewPropertyIds.length > 0 || previewOnly
+            ? result.previewPropertyIds
+            : result.propertyIds;
         const estimatedZoom = result.bbox
           ? estimateZoomForBbox(
               result.bbox.west,
               result.bbox.south,
               result.bbox.east,
-              result.bbox.north,
+              result.bbox.north
             )
           : null;
 
-        if (shouldOpenClusterPreview(
-          previewIds.length,
-          result.pointCount,
-          estimatedZoom,
-          !!result.bbox,
-          currentZoom,
-        )) {
+        if (
+          shouldOpenClusterPreview(
+            previewIds.length,
+            result.pointCount,
+            estimatedZoom,
+            !!result.bbox,
+            currentZoom
+          )
+        ) {
           setHighlightedCoordinate(result.coordinate);
           flyToPreviewAnchor(camera, result.coordinate, currentZoom, PREVIEW_FLY_DURATION_MS);
           schedulePreviewActivation(PREVIEW_FLY_DURATION_MS, () => {
@@ -1105,10 +1122,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
                     physicalTapPreviewToGroupPropertyInput(
                       property,
                       result.coordinate,
-                      result.nodeClass,
+                      result.nodeClass
                     ),
-                    property.activityScore ?? undefined,
-                  ),
+                    property.activityScore ?? undefined
+                  )
                 ),
                 coordinate: result.coordinate,
               });
@@ -1123,7 +1140,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
         }
       }
     },
-    [openClusterPreviewAtCoord, schedulePreviewActivation, toGroupProperty],
+    [openClusterPreviewAtCoord, schedulePreviewActivation, toGroupProperty]
   );
 
   // ── Empty map tap (dismiss logic) ───────────────────────────
@@ -1150,7 +1167,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
     (
       property: PropertyResolveResult,
       camera: MapCameraCommands,
-      resolvedAddress?: ResolvedAddress,
+      resolvedAddress?: ResolvedAddress
     ) => {
       if (!property.coordinates) {
         return;
@@ -1168,36 +1185,38 @@ export function useMapInteraction(): UseMapInteractionReturn {
       schedulePreviewActivation(SEARCH_PREVIEW_FLY_DURATION_MS, () => {
         setSelectedPropertyId(property.id);
         setPreviewGroup({
-          properties: [{
-            id: property.id,
-            coordinate: coord,
-            address: property.address,
-            streetName: resolvedAddress?.details.street ?? null,
-            houseNumber: resolvedAddress?.details.houseNumber ?? null,
-            houseNumberAddition: resolvedAddress?.details.houseNumberAddition ?? null,
-            city: property.city,
-            postalCode: property.postalCode ?? null,
-            countryCode,
-            officialValuation: property.officialValuation ?? null,
-            askingPrice: null,
-            hasActiveListing: property.hasActiveListing ?? null,
-            marketState: property.marketState ?? null,
-            socialScore: derivedActivity.socialScore,
-            recentSocialScore: derivedActivity.recentSocialScore,
-            activityLevel: derivedActivity.activityLevel,
-            activityScore: derivedActivity.activityScore,
-            thumbnailUrl: null,
-            aerialImageUrl: derivePropertyAerialImageUrl({
-              geometry: { type: 'Point', coordinates: coord },
+          properties: [
+            {
+              id: property.id,
+              coordinate: coord,
+              address: property.address,
+              streetName: resolvedAddress?.details.street ?? null,
+              houseNumber: resolvedAddress?.details.houseNumber ?? null,
+              houseNumberAddition: resolvedAddress?.details.houseNumberAddition ?? null,
+              city: property.city,
+              postalCode: property.postalCode ?? null,
               countryCode,
-            }),
-          }],
+              officialValuation: property.officialValuation ?? null,
+              askingPrice: null,
+              hasActiveListing: property.hasActiveListing ?? null,
+              marketState: property.marketState ?? null,
+              socialScore: derivedActivity.socialScore,
+              recentSocialScore: derivedActivity.recentSocialScore,
+              activityLevel: derivedActivity.activityLevel,
+              activityScore: derivedActivity.activityScore,
+              thumbnailUrl: null,
+              aerialImageUrl: derivePropertyAerialImageUrl({
+                geometry: { type: 'Point', coordinates: coord },
+                countryCode,
+              }),
+            },
+          ],
           coordinate: coord,
         });
         setCurrentPreviewIndex(0);
       });
     },
-    [schedulePreviewActivation],
+    [schedulePreviewActivation]
   );
 
   const handleLocationResolved = useCallback(
@@ -1208,7 +1227,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
         duration: 1000,
       });
     },
-    [],
+    []
   );
 
   return {

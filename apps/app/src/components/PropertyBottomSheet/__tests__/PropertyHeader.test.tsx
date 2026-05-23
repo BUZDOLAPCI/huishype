@@ -110,6 +110,38 @@ describe('PropertyHeader', () => {
     expect(screen.getByTestId('property-header-placeholder')).toBeTruthy();
   });
 
+  it('renders activity and listing pills beside each other for active listings', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          activityLevel: 'hot',
+          marketState: 'for-rent',
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('property-header-status-pills')).toBeTruthy();
+    expect(screen.getByTestId('property-header-activity-pill')).toBeTruthy();
+    expect(screen.getByTestId('property-header-listing-pill')).toBeTruthy();
+    expect(screen.getByText('Hot')).toBeTruthy();
+    expect(screen.getByText('For rent')).toBeTruthy();
+  });
+
+  it('does not render listing pills for inactive listing states', () => {
+    const { rerender } = render(
+      <PropertyHeader property={{ ...baseProperty, marketState: 'sold' }} />
+    );
+
+    expect(screen.queryByText('For sale')).toBeNull();
+    expect(screen.queryByText('For rent')).toBeNull();
+
+    rerender(<PropertyHeader property={{ ...baseProperty, marketState: 'not-listed' }} />);
+
+    expect(screen.queryByText('For sale')).toBeNull();
+    expect(screen.queryByText('For rent')).toBeNull();
+  });
+
   it('opens the property address in Google Maps from the main property card', () => {
     render(<PropertyHeader property={baseProperty} />);
 

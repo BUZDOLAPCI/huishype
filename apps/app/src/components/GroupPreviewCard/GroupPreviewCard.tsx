@@ -154,6 +154,7 @@ function toPreviewData(property: GroupPreviewCardProps['properties'][number]) {
     officialValuationYear: property.officialValuationYear,
     askingPrice: property.askingPrice,
     fmv: property.fmv,
+    marketState: property.marketState,
     activityLevel: property.activityLevel,
     activityScore: property.activityScore,
     thumbnailUrl: property.thumbnailUrl,

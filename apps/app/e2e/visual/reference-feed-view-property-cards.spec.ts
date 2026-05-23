@@ -83,9 +83,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     ).toHaveLength(0);
   });
 
-  test('capture feed view with property cards for visual comparison', async ({
-    page,
-  }) => {
+  test('capture feed view with property cards for visual comparison', async ({ page }) => {
     // Navigate directly to the feed tab
     await page.goto('/feed');
     await page.waitForLoadState('networkidle');
@@ -100,7 +98,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Wait for either feed screen, property cards or filters to appear
     await Promise.race([
       feedScreen.waitFor({ timeout: 10000 }).catch(() => null),
-      propertyCard.first().waitFor({ timeout: 10000 }).catch(() => null),
+      propertyCard
+        .first()
+        .waitFor({ timeout: 10000 })
+        .catch(() => null),
       page.waitForTimeout(10000),
     ]);
 
@@ -150,12 +151,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await feedScreen.waitFor({ timeout: 10000 }).catch(() => null);
 
     // Wait for property cards
-    const propertyCard = page
-      .locator('[data-testid="property-feed-card"]')
-      .first();
-    const cardVisible = await propertyCard
-      .isVisible({ timeout: 10000 })
-      .catch(() => false);
+    const propertyCard = page.locator('[data-testid="property-feed-card"]').first();
+    const cardVisible = await propertyCard.isVisible({ timeout: 10000 }).catch(() => false);
 
     if (cardVisible) {
       // Verify card has expected elements
@@ -201,6 +198,80 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         fullPage: true,
       });
     }
+  });
+
+  test('capture listed cold feed card pills', async ({ page }) => {
+    await page.route('**/feed?**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              address: 'Cold Listedstraat 12',
+              city: 'Eindhoven',
+              zipCode: '5611 AA',
+              countryCode: 'NL',
+              geometry: { type: 'Point', coordinates: [5.4697, 51.4416] },
+              askingPrice: 425000,
+              fmv: null,
+              officialValuation: 410000,
+              officialValuationYear: 2024,
+              thumbnailUrl: null,
+              likeCount: 0,
+              commentCount: 0,
+              guessCount: 0,
+              viewCount: 0,
+              activityLevel: 'cold',
+              marketState: 'for-sale',
+              lastActivityAt: '2026-05-23T10:00:00.000Z',
+              hasListing: true,
+            },
+            {
+              id: '22222222-2222-4222-8222-222222222222',
+              address: 'Warm Rentlaan 8',
+              city: 'Eindhoven',
+              zipCode: '5611 AB',
+              countryCode: 'NL',
+              geometry: { type: 'Point', coordinates: [5.48, 51.45] },
+              askingPrice: 1750,
+              fmv: null,
+              officialValuation: null,
+              officialValuationYear: null,
+              thumbnailUrl: null,
+              likeCount: 3,
+              commentCount: 2,
+              guessCount: 1,
+              viewCount: 14,
+              activityLevel: 'warm',
+              marketState: 'for-rent',
+              lastActivityAt: '2026-05-23T11:00:00.000Z',
+              hasListing: true,
+            },
+          ],
+          pagination: { page: 1, limit: 20, hasMore: false },
+        }),
+      });
+    });
+
+    await page.goto('/feed');
+    await page.waitForLoadState('networkidle');
+
+    const cards = page.locator('[data-testid="property-feed-card"]');
+    await expect(cards).toHaveCount(2);
+
+    const coldCard = cards.nth(0);
+    await expect(coldCard.getByText('For sale')).toBeVisible();
+    await expect(coldCard.locator('[data-testid="activity-badge"]')).toHaveCount(0);
+
+    const warmCard = cards.nth(1);
+    await expect(warmCard.getByText('Active')).toBeVisible();
+    await expect(warmCard.getByText('For rent')).toBeVisible();
+
+    await coldCard.screenshot({
+      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-listed-cold-pills.png`,
+    });
   });
 
   test('verify filter chips interaction', async ({ page }) => {

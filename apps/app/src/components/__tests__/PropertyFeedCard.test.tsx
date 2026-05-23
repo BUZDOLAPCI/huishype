@@ -28,36 +28,61 @@ describe('PropertyFeedCard', () => {
 
   it('calls onPress when card is tapped', () => {
     const onPress = jest.fn();
-    const { getByTestId } = render(
-      <PropertyFeedCard {...defaultProps} onPress={onPress} />
-    );
+    const { getByTestId } = render(<PropertyFeedCard {...defaultProps} onPress={onPress} />);
 
     fireEvent.press(getByTestId('property-feed-card'));
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 
   it('shows "Hot" badge for hot activity', () => {
-    const { getByText } = render(
-      <PropertyFeedCard {...defaultProps} activityLevel="hot" />
-    );
+    const { getByText } = render(<PropertyFeedCard {...defaultProps} activityLevel="hot" />);
 
     expect(getByText('Hot')).toBeTruthy();
   });
 
   it('shows "Active" badge for warm activity', () => {
-    const { getByText } = render(
-      <PropertyFeedCard {...defaultProps} activityLevel="warm" />
-    );
+    const { getByText } = render(<PropertyFeedCard {...defaultProps} activityLevel="warm" />);
 
     expect(getByText('Active')).toBeTruthy();
   });
 
   it('does not show badge for cold activity', () => {
-    const { queryByTestId } = render(
-      <PropertyFeedCard {...defaultProps} activityLevel="cold" />
+    const { queryByTestId } = render(<PropertyFeedCard {...defaultProps} activityLevel="cold" />);
+
+    expect(queryByTestId('activity-badge')).toBeNull();
+  });
+
+  it('shows a listing pill without an activity badge for cold listed properties', () => {
+    const { getByText, queryByTestId } = render(
+      <PropertyFeedCard {...defaultProps} activityLevel="cold" marketState="for-sale" />
     );
 
     expect(queryByTestId('activity-badge')).toBeNull();
+    expect(getByText('For sale')).toBeTruthy();
+  });
+
+  it('shows activity and listing pills together for warm listed properties', () => {
+    const { getByText, getByTestId } = render(
+      <PropertyFeedCard {...defaultProps} activityLevel="warm" marketState="for-rent" />
+    );
+
+    expect(getByTestId('activity-badge')).toBeTruthy();
+    expect(getByText('Active')).toBeTruthy();
+    expect(getByText('For rent')).toBeTruthy();
+  });
+
+  it('does not show a listing pill for inactive listing states', () => {
+    const { queryByText, rerender } = render(
+      <PropertyFeedCard {...defaultProps} marketState="sold" />
+    );
+
+    expect(queryByText('For sale')).toBeNull();
+    expect(queryByText('For rent')).toBeNull();
+
+    rerender(<PropertyFeedCard {...defaultProps} marketState="rented" />);
+
+    expect(queryByText('For sale')).toBeNull();
+    expect(queryByText('For rent')).toBeNull();
   });
 
   it('renders placeholder when no image URL provided', () => {
@@ -118,9 +143,7 @@ describe('PropertyFeedCard', () => {
   });
 
   it('renders primary price when fmvValue is provided', () => {
-    const { getByTestId } = render(
-      <PropertyFeedCard {...defaultProps} fmvValue={550000} />
-    );
+    const { getByTestId } = render(<PropertyFeedCard {...defaultProps} fmvValue={550000} />);
 
     expect(getByTestId('property-feed-card')).toBeTruthy();
   });

@@ -16,6 +16,12 @@ import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huish
 import { PropertyImageSurface } from './PropertyImageSurface';
 import { toPropertyImageSource } from '../utils/property-image';
 import { useT } from '@/src/i18n';
+import {
+  ActivityPill,
+  ListingPill,
+  StatusPillRow,
+  type ListingMarketState,
+} from './PropertyStatusPills';
 
 export interface PropertyFeedCardProps {
   id: string;
@@ -30,6 +36,7 @@ export interface PropertyFeedCardProps {
   askingPrice?: number;
   fmvValue?: number;
   activityLevel?: 'hot' | 'warm' | 'cold';
+  marketState?: ListingMarketState | null;
   likeCount?: number;
   commentCount?: number;
   guessCount?: number;
@@ -39,10 +46,7 @@ export interface PropertyFeedCardProps {
   onPress?: () => void;
 }
 
-function formatPrice(
-  value: number | null | undefined,
-  countryCode?: string
-): string {
+function formatPrice(value: number | null | undefined, countryCode?: string): string {
   if (value === null || value === undefined) return '-';
   return formatPropertyPrice(value, countryCode as CountryCode);
 }
@@ -51,12 +55,6 @@ function formatValuationLabel(countryCode?: string, year?: number | null): strin
   const label = getValuationLabel(countryCode);
   return year ? `${label} (${year})` : label;
 }
-
-const ACTIVITY_CONFIG = {
-  hot: { bg: '#FF6B35', label: 'Hot', iconName: 'Flame' as const },
-  warm: { bg: '#F5A623', label: 'Active', iconName: 'Flame' as const },
-  cold: { bg: '#C7BFB3', label: '', iconName: undefined },
-} as const;
 
 function PropertyFeedCardComponent({
   address,
@@ -69,6 +67,7 @@ function PropertyFeedCardComponent({
   askingPrice,
   fmvValue,
   activityLevel = 'cold',
+  marketState = null,
   likeCount = 0,
   commentCount = 0,
   guessCount = 0,
@@ -76,7 +75,6 @@ function PropertyFeedCardComponent({
   onPress,
 }: PropertyFeedCardProps) {
   const t = useT();
-  const activityConfig = ACTIVITY_CONFIG[activityLevel];
   const imageSource = useMemo(
     () =>
       toPropertyImageSource({
@@ -133,14 +131,10 @@ function PropertyFeedCardComponent({
 
         {/* Content section */}
         <View style={styles.body}>
-          {/* Address row with activity badge */}
+          {/* Address row with status pills */}
           <View style={styles.addressRow}>
             <View style={styles.addressContent}>
-              <Text
-                style={styles.street}
-                numberOfLines={1}
-                testID="property-address"
-              >
+              <Text style={styles.street} numberOfLines={1} testID="property-address">
                 {address}
               </Text>
               <Text style={styles.city} numberOfLines={1}>
@@ -148,24 +142,10 @@ function PropertyFeedCardComponent({
               </Text>
             </View>
 
-            {/* Activity badge */}
-            {activityLevel !== 'cold' && (
-              <View
-                style={[styles.activityBadge, { backgroundColor: activityConfig.bg }]}
-                testID="activity-badge"
-              >
-                {activityConfig.iconName && (
-                  <Icon
-                    name={activityConfig.iconName}
-                    size={12}
-                    color="#FFFFFF"
-                  />
-                )}
-                <Text style={styles.activityBadgeText}>
-                  {activityConfig.label}
-                </Text>
-              </View>
-            )}
+            <StatusPillRow style={styles.statusPills} testID="feed-card-status-pills">
+              <ActivityPill level={activityLevel} hideCold tone="solid" testID="activity-badge" />
+              <ListingPill marketState={marketState} />
+            </StatusPillRow>
           </View>
 
           {/* Price row */}
@@ -174,9 +154,7 @@ function PropertyFeedCardComponent({
               {askingPrice != null && askingPrice > 0 && (
                 <>
                   <Text style={styles.priceLabel}>{t('property.price.asking')}</Text>
-                  <Text style={styles.askingPrice}>
-                    {formatPrice(askingPrice, countryCode)}
-                  </Text>
+                  <Text style={styles.askingPrice}>{formatPrice(askingPrice, countryCode)}</Text>
                 </>
               )}
               {!askingPrice && officialValuation != null && officialValuation > 0 && (
@@ -195,9 +173,7 @@ function PropertyFeedCardComponent({
               <View style={styles.primaryPriceContainer}>
                 <View style={styles.primaryPriceRow}>
                   <Icon name="HouseLine" size={14} color="#F5A623" />
-                  <Text style={styles.primaryPrice}>
-                    {formatPrice(primaryPrice, countryCode)}
-                  </Text>
+                  <Text style={styles.primaryPrice}>{formatPrice(primaryPrice, countryCode)}</Text>
                 </View>
               </View>
             )}
@@ -205,12 +181,7 @@ function PropertyFeedCardComponent({
 
           {/* Stat pills */}
           <View style={styles.statDivider} />
-          <MetricPills
-            stats={stats}
-            variant="stats"
-            showAllStats
-            testID="feed-card-stats"
-          />
+          <MetricPills stats={stats} variant="stats" showAllStats testID="feed-card-stats" />
         </View>
       </Card>
     </Pressable>
@@ -219,7 +190,7 @@ function PropertyFeedCardComponent({
 
 function arePropertyFeedCardPropsEqual(
   prev: Readonly<PropertyFeedCardProps>,
-  next: Readonly<PropertyFeedCardProps>,
+  next: Readonly<PropertyFeedCardProps>
 ) {
   return (
     prev.id === next.id &&
@@ -234,6 +205,7 @@ function arePropertyFeedCardPropsEqual(
     prev.askingPrice === next.askingPrice &&
     prev.fmvValue === next.fmvValue &&
     prev.activityLevel === next.activityLevel &&
+    prev.marketState === next.marketState &&
     prev.likeCount === next.likeCount &&
     prev.commentCount === next.commentCount &&
     prev.guessCount === next.guessCount &&
@@ -243,10 +215,7 @@ function arePropertyFeedCardPropsEqual(
   );
 }
 
-export const PropertyFeedCard = memo(
-  PropertyFeedCardComponent,
-  arePropertyFeedCardPropsEqual
-);
+export const PropertyFeedCard = memo(PropertyFeedCardComponent, arePropertyFeedCardPropsEqual);
 
 const styles = StyleSheet.create({
   pressable: {
@@ -299,18 +268,9 @@ const styles = StyleSheet.create({
     color: '#736C62', // warm-600 — AA contrast on white (5.0:1)
     marginTop: 2,
   },
-  activityBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-  },
-  activityBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '600',
+  statusPills: {
+    justifyContent: 'flex-end',
+    maxWidth: 172,
   },
   priceRow: {
     flexDirection: 'row',

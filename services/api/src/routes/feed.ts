@@ -32,6 +32,7 @@ const feedItemSchema = z.object({
   guessCount: z.number(),
   viewCount: z.number(),
   activityLevel: z.enum(['hot', 'warm', 'cold']),
+  marketState: z.enum(['for-sale', 'for-rent', 'sold', 'rented', 'not-listed']),
   lastActivityAt: z.string().datetime(),
   hasListing: z.boolean(),
 });
@@ -62,12 +63,14 @@ interface FeedRow extends Record<string, unknown> {
   official_valuation_year: number | null;
   thumbnail_url: string | null;
   has_listing: boolean;
+  market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
   comment_count: number;
   guess_count: number;
   like_count: number;
   view_count: number;
   fmv: number | null;
   trending_score: number;
+  social_last_activity_at: string | null;
   last_activity_at: string;
 }
 
@@ -222,6 +225,7 @@ export async function feedRoutes(app: FastifyInstance) {
             p.official_valuation_year,
             l.listing_id,
             l.asking_price,
+            l.normalized_price_type,
             l.thumbnail_url,
             l.listing_created_at,
             l.sort_at AS active_listing_sort_at
@@ -266,6 +270,15 @@ export async function feedRoutes(app: FastifyInstance) {
             )[1] AS official_valuation_year,
             (array_agg(sal.asking_price ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
               AS asking_price,
+            (
+              array_agg(
+                CASE
+                  WHEN sal.normalized_price_type = 'rent' THEN 'for-rent'
+                  ELSE 'for-sale'
+                END
+                ORDER BY ${buildFeedScopedListingOrderExpression('sal')}
+              )
+            )[1] AS market_state,
             (
               array_agg(
                 sal.active_listing_sort_at
@@ -382,6 +395,7 @@ export async function feedRoutes(app: FastifyInstance) {
             clf.official_valuation_year,
             clf.thumbnail_url,
             TRUE AS has_listing,
+            clf.market_state,
             COALESCE(ocf.comment_count, 0)::int AS comment_count,
             COALESCE(ogf.guess_count, 0)::int AS guess_count,
             COALESCE(oplf.property_like_count, 0)::int AS like_count,
@@ -395,6 +409,14 @@ export async function feedRoutes(app: FastifyInstance) {
               + COALESCE(ogf.recent_guess_count, 0)::numeric * 2.0
               + COALESCE(oplf.recent_property_like_count, 0)::numeric * 0.5
             ) AS trending_score,
+            GREATEST(
+              ocf.latest_top_level_comment_at,
+              ocf.latest_reply_at,
+              oplf.latest_property_like_at,
+              oclf.latest_comment_like_at,
+              ogf.latest_guess_at,
+              ovf.latest_view_at
+            ) AS social_last_activity_at,
             COALESCE(
               GREATEST(
                 ocf.latest_top_level_comment_at,
@@ -428,12 +450,14 @@ export async function feedRoutes(app: FastifyInstance) {
           cfr.official_valuation_year,
           cfr.thumbnail_url,
           cfr.has_listing,
+          cfr.market_state,
           cfr.comment_count,
           cfr.guess_count,
           cfr.like_count,
           cfr.view_count,
           cfr.fmv,
           cfr.trending_score,
+          cfr.social_last_activity_at,
           cfr.last_activity_at
         FROM candidate_feed_rows cfr
         ORDER BY ${feedOrderExpression}
@@ -475,7 +499,11 @@ export async function feedRoutes(app: FastifyInstance) {
         commentCount: Number(r.comment_count),
         guessCount: Number(r.guess_count),
         viewCount: Number(r.view_count),
-        activityLevel: computeActivityLevel(Number(r.trending_score), new Date(r.last_activity_at)),
+        activityLevel: computeActivityLevel(
+          Number(r.trending_score),
+          r.social_last_activity_at ? new Date(r.social_last_activity_at) : null
+        ),
+        marketState: r.market_state,
         lastActivityAt: new Date(r.last_activity_at).toISOString(),
         hasListing: r.has_listing,
       }));

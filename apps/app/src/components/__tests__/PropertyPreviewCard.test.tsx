@@ -75,6 +75,40 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('Quiet')).toBeTruthy();
   });
 
+  it('renders a listing pill below the activity pill for active listings', () => {
+    render(
+      <PropertyPreviewCard
+        property={{
+          ...mockProperty,
+          activityLevel: 'warm',
+          marketState: 'for-sale',
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('property-preview-activity-pill')).toBeTruthy();
+    expect(screen.getByTestId('property-preview-listing-pill')).toBeTruthy();
+    expect(screen.getByText('Active')).toBeTruthy();
+    expect(screen.getByText('For sale')).toBeTruthy();
+  });
+
+  it('does not render a listing pill for sold, rented, or unlisted properties', () => {
+    const { rerender } = render(
+      <PropertyPreviewCard property={{ ...mockProperty, marketState: 'sold' }} />
+    );
+
+    expect(screen.queryByText('For sale')).toBeNull();
+    expect(screen.queryByText('For rent')).toBeNull();
+
+    rerender(<PropertyPreviewCard property={{ ...mockProperty, marketState: 'rented' }} />);
+    expect(screen.queryByText('For sale')).toBeNull();
+    expect(screen.queryByText('For rent')).toBeNull();
+
+    rerender(<PropertyPreviewCard property={{ ...mockProperty, marketState: 'not-listed' }} />);
+    expect(screen.queryByText('For sale')).toBeNull();
+    expect(screen.queryByText('For rent')).toBeNull();
+  });
+
   it('renders quick action buttons', () => {
     render(<PropertyPreviewCard property={mockProperty} />);
 
@@ -194,11 +228,7 @@ describe('PropertyPreviewCard', () => {
   it('shows close button when showCloseButton is true', () => {
     const onClose = jest.fn();
     render(
-      <PropertyPreviewCard
-        property={mockProperty}
-        showCloseButton={true}
-        onClose={onClose}
-      />
+      <PropertyPreviewCard property={mockProperty} showCloseButton={true} onClose={onClose} />
     );
 
     const closeButton = screen.getByTestId('property-preview-close-button');
@@ -228,17 +258,13 @@ describe('PropertyPreviewCard', () => {
   });
 
   it('renders arrow when showArrow is true', () => {
-    render(
-      <PropertyPreviewCard property={mockProperty} showArrow={true} />
-    );
+    render(<PropertyPreviewCard property={mockProperty} showArrow={true} />);
 
     expect(screen.getByTestId('property-preview-arrow')).toBeTruthy();
   });
 
   it('shows "Liked" state correctly', () => {
-    render(
-      <PropertyPreviewCard property={mockProperty} isLiked={true} />
-    );
+    render(<PropertyPreviewCard property={mockProperty} isLiked={true} />);
 
     expect(screen.getByText('Liked')).toBeTruthy();
     expect(screen.queryByText('Like')).toBeNull();
@@ -309,9 +335,7 @@ describe('PropertyPreviewCard', () => {
     expect(addressText.props.children).toBe(longAddress);
     expect(addressText.props.ellipsizeMode).toBe('clip');
     expect(addressText.props.style).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ fontSize: 11.5 }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ fontSize: 11.5 })])
     );
   });
 });

@@ -79,6 +79,7 @@ export default function SavedScreen() {
         askingPrice={item.askingPrice ?? undefined}
         fmvValue={item.fmvValue}
         activityLevel={item.activityLevel}
+        marketState={item.marketState}
         commentCount={item.commentCount}
         guessCount={item.guessCount}
         viewCount={item.viewCount}
@@ -102,10 +103,7 @@ export default function SavedScreen() {
   // --- Not logged in state ---
   if (!user) {
     return (
-      <ScreenBackground
-        testID="saved-auth-required"
-        pointerEvents="box-none"
-      >
+      <ScreenBackground testID="saved-auth-required" pointerEvents="box-none">
         <ScreenHeader title={t('saved.header')} />
         <View className="flex-1 items-center justify-center px-6">
           <View className="bg-primary-100 p-5 rounded-full mb-4">
@@ -114,9 +112,7 @@ export default function SavedScreen() {
           <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
             {t('saved.auth.title')}
           </Text>
-          <Text className="text-warm-600 text-center mb-6">
-            {t('saved.auth.body')}
-          </Text>
+          <Text className="text-warm-600 text-center mb-6">{t('saved.auth.body')}</Text>
           <Button
             label={t('common.signIn')}
             onPress={() => setShowAuth(true)}
@@ -142,9 +138,7 @@ export default function SavedScreen() {
         <View className="flex-1 items-center justify-center">
           <View className="items-center">
             <Icon name="BookmarkSimple" size="xl" color="#DE911D" />
-            <Text className="text-warm-600 mt-4">
-              {t('saved.loading')}
-            </Text>
+            <Text className="text-warm-600 mt-4">{t('saved.loading')}</Text>
           </View>
         </View>
       </ScreenBackground>
@@ -189,9 +183,7 @@ export default function SavedScreen() {
           <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
             {t('saved.empty.title')}
           </Text>
-          <Text className="text-warm-600 text-center">
-            {t('saved.empty.body')}
-          </Text>
+          <Text className="text-warm-600 text-center">{t('saved.empty.body')}</Text>
         </View>
       </ScreenBackground>
     );
@@ -205,9 +197,7 @@ export default function SavedScreen() {
 
         {/* Header count */}
         <View className="px-5 pb-2">
-          <Text className="text-sm text-warm-600">
-            {savedCountLabel}
-          </Text>
+          <Text className="text-sm text-warm-600">{savedCountLabel}</Text>
         </View>
 
         <FlatList

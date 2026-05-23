@@ -506,6 +506,7 @@ export interface FeedItem {
   guessCount: number;
   viewCount: number;
   activityLevel: 'hot' | 'warm' | 'cold';
+  marketState: MapMarketState;
   lastActivityAt: string;
   hasListing: boolean;
 }

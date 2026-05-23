@@ -5,7 +5,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 import type { CountryCode, SavedProperty } from '@huishype/shared';
 import { getPropertyAerialImageFromGeometry } from '../../lib/propertyThumbnail';
-import { savedPropertyKeys, transformSavedProperty, useSavedProperties } from '../useSavedProperties';
+import {
+  savedPropertyKeys,
+  transformSavedProperty,
+  useSavedProperties,
+} from '../useSavedProperties';
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
@@ -23,9 +27,7 @@ jest.mock('../../providers/AuthProvider', () => ({
   }),
 }));
 
-function createSavedProperty(
-  overrides: Partial<SavedProperty> = {},
-): SavedProperty {
+function createSavedProperty(overrides: Partial<SavedProperty> = {}): SavedProperty {
   return {
     id: 'a0000000-0000-4000-a000-000000000001',
     nationalId: null,
@@ -75,19 +77,19 @@ function createSavedProperty(
     savedAt: '2026-04-06T12:00:00.000Z',
     isSaved: true,
     ...overrides,
-    officialValuationYear: overrides.officialValuationYear === undefined
-      ? 2024
-      : overrides.officialValuationYear,
-    officialValuationSourceFetch: overrides.officialValuationSourceFetch === undefined
-      ? {
-          source: 'woz',
-          expectedValuationYear: 2024,
-          supportsClientFetch: {
-            web: true,
-            native: true,
-          },
-        }
-      : overrides.officialValuationSourceFetch,
+    officialValuationYear:
+      overrides.officialValuationYear === undefined ? 2024 : overrides.officialValuationYear,
+    officialValuationSourceFetch:
+      overrides.officialValuationSourceFetch === undefined
+        ? {
+            source: 'woz',
+            expectedValuationYear: 2024,
+            supportsClientFetch: {
+              web: true,
+              native: true,
+            },
+          }
+        : overrides.officialValuationSourceFetch,
   };
 }
 
@@ -146,15 +148,32 @@ describe('transformSavedProperty', () => {
 
     expect(transformed.activityLevel).toBe('cold');
   });
+
+  it('keeps active-listing-only saved properties cold', () => {
+    const property = createSavedProperty({
+      hasActiveListing: true,
+      socialScore: 0,
+      recentSocialScore: 0,
+      propertyLikeCount: 0,
+      commentLikeCount: 0,
+      guessCount: 0,
+      viewCount: 0,
+      recentPropertyLikeCount: 0,
+      recentCommentLikeCount: 0,
+      recentGuessCount: 0,
+      recentViewCount: 0,
+    });
+
+    const transformed = transformSavedProperty(property);
+
+    expect(transformed.activityLevel).toBe('cold');
+    expect(transformed.hasActiveListing).toBe(true);
+  });
 });
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: PropsWithChildren) {
-    return React.createElement(
-      QueryClientProvider,
-      { client: queryClient },
-      children,
-    );
+    return React.createElement(QueryClientProvider, { client: queryClient }, children);
   };
 }
 
@@ -192,9 +211,7 @@ describe('useSavedProperties', () => {
       expect(firstHook.result.current.isSuccess).toBe(true);
     });
 
-    expect(
-      queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-1')),
-    ).toBeDefined();
+    expect(queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-1'))).toBeDefined();
 
     mockAuthUser = null;
     mockAccessToken = null;
@@ -204,9 +221,7 @@ describe('useSavedProperties', () => {
     });
 
     expect(signedOutHook.result.current.data).toBeUndefined();
-    expect(
-      queryClient.getQueryData(savedPropertyKeys.list('anon')),
-    ).toBeUndefined();
+    expect(queryClient.getQueryData(savedPropertyKeys.list('anon'))).toBeUndefined();
 
     mockAuthUser = { id: 'viewer-2' };
     mockAccessToken = 'token-viewer-2';
@@ -233,10 +248,8 @@ describe('useSavedProperties', () => {
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(
-      queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-1')),
-    ).not.toEqual(
-      queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-2')),
+    expect(queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-1'))).not.toEqual(
+      queryClient.getQueryData(savedPropertyKeys.list('auth:viewer-2'))
     );
   });
 
@@ -266,7 +279,7 @@ describe('useSavedProperties', () => {
         headers: {
           Authorization: 'Bearer fresh-viewer-token',
         },
-      }),
+      })
     );
   });
 });

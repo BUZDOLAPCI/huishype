@@ -2,7 +2,12 @@ import React from 'react';
 import { renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
-import { getViewerCacheKey, propertyKeys, useProperty } from '../useProperties';
+import {
+  deriveCompatibilityActivityLevel,
+  getViewerCacheKey,
+  propertyKeys,
+  useProperty,
+} from '../useProperties';
 import {
   api,
   fetchOfficialValuationFromSource,
@@ -47,11 +52,7 @@ function createWrapper() {
   });
 
   return function Wrapper({ children }: PropsWithChildren) {
-    return React.createElement(
-      QueryClientProvider,
-      { client: queryClient },
-      children,
-    );
+    return React.createElement(QueryClientProvider, { client: queryClient }, children);
   };
 }
 
@@ -67,11 +68,7 @@ function createQueryClientWrapper() {
   return {
     queryClient,
     wrapper({ children }: PropsWithChildren) {
-      return React.createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        children,
-      );
+      return React.createElement(QueryClientProvider, { client: queryClient }, children);
     },
   };
 }
@@ -241,6 +238,16 @@ describe('useProperty', () => {
     });
 
     expect(result.current.data?.activityLevel).toBe('cold');
+  });
+
+  it('does not derive warm activity from an active listing alone', () => {
+    expect(
+      deriveCompatibilityActivityLevel({
+        socialScore: 0,
+        recentSocialScore: 0,
+        hasActiveListing: true,
+      })
+    ).toBe('cold');
   });
 
   it('uses reply-inclusive comment totals when detail payloads expose threaded counts', async () => {
@@ -420,11 +427,8 @@ describe('useProperty', () => {
     });
     expect(
       queryClient.getQueryData(
-        propertyKeys.detail(
-          'property-123',
-          getViewerCacheKey({ id: 'viewer-1' }, true),
-        ),
-      ),
+        propertyKeys.detail('property-123', getViewerCacheKey({ id: 'viewer-1' }, true))
+      )
     ).toMatchObject({
       isSaved: true,
     });
@@ -433,10 +437,12 @@ describe('useProperty', () => {
   it('merges client-fetched official valuation previews into only the detail cache', async () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);
-    mockApi.get.mockResolvedValueOnce(buildPropertyResponse({
-      officialValuation: null,
-      officialValuationYear: null,
-    }));
+    mockApi.get.mockResolvedValueOnce(
+      buildPropertyResponse({
+        officialValuation: null,
+        officialValuationYear: null,
+      })
+    );
     mockFetchOfficialValuationFromSource.mockResolvedValueOnce({
       source: 'woz',
       valuation: 455000,
@@ -470,7 +476,7 @@ describe('useProperty', () => {
     expect(mockSubmitOfficialValuationHydration).toHaveBeenCalledWith(
       'property-123',
       expect.objectContaining({ valuation: 455000, valuationYear: 2024 }),
-      null,
+      null
     );
     expect(queryClient.getQueryData(propertyKeys.list({}))).toMatchObject({
       data: [expect.objectContaining({ officialValuation: null, officialValuationYear: null })],
@@ -481,14 +487,18 @@ describe('useProperty', () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);
     mockApi.get
-      .mockResolvedValueOnce(buildPropertyResponse({
-        officialValuation: null,
-        officialValuationYear: null,
-      }))
-      .mockResolvedValueOnce(buildPropertyResponse({
-        officialValuation: null,
-        officialValuationYear: null,
-      }));
+      .mockResolvedValueOnce(
+        buildPropertyResponse({
+          officialValuation: null,
+          officialValuationYear: null,
+        })
+      )
+      .mockResolvedValueOnce(
+        buildPropertyResponse({
+          officialValuation: null,
+          officialValuationYear: null,
+        })
+      );
     mockFetchOfficialValuationFromSource.mockResolvedValueOnce({
       source: 'woz',
       valuation: 455000,
@@ -523,14 +533,18 @@ describe('useProperty', () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);
     mockApi.get
-      .mockResolvedValueOnce(buildPropertyResponse({
-        officialValuation: null,
-        officialValuationYear: null,
-      }))
-      .mockResolvedValueOnce(buildPropertyResponse({
-        officialValuation: 460000,
-        officialValuationYear: 2024,
-      }));
+      .mockResolvedValueOnce(
+        buildPropertyResponse({
+          officialValuation: null,
+          officialValuationYear: null,
+        })
+      )
+      .mockResolvedValueOnce(
+        buildPropertyResponse({
+          officialValuation: 460000,
+          officialValuationYear: 2024,
+        })
+      );
     mockFetchOfficialValuationFromSource.mockResolvedValueOnce({
       source: 'woz',
       valuation: 455000,
@@ -559,19 +573,21 @@ describe('useProperty', () => {
   it('does not client-fetch official valuations for non-NL properties', async () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);
-    mockApi.get.mockResolvedValueOnce(buildPropertyResponse({
-      countryCode: 'DE',
-      officialValuation: null,
-      officialValuationYear: null,
-      officialValuationSourceFetch: {
-        source: 'woz',
-        expectedValuationYear: 2024,
-        supportsClientFetch: {
-          web: true,
-          native: true,
+    mockApi.get.mockResolvedValueOnce(
+      buildPropertyResponse({
+        countryCode: 'DE',
+        officialValuation: null,
+        officialValuationYear: null,
+        officialValuationSourceFetch: {
+          source: 'woz',
+          expectedValuationYear: 2024,
+          supportsClientFetch: {
+            web: true,
+            native: true,
+          },
         },
-      },
-    }));
+      })
+    );
 
     const { result } = renderHook(() => useProperty('property-123'), {
       wrapper: createWrapper(),

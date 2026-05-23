@@ -254,6 +254,7 @@ export default function FeedScreen() {
         askingPrice={item.askingPrice ?? undefined}
         fmvValue={item.fmvValue}
         activityLevel={item.activityLevel}
+        marketState={item.marketState}
         likeCount={item.likeCount}
         commentCount={item.commentCount}
         guessCount={item.guessCount}

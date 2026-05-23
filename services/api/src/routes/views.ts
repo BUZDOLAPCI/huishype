@@ -56,12 +56,12 @@ export function calculateActivityLevel(
  */
 export function computeActivityLevel(
   trendingScore: number,
-  lastActivityAt: Date
+  lastActivityAt: Date | null
 ): 'hot' | 'warm' | 'cold' {
   if (trendingScore >= 5) return 'hot';
   if (trendingScore > 0) return 'warm';
-  const daysSince =
-    (Date.now() - lastActivityAt.getTime()) / (1000 * 60 * 60 * 24);
+  if (!lastActivityAt) return 'cold';
+  const daysSince = (Date.now() - lastActivityAt.getTime()) / (1000 * 60 * 60 * 24);
   if (daysSince <= 30) return 'warm';
   return 'cold';
 }
@@ -93,7 +93,7 @@ export async function viewRoutes(app: FastifyInstance) {
       const userId = request.userId;
       const viewer = resolvePropertyReadViewer(
         userId,
-        request.headers['x-session-id'] as string | string[] | undefined,
+        request.headers['x-session-id'] as string | string[] | undefined
       );
       const sessionId = viewer && 'sessionId' in viewer ? viewer.sessionId : null;
 
@@ -156,17 +156,22 @@ export async function viewRoutes(app: FastifyInstance) {
 
       await markPropertyRead(propertyId, viewer);
       const viewerScope = getPropertyReadViewerScope(viewer);
-      propertyTileRuntime.invalidateMatching((key) =>
-        key === `read-scope:${viewerScope}` ||
-        (key.startsWith(`read:`) && key.includes(`:${viewerScope}:`))
+      propertyTileRuntime.invalidateMatching(
+        (key) =>
+          key === `read-scope:${viewerScope}` ||
+          (key.startsWith(`read:`) && key.includes(`:${viewerScope}:`))
       );
 
       if (!alreadyViewed) {
-        await safeRequestPropertyTilePyramidBuildAfterMutation({
-          reason: 'property-view',
-          policy: 'views',
-          watermarkScopes: ['views_engagement'],
-        }, request.log, { propertyId, viewerScope });
+        await safeRequestPropertyTilePyramidBuildAfterMutation(
+          {
+            reason: 'property-view',
+            policy: 'views',
+            watermarkScopes: ['views_engagement'],
+          },
+          request.log,
+          { propertyId, viewerScope }
+        );
       }
 
       // Get current counts
