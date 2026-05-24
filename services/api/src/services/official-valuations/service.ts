@@ -4,10 +4,7 @@ import {
   acceptOfficialValuationHydrationRequest,
   type HydrationRequestResult,
 } from './store.js';
-import {
-  getClientObservedValuation,
-  type HydrateOfficialValuationRequest,
-} from './contracts.js';
+import type { HydrateOfficialValuationRequest } from './contracts.js';
 import { safeRequestPropertyTilePyramidBuild } from '../property-tile-pyramid.js';
 
 export async function requestOfficialValuationHydration(input: {
@@ -21,7 +18,7 @@ export async function requestOfficialValuationHydration(input: {
   const result = await acceptOfficialValuationHydrationRequest({
     propertyId: input.propertyId,
     source: input.request.source,
-    observed: getClientObservedValuation(input.request),
+    observed: null,
     submittedByUserId: input.submittedByUserId,
   });
 

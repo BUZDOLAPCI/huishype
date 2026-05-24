@@ -307,8 +307,8 @@ describe('Mock handler runtime parity', () => {
         source: 'woz',
         expectedValuationYear: 2024,
         supportsClientFetch: {
-          web: true,
-          native: true,
+          web: false,
+          native: false,
         },
       },
     });
@@ -323,9 +323,6 @@ describe('Mock handler runtime parity', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source: 'woz',
-          valuation: 2910000,
-          valuationYear: 2024,
-          referenceDate: '2024-01-01',
         }),
       }
     );
@@ -335,16 +332,31 @@ describe('Mock handler runtime parity', () => {
     expect(hydrateBody).toEqual({
       propertyId: mockPropertyIds.prinsengracht263,
       source: 'woz',
-      status: 'accepted',
-      officialValuation: 2910000,
+      status: 'already_cached',
+      valuationYear: 2024,
+      officialValuation: 2850000,
       officialValuationYear: 2024,
+      officialValuationVerified: true,
+      job: null,
+    });
+
+    const currentResponse = await fetch(
+      `http://localhost/properties/${mockPropertyIds.prinsengracht263}/official-valuations/current?source=woz`
+    );
+    await expect(currentResponse.json()).resolves.toMatchObject({
+      propertyId: mockPropertyIds.prinsengracht263,
+      source: 'woz',
+      expectedValuationYear: 2024,
+      officialValuation: 2850000,
+      officialValuationYear: 2024,
+      officialValuationVerified: true,
     });
 
     const refreshedDetailResponse = await fetch(
       `http://localhost/properties/${mockPropertyIds.prinsengracht263}`
     );
     await expect(refreshedDetailResponse.json()).resolves.toMatchObject({
-      officialValuation: 2910000,
+      officialValuation: 2850000,
       officialValuationYear: 2024,
     });
   });
@@ -665,8 +677,8 @@ describe('Mock handler runtime parity', () => {
       source: 'woz',
       expectedValuationYear: 2024,
       supportsClientFetch: {
-        web: true,
-        native: true,
+        web: false,
+        native: false,
       },
     });
     expect(resolveBody).not.toHaveProperty('hasListing');

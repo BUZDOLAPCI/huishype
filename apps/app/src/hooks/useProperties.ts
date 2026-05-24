@@ -1,13 +1,13 @@
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
+  ApiError,
   api,
-  fetchOfficialValuationFromSource,
+  fetchCurrentOfficialValuationStatus,
   submitOfficialValuationHydration,
+  type OfficialValuationCurrentStatus,
   type OfficialValuationHydrateResponse,
   type OfficialValuationSourceFetch,
-  type OfficialValuationSourceResult,
 } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { withDerivedPropertyImageData } from '../utils/property-image';
@@ -42,12 +42,9 @@ export interface Property {
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
   officialValuationYear?: number | null;
+  officialValuationVerified?: boolean;
   officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
   commentsDisabled?: boolean;
-  officialValuationPreview?: {
-    source: 'client_fetched';
-    fetchedAt: number;
-  };
   hasListing?: boolean;
   hasActiveListing?: boolean;
   marketState?: MapMarketState | null;
@@ -243,92 +240,17 @@ function hasCurrentOfficialValuation(property: Property): boolean {
   return (
     property.officialValuation != null &&
     property.officialValuationYear != null &&
+    property.officialValuationVerified === true &&
     (expectedYear == null || property.officialValuationYear >= expectedYear)
   );
 }
 
-function supportsOfficialValuationSourceFetch(
-  hint: OfficialValuationSourceFetch | null | undefined
-): boolean {
-  if (!hint) {
-    return false;
-  }
-
-  return Platform.OS === 'web' ? hint.supportsClientFetch.web : hint.supportsClientFetch.native;
-}
-
-function shouldFetchOfficialValuationPreview(property: PropertyDetails): boolean {
+function shouldRequestOfficialValuationHydration(property: PropertyDetails): boolean {
   return (
     property.countryCode === 'NL' &&
     property.officialValuationSourceFetch?.source === 'woz' &&
-    supportsOfficialValuationSourceFetch(property.officialValuationSourceFetch) &&
     !hasCurrentOfficialValuation(property)
   );
-}
-
-function mergeServerPropertyWithPreview<T extends PropertyDetails | null>(
-  serverProperty: T,
-  previousProperty: PropertyDetails | null | undefined
-): T {
-  if (!serverProperty || !previousProperty || !hasCurrentOfficialValuation(previousProperty)) {
-    return serverProperty;
-  }
-
-  if (hasCurrentOfficialValuation(serverProperty)) {
-    return {
-      ...serverProperty,
-      officialValuationPreview: undefined,
-    };
-  }
-
-  const serverYear = serverProperty.officialValuationYear;
-  const previousYear = previousProperty.officialValuationYear;
-  const previousIsNewer =
-    previousProperty.officialValuation != null &&
-    previousYear != null &&
-    (serverYear == null || previousYear > serverYear);
-
-  if (!previousIsNewer) {
-    return serverProperty;
-  }
-
-  return {
-    ...serverProperty,
-    officialValuation: previousProperty.officialValuation,
-    officialValuationYear: previousProperty.officialValuationYear,
-    officialValuationPreview: previousProperty.officialValuationPreview,
-  };
-}
-
-function mergeHydrateResponse(
-  property: PropertyDetails,
-  response: OfficialValuationHydrateResponse
-): PropertyDetails {
-  if (response.officialValuation == null || response.officialValuationYear == null) {
-    return property;
-  }
-
-  return {
-    ...property,
-    officialValuation: response.officialValuation,
-    officialValuationYear: response.officialValuationYear,
-    officialValuationPreview: undefined,
-  };
-}
-
-function applyOfficialValuationPreview(
-  property: PropertyDetails,
-  result: OfficialValuationSourceResult
-): PropertyDetails {
-  return {
-    ...property,
-    officialValuation: result.valuation,
-    officialValuationYear: result.valuationYear,
-    officialValuationPreview: {
-      source: 'client_fetched',
-      fetchedAt: Date.now(),
-    },
-  };
 }
 
 // Fetch properties from API
@@ -357,8 +279,7 @@ const fetchProperties = async (params: PropertyQueryParams = {}): Promise<Proper
 
 export const fetchPropertyById = async (
   id: string,
-  accessToken?: string | null,
-  previousProperty?: PropertyDetails | null
+  accessToken?: string | null
 ): Promise<PropertyDetails | null> => {
   try {
     const property = await api.get<PropertyDetails>(
@@ -371,69 +292,131 @@ export const fetchPropertyById = async (
           }
         : undefined
     );
-    return mergeServerPropertyWithPreview(normalizePropertyResponse(property), previousProperty);
+    return normalizePropertyResponse(property);
   } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
     console.error('Failed to fetch property:', error);
-    return null;
+    throw error;
   }
 };
 
-const activeOfficialValuationPreviewFetches = new Set<string>();
+type OfficialValuationStatusPayload =
+  | OfficialValuationHydrateResponse
+  | OfficialValuationCurrentStatus;
 
-async function hydrateOfficialValuationPreview({
+const activeOfficialValuationHydrations = new Set<string>();
+const OFFICIAL_VALUATION_POLL_INTERVAL_MS = process.env.NODE_ENV === 'test' ? 0 : 2_000;
+const OFFICIAL_VALUATION_MAX_POLLS = 20;
+
+function getExpectedOfficialValuationYear(payload: OfficialValuationStatusPayload): number {
+  return 'expectedValuationYear' in payload ? payload.expectedValuationYear : payload.valuationYear;
+}
+
+function isCurrentOfficialValuationStatus(payload: OfficialValuationStatusPayload): boolean {
+  return (
+    payload.officialValuation != null &&
+    payload.officialValuationYear != null &&
+    payload.officialValuationVerified === true &&
+    payload.officialValuationYear >= getExpectedOfficialValuationYear(payload)
+  );
+}
+
+function patchOfficialValuationFields(
+  property: PropertyDetails,
+  payload: OfficialValuationStatusPayload
+): PropertyDetails {
+  if (payload.officialValuation == null || payload.officialValuationYear == null) {
+    return property;
+  }
+
+  if (
+    property.officialValuation === payload.officialValuation &&
+    property.officialValuationYear === payload.officialValuationYear &&
+    property.officialValuationVerified === payload.officialValuationVerified
+  ) {
+    return property;
+  }
+
+  return {
+    ...property,
+    officialValuation: payload.officialValuation,
+    officialValuationYear: payload.officialValuationYear,
+    officialValuationVerified: payload.officialValuationVerified,
+    officialValuationSourceFetch: property.officialValuationSourceFetch
+      ? {
+          ...property.officialValuationSourceFetch,
+          expectedValuationYear: getExpectedOfficialValuationYear(payload),
+        }
+      : property.officialValuationSourceFetch,
+  };
+}
+
+function shouldStopOfficialValuationPolling(payload: OfficialValuationStatusPayload): boolean {
+  if (isCurrentOfficialValuationStatus(payload)) {
+    return true;
+  }
+
+  const state = payload.job?.state;
+  return state === 'succeeded' || state === 'failed' || state === 'retryable';
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function requestOfficialValuationHydration({
   queryClient,
   queryKey,
   property,
   accessToken,
+  isCancelled,
 }: {
   queryClient: QueryClient;
   queryKey: PropertyDetailQueryKey;
   property: PropertyDetails;
   accessToken?: string | null;
+  isCancelled: () => boolean;
 }): Promise<void> {
-  if (activeOfficialValuationPreviewFetches.has(property.id)) {
+  if (activeOfficialValuationHydrations.has(property.id)) {
     return;
   }
 
-  activeOfficialValuationPreviewFetches.add(property.id);
+  activeOfficialValuationHydrations.add(property.id);
 
   try {
-    const sourceResult = await fetchOfficialValuationFromSource({
-      propertyId: property.id,
-      countryCode: property.countryCode,
-      nationalId: property.nationalId,
-      address: property.address,
-      city: property.city,
-      postalCode: property.postalCode,
-      street: property.street,
-      houseNumber: property.houseNumber,
-      houseNumberAddition: property.houseNumberAddition,
-    });
-
-    if (sourceResult) {
-      queryClient.setQueryData<PropertyDetails | null>(queryKey, (current) =>
-        current ? applyOfficialValuationPreview(current, sourceResult) : current
-      );
+    const hydrateResponse = await submitOfficialValuationHydration(property.id, accessToken);
+    if (isCancelled()) {
+      return;
     }
-
-    const hydrateResponse = await submitOfficialValuationHydration(
-      property.id,
-      sourceResult,
-      accessToken
-    );
     queryClient.setQueryData<PropertyDetails | null>(queryKey, (current) =>
-      current ? mergeHydrateResponse(current, hydrateResponse) : current
+      current ? patchOfficialValuationFields(current, hydrateResponse) : current
     );
-    if (
-      hydrateResponse.officialValuation == null ||
-      hydrateResponse.officialValuationYear == null
+
+    let latest: OfficialValuationStatusPayload = hydrateResponse;
+    let pollCount = 0;
+    while (
+      !isCancelled() &&
+      !shouldStopOfficialValuationPolling(latest) &&
+      pollCount < OFFICIAL_VALUATION_MAX_POLLS
     ) {
-      queryClient.invalidateQueries({ queryKey });
+      pollCount += 1;
+      await delay(OFFICIAL_VALUATION_POLL_INTERVAL_MS);
+      if (isCancelled()) {
+        return;
+      }
+      latest = await fetchCurrentOfficialValuationStatus(property.id, 'woz');
+      queryClient.setQueryData<PropertyDetails | null>(queryKey, (current) =>
+        current ? patchOfficialValuationFields(current, latest) : current
+      );
     }
   } catch (error) {
     console.warn('[HuisHype] official valuation hydration failed:', error);
   } finally {
-    activeOfficialValuationPreviewFetches.delete(property.id);
+    activeOfficialValuationHydrations.delete(property.id);
   }
 }
 
@@ -527,17 +510,14 @@ export function useProperty(id: string | null) {
         throw new Error('Authenticated property fetch requires an access token');
       }
 
-      const previousProperty = queryClient.getQueryData<PropertyDetails | null>(
-        propertyKeys.detail(id, viewerKey)
-      );
-      return fetchPropertyById(id, accessToken, previousProperty);
+      return fetchPropertyById(id, accessToken);
     },
     enabled: !!id,
   });
 
   useEffect(() => {
     const property = query.data;
-    if (!id || !property || !shouldFetchOfficialValuationPreview(property)) {
+    if (!id || !property || !shouldRequestOfficialValuationHydration(property)) {
       return;
     }
 
@@ -546,11 +526,12 @@ export function useProperty(id: string | null) {
     void (async () => {
       const accessToken = await getAccessToken();
       if (!cancelled) {
-        await hydrateOfficialValuationPreview({
+        await requestOfficialValuationHydration({
           queryClient,
           queryKey: propertyKeys.detail(id, viewerKey),
           property,
           accessToken,
+          isCancelled: () => cancelled,
         });
       }
     })();

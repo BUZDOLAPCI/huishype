@@ -5,12 +5,12 @@ import {
   fetchHouseNumberTapResolve,
   fetchNearbyGroup,
   fetchPhysicalTapResolve,
-  fetchOfficialValuationFromSource,
+  fetchCurrentOfficialValuationStatus,
   normalizeNearbyPropertyGroup,
   normalizeRenderedPropertyGroup,
   resolveProperty,
   setApiAccessTokenResolver,
-  setOfficialValuationSourceFetcher,
+  submitOfficialValuationHydration,
 } from '../api';
 
 jest.mock('expo-constants', () => ({
@@ -314,7 +314,7 @@ describe('fetchHouseNumberTapResolve', () => {
   });
 });
 
-describe('official valuation source fetch', () => {
+describe('official valuation API hydration', () => {
   const mockFetch = jest.fn();
 
   beforeEach(() => {
@@ -322,239 +322,59 @@ describe('official valuation source fetch', () => {
     global.fetch = mockFetch as unknown as typeof fetch;
   });
 
-  afterEach(() => {
-    setOfficialValuationSourceFetcher(null);
-  });
-
-  it('does not call the injectable source fetcher for non-NL properties', async () => {
-    const fetcher = jest.fn();
-    setOfficialValuationSourceFetcher(fetcher);
-
-    const result = await fetchOfficialValuationFromSource({
-      propertyId: 'property-de',
-      countryCode: 'DE',
-      nationalId: null,
-      address: 'Teststrasse 1',
-      city: 'Berlin',
-      postalCode: '10115',
-    });
-
-    expect(result).toBeNull();
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it('uses the injectable source fetcher for NL properties', async () => {
-    const fetcher = jest.fn().mockResolvedValue({
-      source: 'woz',
-      valuation: 450000,
-      valuationYear: 2024,
-      referenceDate: '2024-01-01',
-    });
-    setOfficialValuationSourceFetcher(fetcher);
-
-    await expect(fetchOfficialValuationFromSource({
-      propertyId: 'property-nl',
-      countryCode: 'NL',
-      nationalId: '0363010012345678',
-      address: 'Teststraat 1',
-      city: 'Amsterdam',
-      postalCode: '1016 GV',
-    })).resolves.toMatchObject({
-      source: 'woz',
-      valuation: 450000,
-      valuationYear: 2024,
-    });
-
-    expect(fetcher).toHaveBeenCalledTimes(1);
-  });
-
-  it('validates a preferred BAG nummeraanduiding id with suggest before fetching WOZ', async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        status: 200,
-        ok: true,
-        headers: { get: () => null },
-        json: async () => ({
-          suggesties: [{ nummeraanduidingid: '123' }],
-        }),
-      })
-      .mockResolvedValueOnce({
-        status: 200,
-        ok: true,
-        headers: { get: () => null },
-        json: async () => ({
-          wozObject: {
-            wozobjectnummer: '987654321',
-            postcode: '1234 AB',
-            huisnummer: 41,
-            straatnaam: 'Fixture Ring',
-            woonplaatsnaam: 'Eindhoven',
-          },
-          wozWaarden: [
-            { peildatum: '2024-01-01', vastgesteldeWaarde: 410000 },
-            { peildatum: '2025-01-01', vastgesteldeWaarde: 430000 },
-          ],
-        }),
-      });
-
-    await expect(fetchOfficialValuationFromSource({
-      propertyId: 'property-nl',
-      countryCode: 'NL',
-      nationalId: '123',
-      street: 'Fixture Ring',
-      houseNumber: 41,
-      houseNumberAddition: null,
-      address: 'Fixture Ring 41, 1234 AB Eindhoven',
-      city: 'Eindhoven',
-      postalCode: '1234AB',
-    })).resolves.toMatchObject({
-      source: 'woz',
-      valuation: 430000,
-      valuationYear: 2025,
-      sourceRecordId: '987654321',
-    });
-
-    expect(mockFetch.mock.calls[0]?.[0]).toBe(
-      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/suggest?aotids=0000000000000123',
-    );
-    expect(mockFetch.mock.calls[1]?.[0]).toBe(
-      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/wozwaarde/nummeraanduiding/0000000000000123',
-    );
-  });
-
-  it('uses Kadaster suggest when no usable BAG nummeraanduiding id is available', async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        status: 200,
-        ok: true,
-        headers: { get: () => null },
-        json: async () => ({
-          suggesties: [{ nummeraanduidingid: '456' }],
-        }),
-      })
-      .mockResolvedValueOnce({
-        status: 200,
-        ok: true,
-        headers: { get: () => null },
-        json: async () => ({
-          wozObject: {
-            wozobjectnummer: '123456789',
-            postcode: '5612 AM',
-            huisnummer: 41,
-            straatnaam: 'Beeldbuisring',
-            woonplaatsnaam: 'Eindhoven',
-          },
-          wozWaarden: [{ peildatum: '2024-01-01', vastgesteldeWaarde: 455000 }],
-        }),
-      });
-
-    await expect(fetchOfficialValuationFromSource({
-      propertyId: 'property-nl',
-      countryCode: 'NL',
-      nationalId: null,
-      street: 'Beeldbuisring',
-      houseNumber: 41,
-      houseNumberAddition: null,
-      address: 'Beeldbuisring 41, 5612 AM Eindhoven',
-      city: 'Eindhoven',
-      postalCode: '5612 AM',
-    })).resolves.toMatchObject({
-      valuation: 455000,
-      valuationYear: 2024,
-    });
-
-    expect(mockFetch.mock.calls[0]?.[0]).toBe(
-      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/suggest?q=5612%20AM%2041',
-    );
-    expect(mockFetch.mock.calls[1]?.[0]).toBe(
-      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/wozwaarde/nummeraanduiding/0000000000000456',
-    );
-  });
-
-  it('falls back to address suggest when preferred BAG suggest validation misses', async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        status: 200,
-        ok: true,
-        headers: { get: () => null },
-        json: async () => ({
-          suggesties: [],
-        }),
-      })
-      .mockResolvedValueOnce({
-        status: 200,
-        ok: true,
-        headers: { get: () => null },
-        json: async () => ({
-          suggesties: [{ wozobjectnummer: '987654321' }],
-        }),
-      })
-      .mockResolvedValueOnce({
-        status: 200,
-        ok: true,
-        headers: { get: () => null },
-        json: async () => ({
-          wozObject: {
-            wozobjectnummer: '987654321',
-            postcode: '5612 AM',
-            huisnummer: 41,
-            straatnaam: 'Beeldbuisring',
-            woonplaatsnaam: 'Eindhoven',
-          },
-          wozWaarden: [{ peildatum: '2024-01-01', vastgesteldeWaarde: 455000 }],
-        }),
-      });
-
-    const result = await fetchOfficialValuationFromSource({
-      propertyId: 'property-nl',
-      countryCode: 'NL',
-      nationalId: '123',
-      street: 'Beeldbuisring',
-      houseNumber: 41,
-      houseNumberAddition: null,
-      address: 'Beeldbuisring 41, 5612 AM Eindhoven',
-      city: 'Eindhoven',
-      postalCode: '5612 AM',
-    });
-
-    expect(result?.sourceUrl).toBe(
-      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/wozwaarde/wozobjectnummer/987654321',
-    );
-    expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(mockFetch.mock.calls[0]?.[0]).toBe(
-      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/suggest?aotids=0000000000000123',
-    );
-    expect(mockFetch.mock.calls.map((call) => call[0])).not.toContain(
-      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/wozwaarde/nummeraanduiding/0000000000000123',
-    );
-  });
-
-  it('stops repeat WOZ source fetches for the session after a 429', async () => {
+  it('requests server-side WOZ hydration without submitting a client-observed valuation', async () => {
     mockFetch.mockResolvedValueOnce({
-      status: 429,
-      ok: false,
-      headers: {
-        get: (name: string) => name.toLowerCase() === 'retry-after' ? '60' : null,
-      },
-      json: async () => ({}),
+      ok: true,
+      json: async () => ({
+        propertyId: 'property-nl',
+        source: 'woz',
+        status: 'queued',
+        valuationYear: 2025,
+        officialValuation: null,
+        officialValuationYear: null,
+        officialValuationVerified: false,
+        job: { id: 'job-1', state: 'queued', nextAttemptAt: null },
+      }),
     });
 
-    const input = {
-      propertyId: 'property-nl',
-      countryCode: 'NL',
-      nationalId: '123',
-      street: 'Beeldbuisring',
-      houseNumber: 41,
-      houseNumberAddition: null,
-      address: 'Beeldbuisring 41, 5612 AM Eindhoven',
-      city: 'Eindhoven',
-      postalCode: '5612 AM',
-    };
+    await submitOfficialValuationHydration('property-nl', 'token-1');
 
-    await expect(fetchOfficialValuationFromSource(input)).resolves.toBeNull();
-    await expect(fetchOfficialValuationFromSource(input)).resolves.toBeNull();
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/properties/property-nl/official-valuations/hydrate',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ source: 'woz' }),
+        headers: expect.any(Headers),
+      }),
+    );
+    const headers = mockFetch.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get('Authorization')).toBe('Bearer token-1');
+  });
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+  it('reads current WOZ status only from the HuisHype API', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        propertyId: 'property-nl',
+        source: 'woz',
+        expectedValuationYear: 2025,
+        officialValuation: 455000,
+        officialValuationYear: 2025,
+        officialValuationVerified: true,
+        job: null,
+        sourceState: null,
+      }),
+    });
+
+    await expect(fetchCurrentOfficialValuationStatus('property-nl')).resolves.toMatchObject({
+      officialValuation: 455000,
+      officialValuationVerified: true,
+    });
+
+    expect(mockFetch.mock.calls[0]?.[0]).toBe(
+      'http://localhost:3100/properties/property-nl/official-valuations/current?source=woz',
+    );
+    expect(String(mockFetch.mock.calls[0]?.[0])).not.toContain('kadaster.nl');
   });
 });
 

@@ -69,7 +69,9 @@ describe('usePropertyLike', () => {
   });
 
   afterEach(() => {
-    queryClient.clear();
+    act(() => {
+      queryClient.clear();
+    });
   });
 
   it('returns isLiked and likeCount from property query cache', () => {
@@ -103,6 +105,11 @@ describe('usePropertyLike', () => {
 
     expect(result.current.isLiked).toBe(false);
     expect(result.current.likeCount).toBe(0);
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: propertyKeys.detail('missing-prop', 'auth:user-123'),
+      })
+    ).toBeUndefined();
   });
 
   it('returns defaults when propertyId is null', () => {

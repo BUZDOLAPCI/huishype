@@ -112,6 +112,7 @@ describe('PropertyDetailRouteScreen', () => {
     mockUseProperty.mockReturnValue({
       data: property,
       isLoading: false,
+      isSuccess: true,
       error: null,
     });
   });
@@ -165,7 +166,8 @@ describe('PropertyDetailRouteScreen', () => {
     mockUseProperty.mockReturnValue({
       data: null,
       isLoading: false,
-      error: new Error('missing'),
+      isSuccess: true,
+      error: null,
     });
 
     render(

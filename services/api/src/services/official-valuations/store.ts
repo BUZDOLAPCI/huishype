@@ -47,6 +47,31 @@ export type HydrationRequestResult = {
   maintenanceRequest: MaintenanceRefreshRequestRecord | null;
 };
 
+export type CurrentOfficialValuationStatus = {
+  propertyId: string;
+  source: OfficialValuationSource;
+  expectedValuationYear: number;
+  officialValuation: number | null;
+  officialValuationYear: number | null;
+  officialValuationVerified: boolean;
+  job: {
+    id: string;
+    state: HydrationJobState;
+    valuationYear: number;
+    attemptCount: number;
+    nextAttemptAt: string | null;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    lastError: string | null;
+  } | null;
+  sourceState: {
+    state: string;
+    retryAfter: string | null;
+    lastRateLimitAt: string | null;
+    lastError: string | null;
+  } | null;
+};
+
 export type ClaimedOfficialValuationHydrationJob = {
   id: string;
   source: OfficialValuationSource;
@@ -326,13 +351,45 @@ export async function acceptOfficialValuationHydrationRequest(input: {
 
     const valuationYear = input.observed?.valuationYear ?? config.expectedValuationYear;
     const existing = await getCurrentValuationRow(tx, input.propertyId, input.source, valuationYear);
-    const recentSuccessCutoff = new Date(Date.now() - config.successfulHydrationCooldownMs);
-    const shouldRefreshSucceeded =
-      !existing?.verified ||
-      existing.fetchedAt == null ||
-      existing.fetchedAt.getTime() < recentSuccessCutoff.getTime();
+    const shouldRefreshSucceeded = !existing?.verified;
     let cachedProperty = property;
     let maintenanceRequest: MaintenanceRefreshRequestRecord | null = null;
+
+    if (existing?.verified && !shouldRefreshSucceeded) {
+      const cacheWasCurrent =
+        property.officialValuation === existing.valuation &&
+        property.officialValuationYear === existing.valuationYear &&
+        property.officialValuationVerified === true;
+
+      if (!cacheWasCurrent) {
+        await refreshPropertyOfficialValuationCache(tx, input.propertyId);
+        await advancePropertyChangeVersion(input.propertyId, tx);
+        await advancePropertyTilePyramidSourceWatermark(['official_valuations'], tx);
+        cachedProperty = (await getPropertyForHydration(tx, input.propertyId)) ?? property;
+        maintenanceRequest = await createOfficialValuationMaintenanceRefreshRequest(tx, {
+          propertyId: input.propertyId,
+          source: input.source,
+          valuation: cachedProperty.officialValuation ?? null,
+          valuationYear,
+          origin: 'server_verified',
+          idempotencyKey: `official-valuation:${input.propertyId}:${input.source}:${valuationYear}:${randomUUID()}`,
+        });
+      }
+
+      return {
+        status: 'already_cached',
+        propertyId: input.propertyId,
+        source: input.source,
+        valuationYear,
+        cachedValuation: (cacheWasCurrent ? property : cachedProperty).officialValuation ?? null,
+        cachedValuationYear:
+          (cacheWasCurrent ? property : cachedProperty).officialValuationYear ?? null,
+        cachedVerified: (cacheWasCurrent ? property : cachedProperty).officialValuationVerified,
+        job: null,
+        dispatchJob: null,
+        maintenanceRequest,
+      };
+    }
 
     if (input.observed) {
       await upsertClientObservedValuation(tx, {
@@ -368,14 +425,7 @@ export async function acceptOfficialValuationHydrationRequest(input: {
     const cachedVerified = cachedProperty.officialValuationVerified;
 
     return {
-      status:
-        existing?.verified && !shouldRefreshSucceeded
-          ? 'already_cached'
-          : input.observed
-            ? 'accepted'
-            : dispatch
-              ? 'queued'
-              : 'pending',
+      status: input.observed ? 'accepted' : dispatch ? 'queued' : 'pending',
       propertyId: input.propertyId,
       source: input.source,
       valuationYear,
@@ -396,6 +446,65 @@ export async function acceptOfficialValuationHydrationRequest(input: {
           }
         : null,
       maintenanceRequest,
+    };
+  });
+}
+
+export async function getCurrentOfficialValuationStatus(input: {
+  propertyId: string;
+  source: OfficialValuationSource;
+}): Promise<CurrentOfficialValuationStatus | null> {
+  return db.transaction(async (tx) => {
+    const property = await getPropertyForHydration(tx, input.propertyId);
+    if (!property) {
+      return null;
+    }
+
+    const config = getOfficialValuationSourceConfig(input.source);
+    const [job] = await tx
+      .select()
+      .from(propertyOfficialValuationHydrationJobs)
+      .where(
+        and(
+          eq(propertyOfficialValuationHydrationJobs.propertyId, input.propertyId),
+          eq(propertyOfficialValuationHydrationJobs.source, input.source),
+          eq(propertyOfficialValuationHydrationJobs.valuationYear, config.expectedValuationYear),
+        ),
+      )
+      .limit(1);
+    const [sourceState] = await tx
+      .select()
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, input.source))
+      .limit(1);
+
+    return {
+      propertyId: input.propertyId,
+      source: input.source,
+      expectedValuationYear: config.expectedValuationYear,
+      officialValuation: property.officialValuation ?? null,
+      officialValuationYear: property.officialValuationYear ?? null,
+      officialValuationVerified: property.officialValuationVerified,
+      job: job
+        ? {
+            id: job.id,
+            state: job.state as HydrationJobState,
+            valuationYear: job.valuationYear,
+            attemptCount: job.attemptCount,
+            nextAttemptAt: toIso(job.nextAttemptAt),
+            lastAttemptAt: toIso(job.lastAttemptAt),
+            lastSuccessAt: toIso(job.lastSuccessAt),
+            lastError: job.lastError ?? null,
+          }
+        : null,
+      sourceState: sourceState
+        ? {
+            state: sourceState.state,
+            retryAfter: toIso(sourceState.circuitHalfOpenAt ?? sourceState.dayWindowResetAt),
+            lastRateLimitAt: toIso(sourceState.lastRateLimitAt),
+            lastError: sourceState.lastError ?? null,
+          }
+        : null,
     };
   });
 }

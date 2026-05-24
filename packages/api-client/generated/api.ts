@@ -1746,18 +1746,6 @@ export interface paths {
                          * @enum {string}
                          */
                         source?: "woz";
-                        valuation?: number;
-                        valuationYear?: number;
-                        /** Format: date */
-                        referenceDate?: string;
-                        sourceRecordId?: string;
-                        sourceDatasetVersion?: string;
-                        /** Format: uri */
-                        sourceUrl?: string;
-                        rawPayload?: unknown;
-                        /** @enum {string} */
-                        clientRuntime?: "web" | "native";
-                        sourceRequestFingerprint?: string;
                     };
                 };
             };
@@ -1802,6 +1790,85 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/{id}/official-valuations/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get current property official valuation status */
+        get: {
+            parameters: {
+                query?: {
+                    source?: "woz";
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            propertyId: string;
+                            /** @enum {string} */
+                            source: "woz";
+                            expectedValuationYear: number;
+                            officialValuation: number | null;
+                            officialValuationYear: number | null;
+                            officialValuationVerified: boolean;
+                            job: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                state: "queued" | "running" | "succeeded" | "retryable" | "failed" | "cooldown";
+                                valuationYear: number;
+                                attemptCount: number;
+                                nextAttemptAt: string | null;
+                                lastAttemptAt: string | null;
+                                lastSuccessAt: string | null;
+                                lastError: string | null;
+                            } | null;
+                            sourceState: {
+                                state: string;
+                                retryAfter: string | null;
+                                lastRateLimitAt: string | null;
+                                lastError: string | null;
+                            } | null;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;

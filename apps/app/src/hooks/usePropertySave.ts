@@ -6,8 +6,8 @@
  * (GET /properties/:id response). Auth gating is handled inside the hook.
  */
 
-import { useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useSyncExternalStore } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { getViewerCacheKey, propertyKeys } from './useProperties';
@@ -122,13 +122,12 @@ export function usePropertySave({
   const { user, getAccessToken, isAuthenticated } = useAuthContext();
   const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
-  // Subscribe to the property detail query cache reactively
-  const queryKey = propertyId ? propertyKeys.detail(propertyId, viewerKey) : ['__noop__'];
-  const { data: cachedProperty } = useQuery<EnrichedProperty>({
-    queryKey,
-    queryFn: () => Promise.reject(new Error('noop')),
-    enabled: false, // Never fetch — just subscribe to cache updates from setQueryData
-  });
+  const queryKey = propertyId ? propertyKeys.detail(propertyId, viewerKey) : null;
+  const cachedProperty = useSyncExternalStore(
+    (onStoreChange) => queryClient.getQueryCache().subscribe(onStoreChange),
+    () => (queryKey ? queryClient.getQueryData<EnrichedProperty>(queryKey) : undefined),
+    () => (queryKey ? queryClient.getQueryData<EnrichedProperty>(queryKey) : undefined),
+  );
 
   const isSaved = cachedProperty?.isSaved ?? false;
 

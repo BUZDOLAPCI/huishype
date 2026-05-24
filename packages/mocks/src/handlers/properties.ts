@@ -42,8 +42,8 @@ const MOCK_WOZ_SOURCE_FETCH = {
   source: 'woz' as const,
   expectedValuationYear: MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR,
   supportsClientFetch: {
-    web: true,
-    native: true,
+    web: false,
+    native: false,
   },
 };
 const mockReadPropertyIdsByViewer = new Map<string, Set<string>>();
@@ -892,7 +892,7 @@ export const propertyHandlers = [
   }),
 
   /**
-   * POST /properties/:id/official-valuations/hydrate - Accept client-observed valuation cache.
+   * POST /properties/:id/official-valuations/hydrate - Request server-side valuation hydration.
    */
   http.post('*/properties/:propertyId/official-valuations/hydrate', async ({ params, request }) => {
     const property = getMockProperty(params.propertyId as string);
@@ -909,43 +909,90 @@ export const propertyHandlers = [
         propertyId: property.id,
         source: 'woz',
         status: 'unsupported',
+        valuationYear: MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR,
         officialValuation: property.officialValuation ?? null,
         officialValuationYear: property.officialValuationYear ?? null,
+        officialValuationVerified: false,
+        job: null,
       });
     }
 
     const body = (await request.json().catch(() => ({}))) as {
       source?: unknown;
-      valuation?: unknown;
-      valuationYear?: unknown;
     };
 
     if (body.source !== 'woz') {
       return validationErrorResponse();
     }
 
-    const valuation =
-      typeof body.valuation === 'number' && Number.isFinite(body.valuation) ? body.valuation : null;
-    const valuationYear =
-      typeof body.valuationYear === 'number' && Number.isInteger(body.valuationYear)
-        ? body.valuationYear
-        : null;
-
-    if (valuation !== null && valuationYear !== null) {
-      mockOfficialValuationOverrides.set(property.id, {
-        officialValuation: valuation,
-        officialValuationYear: valuationYear,
-      });
-    }
-
     const accepted = getMockOfficialValuation(property);
+    const isCurrent =
+      accepted.officialValuation != null &&
+      accepted.officialValuationYear != null &&
+      accepted.officialValuationYear >= MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR;
 
     return HttpResponse.json({
       propertyId: property.id,
       source: 'woz',
-      status: valuation !== null && valuationYear !== null ? 'accepted' : 'queued',
+      status: isCurrent ? 'already_cached' : 'queued',
+      valuationYear: MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR,
       officialValuation: accepted.officialValuation,
       officialValuationYear: accepted.officialValuationYear,
+      officialValuationVerified: isCurrent,
+      job: isCurrent
+        ? null
+        : {
+            id: '00000000-0000-4000-8000-000000000001',
+            state: 'queued',
+            nextAttemptAt: null,
+          },
+    });
+  }),
+
+  /**
+   * GET /properties/:id/official-valuations/current - Current valuation cache/job status.
+   */
+  http.get('*/properties/:propertyId/official-valuations/current', ({ params, request }) => {
+    const property = getMockProperty(params.propertyId as string);
+
+    if (!property) {
+      return HttpResponse.json(
+        { error: 'NOT_FOUND', message: 'Property not found' },
+        { status: 404 }
+      );
+    }
+
+    const source = new URL(request.url).searchParams.get('source') ?? 'woz';
+    if (source !== 'woz') {
+      return validationErrorResponse();
+    }
+
+    const valuation = getMockOfficialValuation(property);
+    const isCurrent =
+      valuation.officialValuation != null &&
+      valuation.officialValuationYear != null &&
+      valuation.officialValuationYear >= MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR;
+
+    return HttpResponse.json({
+      propertyId: property.id,
+      source: 'woz',
+      expectedValuationYear: MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR,
+      officialValuation: valuation.officialValuation,
+      officialValuationYear: valuation.officialValuationYear,
+      officialValuationVerified: isCurrent,
+      job: isCurrent
+        ? null
+        : {
+            id: '00000000-0000-4000-8000-000000000001',
+            state: 'queued',
+            valuationYear: MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR,
+            attemptCount: 0,
+            nextAttemptAt: null,
+            lastAttemptAt: null,
+            lastSuccessAt: null,
+            lastError: null,
+          },
+      sourceState: null,
     });
   }),
 

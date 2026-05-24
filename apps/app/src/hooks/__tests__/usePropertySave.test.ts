@@ -71,7 +71,9 @@ describe('usePropertySave', () => {
   });
 
   afterEach(() => {
-    queryClient.clear();
+    act(() => {
+      queryClient.clear();
+    });
   });
 
   it('returns isSaved from property query cache', () => {
@@ -102,6 +104,11 @@ describe('usePropertySave', () => {
     );
 
     expect(result.current.isSaved).toBe(false);
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: propertyKeys.detail('missing-prop', 'auth:user-123'),
+      })
+    ).toBeUndefined();
   });
 
   it('returns defaults when propertyId is null', () => {

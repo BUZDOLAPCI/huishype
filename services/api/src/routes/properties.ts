@@ -42,6 +42,7 @@ import {
 } from '../services/property-read-state.js';
 import {
   getOfficialValuationSourceFetchHint,
+  getCurrentOfficialValuationStatus,
   hydrateOfficialValuationRequestSchema,
   requestOfficialValuationHydration,
 } from '../services/official-valuations/index.js';
@@ -205,6 +206,43 @@ const officialValuationHydrationResponseSchema = z.object({
       nextAttemptAt: z.string().datetime().nullable(),
     })
     .nullable(),
+});
+
+const officialValuationCurrentQuerySchema = z.object({
+  source: z.literal('woz').default('woz'),
+});
+
+const officialValuationJobStatusSchema = z
+  .object({
+    id: z.string().uuid(),
+    state: z.enum(['queued', 'running', 'succeeded', 'retryable', 'failed', 'cooldown']),
+    valuationYear: z.number(),
+    attemptCount: z.number(),
+    nextAttemptAt: z.string().datetime().nullable(),
+    lastAttemptAt: z.string().datetime().nullable(),
+    lastSuccessAt: z.string().datetime().nullable(),
+    lastError: z.string().nullable(),
+  })
+  .nullable();
+
+const officialValuationSourceStatusSchema = z
+  .object({
+    state: z.string(),
+    retryAfter: z.string().datetime().nullable(),
+    lastRateLimitAt: z.string().datetime().nullable(),
+    lastError: z.string().nullable(),
+  })
+  .nullable();
+
+const officialValuationCurrentResponseSchema = z.object({
+  propertyId: z.string().uuid(),
+  source: z.literal('woz'),
+  expectedValuationYear: z.number(),
+  officialValuation: z.number().nullable(),
+  officialValuationYear: z.number().nullable(),
+  officialValuationVerified: z.boolean(),
+  job: officialValuationJobStatusSchema,
+  sourceState: officialValuationSourceStatusSchema,
 });
 
 const saveResponseSchema = z.object({
@@ -2446,6 +2484,37 @@ export async function propertyRoutes(app: FastifyInstance) {
         officialValuationVerified: result.cachedVerified,
         job: result.job,
       });
+    }
+  );
+
+  typedApp.get(
+    '/properties/:id/official-valuations/current',
+    {
+      schema: {
+        tags: ['properties'],
+        summary: 'Get current property official valuation status',
+        params: propertyParamsSchema,
+        querystring: officialValuationCurrentQuerySchema,
+        response: {
+          200: officialValuationCurrentResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await getCurrentOfficialValuationStatus({
+        propertyId: request.params.id,
+        source: request.query.source,
+      });
+
+      if (!result) {
+        return reply.status(404).send({
+          error: 'NOT_FOUND',
+          message: `Property with ID ${request.params.id} not found`,
+        });
+      }
+
+      return reply.send(result);
     }
   );
 

@@ -46,7 +46,7 @@ describe('official valuation contracts and registry', () => {
     expect(getOfficialValuationSourceFetchHint('NL')).toEqual({
       source: 'woz',
       expectedValuationYear: getOfficialValuationSourceConfig('woz').expectedValuationYear,
-      supportsClientFetch: { web: true, native: true },
+      supportsClientFetch: { web: false, native: false },
     });
   });
 });

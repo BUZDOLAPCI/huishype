@@ -4,13 +4,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 import {
   deriveCompatibilityActivityLevel,
+  fetchPropertyById,
   getViewerCacheKey,
   propertyKeys,
   useProperty,
 } from '../useProperties';
 import {
+  ApiError,
   api,
-  fetchOfficialValuationFromSource,
+  fetchCurrentOfficialValuationStatus,
   submitOfficialValuationHydration,
 } from '../../utils/api';
 
@@ -26,19 +28,29 @@ jest.mock('../../providers/AuthProvider', () => ({
 }));
 
 jest.mock('../../utils/api', () => ({
+  ApiError: class ApiError extends Error {
+    status: number;
+
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+    }
+  },
   api: {
     get: jest.fn(),
     post: jest.fn(),
     put: jest.fn(),
     delete: jest.fn(),
   },
-  fetchOfficialValuationFromSource: jest.fn(),
+  fetchCurrentOfficialValuationStatus: jest.fn(),
   submitOfficialValuationHydration: jest.fn(),
 }));
 
 const mockApi = api as jest.Mocked<typeof api>;
-const mockFetchOfficialValuationFromSource =
-  fetchOfficialValuationFromSource as jest.MockedFunction<typeof fetchOfficialValuationFromSource>;
+const mockFetchCurrentOfficialValuationStatus =
+  fetchCurrentOfficialValuationStatus as jest.MockedFunction<
+    typeof fetchCurrentOfficialValuationStatus
+  >;
 const mockSubmitOfficialValuationHydration =
   submitOfficialValuationHydration as jest.MockedFunction<typeof submitOfficialValuationHydration>;
 
@@ -92,8 +104,8 @@ function buildPropertyResponse(overrides: Record<string, unknown> = {}) {
       source: 'woz',
       expectedValuationYear: 2024,
       supportsClientFetch: {
-        web: true,
-        native: true,
+        web: false,
+        native: false,
       },
     },
     createdAt: '2024-01-01T00:00:00.000Z',
@@ -197,6 +209,19 @@ describe('useProperty', () => {
 
     expect(mockApi.get).toHaveBeenCalledWith('/properties/property-123', undefined);
     expect(result.current.data?.isLiked).toBe(false);
+  });
+
+  it('returns null only for real property detail 404 responses', async () => {
+    mockApi.get.mockRejectedValueOnce(new ApiError(404, 'Property not found'));
+
+    await expect(fetchPropertyById('missing-property')).resolves.toBeNull();
+  });
+
+  it('throws transient property detail failures so React Query can retry', async () => {
+    const networkError = new Error('network down');
+    mockApi.get.mockRejectedValueOnce(networkError);
+
+    await expect(fetchPropertyById('property-123')).rejects.toThrow(networkError);
   });
 
   it('keeps one-view recent activity quiet when deriving compatibility activity state', async () => {
@@ -434,31 +459,35 @@ describe('useProperty', () => {
     });
   });
 
-  it('merges client-fetched official valuation previews into only the detail cache', async () => {
+  it('requests server-side official valuation hydration and updates only detail valuation fields', async () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);
     mockApi.get.mockResolvedValueOnce(
       buildPropertyResponse({
         officialValuation: null,
         officialValuationYear: null,
+        officialValuationVerified: false,
       })
     );
-    mockFetchOfficialValuationFromSource.mockResolvedValueOnce({
-      source: 'woz',
-      valuation: 455000,
-      valuationYear: 2024,
-      referenceDate: '2024-01-01',
-    });
     mockSubmitOfficialValuationHydration.mockResolvedValueOnce({
       propertyId: 'property-123',
       source: 'woz',
-      status: 'accepted',
+      status: 'already_cached',
+      valuationYear: 2024,
       officialValuation: 455000,
       officialValuationYear: 2024,
+      officialValuationVerified: true,
+      job: null,
     });
     const { queryClient, wrapper } = createQueryClientWrapper();
     queryClient.setQueryData(propertyKeys.list({}), {
-      data: [buildPropertyResponse({ officialValuation: null, officialValuationYear: null })],
+      data: [
+        buildPropertyResponse({
+          officialValuation: null,
+          officialValuationYear: null,
+          officialValuationVerified: false,
+        }),
+      ],
       meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
     });
 
@@ -467,49 +496,54 @@ describe('useProperty', () => {
     await waitFor(() => {
       expect(mockSubmitOfficialValuationHydration).toHaveBeenCalledTimes(1);
     });
-    await waitFor(() => {
-      expect(result.current.data?.officialValuationPreview).toBeUndefined();
-    });
-
     expect(result.current.data?.officialValuation).toBe(455000);
     expect(result.current.data?.officialValuationYear).toBe(2024);
-    expect(mockSubmitOfficialValuationHydration).toHaveBeenCalledWith(
-      'property-123',
-      expect.objectContaining({ valuation: 455000, valuationYear: 2024 }),
-      null
-    );
+    expect(result.current.data?.officialValuationVerified).toBe(true);
+    expect(mockSubmitOfficialValuationHydration).toHaveBeenCalledWith('property-123', null);
+    expect(mockFetchCurrentOfficialValuationStatus).not.toHaveBeenCalled();
     expect(queryClient.getQueryData(propertyKeys.list({}))).toMatchObject({
       data: [expect.objectContaining({ officialValuation: null, officialValuationYear: null })],
     });
   });
 
-  it('keeps a newer in-memory preview when a stale server refetch follows hydration', async () => {
+  it('polls current valuation status after a queued server hydration job succeeds', async () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);
-    mockApi.get
-      .mockResolvedValueOnce(
-        buildPropertyResponse({
-          officialValuation: null,
-          officialValuationYear: null,
-        })
-      )
-      .mockResolvedValueOnce(
-        buildPropertyResponse({
-          officialValuation: null,
-          officialValuationYear: null,
-        })
-      );
-    mockFetchOfficialValuationFromSource.mockResolvedValueOnce({
-      source: 'woz',
-      valuation: 455000,
-      valuationYear: 2024,
-    });
+    mockApi.get.mockResolvedValueOnce(
+      buildPropertyResponse({
+        officialValuation: null,
+        officialValuationYear: null,
+        officialValuationVerified: false,
+      })
+    );
     mockSubmitOfficialValuationHydration.mockResolvedValueOnce({
       propertyId: 'property-123',
       source: 'woz',
       status: 'queued',
+      valuationYear: 2024,
       officialValuation: null,
       officialValuationYear: null,
+      officialValuationVerified: false,
+      job: { id: 'job-1', state: 'queued', nextAttemptAt: null },
+    });
+    mockFetchCurrentOfficialValuationStatus.mockResolvedValueOnce({
+      propertyId: 'property-123',
+      source: 'woz',
+      expectedValuationYear: 2024,
+      officialValuation: 455000,
+      officialValuationYear: 2024,
+      officialValuationVerified: true,
+      job: {
+        id: 'job-1',
+        state: 'succeeded',
+        valuationYear: 2024,
+        attemptCount: 1,
+        nextAttemptAt: null,
+        lastAttemptAt: '2024-01-01T00:00:00.000Z',
+        lastSuccessAt: '2024-01-01T00:00:01.000Z',
+        lastError: null,
+      },
+      sourceState: null,
     });
 
     const { result } = renderHook(() => useProperty('property-123'), {
@@ -517,60 +551,49 @@ describe('useProperty', () => {
     });
 
     await waitFor(() => {
-      expect(mockApi.get).toHaveBeenCalledTimes(2);
+      expect(mockSubmitOfficialValuationHydration).toHaveBeenCalledTimes(1);
     });
     await waitFor(() => {
       expect(result.current.data?.officialValuation).toBe(455000);
     });
 
     expect(result.current.data?.officialValuationYear).toBe(2024);
-    expect(result.current.data?.officialValuationPreview).toMatchObject({
-      source: 'client_fetched',
-    });
+    expect(result.current.data?.officialValuationVerified).toBe(true);
   });
 
-  it('replaces an in-memory preview when the backend returns a current valuation', async () => {
+  it('leaves the property visible when hydration becomes retryable', async () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);
-    mockApi.get
-      .mockResolvedValueOnce(
-        buildPropertyResponse({
-          officialValuation: null,
-          officialValuationYear: null,
-        })
-      )
-      .mockResolvedValueOnce(
-        buildPropertyResponse({
-          officialValuation: 460000,
-          officialValuationYear: 2024,
-        })
-      );
-    mockFetchOfficialValuationFromSource.mockResolvedValueOnce({
-      source: 'woz',
-      valuation: 455000,
-      valuationYear: 2024,
-    });
+    mockApi.get.mockResolvedValueOnce(
+      buildPropertyResponse({
+        officialValuation: null,
+        officialValuationYear: null,
+        officialValuationVerified: false,
+      })
+    );
     mockSubmitOfficialValuationHydration.mockResolvedValueOnce({
       propertyId: 'property-123',
       source: 'woz',
-      status: 'queued',
+      status: 'pending',
+      valuationYear: 2024,
       officialValuation: null,
       officialValuationYear: null,
+      officialValuationVerified: false,
+      job: { id: 'job-1', state: 'retryable', nextAttemptAt: '2024-01-01T01:00:00.000Z' },
     });
 
     const { result } = renderHook(() => useProperty('property-123'), {
       wrapper: createWrapper(),
     });
 
-    await waitFor(() => {
-      expect(result.current.data?.officialValuation).toBe(460000);
-    });
+    await waitFor(() => expect(mockSubmitOfficialValuationHydration).toHaveBeenCalledTimes(1));
 
-    expect(result.current.data?.officialValuationYear).toBe(2024);
-    expect(result.current.data?.officialValuationPreview).toBeUndefined();
+    expect(result.current.data?.id).toBe('property-123');
+    expect(result.current.data?.officialValuation).toBeNull();
+    expect(result.current.error).toBeNull();
   });
 
-  it('does not client-fetch official valuations for non-NL properties', async () => {
+  it('does not request official valuation hydration for non-NL properties', async () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);
     mockApi.get.mockResolvedValueOnce(
@@ -582,8 +605,8 @@ describe('useProperty', () => {
           source: 'woz',
           expectedValuationYear: 2024,
           supportsClientFetch: {
-            web: true,
-            native: true,
+            web: false,
+            native: false,
           },
         },
       })
@@ -597,7 +620,7 @@ describe('useProperty', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockFetchOfficialValuationFromSource).not.toHaveBeenCalled();
     expect(mockSubmitOfficialValuationHydration).not.toHaveBeenCalled();
+    expect(mockFetchCurrentOfficialValuationStatus).not.toHaveBeenCalled();
   });
 });

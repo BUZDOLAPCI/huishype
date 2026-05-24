@@ -25,8 +25,8 @@ const OFFICIAL_VALUATION_SOURCES: Record<OfficialValuationSource, OfficialValuat
     authoritativeRank: 1,
     expectedValuationYear: 2025,
     supportsClientFetch: {
-      web: true,
-      native: true,
+      web: false,
+      native: false,
     },
     backendRateLimits: {
       concurrency: 1,

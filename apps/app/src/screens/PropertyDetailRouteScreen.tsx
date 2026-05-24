@@ -74,7 +74,7 @@ export function PropertyDetailRouteScreen({
 }: PropertyDetailRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
-  const { data: property, isLoading, error } = useProperty(propertyId ?? null);
+  const { data: property, isLoading, isSuccess } = useProperty(propertyId ?? null);
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
   const lastBackAtRef = useRef(0);
   const [isHydrated, setIsHydrated] = useState(Platform.OS !== 'web');
@@ -225,7 +225,7 @@ export function PropertyDetailRouteScreen({
     }
   }, []);
 
-  if (shouldRenderHydrationShell || isLoading) {
+  if (shouldRenderHydrationShell || isLoading || (!property && !isSuccess)) {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
@@ -243,7 +243,7 @@ export function PropertyDetailRouteScreen({
     );
   }
 
-  if (error || !property) {
+  if (!property) {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />

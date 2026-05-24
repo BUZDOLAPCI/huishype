@@ -11,6 +11,7 @@ import {
 } from '../../db/index.js';
 import {
   acceptOfficialValuationHydrationRequest,
+  getCurrentOfficialValuationStatus,
   markOfficialValuationHydrationSucceeded,
   markOfficialValuationSourceFailure,
   releaseOfficialValuationSourceRequest,
@@ -120,6 +121,100 @@ describe('official valuation hydration requests', () => {
     });
     const pyramidWatermarkAfter = await readOfficialValuationPyramidWatermark();
     expect(pyramidWatermarkAfter > pyramidWatermarkBefore).toBe(true);
+  });
+
+  it('enqueues one server hydration job for missing WOZ and reuses pending jobs', async () => {
+    const property = await createIntegrationProperty({
+      street: 'Official Valuation Queue Fixture',
+      houseNumber: 43,
+      postalCode: '1234AD',
+      city: 'Eindhoven',
+    });
+    propertyIds.push(property.id);
+
+    const first = await acceptOfficialValuationHydrationRequest({
+      propertyId: property.id,
+      source: 'woz',
+      observed: null,
+      submittedByUserId: null,
+    });
+    const second = await acceptOfficialValuationHydrationRequest({
+      propertyId: property.id,
+      source: 'woz',
+      observed: null,
+      submittedByUserId: null,
+    });
+
+    expect(first).toMatchObject({
+      status: 'queued',
+      cachedValuation: null,
+      cachedVerified: false,
+    });
+    expect(first?.dispatchJob).toMatchObject({
+      propertyId: property.id,
+      source: 'woz',
+      valuationYear: 2025,
+    });
+    expect(second).toMatchObject({
+      status: 'queued',
+      cachedValuation: null,
+      cachedVerified: false,
+      dispatchJob: first?.dispatchJob,
+    });
+
+    const jobs = await db
+      .select()
+      .from(propertyOfficialValuationHydrationJobs)
+      .where(eq(propertyOfficialValuationHydrationJobs.propertyId, property.id));
+    expect(jobs).toHaveLength(1);
+  });
+
+  it('reports cached valuation and retry metadata without fetching the source', async () => {
+    const property = await createIntegrationProperty({
+      street: 'Official Valuation Status Fixture',
+      houseNumber: 44,
+      postalCode: '1234AE',
+      city: 'Eindhoven',
+      officialValuation: 400_000,
+      officialValuationYear: 2024,
+    });
+    propertyIds.push(property.id);
+    const nextAttemptAt = new Date(Date.now() + 60_000);
+
+    const [job] = await db
+      .insert(propertyOfficialValuationHydrationJobs)
+      .values({
+        propertyId: property.id,
+        source: 'woz',
+        valuationYear: 2025,
+        state: 'retryable',
+        attemptCount: 2,
+        nextAttemptAt,
+        lastError: 'source_minute_rate_limit',
+      })
+      .returning();
+
+    const status = await getCurrentOfficialValuationStatus({
+      propertyId: property.id,
+      source: 'woz',
+    });
+
+    expect(status).toMatchObject({
+      propertyId: property.id,
+      source: 'woz',
+      expectedValuationYear: 2025,
+      officialValuation: 400_000,
+      officialValuationYear: 2024,
+      officialValuationVerified: false,
+      job: {
+        id: job.id,
+        state: 'retryable',
+        valuationYear: 2025,
+        attemptCount: 2,
+        nextAttemptAt: nextAttemptAt.toISOString(),
+        lastError: 'source_minute_rate_limit',
+      },
+    });
   });
 
   it('enforces WOZ source concurrency through durable source state', async () => {
