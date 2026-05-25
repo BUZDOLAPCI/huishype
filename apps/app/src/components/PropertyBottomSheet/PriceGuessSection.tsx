@@ -10,7 +10,7 @@ import { FMVVisualization, type FMVData } from '../FMVVisualization';
 import { ConsensusAlignment } from '../ConsensusAlignment';
 import { getOfficialValuationDisplayState } from '@/src/lib/officialValuationDisplay';
 import { Icon } from '../ui/Icon';
-import { SkeletonBlock } from '../ui/Skeleton';
+import { SkeletonBlock, SKELETON_COLORS } from '../ui/Skeleton';
 import {
   useFetchPriceGuess,
   useSubmitGuess,
@@ -36,13 +36,20 @@ function LoadingSkeleton() {
           <SkeletonBlock className="h-[18px] w-[18px]" />
           <SkeletonBlock className="ml-2 h-5 w-36" />
         </View>
-        <SkeletonBlock className="h-6 w-20" radius={999} />
+        <SkeletonBlock
+          className="h-6 w-20"
+          color={SKELETON_COLORS.success}
+          radius={999}
+        />
       </View>
       <SkeletonBlock className="mt-4 h-4 w-56" />
       <SkeletonBlock className="mt-5 h-3 w-24" />
       <SkeletonBlock className="mt-3 h-10 w-40" />
       <View className="mt-4 h-px w-full bg-warm-200" />
-      <SkeletonBlock className="mt-5 h-28 w-full" />
+      <SkeletonBlock
+        className="mt-5 h-28 w-full"
+        color={SKELETON_COLORS.soft}
+      />
       <SkeletonBlock className="mt-4 h-12 w-full" radius={12} />
     </SectionCard>
   );

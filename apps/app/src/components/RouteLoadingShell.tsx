@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { SkeletonBlock } from './ui/Skeleton';
+import { SkeletonBlock, SKELETON_COLORS } from './ui/Skeleton';
 
 interface RouteLoadingShellProps {
   title: string;
@@ -14,10 +14,10 @@ export function RouteLoadingShell({
     <View style={styles.container} testID="route-loading-shell">
       <View style={styles.card}>
         <View style={styles.row}>
-          <SkeletonBlock style={styles.dot} />
-          <SkeletonBlock style={styles.lineShort} />
+          <SkeletonBlock color={SKELETON_COLORS.accent} style={styles.dot} />
+          <SkeletonBlock color={SKELETON_COLORS.subtle} style={styles.lineShort} />
         </View>
-        <SkeletonBlock style={styles.lineLong} />
+        <SkeletonBlock color={SKELETON_COLORS.neutral} style={styles.lineLong} />
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       <Text style={styles.title}>{title}</Text>

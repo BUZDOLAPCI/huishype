@@ -62,6 +62,24 @@ describe('Skeleton', () => {
     expect(style.width).toBe(128);
   });
 
+  it('uses the route loading neutral fill by default', () => {
+    const { getByTestId } = render(<SkeletonBlock testID="default-color" />);
+
+    const style = flattenStyle(getByTestId('default-color').props.style);
+
+    expect(style.backgroundColor).toBe('#F5F0E8');
+  });
+
+  it('accepts an explicit skeleton color', () => {
+    const { getByTestId } = render(
+      <SkeletonBlock color="#F5A623" testID="accent-skeleton" />
+    );
+
+    const style = flattenStyle(getByTestId('accent-skeleton').props.style);
+
+    expect(style.backgroundColor).toBe('#F5A623');
+  });
+
   it('does not render shimmer when reduced motion is enabled', () => {
     mockUseReducedMotion.mockReturnValue(true);
 
