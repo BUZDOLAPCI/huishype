@@ -13,6 +13,7 @@ import type {
 import type { OfficialValuationSourceConfig } from '../registry.js';
 
 const WOZ_API_BASE_URL = 'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1';
+const PDOK_LOCATIESERVER_BASE_URL = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1';
 
 type WozFetch = typeof fetch;
 
@@ -21,6 +22,21 @@ function normalizeDigits(value: string | null): string | null {
     return null;
   }
   return value.padStart(16, '0');
+}
+
+function getDigits(value: string | null): string | null {
+  if (!value || !/^\d{1,16}$/.test(value)) {
+    return null;
+  }
+  return value;
+}
+
+function isLikelyBagNummeraanduidingId(value: string | null): boolean {
+  const digits = getDigits(value);
+  if (!digits) {
+    return false;
+  }
+  return digits.length < 16 || normalizeDigits(digits)?.slice(4, 6) === '20';
 }
 
 function normalizeText(value: unknown): string {
@@ -203,7 +219,8 @@ async function fetchJson(
   path: string,
   runtime?: OfficialValuationSourceRequestRuntime,
 ): Promise<Record<string, unknown>> {
-  const request = () => fetchImpl(`${WOZ_API_BASE_URL}${path}`, {
+  const url = path.startsWith('http') ? path : `${WOZ_API_BASE_URL}${path}`;
+  const request = () => fetchImpl(url, {
     headers: {
       accept: 'application/json',
       'user-agent': 'HuisHype official valuation verifier',
@@ -239,6 +256,124 @@ async function fetchJson(
   }
 
   return (await response.json()) as Record<string, unknown>;
+}
+
+async function fetchPdokJson(
+  fetchImpl: WozFetch,
+  url: string,
+): Promise<Record<string, unknown> | null> {
+  const response = await fetchImpl(url, {
+    headers: {
+      accept: 'application/json',
+      'user-agent': 'HuisHype official valuation verifier',
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as Record<string, unknown>;
+}
+
+function getFirstStringField(object: Record<string, unknown>, names: readonly string[]): string | null {
+  return getStringField(object, names)?.trim() || null;
+}
+
+function pdokDocMatchesProperty(
+  doc: Record<string, unknown>,
+  property: OfficialValuationSourceProperty,
+): boolean {
+  const docAddressObjectId = getFirstStringField(doc, ['adresseerbaarobject_id']);
+  const nationalId = normalizeDigits(property.nationalId);
+  if (docAddressObjectId && nationalId && normalizeDigits(docAddressObjectId) === nationalId) {
+    return true;
+  }
+
+  const postcode = getFirstStringField(doc, ['postcode']);
+  const houseNumber = getFirstStringField(doc, ['huisnummer']);
+  if (!postcode || !houseNumber) {
+    return false;
+  }
+
+  const addition =
+    getFirstStringField(doc, ['huisletter', 'huisnummertoevoeging', 'toevoeging']) ??
+    getFirstStringField(doc, ['huis_nlt'])?.replace(/^\d+\s*/, '') ??
+    null;
+  const street = getFirstStringField(doc, ['straatnaam']);
+  const city = getFirstStringField(doc, ['woonplaatsnaam']);
+
+  return (
+    normalizeText(postcode) === normalizeText(property.postalCode) &&
+    Number.parseInt(houseNumber, 10) === property.houseNumber &&
+    normalizeText(addition) === normalizeText(property.houseNumberAddition) &&
+    (!street || normalizeText(street) === normalizeText(property.street)) &&
+    (!city || normalizeText(city) === normalizeText(property.city))
+  );
+}
+
+function extractPdokNummeraanduidingId(
+  payload: Record<string, unknown>,
+  property: OfficialValuationSourceProperty,
+): string | null {
+  const docs = (payload.response as { docs?: unknown } | undefined)?.docs;
+  if (!Array.isArray(docs)) {
+    return null;
+  }
+
+  for (const item of docs) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const doc = item as Record<string, unknown>;
+    if (getFirstStringField(doc, ['type']) !== 'adres' || !pdokDocMatchesProperty(doc, property)) {
+      continue;
+    }
+
+    const nummeraanduidingId =
+      getFirstStringField(doc, ['nummeraanduiding_id']) ??
+      getFirstStringField(doc, ['identificatie'])?.split('-')[1] ??
+      getFirstStringField(doc, ['rdf_seealso'])?.match(/nummeraanduiding\/(\d{1,16})$/)?.[1] ??
+      null;
+    const normalized = normalizeDigits(nummeraanduidingId);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+async function resolvePdokSourcePath(
+  fetchImpl: WozFetch,
+  property: OfficialValuationSourceProperty,
+): Promise<string | null> {
+  const addition = property.houseNumberAddition ?? '';
+  const queries = [
+    `${property.postalCode} ${property.houseNumber}${addition}`,
+    `${property.street} ${property.houseNumber}${addition} ${property.postalCode} ${property.city}`,
+  ];
+
+  for (const query of queries) {
+    const params = new URLSearchParams({
+      q: query,
+      fq: 'type:adres',
+      rows: '10',
+    });
+    const payload = await fetchPdokJson(
+      fetchImpl,
+      `${PDOK_LOCATIESERVER_BASE_URL}/free?${params.toString()}`,
+    );
+    if (!payload) {
+      continue;
+    }
+    const nummeraanduidingId = extractPdokNummeraanduidingId(payload, property);
+    if (nummeraanduidingId) {
+      return `/wozwaarde/nummeraanduiding/${nummeraanduidingId}`;
+    }
+  }
+
+  return null;
 }
 
 function extractSuggestedIdentifier(payload: Record<string, unknown>): { kind: 'nummeraanduiding' | 'wozobjectnummer'; id: string } | null {
@@ -316,7 +451,9 @@ export function createWozSourceClient(fetchImpl: WozFetch = fetch): OfficialValu
       }
 
       let preferredSourcePath: string | null = null;
-      const nummeraanduidingId = normalizeDigits(property.nationalId);
+      const nummeraanduidingId = isLikelyBagNummeraanduidingId(property.nationalId)
+        ? normalizeDigits(property.nationalId)
+        : null;
       if (nummeraanduidingId) {
         preferredSourcePath = `/wozwaarde/nummeraanduiding/${nummeraanduidingId}`;
         try {
@@ -334,6 +471,20 @@ export function createWozSourceClient(fetchImpl: WozFetch = fetch): OfficialValu
           if (!(error instanceof OfficialValuationNotFoundError)) {
             throw error;
           }
+        }
+      }
+
+      const pdokSourcePath = await resolvePdokSourcePath(fetchImpl, property);
+      if (pdokSourcePath && pdokSourcePath !== preferredSourcePath) {
+        const pdokResult = await fetchValuationForPath(
+          fetchImpl,
+          pdokSourcePath,
+          property,
+          config,
+          runtime,
+        );
+        if (pdokResult) {
+          return pdokResult;
         }
       }
 

@@ -122,6 +122,66 @@ describe('WOZ source client', () => {
     });
   });
 
+  it('resolves BAG adresseerbaarobject ids through PDOK before fetching WOZ', async () => {
+    const fetchImpl = jest.fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response(200, {
+          response: {
+            docs: [
+              {
+                type: 'adres',
+                postcode: '5651HC',
+                huisnummer: 9,
+                straatnaam: 'Kathodelaan',
+                woonplaatsnaam: 'Eindhoven',
+                adresseerbaarobject_id: '0772010001055368',
+                nummeraanduiding_id: '0772200001055386',
+              },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        response(200, {
+          wozObject: {
+            wozobjectnummer: '77200593020',
+            postcode: '5651HC',
+            huisnummer: 9,
+            straatnaam: 'Kathodelaan',
+            woonplaatsnaam: 'Eindhoven',
+            adresseerbaarobjectid: 772010001055368,
+            nummeraanduidingid: 772200001055386,
+          },
+          wozWaarden: [{ peildatum: '2025-01-01', vastgesteldeWaarde: 917_000 }],
+        }),
+      );
+    const client = createWozSourceClient(fetchImpl);
+
+    const result = await client.fetchCurrentValuation(
+      {
+        id: 'property-kathodelaan-9',
+        countryCode: 'NL',
+        nationalId: '0772010001055368',
+        street: 'Kathodelaan',
+        postalCode: '5651HC',
+        houseNumber: 9,
+        houseNumberAddition: null,
+        city: 'Eindhoven',
+      },
+      config,
+    );
+
+    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=5651HC+9&fq=type%3Aadres&rows=10',
+      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/wozwaarde/nummeraanduiding/0772200001055386',
+    ]);
+    expect(result).toMatchObject({
+      valuation: 917_000,
+      valuationYear: 2025,
+      sourceRecordId: '77200593020',
+    });
+  });
+
   it('maps Kadaster 429 responses to a retryable rate-limit error', async () => {
     const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(
       response(429, {}, { 'retry-after': '60' }),
@@ -294,6 +354,8 @@ describe('WOZ source client', () => {
 
   it('resolves WOZ through suggest when no BAG nummeraanduiding id is available', async () => {
     const fetchImpl = jest.fn<typeof fetch>()
+      .mockResolvedValueOnce(response(200, { response: { docs: [] } }))
+      .mockResolvedValueOnce(response(200, { response: { docs: [] } }))
       .mockResolvedValueOnce(
         response(200, {
           suggesties: [{ nummeraanduidingid: '456' }],
@@ -328,9 +390,15 @@ describe('WOZ source client', () => {
     );
 
     expect(fetchImpl.mock.calls[0]?.[0]).toBe(
-      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/suggest?q=1234AB%2041',
+      'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=1234AB+41&fq=type%3Aadres&rows=10',
     );
     expect(fetchImpl.mock.calls[1]?.[0]).toBe(
+      'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=Fixture+Ring+41+1234AB+Eindhoven&fq=type%3Aadres&rows=10',
+    );
+    expect(fetchImpl.mock.calls[2]?.[0]).toBe(
+      'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/suggest?q=1234AB%2041',
+    );
+    expect(fetchImpl.mock.calls[3]?.[0]).toBe(
       'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/wozwaarde/nummeraanduiding/0000000000000456',
     );
     expect(result).toMatchObject({
@@ -342,6 +410,8 @@ describe('WOZ source client', () => {
   it('falls back to suggest when the preferred BAG nummeraanduiding lookup misses', async () => {
     const fetchImpl = jest.fn<typeof fetch>()
       .mockResolvedValueOnce(response(404, {}))
+      .mockResolvedValueOnce(response(200, { response: { docs: [] } }))
+      .mockResolvedValueOnce(response(200, { response: { docs: [] } }))
       .mockResolvedValueOnce(
         response(200, {
           suggesties: [{ wozobjectnummer: '123456789' }],
@@ -377,6 +447,8 @@ describe('WOZ source client', () => {
 
     expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
       'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/wozwaarde/nummeraanduiding/0000000000000123',
+      'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=1234AB+41&fq=type%3Aadres&rows=10',
+      'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q=Fixture+Ring+41+1234AB+Eindhoven&fq=type%3Aadres&rows=10',
       'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/suggest?q=1234AB%2041',
       'https://api.kadaster.nl/lvwoz/wozwaardeloket-api/v1/wozwaarde/wozobjectnummer/123456789',
     ]);
@@ -389,6 +461,8 @@ describe('WOZ source client', () => {
   it('uses the backend request runtime for each Kadaster HTTP call', async () => {
     const fetchImpl = jest.fn<typeof fetch>()
       .mockResolvedValueOnce(response(404, {}))
+      .mockResolvedValueOnce(response(200, { response: { docs: [] } }))
+      .mockResolvedValueOnce(response(200, { response: { docs: [] } }))
       .mockResolvedValueOnce(
         response(200, {
           suggesties: [{ wozobjectnummer: '123456789' }],
