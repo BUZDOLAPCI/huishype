@@ -5,6 +5,7 @@ import {
   OfficialValuationUnsupportedError,
 } from '../errors.js';
 import type {
+  OfficialValuationSourceRequestRuntime,
   OfficialValuationSourceClient,
   OfficialValuationSourceProperty,
   OfficialValuationSourceResult,
@@ -177,7 +178,7 @@ function parseRetryAt(response: Response): Date | undefined {
     return undefined;
   }
 
-  const resetNumber = Number.parseInt(reset, 10);
+  const resetNumber = /^\d+$/.test(reset) ? Number.parseInt(reset, 10) : NaN;
   if (Number.isFinite(resetNumber)) {
     return new Date(resetNumber > 10_000_000_000 ? resetNumber : resetNumber * 1_000);
   }
@@ -186,24 +187,55 @@ function parseRetryAt(response: Response): Date | undefined {
   return Number.isFinite(resetDate) ? new Date(resetDate) : undefined;
 }
 
-async function fetchJson(fetchImpl: WozFetch, path: string): Promise<Record<string, unknown>> {
-  const response = await fetchImpl(`${WOZ_API_BASE_URL}${path}`, {
+function getObservedErrorMetadata(response: Response) {
+  return {
+    observedStatus: response.status,
+    observedHeaders: {
+      'retry-after': response.headers.get('retry-after'),
+      'x-rate-limit-reset': response.headers.get('x-rate-limit-reset'),
+      'Kadaster-RateLimit-DayLimit-Reset': response.headers.get('Kadaster-RateLimit-DayLimit-Reset'),
+    },
+  };
+}
+
+async function fetchJson(
+  fetchImpl: WozFetch,
+  path: string,
+  runtime?: OfficialValuationSourceRequestRuntime,
+): Promise<Record<string, unknown>> {
+  const request = () => fetchImpl(`${WOZ_API_BASE_URL}${path}`, {
     headers: {
       accept: 'application/json',
       'user-agent': 'HuisHype official valuation verifier',
     },
   });
 
+  if (runtime) {
+    return runtime.fetchJson('woz', request);
+  }
+
+  const response = await request();
+
   if (response.status === 429) {
-    throw new OfficialValuationRateLimitError('WOZ source rate limited the request', parseRetryAt(response));
+    throw new OfficialValuationRateLimitError(
+      'WOZ source rate limited the request',
+      parseRetryAt(response),
+      getObservedErrorMetadata(response),
+    );
   }
 
   if (response.status === 404) {
-    throw new OfficialValuationNotFoundError('WOZ valuation not found for property');
+    throw new OfficialValuationNotFoundError(
+      'WOZ valuation not found for property',
+      getObservedErrorMetadata(response),
+    );
   }
 
   if (!response.ok) {
-    throw new OfficialValuationTemporarySourceError(`WOZ source returned HTTP ${response.status}`);
+    throw new OfficialValuationTemporarySourceError(
+      `WOZ source returned HTTP ${response.status}`,
+      getObservedErrorMetadata(response),
+    );
   }
 
   return (await response.json()) as Record<string, unknown>;
@@ -231,11 +263,12 @@ function extractSuggestedIdentifier(payload: Record<string, unknown>): { kind: '
 async function resolveSuggestedSourcePath(
   fetchImpl: WozFetch,
   property: OfficialValuationSourceProperty,
+  runtime?: OfficialValuationSourceRequestRuntime,
 ): Promise<string | null> {
   const query = encodeURIComponent(
     `${property.postalCode} ${property.houseNumber}${property.houseNumberAddition ?? ''}`,
   );
-  const suggestionPayload = await fetchJson(fetchImpl, `/suggest?q=${query}`);
+  const suggestionPayload = await fetchJson(fetchImpl, `/suggest?q=${query}`, runtime);
   const suggested = extractSuggestedIdentifier(suggestionPayload);
   if (!suggested) {
     return null;
@@ -251,8 +284,9 @@ async function fetchValuationForPath(
   sourcePath: string,
   property: OfficialValuationSourceProperty,
   config: OfficialValuationSourceConfig,
+  runtime?: OfficialValuationSourceRequestRuntime,
 ): Promise<OfficialValuationSourceResult | null> {
-  const payload = await fetchJson(fetchImpl, sourcePath);
+  const payload = await fetchJson(fetchImpl, sourcePath, runtime);
   if (!payloadMatchesProperty(payload, property)) {
     throw new OfficialValuationNotFoundError('WOZ response did not match the requested property');
   }
@@ -275,6 +309,7 @@ export function createWozSourceClient(fetchImpl: WozFetch = fetch): OfficialValu
     async fetchCurrentValuation(
       property: OfficialValuationSourceProperty,
       config: OfficialValuationSourceConfig,
+      runtime?: OfficialValuationSourceRequestRuntime,
     ): Promise<OfficialValuationSourceResult | null> {
       if (property.countryCode !== 'NL') {
         throw new OfficialValuationUnsupportedError('WOZ is only supported for NL properties');
@@ -290,6 +325,7 @@ export function createWozSourceClient(fetchImpl: WozFetch = fetch): OfficialValu
             preferredSourcePath,
             property,
             config,
+            runtime,
           );
           if (preferredResult) {
             return preferredResult;
@@ -301,7 +337,7 @@ export function createWozSourceClient(fetchImpl: WozFetch = fetch): OfficialValu
         }
       }
 
-      const suggestedSourcePath = await resolveSuggestedSourcePath(fetchImpl, property);
+      const suggestedSourcePath = await resolveSuggestedSourcePath(fetchImpl, property, runtime);
       if (!suggestedSourcePath) {
         return null;
       }
@@ -315,6 +351,7 @@ export function createWozSourceClient(fetchImpl: WozFetch = fetch): OfficialValu
         suggestedSourcePath,
         property,
         config,
+        runtime,
       );
     },
   };

@@ -1847,8 +1847,12 @@ export interface paths {
                             sourceState: {
                                 state: string;
                                 retryAfter: string | null;
+                                throttleUntil: string | null;
+                                adaptiveRequestsPerMinute: number;
+                                adaptiveConcurrency: number;
                                 lastRateLimitAt: string | null;
                                 lastError: string | null;
+                                lastObservedStatus: number | null;
                             } | null;
                         };
                     };

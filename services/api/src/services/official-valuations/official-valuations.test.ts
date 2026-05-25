@@ -10,6 +10,7 @@ import {
   OfficialValuationRateLimitError,
   OfficialValuationUnsupportedError,
 } from './errors.js';
+import type { OfficialValuationSourceRequestRuntime } from './source-client.js';
 import { createWozSourceClient } from './sources/woz.js';
 
 function response(
@@ -142,6 +143,56 @@ describe('WOZ source client', () => {
         config,
       ),
     ).rejects.toBeInstanceOf(OfficialValuationRateLimitError);
+  });
+
+  it('maps Kadaster reset headers on 429 responses', async () => {
+    const resetAt = new Date(Date.now() + 300_000);
+    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(
+      response(429, {}, { 'kadaster-ratelimit-daylimit-reset': resetAt.toISOString() }),
+    );
+    const client = createWozSourceClient(fetchImpl);
+
+    await expect(
+      client.fetchCurrentValuation(
+        {
+          id: 'property-1',
+          countryCode: 'NL',
+          nationalId: '123',
+          street: 'Fixture Ring',
+          postalCode: '1234AB',
+          houseNumber: 41,
+          houseNumberAddition: null,
+          city: 'Eindhoven',
+        },
+        config,
+      ),
+    ).rejects.toMatchObject({
+      retryAt: resetAt,
+    });
+  });
+
+  it('maps temporary Kadaster errors to retryable source errors with status metadata', async () => {
+    const fetchImpl = jest.fn<typeof fetch>().mockResolvedValue(response(503, {}));
+    const client = createWozSourceClient(fetchImpl);
+
+    await expect(
+      client.fetchCurrentValuation(
+        {
+          id: 'property-1',
+          countryCode: 'NL',
+          nationalId: '123',
+          street: 'Fixture Ring',
+          postalCode: '1234AB',
+          houseNumber: 41,
+          houseNumberAddition: null,
+          city: 'Eindhoven',
+        },
+        config,
+      ),
+    ).rejects.toMatchObject({
+      code: 'temporary_source_error',
+      metadata: { observedStatus: 503 },
+    });
   });
 
   it('rejects WOZ results when returned street does not match the property', async () => {
@@ -334,6 +385,58 @@ describe('WOZ source client', () => {
       valuationYear: 2024,
     });
   });
+
+  it('uses the backend request runtime for each Kadaster HTTP call', async () => {
+    const fetchImpl = jest.fn<typeof fetch>()
+      .mockResolvedValueOnce(response(404, {}))
+      .mockResolvedValueOnce(
+        response(200, {
+          suggesties: [{ wozobjectnummer: '123456789' }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response(200, {
+          wozObject: {
+            wozobjectnummer: '123456789',
+            postcode: '1234 AB',
+            huisnummer: 41,
+            straatnaam: 'Fixture Ring',
+            woonplaatsnaam: 'Eindhoven',
+          },
+          wozWaarden: [{ peildatum: '2024-01-01', vastgesteldeWaarde: 410_000 }],
+        }),
+      );
+    const runtimeCalls: number[] = [];
+    const client = createWozSourceClient(fetchImpl);
+
+    const result = await client.fetchCurrentValuation(
+      {
+        id: 'property-1',
+        countryCode: 'NL',
+        nationalId: '123',
+        street: 'Fixture Ring',
+        postalCode: '1234AB',
+        houseNumber: 41,
+        houseNumberAddition: null,
+        city: 'Eindhoven',
+      },
+      config,
+      {
+        async fetchJson(source, request) {
+          runtimeCalls.push(runtimeCalls.length + 1);
+          expect(source).toBe('woz');
+          const kadasterResponse = await request();
+          if (kadasterResponse.status === 404) {
+            throw new OfficialValuationNotFoundError('WOZ valuation not found for property');
+          }
+          return (await kadasterResponse.json()) as Record<string, unknown>;
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ valuation: 410_000 });
+    expect(runtimeCalls).toEqual([1, 2, 3]);
+  });
 });
 
 describe('official valuation hydration processor', () => {
@@ -376,17 +479,28 @@ describe('official valuation hydration processor', () => {
         maintenanceRequestedAt: '2026-04-24T00:00:00.000Z',
       })),
       markOfficialValuationSourceFailure: jest.fn(),
+      markOfficialValuationSourceRateLimited: jest.fn(),
       markOfficialValuationSourceSuccess: jest.fn(),
+      markOfficialValuationSourceTemporaryFailure: jest.fn(),
       releaseOfficialValuationSourceRequest: releaseMock,
       reserveOfficialValuationSourceRequest: jest.fn(async () => ({ allowed: true })),
     }));
     jest.unstable_mockModule('./source-client.js', () => ({
       getOfficialValuationSourceClient: jest.fn(() => ({
-        fetchCurrentValuation: jest.fn(async () => ({
-          valuation: 512_000,
-          valuationYear: 2025,
-          referenceDate: '2025-01-01',
-        })),
+        fetchCurrentValuation: jest.fn(
+          async (_property, _config, runtime: OfficialValuationSourceRequestRuntime) => {
+            await runtime.fetchJson('woz', async () =>
+              response(200, {
+                ok: true,
+              }),
+            );
+            return {
+              valuation: 512_000,
+              valuationYear: 2025,
+              referenceDate: '2025-01-01',
+            };
+          },
+        ),
       })),
     }));
     jest.unstable_mockModule('../ingest/queue.js', () => ({
@@ -423,6 +537,82 @@ describe('official valuation hydration processor', () => {
       expect.objectContaining({
         jobId: 'hydration-job-1',
         maintenanceBatchId: 'maintenance-batch-1',
+      }),
+    );
+    expect(releaseMock).toHaveBeenCalledWith('woz');
+  });
+
+  it('marks hydration retryable when Kadaster returns 429 through the adaptive request runtime', async () => {
+    jest.resetModules();
+
+    const retryAt = new Date(Date.now() + 90_000);
+    const markRetryableMock = jest.fn(async () => undefined);
+    const markRateLimitedMock = jest.fn(async () => retryAt);
+    const releaseMock = jest.fn(async () => undefined);
+
+    jest.unstable_mockModule('./store.js', () => ({
+      claimOfficialValuationHydrationJob: jest.fn(async () => ({
+        id: 'hydration-job-429',
+        source: 'woz',
+        valuationYear: 2025,
+        attemptCount: 1,
+        property: {
+          id: 'property-1',
+          countryCode: 'NL',
+          nationalId: '123',
+          street: 'Fixture Ring',
+          postalCode: '1234AB',
+          houseNumber: 41,
+          houseNumberAddition: null,
+          city: 'Eindhoven',
+        },
+      })),
+      markOfficialValuationHydrationFailed: jest.fn(),
+      markOfficialValuationHydrationRetryable: markRetryableMock,
+      markOfficialValuationHydrationSucceeded: jest.fn(),
+      markOfficialValuationSourceRateLimited: markRateLimitedMock,
+      markOfficialValuationSourceSuccess: jest.fn(),
+      markOfficialValuationSourceTemporaryFailure: jest.fn(),
+      releaseOfficialValuationSourceRequest: releaseMock,
+      reserveOfficialValuationSourceRequest: jest.fn(async () => ({ allowed: true })),
+    }));
+    jest.unstable_mockModule('./source-client.js', () => ({
+      getOfficialValuationSourceClient: jest.fn(() => ({
+        fetchCurrentValuation: jest.fn(async (
+          _property,
+          _config,
+          runtime: OfficialValuationSourceRequestRuntime,
+        ) =>
+          runtime.fetchJson('woz', async () => response(429, {}, { 'retry-after': '90' })),
+        ),
+      })),
+    }));
+    jest.unstable_mockModule('../ingest/queue.js', () => ({
+      requestLatestListingsRefresh: jest.fn(),
+    }));
+    jest.unstable_mockModule('../property-tile-pyramid.js', () => ({
+      safeRequestPropertyTilePyramidBuild: jest.fn(),
+    }));
+
+    const { processOfficialValuationHydrationJob } = await import('./processor.js');
+
+    await expect(processOfficialValuationHydrationJob({ jobId: 'hydration-job-429' })).resolves.toEqual({
+      status: 'retryable',
+      reason: 'WOZ source rate limited the request',
+      nextAttemptAt: retryAt.toISOString(),
+    });
+    expect(markRateLimitedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'woz',
+        observedStatus: 429,
+        observedHeaders: expect.objectContaining({ retryAfter: '90' }),
+      }),
+    );
+    expect(markRetryableMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'hydration-job-429',
+        source: 'woz',
+        nextAttemptAt: retryAt,
       }),
     );
     expect(releaseMock).toHaveBeenCalledWith('woz');

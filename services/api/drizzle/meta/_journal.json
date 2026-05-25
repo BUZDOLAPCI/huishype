@@ -309,6 +309,13 @@
       "when": 1778198400017,
       "tag": "0043_property_comments_disabled_by_index",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1778198400018,
+      "tag": "0044_adaptive_official_valuation_source_limits",
+      "breakpoints": true
     }
   ]
 }

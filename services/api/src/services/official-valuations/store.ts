@@ -67,8 +67,12 @@ export type CurrentOfficialValuationStatus = {
   sourceState: {
     state: string;
     retryAfter: string | null;
+    throttleUntil: string | null;
+    adaptiveRequestsPerMinute: number;
+    adaptiveConcurrency: number;
     lastRateLimitAt: string | null;
     lastError: string | null;
+    lastObservedStatus: number | null;
   } | null;
 };
 
@@ -84,6 +88,11 @@ export type SourceReservation =
   | { allowed: true }
   | { allowed: false; reason: string; nextAttemptAt: Date };
 
+export type OfficialValuationSourceObservedHeaders = {
+  retryAfter?: string | null;
+  rateLimitReset?: string | null;
+};
+
 function toIso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
@@ -96,6 +105,14 @@ function toJsonbParameter(value: unknown): string | null {
   return JSON.stringify(
     value && typeof value === 'object' && !Array.isArray(value) ? value : { value },
   );
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function shouldExposeRetryAfter(state: string): boolean {
+  return state === 'rate_limited' || state === 'throttled' || state === 'open';
 }
 
 async function refreshPropertyOfficialValuationCache(
@@ -500,9 +517,15 @@ export async function getCurrentOfficialValuationStatus(input: {
       sourceState: sourceState
         ? {
             state: sourceState.state,
-            retryAfter: toIso(sourceState.circuitHalfOpenAt ?? sourceState.dayWindowResetAt),
+            retryAfter: shouldExposeRetryAfter(sourceState.state)
+              ? toIso(sourceState.throttleUntil ?? sourceState.circuitHalfOpenAt)
+              : null,
+            throttleUntil: toIso(sourceState.throttleUntil),
+            adaptiveRequestsPerMinute: sourceState.adaptiveRequestsPerMinute,
+            adaptiveConcurrency: sourceState.adaptiveConcurrency,
             lastRateLimitAt: toIso(sourceState.lastRateLimitAt),
             lastError: sourceState.lastError ?? null,
+            lastObservedStatus: sourceState.lastObservedStatus ?? null,
           }
         : null,
     };
@@ -608,18 +631,20 @@ export async function reserveOfficialValuationSourceRequest(
   source: OfficialValuationSource,
 ): Promise<SourceReservation> {
   const config = getOfficialValuationSourceConfig(source);
+  const limits = config.backendAdaptiveRateLimits;
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${source}))`);
     const now = new Date();
     const minuteResetAt = new Date(now.getTime() + 60_000);
-    const dayResetAt = new Date(now.getTime() + 24 * 60 * 60_000);
 
     await tx
       .insert(officialValuationSourceStates)
       .values({
         source,
+        adaptiveRequestsPerMinute: limits.initialRequestsPerMinute,
+        adaptiveConcurrency: limits.initialConcurrency,
         minuteWindowResetAt: minuteResetAt,
-        dayWindowResetAt: dayResetAt,
+        dayWindowResetAt: new Date(now.getTime() + 24 * 60 * 60_000),
       })
       .onConflictDoNothing();
 
@@ -634,6 +659,14 @@ export async function reserveOfficialValuationSourceRequest(
     if (state.state === 'open' && halfOpenAt && halfOpenAt.getTime() > now.getTime()) {
       return { allowed: false, reason: 'source_circuit_open', nextAttemptAt: halfOpenAt };
     }
+    const throttleUntil = state.throttleUntil;
+    if (
+      (state.state === 'rate_limited' || state.state === 'throttled') &&
+      throttleUntil &&
+      throttleUntil.getTime() > now.getTime()
+    ) {
+      return { allowed: false, reason: 'source_throttled', nextAttemptAt: throttleUntil };
+    }
 
     const minuteExpired =
       !state.minuteWindowResetAt || state.minuteWindowResetAt.getTime() <= now.getTime();
@@ -644,8 +677,18 @@ export async function reserveOfficialValuationSourceRequest(
       state.requestsInFlightLeaseExpiresAt != null &&
       state.requestsInFlightLeaseExpiresAt.getTime() > now.getTime();
     const requestsInFlight = inFlightLeaseActive ? state.requestsInFlight : 0;
+    const adaptiveRequestsPerMinute = clampInteger(
+      state.adaptiveRequestsPerMinute || limits.initialRequestsPerMinute,
+      limits.minRequestsPerMinute,
+      limits.maxRequestsPerMinute,
+    );
+    const adaptiveConcurrency = clampInteger(
+      state.adaptiveConcurrency || limits.initialConcurrency,
+      limits.initialConcurrency,
+      limits.maxConcurrency,
+    );
 
-    if (requestsInFlight >= config.backendRateLimits.concurrency) {
+    if (requestsInFlight >= adaptiveConcurrency) {
       return {
         allowed: false,
         reason: 'source_concurrency_limit',
@@ -653,7 +696,7 @@ export async function reserveOfficialValuationSourceRequest(
       };
     }
 
-    if (minuteCount >= config.backendRateLimits.requestsPerMinute) {
+    if (minuteCount >= adaptiveRequestsPerMinute) {
       return {
         allowed: false,
         reason: 'source_minute_rate_limit',
@@ -661,24 +704,19 @@ export async function reserveOfficialValuationSourceRequest(
       };
     }
 
-    if (dayCount >= config.backendRateLimits.requestsPerDay) {
-      return {
-        allowed: false,
-        reason: 'source_daily_rate_limit',
-        nextAttemptAt: state.dayWindowResetAt ?? dayResetAt,
-      };
-    }
-
     await tx
       .update(officialValuationSourceStates)
       .set({
-        state: state.state === 'open' ? 'half_open' : state.state,
+        state: state.state === 'open' ? 'half_open' : 'healthy',
         requestsInCurrentMinute: minuteCount + 1,
         minuteWindowResetAt: minuteExpired ? minuteResetAt : state.minuteWindowResetAt,
         requestsInCurrentDay: dayCount + 1,
-        dayWindowResetAt: dayExpired ? dayResetAt : state.dayWindowResetAt,
+        dayWindowResetAt: dayExpired ? new Date(now.getTime() + 24 * 60 * 60_000) : state.dayWindowResetAt,
         requestsInFlight: requestsInFlight + 1,
         requestsInFlightLeaseExpiresAt: new Date(now.getTime() + SOURCE_IN_FLIGHT_LEASE_MS),
+        adaptiveRequestsPerMinute,
+        adaptiveConcurrency,
+        throttleUntil: null,
         updatedAt: now,
       })
       .where(eq(officialValuationSourceStates.source, source));
@@ -833,17 +871,209 @@ export async function markOfficialValuationHydrationFailed(input: {
     .where(eq(propertyOfficialValuationHydrationJobs.id, input.jobId));
 }
 
-export async function markOfficialValuationSourceSuccess(source: OfficialValuationSource): Promise<void> {
-  await db
-    .update(officialValuationSourceStates)
-    .set({
-      state: 'healthy',
-      consecutiveFailureCount: 0,
-      lastSuccessAt: new Date(),
-      lastError: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(officialValuationSourceStates.source, source));
+export async function markOfficialValuationSourceSuccess(
+  source: OfficialValuationSource,
+  observed?: { status?: number; headers?: OfficialValuationSourceObservedHeaders },
+): Promise<void> {
+  const config = getOfficialValuationSourceConfig(source);
+  const limits = config.backendAdaptiveRateLimits;
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${source}))`);
+    await tx
+      .insert(officialValuationSourceStates)
+      .values({
+        source,
+        adaptiveRequestsPerMinute: limits.initialRequestsPerMinute,
+        adaptiveConcurrency: limits.initialConcurrency,
+      })
+      .onConflictDoNothing();
+
+    const [state] = await tx
+      .select()
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, source))
+      .limit(1);
+
+    const cleanResponsesBeforeIncrease = limits.cleanResponsesBeforeIncrease;
+    const cleanCount = state.cleanSuccessCount + 1;
+    let nextRequestsPerMinute = clampInteger(
+      state.adaptiveRequestsPerMinute || limits.initialRequestsPerMinute,
+      limits.minRequestsPerMinute,
+      limits.maxRequestsPerMinute,
+    );
+    let nextConcurrency = clampInteger(
+      state.adaptiveConcurrency || limits.initialConcurrency,
+      limits.initialConcurrency,
+      limits.maxConcurrency,
+    );
+    let nextCleanCount = cleanCount;
+    let nextConcurrencyWindowCount = state.cleanConcurrencyWindowCount;
+
+    if (cleanCount >= cleanResponsesBeforeIncrease) {
+      nextRequestsPerMinute = clampInteger(
+        nextRequestsPerMinute + limits.requestsPerMinuteIncreaseStep,
+        limits.minRequestsPerMinute,
+        limits.maxRequestsPerMinute,
+      );
+      nextCleanCount = 0;
+      nextConcurrencyWindowCount += 1;
+      if (
+        nextConcurrencyWindowCount >= limits.cleanWindowsBeforeConcurrencyIncrease &&
+        nextConcurrency < limits.maxConcurrency
+      ) {
+        nextConcurrency += 1;
+        nextConcurrencyWindowCount = 0;
+      }
+    }
+
+    await tx
+      .update(officialValuationSourceStates)
+      .set({
+        state: 'healthy',
+        adaptiveRequestsPerMinute: nextRequestsPerMinute,
+        adaptiveConcurrency: nextConcurrency,
+        throttleUntil: null,
+        cleanSuccessCount: nextCleanCount,
+        cleanConcurrencyWindowCount: nextConcurrencyWindowCount,
+        recentRateLimitCount: Math.max(state.recentRateLimitCount - 1, 0),
+        consecutiveFailureCount: 0,
+        lastSuccessAt: new Date(),
+        lastError: null,
+        lastObservedStatus: observed?.status ?? state.lastObservedStatus,
+        lastObservedRetryAfter: observed?.headers?.retryAfter ?? null,
+        lastObservedRateLimitReset: observed?.headers?.rateLimitReset ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(officialValuationSourceStates.source, source));
+  });
+}
+
+export async function markOfficialValuationSourceRateLimited(input: {
+  source: OfficialValuationSource;
+  error: string;
+  retryAt?: Date;
+  observedStatus?: number;
+  observedHeaders?: OfficialValuationSourceObservedHeaders;
+}): Promise<Date> {
+  const config = getOfficialValuationSourceConfig(input.source);
+  const limits = config.backendAdaptiveRateLimits;
+  const now = new Date();
+  const throttleUntil =
+    input.retryAt && input.retryAt.getTime() > now.getTime()
+      ? input.retryAt
+      : new Date(now.getTime() + limits.rateLimitFallbackThrottleMs);
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${input.source}))`);
+    await tx
+      .insert(officialValuationSourceStates)
+      .values({
+        source: input.source,
+        adaptiveRequestsPerMinute: limits.initialRequestsPerMinute,
+        adaptiveConcurrency: limits.initialConcurrency,
+      })
+      .onConflictDoNothing();
+
+    const [state] = await tx
+      .select()
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, input.source))
+      .limit(1);
+    const currentRpm = state.adaptiveRequestsPerMinute || limits.initialRequestsPerMinute;
+
+    await tx
+      .update(officialValuationSourceStates)
+      .set({
+        state: 'rate_limited',
+        adaptiveRequestsPerMinute: clampInteger(
+          currentRpm * limits.rateLimitBackoffFactor,
+          limits.minRequestsPerMinute,
+          limits.maxRequestsPerMinute,
+        ),
+        adaptiveConcurrency: limits.initialConcurrency,
+        throttleUntil,
+        circuitHalfOpenAt: throttleUntil,
+        consecutiveFailureCount: state.consecutiveFailureCount + 1,
+        cleanSuccessCount: 0,
+        cleanConcurrencyWindowCount: 0,
+        recentRateLimitCount: state.recentRateLimitCount + 1,
+        lastFailureAt: now,
+        lastRateLimitAt: now,
+        lastError: input.error.slice(0, 2_000),
+        lastObservedStatus: input.observedStatus ?? null,
+        lastObservedRetryAfter: input.observedHeaders?.retryAfter ?? null,
+        lastObservedRateLimitReset: input.observedHeaders?.rateLimitReset ?? null,
+        updatedAt: now,
+      })
+      .where(eq(officialValuationSourceStates.source, input.source));
+  });
+
+  return throttleUntil;
+}
+
+export async function markOfficialValuationSourceTemporaryFailure(input: {
+  source: OfficialValuationSource;
+  error: string;
+  observedStatus?: number;
+  observedHeaders?: OfficialValuationSourceObservedHeaders;
+}): Promise<Date> {
+  const config = getOfficialValuationSourceConfig(input.source);
+  const limits = config.backendAdaptiveRateLimits;
+  const now = new Date();
+  const shortThrottleUntil = new Date(now.getTime() + limits.temporaryErrorThrottleMs);
+  let nextAttemptAt = shortThrottleUntil;
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${input.source}))`);
+    await tx
+      .insert(officialValuationSourceStates)
+      .values({
+        source: input.source,
+        adaptiveRequestsPerMinute: limits.initialRequestsPerMinute,
+        adaptiveConcurrency: limits.initialConcurrency,
+      })
+      .onConflictDoNothing();
+
+    const [state] = await tx
+      .select()
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, input.source))
+      .limit(1);
+    const failureCount = state.consecutiveFailureCount + 1;
+    const circuitOpen = failureCount >= config.circuitOpenAfterFailures;
+    const throttleUntil = circuitOpen
+      ? new Date(now.getTime() + config.circuitCooldownMs)
+      : shortThrottleUntil;
+    nextAttemptAt = throttleUntil;
+    const currentRpm = state.adaptiveRequestsPerMinute || limits.initialRequestsPerMinute;
+
+    await tx
+      .update(officialValuationSourceStates)
+      .set({
+        state: circuitOpen ? 'open' : 'throttled',
+        adaptiveRequestsPerMinute: clampInteger(
+          currentRpm * limits.temporaryErrorBackoffFactor,
+          limits.minRequestsPerMinute,
+          limits.maxRequestsPerMinute,
+        ),
+        throttleUntil,
+        circuitOpenedAt: circuitOpen ? now : state.circuitOpenedAt,
+        circuitHalfOpenAt: throttleUntil,
+        consecutiveFailureCount: failureCount,
+        cleanSuccessCount: 0,
+        cleanConcurrencyWindowCount: 0,
+        lastFailureAt: now,
+        lastError: input.error.slice(0, 2_000),
+        lastObservedStatus: input.observedStatus ?? null,
+        lastObservedRetryAfter: input.observedHeaders?.retryAfter ?? null,
+        lastObservedRateLimitReset: input.observedHeaders?.rateLimitReset ?? null,
+        updatedAt: now,
+      })
+      .where(eq(officialValuationSourceStates.source, input.source));
+  });
+
+  return nextAttemptAt;
 }
 
 export async function markOfficialValuationSourceFailure(input: {
@@ -852,41 +1082,10 @@ export async function markOfficialValuationSourceFailure(input: {
   rateLimited?: boolean;
   retryAt?: Date;
 }): Promise<void> {
-  const config = getOfficialValuationSourceConfig(input.source);
-  const rateLimited = input.rateLimited === true;
-  const retryAt = input.retryAt ?? null;
+  if (input.rateLimited) {
+    await markOfficialValuationSourceRateLimited(input);
+    return;
+  }
 
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(officialValuationSourceStates)
-      .values({ source: input.source })
-      .onConflictDoNothing();
-
-    await tx.execute(sql`
-      UPDATE official_valuation_source_states
-      SET
-        state = CASE
-          WHEN ${rateLimited}::boolean THEN 'rate_limited'
-          WHEN consecutive_failure_count + 1 >= ${config.circuitOpenAfterFailures} THEN 'open'
-          ELSE state
-        END,
-        circuit_opened_at = CASE
-          WHEN consecutive_failure_count + 1 >= ${config.circuitOpenAfterFailures} THEN now()
-          ELSE circuit_opened_at
-        END,
-        circuit_half_open_at = CASE
-          WHEN ${retryAt}::timestamptz IS NOT NULL
-            THEN ${retryAt}::timestamptz
-          WHEN consecutive_failure_count + 1 >= ${config.circuitOpenAfterFailures}
-            THEN now() + (${config.circuitCooldownMs} || ' milliseconds')::interval
-          ELSE circuit_half_open_at
-        END,
-        consecutive_failure_count = consecutive_failure_count + 1,
-        last_failure_at = now(),
-        last_rate_limit_at = CASE WHEN ${rateLimited}::boolean THEN now() ELSE last_rate_limit_at END,
-        last_error = ${input.error.slice(0, 2_000)},
-        updated_at = now()
-      WHERE source = ${input.source}
-    `);
-  });
+  await markOfficialValuationSourceTemporaryFailure(input);
 }

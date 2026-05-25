@@ -6,10 +6,19 @@ export type OfficialValuationSourceConfig = {
   authoritativeRank: number;
   expectedValuationYear: number;
   supportsClientFetch: Record<OfficialValuationClientRuntime, boolean>;
-  backendRateLimits: {
-    concurrency: number;
-    requestsPerMinute: number;
-    requestsPerDay: number;
+  backendAdaptiveRateLimits: {
+    initialRequestsPerMinute: number;
+    minRequestsPerMinute: number;
+    maxRequestsPerMinute: number;
+    requestsPerMinuteIncreaseStep: number;
+    cleanResponsesBeforeIncrease: number;
+    initialConcurrency: number;
+    maxConcurrency: number;
+    cleanWindowsBeforeConcurrencyIncrease: number;
+    rateLimitBackoffFactor: number;
+    temporaryErrorBackoffFactor: number;
+    rateLimitFallbackThrottleMs: number;
+    temporaryErrorThrottleMs: number;
   };
   successfulHydrationCooldownMs: number;
   failedHydrationBaseCooldownMs: number;
@@ -28,10 +37,19 @@ const OFFICIAL_VALUATION_SOURCES: Record<OfficialValuationSource, OfficialValuat
       web: false,
       native: false,
     },
-    backendRateLimits: {
-      concurrency: 1,
-      requestsPerMinute: 30,
-      requestsPerDay: 3_000,
+    backendAdaptiveRateLimits: {
+      initialRequestsPerMinute: 60,
+      minRequestsPerMinute: 10,
+      maxRequestsPerMinute: 300,
+      requestsPerMinuteIncreaseStep: 10,
+      cleanResponsesBeforeIncrease: 25,
+      initialConcurrency: 1,
+      maxConcurrency: 3,
+      cleanWindowsBeforeConcurrencyIncrease: 2,
+      rateLimitBackoffFactor: 0.5,
+      temporaryErrorBackoffFactor: 0.8,
+      rateLimitFallbackThrottleMs: 15 * 60_000,
+      temporaryErrorThrottleMs: 60_000,
     },
     successfulHydrationCooldownMs: 24 * 60 * 60_000,
     failedHydrationBaseCooldownMs: 60 * 60_000,

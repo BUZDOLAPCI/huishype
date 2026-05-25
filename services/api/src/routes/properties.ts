@@ -229,8 +229,12 @@ const officialValuationSourceStatusSchema = z
   .object({
     state: z.string(),
     retryAfter: z.string().datetime().nullable(),
+    throttleUntil: z.string().datetime().nullable(),
+    adaptiveRequestsPerMinute: z.number(),
+    adaptiveConcurrency: z.number(),
     lastRateLimitAt: z.string().datetime().nullable(),
     lastError: z.string().nullable(),
+    lastObservedStatus: z.number().nullable(),
   })
   .nullable();
 

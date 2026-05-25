@@ -23,10 +23,18 @@ export type OfficialValuationSourceResult = {
   rawPayload?: Record<string, unknown> | null;
 };
 
+export interface OfficialValuationSourceRequestRuntime {
+  fetchJson(
+    source: OfficialValuationSource,
+    request: () => Promise<Response>,
+  ): Promise<Record<string, unknown>>;
+}
+
 export interface OfficialValuationSourceClient {
   fetchCurrentValuation(
     property: OfficialValuationSourceProperty,
     config: OfficialValuationSourceConfig,
+    runtime?: OfficialValuationSourceRequestRuntime,
   ): Promise<OfficialValuationSourceResult | null>;
 }
 

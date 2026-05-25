@@ -10,6 +10,7 @@ type RecoverySweepResult = {
   candidateHandoffIds: string[];
   candidateHandoffDispatchedIds: string[];
   candidateHandoffFailedDispatchIds: string[];
+  officialValuationHydrationJobIds: string[];
 };
 
 type RuntimeInternals = {
@@ -276,6 +277,62 @@ test('recovery sweep dispatches due candidate handoffs', async () => {
   assert.deepEqual(summary.candidateHandoffDispatchedIds, ['handoff-1', 'handoff-2']);
   assert.deepEqual(summary.candidateHandoffFailedDispatchIds, []);
   assert.deepEqual(dispatchCalls, ['handoff-1', 'handoff-2']);
+});
+
+test('recovery sweep re-enqueues due retryable official valuation hydration jobs', async () => {
+  const dispatchCalls: unknown[] = [];
+  const queuedJobIds: string[] = [];
+  const runtime = createRuntime(
+    createModuleLoaders({
+      loadOfficialValuationStoreModule: async () => ({
+        collectDueOfficialValuationHydrationJobs: async () => [
+          {
+            id: 'hydration-job-1',
+            propertyId: 'property-1',
+            source: 'woz',
+            valuationYear: 2025,
+          },
+          {
+            id: 'hydration-job-2',
+            propertyId: 'property-2',
+            source: 'woz',
+            valuationYear: 2025,
+          },
+        ],
+        markOfficialValuationHydrationJobQueued: async (jobId: string) => {
+          queuedJobIds.push(jobId);
+        },
+      }),
+      loadOfficialValuationQueueModule: async () => ({
+        closeOfficialValuationQueues: async () => undefined,
+        enqueueOfficialValuationHydration: async (data) => {
+          dispatchCalls.push(data);
+        },
+      }),
+    }),
+  ) as unknown as RuntimeInternals;
+
+  const summary = await runtime.performRecoverySweep('unit');
+
+  assert.deepEqual(summary.officialValuationHydrationJobIds, [
+    'hydration-job-1',
+    'hydration-job-2',
+  ]);
+  assert.deepEqual(queuedJobIds, ['hydration-job-1', 'hydration-job-2']);
+  assert.deepEqual(dispatchCalls, [
+    {
+      jobId: 'hydration-job-1',
+      propertyId: 'property-1',
+      source: 'woz',
+      valuationYear: 2025,
+    },
+    {
+      jobId: 'hydration-job-2',
+      propertyId: 'property-2',
+      source: 'woz',
+      valuationYear: 2025,
+    },
+  ]);
 });
 
 test('candidate handoff worker job delegates to processor', async () => {

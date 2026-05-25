@@ -14,6 +14,8 @@ import {
   getCurrentOfficialValuationStatus,
   markOfficialValuationHydrationSucceeded,
   markOfficialValuationSourceFailure,
+  markOfficialValuationSourceRateLimited,
+  markOfficialValuationSourceTemporaryFailure,
   releaseOfficialValuationSourceRequest,
   reserveOfficialValuationSourceRequest,
 } from '../../services/official-valuations/store.js';
@@ -193,6 +195,26 @@ describe('official valuation hydration requests', () => {
         lastError: 'source_minute_rate_limit',
       })
       .returning();
+    await db
+      .insert(officialValuationSourceStates)
+      .values({
+        source: 'woz',
+        state: 'healthy',
+        dayWindowResetAt: new Date(Date.now() + 24 * 60 * 60_000),
+        adaptiveRequestsPerMinute: 80,
+        adaptiveConcurrency: 2,
+        lastObservedStatus: 200,
+      })
+      .onConflictDoUpdate({
+        target: officialValuationSourceStates.source,
+        set: {
+          state: 'healthy',
+          dayWindowResetAt: new Date(Date.now() + 24 * 60 * 60_000),
+          adaptiveRequestsPerMinute: 80,
+          adaptiveConcurrency: 2,
+          lastObservedStatus: 200,
+        },
+      });
 
     const status = await getCurrentOfficialValuationStatus({
       propertyId: property.id,
@@ -213,6 +235,14 @@ describe('official valuation hydration requests', () => {
         attemptCount: 2,
         nextAttemptAt: nextAttemptAt.toISOString(),
         lastError: 'source_minute_rate_limit',
+      },
+      sourceState: {
+        state: 'healthy',
+        retryAfter: null,
+        throttleUntil: null,
+        adaptiveRequestsPerMinute: 80,
+        adaptiveConcurrency: 2,
+        lastObservedStatus: 200,
       },
     });
   });
@@ -261,6 +291,136 @@ describe('official valuation hydration requests', () => {
     });
   });
 
+  it('uses the adaptive RPM instead of the old static 30/minute threshold', async () => {
+    await db
+      .delete(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'));
+
+    for (let index = 0; index < 31; index += 1) {
+      await expect(reserveOfficialValuationSourceRequest('woz')).resolves.toEqual({
+        allowed: true,
+      });
+      await releaseOfficialValuationSourceRequest('woz');
+    }
+
+    const [sourceState] = await db
+      .select({
+        requestsInCurrentMinute: officialValuationSourceStates.requestsInCurrentMinute,
+        adaptiveRequestsPerMinute: officialValuationSourceStates.adaptiveRequestsPerMinute,
+      })
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'))
+      .limit(1);
+
+    expect(sourceState).toEqual({
+      requestsInCurrentMinute: 31,
+      adaptiveRequestsPerMinute: 60,
+    });
+  });
+
+  it('backs off adaptive limits and exposes active retry metadata after a 429', async () => {
+    await db
+      .delete(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'));
+    const retryAt = new Date(Date.now() + 120_000);
+
+    await markOfficialValuationSourceRateLimited({
+      source: 'woz',
+      error: 'WOZ source rate limited the request',
+      retryAt,
+      observedStatus: 429,
+      observedHeaders: {
+        retryAfter: '120',
+        rateLimitReset: String(Math.trunc(retryAt.getTime() / 1_000)),
+      },
+    });
+
+    const reservation = await reserveOfficialValuationSourceRequest('woz');
+    expect(reservation.allowed).toBe(false);
+    if (!reservation.allowed) {
+      expect(reservation.reason).toBe('source_throttled');
+      expect(reservation.nextAttemptAt.toISOString()).toBe(retryAt.toISOString());
+    }
+
+    const [sourceState] = await db
+      .select({
+        state: officialValuationSourceStates.state,
+        adaptiveRequestsPerMinute: officialValuationSourceStates.adaptiveRequestsPerMinute,
+        adaptiveConcurrency: officialValuationSourceStates.adaptiveConcurrency,
+        throttleUntil: officialValuationSourceStates.throttleUntil,
+        lastObservedStatus: officialValuationSourceStates.lastObservedStatus,
+        lastRateLimitAt: officialValuationSourceStates.lastRateLimitAt,
+      })
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'))
+      .limit(1);
+
+    expect(sourceState).toMatchObject({
+      state: 'rate_limited',
+      adaptiveRequestsPerMinute: 30,
+      adaptiveConcurrency: 1,
+      throttleUntil: retryAt,
+      lastObservedStatus: 429,
+    });
+    expect(sourceState?.lastRateLimitAt).toBeInstanceOf(Date);
+  });
+
+  it('uses short temporary-error throttles and still opens the circuit after repeated failures', async () => {
+    await db
+      .delete(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'));
+
+    await markOfficialValuationSourceTemporaryFailure({
+      source: 'woz',
+      error: 'WOZ source returned HTTP 503',
+      observedStatus: 503,
+    });
+
+    let [sourceState] = await db
+      .select({
+        state: officialValuationSourceStates.state,
+        adaptiveRequestsPerMinute: officialValuationSourceStates.adaptiveRequestsPerMinute,
+        consecutiveFailureCount: officialValuationSourceStates.consecutiveFailureCount,
+        throttleUntil: officialValuationSourceStates.throttleUntil,
+      })
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'))
+      .limit(1);
+
+    expect(sourceState?.state).toBe('throttled');
+    expect(sourceState?.adaptiveRequestsPerMinute).toBe(48);
+    expect(sourceState?.consecutiveFailureCount).toBe(1);
+    expect(sourceState?.throttleUntil).toBeInstanceOf(Date);
+
+    await db
+      .update(officialValuationSourceStates)
+      .set({ throttleUntil: new Date(Date.now() - 1), circuitHalfOpenAt: null })
+      .where(eq(officialValuationSourceStates.source, 'woz'));
+
+    for (let index = 0; index < 4; index += 1) {
+      await markOfficialValuationSourceTemporaryFailure({
+        source: 'woz',
+        error: 'fetch failed',
+      });
+    }
+
+    [sourceState] = await db
+      .select({
+        state: officialValuationSourceStates.state,
+        adaptiveRequestsPerMinute: officialValuationSourceStates.adaptiveRequestsPerMinute,
+        consecutiveFailureCount: officialValuationSourceStates.consecutiveFailureCount,
+        throttleUntil: officialValuationSourceStates.throttleUntil,
+      })
+      .from(officialValuationSourceStates)
+      .where(eq(officialValuationSourceStates.source, 'woz'))
+      .limit(1);
+
+    expect(sourceState?.state).toBe('open');
+    expect(sourceState?.consecutiveFailureCount).toBe(5);
+    expect(sourceState?.adaptiveRequestsPerMinute).toBeGreaterThanOrEqual(10);
+    expect(sourceState?.throttleUntil).toBeInstanceOf(Date);
+  });
+
   it('records non-rate-limited source failures without tripping nullable SQL bindings', async () => {
     await db
       .delete(officialValuationSourceStates)
@@ -288,13 +448,13 @@ describe('official valuation hydration requests', () => {
       .limit(1);
 
     expect(sourceState).toMatchObject({
-      state: 'healthy',
+      state: 'throttled',
       consecutiveFailureCount: 1,
       lastRateLimitAt: null,
       lastError: 'fetch failed',
-      circuitHalfOpenAt: null,
     });
     expect(sourceState?.lastFailureAt).toBeInstanceOf(Date);
+    expect(sourceState?.circuitHalfOpenAt).toBeInstanceOf(Date);
   });
 
   it('creates a durable maintenance refresh request when server hydration updates the valuation cache', async () => {
