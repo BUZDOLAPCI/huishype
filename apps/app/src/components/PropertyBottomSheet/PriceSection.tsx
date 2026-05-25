@@ -326,7 +326,5 @@ const styles = StyleSheet.create({
   miniValueSkeleton: {
     width: 96,
     height: 22,
-    borderRadius: 6,
-    backgroundColor: '#E8E0D4',
   },
 });

@@ -70,6 +70,14 @@ describe('Skeleton', () => {
     expect(style.backgroundColor).toBe('#F5F0E8');
   });
 
+  it('uses the route loading capsule radius by default', () => {
+    const { getByTestId } = render(<SkeletonBlock testID="default-radius" />);
+
+    const style = flattenStyle(getByTestId('default-radius').props.style);
+
+    expect(style.borderRadius).toBe(999);
+  });
+
   it('accepts an explicit skeleton color', () => {
     const { getByTestId } = render(
       <SkeletonBlock color="#F5A623" testID="accent-skeleton" />

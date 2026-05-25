@@ -635,8 +635,6 @@ const styles = StyleSheet.create({
   priceValueSkeleton: {
     width: 72,
     height: 16,
-    borderRadius: 5,
-    backgroundColor: COLORS.warm300,
   },
 
   // Quick actions

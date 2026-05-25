@@ -1381,7 +1381,6 @@ export function PriceGuessSlider({
                 testID="price-guess-valuation-value-skeleton"
                 width={72}
                 height={14}
-                radius={5}
               />
             ) : officialValuation ? (
               <Text className="text-sm text-warm-500">

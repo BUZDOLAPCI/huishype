@@ -319,8 +319,6 @@ const styles = StyleSheet.create({
   priceValueSkeleton: {
     width: 92,
     height: 18,
-    borderRadius: 5,
-    backgroundColor: '#E8E0D4',
     marginTop: 4,
   },
   primaryPriceContainer: {
@@ -339,8 +337,6 @@ const styles = StyleSheet.create({
   primaryPriceValueSkeleton: {
     width: 84,
     height: 18,
-    borderRadius: 5,
-    backgroundColor: '#E8E0D4',
   },
   statDivider: {
     height: 1,

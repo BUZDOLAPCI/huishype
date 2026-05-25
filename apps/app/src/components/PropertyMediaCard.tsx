@@ -518,8 +518,6 @@ const styles = StyleSheet.create({
   secondaryPriceSkeleton: {
     width: 92,
     height: 18,
-    borderRadius: 5,
-    backgroundColor: '#E8E0D4',
     marginTop: 4,
   },
   primaryPriceRight: {
@@ -539,8 +537,6 @@ const styles = StyleSheet.create({
   priceCompactSkeleton: {
     width: 72,
     height: 16,
-    borderRadius: 5,
-    backgroundColor: '#E8E0D4',
   },
   priceFull: {
     fontSize: 16,
@@ -550,7 +546,5 @@ const styles = StyleSheet.create({
   priceFullSkeleton: {
     width: 88,
     height: 18,
-    borderRadius: 5,
-    backgroundColor: '#E8E0D4',
   },
 });
