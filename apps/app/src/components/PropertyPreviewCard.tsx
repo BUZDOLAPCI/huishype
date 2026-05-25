@@ -24,6 +24,10 @@ import { PropertyImageSurface } from './PropertyImageSurface';
 import type { WebViewStyle } from '@/src/lib/webStyle';
 import { useT } from '@/src/i18n';
 import { ActivityPill, ListingPill, type ListingMarketState } from './PropertyStatusPills';
+import {
+  getOfficialValuationDisplayState,
+  type OfficialValuationSourceFetchHint,
+} from '@/src/lib/officialValuationDisplay';
 
 // ─── Warm palette constants ──────────────────────────────────────────────
 
@@ -71,6 +75,8 @@ export interface PropertyPreviewData {
   countryCode?: string;
   officialValuation?: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetchHint | null;
+  officialValuationHydrationHidden?: boolean | null;
   askingPrice?: number | null;
   fmv?: number | null;
   activityLevel?: 'hot' | 'warm' | 'cold';
@@ -208,19 +214,35 @@ function formatValuationLabel(countryCode?: string, year?: number | null): strin
   return year ? `${label} (${year})` : label;
 }
 
-function getDisplayPrice(property: PropertyPreviewData): { price: number; label: string } | null {
+type PreviewDisplayPrice =
+  | { state: 'ready'; price: number; label: string }
+  | { state: 'loading'; label: string };
+
+function getDisplayPrice(property: PropertyPreviewData): PreviewDisplayPrice | null {
   if (property.fmv != null) {
-    return { price: property.fmv, label: 'Crowd FMV' };
+    return { state: 'ready', price: property.fmv, label: 'Crowd FMV' };
   }
 
   if (property.askingPrice != null) {
-    return { price: property.askingPrice, label: 'Asking Price' };
+    return { state: 'ready', price: property.askingPrice, label: 'Asking Price' };
   }
 
-  if (property.officialValuation != null) {
+  const valuationDisplay = getOfficialValuationDisplayState(property);
+  if (valuationDisplay.state === 'ready') {
     return {
-      price: property.officialValuation,
-      label: formatValuationLabel(property.countryCode, property.officialValuationYear),
+      state: 'ready',
+      price: valuationDisplay.value,
+      label: formatValuationLabel(property.countryCode, valuationDisplay.year),
+    };
+  }
+
+  if (valuationDisplay.state === 'loading') {
+    return {
+      state: 'loading',
+      label: formatValuationLabel(
+        property.countryCode,
+        valuationDisplay.expectedYear ?? valuationDisplay.year,
+      ),
     };
   }
 
@@ -244,7 +266,8 @@ export function PropertyPreviewCard({
   const t = useT();
   const activityLevel = property.activityLevel ?? 'cold';
   const displayPrice = getDisplayPrice(property);
-  const formattedPrice = formatPrice(displayPrice?.price, property.countryCode);
+  const formattedPrice =
+    displayPrice?.state === 'ready' ? formatPrice(displayPrice.price, property.countryCode) : null;
   const previewAddressLine = getPreviewAddressLine(property);
 
   // Resolve image using shared fallback rules
@@ -322,12 +345,19 @@ export function PropertyPreviewCard({
             )}
 
             {/* Price */}
-            {formattedPrice && (
+            {displayPrice && (
               <View style={styles.priceGroup}>
                 <Text style={styles.priceLabel}>{displayPrice?.label}</Text>
                 <View style={styles.priceValueRow}>
                   <Icon name="HouseLine" size={14} color={COLORS.gold500} />
-                  <Text style={styles.priceText}>{formattedPrice}</Text>
+                  {displayPrice.state === 'loading' ? (
+                    <View
+                      testID="property-preview-price-value-skeleton"
+                      style={styles.priceValueSkeleton}
+                    />
+                  ) : (
+                    <Text style={styles.priceText}>{formattedPrice}</Text>
+                  )}
                 </View>
               </View>
             )}
@@ -608,6 +638,12 @@ const styles = StyleSheet.create({
     fontSize: 15.5,
     fontWeight: '800',
     color: COLORS.warm900,
+  },
+  priceValueSkeleton: {
+    width: 72,
+    height: 16,
+    borderRadius: 5,
+    backgroundColor: COLORS.warm300,
   },
 
   // Quick actions

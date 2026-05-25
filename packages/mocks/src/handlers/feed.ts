@@ -15,6 +15,21 @@ import { http, HttpResponse } from 'msw';
 import { feedQuerySchema } from '@huishype/shared';
 import { getMockPropertyThumbnailUrl, mockPropertyDetails } from '../data/fixtures.js';
 
+const MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR = 2025;
+
+function getMockOfficialValuationSourceFetch(countryCode: string) {
+  return countryCode === 'NL'
+    ? {
+        source: 'woz' as const,
+        expectedValuationYear: MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR,
+        supportsClientFetch: {
+          web: false,
+          native: false,
+        },
+      }
+    : null;
+}
+
 export const feedHandlers = [
   /**
    * GET /feed - Get property feed
@@ -49,6 +64,7 @@ export const feedHandlers = [
         fmv: p.fmv?.value ?? null,
         officialValuation: p.officialValuation ?? null,
         officialValuationYear: p.officialValuationYear ?? null,
+        officialValuationSourceFetch: getMockOfficialValuationSourceFetch(p.countryCode),
         thumbnailUrl: getMockPropertyThumbnailUrl(p.id),
         likeCount: p.activity.likeCount,
         commentCount: p.activity.commentCount,

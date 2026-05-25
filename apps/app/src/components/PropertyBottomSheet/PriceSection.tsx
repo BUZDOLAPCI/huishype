@@ -6,6 +6,7 @@ import { shadows } from '../../lib/shadows';
 import type { SectionProps } from './types';
 import { SectionCard } from './SectionCard';
 import { useT, type TranslationKey } from '../../i18n';
+import { getOfficialValuationDisplayState } from '@/src/lib/officialValuationDisplay';
 
 function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
@@ -29,7 +30,8 @@ interface MiniPriceCardProps {
   iconBg: string;
   iconColor: string;
   label: string;
-  value: string;
+  value?: string;
+  loading?: boolean;
   valueColor?: string;
 }
 
@@ -79,6 +81,7 @@ function MiniPriceCard({
   iconColor,
   label,
   value,
+  loading = false,
   valueColor = '#1A1918',
 }: MiniPriceCardProps) {
   return (
@@ -89,7 +92,11 @@ function MiniPriceCard({
         </View>
         <Text style={styles.miniLabel}>{label}</Text>
       </View>
-      <Text style={[styles.miniValue, { color: valueColor }]}>{value}</Text>
+      {loading ? (
+        <View testID={`${testID}-value-skeleton`} style={styles.miniValueSkeleton} />
+      ) : (
+        <Text style={[styles.miniValue, { color: valueColor }]}>{value}</Text>
+      )}
     </View>
   );
 }
@@ -97,7 +104,6 @@ function MiniPriceCard({
 export function PriceSection({ property }: SectionProps) {
   const t = useT();
   const {
-    officialValuation,
     officialValuationYear,
     askingPrice,
     fmv: fmvData,
@@ -107,7 +113,15 @@ export function PriceSection({ property }: SectionProps) {
   const fmv = fmvData?.fmv ?? undefined;
   const crowdGuessCount = fmvData?.guessCount ?? guessCount;
   const confidenceBadge = getConfidenceBadgeInfo(fmvData?.confidence, crowdGuessCount, t);
-  const hasSecondaryRow = officialValuation || askingPrice;
+  const valuationDisplay = getOfficialValuationDisplayState(property);
+  const valuationVisible = valuationDisplay.state !== 'hidden';
+  const valuationLabelYear =
+    valuationDisplay.state === 'ready'
+      ? valuationDisplay.year
+      : valuationDisplay.state === 'loading'
+        ? (valuationDisplay.expectedYear ?? valuationDisplay.year)
+        : officialValuationYear;
+  const hasSecondaryRow = valuationVisible || askingPrice;
 
   return (
     <SectionCard
@@ -157,15 +171,20 @@ export function PriceSection({ property }: SectionProps) {
 
         {hasSecondaryRow ? (
           <View style={styles.secondaryRow}>
-            {officialValuation ? (
+            {valuationVisible ? (
               <View style={styles.secondaryCardSlot}>
                 <MiniPriceCard
                   testID="price-snapshot-valuation-card"
                   icon="home-outline"
                   iconBg="#E3F2FD"
                   iconColor="#42A5F5"
-                  label={formatValuationLabel(countryCode, officialValuationYear)}
-                  value={formatPrice(officialValuation, countryCode)}
+                  label={formatValuationLabel(countryCode, valuationLabelYear)}
+                  value={
+                    valuationDisplay.state === 'ready'
+                      ? formatPrice(valuationDisplay.value, countryCode)
+                      : undefined
+                  }
+                  loading={valuationDisplay.state === 'loading'}
                 />
               </View>
             ) : null}
@@ -302,5 +321,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontFamily: 'Outfit_700Bold',
     letterSpacing: -0.3,
+  },
+  miniValueSkeleton: {
+    width: 96,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: '#E8E0D4',
   },
 });

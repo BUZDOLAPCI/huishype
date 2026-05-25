@@ -57,6 +57,7 @@ export interface PriceGuessSliderProps {
   countryCode?: string;
   officialValuation?: number;
   officialValuationYear?: number | null;
+  officialValuationLoading?: boolean;
   askingPrice?: number;
   initialPrice?: number;
   initialPriceSource?: PriceGuessSliderStartSource;
@@ -538,6 +539,7 @@ export function PriceGuessSlider({
   countryCode,
   officialValuation,
   officialValuationYear,
+  officialValuationLoading = false,
   askingPrice,
   initialPrice,
   initialPriceSource,
@@ -1051,14 +1053,44 @@ export function PriceGuessSlider({
     userGuess,
   ]);
 
+  useEffect(() => {
+    if (
+      officialValuation === undefined ||
+      initialPrice !== undefined ||
+      userGuess !== undefined ||
+      resolvedAskingPrice !== undefined ||
+      hasUserInteracted.current
+    ) {
+      return;
+    }
+
+    lastHapticPrice.current = officialValuation;
+    setSliderStartPrice(officialValuation);
+    setGuessedPrice(officialValuation);
+    const nextRange = resolveSliderRange({ officialValuation, startPrice: officialValuation });
+    thumbPosition.value = withSpring(
+      priceToPosition(officialValuation, nextRange),
+      SLIDER_SPRING_CONFIG,
+    );
+    startAnalytics.current = buildStartAnalytics({
+      price: officialValuation,
+      source: 'official_valuation',
+      confidence: 'usable',
+    });
+  }, [initialPrice, officialValuation, resolvedAskingPrice, thumbPosition, userGuess]);
+
   const showPreviousGuessReference = !hasSamePrice(userGuess, guessedPrice);
 
   // Calculate reference marker positions
   const wozPosition = officialValuation ? priceToPosition(officialValuation, sliderRange) : null;
   const askingPosition = askingPrice ? priceToPosition(askingPrice, sliderRange) : null;
   const fmvPosition = currentFMV ? priceToPosition(currentFMV, sliderRange) : null;
+  const valuationMarkerPrefix =
+    !countryCode || countryCode.toUpperCase() === 'NL'
+      ? 'WOZ'
+      : getValuationLabel(countryCode).split(' ')[0] || 'Official';
   const wozMarkerLabel = officialValuation
-    ? formatMarkerLabel('WOZ', officialValuation, countryCode)
+    ? formatMarkerLabel(valuationMarkerPrefix, officialValuation, countryCode)
     : '';
   const askingMarkerLabel = askingPrice
     ? formatMarkerLabel('Asking', askingPrice, countryCode)
@@ -1338,10 +1370,14 @@ export function PriceGuessSlider({
         </Text>
 
         {/* Reference values */}
-        {officialValuation && (
+        {(officialValuation || officialValuationLoading) && (
           <Text className="text-sm text-warm-500 mb-4">
             {formatValuationLabel(countryCode, officialValuationYear)}:{' '}
-            {formatPrice(officialValuation, countryCode)}
+            {officialValuationLoading ? (
+              <Text testID="price-guess-valuation-value-skeleton">      </Text>
+            ) : officialValuation ? (
+              formatPrice(officialValuation, countryCode)
+            ) : null}
           </Text>
         )}
 

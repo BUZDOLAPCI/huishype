@@ -251,6 +251,8 @@ export default function FeedScreen() {
         thumbnailUrl={item.thumbnailUrl}
         aerialImageUrl={item.aerialImageUrl}
         officialValuation={item.officialValuation}
+        officialValuationYear={item.officialValuationYear}
+        officialValuationSourceFetch={item.officialValuationSourceFetch}
         askingPrice={item.askingPrice ?? undefined}
         fmvValue={item.fmvValue}
         activityLevel={item.activityLevel}

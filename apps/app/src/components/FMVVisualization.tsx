@@ -34,6 +34,7 @@ export interface FMVVisualizationProps {
   askingPrice?: number;
   officialValuation?: number;
   officialValuationYear?: number | null;
+  officialValuationLoading?: boolean;
   countryCode?: string;
   isLoading?: boolean;
   /** Display variant. Default 'full'. */
@@ -259,6 +260,7 @@ export function FMVVisualization({
   askingPrice: askingPriceProp,
   officialValuation: officialValuationProp,
   officialValuationYear,
+  officialValuationLoading = false,
   countryCode,
   isLoading = false,
   variant = 'full',
@@ -565,12 +567,16 @@ export function FMVVisualization({
         )}
 
         {/* Show official valuation in comparisons section when no side-by-side cards */}
-        {variant === 'compact' && officialValuation && (
+        {variant === 'compact' && (officialValuation || officialValuationLoading) && (
           <View className="flex-row items-center mt-1">
             <Icon name="Buildings" size={14} color="#9C958A" />
             <Text className="text-sm text-warm-500 ml-1">
               {formatValuationLabel(countryCode, officialValuationYear)}:{' '}
-              {formatPrice(officialValuation, countryCode)}
+              {officialValuationLoading ? (
+                <Text testID="fmv-valuation-value-skeleton">      </Text>
+              ) : officialValuation ? (
+                formatPrice(officialValuation, countryCode)
+              ) : null}
             </Text>
           </View>
         )}

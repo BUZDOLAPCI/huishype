@@ -152,6 +152,8 @@ function toPreviewData(property: GroupPreviewCardProps['properties'][number]) {
     countryCode: property.countryCode,
     officialValuation: property.officialValuation,
     officialValuationYear: property.officialValuationYear,
+    officialValuationSourceFetch: property.officialValuationSourceFetch,
+    officialValuationHydrationHidden: property.officialValuationHydrationHidden,
     askingPrice: property.askingPrice,
     fmv: property.fmv,
     marketState: property.marketState,

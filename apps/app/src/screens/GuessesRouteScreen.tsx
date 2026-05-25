@@ -30,6 +30,7 @@ import {
 } from '@/src/utils/property-image';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
+import { getOfficialValuationDisplayState } from '@/src/lib/officialValuationDisplay';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
 import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
 import {
@@ -369,6 +370,10 @@ export function GuessesRouteScreen({
   const propertySaleAskingPrice =
     property?.marketState === 'for-sale' ? property.askingPrice ?? null : null;
   const askingPrice = guessData?.activeListingAskingPrice ?? propertySaleAskingPrice;
+  const valuationDisplay = property ? getOfficialValuationDisplayState(property) : { state: 'hidden' as const };
+  const currentOfficialValuation =
+    valuationDisplay.state === 'ready' ? valuationDisplay.value : undefined;
+  const officialValuationLoading = valuationDisplay.state === 'loading';
   const initialPrice = askingPrice ?? guessData?.priceGuessStart?.price ?? undefined;
   const initialPriceSource =
     askingPrice != null ? 'active_listing_asking_price' : guessData?.priceGuessStart?.source;
@@ -408,8 +413,9 @@ export function GuessesRouteScreen({
                 <FMVVisualization
                   fmv={fmvData}
                   askingPrice={property.askingPrice ?? undefined}
-                  officialValuation={property.officialValuation ?? undefined}
+                  officialValuation={currentOfficialValuation}
                   officialValuationYear={property.officialValuationYear}
+                  officialValuationLoading={officialValuationLoading}
                   countryCode={property.countryCode ?? undefined}
                 />
               ) : null}
@@ -448,8 +454,9 @@ export function GuessesRouteScreen({
           <PriceGuessSlider
             propertyId={propertyId ?? ''}
             countryCode={property?.countryCode ?? undefined}
-            officialValuation={property?.officialValuation ?? undefined}
+            officialValuation={currentOfficialValuation}
             officialValuationYear={property?.officialValuationYear}
+            officialValuationLoading={officialValuationLoading}
             askingPrice={askingPrice ?? undefined}
             initialPrice={initialPrice}
             initialPriceSource={initialPriceSource}

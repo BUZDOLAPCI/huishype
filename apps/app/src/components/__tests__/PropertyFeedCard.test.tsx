@@ -124,6 +124,25 @@ describe('PropertyFeedCard', () => {
     expect(getByText('WOZ Value (2024)')).toBeTruthy();
   });
 
+  it('renders WOZ skeletons when valuation is expected but missing', () => {
+    const { getByText, getByTestId } = render(
+      <PropertyFeedCard
+        {...defaultProps}
+        officialValuation={null}
+        officialValuationYear={null}
+        officialValuationSourceFetch={{
+          source: 'woz',
+          expectedValuationYear: 2025,
+          supportsClientFetch: { web: false, native: false },
+        }}
+      />
+    );
+
+    expect(getByText('WOZ Value (2025)')).toBeTruthy();
+    expect(getByTestId('property-feed-valuation-value-skeleton')).toBeTruthy();
+    expect(getByTestId('property-feed-primary-price-value-skeleton')).toBeTruthy();
+  });
+
   it('renders all four stat pills even when counts are zero', () => {
     const { getByTestId, getAllByText } = render(
       <PropertyFeedCard

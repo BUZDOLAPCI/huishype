@@ -500,6 +500,7 @@ export interface FeedItem {
   fmv: number | null;
   officialValuation: number | null;
   officialValuationYear: number | null;
+  officialValuationSourceFetch: OfficialValuationSourceFetch | null;
   thumbnailUrl: string | null;
   likeCount: number;
   commentCount: number;
@@ -667,7 +668,11 @@ export type FollowingNearbySinglePropertyResponse = {
   groupKind: 'single';
   address: string;
   city: string;
+  countryCode: string | null;
   askingPrice: number | null;
+  officialValuation: number | null;
+  officialValuationYear: number | null;
+  officialValuationSourceFetch: OfficialValuationSourceFetch | null;
   thumbnailUrl: string | null;
   hasActiveListing: boolean;
   marketState: MapMarketState;

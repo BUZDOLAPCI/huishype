@@ -37,7 +37,7 @@ const MOCK_NEARBY_CLUSTER_IDS = [
 const MOCK_NEARBY_ACTIVE_SINGLE_ID = 'a0000000-0000-4000-a000-000000000007';
 const MOCK_NEARBY_GHOST_SINGLE_ID = 'a0000000-0000-4000-a000-000000000008';
 const MOCK_FOLLOWING_ACTIVITY_NOW_MS = Date.parse('2026-04-21T12:00:00.000Z');
-const MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR = 2024;
+const MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR = 2025;
 const MOCK_WOZ_SOURCE_FETCH = {
   source: 'woz' as const,
   expectedValuationYear: MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR,
@@ -465,6 +465,7 @@ function buildNearbySingleResponse({
     bbox: null,
     address: property.address,
     city: property.city,
+    countryCode: property.countryCode,
     activeListingCount: hasActiveListing ? 1 : 0,
     socialCount,
     recentSocialCount,
@@ -473,6 +474,9 @@ function buildNearbySingleResponse({
     recentSocialScoreTotal,
     commentCount,
     askingPrice: hasActiveListing ? (property.activeListing?.askingPrice ?? null) : null,
+    officialValuation: property.officialValuation ?? null,
+    officialValuationYear: property.officialValuationYear ?? null,
+    officialValuationSourceFetch: getMockOfficialValuationSourceFetch(property),
     thumbnailUrl: getMockPropertyThumbnailUrl(id),
     hasActiveListing,
     marketState,

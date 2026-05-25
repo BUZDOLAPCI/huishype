@@ -87,4 +87,45 @@ describe('PriceSection', () => {
       expect(screen.getByText('Vraagprijs')).toBeTruthy();
     });
   });
+
+  it('shows the WOZ card with a skeleton while an expected value hydrates', () => {
+    render(
+      <PriceSection
+        property={{
+          ...property,
+          officialValuation: null,
+          officialValuationYear: null,
+          officialValuationSourceFetch: {
+            source: 'woz',
+            expectedValuationYear: 2025,
+            supportsClientFetch: { web: false, native: false },
+          },
+        }}
+      />
+    );
+
+    const valuationCard = screen.getByTestId('price-snapshot-valuation-card');
+    expect(within(valuationCard).getByText('WOZ Value (2025)')).toBeTruthy();
+    expect(screen.getByTestId('price-snapshot-valuation-card-value-skeleton')).toBeTruthy();
+  });
+
+  it('hides the WOZ card after hydration timeout marks it hidden', () => {
+    render(
+      <PriceSection
+        property={{
+          ...property,
+          officialValuation: null,
+          officialValuationYear: null,
+          officialValuationHydrationHidden: true,
+          officialValuationSourceFetch: {
+            source: 'woz',
+            expectedValuationYear: 2025,
+            supportsClientFetch: { web: false, native: false },
+          },
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId('price-snapshot-valuation-card')).toBeNull();
+  });
 });

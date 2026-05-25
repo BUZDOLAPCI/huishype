@@ -1,3 +1,5 @@
+import type { OfficialValuationSourceFetchHint } from '@/src/lib/officialValuationDisplay';
+
 export interface GroupPreviewProperty {
   id: string;
   nodeClass?: 'active' | 'ghost';
@@ -11,6 +13,8 @@ export interface GroupPreviewProperty {
   countryCode?: string;
   officialValuation?: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetchHint | null;
+  officialValuationHydrationHidden?: boolean | null;
   askingPrice?: number | null;
   fmv?: number | null;
   hasActiveListing?: boolean | null;

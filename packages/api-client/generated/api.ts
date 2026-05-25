@@ -900,6 +900,15 @@ export interface paths {
                                 thumbnailUrl: string | null;
                                 officialValuation: number | null;
                                 officialValuationYear: number | null;
+                                officialValuationSourceFetch: {
+                                    /** @enum {string} */
+                                    source: "woz";
+                                    expectedValuationYear: number;
+                                    supportsClientFetch: {
+                                        web: boolean;
+                                        native: boolean;
+                                    };
+                                } | null;
                                 yearBuilt: number | null;
                                 floorAreaM2: number | null;
                                 socialScore: number;
@@ -985,6 +994,15 @@ export interface paths {
                                     thumbnailUrl: string | null;
                                     officialValuation: number | null;
                                     officialValuationYear: number | null;
+                                    officialValuationSourceFetch: {
+                                        /** @enum {string} */
+                                        source: "woz";
+                                        expectedValuationYear: number;
+                                        supportsClientFetch: {
+                                            web: boolean;
+                                            native: boolean;
+                                        };
+                                    } | null;
                                     yearBuilt: number | null;
                                     floorAreaM2: number | null;
                                     socialScore: number;
@@ -1074,6 +1092,15 @@ export interface paths {
                                 thumbnailUrl: string | null;
                                 officialValuation: number | null;
                                 officialValuationYear: number | null;
+                                officialValuationSourceFetch: {
+                                    /** @enum {string} */
+                                    source: "woz";
+                                    expectedValuationYear: number;
+                                    supportsClientFetch: {
+                                        web: boolean;
+                                        native: boolean;
+                                    };
+                                } | null;
                                 yearBuilt: number | null;
                                 floorAreaM2: number | null;
                                 socialScore: number;
@@ -1159,6 +1186,15 @@ export interface paths {
                                     thumbnailUrl: string | null;
                                     officialValuation: number | null;
                                     officialValuationYear: number | null;
+                                    officialValuationSourceFetch: {
+                                        /** @enum {string} */
+                                        source: "woz";
+                                        expectedValuationYear: number;
+                                        supportsClientFetch: {
+                                            web: boolean;
+                                            native: boolean;
+                                        };
+                                    } | null;
                                     yearBuilt: number | null;
                                     floorAreaM2: number | null;
                                     socialScore: number;
@@ -1264,7 +1300,19 @@ export interface paths {
                             groupKind: "single";
                             address: string;
                             city: string;
+                            countryCode: string | null;
                             askingPrice: number | null;
+                            officialValuation: number | null;
+                            officialValuationYear: number | null;
+                            officialValuationSourceFetch: {
+                                /** @enum {string} */
+                                source: "woz";
+                                expectedValuationYear: number;
+                                supportsClientFetch: {
+                                    web: boolean;
+                                    native: boolean;
+                                };
+                            } | null;
                             thumbnailUrl: string | null;
                             hasActiveListing: boolean;
                             /** @enum {string} */
@@ -1505,7 +1553,19 @@ export interface paths {
                             groupKind: "single";
                             address: string;
                             city: string;
+                            countryCode: string | null;
                             askingPrice: number | null;
+                            officialValuation: number | null;
+                            officialValuationYear: number | null;
+                            officialValuationSourceFetch: {
+                                /** @enum {string} */
+                                source: "woz";
+                                expectedValuationYear: number;
+                                supportsClientFetch: {
+                                    web: boolean;
+                                    native: boolean;
+                                };
+                            } | null;
                             thumbnailUrl: string | null;
                             hasActiveListing: boolean;
                             /** @enum {string} */
@@ -4921,6 +4981,15 @@ export interface paths {
                                 fmv: number | null;
                                 officialValuation: number | null;
                                 officialValuationYear: number | null;
+                                officialValuationSourceFetch: {
+                                    /** @enum {string} */
+                                    source: "woz";
+                                    expectedValuationYear: number;
+                                    supportsClientFetch: {
+                                        web: boolean;
+                                        native: boolean;
+                                    };
+                                } | null;
                                 thumbnailUrl: string | null;
                                 likeCount: number;
                                 commentCount: number;

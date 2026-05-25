@@ -35,6 +35,7 @@ import {
   type PropertyResolveResult,
   type NearbyPropertyGroup,
   type PhysicalTapPreviewProperty,
+  type OfficialValuationSourceFetch,
 } from '@/src/utils/api';
 import { PROPERTY_GHOST_REVEAL_ZOOM, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared/config';
 import {
@@ -172,6 +173,8 @@ export interface ToGroupPropertyInput {
   countryCode?: string | null;
   officialValuation?: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
+  officialValuationHydrationHidden?: boolean | null;
   askingPrice?: number | null;
   fmv?: number | PropertyFmvData | null;
   hasActiveListing?: boolean | null;
@@ -389,8 +392,9 @@ function mergeHydratedPreviewProperty(
     hasActiveListing: selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing,
   });
   const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
-  const mergedOfficialValuation =
-    currentProperty.officialValuation ?? selectedProperty.officialValuation ?? null;
+  const mergedOfficialValuation = selectedProperty.officialValuation ?? currentProperty.officialValuation ?? null;
+  const mergedOfficialValuationYear =
+    selectedProperty.officialValuationYear ?? currentProperty.officialValuationYear ?? null;
   const mergedAskingPrice = currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
   const mergedFmv =
     currentProperty.fmv ??
@@ -422,6 +426,15 @@ function mergeHydratedPreviewProperty(
     postalCode: selectedProperty.postalCode,
     countryCode: selectedProperty.countryCode,
     officialValuation: mergedOfficialValuation,
+    officialValuationYear: mergedOfficialValuationYear,
+    officialValuationSourceFetch:
+      selectedProperty.officialValuationSourceFetch ??
+      currentProperty.officialValuationSourceFetch ??
+      null,
+    officialValuationHydrationHidden:
+      selectedProperty.officialValuationHydrationHidden ??
+      currentProperty.officialValuationHydrationHidden ??
+      false,
     askingPrice: mergedAskingPrice,
     fmv: mergedFmv,
     hasActiveListing: selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing ?? null,
@@ -474,6 +487,8 @@ function convertToGroupProperty(
     countryCode,
     officialValuation: p.officialValuation,
     officialValuationYear: p.officialValuationYear ?? null,
+    officialValuationSourceFetch: p.officialValuationSourceFetch ?? null,
+    officialValuationHydrationHidden: p.officialValuationHydrationHidden ?? false,
     askingPrice: p.askingPrice ?? null,
     fmv: typeof p.fmv === 'number' ? p.fmv : (p.fmv?.fmv ?? null),
     hasActiveListing: p.hasActiveListing ?? null,
@@ -608,6 +623,10 @@ export function useMapInteraction(): UseMapInteractionReturn {
         prevCurrent.floorAreaM2 === mergedProperty.floorAreaM2 &&
         prevCurrent.countryCode === mergedProperty.countryCode &&
         prevCurrent.officialValuation === mergedProperty.officialValuation &&
+        prevCurrent.officialValuationYear === mergedProperty.officialValuationYear &&
+        prevCurrent.officialValuationSourceFetch === mergedProperty.officialValuationSourceFetch &&
+        prevCurrent.officialValuationHydrationHidden ===
+          mergedProperty.officialValuationHydrationHidden &&
         prevCurrent.askingPrice === mergedProperty.askingPrice &&
         prevCurrent.fmv === mergedProperty.fmv &&
         prevCurrent.hasActiveListing === mergedProperty.hasActiveListing &&
@@ -1005,6 +1024,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
                 postalCode: group.postalCode ?? null,
                 countryCode: group.countryCode ?? undefined,
                 officialValuation: group.officialValuation ?? null,
+                officialValuationYear: group.officialValuationYear ?? null,
+                officialValuationSourceFetch: group.officialValuationSourceFetch ?? null,
                 askingPrice: group.askingPrice ?? null,
                 hasActiveListing: group.hasActiveListing ?? null,
                 marketState: group.marketState ?? null,
@@ -1068,6 +1089,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
                 postalCode: result.postalCode,
                 countryCode: result.countryCode ?? undefined,
                 officialValuation: result.officialValuation,
+                officialValuationYear: result.officialValuationYear ?? null,
+                officialValuationSourceFetch: result.officialValuationSourceFetch ?? null,
                 askingPrice: result.askingPrice,
                 thumbnailUrl: result.thumbnailUrl,
                 hasActiveListing: result.hasActiveListing ?? null,
@@ -1197,6 +1220,8 @@ export function useMapInteraction(): UseMapInteractionReturn {
               postalCode: property.postalCode ?? null,
               countryCode,
               officialValuation: property.officialValuation ?? null,
+              officialValuationYear: property.officialValuationYear ?? null,
+              officialValuationSourceFetch: property.officialValuationSourceFetch ?? null,
               askingPrice: null,
               hasActiveListing: property.hasActiveListing ?? null,
               marketState: property.marketState ?? null,

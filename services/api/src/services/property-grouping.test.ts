@@ -1757,7 +1757,10 @@ describe('property-grouping', () => {
       commentCount: 2,
       address: 'Mockstraat 12, 5611 AA Eindhoven',
       city: 'Eindhoven',
+      countryCode: 'NL',
       askingPrice: 359000,
+      officialValuation: null,
+      officialValuationYear: null,
       thumbnailUrl: 'https://cdn.example.com/mock-thumb.jpg',
       hasActiveListing: true,
       marketState: 'for-sale',
@@ -1769,7 +1772,14 @@ describe('property-grouping', () => {
     expect(feature).toMatchObject({
       address: 'Mockstraat 12, 5611 AA Eindhoven',
       city: 'Eindhoven',
+      countryCode: 'NL',
       askingPrice: 359000,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationSource: 'woz',
+      officialValuationExpectedYear: 2025,
+      officialValuationSupportsWeb: false,
+      officialValuationSupportsNative: false,
       thumbnailUrl: 'https://cdn.example.com/mock-thumb.jpg',
       hasActiveListing: true,
       marketState: 'for-sale',
@@ -1778,8 +1788,6 @@ describe('property-grouping', () => {
     expect(feature).not.toHaveProperty('houseNumber');
     expect(feature).not.toHaveProperty('houseNumberAddition');
     expect(feature).not.toHaveProperty('postalCode');
-    expect(feature).not.toHaveProperty('countryCode');
-    expect(feature).not.toHaveProperty('officialValuation');
     expect(feature).not.toHaveProperty('yearBuilt');
     expect(feature).not.toHaveProperty('floorAreaM2');
   });

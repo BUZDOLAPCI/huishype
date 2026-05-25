@@ -34,6 +34,10 @@ export interface CanonicalPropertyResolveInput extends PropertyRouteAddressLike 
   houseNumber: string | number;
 }
 
+export interface CanonicalPropertyRouteMockOptions {
+  transformPropertyDetail?: (detail: unknown, property: CanonicalPropertyFixture) => unknown;
+}
+
 interface CanonicalPropertyResolvePayload {
   id?: string;
   address?: string | null;
@@ -189,6 +193,7 @@ export async function setupCanonicalPropertyRouteMocks(
   page: Page,
   request: APIRequestContext,
   selection: CanonicalPropertySelection,
+  options: CanonicalPropertyRouteMockOptions = {},
 ): Promise<void> {
   const { property } = selection;
   const resolvePayload = {
@@ -205,7 +210,7 @@ export async function setupCanonicalPropertyRouteMocks(
     countryCode: property.countryCode ?? 'NL',
   };
 
-  const [propertyDetail, comments, guesses, listings] = await Promise.all([
+  const [basePropertyDetail, comments, guesses, listings] = await Promise.all([
     fetchJsonOrFallback(request, `/properties/${property.id}`, property),
     fetchJsonOrFallback(request, `/properties/${property.id}/comments?limit=20`, {
       data: [],
@@ -242,6 +247,8 @@ export async function setupCanonicalPropertyRouteMocks(
     }),
     fetchJsonOrFallback(request, `/properties/${property.id}/listings`, { data: [] }),
   ]);
+  const propertyDetail =
+    options.transformPropertyDetail?.(basePropertyDetail, property) ?? basePropertyDetail;
 
   await page.route('**/properties/resolve**', async (route) => {
     if (route.request().method() !== 'GET') {

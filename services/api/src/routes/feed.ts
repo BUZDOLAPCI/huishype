@@ -7,6 +7,7 @@ import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { feedQuerySchema, isValidCountryCode, type FeedQuery } from '@huishype/shared';
 import { listingThumbnailOrderExpression } from '../services/property-queries.js';
+import { getOfficialValuationSourceFetchHint } from '../services/official-valuations/index.js';
 
 // --- Zod schemas ---
 
@@ -26,6 +27,16 @@ const feedItemSchema = z.object({
   fmv: z.number().nullable(),
   officialValuation: z.number().nullable(),
   officialValuationYear: z.number().nullable(),
+  officialValuationSourceFetch: z
+    .object({
+      source: z.literal('woz'),
+      expectedValuationYear: z.number(),
+      supportsClientFetch: z.object({
+        web: z.boolean(),
+        native: z.boolean(),
+      }),
+    })
+    .nullable(),
   thumbnailUrl: z.string().nullable(),
   likeCount: z.number(),
   commentCount: z.number(),
@@ -494,6 +505,7 @@ export async function feedRoutes(app: FastifyInstance) {
         officialValuation: r.official_valuation != null ? Number(r.official_valuation) : null,
         officialValuationYear:
           r.official_valuation_year != null ? Number(r.official_valuation_year) : null,
+        officialValuationSourceFetch: getOfficialValuationSourceFetchHint(r.country_code),
         thumbnailUrl: r.thumbnail_url,
         likeCount: Number(r.like_count),
         commentCount: Number(r.comment_count),

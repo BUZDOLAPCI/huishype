@@ -593,6 +593,56 @@ describe('useProperty', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('marks the WOZ surface hidden when polling times out without a value', async () => {
+    mockUser = null;
+    mockGetAccessToken.mockResolvedValue(null);
+    mockApi.get.mockResolvedValueOnce(
+      buildPropertyResponse({
+        officialValuation: null,
+        officialValuationYear: null,
+        officialValuationVerified: false,
+      })
+    );
+    mockSubmitOfficialValuationHydration.mockResolvedValueOnce({
+      propertyId: 'property-123',
+      source: 'woz',
+      status: 'queued',
+      valuationYear: 2024,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationVerified: false,
+      job: { id: 'job-1', state: 'queued', nextAttemptAt: null },
+    });
+    mockFetchCurrentOfficialValuationStatus.mockResolvedValue({
+      propertyId: 'property-123',
+      source: 'woz',
+      expectedValuationYear: 2024,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationVerified: false,
+      job: {
+        id: 'job-1',
+        state: 'running',
+        valuationYear: 2024,
+        attemptCount: 1,
+        nextAttemptAt: null,
+        lastAttemptAt: '2024-01-01T00:00:00.000Z',
+        lastSuccessAt: null,
+        lastError: null,
+      },
+      sourceState: null,
+    });
+
+    const { result } = renderHook(() => useProperty('property-123'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.officialValuationHydrationHidden).toBe(true);
+    });
+    expect(result.current.data?.id).toBe('property-123');
+  });
+
   it('does not request official valuation hydration for non-NL properties', async () => {
     mockUser = null;
     mockGetAccessToken.mockResolvedValue(null);

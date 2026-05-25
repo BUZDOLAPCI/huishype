@@ -339,7 +339,18 @@ type CanonicalNearbySingle = {
   isRead: boolean;
   address: string;
   city: string;
+  countryCode: string | null;
   askingPrice: number | null;
+  officialValuation: number | null;
+  officialValuationYear: number | null;
+  officialValuationSourceFetch: {
+    source: 'woz';
+    expectedValuationYear: number;
+    supportsClientFetch: {
+      web: boolean;
+      native: boolean;
+    };
+  } | null;
   thumbnailUrl: string | null;
   hasActiveListing: boolean;
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';

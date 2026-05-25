@@ -407,6 +407,7 @@ export interface NearbyGroupedResult {
   countryCode: string | null;
   officialValuation: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
   askingPrice: number | null;
   thumbnailUrl: string | null;
   yearBuilt?: number | null;
@@ -450,6 +451,7 @@ export interface NormalizedPropertyNodeGroup {
   countryCode: string | null;
   officialValuation: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
   askingPrice: number | null;
   thumbnailUrl: string | null;
   yearBuilt: number | null;
@@ -512,6 +514,7 @@ export interface PhysicalTapPreviewProperty {
   imageryGeometry?: { type: 'Point'; coordinates: [number, number] } | null;
   officialValuation?: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
   askingPrice?: number | null;
   hasActiveListing?: boolean | null;
   hasListing?: boolean | null;
@@ -565,6 +568,7 @@ interface PhysicalTapGroupPayload {
   countryCode?: string | null;
   officialValuation?: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
   askingPrice?: number | null;
   thumbnailUrl?: string | null;
   yearBuilt?: number | null;
@@ -749,6 +753,52 @@ function getTransportValue(
   return undefined;
 }
 
+function parseOfficialValuationSourceFetch(
+  properties: GeoJSON.GeoJsonProperties | Record<string, unknown>,
+): OfficialValuationSourceFetch | null {
+  const source = toNullableString(
+    getTransportValue(
+      properties,
+      'officialValuationSource',
+      'official_valuation_source',
+    ),
+  );
+  const expectedValuationYear = toNullableNumber(
+    getTransportValue(
+      properties,
+      'officialValuationExpectedYear',
+      'official_valuation_expected_year',
+    ),
+  );
+
+  if (source !== 'woz' || expectedValuationYear == null) {
+    return null;
+  }
+
+  return {
+    source,
+    expectedValuationYear,
+    supportsClientFetch: {
+      web:
+        toNullableBoolean(
+          getTransportValue(
+            properties,
+            'officialValuationSupportsWeb',
+            'official_valuation_supports_web',
+          ),
+        ) ?? false,
+      native:
+        toNullableBoolean(
+          getTransportValue(
+            properties,
+            'officialValuationSupportsNative',
+            'official_valuation_supports_native',
+          ),
+        ) ?? false,
+    },
+  };
+}
+
 function normalizeBbox(
   bbox: [number, number, number, number] | PropertyGroupBounds | null | undefined,
 ): PropertyGroupBounds | null {
@@ -849,6 +899,7 @@ export function normalizeNearbyPropertyGroup(result: NearbyGroupedResult): Nearb
     countryCode: result.countryCode,
     officialValuation: result.officialValuation,
     officialValuationYear: result.officialValuationYear ?? null,
+    officialValuationSourceFetch: result.officialValuationSourceFetch ?? null,
     askingPrice: result.askingPrice,
     thumbnailUrl: result.thumbnailUrl,
     yearBuilt: result.yearBuilt ?? null,
@@ -976,6 +1027,7 @@ function normalizePhysicalTapSingleResponse(
     countryCode: property.countryCode ?? property.country ?? null,
     officialValuation: property.officialValuation ?? null,
     officialValuationYear: property.officialValuationYear ?? null,
+    officialValuationSourceFetch: property.officialValuationSourceFetch ?? null,
     askingPrice: property.askingPrice ?? null,
     thumbnailUrl: property.thumbnailUrl ?? null,
     yearBuilt: property.yearBuilt ?? null,
@@ -1076,6 +1128,10 @@ function normalizePhysicalTapGroupResponse(
     officialValuationYear:
       response.group.officialValuationYear ??
       previewProperties[0]?.officialValuationYear ??
+      null,
+    officialValuationSourceFetch:
+      response.group.officialValuationSourceFetch ??
+      previewProperties[0]?.officialValuationSourceFetch ??
       null,
     askingPrice: response.group.askingPrice ?? null,
     thumbnailUrl: response.group.thumbnailUrl ?? previewProperties[0]?.thumbnailUrl ?? null,
@@ -1228,6 +1284,7 @@ export function normalizeRenderedPropertyGroup(
     officialValuationYear: toNullableNumber(
       getTransportValue(properties, 'officialValuationYear', 'official_valuation_year'),
     ),
+    officialValuationSourceFetch: parseOfficialValuationSourceFetch(properties),
     askingPrice: toNullableNumber(getTransportValue(properties, 'askingPrice', 'asking_price')),
     thumbnailUrl: toNullableString(getTransportValue(properties, 'thumbnailUrl', 'thumbnail_url')),
     yearBuilt: toNullableNumber(getTransportValue(properties, 'yearBuilt', 'year_built')),

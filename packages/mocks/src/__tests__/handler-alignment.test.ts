@@ -83,6 +83,10 @@ describe('Mock handler runtime parity', () => {
     'thumbnailUrl',
     'hasActiveListing',
     'marketState',
+    'countryCode',
+    'officialValuation',
+    'officialValuationYear',
+    'officialValuationSourceFetch',
   ].sort();
   const nearbyClusterKeys = [...nearbyGroupedBaseKeys].sort();
 
@@ -305,7 +309,7 @@ describe('Mock handler runtime parity', () => {
       officialValuationYear: 2024,
       officialValuationSourceFetch: {
         source: 'woz',
-        expectedValuationYear: 2024,
+        expectedValuationYear: 2025,
         supportsClientFetch: {
           web: false,
           native: false,
@@ -332,12 +336,16 @@ describe('Mock handler runtime parity', () => {
     expect(hydrateBody).toEqual({
       propertyId: mockPropertyIds.prinsengracht263,
       source: 'woz',
-      status: 'already_cached',
-      valuationYear: 2024,
+      status: 'queued',
+      valuationYear: 2025,
       officialValuation: 2850000,
       officialValuationYear: 2024,
-      officialValuationVerified: true,
-      job: null,
+      officialValuationVerified: false,
+      job: {
+        id: '00000000-0000-4000-8000-000000000001',
+        state: 'queued',
+        nextAttemptAt: null,
+      },
     });
 
     const currentResponse = await fetch(
@@ -346,10 +354,15 @@ describe('Mock handler runtime parity', () => {
     await expect(currentResponse.json()).resolves.toMatchObject({
       propertyId: mockPropertyIds.prinsengracht263,
       source: 'woz',
-      expectedValuationYear: 2024,
+      expectedValuationYear: 2025,
       officialValuation: 2850000,
       officialValuationYear: 2024,
-      officialValuationVerified: true,
+      officialValuationVerified: false,
+      job: {
+        id: '00000000-0000-4000-8000-000000000001',
+        state: 'queued',
+        valuationYear: 2025,
+      },
     });
 
     const refreshedDetailResponse = await fetch(
@@ -675,7 +688,7 @@ describe('Mock handler runtime parity', () => {
     expect(resolveBody).toHaveProperty('officialValuationSourceFetch');
     expect(resolveBody.officialValuationSourceFetch).toMatchObject({
       source: 'woz',
-      expectedValuationYear: 2024,
+      expectedValuationYear: 2025,
       supportsClientFetch: {
         web: false,
         native: false,

@@ -176,6 +176,26 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByTestId('property-preview-address').props.children).toBe('Teststraat 123');
   });
 
+  it('renders a WOZ price skeleton when valuation is expected but missing', () => {
+    render(
+      <PropertyPreviewCard
+        property={{
+          ...mockProperty,
+          officialValuation: null,
+          officialValuationYear: null,
+          officialValuationSourceFetch: {
+            source: 'woz',
+            expectedValuationYear: 2025,
+            supportsClientFetch: { web: false, native: false },
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByText('WOZ Value (2025)')).toBeTruthy();
+    expect(screen.getByTestId('property-preview-price-value-skeleton')).toBeTruthy();
+  });
+
   it('displays asking price when provided', () => {
     const propertyWithAskingPrice: PropertyPreviewData = {
       ...mockProperty,

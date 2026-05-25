@@ -28,6 +28,10 @@ import {
   toPropertyImageSource,
 } from '../utils/property-image';
 import { PropertyImageSurface } from './PropertyImageSurface';
+import {
+  getOfficialValuationDisplayState,
+  type OfficialValuationSourceFetchHint,
+} from '@/src/lib/officialValuationDisplay';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -49,6 +53,8 @@ export interface PropertyMediaData {
   officialValuation?: number | null;
   /** Year of the official government valuation. */
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetchHint | null;
+  officialValuationHydrationHidden?: boolean | null;
   /** Listing asking price. */
   askingPrice?: number | null;
   /** Crowd FMV estimate. */
@@ -99,19 +105,32 @@ function formatValuationLabel(countryCode?: string, year?: number | null): strin
   return year ? `${label} (${year})` : label;
 }
 
-function getDisplayPrice(
-  property: PropertyMediaData
-): { price: number; label: string } | null {
+type MediaDisplayPrice =
+  | { state: 'ready'; price: number; label: string }
+  | { state: 'loading'; label: string };
+
+function getDisplayPrice(property: PropertyMediaData): MediaDisplayPrice | null {
   if (property.fmv) {
-    return { price: property.fmv, label: 'Crowd Estimate' };
+    return { state: 'ready', price: property.fmv, label: 'Crowd Estimate' };
   }
   if (property.askingPrice) {
-    return { price: property.askingPrice, label: 'Asking Price' };
+    return { state: 'ready', price: property.askingPrice, label: 'Asking Price' };
   }
-  if (property.officialValuation) {
+  const valuationDisplay = getOfficialValuationDisplayState(property);
+  if (valuationDisplay.state === 'ready') {
     return {
-      price: property.officialValuation,
-      label: formatValuationLabel(property.countryCode, property.officialValuationYear),
+      state: 'ready',
+      price: valuationDisplay.value,
+      label: formatValuationLabel(property.countryCode, valuationDisplay.year),
+    };
+  }
+  if (valuationDisplay.state === 'loading') {
+    return {
+      state: 'loading',
+      label: formatValuationLabel(
+        property.countryCode,
+        valuationDisplay.expectedYear ?? valuationDisplay.year,
+      ),
     };
   }
   return null;
@@ -227,6 +246,13 @@ export function PropertyMediaCard({
   const imageHeight = IMAGE_HEIGHTS[variant];
   const activityLevel = property.activityLevel ?? 'cold';
   const displayPrice = getDisplayPrice(property);
+  const valuationDisplay = getOfficialValuationDisplayState(property);
+  const valuationLabelYear =
+    valuationDisplay.state === 'ready'
+      ? valuationDisplay.year
+      : valuationDisplay.state === 'loading'
+        ? (valuationDisplay.expectedYear ?? valuationDisplay.year)
+        : property.officialValuationYear;
 
   const cardShadow = variant === 'compact' ? 'preview' : 'card';
 
@@ -280,17 +306,24 @@ export function PropertyMediaCard({
         {displayPrice && (
           <View style={styles.priceRow}>
             {/* Official valuation on left (full/hero only) */}
-            {variant !== 'compact' && property.officialValuation && property.fmv && (
+            {variant !== 'compact' && valuationDisplay.state !== 'hidden' && property.fmv && (
               <View>
                 <Text style={styles.priceLabel}>
                   {formatValuationLabel(
                     property.countryCode,
-                    property.officialValuationYear,
+                    valuationLabelYear,
                   )}
                 </Text>
-                <Text style={styles.secondaryPrice}>
-                  {formatPrice(property.officialValuation, property.countryCode as string)}
-                </Text>
+                {valuationDisplay.state === 'loading' ? (
+                  <View
+                    testID="property-media-valuation-value-skeleton"
+                    style={styles.secondaryPriceSkeleton}
+                  />
+                ) : (
+                  <Text style={styles.secondaryPrice}>
+                    {formatPrice(valuationDisplay.value, property.countryCode as string)}
+                  </Text>
+                )}
               </View>
             )}
 
@@ -301,12 +334,19 @@ export function PropertyMediaCard({
               )}
               <View style={styles.primaryPriceRow}>
                 <Icon name="HouseLine" size={14} color="#F5A623" />
-                <Text
-                  style={variant === 'compact' ? styles.priceCompact : styles.priceFull}
-                  testID="display-price"
-                >
-                  {formatPrice(displayPrice.price, property.countryCode as string)}
-                </Text>
+                {displayPrice.state === 'loading' ? (
+                  <View
+                    testID="property-media-display-price-skeleton"
+                    style={variant === 'compact' ? styles.priceCompactSkeleton : styles.priceFullSkeleton}
+                  />
+                ) : (
+                  <Text
+                    style={variant === 'compact' ? styles.priceCompact : styles.priceFull}
+                    testID="display-price"
+                  >
+                    {formatPrice(displayPrice.price, property.countryCode as string)}
+                  </Text>
+                )}
               </View>
             </View>
           </View>
@@ -474,6 +514,13 @@ const styles = StyleSheet.create({
     color: '#736C62',
     marginTop: 2,
   },
+  secondaryPriceSkeleton: {
+    width: 92,
+    height: 18,
+    borderRadius: 5,
+    backgroundColor: '#E8E0D4',
+    marginTop: 4,
+  },
   primaryPriceRight: {
     alignItems: 'flex-end',
   },
@@ -488,9 +535,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2D2926',
   },
+  priceCompactSkeleton: {
+    width: 72,
+    height: 16,
+    borderRadius: 5,
+    backgroundColor: '#E8E0D4',
+  },
   priceFull: {
     fontSize: 16,
     fontWeight: '700',
     color: '#2D2926',
+  },
+  priceFullSkeleton: {
+    width: 88,
+    height: 18,
+    borderRadius: 5,
+    backgroundColor: '#E8E0D4',
   },
 });

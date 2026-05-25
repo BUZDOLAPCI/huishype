@@ -4,11 +4,16 @@
  * Server-side sorting/filtering replaces the old client-side approach.
  */
 
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { useCallback, useMemo } from 'react';
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Platform } from 'react-native';
-import { API_URL } from '../utils/api';
+import { API_URL, type OfficialValuationSourceFetch } from '../utils/api';
 import type { CountryCode, MapMarketState, PropertyFeedFilter } from '@huishype/shared';
 import { getPropertyThumbnailFromGeometry } from '../lib/propertyThumbnail';
+import {
+  useVisibleOfficialValuationHydration,
+  type OfficialValuationPatch,
+} from './useVisibleOfficialValuationHydration';
 
 export type { FeedTab, PropertyFeedFilter } from '@huishype/shared';
 
@@ -32,6 +37,8 @@ export interface FeedProperty {
   fmv: number | null;
   officialValuation: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
+  officialValuationHydrationHidden?: boolean;
   thumbnailUrl: string | null;
   aerialImageUrl?: string | null;
   likeCount: number;
@@ -64,6 +71,7 @@ interface FeedApiResponse {
     fmv: number | null;
     officialValuation: number | null;
     officialValuationYear?: number | null;
+    officialValuationSourceFetch?: OfficialValuationSourceFetch | null;
     thumbnailUrl: string | null;
     likeCount: number;
     commentCount: number;
@@ -111,6 +119,36 @@ function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
   };
 
   return property;
+}
+
+function applyOfficialValuationPatchToFeedProperty(
+  property: FeedProperty,
+  patch: OfficialValuationPatch,
+): FeedProperty {
+  if (property.id !== patch.propertyId) {
+    return property;
+  }
+  return {
+    ...property,
+    officialValuation: patch.officialValuation,
+    officialValuationYear: patch.officialValuationYear,
+    officialValuationHydrationHidden: false,
+    officialValuationSourceFetch: property.officialValuationSourceFetch
+      ? {
+          ...property.officialValuationSourceFetch,
+          expectedValuationYear: patch.expectedValuationYear,
+        }
+      : property.officialValuationSourceFetch,
+  };
+}
+
+function hideOfficialValuationForFeedProperty(
+  property: FeedProperty,
+  propertyId: string,
+): FeedProperty {
+  return property.id === propertyId
+    ? { ...property, officialValuationHydrationHidden: true }
+    : property;
 }
 
 // Fetch from dedicated /feed endpoint
@@ -167,13 +205,63 @@ export function useFeed(
   scope?: FeedScope,
   enabled = true
 ) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
     queryKey: feedKeys.list(filter, scope),
     queryFn: () => fetchFeed(1, FEED_PAGE_SIZE, filter, scope),
     enabled,
     staleTime: 30 * 1000, // 30 seconds
     refetchOnWindowFocus: false,
   });
+  const visibleProperties = useMemo(() => query.data?.properties ?? [], [query.data?.properties]);
+  const patchFeedProperty = useCallback(
+    (patch: OfficialValuationPatch) => {
+      queryClient.setQueriesData<{
+        properties: FeedProperty[];
+        meta: { page: number; limit: number; hasMore: boolean };
+      }>(
+        { queryKey: feedKeys.lists() },
+        (current) =>
+          current
+            ? {
+                ...current,
+                properties: current.properties.map((property) =>
+                  applyOfficialValuationPatchToFeedProperty(property, patch),
+                ),
+              }
+            : current,
+      );
+    },
+    [queryClient],
+  );
+  const hideFeedProperty = useCallback(
+    (propertyId: string) => {
+      queryClient.setQueriesData<{
+        properties: FeedProperty[];
+        meta: { page: number; limit: number; hasMore: boolean };
+      }>(
+        { queryKey: feedKeys.lists() },
+        (current) =>
+          current
+            ? {
+                ...current,
+                properties: current.properties.map((property) =>
+                  hideOfficialValuationForFeedProperty(property, propertyId),
+                ),
+              }
+            : current,
+      );
+    },
+    [queryClient],
+  );
+  useVisibleOfficialValuationHydration({
+    properties: visibleProperties,
+    enabled,
+    onValue: patchFeedProperty,
+    onHidden: hideFeedProperty,
+  });
+
+  return query;
 }
 
 /**
@@ -184,7 +272,8 @@ export function useInfiniteFeed(
   scope?: FeedScope,
   enabled = true
 ) {
-  return useInfiniteQuery({
+  const queryClient = useQueryClient();
+  const query = useInfiniteQuery({
     queryKey: feedKeys.infinite(filter, scope),
     queryFn: ({ pageParam = 1 }) => fetchFeed(pageParam, FEED_PAGE_SIZE, filter, scope),
     initialPageParam: 1,
@@ -195,4 +284,68 @@ export function useInfiniteFeed(
     staleTime: 30 * 1000, // 30 seconds
     refetchOnWindowFocus: false,
   });
+  const visibleProperties = useMemo(
+    () => query.data?.pages.flatMap((page) => page.properties) ?? [],
+    [query.data?.pages],
+  );
+  const patchFeedProperty = useCallback(
+    (patch: OfficialValuationPatch) => {
+      queryClient.setQueriesData<{
+        pages: Array<{
+          properties: FeedProperty[];
+          meta: { page: number; limit: number; hasMore: boolean };
+        }>;
+        pageParams: unknown[];
+      }>(
+        { queryKey: [...feedKeys.all, 'infinite'] },
+        (current) =>
+          current
+            ? {
+                ...current,
+                pages: current.pages.map((page) => ({
+                  ...page,
+                  properties: page.properties.map((property) =>
+                    applyOfficialValuationPatchToFeedProperty(property, patch),
+                  ),
+                })),
+              }
+            : current,
+      );
+    },
+    [queryClient],
+  );
+  const hideFeedProperty = useCallback(
+    (propertyId: string) => {
+      queryClient.setQueriesData<{
+        pages: Array<{
+          properties: FeedProperty[];
+          meta: { page: number; limit: number; hasMore: boolean };
+        }>;
+        pageParams: unknown[];
+      }>(
+        { queryKey: [...feedKeys.all, 'infinite'] },
+        (current) =>
+          current
+            ? {
+                ...current,
+                pages: current.pages.map((page) => ({
+                  ...page,
+                  properties: page.properties.map((property) =>
+                    hideOfficialValuationForFeedProperty(property, propertyId),
+                  ),
+                })),
+              }
+            : current,
+      );
+    },
+    [queryClient],
+  );
+  useVisibleOfficialValuationHydration({
+    properties: visibleProperties,
+    enabled,
+    onValue: patchFeedProperty,
+    onHidden: hideFeedProperty,
+  });
+
+  return query;
 }

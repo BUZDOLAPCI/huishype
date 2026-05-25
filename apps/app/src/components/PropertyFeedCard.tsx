@@ -22,6 +22,10 @@ import {
   StatusPillRow,
   type ListingMarketState,
 } from './PropertyStatusPills';
+import {
+  getOfficialValuationDisplayState,
+  type OfficialValuationSourceFetchHint,
+} from '@/src/lib/officialValuationDisplay';
 
 export interface PropertyFeedCardProps {
   id: string;
@@ -33,6 +37,8 @@ export interface PropertyFeedCardProps {
   aerialImageUrl?: string | null;
   officialValuation?: number | null;
   officialValuationYear?: number | null;
+  officialValuationSourceFetch?: OfficialValuationSourceFetchHint | null;
+  officialValuationHydrationHidden?: boolean | null;
   askingPrice?: number;
   fmvValue?: number;
   activityLevel?: 'hot' | 'warm' | 'cold';
@@ -64,6 +70,8 @@ function PropertyFeedCardComponent({
   aerialImageUrl,
   officialValuation,
   officialValuationYear,
+  officialValuationSourceFetch,
+  officialValuationHydrationHidden,
   askingPrice,
   fmvValue,
   activityLevel = 'cold',
@@ -100,7 +108,21 @@ function PropertyFeedCardComponent({
   );
 
   // Determine the primary display price
-  const primaryPrice = fmvValue ?? officialValuation;
+  const valuationDisplay = getOfficialValuationDisplayState({
+    countryCode,
+    officialValuation,
+    officialValuationYear,
+    officialValuationSourceFetch,
+    officialValuationHydrationHidden,
+  });
+  const valuationLabelYear =
+    valuationDisplay.state === 'ready'
+      ? valuationDisplay.year
+      : valuationDisplay.state === 'loading'
+        ? (valuationDisplay.expectedYear ?? valuationDisplay.year)
+        : officialValuationYear;
+  const primaryPrice = fmvValue ?? (valuationDisplay.state === 'ready' ? valuationDisplay.value : null);
+  const showPrimaryPrice = primaryPrice != null || (fmvValue == null && valuationDisplay.state === 'loading');
 
   return (
     <Pressable
@@ -157,23 +179,37 @@ function PropertyFeedCardComponent({
                   <Text style={styles.askingPrice}>{formatPrice(askingPrice, countryCode)}</Text>
                 </>
               )}
-              {!askingPrice && officialValuation != null && officialValuation > 0 && (
+              {!askingPrice && valuationDisplay.state !== 'hidden' && (
                 <>
                   <Text style={styles.priceLabel}>
-                    {formatValuationLabel(countryCode, officialValuationYear)}
+                    {formatValuationLabel(countryCode, valuationLabelYear)}
                   </Text>
-                  <Text style={styles.askingPrice}>
-                    {formatPrice(officialValuation, countryCode)}
-                  </Text>
+                  {valuationDisplay.state === 'loading' ? (
+                    <View
+                      testID="property-feed-valuation-value-skeleton"
+                      style={styles.priceValueSkeleton}
+                    />
+                  ) : (
+                    <Text style={styles.askingPrice}>
+                      {formatPrice(valuationDisplay.value, countryCode)}
+                    </Text>
+                  )}
                 </>
               )}
             </View>
 
-            {primaryPrice != null && primaryPrice > 0 && (
+            {showPrimaryPrice && (
               <View style={styles.primaryPriceContainer}>
                 <View style={styles.primaryPriceRow}>
                   <Icon name="HouseLine" size={14} color="#F5A623" />
-                  <Text style={styles.primaryPrice}>{formatPrice(primaryPrice, countryCode)}</Text>
+                  {fmvValue == null && valuationDisplay.state === 'loading' ? (
+                    <View
+                      testID="property-feed-primary-price-value-skeleton"
+                      style={styles.primaryPriceValueSkeleton}
+                    />
+                  ) : primaryPrice != null && primaryPrice > 0 ? (
+                    <Text style={styles.primaryPrice}>{formatPrice(primaryPrice, countryCode)}</Text>
+                  ) : null}
                 </View>
               </View>
             )}
@@ -202,6 +238,8 @@ function arePropertyFeedCardPropsEqual(
     prev.aerialImageUrl === next.aerialImageUrl &&
     prev.officialValuation === next.officialValuation &&
     prev.officialValuationYear === next.officialValuationYear &&
+    prev.officialValuationSourceFetch === next.officialValuationSourceFetch &&
+    prev.officialValuationHydrationHidden === next.officialValuationHydrationHidden &&
     prev.askingPrice === next.askingPrice &&
     prev.fmvValue === next.fmvValue &&
     prev.activityLevel === next.activityLevel &&
@@ -288,6 +326,13 @@ const styles = StyleSheet.create({
     color: '#736C62', // warm-600
     marginTop: 2,
   },
+  priceValueSkeleton: {
+    width: 92,
+    height: 18,
+    borderRadius: 5,
+    backgroundColor: '#E8E0D4',
+    marginTop: 4,
+  },
   primaryPriceContainer: {
     alignItems: 'flex-end',
   },
@@ -300,6 +345,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#2D2926', // warm-900
+  },
+  primaryPriceValueSkeleton: {
+    width: 84,
+    height: 18,
+    borderRadius: 5,
+    backgroundColor: '#E8E0D4',
   },
   statDivider: {
     height: 1,

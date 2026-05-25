@@ -748,6 +748,50 @@ describe('grouped property normalization', () => {
     });
   });
 
+  it('reconstructs official valuation source hints from scalar tile fields', () => {
+    const feature = {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [5.4697, 51.4416],
+      },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: '11111111-1111-4111-8111-111111111111',
+        point_count: 1,
+        activeListingCount: 0,
+        socialCount: 0,
+        recentSocialCount: 0,
+        socialScoreTotal: 0,
+        socialScoreMax: 0,
+        recentSocialScoreTotal: 0,
+        commentCount: 0,
+        countryCode: 'NL',
+        officialValuation: null,
+        officialValuationYear: null,
+        officialValuationSource: 'woz',
+        officialValuationExpectedYear: 2025,
+        officialValuationSupportsWeb: false,
+        officialValuationSupportsNative: false,
+      },
+    } as const satisfies GeoJSON.Feature;
+
+    expect(normalizeRenderedPropertyGroup(feature)).toMatchObject({
+      countryCode: 'NL',
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationSourceFetch: {
+        source: 'woz',
+        expectedValuationYear: 2025,
+        supportsClientFetch: {
+          web: false,
+          native: false,
+        },
+      },
+    });
+  });
+
   it('does not fall back to full property_ids for incomplete pyramid clusters', () => {
     const feature = {
       type: 'Feature',

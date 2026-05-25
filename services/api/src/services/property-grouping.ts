@@ -31,6 +31,7 @@ import {
   PropertyTileBuildAbortedError,
   type PropertyTileBuildOptions,
 } from './property-tile-runtime.js';
+import { getOfficialValuationSourceFetchHint } from './official-valuations/index.js';
 
 export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
@@ -93,6 +94,8 @@ type SinglePropertyDetailRow = {
   city: string;
   postal_code: string | null;
   asking_price: number | null;
+  official_valuation: number | null;
+  official_valuation_year: number | null;
   thumbnail_url: string | null;
   has_active_listing: boolean;
   market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
@@ -133,7 +136,10 @@ export type CanonicalPropertyGroup = {
   commentCount: number;
   address: string | null;
   city: string | null;
+  countryCode?: string | null;
   askingPrice: number | null;
+  officialValuation?: number | null;
+  officialValuationYear?: number | null;
   thumbnailUrl: string | null;
   hasActiveListing: boolean | null;
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
@@ -145,7 +151,10 @@ export type CanonicalPropertyGroup = {
 type SinglePropertyDetail = {
   address: string;
   city: string;
+  countryCode: string;
   askingPrice: number | null;
+  officialValuation: number | null;
+  officialValuationYear: number | null;
   thumbnailUrl: string | null;
   hasActiveListing: boolean;
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
@@ -248,7 +257,14 @@ export type TileTransportFeature = {
   commentCount: number;
   address: string | null;
   city: string | null;
+  countryCode?: string | null;
   askingPrice: number | null;
+  officialValuation?: number | null;
+  officialValuationYear?: number | null;
+  officialValuationSource?: string | null;
+  officialValuationExpectedYear?: number | null;
+  officialValuationSupportsWeb?: boolean | null;
+  officialValuationSupportsNative?: boolean | null;
   thumbnailUrl: string | null;
   hasActiveListing: boolean | null;
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
@@ -1297,7 +1313,10 @@ function buildCanonicalGroup(
     commentCount: summary.commentCount,
     address: null,
     city: null,
+    countryCode: null,
     askingPrice: null,
+    officialValuation: null,
+    officialValuationYear: null,
     thumbnailUrl: null,
     hasActiveListing: primaryProperty.hasActiveListing,
     marketState: primaryProperty.marketState,
@@ -2430,7 +2449,9 @@ async function fetchSinglePropertyDetails(
         p.house_number,
         p.house_number_addition,
         p.city,
-        p.postal_code
+        p.postal_code,
+        p.official_valuation,
+        p.official_valuation_year
       FROM properties p
       WHERE p.id IN (${idList})
     ),
@@ -2467,6 +2488,8 @@ async function fetchSinglePropertyDetails(
       tp.house_number_addition,
       tp.city,
       tp.postal_code,
+      tp.official_valuation,
+      tp.official_valuation_year,
       active_listing.asking_price,
       listing_thumbnail.thumbnail_url,
       active_listing.property_id IS NOT NULL AS has_active_listing,
@@ -2511,7 +2534,12 @@ async function fetchSinglePropertyDetails(
             isValidCountryCode(countryCode) ? countryCode : undefined
           ),
           city: row.city,
+          countryCode,
           askingPrice: row.asking_price != null ? Number(row.asking_price) : null,
+          officialValuation:
+            row.official_valuation != null ? Number(row.official_valuation) : null,
+          officialValuationYear:
+            row.official_valuation_year != null ? Number(row.official_valuation_year) : null,
           thumbnailUrl: row.thumbnail_url,
           hasActiveListing: row.has_active_listing,
           marketState: row.market_state,
@@ -2554,7 +2582,10 @@ async function hydrateSinglePropertyDetails(
       ...group,
       address: detail.address,
       city: detail.city,
+      countryCode: detail.countryCode,
       askingPrice: detail.askingPrice,
+      officialValuation: detail.officialValuation,
+      officialValuationYear: detail.officialValuationYear,
       thumbnailUrl: detail.thumbnailUrl,
       hasActiveListing: detail.hasActiveListing,
       marketState: detail.marketState,
@@ -2954,6 +2985,10 @@ export function serializeGroupForTile(
 ): TileTransportFeature {
   const bbox = group.bbox;
   const membershipComplete = isMembershipCompleteForTile(group, tile);
+  const sourceFetch =
+    group.groupKind === 'single' && group.countryCode
+      ? getOfficialValuationSourceFetchHint(group.countryCode)
+      : null;
   return {
     lon: group.coordinate[0],
     lat: group.coordinate[1],
@@ -2979,7 +3014,15 @@ export function serializeGroupForTile(
     commentCount: group.commentCount,
     address: group.groupKind === 'single' ? group.address : null,
     city: group.groupKind === 'single' ? group.city : null,
+    countryCode: group.groupKind === 'single' ? (group.countryCode ?? null) : null,
     askingPrice: group.groupKind === 'single' ? group.askingPrice : null,
+    officialValuation: group.groupKind === 'single' ? (group.officialValuation ?? null) : null,
+    officialValuationYear:
+      group.groupKind === 'single' ? (group.officialValuationYear ?? null) : null,
+    officialValuationSource: sourceFetch?.source ?? null,
+    officialValuationExpectedYear: sourceFetch?.expectedValuationYear ?? null,
+    officialValuationSupportsWeb: sourceFetch?.supportsClientFetch.web ?? null,
+    officialValuationSupportsNative: sourceFetch?.supportsClientFetch.native ?? null,
     thumbnailUrl: group.groupKind === 'single' ? group.thumbnailUrl : null,
     hasActiveListing: group.groupKind === 'single' ? group.hasActiveListing : null,
     marketState: group.groupKind === 'single' ? group.marketState : null,
@@ -3015,7 +3058,14 @@ function buildMvtFeatureRowsCte(features: TileTransportFeature[]): SQL {
         ${feature.commentCount}::integer,
         ${feature.address}::text,
         ${feature.city}::text,
+        ${feature.countryCode}::text,
         ${feature.askingPrice}::bigint,
+        ${feature.officialValuation}::bigint,
+        ${feature.officialValuationYear}::integer,
+        ${feature.officialValuationSource}::text,
+        ${feature.officialValuationExpectedYear}::integer,
+        ${feature.officialValuationSupportsWeb}::boolean,
+        ${feature.officialValuationSupportsNative}::boolean,
         ${feature.thumbnailUrl}::text,
         ${feature.hasActiveListing}::boolean,
         ${feature.marketState}::text,
@@ -3051,7 +3101,14 @@ function buildMvtFeatureRowsCte(features: TileTransportFeature[]): SQL {
       "commentCount",
       address,
       city,
+      "countryCode",
       "askingPrice",
+      "officialValuation",
+      "officialValuationYear",
+      "officialValuationSource",
+      "officialValuationExpectedYear",
+      "officialValuationSupportsWeb",
+      "officialValuationSupportsNative",
       "thumbnailUrl",
       "hasActiveListing",
       "marketState",
@@ -3122,7 +3179,14 @@ export async function buildMvtForGroups(
         "commentCount",
         address,
         city,
+        "countryCode",
         "askingPrice",
+        "officialValuation",
+        "officialValuationYear",
+        "officialValuationSource",
+        "officialValuationExpectedYear",
+        "officialValuationSupportsWeb",
+        "officialValuationSupportsNative",
         "thumbnailUrl",
         "hasActiveListing",
         "marketState",

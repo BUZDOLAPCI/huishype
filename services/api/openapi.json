@@ -2727,6 +2727,49 @@
                                     }
                                   ]
                                 },
+                                "officialValuationSourceFetch": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "source": {
+                                          "type": "string",
+                                          "enum": [
+                                            "woz"
+                                          ]
+                                        },
+                                        "expectedValuationYear": {
+                                          "type": "number"
+                                        },
+                                        "supportsClientFetch": {
+                                          "type": "object",
+                                          "properties": {
+                                            "web": {
+                                              "type": "boolean"
+                                            },
+                                            "native": {
+                                              "type": "boolean"
+                                            }
+                                          },
+                                          "required": [
+                                            "web",
+                                            "native"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      },
+                                      "required": [
+                                        "source",
+                                        "expectedValuationYear",
+                                        "supportsClientFetch"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "yearBuilt": {
                                   "anyOf": [
                                     {
@@ -2784,6 +2827,7 @@
                                 "thumbnailUrl",
                                 "officialValuation",
                                 "officialValuationYear",
+                                "officialValuationSourceFetch",
                                 "yearBuilt",
                                 "floorAreaM2",
                                 "socialScore",
@@ -3158,6 +3202,49 @@
                                           }
                                         ]
                                       },
+                                      "officialValuationSourceFetch": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "woz"
+                                                ]
+                                              },
+                                              "expectedValuationYear": {
+                                                "type": "number"
+                                              },
+                                              "supportsClientFetch": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "web": {
+                                                    "type": "boolean"
+                                                  },
+                                                  "native": {
+                                                    "type": "boolean"
+                                                  }
+                                                },
+                                                "required": [
+                                                  "web",
+                                                  "native"
+                                                ],
+                                                "additionalProperties": false
+                                              }
+                                            },
+                                            "required": [
+                                              "source",
+                                              "expectedValuationYear",
+                                              "supportsClientFetch"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
                                       "yearBuilt": {
                                         "anyOf": [
                                           {
@@ -3215,6 +3302,7 @@
                                       "thumbnailUrl",
                                       "officialValuation",
                                       "officialValuationYear",
+                                      "officialValuationSourceFetch",
                                       "yearBuilt",
                                       "floorAreaM2",
                                       "socialScore",
@@ -3539,6 +3627,49 @@
                                     }
                                   ]
                                 },
+                                "officialValuationSourceFetch": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "source": {
+                                          "type": "string",
+                                          "enum": [
+                                            "woz"
+                                          ]
+                                        },
+                                        "expectedValuationYear": {
+                                          "type": "number"
+                                        },
+                                        "supportsClientFetch": {
+                                          "type": "object",
+                                          "properties": {
+                                            "web": {
+                                              "type": "boolean"
+                                            },
+                                            "native": {
+                                              "type": "boolean"
+                                            }
+                                          },
+                                          "required": [
+                                            "web",
+                                            "native"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      },
+                                      "required": [
+                                        "source",
+                                        "expectedValuationYear",
+                                        "supportsClientFetch"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "yearBuilt": {
                                   "anyOf": [
                                     {
@@ -3596,6 +3727,7 @@
                                 "thumbnailUrl",
                                 "officialValuation",
                                 "officialValuationYear",
+                                "officialValuationSourceFetch",
                                 "yearBuilt",
                                 "floorAreaM2",
                                 "socialScore",
@@ -3970,6 +4102,49 @@
                                           }
                                         ]
                                       },
+                                      "officialValuationSourceFetch": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "woz"
+                                                ]
+                                              },
+                                              "expectedValuationYear": {
+                                                "type": "number"
+                                              },
+                                              "supportsClientFetch": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "web": {
+                                                    "type": "boolean"
+                                                  },
+                                                  "native": {
+                                                    "type": "boolean"
+                                                  }
+                                                },
+                                                "required": [
+                                                  "web",
+                                                  "native"
+                                                ],
+                                                "additionalProperties": false
+                                              }
+                                            },
+                                            "required": [
+                                              "source",
+                                              "expectedValuationYear",
+                                              "supportsClientFetch"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
                                       "yearBuilt": {
                                         "anyOf": [
                                           {
@@ -4027,6 +4202,7 @@
                                       "thumbnailUrl",
                                       "officialValuation",
                                       "officialValuationYear",
+                                      "officialValuationSourceFetch",
                                       "yearBuilt",
                                       "floorAreaM2",
                                       "socialScore",
@@ -4387,10 +4563,83 @@
                             "city": {
                               "type": "string"
                             },
+                            "countryCode": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "askingPrice": {
                               "anyOf": [
                                 {
                                   "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "officialValuation": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "officialValuationYear": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "officialValuationSourceFetch": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "source": {
+                                      "type": "string",
+                                      "enum": [
+                                        "woz"
+                                      ]
+                                    },
+                                    "expectedValuationYear": {
+                                      "type": "number"
+                                    },
+                                    "supportsClientFetch": {
+                                      "type": "object",
+                                      "properties": {
+                                        "web": {
+                                          "type": "boolean"
+                                        },
+                                        "native": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "web",
+                                        "native"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": [
+                                    "source",
+                                    "expectedValuationYear",
+                                    "supportsClientFetch"
+                                  ],
+                                  "additionalProperties": false
                                 },
                                 {
                                   "type": "null"
@@ -4445,7 +4694,11 @@
                             "groupKind",
                             "address",
                             "city",
+                            "countryCode",
                             "askingPrice",
+                            "officialValuation",
+                            "officialValuationYear",
+                            "officialValuationSourceFetch",
                             "thumbnailUrl",
                             "hasActiveListing",
                             "marketState"
@@ -5338,10 +5591,83 @@
                             "city": {
                               "type": "string"
                             },
+                            "countryCode": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "askingPrice": {
                               "anyOf": [
                                 {
                                   "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "officialValuation": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "officialValuationYear": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "officialValuationSourceFetch": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "source": {
+                                      "type": "string",
+                                      "enum": [
+                                        "woz"
+                                      ]
+                                    },
+                                    "expectedValuationYear": {
+                                      "type": "number"
+                                    },
+                                    "supportsClientFetch": {
+                                      "type": "object",
+                                      "properties": {
+                                        "web": {
+                                          "type": "boolean"
+                                        },
+                                        "native": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "web",
+                                        "native"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": [
+                                    "source",
+                                    "expectedValuationYear",
+                                    "supportsClientFetch"
+                                  ],
+                                  "additionalProperties": false
                                 },
                                 {
                                   "type": "null"
@@ -5396,7 +5722,11 @@
                             "groupKind",
                             "address",
                             "city",
+                            "countryCode",
                             "askingPrice",
+                            "officialValuation",
+                            "officialValuationYear",
+                            "officialValuationSourceFetch",
                             "thumbnailUrl",
                             "hasActiveListing",
                             "marketState"
@@ -13609,6 +13939,49 @@
                               }
                             ]
                           },
+                          "officialValuationSourceFetch": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "woz"
+                                    ]
+                                  },
+                                  "expectedValuationYear": {
+                                    "type": "number"
+                                  },
+                                  "supportsClientFetch": {
+                                    "type": "object",
+                                    "properties": {
+                                      "web": {
+                                        "type": "boolean"
+                                      },
+                                      "native": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "web",
+                                      "native"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "source",
+                                  "expectedValuationYear",
+                                  "supportsClientFetch"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "thumbnailUrl": {
                             "anyOf": [
                               {
@@ -13669,6 +14042,7 @@
                           "fmv",
                           "officialValuation",
                           "officialValuationYear",
+                          "officialValuationSourceFetch",
                           "thumbnailUrl",
                           "likeCount",
                           "commentCount",
