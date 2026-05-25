@@ -46,7 +46,7 @@ describe('PropertyPreviewCard', () => {
 
     // Price is rendered as formatted value (e.g., "€ 350.000")
     expect(screen.getByText(/350/)).toBeTruthy();
-    expect(screen.getByText('WOZ Value (2024)')).toBeTruthy();
+    expect(screen.getByText('WOZ Value')).toBeTruthy();
   });
 
   it('shows activity indicator based on activity level', () => {
@@ -192,7 +192,7 @@ describe('PropertyPreviewCard', () => {
       />
     );
 
-    expect(screen.getByText('WOZ Value (2025)')).toBeTruthy();
+    expect(screen.getByText('WOZ Value')).toBeTruthy();
     expect(screen.getByTestId('property-preview-price-value-skeleton')).toBeTruthy();
   });
 

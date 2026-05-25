@@ -118,10 +118,10 @@ describe('PropertyFeedCard', () => {
     expect(getByTestId('feed-card-stats')).toBeTruthy();
   });
 
-  it('labels official valuation with the year when it is the visible price', () => {
+  it('labels official valuation without the year when it is the visible price', () => {
     const { getByText } = render(<PropertyFeedCard {...defaultProps} />);
 
-    expect(getByText('WOZ Value (2024)')).toBeTruthy();
+    expect(getByText('WOZ Value')).toBeTruthy();
   });
 
   it('renders WOZ skeletons when valuation is expected but missing', () => {
@@ -138,7 +138,7 @@ describe('PropertyFeedCard', () => {
       />
     );
 
-    expect(getByText('WOZ Value (2025)')).toBeTruthy();
+    expect(getByText('WOZ Value')).toBeTruthy();
     expect(getByTestId('property-feed-valuation-value-skeleton')).toBeTruthy();
     expect(getByTestId('property-feed-primary-price-value-skeleton')).toBeTruthy();
   });

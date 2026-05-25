@@ -209,11 +209,6 @@ function formatPrice(value: number | null | undefined, countryCode?: string): st
   return formatPropertyPrice(value, countryCode as CountryCode);
 }
 
-function formatValuationLabel(countryCode?: string, year?: number | null): string {
-  const label = getValuationLabel(countryCode);
-  return year ? `${label} (${year})` : label;
-}
-
 type PreviewDisplayPrice =
   | { state: 'ready'; price: number; label: string }
   | { state: 'loading'; label: string };
@@ -232,17 +227,14 @@ function getDisplayPrice(property: PropertyPreviewData): PreviewDisplayPrice | n
     return {
       state: 'ready',
       price: valuationDisplay.value,
-      label: formatValuationLabel(property.countryCode, valuationDisplay.year),
+      label: getValuationLabel(property.countryCode),
     };
   }
 
   if (valuationDisplay.state === 'loading') {
     return {
       state: 'loading',
-      label: formatValuationLabel(
-        property.countryCode,
-        valuationDisplay.expectedYear ?? valuationDisplay.year,
-      ),
+      label: getValuationLabel(property.countryCode),
     };
   }
 

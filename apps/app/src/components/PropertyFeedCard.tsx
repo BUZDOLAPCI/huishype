@@ -57,11 +57,6 @@ function formatPrice(value: number | null | undefined, countryCode?: string): st
   return formatPropertyPrice(value, countryCode as CountryCode);
 }
 
-function formatValuationLabel(countryCode?: string, year?: number | null): string {
-  const label = getValuationLabel(countryCode);
-  return year ? `${label} (${year})` : label;
-}
-
 function PropertyFeedCardComponent({
   address,
   city,
@@ -115,12 +110,6 @@ function PropertyFeedCardComponent({
     officialValuationSourceFetch,
     officialValuationHydrationHidden,
   });
-  const valuationLabelYear =
-    valuationDisplay.state === 'ready'
-      ? valuationDisplay.year
-      : valuationDisplay.state === 'loading'
-        ? (valuationDisplay.expectedYear ?? valuationDisplay.year)
-        : officialValuationYear;
   const primaryPrice = fmvValue ?? (valuationDisplay.state === 'ready' ? valuationDisplay.value : null);
   const showPrimaryPrice = primaryPrice != null || (fmvValue == null && valuationDisplay.state === 'loading');
 
@@ -182,7 +171,7 @@ function PropertyFeedCardComponent({
               {!askingPrice && valuationDisplay.state !== 'hidden' && (
                 <>
                   <Text style={styles.priceLabel}>
-                    {formatValuationLabel(countryCode, valuationLabelYear)}
+                    {getValuationLabel(countryCode)}
                   </Text>
                   {valuationDisplay.state === 'loading' ? (
                     <View
