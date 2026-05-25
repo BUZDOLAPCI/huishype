@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Text, View } from 'react-native';
 import { Icon } from './ui/Icon';
+import { SkeletonBlock } from './ui/Skeleton';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -113,12 +114,12 @@ function LoadingSkeleton() {
   return (
     <View className="p-4 bg-surface-card rounded-xl" testID="fmv-loading">
       <View className="flex-row items-center justify-between mb-3">
-        <View className="h-6 w-32 bg-warm-200 rounded animate-pulse" />
-        <View className="h-5 w-24 bg-warm-200 rounded-full animate-pulse" />
+        <SkeletonBlock className="h-6 w-32" />
+        <SkeletonBlock className="h-5 w-24" radius={999} />
       </View>
-      <View className="h-10 w-40 bg-warm-200 rounded mb-4 animate-pulse" />
-      <View className="h-4 bg-warm-200 rounded-full mb-4 animate-pulse" />
-      <View className="h-4 w-28 bg-warm-200 rounded animate-pulse" />
+      <SkeletonBlock className="h-10 w-40 mb-4" />
+      <SkeletonBlock className="h-4 mb-4" radius={999} />
+      <SkeletonBlock className="h-4 w-28" />
     </View>
   );
 }
@@ -570,14 +571,23 @@ export function FMVVisualization({
         {variant === 'compact' && (officialValuation || officialValuationLoading) && (
           <View className="flex-row items-center mt-1">
             <Icon name="Buildings" size={14} color="#9C958A" />
-            <Text className="text-sm text-warm-500 ml-1">
-              {formatValuationLabel(countryCode, officialValuationYear)}:{' '}
+            <View className="ml-1 flex-row items-center">
+              <Text className="text-sm text-warm-500">
+                {formatValuationLabel(countryCode, officialValuationYear)}:{' '}
+              </Text>
               {officialValuationLoading ? (
-                <Text testID="fmv-valuation-value-skeleton">      </Text>
+                <SkeletonBlock
+                  testID="fmv-valuation-value-skeleton"
+                  width={72}
+                  height={14}
+                  radius={5}
+                />
               ) : officialValuation ? (
-                formatPrice(officialValuation, countryCode)
+                <Text className="text-sm text-warm-500">
+                  {formatPrice(officialValuation, countryCode)}
+                </Text>
               ) : null}
-            </Text>
+            </View>
           </View>
         )}
       </View>

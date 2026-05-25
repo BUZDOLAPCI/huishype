@@ -17,6 +17,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View, Platform, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
+import { SkeletonBlock } from './ui/Skeleton';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
 import { getCountryConfig, isValidCountryCode } from '@huishype/shared/config';
 import { toPropertyImageSource } from '../utils/property-image';
@@ -343,7 +344,7 @@ export function PropertyPreviewCard({
                 <View style={styles.priceValueRow}>
                   <Icon name="HouseLine" size={14} color={COLORS.gold500} />
                   {displayPrice.state === 'loading' ? (
-                    <View
+                    <SkeletonBlock
                       testID="property-preview-price-value-skeleton"
                       style={styles.priceValueSkeleton}
                     />

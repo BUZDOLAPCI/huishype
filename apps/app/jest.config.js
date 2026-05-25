@@ -29,6 +29,7 @@ module.exports = {
     '^react-native-css-interop$': '<rootDir>/__mocks__/react-native-css-interop.js',
     '^react-native-css-interop/(.*)$': '<rootDir>/__mocks__/react-native-css-interop.js',
     '^expo-haptics$': '<rootDir>/__mocks__/expo-haptics.js',
+    '^expo-linear-gradient$': '<rootDir>/__mocks__/expo-linear-gradient.js',
     '^expo-blur$': '<rootDir>/__mocks__/expo-blur.js',
     '^phosphor-react-native$': '<rootDir>/__mocks__/phosphor-react-native.js',
     '^@phosphor-icons/react$': '<rootDir>/__mocks__/@phosphor-icons/react.js',

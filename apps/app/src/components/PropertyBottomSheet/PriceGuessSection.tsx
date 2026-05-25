@@ -10,6 +10,7 @@ import { FMVVisualization, type FMVData } from '../FMVVisualization';
 import { ConsensusAlignment } from '../ConsensusAlignment';
 import { getOfficialValuationDisplayState } from '@/src/lib/officialValuationDisplay';
 import { Icon } from '../ui/Icon';
+import { SkeletonBlock } from '../ui/Skeleton';
 import {
   useFetchPriceGuess,
   useSubmitGuess,
@@ -32,17 +33,17 @@ function LoadingSkeleton() {
     <SectionCard style={styles.sectionCard} shadow="card-alt">
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center">
-          <View className="h-[18px] w-[18px] rounded bg-warm-200 animate-pulse" />
-          <View className="ml-2 h-5 w-36 rounded bg-warm-200 animate-pulse" />
+          <SkeletonBlock className="h-[18px] w-[18px]" />
+          <SkeletonBlock className="ml-2 h-5 w-36" />
         </View>
-        <View className="h-6 w-20 rounded-full bg-green-100 animate-pulse" />
+        <SkeletonBlock className="h-6 w-20" radius={999} />
       </View>
-      <View className="mt-4 h-4 w-56 rounded bg-warm-200 animate-pulse" />
-      <View className="mt-5 h-3 w-24 rounded bg-warm-200 animate-pulse" />
-      <View className="mt-3 h-10 w-40 rounded bg-warm-200 animate-pulse" />
+      <SkeletonBlock className="mt-4 h-4 w-56" />
+      <SkeletonBlock className="mt-5 h-3 w-24" />
+      <SkeletonBlock className="mt-3 h-10 w-40" />
       <View className="mt-4 h-px w-full bg-warm-200" />
-      <View className="mt-5 h-28 w-full rounded bg-warm-100 animate-pulse" />
-      <View className="mt-4 h-12 w-full rounded-xl bg-warm-200 animate-pulse" />
+      <SkeletonBlock className="mt-5 h-28 w-full" />
+      <SkeletonBlock className="mt-4 h-12 w-full" radius={12} />
     </SectionCard>
   );
 }
