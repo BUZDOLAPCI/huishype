@@ -8,8 +8,8 @@ export function LoadingSkeleton() {
       <SkeletonBlock className="h-48 mb-4" radius={12} />
 
       {/* Address skeleton */}
-      <SkeletonBlock className="h-6 w-3/4 mb-2" />
-      <SkeletonBlock className="h-4 w-1/2 mb-4" />
+      <SkeletonBlock className="h-6 w-3/4 mb-2" radius={999} />
+      <SkeletonBlock className="h-4 w-1/2 mb-4" radius={999} />
 
       {/* Badges skeleton */}
       <View className="flex-row gap-2 mb-6">
@@ -20,12 +20,12 @@ export function LoadingSkeleton() {
       {/* Price section skeleton */}
       <View className="flex-row mb-6">
         <View className="flex-1 mr-2">
-          <SkeletonBlock className="h-3 w-16 mb-2" />
-          <SkeletonBlock className="h-6 w-28" />
+          <SkeletonBlock className="h-3 w-16 mb-2" radius={999} />
+          <SkeletonBlock className="h-6 w-28" radius={999} />
         </View>
         <View className="flex-1 ml-2">
-          <SkeletonBlock className="h-3 w-16 mb-2" />
-          <SkeletonBlock className="h-6 w-28" />
+          <SkeletonBlock className="h-3 w-16 mb-2" radius={999} />
+          <SkeletonBlock className="h-6 w-28" radius={999} />
         </View>
       </View>
 

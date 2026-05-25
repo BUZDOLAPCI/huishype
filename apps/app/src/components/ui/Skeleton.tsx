@@ -65,7 +65,7 @@ function transparentColor(color: string) {
 export function SkeletonBlock({
   width,
   height,
-  radius = 999,
+  radius = 6,
   color = BASE_COLOR,
   highlightColor = HIGHLIGHT_COLOR,
   style,

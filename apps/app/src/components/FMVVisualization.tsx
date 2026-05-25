@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Text, View } from 'react-native';
 import { Icon } from './ui/Icon';
-import { SkeletonBlock } from './ui/Skeleton';
+import { SkeletonBlock, SkeletonText } from './ui/Skeleton';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -114,12 +114,12 @@ function LoadingSkeleton() {
   return (
     <View className="p-4 bg-surface-card rounded-xl" testID="fmv-loading">
       <View className="flex-row items-center justify-between mb-3">
-        <SkeletonBlock className="h-6 w-32" />
+        <SkeletonBlock className="h-6 w-32" radius={999} />
         <SkeletonBlock className="h-5 w-24" radius={999} />
       </View>
-      <SkeletonBlock className="h-10 w-40 mb-4" />
+      <SkeletonBlock className="h-10 w-40 mb-4" radius={999} />
       <SkeletonBlock className="h-4 mb-4" radius={999} />
-      <SkeletonBlock className="h-4 w-28" />
+      <SkeletonBlock className="h-4 w-28" radius={999} />
     </View>
   );
 }
@@ -576,7 +576,7 @@ export function FMVVisualization({
                 {formatValuationLabel(countryCode, officialValuationYear)}:{' '}
               </Text>
               {officialValuationLoading ? (
-                <SkeletonBlock
+                <SkeletonText
                   testID="fmv-valuation-value-skeleton"
                   width={72}
                   height={14}

@@ -18,7 +18,7 @@
 import React from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
-import { SkeletonBlock } from './ui/Skeleton';
+import { SkeletonText } from './ui/Skeleton';
 import { Card } from './ui/Card';
 import {
   formatPropertyPrice,
@@ -316,7 +316,7 @@ export function PropertyMediaCard({
                   )}
                 </Text>
                 {valuationDisplay.state === 'loading' ? (
-                  <SkeletonBlock
+                  <SkeletonText
                     testID="property-media-valuation-value-skeleton"
                     style={styles.secondaryPriceSkeleton}
                   />
@@ -336,7 +336,7 @@ export function PropertyMediaCard({
               <View style={styles.primaryPriceRow}>
                 <Icon name="HouseLine" size={14} color="#F5A623" />
                 {displayPrice.state === 'loading' ? (
-                  <SkeletonBlock
+                  <SkeletonText
                     testID="property-media-display-price-skeleton"
                     style={variant === 'compact' ? styles.priceCompactSkeleton : styles.priceFullSkeleton}
                   />

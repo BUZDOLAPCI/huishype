@@ -10,7 +10,7 @@
 import React, { memo, useMemo } from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Icon } from './ui/Icon';
-import { SkeletonBlock } from './ui/Skeleton';
+import { SkeletonText } from './ui/Skeleton';
 import { MetricPills } from './MetricPills';
 import { Card } from './ui/Card';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
@@ -175,7 +175,7 @@ function PropertyFeedCardComponent({
                     {getValuationLabel(countryCode)}
                   </Text>
                   {valuationDisplay.state === 'loading' ? (
-                    <SkeletonBlock
+                    <SkeletonText
                       testID="property-feed-valuation-value-skeleton"
                       style={styles.priceValueSkeleton}
                     />
@@ -193,7 +193,7 @@ function PropertyFeedCardComponent({
                 <View style={styles.primaryPriceRow}>
                   <Icon name="HouseLine" size={14} color="#F5A623" />
                   {fmvValue == null && valuationDisplay.state === 'loading' ? (
-                    <SkeletonBlock
+                    <SkeletonText
                       testID="property-feed-primary-price-value-skeleton"
                       style={styles.primaryPriceValueSkeleton}
                     />

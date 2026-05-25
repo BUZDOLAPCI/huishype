@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, LayoutChangeEvent } from 'react-native';
 import { Icon } from './ui/Icon';
-import { SkeletonBlock } from './ui/Skeleton';
+import { SkeletonText } from './ui/Skeleton';
 import Animated, {
   Easing,
   interpolateColor,
@@ -1377,7 +1377,7 @@ export function PriceGuessSlider({
               {formatValuationLabel(countryCode, officialValuationYear)}:{' '}
             </Text>
             {officialValuationLoading ? (
-              <SkeletonBlock
+              <SkeletonText
                 testID="price-guess-valuation-value-skeleton"
                 width={72}
                 height={14}

@@ -70,10 +70,18 @@ describe('Skeleton', () => {
     expect(style.backgroundColor).toBe('#F5F0E8');
   });
 
-  it('uses the route loading capsule radius by default', () => {
+  it('uses a block radius by default for SkeletonBlock', () => {
     const { getByTestId } = render(<SkeletonBlock testID="default-radius" />);
 
     const style = flattenStyle(getByTestId('default-radius').props.style);
+
+    expect(style.borderRadius).toBe(6);
+  });
+
+  it('uses the route loading capsule radius by default for SkeletonText', () => {
+    const { getByTestId } = render(<SkeletonText testID="default-text-radius" />);
+
+    const style = flattenStyle(getByTestId('default-text-radius').props.style);
 
     expect(style.borderRadius).toBe(999);
   });

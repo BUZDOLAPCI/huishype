@@ -34,7 +34,7 @@ function LoadingSkeleton() {
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center">
           <SkeletonBlock className="h-[18px] w-[18px]" />
-          <SkeletonBlock className="ml-2 h-5 w-36" />
+          <SkeletonBlock className="ml-2 h-5 w-36" radius={999} />
         </View>
         <SkeletonBlock
           className="h-6 w-20"
@@ -42,9 +42,9 @@ function LoadingSkeleton() {
           radius={999}
         />
       </View>
-      <SkeletonBlock className="mt-4 h-4 w-56" />
-      <SkeletonBlock className="mt-5 h-3 w-24" />
-      <SkeletonBlock className="mt-3 h-10 w-40" />
+      <SkeletonBlock className="mt-4 h-4 w-56" radius={999} />
+      <SkeletonBlock className="mt-5 h-3 w-24" radius={999} />
+      <SkeletonBlock className="mt-3 h-10 w-40" radius={999} />
       <View className="mt-4 h-px w-full bg-warm-200" />
       <SkeletonBlock
         className="mt-5 h-28 w-full"

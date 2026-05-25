@@ -7,7 +7,7 @@ import type { SectionProps } from './types';
 import { SectionCard } from './SectionCard';
 import { useT, type TranslationKey } from '../../i18n';
 import { getOfficialValuationDisplayState } from '@/src/lib/officialValuationDisplay';
-import { SkeletonBlock } from '../ui/Skeleton';
+import { SkeletonText } from '../ui/Skeleton';
 
 function formatPrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode);
@@ -94,7 +94,7 @@ function MiniPriceCard({
         <Text style={styles.miniLabel}>{label}</Text>
       </View>
       {loading ? (
-        <SkeletonBlock testID={`${testID}-value-skeleton`} style={styles.miniValueSkeleton} />
+        <SkeletonText testID={`${testID}-value-skeleton`} style={styles.miniValueSkeleton} />
       ) : (
         <Text style={[styles.miniValue, { color: valueColor }]}>{value}</Text>
       )}
