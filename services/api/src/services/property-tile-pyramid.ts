@@ -18,6 +18,7 @@ import {
   getExpectedDefaultPropertyTileSnapshotCoverageDefinition,
 } from './property-tile-snapshots.js';
 import { ACTIVE_SOCIAL_SCORE_THRESHOLD } from './property-queries.js';
+import { getOfficialValuationSourceConfig } from './official-valuations/registry.js';
 
 const DEFAULT_MAX_ZOOM = 10;
 const DEFAULT_CHUNK_TILE_LIMIT = 128;
@@ -45,6 +46,7 @@ const PROPERTY_TILE_PYRAMID_REPAIR_REASONS = new Set<string>([
   'manifest-missing',
   'payload-regeneration-error',
 ]);
+const WOZ_SOURCE_CONFIG = getOfficialValuationSourceConfig('woz');
 
 export const PROPERTY_TILE_PYRAMID_KIND = 'public_default_low_zoom';
 export const DEFAULT_PROPERTY_TILE_PYRAMID_COVERAGE_ID = 'public_default_low_zoom';
@@ -2599,8 +2601,19 @@ export async function encodePropertyTilePyramidTileFromPromotedNodes(input: {
         render_lon,
         render_lat,
         address,
-        city,
+        n.city,
+        p.country_code AS "countryCode",
         asking_price AS "askingPrice",
+        p.official_valuation AS "officialValuation",
+        p.official_valuation_year AS "officialValuationYear",
+        CASE WHEN p.country_code = 'NL' THEN ${WOZ_SOURCE_CONFIG.source}::text ELSE NULL END
+          AS "officialValuationSource",
+        CASE WHEN p.country_code = 'NL' THEN ${WOZ_SOURCE_CONFIG.expectedValuationYear}::integer ELSE NULL END
+          AS "officialValuationExpectedYear",
+        CASE WHEN p.country_code = 'NL' THEN ${WOZ_SOURCE_CONFIG.supportsClientFetch.web}::boolean ELSE NULL END
+          AS "officialValuationSupportsWeb",
+        CASE WHEN p.country_code = 'NL' THEN ${WOZ_SOURCE_CONFIG.supportsClientFetch.native}::boolean ELSE NULL END
+          AS "officialValuationSupportsNative",
         thumbnail_url AS "thumbnailUrl",
         has_active_listing AS "hasActiveListing",
         market_state AS "marketState",
@@ -2608,11 +2621,13 @@ export async function encodePropertyTilePyramidTileFromPromotedNodes(input: {
         node_id::text AS pyramid_node_id,
         (group_kind = 'single') AS membership_complete,
         CASE WHEN group_kind = 'single' THEN 'complete' ELSE 'partial' END AS read_state_coverage
-      FROM property_tile_pyramid_nodes
-      WHERE version_id = ${input.version.versionId}::uuid
-        AND z = ${input.z}
-        AND x = ${input.x}
-        AND y = ${input.y}
+      FROM property_tile_pyramid_nodes n
+      LEFT JOIN properties p
+        ON p.id = COALESCE(n.representative_property_id, n.preview_property_ids[1])
+      WHERE n.version_id = ${input.version.versionId}::uuid
+        AND n.z = ${input.z}
+        AND n.x = ${input.x}
+        AND n.y = ${input.y}
     ),
     ordered_node_rows AS (
       SELECT *

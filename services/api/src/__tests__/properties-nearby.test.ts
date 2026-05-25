@@ -1140,6 +1140,79 @@ describe('GET /properties/nearby', () => {
       );
     });
 
+    it('hydrates promoted single pyramid nearby previews from the live property valuation cache', async () => {
+      await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId, propertyIds }) => {
+        await db.execute(sql`
+          INSERT INTO properties (
+            id,
+            country_code,
+            street,
+            house_number,
+            city,
+            postal_code,
+            status,
+            geometry
+          )
+          VALUES (
+            ${propertyIds[0]},
+            'NL',
+            'Nearby Fixture Street',
+            1,
+            'Fixture City',
+            '1000AA',
+            'active',
+            ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)
+          )
+        `);
+
+        await db.execute(sql`
+          UPDATE properties
+          SET
+            official_valuation = 455000,
+            official_valuation_year = 2024,
+            official_valuation_verified = true
+          WHERE id = ${propertyIds[0]}
+        `);
+
+        await db.execute(sql`
+          UPDATE property_tile_pyramid_nodes
+          SET
+            group_kind = 'single'::property_tile_pyramid_group_kind,
+            point_count = 1,
+            preview_property_ids = ARRAY[${propertyIds[0]}::uuid],
+            preview_count = 1,
+            address = 'Nearby Fixture Street 1',
+            city = 'Fixture City',
+            has_active_listing = false,
+            market_state = 'not-listed'
+          WHERE version_id = ${versionId}::uuid
+            AND node_id = ${nodeId}
+        `);
+
+        const response = await app.inject({
+          method: 'GET',
+          url:
+            `/properties/nearby?lon=${lon}&lat=${lat}&zoom=10.75` +
+            `&pyramidVersionId=${versionId}` +
+            `&pyramidNodeId=${encodeURIComponent(nodeId)}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+
+        const body = JSON.parse(response.body);
+        expect(body).toMatchObject({
+          groupKind: 'single',
+          countryCode: 'NL',
+          officialValuation: 455000,
+          officialValuationYear: 2024,
+          officialValuationSourceFetch: {
+            source: 'woz',
+            expectedValuationYear: 2025,
+          },
+        });
+      });
+    });
+
     it('resolves exact current pyramid nodes outside the nearby tap radius', async () => {
       await withHermeticCurrentPyramidNode(async ({ lon, lat, nodeId, versionId, propertyIds }) => {
         const response = await app.inject({

@@ -6,7 +6,7 @@ import {
   type OfficialValuationHydrateResponse,
 } from '../utils/api';
 import {
-  getOfficialValuationDisplayState,
+  shouldRequestOfficialValuationHydration,
   type OfficialValuationDisplayInput,
 } from '../lib/officialValuationDisplay';
 
@@ -49,8 +49,7 @@ function getCurrentPatch(payload: OfficialValuationStatusPayload): OfficialValua
   if (
     payload.officialValuation == null ||
     payload.officialValuationYear == null ||
-    payload.officialValuationVerified !== true ||
-    payload.officialValuationYear < getExpectedOfficialValuationYear(payload)
+    payload.officialValuationVerified !== true
   ) {
     return null;
   }
@@ -66,7 +65,12 @@ function getCurrentPatch(payload: OfficialValuationStatusPayload): OfficialValua
 
 function shouldHideWithoutCurrentValue(payload: OfficialValuationStatusPayload): boolean {
   const state = payload.job?.state;
-  return state === 'failed' || state === 'retryable' || state === 'cooldown';
+  return state === 'failed';
+}
+
+function shouldDeferWithoutCurrentValue(payload: OfficialValuationStatusPayload): boolean {
+  const state = payload.job?.state;
+  return state === 'retryable' || state === 'cooldown';
 }
 
 function delay(ms: number): Promise<void> {
@@ -105,7 +109,7 @@ export function useVisibleOfficialValuationHydration({
       if (!property?.id) {
         continue;
       }
-      if (getOfficialValuationDisplayState(property).state === 'loading') {
+      if (shouldRequestOfficialValuationHydration(property)) {
         byId.set(property.id, property);
       }
     }
@@ -171,6 +175,9 @@ export function useVisibleOfficialValuationHydration({
             hideProperty(property.id);
             return;
           }
+          if (shouldDeferWithoutCurrentValue(latest)) {
+            return;
+          }
 
           let pollCount = 0;
           while (
@@ -193,6 +200,9 @@ export function useVisibleOfficialValuationHydration({
             }
             if (shouldHideWithoutCurrentValue(latest)) {
               hideProperty(property.id);
+              return;
+            }
+            if (shouldDeferWithoutCurrentValue(latest)) {
               return;
             }
           }

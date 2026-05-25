@@ -142,6 +142,16 @@ function getMockOfficialValuationSourceFetch(property: (typeof mockPropertyDetai
   return supportsMockOfficialValuationHydration(property) ? MOCK_WOZ_SOURCE_FETCH : null;
 }
 
+function getMockOfficialValuationVerified(property: (typeof mockPropertyDetails)[number]) {
+  const valuation = getMockOfficialValuation(property);
+  return (
+    supportsMockOfficialValuationHydration(property) &&
+    valuation.officialValuation != null &&
+    valuation.officialValuationYear != null &&
+    valuation.officialValuationYear >= MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR
+  );
+}
+
 function propertyMatchesFollowingFilters(
   property: (typeof mockPropertyDetails)[number],
   searchParams: URLSearchParams
@@ -347,6 +357,7 @@ function getMockPublicProperty(
     status: 'active' as const,
     officialValuation: valuation.officialValuation,
     officialValuationYear: valuation.officialValuationYear,
+    officialValuationVerified: getMockOfficialValuationVerified(property),
     officialValuationSourceFetch: getMockOfficialValuationSourceFetch(property),
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-12-01T00:00:00.000Z',

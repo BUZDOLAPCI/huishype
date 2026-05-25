@@ -79,6 +79,10 @@ function createSavedProperty(overrides: Partial<SavedProperty> = {}): SavedPrope
     ...overrides,
     officialValuationYear:
       overrides.officialValuationYear === undefined ? 2024 : overrides.officialValuationYear,
+    officialValuationVerified:
+      overrides.officialValuationVerified === undefined
+        ? true
+        : overrides.officialValuationVerified,
     officialValuationSourceFetch:
       overrides.officialValuationSourceFetch === undefined
         ? {

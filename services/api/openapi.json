@@ -1958,6 +1958,9 @@
                               }
                             ]
                           },
+                          "officialValuationVerified": {
+                            "type": "boolean"
+                          },
                           "officialValuationSourceFetch": {
                             "anyOf": [
                               {
@@ -2147,6 +2150,7 @@
                           "status",
                           "officialValuation",
                           "officialValuationYear",
+                          "officialValuationVerified",
                           "officialValuationSourceFetch",
                           "commentsDisabled",
                           "createdAt",
@@ -5109,6 +5113,9 @@
                           }
                         ]
                       },
+                      "officialValuationVerified": {
+                        "type": "boolean"
+                      },
                       "officialValuationSourceFetch": {
                         "anyOf": [
                           {
@@ -5298,6 +5305,7 @@
                       "status",
                       "officialValuation",
                       "officialValuationYear",
+                      "officialValuationVerified",
                       "officialValuationSourceFetch",
                       "commentsDisabled",
                       "createdAt",
@@ -6134,6 +6142,9 @@
                         }
                       ]
                     },
+                    "officialValuationVerified": {
+                      "type": "boolean"
+                    },
                     "officialValuationSourceFetch": {
                       "anyOf": [
                         {
@@ -6448,6 +6459,7 @@
                     "status",
                     "officialValuation",
                     "officialValuationYear",
+                    "officialValuationVerified",
                     "officialValuationSourceFetch",
                     "commentsDisabled",
                     "createdAt",
@@ -7399,6 +7411,9 @@
                               }
                             ]
                           },
+                          "officialValuationVerified": {
+                            "type": "boolean"
+                          },
                           "officialValuationSourceFetch": {
                             "anyOf": [
                               {
@@ -7599,6 +7614,7 @@
                           "status",
                           "officialValuation",
                           "officialValuationYear",
+                          "officialValuationVerified",
                           "officialValuationSourceFetch",
                           "commentsDisabled",
                           "createdAt",

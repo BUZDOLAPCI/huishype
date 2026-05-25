@@ -687,6 +687,7 @@ export interface paths {
                                 status: "active" | "inactive" | "demolished";
                                 officialValuation: number | null;
                                 officialValuationYear: number | null;
+                                officialValuationVerified: boolean;
                                 officialValuationSourceFetch: {
                                     /** @enum {string} */
                                     source: "woz";
@@ -1427,6 +1428,7 @@ export interface paths {
                             status: "active" | "inactive" | "demolished";
                             officialValuation: number | null;
                             officialValuationYear: number | null;
+                            officialValuationVerified: boolean;
                             officialValuationSourceFetch: {
                                 /** @enum {string} */
                                 source: "woz";
@@ -1692,6 +1694,7 @@ export interface paths {
                             status: "active" | "inactive" | "demolished";
                             officialValuation: number | null;
                             officialValuationYear: number | null;
+                            officialValuationVerified: boolean;
                             officialValuationSourceFetch: {
                                 /** @enum {string} */
                                 source: "woz";
@@ -2126,6 +2129,7 @@ export interface paths {
                                 status: "active" | "inactive" | "demolished";
                                 officialValuation: number | null;
                                 officialValuationYear: number | null;
+                                officialValuationVerified: boolean;
                                 officialValuationSourceFetch: {
                                     /** @enum {string} */
                                     source: "woz";

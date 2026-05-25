@@ -122,6 +122,7 @@ const propertyBaseSchema = z.object({
   status: z.enum(['active', 'inactive', 'demolished']),
   officialValuation: z.number().nullable(),
   officialValuationYear: z.number().nullable(),
+  officialValuationVerified: z.boolean(),
   officialValuationSourceFetch: officialValuationSourceFetchSchema,
   commentsDisabled: z.boolean(),
   createdAt: z.string().datetime(),
@@ -482,7 +483,10 @@ type PyramidNearbyNodeRow = {
   comment_count: number | string;
   address: string | null;
   city: string | null;
+  country_code: string | null;
   asking_price: number | string | null;
+  official_valuation: number | string | null;
+  official_valuation_year: number | string | null;
   thumbnail_url: string | null;
   has_active_listing: boolean | null;
   market_state: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed' | null;
@@ -726,6 +730,7 @@ function mapPropertyBaseRow(row: {
     officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,
     officialValuationYear:
       row.official_valuation_year != null ? Number(row.official_valuation_year) : null,
+    officialValuationVerified: row.official_valuation_verified ?? false,
     officialValuationSourceFetch: getOfficialValuationSourceFetchHint(row.country_code),
     commentsDisabled: row.comments_disabled_at != null,
     createdAt: new Date(row.created_at).toISOString(),
@@ -940,7 +945,11 @@ function mapPyramidNearbyNodeRow(
       groupKind: 'single' as const,
       address: row.address ?? '',
       city: row.city ?? '',
+      countryCode: row.country_code ?? null,
       askingPrice: row.asking_price == null ? null : Number(row.asking_price),
+      officialValuation: row.official_valuation == null ? null : Number(row.official_valuation),
+      officialValuationYear:
+        row.official_valuation_year == null ? null : Number(row.official_valuation_year),
       thumbnailUrl: row.thumbnail_url,
       hasActiveListing: row.has_active_listing ?? false,
       marketState: row.market_state ?? 'not-listed',
@@ -1020,40 +1029,45 @@ async function resolvePyramidNearbyNodeById(input: {
       SELECT ST_SetSRID(ST_MakePoint(${input.lon}, ${input.lat}), 4326) AS geom
     )
     SELECT
-      node_id,
-      COALESCE(representative_property_id::text, preview_property_ids[1]::text) AS primary_property_id,
-      node_class,
-      group_kind,
-      point_count,
-      ARRAY(SELECT unnest(preview_property_ids)::text) AS preview_property_ids,
-      render_lon,
-      render_lat,
+      n.node_id,
+      COALESCE(n.representative_property_id::text, n.preview_property_ids[1]::text) AS primary_property_id,
+      n.node_class,
+      n.group_kind,
+      n.point_count,
+      ARRAY(SELECT unnest(n.preview_property_ids)::text) AS preview_property_ids,
+      n.render_lon,
+      n.render_lat,
       ST_Distance(
-        render_geometry::geography,
+        n.render_geometry::geography,
         tap.geom::geography
       ) AS distance_meters,
-      bbox_west,
-      bbox_south,
-      bbox_east,
-      bbox_north,
-      active_listing_count,
-      completed_listing_count,
-      social_count,
-      recent_social_count,
-      social_score_total,
-      social_score_max,
-      recent_social_score_total,
-      comment_count,
-      address,
-      city,
-      asking_price,
-      thumbnail_url,
-      has_active_listing,
-      market_state,
+      n.bbox_west,
+      n.bbox_south,
+      n.bbox_east,
+      n.bbox_north,
+      n.active_listing_count,
+      n.completed_listing_count,
+      n.social_count,
+      n.recent_social_count,
+      n.social_score_total,
+      n.social_score_max,
+      n.recent_social_score_total,
+      n.comment_count,
+      n.address,
+      n.city,
+      p.country_code,
+      n.asking_price,
+      p.official_valuation,
+      p.official_valuation_year,
+      n.thumbnail_url,
+      n.has_active_listing,
+      n.market_state,
       t.tile_status,
       t.validation_status
     FROM property_tile_pyramid_nodes n
     CROSS JOIN tap
+    LEFT JOIN properties p
+      ON p.id = COALESCE(n.representative_property_id, n.preview_property_ids[1])
     LEFT JOIN property_tile_pyramid_tiles t
       ON t.version_id = n.version_id
      AND t.z = n.z
@@ -1185,36 +1199,41 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
       VALUES ${ownerTileRows}
     )
     SELECT
-      node_id,
-      COALESCE(representative_property_id::text, preview_property_ids[1]::text) AS primary_property_id,
-      node_class,
-      group_kind,
-      point_count,
-      ARRAY(SELECT unnest(preview_property_ids)::text) AS preview_property_ids,
-      render_lon,
-      render_lat,
-      ST_Distance(render_geometry::geography, tap.geom::geography) AS distance_meters,
-      bbox_west,
-      bbox_south,
-      bbox_east,
-      bbox_north,
-      active_listing_count,
-      completed_listing_count,
-      social_count,
-      recent_social_count,
-      social_score_total,
-      social_score_max,
-      recent_social_score_total,
-      comment_count,
-      address,
-      city,
-      asking_price,
-      thumbnail_url,
-      has_active_listing,
-      market_state,
+      n.node_id,
+      COALESCE(n.representative_property_id::text, n.preview_property_ids[1]::text) AS primary_property_id,
+      n.node_class,
+      n.group_kind,
+      n.point_count,
+      ARRAY(SELECT unnest(n.preview_property_ids)::text) AS preview_property_ids,
+      n.render_lon,
+      n.render_lat,
+      ST_Distance(n.render_geometry::geography, tap.geom::geography) AS distance_meters,
+      n.bbox_west,
+      n.bbox_south,
+      n.bbox_east,
+      n.bbox_north,
+      n.active_listing_count,
+      n.completed_listing_count,
+      n.social_count,
+      n.recent_social_count,
+      n.social_score_total,
+      n.social_score_max,
+      n.recent_social_score_total,
+      n.comment_count,
+      n.address,
+      n.city,
+      p.country_code,
+      n.asking_price,
+      p.official_valuation,
+      p.official_valuation_year,
+      n.thumbnail_url,
+      n.has_active_listing,
+      n.market_state,
       t.tile_status,
       t.validation_status
     FROM property_tile_pyramid_nodes n
+    LEFT JOIN properties p
+      ON p.id = COALESCE(n.representative_property_id, n.preview_property_ids[1])
     JOIN property_tile_pyramid_tiles t
       ON t.version_id = n.version_id
      AND t.z = n.z

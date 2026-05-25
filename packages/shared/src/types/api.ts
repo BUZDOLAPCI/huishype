@@ -269,6 +269,7 @@ export interface PropertyContractBase {
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
   officialValuationYear: number | null;
+  officialValuationVerified: boolean;
   officialValuationSourceFetch: OfficialValuationSourceFetch | null;
   commentsDisabled: boolean;
   createdAt: string;
@@ -557,6 +558,7 @@ export interface SavedProperty {
   status: 'active' | 'inactive' | 'demolished';
   officialValuation: number | null;
   officialValuationYear: number | null;
+  officialValuationVerified: boolean;
   officialValuationSourceFetch: OfficialValuationSourceFetch | null;
   commentsDisabled: boolean;
   createdAt: string;

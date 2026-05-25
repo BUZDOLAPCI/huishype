@@ -100,6 +100,7 @@ function buildPropertyResponse(overrides: Record<string, unknown> = {}) {
     status: 'active',
     officialValuation: 410000,
     officialValuationYear: 2023,
+    officialValuationVerified: true,
     officialValuationSourceFetch: {
       source: 'woz',
       expectedValuationYear: 2024,
@@ -520,7 +521,7 @@ describe('useProperty', () => {
       propertyId: 'property-123',
       source: 'woz',
       status: 'queued',
-      valuationYear: 2024,
+      valuationYear: 2025,
       officialValuation: null,
       officialValuationYear: null,
       officialValuationVerified: false,
@@ -529,14 +530,14 @@ describe('useProperty', () => {
     mockFetchCurrentOfficialValuationStatus.mockResolvedValueOnce({
       propertyId: 'property-123',
       source: 'woz',
-      expectedValuationYear: 2024,
+      expectedValuationYear: 2025,
       officialValuation: 455000,
       officialValuationYear: 2024,
       officialValuationVerified: true,
       job: {
         id: 'job-1',
         state: 'succeeded',
-        valuationYear: 2024,
+        valuationYear: 2025,
         attemptCount: 1,
         nextAttemptAt: null,
         lastAttemptAt: '2024-01-01T00:00:00.000Z',

@@ -315,10 +315,10 @@ describe('Mock handler runtime parity', () => {
           native: false,
         },
       },
+      officialValuationVerified: false,
     });
     expect(detailBody).not.toHaveProperty('officialValuationExpectedYear');
     expect(detailBody).not.toHaveProperty('officialValuationHydrationSupported');
-    expect(detailBody).not.toHaveProperty('officialValuationVerified');
 
     const hydrateResponse = await fetch(
       `http://localhost/properties/${mockPropertyIds.prinsengracht263}/official-valuations/hydrate`,
