@@ -31,11 +31,19 @@ export function OwnFollowListScreen({ kind }: OwnFollowListScreenProps) {
     [query.data?.pages]
   );
   const localizedTitle = kind === 'followers' ? t('common.followers') : t('common.following');
+  const handleBackPress = React.useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/profile');
+  }, []);
 
   if (!user) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={localizedTitle} />
+        <ScreenHeader title={localizedTitle} showBackButton onBackPress={handleBackPress} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
             {t('profile.followList.authTitle', { title: localizedTitle.toLowerCase() })}
@@ -65,7 +73,7 @@ export function OwnFollowListScreen({ kind }: OwnFollowListScreenProps) {
   if (query.isLoading) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={localizedTitle} />
+        <ScreenHeader title={localizedTitle} showBackButton onBackPress={handleBackPress} />
         <View className="flex-1 items-center justify-center">
           <Text className="text-warm-500">
             {t('profile.followList.loading', { title: localizedTitle.toLowerCase() })}
@@ -78,7 +86,7 @@ export function OwnFollowListScreen({ kind }: OwnFollowListScreenProps) {
   if (query.isError) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={localizedTitle} />
+        <ScreenHeader title={localizedTitle} showBackButton onBackPress={handleBackPress} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
             {t('profile.followList.errorTitle', { title: localizedTitle.toLowerCase() })}
@@ -94,7 +102,7 @@ export function OwnFollowListScreen({ kind }: OwnFollowListScreenProps) {
   if (items.length === 0) {
     return (
       <ScreenBackground>
-        <ScreenHeader title={localizedTitle} />
+        <ScreenHeader title={localizedTitle} showBackButton onBackPress={handleBackPress} />
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-lg font-semibold text-warm-900 text-center">
             {t('profile.followList.emptyTitle', { title: localizedTitle.toLowerCase() })}
@@ -111,7 +119,7 @@ export function OwnFollowListScreen({ kind }: OwnFollowListScreenProps) {
 
   return (
     <ScreenBackground>
-      <ScreenHeader title={localizedTitle} />
+      <ScreenHeader title={localizedTitle} showBackButton onBackPress={handleBackPress} />
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}

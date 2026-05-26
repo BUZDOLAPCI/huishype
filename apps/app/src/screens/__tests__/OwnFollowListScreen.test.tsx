@@ -12,6 +12,9 @@ const fetchFollowingNextPage = jest.fn();
 jest.mock('expo-router', () => ({
   router: {
     push: jest.fn(),
+    back: jest.fn(),
+    replace: jest.fn(),
+    canGoBack: jest.fn(),
   },
 }));
 
@@ -29,9 +32,26 @@ jest.mock('@/src/components', () => ({
 }));
 
 jest.mock('@/src/components/navigation/ScreenHeader', () => ({
-  ScreenHeader: ({ title }: { title: string }) => {
+  ScreenHeader: ({
+    title,
+    showBackButton,
+    onBackPress,
+  }: {
+    title: string;
+    showBackButton?: boolean;
+    onBackPress?: () => void;
+  }) => {
     const ReactNative = require('react-native');
-    return <ReactNative.Text>{title}</ReactNative.Text>;
+    return (
+      <ReactNative.View>
+        {showBackButton ? (
+          <ReactNative.Pressable onPress={onBackPress} testID="screen-header-back-button">
+            <ReactNative.Text>Back</ReactNative.Text>
+          </ReactNative.Pressable>
+        ) : null}
+        <ReactNative.Text>{title}</ReactNative.Text>
+      </ReactNative.View>
+    );
   },
 }));
 
@@ -64,8 +84,15 @@ jest.mock('@/src/components/ui/UserAvatar', () => ({
 const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthContext>;
 const mockUseFollowers = useFollowers as jest.MockedFunction<typeof useFollowers>;
 const mockUseFollowing = useFollowing as jest.MockedFunction<typeof useFollowing>;
-const getRouterPush = () =>
-  (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
+const getMockRouter = () =>
+  (jest.requireMock('expo-router') as {
+    router: {
+      push: jest.Mock;
+      back: jest.Mock;
+      replace: jest.Mock;
+      canGoBack: jest.Mock;
+    };
+  }).router;
 
 function makeFollowItem(id: string, displayName = `User ${id}`) {
   return {
@@ -106,6 +133,7 @@ function seedSignedInState() {
 describe('OwnFollowListScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    getMockRouter().canGoBack.mockReturnValue(true);
     seedSignedInState();
 
     mockUseFollowers.mockReturnValue({
@@ -169,7 +197,26 @@ describe('OwnFollowListScreen', () => {
     expect(mockUseFollowing).toHaveBeenCalledWith(undefined, false);
     fireEvent.press(getByTestId('follow-list-item-follower-1'));
 
-    expect(getRouterPush()).toHaveBeenCalledWith('/user/follower-1');
+    expect(getMockRouter().push).toHaveBeenCalledWith('/user/follower-1');
+  });
+
+  it('renders an in-screen back button that returns to the previous route', () => {
+    const { getByTestId } = render(<OwnFollowListScreen kind="following" />);
+
+    fireEvent.press(getByTestId('screen-header-back-button'));
+
+    expect(getMockRouter().back).toHaveBeenCalledTimes(1);
+    expect(getMockRouter().replace).not.toHaveBeenCalled();
+  });
+
+  it('falls back to profile when the follow list is opened directly', () => {
+    getMockRouter().canGoBack.mockReturnValue(false);
+    const { getByTestId } = render(<OwnFollowListScreen kind="followers" />);
+
+    fireEvent.press(getByTestId('screen-header-back-button'));
+
+    expect(getMockRouter().back).not.toHaveBeenCalled();
+    expect(getMockRouter().replace).toHaveBeenCalledWith('/profile');
   });
 
   it('shows the self-only auth gate when no viewer is signed in', () => {
