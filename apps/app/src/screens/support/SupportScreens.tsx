@@ -157,7 +157,7 @@ export function HelpHubScreen() {
       title={copy.helpTitle}
       testID="help-screen"
       backLabel={copy.backToSettings}
-      onBack={() => router.replace('/profile-settings')}
+      onBack={() => router.replace('/settings')}
     >
       <Text style={styles.lead}>{copy.helpLead}</Text>
       <TextInput
@@ -362,7 +362,7 @@ export function LegalContentScreen({ slug }: { slug: string }) {
 
   if (!page) {
     return (
-      <MissingSupportScreen title={copy.pageNotFound} backPath="/profile-settings" copy={copy} />
+      <MissingSupportScreen title={copy.pageNotFound} backPath="/settings" copy={copy} />
     );
   }
 
@@ -371,7 +371,7 @@ export function LegalContentScreen({ slug }: { slug: string }) {
       title={page.title}
       testID={`${page.slug}-screen`}
       backLabel={copy.backToSettings}
-      onBack={() => router.replace('/profile-settings')}
+      onBack={() => router.replace('/settings')}
       backTestID="static-page-back"
       maxWidth={760}
     >

@@ -453,9 +453,9 @@ export default function ProfileScreen() {
       typeof window !== 'undefined' &&
       typeof window.history?.replaceState === 'function'
     ) {
-      window.history.replaceState(window.history.state, '', '/profile-settings');
+      window.history.replaceState(window.history.state, '', '/settings');
     }
-    router.replace('/profile-settings');
+    router.replace('/settings');
     setShowSettings(false);
   }, []);
 

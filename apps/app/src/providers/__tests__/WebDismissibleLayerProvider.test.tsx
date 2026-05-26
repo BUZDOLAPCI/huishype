@@ -154,7 +154,7 @@ describe('WebDismissibleLayerProvider', () => {
     );
 
     act(() => {
-      window.history.pushState({ expo: 'next-route' }, '', '/profile-settings');
+      window.history.pushState({ expo: 'next-route' }, '', '/settings');
     });
     rerender({ active: false });
 

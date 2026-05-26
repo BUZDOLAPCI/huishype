@@ -28,7 +28,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test('captures help, glossary, legal submenu, and contact pages', async ({ page }) => {
-    await page.goto('/profile-settings', { waitUntil: 'domcontentloaded' });
+    await page.goto('/settings', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('profile-settings-screen')).toBeVisible();
     await expect(page.getByTestId('settings-help-row')).toBeVisible();
     await expect(page.getByTestId('settings-contact-row')).toBeVisible();
@@ -83,7 +83,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: false,
     });
 
-    await page.goto('/profile-settings', { waitUntil: 'domcontentloaded' });
+    await page.goto('/settings', { waitUntil: 'domcontentloaded' });
     await page.getByTestId('settings-legal-row').click();
     await expect(page.getByTestId('settings-legal-submenu')).toBeVisible();
     await expect(page.getByTestId('settings-cookies-row')).toBeVisible();
@@ -181,7 +181,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test('switches to Nederlands and captures translated settings/support/contact pages', async ({
     page,
   }) => {
-    await page.goto('/profile-settings', { waitUntil: 'domcontentloaded' });
+    await page.goto('/settings', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('profile-settings-screen')).toBeVisible();
     await expect(page.getByTestId('settings-language-row')).toBeVisible();
 
@@ -217,7 +217,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: false,
     });
 
-    await page.goto('/profile-settings', { waitUntil: 'domcontentloaded' });
+    await page.goto('/settings', { waitUntil: 'domcontentloaded' });
     await page.getByTestId('settings-legal-row').click();
     await expect(page.getByTestId('settings-legal-submenu')).toBeVisible();
     await expect(page.getByTestId('settings-terms-row')).toContainText('Algemene voorwaarden');

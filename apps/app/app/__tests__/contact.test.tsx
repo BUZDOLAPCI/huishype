@@ -56,7 +56,7 @@ describe('ContactScreen', () => {
 
     fireEvent.press(getByTestId('contact-page-back'));
 
-    expect(getRouterReplace()).toHaveBeenCalledWith('/profile-settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
   });
 
   it('validates email format before posting', () => {

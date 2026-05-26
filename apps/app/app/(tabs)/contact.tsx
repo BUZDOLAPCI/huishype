@@ -121,7 +121,7 @@ export default function ContactScreen() {
   );
 
   const handleBack = useCallback(() => {
-    router.replace('/profile-settings');
+    router.replace('/settings');
   }, []);
 
   const handleSubmit = useCallback(async () => {

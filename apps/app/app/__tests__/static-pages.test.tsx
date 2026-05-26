@@ -145,6 +145,6 @@ describe('static help and glossary pages', () => {
 
     fireEvent.press(getByTestId('static-page-back'));
 
-    expect(getRouterReplace()).toHaveBeenCalledWith('/profile-settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
   });
 });

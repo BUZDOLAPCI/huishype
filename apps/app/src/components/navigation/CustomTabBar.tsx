@@ -83,7 +83,7 @@ const MAP_ROUTE_NAMES = new Set([
 
 const PROFILE_ROUTE_NAMES = new Set([
   'profile',
-  'profile-settings',
+  'settings',
   'terms',
   'privacy',
   'cookies',

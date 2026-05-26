@@ -55,7 +55,7 @@ describe('Legal pages', () => {
 
     fireEvent.press(getByTestId('static-page-back'));
 
-    expect(getRouterReplace()).toHaveBeenCalledWith('/profile-settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
   });
 
   it('renders HuisHype privacy content and EU rights', () => {

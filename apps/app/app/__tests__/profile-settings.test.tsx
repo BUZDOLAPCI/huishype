@@ -2,7 +2,7 @@ import React from 'react';
 import { Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
-import ProfileSettingsScreen from '../(tabs)/profile-settings';
+import ProfileSettingsScreen from '../(tabs)/settings';
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from '@/src/i18n';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
