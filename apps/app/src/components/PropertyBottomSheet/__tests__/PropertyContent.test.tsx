@@ -29,6 +29,12 @@ type QuickActionsProps = {
   onGuess?: () => void;
 };
 
+type PriceGuessSectionProps = {
+  property: {
+    id: string;
+  };
+};
+
 jest.mock('../../../hooks/useProperties', () => {
   return {
     useProperty: (...args: unknown[]) => mockUseProperty(...args),
@@ -128,10 +134,16 @@ jest.mock('../QuickActions', () => ({
 }));
 
 jest.mock('../PriceGuessSection', () => ({
-  PriceGuessSection: () => {
+  PriceGuessSection: ({ property }: PriceGuessSectionProps) => {
     const React = require('react');
     const { Text } = require('react-native');
-    return <Text>Price guess section</Text>;
+    const [mountedPropertyId] = React.useState(property.id);
+    return (
+      <>
+        <Text>Price guess section</Text>
+        <Text testID="price-guess-section-mounted-property-id">{mountedPropertyId}</Text>
+      </>
+    );
   },
 }));
 
@@ -316,6 +328,29 @@ describe('PropertyContent', () => {
       expect(onGuessSectionLayout).toHaveBeenLastCalledWith(514);
       expect(onCommentsSectionLayout).toHaveBeenLastCalledWith(662);
     });
+  });
+
+  it('remounts the price guess section when the property changes', () => {
+    const firstProperty = {
+      ...detailedProperty,
+      id: 'property-first',
+    };
+    const secondProperty = {
+      ...detailedProperty,
+      id: 'property-second',
+    };
+
+    const { rerender } = renderWithProviders(<PropertyContent property={firstProperty} />);
+
+    expect(screen.getByTestId('price-guess-section-mounted-property-id').props.children).toBe(
+      firstProperty.id
+    );
+
+    rerender(<PropertyContent property={secondProperty} />);
+
+    expect(screen.getByTestId('price-guess-section-mounted-property-id').props.children).toBe(
+      secondProperty.id
+    );
   });
 
   it('mounts internal like/save hooks when explicitly requested', () => {

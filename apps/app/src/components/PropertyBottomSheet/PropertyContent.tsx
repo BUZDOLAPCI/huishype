@@ -207,6 +207,7 @@ function PropertyContentSections({
 
           <View onLayout={guessSectionLayout} testID="property-content-guess-section">
             <PriceGuessSection
+              key={property.id}
               property={property}
               onGuessPress={() => onGuessPress?.(property.id)}
               onLoginRequired={onAuthRequired}
