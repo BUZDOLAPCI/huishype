@@ -174,6 +174,13 @@ type CanonicalPropertyListingReadItem = {
   verificationState: CanonicalListingVerificationState;
   candidateHandoffState: CanonicalListingCandidateHandoffState | null;
   reasonCode: string | null;
+  listedAt: string | null;
+  soldAt: string | null;
+  rentedAt: string | null;
+  withdrawnAt: string | null;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  lifecycleDate: string | null;
   createdAt: string;
 };
 type CanonicalPropertyListingsResponse = {

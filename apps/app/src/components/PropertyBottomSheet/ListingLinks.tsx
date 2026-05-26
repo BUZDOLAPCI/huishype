@@ -56,6 +56,44 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
     }
   };
 
+  const getLifecycleLabel = (status: string) => {
+    switch (status) {
+      case 'sold':
+        return 'Sold';
+      case 'rented':
+        return 'Rented';
+      case 'withdrawn':
+        return 'Withdrawn';
+      default:
+        return 'Listed';
+    }
+  };
+
+  const getLifecycleDate = (listing: ListingData) => {
+    switch (listing.status) {
+      case 'sold':
+        return listing.soldAt ?? listing.lastSeenAt;
+      case 'rented':
+        return listing.rentedAt ?? listing.lastSeenAt;
+      case 'withdrawn':
+        return listing.withdrawnAt ?? listing.lastSeenAt;
+      default:
+        return listing.listedAt ?? listing.firstSeenAt;
+    }
+  };
+
+  const formatLifecycleDate = (dateValue: string | null | undefined) => {
+    if (!dateValue) return null;
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return null;
+
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
+  };
+
   const getVerificationBadge = (
     verificationState: ListingVerificationState | null | undefined,
     candidateHandoffState: ListingCandidateHandoffState | null | undefined
@@ -101,6 +139,10 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
               listing.candidateHandoffState
             );
             const sourceUrl = listing.displayUrl ?? listing.canonicalUrl ?? listing.sourceUrl;
+            const lifecycleDate = formatLifecycleDate(getLifecycleDate(listing));
+            const lifecycleText = lifecycleDate
+              ? `${getLifecycleLabel(listing.status)} ${lifecycleDate}`
+              : null;
 
             return (
               <Pressable
@@ -129,6 +171,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
                     ) : null}
                   </View>
                   <Text style={styles.rowHint}>Open listing source</Text>
+                  {lifecycleText ? <Text style={styles.rowMeta}>{lifecycleText}</Text> : null}
                   {price ? <Text style={styles.rowPrice}>{price}</Text> : null}
                 </View>
 
@@ -204,6 +247,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     color: '#AEA699',
+  },
+  rowMeta: {
+    marginTop: 3,
+    fontSize: 12,
+    color: '#8C8479',
   },
   rowPrice: {
     marginTop: 6,

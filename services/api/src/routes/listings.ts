@@ -94,6 +94,13 @@ const listingResponseSchema = z.object({
     'dead_letter',
   ]).nullable(),
   reasonCode: z.string().nullable(),
+  listedAt: z.string().datetime().nullable(),
+  soldAt: z.string().datetime().nullable(),
+  rentedAt: z.string().datetime().nullable(),
+  withdrawnAt: z.string().datetime().nullable(),
+  firstSeenAt: z.string().datetime().nullable(),
+  lastSeenAt: z.string().datetime().nullable(),
+  lifecycleDate: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
 });
 
@@ -111,6 +118,20 @@ const priceHistoryResponseSchema = z.object({
 type RouteRefreshLogger = {
   warn(bindings: Record<string, unknown>, message: string): void;
 };
+
+function lifecycleDateForListing(status: 'active' | 'sold' | 'rented' | 'withdrawn', input: {
+  listedAt: string | null;
+  soldAt: string | null;
+  rentedAt: string | null;
+  withdrawnAt: string | null;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+}): string | null {
+  if (status === 'active') return input.listedAt ?? input.firstSeenAt;
+  if (status === 'sold') return input.soldAt ?? input.lastSeenAt;
+  if (status === 'rented') return input.rentedAt ?? input.lastSeenAt;
+  return input.withdrawnAt ?? input.lastSeenAt;
+}
 
 async function requestListingWriteRefreshes(input: {
   requestedBy: 'listing-submit';
@@ -404,35 +425,46 @@ export async function listingRoutes(app: FastifyInstance) {
       const canonicalListings = await listCanonicalListingsForProperty(propertyId);
 
       return reply.send({
-        data: canonicalListings.map((l) => ({
-          id: l.id,
-          propertyId: l.propertyId,
-          sourceUrl: l.displayUrl,
-          displayUrl: l.displayUrl,
-          sourceName: l.sourceName,
-          canonicalUrl: l.canonicalUrl,
-          sourceListingId: l.primarySourceListingId,
-          askingPrice: l.askingPrice,
-          priceType: l.priceType,
-          currency: l.priceCurrency,
-          thumbnailUrl: l.thumbnailUrl,
-          ogTitle: l.title,
-          description: l.description,
-          livingAreaM2: l.livingAreaM2,
-          numRooms: l.numRooms,
-          energyLabel: l.energyLabel,
-          status: toPublicListingStatus(l.status),
-          verificationState: l.verificationState,
-          candidateHandoffState: l.candidateHandoffState as
-            | 'pending'
-            | 'queued'
-            | 'delivered'
-            | 'retryable_error'
-            | 'dead_letter'
-            | null,
-          reasonCode: l.reasonCode,
-          createdAt: l.createdAt,
-        })),
+        data: canonicalListings.map((l) => {
+          const status = toPublicListingStatus(l.status);
+
+          return {
+            id: l.id,
+            propertyId: l.propertyId,
+            sourceUrl: l.displayUrl,
+            displayUrl: l.displayUrl,
+            sourceName: l.sourceName,
+            canonicalUrl: l.canonicalUrl,
+            sourceListingId: l.primarySourceListingId,
+            askingPrice: l.askingPrice,
+            priceType: l.priceType,
+            currency: l.priceCurrency,
+            thumbnailUrl: l.thumbnailUrl,
+            ogTitle: l.title,
+            description: l.description,
+            livingAreaM2: l.livingAreaM2,
+            numRooms: l.numRooms,
+            energyLabel: l.energyLabel,
+            status,
+            verificationState: l.verificationState,
+            candidateHandoffState: l.candidateHandoffState as
+              | 'pending'
+              | 'queued'
+              | 'delivered'
+              | 'retryable_error'
+              | 'dead_letter'
+              | null,
+            reasonCode: l.reasonCode,
+            listedAt: l.listedAt,
+            soldAt: l.soldAt,
+            rentedAt: l.rentedAt,
+            withdrawnAt: l.withdrawnAt,
+            firstSeenAt: l.firstSeenAt,
+            lastSeenAt: l.lastSeenAt,
+            lifecycleDate: lifecycleDateForListing(status, l),
+            createdAt: l.createdAt,
+          };
+        }),
       });
     },
   );

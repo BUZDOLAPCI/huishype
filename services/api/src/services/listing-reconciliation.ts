@@ -51,14 +51,43 @@ export type CanonicalListingReadModel = Omit<Pick<
   | 'description'
   | 'status'
   | 'verificationState'
->, 'displayUrl'> & {
+  | 'listedAt'
+  | 'soldAt'
+  | 'rentedAt'
+  | 'withdrawnAt'
+  | 'firstSeenAt'
+  | 'lastSeenAt'
+>, 'displayUrl' | 'listedAt' | 'soldAt' | 'rentedAt' | 'withdrawnAt' | 'firstSeenAt' | 'lastSeenAt'> & {
   displayUrl: string;
   numRooms: number | null;
   energyLabel: string | null;
   candidateHandoffState: string | null;
   reasonCode: string | null;
+  listedAt: string | null;
+  soldAt: string | null;
+  rentedAt: string | null;
+  withdrawnAt: string | null;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
   createdAt: string;
 };
+
+type SourcePriceHistoryEntry = {
+  price: number;
+  priceDate: string;
+  eventType: string;
+};
+
+type ListingPriceObservationEventType =
+  | 'initial'
+  | 'asking_price'
+  | 'price_change'
+  | 'status_change'
+  | 'sold'
+  | 'rented'
+  | 'withdrawn'
+  | 'mirror_refresh'
+  | 'user_submission';
 
 export type UserListingSubmissionInput = {
   userId: string;
@@ -99,6 +128,10 @@ export type PersistMirrorObservationForIngestInput = {
   title?: string | null;
   description?: string | null;
   imageUrl?: string | null;
+  listedAt?: string | Date | null;
+  soldAt?: string | Date | null;
+  rentedAt?: string | Date | null;
+  withdrawnAt?: string | Date | null;
   firstSeenAt?: string | Date | null;
   lastSeenAt?: string | Date | null;
   sourceUpdatedAt?: string | Date | null;
@@ -110,6 +143,7 @@ export type PersistMirrorObservationForIngestInput = {
   staleForProjection?: boolean;
   previewResultId?: string | null;
   candidateHandoffId?: string | null;
+  priceHistory?: SourcePriceHistoryEntry[];
   payload?: Record<string, unknown>;
 };
 
@@ -132,7 +166,8 @@ function targetDb(executor?: ReconciliationDb): ReconciliationDb {
 
 function toOptionalDate(value: string | Date | null | undefined): Date | null {
   if (!value) return null;
-  return value instanceof Date ? value : new Date(value);
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function normalizeSourceListingIdKind(kind: string | null | undefined): SourceListingIdKind | null {
@@ -195,7 +230,9 @@ function priceDateFromObservation(observation: ListingObservation): string {
   return source.toISOString().slice(0, 10);
 }
 
-function priceEventTypeForObservation(observation: ListingObservation): 'initial' | 'mirror_refresh' | 'user_submission' | 'status_change' {
+function priceEventTypeForObservation(
+  observation: ListingObservation,
+): 'initial' | 'mirror_refresh' | 'user_submission' | 'status_change' {
   if (observation.origin === 'user') return 'user_submission';
   if (observation.sourceStatus === 'sold' || observation.sourceStatus === 'rented') return 'status_change';
   return observation.origin === 'mirror' ? 'mirror_refresh' : 'initial';
@@ -214,7 +251,83 @@ function legacyPriceHistoryEventTypeForPriceObservation(
   sourceStatus: ListingSourceStatus | null,
 ): string {
   if (eventType === 'status_change') return sourceStatus === 'rented' ? 'rented' : 'sold';
+  if (eventType === 'sold' || eventType === 'rented' || eventType === 'withdrawn' || eventType === 'price_change') {
+    return eventType;
+  }
   return 'asking_price';
+}
+
+function sourcePriceHistoryFromPayload(payload: Record<string, unknown>): SourcePriceHistoryEntry[] {
+  const value = payload.priceHistory;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): SourcePriceHistoryEntry[] => {
+    if (!entry || typeof entry !== 'object') return [];
+    const record = entry as Record<string, unknown>;
+    const price = typeof record.price === 'number' ? record.price : null;
+    const priceDate = typeof record.priceDate === 'string' ? record.priceDate : null;
+    const eventType = typeof record.eventType === 'string' ? record.eventType : null;
+    if (price === null || !priceDate || !eventType) return [];
+    return [{ price, priceDate, eventType }];
+  });
+}
+
+function normalizeSourcePriceEventType(eventType: string): ListingPriceObservationEventType | null {
+  const normalized = eventType.trim().toLowerCase();
+  if (
+    normalized === 'initial'
+    || normalized === 'asking_price'
+    || normalized === 'price_change'
+    || normalized === 'status_change'
+    || normalized === 'sold'
+    || normalized === 'rented'
+    || normalized === 'withdrawn'
+    || normalized === 'mirror_refresh'
+    || normalized === 'user_submission'
+  ) {
+    return normalized;
+  }
+  if (normalized === 'listed') return 'asking_price';
+  return null;
+}
+
+function legacyPriceHistoryEventTypeForSourceEvent(eventType: string): string {
+  if (eventType === 'initial' || eventType === 'mirror_refresh' || eventType === 'user_submission') {
+    return 'asking_price';
+  }
+  return eventType;
+}
+
+function timestampFromPriceDate(priceDate: string): Date | null {
+  const parsed = new Date(`${priceDate}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== priceDate
+    ? null
+    : parsed;
+}
+
+function terminalDateFromPriceHistory(
+  payload: Record<string, unknown>,
+  eventType: 'sold' | 'rented' | 'withdrawn',
+): Date | null {
+  const candidates = sourcePriceHistoryFromPayload(payload)
+    .filter((entry) => normalizeSourcePriceEventType(entry.eventType) === eventType)
+    .map((entry) => timestampFromPriceDate(entry.priceDate))
+    .filter((date): date is Date => Boolean(date))
+    .sort((a, b) => b.getTime() - a.getTime());
+  return candidates[0] ?? null;
+}
+
+function lifecycleDatesFromObservation(observation: ListingObservation): {
+  listedAt: Date | null;
+  soldAt: Date | null;
+  rentedAt: Date | null;
+  withdrawnAt: Date | null;
+} {
+  return {
+    listedAt: observation.listedAt ?? observation.firstSeenAt ?? observation.observedAt,
+    soldAt: observation.soldAt ?? terminalDateFromPriceHistory(observation.payload, 'sold'),
+    rentedAt: observation.rentedAt ?? terminalDateFromPriceHistory(observation.payload, 'rented'),
+    withdrawnAt: observation.withdrawnAt ?? terminalDateFromPriceHistory(observation.payload, 'withdrawn'),
+  };
 }
 
 function isMirrorBackedCanonical(canonical: CanonicalListing): boolean {
@@ -370,6 +483,9 @@ function observationCompatibilityPayload(
     houseNumber: observation.houseNumber ?? null,
     houseNumberAddition: observation.houseNumberAddition ?? null,
     listedAt: dateKey(observation.listedAt),
+    soldAt: dateKey(observation.soldAt),
+    rentedAt: dateKey(observation.rentedAt),
+    withdrawnAt: dateKey(observation.withdrawnAt),
     firstSeenAt: dateKey(observation.firstSeenAt),
     sourceUpdatedAt: dateKey(observation.sourceUpdatedAt),
     observedAt: dateKey(observation.observedAt),
@@ -882,6 +998,7 @@ async function createCanonicalListing(
   executor: ReconciliationDb,
 ): Promise<CanonicalListing> {
   if (!observation.propertyId) throw new Error('Cannot create canonical listing without a property id');
+  const lifecycleDates = lifecycleDatesFromObservation(observation);
 
   const [created] = await executor
     .insert(canonicalListings)
@@ -903,6 +1020,10 @@ async function createCanonicalListing(
       priceCurrency: observation.priceCurrency,
       priceType: typeof observation.payload.priceType === 'string' ? observation.payload.priceType : null,
       livingAreaM2: typeof observation.payload.livingAreaM2 === 'number' ? observation.payload.livingAreaM2 : null,
+      listedAt: lifecycleDates.listedAt,
+      soldAt: lifecycleDates.soldAt,
+      rentedAt: lifecycleDates.rentedAt,
+      withdrawnAt: lifecycleDates.withdrawnAt,
       firstSeenAt: observation.firstSeenAt ?? observation.observedAt,
       lastSeenAt: listingSeenAtForCanonicalProjection(observation),
       lastMirrorSeenAt: observation.origin === 'user' ? null : listingSeenAtForCanonicalProjection(observation),
@@ -979,6 +1100,7 @@ async function updateCanonicalListingFromObservation(
   const nextPropertyId = shouldCorrectProvisionalProperty && observation.propertyId
     ? observation.propertyId
     : canonical.propertyId;
+  const lifecycleDates = lifecycleDatesFromObservation(observation);
 
   const [updated] = await executor
     .update(canonicalListings)
@@ -1011,6 +1133,10 @@ async function updateCanonicalListingFromObservation(
       livingAreaM2: shouldApplySourceFacts && typeof observation.payload.livingAreaM2 === 'number'
         ? observation.payload.livingAreaM2
         : canonical.livingAreaM2,
+      listedAt: shouldApplySourceFacts ? lifecycleDates.listedAt ?? canonical.listedAt : canonical.listedAt,
+      soldAt: shouldApplySourceFacts ? lifecycleDates.soldAt ?? canonical.soldAt : canonical.soldAt,
+      rentedAt: shouldApplySourceFacts ? lifecycleDates.rentedAt ?? canonical.rentedAt : canonical.rentedAt,
+      withdrawnAt: shouldApplySourceFacts ? lifecycleDates.withdrawnAt ?? canonical.withdrawnAt : canonical.withdrawnAt,
       firstSeenAt: canonical.firstSeenAt ?? observation.firstSeenAt ?? observation.observedAt,
       lastSeenAt: shouldApplySourceFacts ? listingSeenAtForCanonicalProjection(observation) : canonical.lastSeenAt,
       lastMirrorSeenAt: mirrorBacked && shouldApplySourceFacts
@@ -1110,40 +1236,68 @@ export async function projectPriceObservation(
   canonical: CanonicalListing,
   executor?: ReconciliationDb,
 ): Promise<void> {
-  if (!observation.askingPrice || !observation.propertyId || !observation.sourceStatus || observation.staleForProjection) return;
+  if (!observation.propertyId || !observation.sourceStatus || observation.staleForProjection) return;
   const database = targetDb(executor);
-  const eventType = priceEventTypeForObservation(observation);
-  const priceDate = priceDateFromObservation(observation);
   const currency = observation.priceCurrency ?? canonical.priceCurrency ?? 'EUR';
 
-  await database
-    .insert(listingPriceObservations)
-    .values({
-      listingObservationId: observation.id,
-      canonicalListingId: canonical.id,
-      propertyId: observation.propertyId,
-      sourceName: observation.sourceName,
-      sourceListingId: observation.sourceListingId,
-      origin: observation.origin,
-      price: observation.askingPrice,
-      currency,
-      eventType,
-      priceDate,
-      observedAt: observation.observedAt,
-    })
-    .onConflictDoNothing();
+  const rows: Array<{
+    price: number;
+    priceDate: string;
+    eventType: ListingPriceObservationEventType;
+    legacyEventType: string;
+  }> = [];
 
-  await database
-    .insert(priceHistory)
-    .values({
-      propertyId: observation.propertyId,
-      listingId: null,
+  if (observation.askingPrice) {
+    const eventType = priceEventTypeForObservation(observation);
+    rows.push({
       price: observation.askingPrice,
-      priceDate,
-      eventType: legacyPriceHistoryEventType(observation, eventType),
-      source: observation.sourceName,
-    })
-    .onConflictDoNothing();
+      priceDate: priceDateFromObservation(observation),
+      eventType,
+      legacyEventType: legacyPriceHistoryEventType(observation, eventType),
+    });
+  }
+
+  for (const entry of sourcePriceHistoryFromPayload(observation.payload)) {
+    const eventType = normalizeSourcePriceEventType(entry.eventType);
+    if (!eventType || !timestampFromPriceDate(entry.priceDate)) continue;
+    rows.push({
+      price: entry.price,
+      priceDate: entry.priceDate,
+      eventType,
+      legacyEventType: legacyPriceHistoryEventTypeForSourceEvent(eventType),
+    });
+  }
+
+  for (const row of rows) {
+    await database
+      .insert(listingPriceObservations)
+      .values({
+        listingObservationId: observation.id,
+        canonicalListingId: canonical.id,
+        propertyId: observation.propertyId,
+        sourceName: observation.sourceName,
+        sourceListingId: observation.sourceListingId,
+        origin: observation.origin,
+        price: row.price,
+        currency,
+        eventType: row.eventType,
+        priceDate: row.priceDate,
+        observedAt: observation.observedAt,
+      })
+      .onConflictDoNothing();
+
+    await database
+      .insert(priceHistory)
+      .values({
+        propertyId: observation.propertyId,
+        listingId: null,
+        price: row.price,
+        priceDate: row.priceDate,
+        eventType: row.legacyEventType,
+        source: observation.sourceName,
+      })
+      .onConflictDoNothing();
+  }
 }
 
 async function completeCandidateHandoffForObservation(
@@ -1586,7 +1740,19 @@ export async function persistMirrorObservationForIngest(
   const sourceUpdatedAt = toOptionalDate(input.sourceUpdatedAt);
   const lastSeenAt = toOptionalDate(input.lastSeenAt);
   const firstSeenAt = toOptionalDate(input.firstSeenAt);
-  const observedAt = toOptionalDate(input.observedAt) ?? sourceUpdatedAt ?? lastSeenAt ?? firstSeenAt ?? new Date();
+  const listedAt = toOptionalDate(input.listedAt);
+  const soldAt = toOptionalDate(input.soldAt);
+  const rentedAt = toOptionalDate(input.rentedAt);
+  const withdrawnAt = toOptionalDate(input.withdrawnAt);
+  const observedAt = toOptionalDate(input.observedAt)
+    ?? sourceUpdatedAt
+    ?? lastSeenAt
+    ?? withdrawnAt
+    ?? rentedAt
+    ?? soldAt
+    ?? listedAt
+    ?? firstSeenAt
+    ?? new Date();
 
   const { observation, reusedExisting, madeFreshForProjection } = await insertListingObservationInternal(
     {
@@ -1618,6 +1784,10 @@ export async function persistMirrorObservationForIngest(
         ? input.address.houseNumber
         : Number.parseInt(String(input.address?.houseNumber ?? ''), 10) || null,
       houseNumberAddition: input.address?.houseNumberAddition ?? null,
+      listedAt,
+      soldAt,
+      rentedAt,
+      withdrawnAt,
       firstSeenAt,
       lastSeenAt,
       sourceUpdatedAt,
@@ -1631,6 +1801,7 @@ export async function persistMirrorObservationForIngest(
       candidateHandoffId: input.candidateHandoffId ?? null,
       payload: {
         ...input.payload,
+        priceHistory: input.priceHistory ?? input.payload?.priceHistory ?? [],
         sourceProvenance: input.sourceProvenance ?? null,
         title: input.title ?? null,
         description: input.description ?? null,
@@ -1735,6 +1906,12 @@ export async function listCanonicalListingsForProperty(
       description: canonicalListings.description,
       status: canonicalListings.status,
       verificationState: canonicalListings.verificationState,
+      listedAt: canonicalListings.listedAt,
+      soldAt: canonicalListings.soldAt,
+      rentedAt: canonicalListings.rentedAt,
+      withdrawnAt: canonicalListings.withdrawnAt,
+      firstSeenAt: canonicalListings.firstSeenAt,
+      lastSeenAt: canonicalListings.lastSeenAt,
       createdAt: canonicalListings.createdAt,
       candidateHandoffState: listingCandidateHandoffs.state,
       reasonCode: listingPreviewResults.reasonCode,
@@ -1775,6 +1952,12 @@ export async function listCanonicalListingsForProperty(
   return rows.map((row) => ({
     ...row,
     displayUrl: row.displayUrl ?? row.canonicalUrl ?? '',
+    listedAt: row.listedAt?.toISOString() ?? null,
+    soldAt: row.soldAt?.toISOString() ?? null,
+    rentedAt: row.rentedAt?.toISOString() ?? null,
+    withdrawnAt: row.withdrawnAt?.toISOString() ?? null,
+    firstSeenAt: row.firstSeenAt?.toISOString() ?? null,
+    lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   }));
 }

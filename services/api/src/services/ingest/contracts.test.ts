@@ -236,4 +236,40 @@ describe('ingest batch contracts', () => {
     expect(parsed.sourceProvenance).toBe('replay');
     expect(parsed.listings?.[0]?.sourceProvenance).toBe('user_submitted');
   });
+
+  it('accepts source lifecycle dates as dates or ISO datetimes and normalizes to UTC', () => {
+    const parsed = ingestBatchRequestSchema.parse({
+      sourceName: 'funda',
+      idempotencyKey: 'source-lifecycle-dates-valid',
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: cursor('source-lifecycle-dates-valid'),
+      listings: [
+        {
+          sourceUrl: 'https://www.funda.nl/detail/koop/eindhoven/source-dates/12345678/',
+          mirrorListingId: 'source-lifecycle-row',
+          askingPrice: 475000,
+          priceType: 'sale',
+          status: 'sold',
+          lifecycleStatus: 'sold',
+          listedAt: '2026-04-01',
+          soldAt: '2026-04-10T13:14:15+02:00',
+          withdrawnAt: '2026-04-12T08:00:00Z',
+          address: {
+            countryCode: 'NL',
+            street: 'Source Datelaan',
+            postalCode: '5611AA',
+            houseNumber: 41,
+            city: 'Eindhoven',
+          },
+        },
+      ],
+    });
+
+    expect(parsed.listings?.[0]).toMatchObject({
+      listedAt: '2026-04-01T00:00:00.000Z',
+      soldAt: '2026-04-10T11:14:15.000Z',
+      withdrawnAt: '2026-04-12T08:00:00.000Z',
+    });
+  });
 });

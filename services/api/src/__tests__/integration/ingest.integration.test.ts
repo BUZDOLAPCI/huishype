@@ -53,6 +53,7 @@ describe('Durable ingest API contract', () => {
     'Pararius Coordinateweg',
     'Funda Unitvormweg',
     'Gammaweg',
+    'Source Dateweg',
   ];
 
   function collectRecoveryDispatchWork(
@@ -628,6 +629,126 @@ describe('Durable ingest API contract', () => {
 
     expect(canonicalRows).toHaveLength(1);
     expect(canonicalRows[0]?.primarySourceListingId).toBe(`idealista-mirror-${stamp}`);
+  });
+
+  it('persists source lifecycle dates and consumes source price history rows', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `Source Dateweg ${stamp}`;
+    const propertyId = await seedProperty({
+      street,
+      houseNumber: 73,
+      postalCode: '5611SZ',
+      city: 'Eindhoven',
+    });
+    const mirrorListingId = `fotocasa-source-dates-${stamp}`;
+    const accepted = await acceptIngestBatch({
+      sourceName,
+      idempotencyKey: `fotocasa-source-dates-${stamp}`,
+      batchSequence: 0,
+      cursorStart: null,
+      cursorEnd: encodeOpaqueIngestCursor({
+        changedAt: '2026-04-12T08:00:00.000Z',
+        listingKey: mirrorListingId,
+      }),
+      upstreamRunKey: `fotocasa-source-dates-run-${stamp}`,
+      listings: [
+        {
+          sourceUrl: `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/source-dates-${stamp}`,
+          mirrorListingId,
+          askingPrice: 485000,
+          priceType: 'sale',
+          currency: 'EUR',
+          status: 'sold',
+          sourceStatus: 'sold',
+          listedAt: '2026-04-01',
+          soldAt: '2026-04-10T13:14:15+02:00',
+          mirrorFirstSeenAt: '2026-04-03T09:00:00.000Z',
+          mirrorLastChangedAt: '2026-04-12T08:00:00.000Z',
+          mirrorLastSeenAt: '2026-04-12T08:05:00.000Z',
+          address: {
+            countryCode: 'NL',
+            street,
+            postalCode: '5611 SZ',
+            houseNumber: 73,
+            city: 'Eindhoven',
+          },
+          priceHistory: [
+            {
+              price: 499000,
+              priceDate: '2026-04-01',
+              eventType: 'asking_price',
+            },
+            {
+              price: 485000,
+              priceDate: '2026-04-10',
+              eventType: 'sold',
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      processIngestBatch({
+        batchId: accepted.batchId,
+        enqueueMaintenanceRefresh: async () => {},
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      ingested: 1,
+      updated: 0,
+      skipped: 0,
+    });
+
+    const [observation] = await db
+      .select()
+      .from(listingObservations)
+      .where(eq(listingObservations.sourceListingId, mirrorListingId))
+      .limit(1);
+    expect(observation).toMatchObject({
+      listedAt: new Date('2026-04-01T00:00:00.000Z'),
+      soldAt: new Date('2026-04-10T11:14:15.000Z'),
+    });
+
+    const [canonical] = await db
+      .select()
+      .from(canonicalListings)
+      .where(eq(canonicalListings.primarySourceListingId, mirrorListingId))
+      .limit(1);
+    expect(canonical).toMatchObject({
+      propertyId,
+      status: 'sold',
+      listedAt: new Date('2026-04-01T00:00:00.000Z'),
+      soldAt: new Date('2026-04-10T11:14:15.000Z'),
+      firstSeenAt: new Date('2026-04-03T09:00:00.000Z'),
+    });
+
+    const observedPrices = await db
+      .select({
+        price: listingPriceObservations.price,
+        priceDate: listingPriceObservations.priceDate,
+        eventType: listingPriceObservations.eventType,
+      })
+      .from(listingPriceObservations)
+      .where(eq(listingPriceObservations.canonicalListingId, canonical?.id ?? '00000000-0000-0000-0000-000000000000'));
+    expect(observedPrices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ price: 499000, priceDate: '2026-04-01', eventType: 'asking_price' }),
+      expect.objectContaining({ price: 485000, priceDate: '2026-04-10', eventType: 'sold' }),
+    ]));
+
+    const legacyPrices = await db
+      .select({
+        price: priceHistory.price,
+        priceDate: priceHistory.priceDate,
+        eventType: priceHistory.eventType,
+      })
+      .from(priceHistory)
+      .where(and(eq(priceHistory.propertyId, propertyId), eq(priceHistory.source, sourceName)));
+    expect(legacyPrices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ price: 499000, priceDate: '2026-04-01', eventType: 'asking_price' }),
+      expect.objectContaining({ price: 485000, priceDate: '2026-04-10', eventType: 'sold' }),
+    ]));
   });
 
   it('keeps mixed candidate and mirror batches bound to the source cursor', async () => {

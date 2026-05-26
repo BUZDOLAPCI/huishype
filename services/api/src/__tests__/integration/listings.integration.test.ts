@@ -482,9 +482,35 @@ describe('Listing routes', () => {
           priceCurrency: 'EUR',
           priceType: 'sale',
           livingAreaM2: 88,
+          listedAt: new Date('2026-03-30T07:00:00.000Z'),
+          firstSeenAt: new Date('2026-04-02T08:00:00.000Z'),
+          lastSeenAt: new Date('2026-04-06T10:00:00.000Z'),
         })
         .returning();
       expect(canonical).toBeDefined();
+
+      const [terminalCanonical] = await db
+        .insert(canonicalListings)
+        .values({
+          propertyId: testPropertyId,
+          sourceName: 'pararius',
+          primarySourceListingId: `listing-terminal-facts-${stamp}`,
+          canonicalUrl: `https://www.pararius.com/detail/${stamp}/`,
+          displayUrl: `https://www.pararius.com/detail/${stamp}/`,
+          status: 'rented',
+          statusSource: 'mirror',
+          verificationState: 'validated',
+          originSummary: 'mirror',
+          askingPrice: 2450,
+          priceCurrency: 'EUR',
+          priceType: 'rent',
+          listedAt: new Date('2026-03-29T08:00:00.000Z'),
+          rentedAt: new Date('2026-04-08T12:00:00.000Z'),
+          firstSeenAt: new Date('2026-04-01T08:00:00.000Z'),
+          lastSeenAt: new Date('2026-04-09T14:30:00.000Z'),
+        })
+        .returning();
+      expect(terminalCanonical).toBeDefined();
 
       const [observation] = await db
         .insert(listingObservations)
@@ -529,6 +555,25 @@ describe('Listing routes', () => {
         livingAreaM2: 88,
         numRooms: 4,
         energyLabel: 'A',
+        listedAt: '2026-03-30T07:00:00.000Z',
+        soldAt: null,
+        rentedAt: null,
+        withdrawnAt: null,
+        firstSeenAt: '2026-04-02T08:00:00.000Z',
+        lastSeenAt: '2026-04-06T10:00:00.000Z',
+        lifecycleDate: '2026-03-30T07:00:00.000Z',
+      });
+
+      const terminalListing = body.data.find((item: { id: string }) => item.id === terminalCanonical!.id);
+      expect(terminalListing).toMatchObject({
+        status: 'rented',
+        listedAt: '2026-03-29T08:00:00.000Z',
+        soldAt: null,
+        rentedAt: '2026-04-08T12:00:00.000Z',
+        withdrawnAt: null,
+        firstSeenAt: '2026-04-01T08:00:00.000Z',
+        lastSeenAt: '2026-04-09T14:30:00.000Z',
+        lifecycleDate: '2026-04-08T12:00:00.000Z',
       });
     });
 

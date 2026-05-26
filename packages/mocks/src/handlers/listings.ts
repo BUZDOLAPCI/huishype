@@ -155,6 +155,8 @@ export const listingHandlers = [
       .map((listing) => {
         const identity = canonicalizeMockUrl(listing.sourceUrl);
         const verificationState = listing.userSubmitted ? 'validation_pending' : 'validated';
+        const listedAt = new Date(listing.discoveredAt).toISOString();
+        const terminalAt = new Date(listing.lastVerifiedAt).toISOString();
         return {
           id: listing.id,
           propertyId: listing.propertyId,
@@ -175,7 +177,14 @@ export const listingHandlers = [
           candidateHandoffState: listing.userSubmitted ? 'queued' : null,
           verificationState,
           reasonCode: listing.userSubmitted ? 'validation_pending' : 'source_identity_match',
-          createdAt: new Date(listing.discoveredAt).toISOString(),
+          listedAt,
+          soldAt: listing.status === 'sold' ? terminalAt : null,
+          rentedAt: listing.status === 'rented' ? terminalAt : null,
+          withdrawnAt: listing.status === 'withdrawn' ? terminalAt : null,
+          firstSeenAt: listedAt,
+          lastSeenAt: terminalAt,
+          lifecycleDate: listing.status === 'active' ? listedAt : terminalAt,
+          createdAt: listedAt,
         };
       });
 

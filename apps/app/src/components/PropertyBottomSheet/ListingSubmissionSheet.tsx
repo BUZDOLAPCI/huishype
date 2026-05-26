@@ -246,6 +246,13 @@ function buildSubmittedListing(
     candidateHandoffState: submit.candidateHandoffState,
     verificationState: submit.verificationState,
     reasonCode: submit.reasonCode,
+    listedAt: submit.createdAt,
+    soldAt: null,
+    rentedAt: null,
+    withdrawnAt: null,
+    firstSeenAt: submit.createdAt,
+    lastSeenAt: submit.createdAt,
+    lifecycleDate: submit.createdAt,
     createdAt: submit.createdAt,
   };
 }

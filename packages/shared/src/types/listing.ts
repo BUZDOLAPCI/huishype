@@ -241,6 +241,13 @@ export interface ListingReadItem {
   candidateHandoffState: ListingCandidateHandoffState | null;
   verificationState: ListingVerificationState;
   reasonCode: ListingReasonCode | string | null;
+  listedAt: string | null;
+  soldAt: string | null;
+  rentedAt: string | null;
+  withdrawnAt: string | null;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  lifecycleDate: string | null;
   createdAt: string;
 }
 

@@ -1400,7 +1400,7 @@ function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target
         cl.status::text AS status,
         ${buildTileListingPriceTypeExpression('cl')} AS normalized_price_type,
         cl.asking_price,
-        cl.first_seen_at AS listed_at,
+        COALESCE(cl.listed_at, cl.first_seen_at) AS listed_at,
         cl.living_area_m2,
         cl.thumbnail_url,
         cl.verification_state,

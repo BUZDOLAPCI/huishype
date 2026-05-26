@@ -17,6 +17,25 @@ const ingestPriceDateSchema = z
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
   }, 'Invalid price date');
 
+function normalizeSourceTimestamp(value: string): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+      ? parsed.toISOString()
+      : null;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:?\d{2})$/.test(value)) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+const ingestSourceTimestampSchema = z
+  .string()
+  .refine((value) => normalizeSourceTimestamp(value) !== null, 'Invalid source timestamp')
+  .transform((value) => normalizeSourceTimestamp(value) as string);
+
 export const listingLifecycleStatusSchema = z.enum([
   'available',
   'sold',
@@ -110,6 +129,10 @@ export const ingestListingSchema = z.object({
   lifecycleStatus: listingLifecycleStatusSchema.optional(),
   diagnosticStatus: listingDiagnosticStatusSchema.optional(),
   sourceStatus: legacyListingSourceStatusSchema.optional(),
+  listedAt: ingestSourceTimestampSchema.optional(),
+  soldAt: ingestSourceTimestampSchema.optional(),
+  rentedAt: ingestSourceTimestampSchema.optional(),
+  withdrawnAt: ingestSourceTimestampSchema.optional(),
   mirrorFirstSeenAt: z.string().datetime().optional(),
   mirrorLastChangedAt: z.string().datetime().optional(),
   mirrorLastSeenAt: z.string().datetime().optional(),

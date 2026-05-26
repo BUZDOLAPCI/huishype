@@ -316,6 +316,13 @@
       "when": 1778198400018,
       "tag": "0044_adaptive_official_valuation_source_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1778198400019,
+      "tag": "0045_source_backed_listing_lifecycle_dates",
+      "breakpoints": true
     }
   ]
 }

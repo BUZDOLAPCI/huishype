@@ -3578,6 +3578,13 @@ export interface paths {
                                 verificationState: "provisional" | "validated" | "invalid" | "validation_pending" | "validation_blocked" | "validation_failed";
                                 candidateHandoffState: ("pending" | "queued" | "delivered" | "retryable_error" | "dead_letter") | null;
                                 reasonCode: string | null;
+                                listedAt: string | null;
+                                soldAt: string | null;
+                                rentedAt: string | null;
+                                withdrawnAt: string | null;
+                                firstSeenAt: string | null;
+                                lastSeenAt: string | null;
+                                lifecycleDate: string | null;
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
@@ -4002,6 +4009,10 @@ export interface paths {
                             diagnosticStatus?: "blocked" | "parser_error" | "retryable_error" | "unsupported" | "invalid" | "unknown" | "mirror_unavailable";
                             /** @enum {string} */
                             sourceStatus?: "available" | "sold" | "rented" | "withdrawn" | "not_found" | "blocked" | "invalid" | "parser_error" | "unknown";
+                            listedAt?: string;
+                            soldAt?: string;
+                            rentedAt?: string;
+                            withdrawnAt?: string;
                             /** Format: date-time */
                             mirrorFirstSeenAt?: string;
                             /** Format: date-time */
