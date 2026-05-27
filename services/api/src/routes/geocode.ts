@@ -303,23 +303,6 @@ async function fetchPhotonFeatures(
       responseBody = '';
     }
 
-    if (
-      options.countryCode &&
-      response.status === 400 &&
-      responseBody.includes("Unknown query parameter 'countrycode'")
-    ) {
-      const [lon, lat] = getCountryConfig(options.countryCode).defaultCenter;
-      app.log.warn(
-        { status: response.status, photonUrl },
-        'Photon /api does not support countrycode; retrying with local country filtering'
-      );
-      return fetchPhotonFeatures(app, {
-        ...options,
-        countryCode: undefined,
-        proximity: options.proximity ?? { lon, lat },
-      });
-    }
-
     app.log.warn(
       {
         status: response.status,

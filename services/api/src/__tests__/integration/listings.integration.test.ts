@@ -244,6 +244,15 @@ describe('Listing routes', () => {
     };
   }
 
+  async function resetListingMutationBuildCoalescingForTest() {
+    await db.execute(sql`
+      UPDATE property_tile_pyramid_source_watermarks
+      SET watermark_json = watermark_json - 'mutationBuildCoalescing:listing'
+      WHERE scope IN ('listing_facts', 'property_status')
+        AND scope_key = 'global'
+    `);
+  }
+
   async function cleanupListingRouteFixtureArtifacts() {
     await db.execute(sql`
       DELETE FROM listing_price_observations
@@ -1425,6 +1434,7 @@ describe('Listing routes', () => {
       const thumbnailUrl = 'https://cdn.example.com/test-thumbnail.jpg';
       const submittedId = `${Date.now()}${Math.floor(Math.random() * 10000)}`.slice(-12);
       const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-contract-test/${submittedId}/`;
+      await resetListingMutationBuildCoalescingForTest();
       const pyramidStateBefore = await readPropertyTilePyramidInvalidationState();
 
       mockFetchFn

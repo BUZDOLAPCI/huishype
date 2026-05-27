@@ -209,52 +209,6 @@ describe('GET /geocode/search', () => {
     expect(calledUrl.searchParams.get('lat')).toBe('52.3702');
   });
 
-  it('retries without countrycode when the Photon /api version does not support it', async () => {
-    mockFetchFn
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        statusText: 'Bad Request',
-        text: () =>
-          Promise.resolve(
-            '{"message":"Unknown query parameter \'countrycode\'. Allowed parameters are: [include, location_bias_scale, debug, dedupe, bbox, lon, zoom, layer, q, limit, osm_tag, suggest_addresses, geometry, exclude, lang, lat]"}'
-          ),
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            type: 'FeatureCollection',
-            features: [
-              MOCK_PHOTON_RESPONSE.features[0],
-              {
-                ...MOCK_PHOTON_RESPONSE.features[1],
-                properties: {
-                  ...MOCK_PHOTON_RESPONSE.features[1].properties,
-                  countrycode: 'DE',
-                },
-              },
-            ],
-          }),
-      } as unknown as Response);
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/geocode/search?q=test&countrycode=NL',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toHaveLength(1);
-    expect(mockFetchFn).toHaveBeenCalledTimes(2);
-
-    const firstUrl = new URL((mockFetchFn.mock.calls[0] as unknown[])[0] as string);
-    const secondUrl = new URL((mockFetchFn.mock.calls[1] as unknown[])[0] as string);
-    expect(firstUrl.searchParams.get('countrycode')).toBe('nl');
-    expect(secondUrl.searchParams.get('countrycode')).toBeNull();
-    expect(secondUrl.searchParams.get('lon')).toBe('5.4697');
-    expect(secondUrl.searchParams.get('lat')).toBe('51.4416');
-  });
-
   it('returns soft country-mode preferred-country results first', async () => {
     mockFetchFn.mockResolvedValueOnce({
       ok: true,
@@ -670,80 +624,6 @@ describe('GET /search/locations', () => {
         type: 'city',
         label: 'Eindhoven',
         countryCode: 'NL',
-      })
-    );
-  });
-
-  it('uses local country filtering when Photon rejects countrycode on /api', async () => {
-    mockFetchFn
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        statusText: 'Bad Request',
-        text: () =>
-          Promise.resolve(
-            '{"message":"Unknown query parameter \'countrycode\'. Allowed parameters are: [include, location_bias_scale, debug, dedupe, bbox, lon, zoom, layer, q, limit, osm_tag, suggest_addresses, geometry, exclude, lang, lat]"}'
-          ),
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [5.4697, 51.4416] },
-                properties: {
-                  osm_type: 'R',
-                  osm_id: 100,
-                  name: 'Eindhoven',
-                  state: 'Noord-Brabant',
-                  country: 'Nederland',
-                  countrycode: 'NL',
-                  type: 'city',
-                },
-              },
-              {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [6.0839, 50.7753] },
-                properties: {
-                  osm_type: 'R',
-                  osm_id: 200,
-                  name: 'Aachen',
-                  state: 'Nordrhein-Westfalen',
-                  country: 'Deutschland',
-                  countrycode: 'DE',
-                  type: 'city',
-                },
-              },
-            ],
-          }),
-      } as unknown as Response);
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/search/locations?q=Eindhoven&limit=8&countrycode=NL',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(mockFetchFn).toHaveBeenCalledTimes(2);
-    const firstUrl = new URL((mockFetchFn.mock.calls[0] as unknown[])[0] as string);
-    const secondUrl = new URL((mockFetchFn.mock.calls[1] as unknown[])[0] as string);
-    expect(firstUrl.searchParams.get('countrycode')).toBe('nl');
-    expect(secondUrl.searchParams.get('countrycode')).toBeNull();
-
-    const body = JSON.parse(response.body);
-    expect(body).toHaveLength(1);
-    expect(body[0]).toEqual(
-      expect.objectContaining({
-        type: 'city',
-        label: 'Eindhoven',
-        filterToken: expect.objectContaining({
-          type: 'city',
-          countryCode: 'NL',
-          value: 'eindhoven',
-        }),
       })
     );
   });

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db, properties as propertiesTable } from '../../db/index.js';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createIntegrationProperty } from './helpers/fixtures.js';
 
 /**
@@ -116,15 +116,16 @@ describe('GET /properties/resolve', () => {
   }
 
   afterAll(async () => {
-    for (const id of cleanupPropertyIds) {
-      try {
-        await db.delete(propertiesTable).where(eq(propertiesTable.id, id));
-      } catch {
-        // Ignore cleanup failures so the app can still close cleanly.
+    try {
+      if (cleanupPropertyIds.length > 0) {
+        await db.delete(propertiesTable).where(inArray(propertiesTable.id, cleanupPropertyIds));
       }
+    } catch {
+      // Ignore cleanup failures so the app can still close cleanly.
     }
+
     await app.close();
-  });
+  }, 60_000);
 
   it('should resolve a known property by postal code and house number', async () => {
     const query = knownHouseNumberAddition
