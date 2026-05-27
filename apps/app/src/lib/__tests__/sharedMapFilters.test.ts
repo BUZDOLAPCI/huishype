@@ -8,6 +8,7 @@ import {
   isMapStatusPillActive,
   toggleMapStatusPill,
   updateMapFilterSearchParams,
+  parseMapFiltersFromSearchParams,
 } from '../sharedMapFilters';
 
 describe('sharedMapFilters price suggestions', () => {
@@ -252,5 +253,27 @@ describe('sharedMapFilters price suggestions', () => {
 
     expect(buildPropertyTileTemplateUrl('http://api.test', filters)).not.toContain('socialScope');
     expect(buildNearbyGroupPath(5.47, 51.44, 14, filters)).not.toContain('socialScope');
+  });
+
+  it('serializes and restores selected area chips as repeated URL params', () => {
+    const filters = {
+      ...createDefaultMapFilters(),
+      areas: [
+        { type: 'city' as const, countryCode: 'NL', value: 'eindhoven', label: 'Eindhoven' },
+        { type: 'city' as const, countryCode: 'NL', value: 'waalre', label: 'Waalre' },
+      ],
+    };
+    const params = updateMapFilterSearchParams(new URLSearchParams(), filters);
+
+    expect(params.toString()).toBe(
+      'area=city%3ANL%3Aeindhoven&area=city%3ANL%3Awaalre',
+    );
+    expect(buildPropertyTileTemplateUrl('http://api.test', filters)).toContain(
+      'area=city%3ANL%3Aeindhoven&area=city%3ANL%3Awaalre',
+    );
+    expect(parseMapFiltersFromSearchParams(params).areas).toEqual([
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' }),
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'waalre' }),
+    ]);
   });
 });

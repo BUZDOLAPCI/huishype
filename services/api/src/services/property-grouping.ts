@@ -17,6 +17,7 @@ import {
 } from './property-queries.js';
 import {
   areMapFiltersDefault,
+  buildLocationAreaFilterPredicate,
   buildPropertyMarketFilterQuery,
   createDefaultMapFilters,
   getMapFilterSignature,
@@ -1554,6 +1555,7 @@ function usesSnapshotGroupingFacts(input: {
     input.options?.candidateSnapshotId != null &&
     !input.includeGhostCandidates &&
     !hasPriceFilters(input.filters) &&
+    input.filters.areas.length === 0 &&
     input.zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM
   );
 }
@@ -1566,6 +1568,7 @@ export function buildGroupingCandidateScopeCtes(
   options?: PropertyTileBuildOptions
 ): SQL {
   const bboxFilter = buildBoundsFilter(boundsList, sql.raw('p.geometry'));
+  const areaFilter = buildLocationAreaFilterPredicate(filters.areas, 'p');
   const listingCandidateBboxFilter = buildBoundsFilter(boundsList, sql.raw('lpc.geometry'));
   const activityCandidateFilter = buildActivityWindowPredicate(
     sql.raw('activity_at'),
@@ -1581,6 +1584,7 @@ export function buildGroupingCandidateScopeCtes(
   const useSourceFirstCandidateScope =
     options?.candidateSnapshotId != null &&
     !includeGhostCandidates &&
+    filters.areas.length === 0 &&
     zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
   const useSnapshotGroupingFacts = usesSnapshotGroupingFacts({
     includeGhostCandidates,
@@ -1600,6 +1604,7 @@ export function buildGroupingCandidateScopeCtes(
           WHERE p.geometry IS NOT NULL
             AND p.status = 'active'
             AND (${bboxFilter})
+            AND ${areaFilter}
         )
       `;
   }
@@ -1636,6 +1641,7 @@ export function buildGroupingCandidateScopeCtes(
           WHERE p.geometry IS NOT NULL
             AND p.status = 'active'
             AND (${bboxFilter})
+            AND ${areaFilter}
         ),
         listing_candidate_ids AS MATERIALIZED (
           SELECT DISTINCT cl.property_id
@@ -2290,6 +2296,7 @@ async function fetchFollowingGroupingCandidatesInBBoxes(
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'following candidate fetch preparation');
   const marketFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
+  const areaFilterPredicate = buildLocationAreaFilterPredicate(filters.areas, 'p');
   const followingActivity = filters.activity === 'all' ? 'all-time' : filters.activity;
   const activityFilterPredicate = buildActivityFilterPredicate(followingActivity, 'fsf');
   const listingFactsJoin = areMapFiltersDefault(marketFilterQuery.filters)
@@ -2333,6 +2340,7 @@ async function fetchFollowingGroupingCandidatesInBBoxes(
         AND p.status = 'active'
         AND (${bboxFilter})
         AND ${marketFilterQuery.predicate}
+        AND ${areaFilterPredicate}
         AND ${activityFilterPredicate}
     `,
     options,

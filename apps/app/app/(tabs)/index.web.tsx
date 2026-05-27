@@ -78,6 +78,7 @@ import {
   getMapFilterSearchString,
   parseMapFiltersFromSearchParams,
   type MapActivityTimeFilter,
+  type MapFilters,
 } from '@/src/lib/sharedMapFilters';
 import {
   getCurrentBrowserPathname,
@@ -90,6 +91,7 @@ import { DEFAULT_CENTER, DEFAULT_ZOOM, DEFAULT_BEARING, DEBUG_CAMERA } from '@/s
 import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
 import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import type { LocationFilterToken } from '@huishype/shared';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
 import { MapGradient } from '@/src/components/navigation/MapGradient';
 import { LocationButton } from '@/src/components/navigation/LocationButton';
@@ -2775,6 +2777,124 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [handleMapLocationResolved, cameraCommands, setSearchCity],
   );
 
+  const fitMapToAreaTokens = useCallback((areas: LocationFilterToken[]) => {
+    const map = mapRef.current;
+    if (!map || areas.length === 0) {
+      return;
+    }
+
+    const bounds = new maplibregl.LngLatBounds();
+    let hasBounds = false;
+    for (const area of areas) {
+      if (area.bbox) {
+        bounds.extend([area.bbox[0], area.bbox[1]]);
+        bounds.extend([area.bbox[2], area.bbox[3]]);
+        hasBounds = true;
+      } else if (area.coordinates) {
+        bounds.extend(area.coordinates);
+        hasBounds = true;
+      }
+    }
+
+    if (hasBounds) {
+      map.fitBounds(bounds, {
+        padding: 96,
+        maxZoom: areas.length === 1 ? 13 : 11,
+        duration: 650,
+        essential: true,
+      });
+    }
+  }, []);
+
+  const commitAreaFilters = useCallback(
+    (nextFilters: MapFilters) => {
+      const commit = () => {
+        browserSearchRef.current = getMapFilterSearchString(nextFilters, browserSearchRef.current);
+        replaceMapBrowserPath(browserPathRef.current);
+        replaceAppliedFilters(nextFilters);
+      };
+
+      commit();
+
+      // Camera fly/fit handlers also sync the browser path. Re-commit once on
+      // the next tick so the filter query wins if both updates land together.
+      if (typeof window !== 'undefined') {
+        window.setTimeout(commit, 0);
+      }
+    },
+    [replaceAppliedFilters, replaceMapBrowserPath],
+  );
+
+  const handleAreaSelected = useCallback(
+    (area: LocationFilterToken) => {
+      const nextAreas = [...(filterController.appliedFilters.areas ?? []), area];
+      const nextFilters = {
+        ...filterController.appliedFilters,
+        areas: nextAreas,
+      };
+      commitAreaFilters(nextFilters);
+      fitMapToAreaTokens(nextAreas);
+    },
+    [
+      commitAreaFilters,
+      filterController.appliedFilters,
+      fitMapToAreaTokens,
+    ],
+  );
+
+  const handleAreaRemoved = useCallback(
+    (area: LocationFilterToken) => {
+      const removeKey = `${area.type}:${area.countryCode ?? ''}:${area.value}`;
+      const nextAreas = (filterController.appliedFilters.areas ?? []).filter(
+        (candidate) => `${candidate.type}:${candidate.countryCode ?? ''}:${candidate.value}` !== removeKey,
+      );
+      const nextFilters = {
+        ...filterController.appliedFilters,
+        areas: nextAreas,
+      };
+      commitAreaFilters(nextFilters);
+      fitMapToAreaTokens(nextAreas);
+    },
+    [
+      commitAreaFilters,
+      filterController.appliedFilters,
+      fitMapToAreaTokens,
+    ],
+  );
+
+  const handleClearAreas = useCallback(() => {
+    const nextFilters = {
+      ...filterController.appliedFilters,
+      areas: [],
+    };
+    commitAreaFilters(nextFilters);
+  }, [commitAreaFilters, filterController.appliedFilters]);
+
+  const handleSearchCurrentLocation = useCallback(async () => {
+    try {
+      const { longitude, latitude } = await getCurrentLocation();
+      const area: LocationFilterToken = {
+        type: 'current-location',
+        countryCode: null,
+        value: `${latitude.toFixed(6)},${longitude.toFixed(6)}`,
+        label: 'Current location',
+        coordinates: [longitude, latitude],
+        radiusMeters: 5_000,
+      };
+      handleAreaSelected(area);
+      mapRef.current?.flyTo({
+        center: [longitude, latitude],
+        zoom: Math.max(currentZoomRef.current, 14),
+        duration: 650,
+        essential: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('map.locationUnable');
+      console.warn('[MapScreen] Search current location failed:', message);
+      Alert.alert(t('map.locationUnavailable'), message);
+    }
+  }, [handleAreaSelected, t]);
+
   useEffect(() => {
     const nextRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
     if (!isMapTabActive) {
@@ -3615,6 +3735,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           onLocationResolved={handleLocationResolved}
           transientResetKey={searchResetToken}
           searchBias={searchBias}
+          selectedAreas={filterController.appliedFilters.areas ?? []}
+          onAreaSelected={handleAreaSelected}
+          onAreaRemoved={handleAreaRemoved}
+          onClearAreas={handleClearAreas}
+          onCurrentLocationSelected={handleSearchCurrentLocation}
         />
 
         <MapFilterBar

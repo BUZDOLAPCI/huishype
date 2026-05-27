@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, TextInput, Pressable, Text, Platform, StyleSheet, InteractionManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAddressSearch } from '@/src/hooks/useAddressResolver';
+import { useLocationSearch } from '@/src/hooks/useLocationSearch';
 import { Icon } from './ui/Icon';
 import { BlurContainer } from './ui/BlurContainer';
 import { resolveProperty, type PropertyResolveResult } from '@/src/utils/api';
@@ -10,6 +11,8 @@ import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
 import { useT } from '@/src/i18n';
+import type { LocationFilterToken, LocationSearchSuggestion } from '@huishype/shared';
+import { serializeLocationFilterToken } from '@/src/lib/sharedMapFilters';
 
 /**
  * Design spec (Section 7.2):
@@ -62,6 +65,11 @@ export interface SearchBarProps {
   transientResetKey?: number;
   /** Settled viewport bias for local-first address autocomplete ranking. */
   searchBias?: AddressSearchBias;
+  selectedAreas?: LocationFilterToken[];
+  onAreaSelected?: (area: LocationFilterToken) => void;
+  onAreaRemoved?: (area: LocationFilterToken) => void;
+  onClearAreas?: () => void;
+  onCurrentLocationSelected?: () => void | Promise<void>;
 }
 
 const DEBOUNCE_MS = 300;
@@ -77,6 +85,11 @@ export function SearchBar({
   onLocationResolved,
   transientResetKey = 0,
   searchBias,
+  selectedAreas = [],
+  onAreaSelected,
+  onAreaRemoved,
+  onClearAreas,
+  onCurrentLocationSelected,
 }: SearchBarProps) {
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -133,6 +146,35 @@ export function SearchBar({
     5,
     searchBias ? { searchBias } : undefined,
   );
+  const { data: locationSuggestions = [], isLoading: isLoadingLocations } = useLocationSearch(
+    debouncedQuery,
+    8,
+    searchBias ? { searchBias } : undefined,
+  );
+  const addressResults = results.filter((result) =>
+    Boolean(result.details.houseNumber || result.details.street || result.details.zip)
+  );
+
+  const selectedAreaKeys = selectedAreas.map((area) => serializeLocationFilterToken(area));
+
+  const toResolvedAddress = useCallback((suggestion: LocationSearchSuggestion): ResolvedAddress => {
+    const [lon, lat] = suggestion.coordinates ?? [0, 0];
+    return {
+      bagId: suggestion.id,
+      formattedAddress: suggestion.address || suggestion.label,
+      lat,
+      lon,
+      details: {
+        city: suggestion.city || '',
+        zip: suggestion.postalCode || '',
+        street: suggestion.street || '',
+        number: suggestion.houseNumber || '',
+        houseNumber: suggestion.houseNumber || null,
+        houseNumberAddition: suggestion.houseNumberAddition || null,
+        countryCode: suggestion.countryCode || null,
+      },
+    };
+  }, []);
 
   // Handle result tap: resolve to local property
   const handleResultPress = useCallback(
@@ -209,6 +251,54 @@ export function SearchBar({
     [invalidatePendingSearch, onPropertyResolved, onLocationResolved],
   );
 
+  const handleLocationSuggestionPress = useCallback(
+    (suggestion: LocationSearchSuggestion) => {
+      if (suggestion.type === 'property' || suggestion.type === 'address') {
+        void handleResultPress(toResolvedAddress(suggestion));
+        return;
+      }
+
+      const token = suggestion.filterToken;
+      if (!token) {
+        if (suggestion.coordinates) {
+          onLocationResolved(
+            { lon: suggestion.coordinates[0], lat: suggestion.coordinates[1] },
+            suggestion.label,
+          );
+        }
+        return;
+      }
+
+      const key = serializeLocationFilterToken(token);
+      if (key && !selectedAreaKeys.includes(key)) {
+        onAreaSelected?.(token);
+      }
+      invalidatePendingSearch();
+      suppressDebounce.current = true;
+      setInputValue('');
+      setDebouncedQuery('');
+      setShowResults(false);
+      setIsFocused(false);
+      inputRef.current?.blur();
+    },
+    [
+      handleResultPress,
+      invalidatePendingSearch,
+      onAreaSelected,
+      onLocationResolved,
+      selectedAreaKeys,
+      toResolvedAddress,
+    ],
+  );
+
+  const handleCurrentLocationPress = useCallback(() => {
+    void onCurrentLocationSelected?.();
+    invalidatePendingSearch();
+    setShowResults(false);
+    setIsFocused(false);
+    inputRef.current?.blur();
+  }, [invalidatePendingSearch, onCurrentLocationSelected]);
+
   // Clear search
   const handleClear = useCallback(() => {
     invalidatePendingSearch();
@@ -261,10 +351,10 @@ export function SearchBar({
 
   const handleFocus = useCallback(() => {
     setIsFocused(true);
-    if (debouncedQuery.length >= 2 && results.length > 0) {
+    if (debouncedQuery.length >= 2 && (locationSuggestions.length > 0 || addressResults.length > 0)) {
       setShowResults(true);
     }
-  }, [debouncedQuery, results]);
+  }, [addressResults.length, debouncedQuery, locationSuggestions.length]);
 
   const handleFocusTargetPress = useCallback(() => {
     setIsFocused(true);
@@ -322,6 +412,41 @@ export function SearchBar({
     : insets.top + 46; // Below native header row
 
   const searchIconColor = isFocused ? COLORS.gold500 : COLORS.warm400;
+  const hasSelectedAreas = selectedAreas.length > 0;
+  const selectedAreaChips = hasSelectedAreas ? (
+    <View style={styles.chipRow} testID="search-area-chip-row">
+      {selectedAreas.map((area) => {
+        const key = serializeLocationFilterToken(area) ?? `${area.type}:${area.label}`;
+        return (
+          <View key={key} style={styles.areaChip} testID="search-area-chip">
+            <Icon name="MapPin" size="sm" color={COLORS.gold500} />
+            <Text style={styles.areaChipText} numberOfLines={1}>
+              {area.label}
+            </Text>
+            <Pressable
+              testID="search-area-chip-remove"
+              onPress={() => onAreaRemoved?.(area)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${area.label}`}
+            >
+              <Icon name="X" size="sm" color={COLORS.warm400} />
+            </Pressable>
+          </View>
+        );
+      })}
+      {selectedAreas.length > 1 ? (
+        <Pressable
+          testID="search-area-clear-all"
+          onPress={onClearAreas}
+          style={styles.clearAreasButton}
+          accessibilityRole="button"
+        >
+          <Text style={styles.clearAreasText}>Clear all</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  ) : null;
 
   // Build the editable input field with focus-dependent styling.
   const inputField = (
@@ -444,6 +569,7 @@ export function SearchBar({
         ]}
         testID="search-bar-container"
       >
+        {selectedAreaChips}
         {/* Search Input — uses blur container on native when unfocused */}
         {!isFocused && Platform.OS !== 'web' ? (
           <Pressable
@@ -468,12 +594,26 @@ export function SearchBar({
         {/* Search Results Dropdown */}
         {showResults && (
           <SearchResults
-            results={results}
-            isLoading={isLoading}
+            results={addressResults}
+            locationSuggestions={locationSuggestions}
+            isLoading={isLoading || isLoadingLocations}
             query={debouncedQuery}
+            showCurrentLocationAction={isFocused && inputValue.length === 0}
             onResultPress={handleResultPress}
+            onLocationSuggestionPress={handleLocationSuggestionPress}
+            onCurrentLocationPress={handleCurrentLocationPress}
           />
         )}
+        {isFocused && inputValue.length === 0 && !showResults ? (
+          <SearchResults
+            results={[]}
+            isLoading={false}
+            query=""
+            showCurrentLocationAction
+            onResultPress={handleResultPress}
+            onCurrentLocationPress={handleCurrentLocationPress}
+          />
+        ) : null}
       </View>
     </>
   );
@@ -498,6 +638,40 @@ const styles = StyleSheet.create({
   blurInputWrapper: {
     borderRadius: 16,
     overflow: 'hidden',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  areaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: 220,
+    minHeight: 36,
+    borderRadius: 18,
+    paddingHorizontal: 10,
+    gap: 6,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.warm300,
+  },
+  areaChipText: {
+    flexShrink: 1,
+    color: COLORS.warm900,
+    fontSize: 13,
+    fontFamily: 'Inter_400Regular',
+  },
+  clearAreasButton: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  clearAreasText: {
+    color: COLORS.warm700,
+    fontSize: 13,
+    fontFamily: 'Inter_400Regular',
   },
   inputContainer: {
     flexDirection: 'row',

@@ -631,6 +631,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                     /** @description Bounding box as "minLon,minLat,maxLon,maxLat" */
                     bbox?: string;
                     lat?: number;
@@ -1246,6 +1247,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                 };
                 header?: never;
                 path?: never;
@@ -1504,6 +1506,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                 };
                 header?: never;
                 path?: never;
@@ -3076,6 +3079,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                 };
                 header?: never;
                 path?: never;
@@ -3135,6 +3139,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                 };
                 header?: never;
                 path?: never;
@@ -3206,6 +3211,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                 };
                 header?: never;
                 path?: never;
@@ -3277,6 +3283,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                 };
                 header?: never;
                 path: {
@@ -3325,6 +3332,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                 };
                 header?: never;
                 path: {
@@ -3373,6 +3381,7 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    area?: string | string[];
                 };
                 header?: never;
                 path: {
@@ -5024,6 +5033,99 @@ export interface paths {
                                 hasMore: boolean;
                             };
                         };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Typed location search
+         * @description Returns typed property/address suggestions for direct navigation and area suggestions for map filtering.
+         */
+        get: {
+            parameters: {
+                query: {
+                    q: string;
+                    limit?: number;
+                    countrycode?: string;
+                    lon?: number;
+                    lat?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            /** @enum {string} */
+                            type: "property" | "address" | "street" | "postcode" | "city" | "region" | "country";
+                            label: string;
+                            subtitle?: string | null;
+                            countryCode?: string | null;
+                            coordinates?: [
+                                number,
+                                number
+                            ] | null;
+                            bbox?: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ] | null;
+                            propertyId?: string | null;
+                            address?: string | null;
+                            postalCode?: string | null;
+                            city?: string | null;
+                            region?: string | null;
+                            street?: string | null;
+                            houseNumber?: string | null;
+                            houseNumberAddition?: string | null;
+                            filterToken?: {
+                                /** @enum {string} */
+                                type: "street" | "postcode" | "city" | "region" | "country" | "current-location";
+                                countryCode?: string | null;
+                                value: string;
+                                label: string;
+                                parentLabel?: string | null;
+                                city?: string | null;
+                                region?: string | null;
+                                postalCode?: string | null;
+                                street?: string | null;
+                                coordinates?: [
+                                    number,
+                                    number
+                                ] | null;
+                                bbox?: [
+                                    number,
+                                    number,
+                                    number,
+                                    number
+                                ] | null;
+                                radiusMeters?: number | null;
+                            } | null;
+                        }[];
                     };
                 };
             };

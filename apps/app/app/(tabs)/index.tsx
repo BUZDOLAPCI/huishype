@@ -94,6 +94,7 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
+import type { LocationFilterToken } from '@huishype/shared';
 
 // Semantic color constants for inline styles (warm palette)
 const COLORS = {
@@ -1267,6 +1268,85 @@ export default function MapScreen() {
     [handleMapLocationResolved, cameraCommands, setSearchCity]
   );
 
+  const centerNativeMapOnAreas = useCallback((areas: LocationFilterToken[]) => {
+    const coordinates = areas
+      .map((area) => area.coordinates)
+      .filter((value): value is [number, number] => Array.isArray(value));
+    if (coordinates.length === 0) {
+      return;
+    }
+    const lon = coordinates.reduce((sum, coordinate) => sum + coordinate[0], 0) / coordinates.length;
+    const lat = coordinates.reduce((sum, coordinate) => sum + coordinate[1], 0) / coordinates.length;
+    const zoom = coordinates.length === 1 ? Math.max(currentZoom, 13) : 10;
+    cameraRef.current?.flyTo({
+      center: [lon, lat],
+      zoom,
+      pitch: getPitchForZoom(zoom),
+      duration: 650,
+    });
+  }, [currentZoom]);
+
+  const handleAreaSelected = useCallback(
+    (area: LocationFilterToken) => {
+      const nextAreas = [...(filterController.appliedFilters.areas ?? []), area];
+      filterController.replaceAppliedFilters({
+        ...filterController.appliedFilters,
+        areas: nextAreas,
+      });
+      centerNativeMapOnAreas(nextAreas);
+    },
+    [centerNativeMapOnAreas, filterController]
+  );
+
+  const handleAreaRemoved = useCallback(
+    (area: LocationFilterToken) => {
+      const removeKey = `${area.type}:${area.countryCode ?? ''}:${area.value}`;
+      const nextAreas = (filterController.appliedFilters.areas ?? []).filter(
+        (candidate) => `${candidate.type}:${candidate.countryCode ?? ''}:${candidate.value}` !== removeKey
+      );
+      filterController.replaceAppliedFilters({
+        ...filterController.appliedFilters,
+        areas: nextAreas,
+      });
+      centerNativeMapOnAreas(nextAreas);
+    },
+    [centerNativeMapOnAreas, filterController]
+  );
+
+  const handleClearAreas = useCallback(() => {
+    filterController.replaceAppliedFilters({
+      ...filterController.appliedFilters,
+      areas: [],
+    });
+  }, [filterController]);
+
+  const handleSearchCurrentLocation = useCallback(async () => {
+    try {
+      const { longitude, latitude } = await getCurrentLocation();
+      setShowUserLocation(true);
+      const area: LocationFilterToken = {
+        type: 'current-location',
+        countryCode: null,
+        value: `${latitude.toFixed(6)},${longitude.toFixed(6)}`,
+        label: 'Current location',
+        coordinates: [longitude, latitude],
+        radiusMeters: 5_000,
+      };
+      handleAreaSelected(area);
+      const zoom = Math.max(currentZoom, 14);
+      cameraRef.current?.flyTo({
+        center: [longitude, latitude],
+        zoom,
+        pitch: getPitchForZoom(zoom),
+        duration: 800,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('map.locationUnable');
+      console.warn('[MapScreen] Search current location failed:', message);
+      Alert.alert(t('map.locationUnavailable'), message);
+    }
+  }, [currentZoom, handleAreaSelected, t]);
+
   // Zoom control handlers
   const handleZoomIn = useCallback(async () => {
     const newZoom = Math.min(currentZoom + 1, 20);
@@ -1598,6 +1678,11 @@ export default function MapScreen() {
           onLocationResolved={handleLocationResolved}
           transientResetKey={searchResetToken}
           searchBias={searchBias}
+          selectedAreas={filterController.appliedFilters.areas ?? []}
+          onAreaSelected={handleAreaSelected}
+          onAreaRemoved={handleAreaRemoved}
+          onClearAreas={handleClearAreas}
+          onCurrentLocationSelected={handleSearchCurrentLocation}
         />
 
         <MapFilterBar

@@ -13,6 +13,11 @@ jest.mock('@/src/hooks/useAddressResolver', () => ({
   useAddressSearch: (...args: unknown[]) => mockUseAddressSearch(...args),
 }));
 
+const mockUseLocationSearch = jest.fn();
+jest.mock('@/src/hooks/useLocationSearch', () => ({
+  useLocationSearch: (...args: unknown[]) => mockUseLocationSearch(...args),
+}));
+
 // Mock the resolveProperty function
 const mockResolveProperty = jest.fn();
 jest.mock('@/src/utils/api', () => ({
@@ -84,6 +89,10 @@ describe('SearchBar', () => {
 
     // Default: no search results
     mockUseAddressSearch.mockReturnValue({
+      data: [],
+      isLoading: false,
+    });
+    mockUseLocationSearch.mockReturnValue({
       data: [],
       isLoading: false,
     });
@@ -506,6 +515,175 @@ describe('SearchBar', () => {
     expect(screen.queryByTestId('search-results-list')).toBeNull();
     expect(screen.queryByTestId('search-results-loading')).toBeNull();
     expect(screen.queryByTestId('search-results-empty')).toBeNull();
+  });
+
+  it('does not show city-only legacy address suggestions as address results', () => {
+    mockUseAddressSearch.mockReturnValue({
+      data: [
+        createMockAddress({
+          bagId: 'city-001',
+          formattedAddress: 'Eindhoven',
+          details: {
+            city: '',
+            zip: '',
+            street: '',
+            number: '',
+            houseNumber: null,
+            houseNumberAddition: null,
+            countryCode: 'NL',
+          },
+        }),
+        createMockAddress({
+          bagId: 'addr-001',
+          formattedAddress: 'Groene Loper 3, 5612AE Eindhoven',
+          details: {
+            city: 'Eindhoven',
+            zip: '5612AE',
+            street: 'Groene Loper',
+            number: '3',
+            houseNumber: '3',
+            houseNumberAddition: null,
+            countryCode: 'NL',
+          },
+        }),
+      ],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Eindhoven');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(screen.getAllByTestId('search-result-item')).toHaveLength(1);
+    expect(screen.getByText('Groene Loper 3, 5612AE Eindhoven')).toBeTruthy();
+  });
+
+  it('adds an area chip when a city suggestion is selected', () => {
+    const onAreaSelected = jest.fn();
+    mockUseLocationSearch.mockReturnValue({
+      data: [
+        {
+          id: 'city:NL:eindhoven',
+          type: 'city',
+          label: 'Eindhoven',
+          subtitle: 'Noord-Brabant, Nederland',
+          countryCode: 'NL',
+          coordinates: [5.4697, 51.4416],
+          filterToken: {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+            coordinates: [5.4697, 51.4416],
+          },
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        onAreaSelected={onAreaSelected}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Eindhoven');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(screen.getByText('City - Noord-Brabant, Nederland')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Eindhoven'));
+
+    expect(onAreaSelected).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' }),
+    );
+    expect(onPropertyResolved).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes same-name location suggestions by type subtitle', () => {
+    mockUseLocationSearch.mockReturnValue({
+      data: [
+        {
+          id: 'city:NL:eindhoven',
+          type: 'city',
+          label: 'Eindhoven',
+          subtitle: 'Noord-Brabant, Nederland',
+          countryCode: 'NL',
+          coordinates: [5.4697, 51.4416],
+          filterToken: {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+            coordinates: [5.4697, 51.4416],
+          },
+        },
+        {
+          id: 'street:NL:eindhoven',
+          type: 'street',
+          label: 'Eindhoven',
+          subtitle: 'Eindhoven, Noord-Brabant, Nederland',
+          countryCode: 'NL',
+          coordinates: [5.47, 51.44],
+          filterToken: {
+            type: 'street',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+            city: 'Eindhoven',
+            coordinates: [5.47, 51.44],
+          },
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Eindhoven');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(screen.getByText('City - Noord-Brabant, Nederland')).toBeTruthy();
+    expect(screen.getByText('Street - Eindhoven, Noord-Brabant, Nederland')).toBeTruthy();
+  });
+
+  it('shows current-location action when focused with an empty query', () => {
+    const onCurrentLocationSelected = jest.fn();
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        onCurrentLocationSelected={onCurrentLocationSelected}
+      />
+    );
+
+    focusNativeSearchInput();
+    fireEvent.press(screen.getByTestId('search-current-location'));
+
+    expect(onCurrentLocationSelected).toHaveBeenCalledTimes(1);
   });
 
   it('closes the focused web search overlay on popstate before route navigation', async () => {

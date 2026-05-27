@@ -1,5 +1,6 @@
 import {
   getMapFilterSearchString,
+  serializeLocationFilterToken,
   type MapActivityFilter,
   type MapFilters,
 } from './sharedMapFilters';
@@ -236,6 +237,12 @@ function buildFollowingTileSearchParams(
   }
   if (followingActivity !== 'all') {
     params.set('activity', followingActivity);
+  }
+  for (const area of filters.areas ?? []) {
+    const serialized = serializeLocationFilterToken(area);
+    if (serialized) {
+      params.append('area', serialized);
+    }
   }
 
   return params;

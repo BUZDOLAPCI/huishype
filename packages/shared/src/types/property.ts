@@ -39,6 +39,7 @@ export interface PropertyMarketFilters {
 
 export interface FollowingPropertyFilters extends PropertyMarketFilters {
   activity?: MapActivityFilter;
+  areas?: LocationFilterToken[];
 }
 
 /**
@@ -380,6 +381,59 @@ export type MapFilterCategory = 'price' | 'marketState' | 'activity';
  */
 export type MapMarketState = 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
 
+export type LocationSearchSuggestionType =
+  | 'property'
+  | 'address'
+  | 'street'
+  | 'postcode'
+  | 'city'
+  | 'region'
+  | 'country';
+
+export type LocationFilterTokenType =
+  | 'street'
+  | 'postcode'
+  | 'city'
+  | 'region'
+  | 'country'
+  | 'current-location';
+
+export interface LocationFilterToken {
+  type: LocationFilterTokenType;
+  countryCode?: string | null;
+  value: string;
+  label: string;
+  parentLabel?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postalCode?: string | null;
+  street?: string | null;
+  coordinates?: [number, number] | null;
+  bbox?: [number, number, number, number] | null;
+  radiusMeters?: number | null;
+}
+
+export type SelectedSearchLocation = LocationFilterToken;
+
+export interface LocationSearchSuggestion {
+  id: string;
+  type: LocationSearchSuggestionType;
+  label: string;
+  subtitle?: string | null;
+  countryCode?: string | null;
+  coordinates?: [number, number] | null;
+  bbox?: [number, number, number, number] | null;
+  propertyId?: string | null;
+  address?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  region?: string | null;
+  street?: string | null;
+  houseNumber?: string | null;
+  houseNumberAddition?: string | null;
+  filterToken?: LocationFilterToken | null;
+}
+
 /**
  * Shared applied map-filter state.
  */
@@ -390,6 +444,7 @@ export interface MapFilters {
   rentPriceTo: number | null;
   marketState: MapMarketState[];
   activity: MapActivityFilter;
+  areas?: LocationFilterToken[];
 }
 
 /**

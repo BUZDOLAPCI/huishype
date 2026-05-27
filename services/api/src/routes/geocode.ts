@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { config } from '../config.js';
+import { db } from '../db/index.js';
+import { sql } from 'drizzle-orm';
 import {
   getCountryConfig,
   isValidCountryCode,
@@ -55,6 +57,8 @@ const searchQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90).optional(),
 });
 
+const locationSearchQuerySchema = searchQuerySchema.omit({ lang: true, countrymode: true });
+
 const reverseQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
   lat: z.coerce.number().min(-90).max(90),
@@ -72,6 +76,42 @@ const geocodeSuggestionSchema = z.object({
   countryCode: z.string().optional(),
   coordinates: z.tuple([z.number(), z.number()]),
 });
+
+const locationFilterTokenSchema = z.object({
+  type: z.enum(['street', 'postcode', 'city', 'region', 'country', 'current-location']),
+  countryCode: z.string().nullable().optional(),
+  value: z.string(),
+  label: z.string(),
+  parentLabel: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  region: z.string().nullable().optional(),
+  postalCode: z.string().nullable().optional(),
+  street: z.string().nullable().optional(),
+  coordinates: z.tuple([z.number(), z.number()]).nullable().optional(),
+  bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]).nullable().optional(),
+  radiusMeters: z.number().nullable().optional(),
+});
+
+const locationSearchSuggestionSchema = z.object({
+  id: z.string(),
+  type: z.enum(['property', 'address', 'street', 'postcode', 'city', 'region', 'country']),
+  label: z.string(),
+  subtitle: z.string().nullable().optional(),
+  countryCode: z.string().nullable().optional(),
+  coordinates: z.tuple([z.number(), z.number()]).nullable().optional(),
+  bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]).nullable().optional(),
+  propertyId: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
+  postalCode: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  region: z.string().nullable().optional(),
+  street: z.string().nullable().optional(),
+  houseNumber: z.string().nullable().optional(),
+  houseNumberAddition: z.string().nullable().optional(),
+  filterToken: locationFilterTokenSchema.nullable().optional(),
+});
+
+type LocationSearchSuggestionResponse = z.infer<typeof locationSearchSuggestionSchema>;
 
 const reverseGeocodeResponseSchema = z.nullable(
   z.object({
@@ -254,12 +294,45 @@ async function fetchPhotonFeatures(
   });
 
   if (!response.ok) {
-    app.log.warn(`Photon returned ${response.status}: ${response.statusText}`);
+    let responseBody = '';
+    try {
+      responseBody = await (
+        response as Response & { text?: () => Promise<string> }
+      ).text?.();
+    } catch {
+      responseBody = '';
+    }
+
+    if (
+      options.countryCode &&
+      response.status === 400 &&
+      responseBody.includes("Unknown query parameter 'countrycode'")
+    ) {
+      const [lon, lat] = getCountryConfig(options.countryCode).defaultCenter;
+      app.log.warn(
+        { status: response.status, photonUrl },
+        'Photon /api does not support countrycode; retrying with local country filtering'
+      );
+      return fetchPhotonFeatures(app, {
+        ...options,
+        countryCode: undefined,
+        proximity: options.proximity ?? { lon, lat },
+      });
+    }
+
+    app.log.warn(
+      {
+        status: response.status,
+        statusText: response.statusText,
+        body: responseBody.slice(0, 500),
+      },
+      'Photon search request failed'
+    );
     return [];
   }
 
   const data = (await response.json()) as PhotonResponse;
-  return data.features;
+  return Array.isArray(data.features) ? data.features : [];
 }
 
 function mergeDedupedSuggestions(
@@ -282,8 +355,239 @@ function mergeDedupedSuggestions(
   return Array.from(deduped.values());
 }
 
+function normalizeSearchToken(value: string | null | undefined): string {
+  return (value ?? '')
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function parseHouseNumber(raw: string | undefined): number | null {
+  const match = raw?.trim().match(/^(\d+)/u);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function resolvePhotonPropertyId(feature: PhotonFeature): Promise<string | null> {
+  const props = feature.properties;
+  const countryCode = normalizeCountryCode(props.countrycode);
+  const houseNumber = parseHouseNumber(props.housenumber);
+  if (!countryCode || !props.postcode || !houseNumber) {
+    return null;
+  }
+
+  const rows = await db.execute<{ id: string }>(sql`
+    SELECT p.id
+    FROM properties p
+    WHERE p.country_code = ${countryCode}
+      AND REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g')
+        = REGEXP_REPLACE(UPPER(${props.postcode}), '\\s+', '', 'g')
+      AND p.house_number = ${houseNumber}
+      ${props.street ? sql`AND LOWER(p.street) = LOWER(${props.street})` : sql``}
+    ORDER BY p.id
+    LIMIT 1
+  `);
+
+  return Array.from(rows)[0]?.id ?? null;
+}
+
+type SupportedFeatureAreaType = 'street' | 'postcode' | 'city' | 'region' | 'country';
+
+function getFeatureAreaType(feature: PhotonFeature): SupportedFeatureAreaType | null {
+  const props = feature.properties;
+  const rawType = props.type?.toLowerCase();
+  if (rawType === 'country') {
+    return 'country';
+  }
+  if (rawType === 'state' || rawType === 'county' || rawType === 'region' || rawType === 'province') {
+    return 'region';
+  }
+  if (props.postcode && !props.street && !props.housenumber) {
+    return 'postcode';
+  }
+  if (props.street || rawType === 'street') {
+    return 'street';
+  }
+  if (
+    rawType === 'city' ||
+    rawType === 'town' ||
+    rawType === 'village' ||
+    rawType === 'municipality' ||
+    rawType === 'locality'
+  ) {
+    return 'city';
+  }
+
+  return null;
+}
+
+function buildLocationSuggestionDedupeKey(
+  suggestion: LocationSearchSuggestionResponse | null
+): string | null {
+  if (!suggestion) {
+    return null;
+  }
+
+  if (suggestion.filterToken) {
+    const token = suggestion.filterToken;
+    return [
+      'area',
+      token.type,
+      token.countryCode ?? '',
+      normalizeSearchToken(token.value || token.label),
+    ].join(':');
+  }
+
+  return [suggestion.type, suggestion.propertyId ?? suggestion.id].join(':');
+}
+
+async function transformLocationFeature(
+  feature: PhotonFeature
+): Promise<LocationSearchSuggestionResponse | null> {
+  const props = feature.properties;
+  const coordinates = feature.geometry.coordinates;
+  const countryCode = props.countrycode?.trim().toUpperCase() || null;
+  const hasHouse = Boolean(props.housenumber && (props.street || props.name));
+  const propertyId = hasHouse ? await resolvePhotonPropertyId(feature) : null;
+
+  if (hasHouse) {
+    const label = formatDisplayName(props);
+    const suggestionType: 'property' | 'address' = propertyId ? 'property' : 'address';
+    return {
+      id: `${suggestionType}:${props.osm_type || 'N'}_${props.osm_id || 0}`,
+      type: suggestionType,
+      label,
+      subtitle: [props.postcode, props.city].filter(Boolean).join(' ') || null,
+      countryCode,
+      coordinates,
+      propertyId,
+      address: label,
+      postalCode: props.postcode ?? null,
+      city: props.city ?? null,
+      region: props.state ?? null,
+      street: props.street ?? props.name ?? null,
+      houseNumber: props.housenumber ?? null,
+      houseNumberAddition: null,
+      filterToken: null,
+    };
+  }
+
+  const type = getFeatureAreaType(feature);
+  if (!type) {
+    return null;
+  }
+
+  const rawLabel =
+    type === 'postcode'
+      ? props.postcode
+      : type === 'country'
+        ? props.country
+        : props.name || props.street || props.city || props.locality || props.state || props.postcode;
+  const label = rawLabel || formatDisplayName(props);
+  const parentLabel = [props.city && props.city !== label ? props.city : null, props.state, props.country]
+    .filter(Boolean)
+    .join(', ');
+
+  return {
+    id: `${type}:${countryCode ?? ''}:${normalizeSearchToken(label)}:${props.osm_type || 'N'}_${props.osm_id || 0}`,
+    type,
+    label,
+    subtitle: parentLabel || null,
+    countryCode,
+    coordinates,
+    propertyId: null,
+    address: null,
+    postalCode: props.postcode ?? null,
+    city: props.city ?? props.locality ?? null,
+    region: props.state ?? props.county ?? null,
+    street: props.street ?? (type === 'street' ? props.name : null) ?? null,
+    houseNumber: null,
+    houseNumberAddition: null,
+    filterToken: {
+      type,
+      countryCode,
+      value: normalizeSearchToken(label),
+      label,
+      parentLabel: parentLabel || null,
+      city: props.city ?? props.locality ?? null,
+      region: props.state ?? props.county ?? null,
+      postalCode: props.postcode ?? null,
+      street: props.street ?? (type === 'street' ? props.name : null) ?? null,
+      coordinates,
+      bbox: null,
+      radiusMeters: null,
+    },
+  };
+}
+
 export async function geocodeRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  app.get(
+    '/search/locations',
+    {
+      schema: {
+        tags: ['Search'],
+        summary: 'Typed location search',
+        description:
+          'Returns typed property/address suggestions for direct navigation and area suggestions for map filtering.',
+        querystring: locationSearchQuerySchema,
+        response: {
+          200: z.array(locationSearchSuggestionSchema),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { q, limit, countrycode, lon, lat } = request.query;
+      const requestedCountryCode = normalizeCountryCode(countrycode);
+      const proximity = getSearchProximity(lon, lat);
+      const photonLimit = requestedCountryCode
+        ? Math.min(
+            Math.max(limit * PHOTON_COUNTRY_FILTER_MULTIPLIER, limit),
+            PHOTON_COUNTRY_FILTER_MAX_LIMIT
+          )
+        : limit;
+
+      try {
+        const preferredFeatures = await fetchPhotonFeatures(app, {
+          q,
+          limit: photonLimit,
+          countryCode: requestedCountryCode,
+          proximity,
+        });
+        const features =
+          requestedCountryCode && preferredFeatures.length === 0
+            ? await fetchPhotonFeatures(app, {
+                q,
+                limit: photonLimit,
+                proximity,
+              })
+            : preferredFeatures;
+        const countryFiltered = features
+          .filter((feature) => matchesCountryCode(feature, requestedCountryCode))
+          .slice(0, limit);
+        const transformedSuggestions = await Promise.all(countryFiltered.map(transformLocationFeature));
+        const dedupedSuggestions = new Map<string, LocationSearchSuggestionResponse>();
+
+        for (const suggestion of transformedSuggestions) {
+          const key = buildLocationSuggestionDedupeKey(suggestion);
+          if (suggestion && key && !dedupedSuggestions.has(key)) {
+            dedupedSuggestions.set(key, suggestion);
+          }
+        }
+
+        return reply.send(Array.from(dedupedSuggestions.values()).slice(0, limit));
+      } catch (error) {
+        app.log.warn({ err: error }, 'Typed location search unavailable');
+        return reply.send([]);
+      }
+    }
+  );
 
   /**
    * GET /geocode/search

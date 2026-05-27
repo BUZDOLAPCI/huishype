@@ -175,7 +175,7 @@ export class HuisHypeApiClient {
     path: string,
     options?: {
       body?: unknown;
-      query?: Record<string, string | number | boolean | undefined>;
+      query?: Record<string, string | number | boolean | string[] | undefined>;
       requiresAuth?: boolean;
       includeSessionId?: boolean;
     }
@@ -186,7 +186,9 @@ export class HuisHypeApiClient {
     if (query) {
       const params = new URLSearchParams();
       Object.entries(query).forEach(([key, value]) => {
-        if (value !== undefined) {
+        if (Array.isArray(value)) {
+          value.forEach((entry) => params.append(key, entry));
+        } else if (value !== undefined) {
           params.append(key, String(value));
         }
       });
@@ -441,6 +443,7 @@ export class HuisHypeApiClient {
         rentPriceTo: request.rentPriceTo ?? undefined,
         marketState,
         activity: request.activity,
+        area: request.area,
       },
     });
   }
@@ -459,6 +462,7 @@ export class HuisHypeApiClient {
         rentPriceTo: request.rentPriceTo ?? undefined,
         marketState,
         activity: request.activity,
+        area: request.area,
       },
       requiresAuth: true,
     });
@@ -481,6 +485,7 @@ export class HuisHypeApiClient {
         rentPriceTo: request.rentPriceTo ?? undefined,
         marketState,
         activity: request.activity,
+        area: request.area,
       },
       requiresAuth: true,
     });

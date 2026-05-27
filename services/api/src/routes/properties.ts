@@ -20,6 +20,7 @@ import {
 } from '../services/property-grouping.js';
 import {
   areMapFiltersDefault,
+  buildLocationAreaFilterPredicate,
   buildPropertyMarketFilterQuery,
   mapFiltersQuerySchema,
   normalizeMapFilters,
@@ -1943,6 +1944,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         salePriceTo: parsedMapFilters.salePriceTo ?? maxPrice ?? null,
       });
       const mapFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
+      const areaFilterPredicate = buildLocationAreaFilterPredicate(filters.areas, 'p');
       const requiresListingFactsForMarketFilters = !areMapFiltersDefault(mapFilterQuery.filters);
       const requiresSocialFactsForCount = filters.activity !== 'all';
       const activityPredicate = requiresSocialFactsForCount
@@ -1950,7 +1952,7 @@ export async function propertyRoutes(app: FastifyInstance) {
         : sql`TRUE`;
       const conditions = buildPropertyWhereConditions({ city, bbox, lat, lon, radius });
 
-      conditions.push(mapFilterQuery.predicate, activityPredicate);
+      conditions.push(mapFilterQuery.predicate, activityPredicate, areaFilterPredicate);
 
       const whereFragment = sql`WHERE ${sql.join(conditions, sql` AND `)}`;
 

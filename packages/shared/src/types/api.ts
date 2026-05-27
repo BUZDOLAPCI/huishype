@@ -609,6 +609,7 @@ export interface PropertyTileJson {
 export interface FollowingPropertyTileRequest extends Omit<PropertyMarketFilters, 'marketState'> {
   marketState?: MapMarketState | MapMarketState[];
   activity?: MapActivityFilter;
+  area?: string | string[];
 }
 
 export type GetFollowingPropertyTilesRequest = FollowingPropertyTileRequest;

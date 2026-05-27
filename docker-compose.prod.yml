@@ -175,7 +175,7 @@ services:
       dockerfile_inline: |
         FROM eclipse-temurin:21-jre-alpine
         WORKDIR /photon
-        ADD https://github.com/komoot/photon/releases/download/1.0.1/photon-1.0.1.jar photon.jar
+        ADD https://github.com/komoot/photon/releases/download/1.1.0/photon-1.1.0.jar photon.jar
         EXPOSE 2322
         ENTRYPOINT ["java"]
         CMD ["-Xmx4G", "-jar", "photon.jar", "serve", "-listen-ip", "0.0.0.0", "-listen-port", "2322", "-data-dir", "/photon/data"]

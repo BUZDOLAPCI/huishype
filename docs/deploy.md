@@ -6,7 +6,7 @@ Push to `main` triggers auto-deploy. Manual: Coolify dashboard at `http://94.130
 
 ## Photon Planet DB (critical)
 
-The `photon_data` Docker volume must be populated before Photon starts. **Use the 1.0 URL** — the old URL (`photon-db-latest.tar.bz2`) is Elasticsearch format and won't work with Photon 1.0.x (OpenSearch).
+The `photon_data` Docker volume must be populated before Photon starts. **Use the 1.0 database URL** — the old URL (`photon-db-latest.tar.bz2`) is Elasticsearch format and won't work with Photon 1.x (OpenSearch). The app container should run Photon **1.1.0 or newer** because `/api?countrycode=XX` was added after 1.0.1.
 
 ```bash
 # SSH into server, extract directly into Docker volume (streaming — no double disk space needed)
@@ -16,7 +16,7 @@ cd /var/lib/docker/volumes/cop1e1822hijj6g3zmxhrs0k_photon-data/_data
 # CORRECT (OpenSearch, ~56GB compressed → ~88GB extracted)
 wget -O - https://download1.graphhopper.com/public/photon-db-planet-1.0-latest.tar.bz2 | tar xjf -
 
-# WRONG — do NOT use (Elasticsearch format, incompatible with Photon 1.0.x)
+# WRONG — do NOT use (Elasticsearch format, incompatible with Photon 1.x)
 # wget -O - https://download1.graphhopper.com/public/photon-db-latest.tar.bz2 | tar xjf -
 ```
 

@@ -1,9 +1,11 @@
 import { type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import {
+  buildLocationAreaFilterPredicate,
   buildPropertyMarketFilterQuery,
   createDefaultMapFilters,
   parseFollowingMapFiltersQuery,
+  parseMapFiltersQuery,
 } from './map-filters.js';
 
 const dialect = new PgDialect();
@@ -60,5 +62,36 @@ describe('buildPropertyMarketFilterQuery', () => {
 
     expect(joinSql).toContain('price_history ph');
     expect(joinSql).toContain('guess_facts');
+  });
+});
+
+describe('selected area filters', () => {
+  it('parses repeated area params without treating them as market filters', () => {
+    const filters = parseMapFiltersQuery({
+      area: ['city:NL:eindhoven', 'city:NL:waalre'],
+    });
+    const marketQuery = buildPropertyMarketFilterQuery(filters);
+
+    expect(filters.areas).toEqual([
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' }),
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'waalre' }),
+    ]);
+    expect(renderSql(marketQuery.join).trim()).toBe('');
+    expect(renderSql(marketQuery.predicate).toLowerCase()).toBe('true');
+  });
+
+  it('builds OR area predicates with AND field constraints inside each token', () => {
+    const sqlText = renderSql(
+      buildLocationAreaFilterPredicate([
+        { type: 'city', countryCode: 'NL', value: 'eindhoven', label: 'Eindhoven' },
+        { type: 'street', countryCode: 'NL', value: 'bloklaan', label: 'Bloklaan', city: 'Eindhoven' },
+      ])
+    );
+
+    expect(sqlText).toContain('p.country_code');
+    expect(sqlText).toContain('p.city');
+    expect(sqlText).toContain('p.street');
+    expect(sqlText).toContain(' OR ');
+    expect(sqlText).toContain(' AND ');
   });
 });

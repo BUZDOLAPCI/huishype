@@ -7,6 +7,7 @@ import {
   buildFollowingNearbyGroupPath,
   buildFollowingPropertyTileTemplateUrl,
   buildNearbyGroupPath,
+  buildPropertyTileTemplateUrl,
   buildResolveTapPath,
   createDefaultMapFilters,
   getCanonicalMapFilterSignature,
@@ -35,6 +36,7 @@ describe('map filter normalization', () => {
       rentPriceTo: null,
       marketState: [...MAP_MARKET_STATES],
       activity: 'all',
+      areas: [],
     });
     expect(MAP_FILTER_CATEGORIES).toEqual(['price', 'marketState', 'activity']);
   });
@@ -55,6 +57,7 @@ describe('map filter normalization', () => {
       rentPriceTo: null,
       marketState: ['for-sale', 'sold'],
       activity: 'all',
+      areas: [],
     });
   });
 
@@ -115,6 +118,7 @@ describe('map filter activity and reset helpers', () => {
       rentPriceTo: null,
       marketState: ['for-sale', 'not-listed'],
       activity: 'all',
+      areas: [],
     });
 
     expect(resetMapFilterCategory(activeFilters, 'marketState')).toEqual({
@@ -124,6 +128,7 @@ describe('map filter activity and reset helpers', () => {
       rentPriceTo: 1800,
       marketState: [...MAP_MARKET_STATES],
       activity: 'all',
+      areas: [],
     });
 
     expect(
@@ -141,6 +146,7 @@ describe('map filter activity and reset helpers', () => {
       rentPriceTo: 1800,
       marketState: ['for-sale', 'not-listed'],
       activity: 'all',
+      areas: [],
     });
   });
 });
@@ -211,7 +217,32 @@ describe('map filter query param helpers', () => {
       rentPriceTo: null,
       marketState: ['for-sale', 'not-listed'],
       activity: 'today',
+      areas: [],
     });
+  });
+
+  it('serializes repeated readable area tokens through tile and nearby URL builders', () => {
+    const filters = {
+      ...createDefaultMapFilters(),
+      areas: [
+        { type: 'city' as const, countryCode: 'NL', value: 'eindhoven', label: 'Eindhoven' },
+        { type: 'city' as const, countryCode: 'NL', value: 'waalre', label: 'Waalre' },
+      ],
+    };
+
+    expect(serializeMapFiltersToSearchParams(filters).toString()).toBe(
+      'area=city%3ANL%3Aeindhoven&area=city%3ANL%3Awaalre'
+    );
+    expect(buildPropertyTileTemplateUrl('http://api.test', filters)).toBe(
+      'http://api.test/tiles/properties/{z}/{x}/{y}.pbf?area=city%3ANL%3Aeindhoven&area=city%3ANL%3Awaalre'
+    );
+    expect(buildNearbyGroupPath(5.47, 51.44, 14, filters)).toBe(
+      '/properties/nearby?lon=5.47&lat=51.44&zoom=14&area=city%3ANL%3Aeindhoven&area=city%3ANL%3Awaalre'
+    );
+    expect(parseMapFiltersFromSearchParams(serializeMapFiltersToSearchParams(filters)).areas).toEqual([
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' }),
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'waalre' }),
+    ]);
   });
 
   it('normalizes map filter params while rejecting unknown keys at the whitelist layer', () => {

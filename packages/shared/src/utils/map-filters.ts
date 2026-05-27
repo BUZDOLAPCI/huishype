@@ -7,6 +7,8 @@ import type {
   MapFilterCategory,
   MapFilters,
   MapMarketState,
+  LocationFilterToken,
+  LocationFilterTokenType,
   PropertyMarketFilters,
   FollowingPropertyFilters,
   RentEffectivePriceInput,
@@ -34,9 +36,21 @@ export const MAP_FILTER_QUERY_KEYS = [
   'rentPriceTo',
   'marketState',
   'activity',
+  'area',
 ] as const;
 
 type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
+
+const LOCATION_FILTER_TOKEN_TYPES = [
+  'street',
+  'postcode',
+  'city',
+  'region',
+  'country',
+  'current-location',
+] as const satisfies readonly LocationFilterTokenType[];
+const LOCATION_FILTER_TOKEN_TYPE_SET = new Set<string>(LOCATION_FILTER_TOKEN_TYPES);
+const CURRENT_LOCATION_RADIUS_METERS = 5_000;
 
 export interface MapFilterDraftState {
   salePriceFrom: string;
@@ -146,6 +160,7 @@ export function createDefaultMapFilters(): MapFilters {
     rentPriceTo: null,
     marketState: [...MAP_MARKET_STATES],
     activity: 'all',
+    areas: [],
   };
 }
 
@@ -211,7 +226,131 @@ export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
     rentPriceTo,
     marketState: marketState.length > 0 ? marketState : [...MAP_MARKET_STATES],
     activity: isMapActivityFilter(filters.activity) ? filters.activity : defaultFilters.activity,
+    areas: normalizeLocationFilterTokens(filters.areas ?? defaultFilters.areas),
   };
+}
+
+function normalizeTokenValue(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function normalizeCountryCode(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toUpperCase();
+  return normalized && /^[A-Z]{2}$/u.test(normalized) ? normalized : null;
+}
+
+export function serializeLocationFilterToken(token: LocationFilterToken): string | null {
+  if (token.type === 'current-location') {
+    const coordinates = token.coordinates;
+    if (!coordinates) {
+      return null;
+    }
+    const radius = Math.max(1, Math.round(token.radiusMeters ?? CURRENT_LOCATION_RADIUS_METERS));
+    return `current-location:${coordinates[1].toFixed(6)}:${coordinates[0].toFixed(6)}:${radius}`;
+  }
+
+  const value = normalizeTokenValue(token.value || token.label || '');
+  if (!value) {
+    return null;
+  }
+  const countryCode = normalizeCountryCode(token.countryCode) ?? '';
+  return `${token.type}:${countryCode}:${value}`;
+}
+
+export function parseLocationFilterToken(value: string): LocationFilterToken | null {
+  const parts = value.split(':');
+  const type = parts[0] as LocationFilterTokenType | undefined;
+  if (!type || !LOCATION_FILTER_TOKEN_TYPE_SET.has(type)) {
+    return null;
+  }
+
+  if (type === 'current-location') {
+    const lat = Number(parts[1]);
+    const lon = Number(parts[2]);
+    const radius = Number(parts[3] ?? CURRENT_LOCATION_RADIUS_METERS);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return null;
+    }
+    return {
+      type,
+      countryCode: null,
+      value: `${lat.toFixed(6)},${lon.toFixed(6)}`,
+      label: 'Current location',
+      coordinates: [lon, lat],
+      radiusMeters:
+        Number.isFinite(radius) && radius > 0
+          ? Math.round(radius)
+          : CURRENT_LOCATION_RADIUS_METERS,
+    };
+  }
+
+  const tokenValue = normalizeTokenValue(parts.slice(2).join(':'));
+  if (!tokenValue) {
+    return null;
+  }
+
+  return {
+    type,
+    countryCode: normalizeCountryCode(parts[1]),
+    value: tokenValue,
+    label: tokenValue
+      .split('-')
+      .filter(Boolean)
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(' '),
+  };
+}
+
+export function normalizeLocationFilterTokens(
+  tokens: readonly LocationFilterToken[] | null | undefined
+): LocationFilterToken[] {
+  if (!tokens) {
+    return [];
+  }
+
+  const deduped = new Map<string, LocationFilterToken>();
+  for (const token of tokens) {
+    if (!LOCATION_FILTER_TOKEN_TYPE_SET.has(token.type)) {
+      continue;
+    }
+
+    const value =
+      token.type === 'current-location'
+        ? token.value.trim()
+        : normalizeTokenValue(token.value || token.label || '');
+    if (!value) {
+      continue;
+    }
+
+    const normalized: LocationFilterToken = {
+      ...token,
+      countryCode: normalizeCountryCode(token.countryCode),
+      value,
+      label: token.label?.trim() || value,
+      parentLabel: token.parentLabel?.trim() || null,
+      city: token.city?.trim() || null,
+      region: token.region?.trim() || null,
+      postalCode: token.postalCode?.trim() || null,
+      street: token.street?.trim() || null,
+      coordinates: token.coordinates ?? null,
+      bbox: token.bbox ?? null,
+      radiusMeters:
+        token.type === 'current-location'
+          ? Math.max(1, Math.round(token.radiusMeters ?? CURRENT_LOCATION_RADIUS_METERS))
+          : (token.radiusMeters ?? null),
+    };
+    const key = serializeLocationFilterToken(normalized);
+    if (key) {
+      deduped.set(key, normalized);
+    }
+  }
+
+  return Array.from(deduped.values());
 }
 
 export function isMapActivityFilter(value: string | null | undefined): value is MapActivityFilter {
@@ -251,6 +390,12 @@ export function areMapFiltersEqual(left: MapFilters, right: MapFilters): boolean
     normalizedLeft.rentPriceFrom === normalizedRight.rentPriceFrom &&
     normalizedLeft.rentPriceTo === normalizedRight.rentPriceTo &&
     normalizedLeft.activity === normalizedRight.activity &&
+    (normalizedLeft.areas ?? []).length === (normalizedRight.areas ?? []).length &&
+    (normalizedLeft.areas ?? []).every(
+      (value, index) =>
+        serializeLocationFilterToken(value) ===
+        serializeLocationFilterToken((normalizedRight.areas ?? [])[index]!)
+    ) &&
     normalizedLeft.marketState.length === normalizedRight.marketState.length &&
     normalizedLeft.marketState.every((value, index) => value === normalizedRight.marketState[index])
   );
@@ -417,6 +562,7 @@ export const mapFiltersQuerySchema = z.object({
       );
     }),
   activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all'),
+  area: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
 export function hasOnlyMapFilterQueryParams(params: URLSearchParams): boolean {
@@ -457,6 +603,10 @@ export function parseMapFiltersFromSearchParams(params: URLSearchParams): MapFil
     activity: isMapActivityFilter(params.get('activity'))
       ? (params.get('activity') as MapActivityFilter)
       : 'all',
+    areas: params
+      .getAll('area')
+      .map(parseLocationFilterToken)
+      .filter((token): token is LocationFilterToken => token != null),
   });
 }
 
@@ -477,6 +627,7 @@ export function updatePropertyMarketFilterSearchParams(
   next.delete('rentPriceTo');
   next.delete('marketState');
   next.delete('activity');
+  next.delete('area');
 
   if (normalized.salePriceFrom != null) {
     next.set('salePriceFrom', String(normalized.salePriceFrom));
@@ -493,7 +644,6 @@ export function updatePropertyMarketFilterSearchParams(
   if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
     next.set('marketState', normalized.marketState.join(','));
   }
-
   return next;
 }
 
@@ -507,6 +657,12 @@ export function updateFollowingPropertyFilterSearchParams(
   next.delete('activity');
   if (activity !== 'all') {
     next.set('activity', activity);
+  }
+  for (const area of normalizeLocationFilterTokens(filters.areas)) {
+    const serialized = serializeLocationFilterToken(area);
+    if (serialized) {
+      next.append('area', serialized);
+    }
   }
 
   return next;
@@ -546,6 +702,12 @@ export function updateMapFilterSearchParams(
   }
   if (normalized.activity !== 'all') {
     next.set('activity', normalized.activity);
+  }
+  for (const area of normalized.areas ?? []) {
+    const serialized = serializeLocationFilterToken(area);
+    if (serialized) {
+      next.append('area', serialized);
+    }
   }
 
   return next;

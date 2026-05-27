@@ -10,6 +10,7 @@ import {
   type ListRenderItemInfo,
 } from 'react-native';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
+import type { LocationSearchSuggestion } from '@huishype/shared';
 import { useT } from '@/src/i18n';
 import { Icon } from './ui/Icon';
 /**
@@ -37,11 +38,29 @@ const COLORS = {
   gold500: '#F5A623',
 } as const;
 
+const LOCATION_TYPE_LABELS: Record<LocationSearchSuggestion['type'], string> = {
+  property: 'Property',
+  address: 'Address',
+  street: 'Street',
+  postcode: 'Postcode',
+  city: 'City',
+  region: 'Region',
+  country: 'Country',
+};
+
+function formatLocationSuggestionSubtitle(item: LocationSearchSuggestion): string {
+  return [LOCATION_TYPE_LABELS[item.type], item.subtitle].filter(Boolean).join(' - ');
+}
+
 export interface SearchResultsProps {
   results: ResolvedAddress[];
+  locationSuggestions?: LocationSearchSuggestion[];
   isLoading: boolean;
   query: string;
+  showCurrentLocationAction?: boolean;
   onResultPress: (address: ResolvedAddress) => void;
+  onLocationSuggestionPress?: (suggestion: LocationSearchSuggestion) => void;
+  onCurrentLocationPress?: () => void;
 }
 
 /**
@@ -50,14 +69,20 @@ export interface SearchResultsProps {
  */
 export function SearchResults({
   results,
+  locationSuggestions,
   isLoading,
   query,
+  showCurrentLocationAction = false,
   onResultPress,
+  onLocationSuggestionPress,
+  onCurrentLocationPress,
 }: SearchResultsProps) {
   const t = useT();
+  const typedSuggestions = locationSuggestions ?? [];
+  const hasTypedSuggestions = typedSuggestions.length > 0;
 
   // Don't render anything if query is too short
-  if (query.length < 2) return null;
+  if (query.length < 2 && !showCurrentLocationAction) return null;
 
   if (isLoading) {
     return (
@@ -82,7 +107,29 @@ export function SearchResults({
     );
   }
 
-  if (results.length === 0) {
+  if (showCurrentLocationAction && query.length < 2) {
+    return (
+      <View style={styles.resultListContainer} testID="search-results-list">
+        <Pressable
+          testID="search-current-location"
+          onPress={onCurrentLocationPress}
+          style={styles.resultRow}
+          accessibilityRole="button"
+        >
+          <View style={styles.pinIconWrapper}>
+            <Icon name="Crosshair" size={20} color={COLORS.gold500} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.addressText} numberOfLines={1}>
+              Search current location
+            </Text>
+          </View>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (!hasTypedSuggestions && results.length === 0) {
     return (
       <View
         style={[
@@ -143,6 +190,69 @@ export function SearchResults({
       </View>
     </Pressable>
   );
+
+  const renderLocationItem = ({ item, index }: ListRenderItemInfo<LocationSearchSuggestion>) => (
+    <Pressable
+      testID="search-result-item"
+      onPress={() => onLocationSuggestionPress?.(item)}
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ([
+        styles.resultRow,
+        {
+          backgroundColor: pressed
+            ? COLORS.warm200
+            : (Platform.OS === 'web' && hovered)
+              ? COLORS.warm100
+              : COLORS.white,
+          borderBottomWidth: index < typedSuggestions.length - 1 ? 1 : 0,
+          borderBottomColor: COLORS.warm200,
+        },
+        Platform.OS === 'web' ? { cursor: 'pointer' as unknown as undefined } : {},
+      ])}
+    >
+      <View style={styles.pinIconWrapper}>
+        <Icon
+          name={item.type === 'property' || item.type === 'address' ? 'MapPin' : 'MagnifyingGlass'}
+          size={20}
+          weight={item.type === 'property' || item.type === 'address' ? 'fill' : 'regular'}
+          color={COLORS.gold500}
+        />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="tail">
+          {item.label}
+        </Text>
+        <Text style={styles.cityText} numberOfLines={1} ellipsizeMode="tail">
+          {formatLocationSuggestionSubtitle(item)}
+        </Text>
+      </View>
+    </Pressable>
+  );
+
+  if (hasTypedSuggestions) {
+    return (
+      <View
+        style={[
+          styles.resultListContainer,
+          Platform.OS === 'web'
+            ? ({
+                boxShadow: '0 20px 36px rgba(90, 82, 73, 0.16), 0 4px 12px rgba(0, 0, 0, 0.05)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+              } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+            : null,
+        ]}
+        testID="search-results-list"
+      >
+        <FlatList
+          data={typedSuggestions}
+          renderItem={renderLocationItem}
+          keyExtractor={(item, index) => `${item.id}-${index}`}
+          keyboardShouldPersistTaps="handled"
+          scrollEnabled={typedSuggestions.length > 4}
+        />
+      </View>
+    );
+  }
 
   return (
     <View
