@@ -8,8 +8,10 @@ import {
   getCountryConfig,
   isValidCountryCode,
   type CountryCode,
+  type LocationFilterToken,
   type GeocodeSuggestion,
 } from '@huishype/shared';
+import { parseLocationFilterToken } from '../services/map-filters.js';
 
 /** Photon GeoJSON feature shape (subset we use) */
 interface PhotonFeature {
@@ -59,6 +61,11 @@ const searchQuerySchema = z.object({
 
 const locationSearchQuerySchema = searchQuerySchema.omit({ lang: true, countrymode: true });
 
+const locationTokenHydrationQuerySchema = z.object({
+  area: z.union([z.string(), z.array(z.string())]).optional(),
+  countrycode: z.union([z.string(), z.array(z.string())]).optional(),
+});
+
 const reverseQuerySchema = z.object({
   lon: z.coerce.number().min(-180).max(180),
   lat: z.coerce.number().min(-90).max(90),
@@ -78,6 +85,7 @@ const geocodeSuggestionSchema = z.object({
 });
 
 const locationFilterTokenSchema = z.object({
+  id: z.string().nullable().optional(),
   type: z.enum(['street', 'postcode', 'city', 'region', 'country', 'current-location']),
   countryCode: z.string().nullable().optional(),
   value: z.string(),
@@ -234,6 +242,27 @@ function normalizeCountryCode(countrycode: string | undefined): CountryCode | un
   return normalized && isValidCountryCode(normalized) ? normalized : undefined;
 }
 
+function normalizeCountryCodeValues(
+  countrycode: string | string[] | undefined
+): CountryCode[] {
+  const values = Array.isArray(countrycode) ? countrycode : countrycode ? [countrycode] : [];
+  const deduped = new Set<CountryCode>();
+
+  for (const value of values) {
+    const normalized = normalizeCountryCode(value);
+    if (normalized) {
+      deduped.add(normalized);
+    }
+  }
+
+  return Array.from(deduped);
+}
+
+function getSingleCountryFallback(countrycode: string | string[] | undefined): CountryCode | undefined {
+  const countryCodes = normalizeCountryCodeValues(countrycode);
+  return countryCodes.length === 1 ? countryCodes[0] : undefined;
+}
+
 function matchesCountryCode(
   feature: PhotonFeature,
   requestedCountryCode: CountryCode | undefined
@@ -347,20 +376,37 @@ function normalizeSearchToken(value: string | null | undefined): string {
     .replace(/^-+|-+$/g, '');
 }
 
-function parseHouseNumber(raw: string | undefined): number | null {
-  const match = raw?.trim().match(/^(\d+)/u);
+function normalizeHouseNumberAddition(value: string | null | undefined): string {
+  return (value ?? '')
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '');
+}
+
+function parseHouseNumberParts(
+  raw: string | undefined
+): { houseNumber: number; houseNumberAddition: string } | null {
+  const match = raw?.trim().match(/^(\d+)\s*[-/]?\s*(.*)$/u);
   if (!match) {
     return null;
   }
   const parsed = Number.parseInt(match[1], 10);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return {
+    houseNumber: parsed,
+    houseNumberAddition: normalizeHouseNumberAddition(match[2]),
+  };
 }
 
 async function resolvePhotonPropertyId(feature: PhotonFeature): Promise<string | null> {
   const props = feature.properties;
   const countryCode = normalizeCountryCode(props.countrycode);
-  const houseNumber = parseHouseNumber(props.housenumber);
-  if (!countryCode || !props.postcode || !houseNumber) {
+  const houseNumberParts = parseHouseNumberParts(props.housenumber);
+  if (!countryCode || !props.postcode || !houseNumberParts) {
     return null;
   }
 
@@ -370,13 +416,17 @@ async function resolvePhotonPropertyId(feature: PhotonFeature): Promise<string |
     WHERE p.country_code = ${countryCode}
       AND REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g')
         = REGEXP_REPLACE(UPPER(${props.postcode}), '\\s+', '', 'g')
-      AND p.house_number = ${houseNumber}
+      AND p.house_number = ${houseNumberParts.houseNumber}
+      AND REGEXP_REPLACE(UPPER(COALESCE(p.house_number_addition, '')), '[^A-Z0-9]+', '', 'g')
+        = ${houseNumberParts.houseNumberAddition}
       ${props.street ? sql`AND LOWER(p.street) = LOWER(${props.street})` : sql``}
+      ${props.city ? sql`AND LOWER(p.city) = LOWER(${props.city})` : sql``}
     ORDER BY p.id
-    LIMIT 1
+    LIMIT 2
   `);
 
-  return Array.from(rows)[0]?.id ?? null;
+  const matches = Array.from(rows);
+  return matches.length === 1 ? matches[0]!.id : null;
 }
 
 type SupportedFeatureAreaType = 'street' | 'postcode' | 'city' | 'region' | 'country';
@@ -437,6 +487,7 @@ async function transformLocationFeature(
   const countryCode = props.countrycode?.trim().toUpperCase() || null;
   const hasHouse = Boolean(props.housenumber && (props.street || props.name));
   const propertyId = hasHouse ? await resolvePhotonPropertyId(feature) : null;
+  const houseNumberParts = parseHouseNumberParts(props.housenumber);
 
   if (hasHouse) {
     const label = formatDisplayName(props);
@@ -455,7 +506,7 @@ async function transformLocationFeature(
       region: props.state ?? null,
       street: props.street ?? props.name ?? null,
       houseNumber: props.housenumber ?? null,
-      houseNumberAddition: null,
+      houseNumberAddition: houseNumberParts?.houseNumberAddition || null,
       filterToken: null,
     };
   }
@@ -476,13 +527,33 @@ async function transformLocationFeature(
     .filter(Boolean)
     .join(', ');
 
+  const filterToken: LocationFilterToken = {
+    type,
+    countryCode,
+    value: normalizeSearchToken(label),
+    label,
+    parentLabel: parentLabel || null,
+    city: props.city ?? props.locality ?? null,
+    region: props.state ?? props.county ?? null,
+    postalCode: props.postcode ?? null,
+    street: props.street ?? (type === 'street' ? props.name : null) ?? null,
+    coordinates,
+    bbox: null,
+    radiusMeters: null,
+  };
+  const hydratedFilterToken = await queryHydratedLocationToken(
+    filterToken,
+    normalizeCountryCode(countryCode ?? undefined)
+  );
+
   return {
     id: `${type}:${countryCode ?? ''}:${normalizeSearchToken(label)}:${props.osm_type || 'N'}_${props.osm_id || 0}`,
     type,
     label,
     subtitle: parentLabel || null,
     countryCode,
-    coordinates,
+    coordinates: hydratedFilterToken.coordinates ?? coordinates,
+    bbox: hydratedFilterToken.bbox ?? null,
     propertyId: null,
     address: null,
     postalCode: props.postcode ?? null,
@@ -491,25 +562,326 @@ async function transformLocationFeature(
     street: props.street ?? (type === 'street' ? props.name : null) ?? null,
     houseNumber: null,
     houseNumberAddition: null,
-    filterToken: {
-      type,
-      countryCode,
-      value: normalizeSearchToken(label),
-      label,
-      parentLabel: parentLabel || null,
-      city: props.city ?? props.locality ?? null,
-      region: props.state ?? props.county ?? null,
-      postalCode: props.postcode ?? null,
-      street: props.street ?? (type === 'street' ? props.name : null) ?? null,
-      coordinates,
-      bbox: null,
-      radiusMeters: null,
-    },
+    filterToken: hydratedFilterToken,
   };
+}
+
+type LocationTokenHydrationRow = {
+  country_code: string | null;
+  label: string | null;
+  city: string | null;
+  region: string | null;
+  postal_code: string | null;
+  street: string | null;
+  center_lon: number | string | null;
+  center_lat: number | string | null;
+  min_lon: number | string | null;
+  min_lat: number | string | null;
+  max_lon: number | string | null;
+  max_lat: number | string | null;
+  row_count: number | string;
+};
+
+type HydratedLocationFilterToken = LocationFilterToken & { id: string };
+type LocationFilterTokenWithId = LocationFilterToken & { id?: string | null };
+
+function parseCoordinate(value: number | string | null | undefined): number | null {
+  if (value == null) {
+    return null;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildHydratedBbox(row: LocationTokenHydrationRow): [number, number, number, number] | null {
+  const minLon = parseCoordinate(row.min_lon);
+  const minLat = parseCoordinate(row.min_lat);
+  const maxLon = parseCoordinate(row.max_lon);
+  const maxLat = parseCoordinate(row.max_lat);
+  return minLon == null || minLat == null || maxLon == null || maxLat == null
+    ? null
+    : [minLon, minLat, maxLon, maxLat];
+}
+
+function buildHydratedCoordinates(row: LocationTokenHydrationRow): [number, number] | null {
+  const lon = parseCoordinate(row.center_lon);
+  const lat = parseCoordinate(row.center_lat);
+  return lon == null || lat == null ? null : [lon, lat];
+}
+
+function getCountryName(countryCode: string | null | undefined): string | null {
+  const normalized = normalizeCountryCode(countryCode ?? undefined);
+  return normalized ? getCountryConfig(normalized).name : null;
+}
+
+function joinParentLabel(parts: Array<string | null | undefined>): string | null {
+  const label = parts.filter(Boolean).join(', ');
+  return label || null;
+}
+
+function buildTokenId(token: LocationFilterToken): string {
+  if (token.type === 'current-location') {
+    const [lon, lat] = token.coordinates ?? [];
+    const radius = Math.max(1, Math.round(token.radiusMeters ?? 5_000));
+    return typeof lon === 'number' &&
+      typeof lat === 'number' &&
+      Number.isFinite(lon) &&
+      Number.isFinite(lat)
+      ? `current-location:${lat.toFixed(6)}:${lon.toFixed(6)}:${radius}`
+      : `current-location:${normalizeSearchToken(token.value)}`;
+  }
+
+  const countryCode = normalizeCountryCode(token.countryCode ?? undefined) ?? '';
+  const parts = [token.type, countryCode, normalizeSearchToken(token.value || token.label)];
+
+  if (token.city) parts.push(`city=${normalizeSearchToken(token.city)}`);
+  if (token.region) parts.push(`region=${normalizeSearchToken(token.region)}`);
+  if (token.postalCode) parts.push(`postcode=${normalizeSearchToken(token.postalCode)}`);
+
+  return parts.join(':');
+}
+
+function withHydratedTokenDefaults(token: LocationFilterTokenWithId): HydratedLocationFilterToken {
+  const countryCode = normalizeCountryCode(token.countryCode ?? undefined);
+  const normalized: LocationFilterToken = {
+    ...token,
+    countryCode,
+    value:
+      token.type === 'current-location'
+        ? token.value.trim()
+        : normalizeSearchToken(token.value || token.label),
+    label: token.label || token.value,
+    parentLabel: token.parentLabel ?? null,
+    city: token.city ?? null,
+    region: token.region ?? null,
+    postalCode: token.postalCode ?? null,
+    street: token.street ?? null,
+    coordinates: token.coordinates ?? null,
+    bbox: token.bbox ?? null,
+    radiusMeters: token.radiusMeters ?? null,
+  };
+
+  return {
+    ...normalized,
+    id: token.id ?? buildTokenId(normalized),
+  };
+}
+
+function buildHydratedTokenFromRow(
+  token: LocationFilterTokenWithId,
+  row: LocationTokenHydrationRow
+): HydratedLocationFilterToken {
+  const countryCode = normalizeCountryCode(row.country_code ?? token.countryCode ?? undefined);
+  const countryName = getCountryName(countryCode);
+  const label = row.label ?? token.label;
+  const hydrated: LocationFilterToken = {
+    ...token,
+    countryCode,
+    label,
+    value: normalizeSearchToken(label || token.value),
+    city: row.city,
+    region: row.region,
+    postalCode: row.postal_code,
+    street: row.street,
+    coordinates: buildHydratedCoordinates(row),
+    bbox: buildHydratedBbox(row),
+    radiusMeters: null,
+  };
+
+  if (token.type === 'street') {
+    hydrated.parentLabel = joinParentLabel([row.city, row.region]);
+  } else if (token.type === 'postcode') {
+    hydrated.parentLabel = joinParentLabel([row.city, row.region]);
+  } else if (token.type === 'city') {
+    hydrated.parentLabel = joinParentLabel([row.region, countryName]);
+  } else if (token.type === 'region') {
+    hydrated.parentLabel = countryName;
+  } else {
+    hydrated.parentLabel = token.parentLabel ?? null;
+  }
+
+  return {
+    ...hydrated,
+    id: buildTokenId(hydrated),
+  };
+}
+
+function buildHydrationAggregateSelect() {
+  return sql`
+    AVG(ST_X(p.geometry)) AS center_lon,
+    AVG(ST_Y(p.geometry)) AS center_lat,
+    MIN(ST_X(p.geometry)) AS min_lon,
+    MIN(ST_Y(p.geometry)) AS min_lat,
+    MAX(ST_X(p.geometry)) AS max_lon,
+    MAX(ST_Y(p.geometry)) AS max_lat,
+    COUNT(*) AS row_count
+  `;
+}
+
+async function queryHydratedLocationToken(
+  token: LocationFilterTokenWithId,
+  requestedCountryCode: CountryCode | undefined
+): Promise<HydratedLocationFilterToken> {
+  if (token.type === 'current-location' || token.type === 'country') {
+    const countryCode = normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode ?? null;
+    const countryName = getCountryName(countryCode);
+    const hydrated = withHydratedTokenDefaults({
+      ...token,
+      countryCode,
+      label: token.type === 'country' && countryName ? countryName : token.label,
+      coordinates:
+        token.type === 'country' && countryCode ? getCountryConfig(countryCode).defaultCenter : token.coordinates,
+    });
+    return hydrated;
+  }
+
+  const countryCode = normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode ?? null;
+  const countryPredicate = countryCode ? sql`AND p.country_code = ${countryCode}` : sql``;
+  const tokenValue = normalizeSearchToken(token.value || token.label);
+  const tokenPostalCode = token.postalCode ?? token.label ?? tokenValue;
+  const cityLabel = token.city ?? token.label;
+  const regionLabel = token.region ?? token.label;
+  const streetLabel = token.street ?? token.label;
+  const cityPredicate = token.city
+    ? sql`AND LOWER(p.city) = LOWER(${token.city})`
+    : sql``;
+  const regionPredicate = token.region
+    ? sql`AND LOWER(p.region) = LOWER(${token.region})`
+    : sql``;
+  const postalPredicate = token.postalCode
+    ? sql`AND REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g')
+        = REGEXP_REPLACE(UPPER(${tokenPostalCode}), '\\s+', '', 'g')`
+    : sql``;
+
+  let rows: LocationTokenHydrationRow[] = [];
+
+  if (token.type === 'city') {
+    rows = Array.from(await db.execute<LocationTokenHydrationRow>(sql`
+      SELECT
+        p.country_code,
+        p.city AS label,
+        p.city,
+        MIN(p.region) AS region,
+        NULL::text AS postal_code,
+        NULL::text AS street,
+        ${buildHydrationAggregateSelect()}
+      FROM properties p
+      WHERE p.geometry IS NOT NULL
+        ${countryPredicate}
+        AND LOWER(p.city) = LOWER(${cityLabel})
+      GROUP BY p.country_code, p.city
+      ORDER BY COUNT(*) DESC
+      LIMIT 2
+    `));
+  } else if (token.type === 'region') {
+    rows = Array.from(await db.execute<LocationTokenHydrationRow>(sql`
+      SELECT
+        p.country_code,
+        p.region AS label,
+        NULL::text AS city,
+        p.region,
+        NULL::text AS postal_code,
+        NULL::text AS street,
+        ${buildHydrationAggregateSelect()}
+      FROM properties p
+      WHERE p.geometry IS NOT NULL
+        ${countryPredicate}
+        AND LOWER(p.region) = LOWER(${regionLabel})
+      GROUP BY p.country_code, p.region
+      ORDER BY COUNT(*) DESC
+      LIMIT 2
+    `));
+  } else if (token.type === 'postcode') {
+    rows = Array.from(await db.execute<LocationTokenHydrationRow>(sql`
+      SELECT
+        p.country_code,
+        p.postal_code AS label,
+        MIN(p.city) AS city,
+        MIN(p.region) AS region,
+        p.postal_code,
+        NULL::text AS street,
+        ${buildHydrationAggregateSelect()}
+      FROM properties p
+      WHERE p.geometry IS NOT NULL
+        ${countryPredicate}
+        ${cityPredicate}
+        ${regionPredicate}
+        AND REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g')
+          = REGEXP_REPLACE(UPPER(${tokenPostalCode}), '\\s+', '', 'g')
+      GROUP BY p.country_code, p.postal_code
+      ORDER BY COUNT(*) DESC
+      LIMIT 2
+    `));
+  } else if (token.type === 'street') {
+    rows = Array.from(await db.execute<LocationTokenHydrationRow>(sql`
+      SELECT
+        p.country_code,
+        p.street AS label,
+        p.city,
+        MIN(p.region) AS region,
+        MIN(p.postal_code) AS postal_code,
+        p.street,
+        ${buildHydrationAggregateSelect()}
+      FROM properties p
+      WHERE p.geometry IS NOT NULL
+        ${countryPredicate}
+        ${cityPredicate}
+        ${regionPredicate}
+        ${postalPredicate}
+        AND LOWER(p.street) = LOWER(${streetLabel})
+      GROUP BY p.country_code, p.street, p.city
+      ORDER BY COUNT(*) DESC
+      LIMIT 2
+    `));
+  }
+
+  return rows.length === 1
+    ? buildHydratedTokenFromRow(token, rows[0]!)
+    : withHydratedTokenDefaults({ ...token, countryCode });
+}
+
+function getAreaQueryValues(area: string | string[] | undefined): string[] {
+  if (!area) {
+    return [];
+  }
+  return Array.isArray(area) ? area : [area];
 }
 
 export async function geocodeRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  app.get(
+    '/search/location-tokens',
+    {
+      schema: {
+        tags: ['Search'],
+        summary: 'Hydrate selected location URL tokens',
+        description:
+          'Hydrates repeated readable area query params into structured selected location tokens for chips and map camera fitting.',
+        querystring: locationTokenHydrationQuerySchema,
+        response: {
+          200: z.array(locationFilterTokenSchema),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { area, countrycode } = request.query;
+      const requestedCountryCode = getSingleCountryFallback(countrycode);
+      const parsedTokens = getAreaQueryValues(area)
+        .map(parseLocationFilterToken)
+        .filter((token): token is LocationFilterToken => token != null);
+
+      try {
+        const hydratedTokens = await Promise.all(
+          parsedTokens.map((token) => queryHydratedLocationToken(token, requestedCountryCode))
+        );
+        return reply.send(hydratedTokens);
+      } catch (error) {
+        app.log.warn({ err: error }, 'Location token hydration unavailable');
+        return reply.send(parsedTokens.map(withHydratedTokenDefaults));
+      }
+    }
+  );
 
   app.get(
     '/search/locations',

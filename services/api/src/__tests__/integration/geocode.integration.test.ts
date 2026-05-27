@@ -2,6 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@je
 import { buildApp } from '../../app.js';
 import { resetReverseGeocodeCacheForTests } from '../../routes/geocode.js';
 import type { FastifyInstance } from 'fastify';
+import { sql } from 'drizzle-orm';
+import { db } from '../../db/index.js';
+import { createIntegrationProperty } from './helpers/fixtures.js';
 
 // Mock global fetch to simulate Photon responses
 const originalFetch = global.fetch;
@@ -62,9 +65,8 @@ describe('GET /geocode/search', () => {
   });
 
   afterAll(async () => {
-    if (app) {
-      await app.close();
-    }
+    // Keep the shared DB connection open for later geocode describes that
+    // exercise DB-backed location hydration.
   });
 
   beforeEach(() => {
@@ -467,15 +469,20 @@ describe('GET /geocode/search', () => {
 
 describe('GET /search/locations', () => {
   let app: FastifyInstance;
+  const createdPropertyIds: string[] = [];
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
   });
 
   afterAll(async () => {
-    if (app) {
-      await app.close();
+    if (createdPropertyIds.length > 0) {
+      await db.execute(sql`DELETE FROM properties WHERE id IN (${sql.join(
+        createdPropertyIds.map((id) => sql`${id}`),
+        sql`, `
+      )})`);
     }
+    // Keep the shared DB connection open for the following hydration tests.
   });
 
   beforeEach(() => {
@@ -675,6 +682,323 @@ describe('GET /search/locations', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.map((suggestion: { type: string }) => suggestion.type)).toEqual(['city', 'street']);
+  });
+
+  it('resolves property suggestions only for exact unambiguous house-number additions', async () => {
+    const baseProperty = await createIntegrationProperty({
+      street: 'Addition Teststraat',
+      houseNumber: 16,
+      houseNumberAddition: null,
+      city: 'Eindhoven',
+      postalCode: '5651HP',
+      lon: 5.45,
+      lat: 51.43,
+    });
+    const additionProperty = await createIntegrationProperty({
+      street: 'Addition Teststraat',
+      houseNumber: 16,
+      houseNumberAddition: 'A',
+      city: 'Eindhoven',
+      postalCode: '5651HP',
+      lon: 5.451,
+      lat: 51.431,
+    });
+    createdPropertyIds.push(baseProperty.id, additionProperty.id);
+
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.451, 51.431] },
+              properties: {
+                osm_type: 'W',
+                osm_id: 1601,
+                street: 'Addition Teststraat',
+                housenumber: '16A',
+                postcode: '5651HP',
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'house',
+              },
+            },
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.452, 51.432] },
+              properties: {
+                osm_type: 'W',
+                osm_id: 1602,
+                street: 'Addition Teststraat',
+                housenumber: '16B',
+                postcode: '5651HP',
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'house',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=Addition+Teststraat+16A&limit=8&countrycode=NL',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        type: 'property',
+        propertyId: additionProperty.id,
+        houseNumber: '16A',
+        houseNumberAddition: 'A',
+      })
+    );
+    expect(body[1]).toEqual(
+      expect.objectContaining({
+        type: 'address',
+        propertyId: null,
+        houseNumber: '16B',
+      })
+    );
+  });
+
+  it('falls back to an address suggestion when a property lookup is ambiguous', async () => {
+    const firstProperty = await createIntegrationProperty({
+      street: 'Ambiguous One',
+      houseNumber: 22,
+      houseNumberAddition: null,
+      city: 'Eindhoven',
+      postalCode: '5652HP',
+      lon: 5.46,
+      lat: 51.43,
+    });
+    const secondProperty = await createIntegrationProperty({
+      street: 'Ambiguous Two',
+      houseNumber: 22,
+      houseNumberAddition: null,
+      city: 'Eindhoven',
+      postalCode: '5652HP',
+      lon: 5.462,
+      lat: 51.432,
+    });
+    createdPropertyIds.push(firstProperty.id, secondProperty.id);
+
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.461, 51.431] },
+              properties: {
+                osm_type: 'W',
+                osm_id: 2201,
+                name: 'Ambiguous 22',
+                housenumber: '22',
+                postcode: '5652HP',
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'house',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=Ambiguous+22&limit=8&countrycode=NL',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)[0]).toEqual(
+      expect.objectContaining({
+        type: 'address',
+        propertyId: null,
+      })
+    );
+  });
+});
+
+describe('GET /search/location-tokens', () => {
+  let app: FastifyInstance;
+  const createdPropertyIds: string[] = [];
+
+  beforeAll(async () => {
+    app = await buildApp({ logger: false });
+  });
+
+  afterAll(async () => {
+    if (createdPropertyIds.length > 0) {
+      await db.execute(sql`DELETE FROM properties WHERE id IN (${sql.join(
+        createdPropertyIds.map((id) => sql`${id}`),
+        sql`, `
+      )})`);
+    }
+    // The final reverse-geocode describe closes the Fastify app/DB connection.
+  });
+
+  beforeEach(() => {
+    mockFetchFn.mockReset();
+    resetReverseGeocodeCacheForTests();
+  });
+
+  it('hydrates repeated readable area tokens with labels, hierarchy, center, and bbox', async () => {
+    const firstProperty = await createIntegrationProperty({
+      street: 'Hydrationstraat',
+      houseNumber: 1,
+      city: 'Hydratiedam',
+      region: 'Noord-Brabant',
+      postalCode: '5612MA',
+      lon: 5.47,
+      lat: 51.44,
+    });
+    const secondProperty = await createIntegrationProperty({
+      street: 'Hydrationstraat',
+      houseNumber: 3,
+      city: 'Hydratiedam',
+      region: 'Noord-Brabant',
+      postalCode: '5612MA',
+      lon: 5.49,
+      lat: 51.46,
+    });
+    createdPropertyIds.push(firstProperty.id, secondProperty.id);
+
+    const streetArea = encodeURIComponent('street:NL:hydrationstraat:city=hydratiedam');
+    const postcodeArea = encodeURIComponent('postcode:NL:5612ma:city=hydratiedam');
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/location-tokens?area=${streetArea}&area=${postcodeArea}&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toHaveLength(2);
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        id: 'street:NL:hydrationstraat:city=hydratiedam:region=noord-brabant:postcode=5612ma',
+        type: 'street',
+        label: 'Hydrationstraat',
+        value: 'hydrationstraat',
+        countryCode: 'NL',
+        city: 'Hydratiedam',
+        region: 'Noord-Brabant',
+        street: 'Hydrationstraat',
+        parentLabel: 'Hydratiedam, Noord-Brabant',
+        coordinates: expect.any(Array),
+        bbox: expect.any(Array),
+      })
+    );
+    expect(body[0].bbox[0]).toBeCloseTo(5.47, 5);
+    expect(body[0].bbox[2]).toBeCloseTo(5.49, 5);
+    expect(body[1]).toEqual(
+      expect.objectContaining({
+        type: 'postcode',
+        label: '5612MA',
+        city: 'Hydratiedam',
+        bbox: expect.any(Array),
+      })
+    );
+  });
+
+  it('accepts a single countrycode string as a fallback for legacy area tokens', async () => {
+    const property = await createIntegrationProperty({
+      street: 'Fallbackstraat',
+      houseNumber: 7,
+      city: 'Fallbackstad',
+      region: 'Noord-Brabant',
+      postalCode: '5613MA',
+      lon: 5.5,
+      lat: 51.47,
+    });
+    createdPropertyIds.push(property.id);
+
+    const area = encodeURIComponent('city::fallbackstad');
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/location-tokens?area=${area}&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toHaveLength(1);
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        type: 'city',
+        label: 'Fallbackstad',
+        value: 'fallbackstad',
+        countryCode: 'NL',
+        bbox: expect.any(Array),
+      })
+    );
+  });
+
+  it('accepts repeated countrycode params without forcing the wrong country across tokens', async () => {
+    const nlProperty = await createIntegrationProperty({
+      countryCode: 'NL',
+      street: 'Sharedhydrationstraat',
+      houseNumber: 11,
+      city: 'Sharedhydration',
+      region: 'Noord-Brabant',
+      postalCode: '5614MA',
+      lon: 5.51,
+      lat: 51.48,
+    });
+    const deProperty = await createIntegrationProperty({
+      countryCode: 'DE',
+      street: 'Sharedhydrationstrasse',
+      houseNumber: 11,
+      city: 'Sharedhydration',
+      region: 'Berlin',
+      postalCode: '10115',
+      lon: 13.4,
+      lat: 52.52,
+    });
+    createdPropertyIds.push(nlProperty.id, deProperty.id);
+
+    const nlArea = encodeURIComponent('city:NL:sharedhydration');
+    const deArea = encodeURIComponent('city:DE:sharedhydration');
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/location-tokens?area=${nlArea}&area=${deArea}&countrycode=NL&countrycode=DE`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toHaveLength(2);
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        type: 'city',
+        label: 'Sharedhydration',
+        countryCode: 'NL',
+        region: 'Noord-Brabant',
+        bbox: expect.any(Array),
+      })
+    );
+    expect(body[1]).toEqual(
+      expect.objectContaining({
+        type: 'city',
+        label: 'Sharedhydration',
+        countryCode: 'DE',
+        region: 'Berlin',
+        bbox: expect.any(Array),
+      })
+    );
+    expect(body[0].coordinates[0]).toBeCloseTo(5.51, 5);
+    expect(body[1].coordinates[0]).toBeCloseTo(13.4, 5);
   });
 });
 

@@ -5,6 +5,7 @@ import {
   buildPropertyMarketFilterQuery,
   createDefaultMapFilters,
   parseFollowingMapFiltersQuery,
+  parseLocationFilterToken,
   parseMapFiltersQuery,
 } from './map-filters.js';
 
@@ -78,6 +79,23 @@ describe('selected area filters', () => {
     ]);
     expect(renderSql(marketQuery.join).trim()).toBe('');
     expect(renderSql(marketQuery.predicate).toLowerCase()).toBe('true');
+  });
+
+  it('parses readable street metadata so reload predicates keep city context', () => {
+    const token = parseLocationFilterToken('street:NL:boschdijk:city=eindhoven');
+    expect(token).toEqual(
+      expect.objectContaining({
+        type: 'street',
+        countryCode: 'NL',
+        value: 'boschdijk',
+        city: 'Eindhoven',
+      })
+    );
+
+    const sqlText = renderSql(buildLocationAreaFilterPredicate(token ? [token] : []));
+    expect(sqlText).toContain('p.street');
+    expect(sqlText).toContain('p.city');
+    expect(sqlText).toContain(' AND ');
   });
 
   it('builds OR area predicates with AND field constraints inside each token', () => {

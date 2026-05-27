@@ -614,6 +614,116 @@ describe('SearchBar', () => {
     expect(onPropertyResolved).not.toHaveBeenCalled();
   });
 
+  it('passes suggestion bbox into selected area chips', () => {
+    const onAreaSelected = jest.fn();
+    mockUseLocationSearch.mockReturnValue({
+      data: [
+        {
+          id: 'city:NL:eindhoven',
+          type: 'city',
+          label: 'Eindhoven',
+          subtitle: 'Noord-Brabant, Nederland',
+          countryCode: 'NL',
+          coordinates: [5.4697, 51.4416],
+          bbox: [5.35, 51.36, 5.57, 51.51],
+          filterToken: {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+          },
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        onAreaSelected={onAreaSelected}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Eindhoven');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    fireEvent.press(screen.getByText('Eindhoven'));
+
+    expect(onAreaSelected).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'city',
+        countryCode: 'NL',
+        value: 'eindhoven',
+        coordinates: [5.4697, 51.4416],
+        bbox: [5.35, 51.36, 5.57, 51.51],
+      }),
+    );
+  });
+
+  it('opens direct address suggestions without creating area chips', async () => {
+    jest.useRealTimers();
+    const onAreaSelected = jest.fn();
+    mockUseLocationSearch.mockReturnValue({
+      data: [
+        {
+          id: 'address:NL:teststraat-42',
+          type: 'address',
+          label: 'Teststraat 42, Eindhoven',
+          subtitle: '5651HA Eindhoven',
+          address: 'Teststraat 42, Eindhoven',
+          city: 'Eindhoven',
+          countryCode: 'NL',
+          street: 'Teststraat',
+          postalCode: '5651HA',
+          houseNumber: '42',
+          coordinates: [TEST_LNG, TEST_LAT],
+          filterToken: {
+            type: 'street',
+            countryCode: 'NL',
+            value: 'teststraat',
+            label: 'Teststraat',
+          },
+        },
+      ],
+      isLoading: false,
+    });
+    mockResolveProperty.mockResolvedValue(null);
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        onAreaSelected={onAreaSelected}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Teststraat 42');
+
+    await waitFor(() => {
+      expect(screen.getByText('Teststraat 42, Eindhoven')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('Teststraat 42, Eindhoven'));
+    });
+
+    await waitFor(() => {
+      expect(onLocationResolved).toHaveBeenCalledWith(
+        { lon: TEST_LNG, lat: TEST_LAT },
+        'Teststraat 42, Eindhoven',
+        expect.objectContaining({
+          formattedAddress: 'Teststraat 42, Eindhoven',
+        }),
+      );
+    });
+    expect(onAreaSelected).not.toHaveBeenCalled();
+  });
+
   it('distinguishes same-name location suggestions by type subtitle', () => {
     mockUseLocationSearch.mockReturnValue({
       data: [
@@ -684,6 +794,49 @@ describe('SearchBar', () => {
     fireEvent.press(screen.getByTestId('search-current-location'));
 
     expect(onCurrentLocationSelected).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows clear-all for a single selected area', () => {
+    const onClearAreas = jest.fn();
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        selectedAreas={[
+          {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+          },
+        ]}
+        onClearAreas={onClearAreas}
+      />
+    );
+
+    fireEvent.press(screen.getByTestId('search-area-clear-all'));
+
+    expect(onClearAreas).toHaveBeenCalledTimes(1);
+  });
+
+  it('localizes the current-location action', async () => {
+    jest.useRealTimers();
+    setPlatform('web');
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'nl');
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+      />
+    );
+
+    fireEvent(screen.getByTestId('search-bar-input'), 'focus');
+
+    await waitFor(() => {
+      expect(screen.getByText('Zoek huidige locatie')).toBeTruthy();
+    });
   });
 
   it('closes the focused web search overlay on popstate before route navigation', async () => {

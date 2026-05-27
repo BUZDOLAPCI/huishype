@@ -80,7 +80,9 @@ import {
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import {
   buildPropertyTileTemplateUrl,
+  DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
   getCanonicalMapFilterSignature,
+  getLocationFilterTokenCameraBounds,
   type MapActivityTimeFilter,
 } from '@/src/lib/sharedMapFilters';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
@@ -1269,31 +1271,50 @@ export default function MapScreen() {
   );
 
   const centerNativeMapOnAreas = useCallback((areas: LocationFilterToken[]) => {
-    const coordinates = areas
-      .map((area) => area.coordinates)
-      .filter((value): value is [number, number] => Array.isArray(value));
-    if (coordinates.length === 0) {
+    const bounds = getLocationFilterTokenCameraBounds(areas);
+    if (!bounds) {
       return;
     }
-    const lon = coordinates.reduce((sum, coordinate) => sum + coordinate[0], 0) / coordinates.length;
-    const lat = coordinates.reduce((sum, coordinate) => sum + coordinate[1], 0) / coordinates.length;
-    const zoom = coordinates.length === 1 ? Math.max(currentZoom, 13) : 10;
-    cameraRef.current?.flyTo({
-      center: [lon, lat],
-      zoom,
-      pitch: getPitchForZoom(zoom),
+
+    const [west, south, east, north] = bounds;
+    if (west === east && south === north) {
+      const zoom = Math.max(currentZoom, 13);
+      cameraRef.current?.flyTo({
+        center: [west, south],
+        zoom,
+        pitch: getPitchForZoom(zoom),
+        duration: 650,
+      });
+      return;
+    }
+
+    cameraRef.current?.fitBounds([west, south, east, north], {
+      padding: {
+        top: 96,
+        right: 96,
+        bottom: 96,
+        left: 96,
+      },
       duration: 650,
     });
   }, [currentZoom]);
 
   const handleAreaSelected = useCallback(
     (area: LocationFilterToken) => {
-      const nextAreas = [...(filterController.appliedFilters.areas ?? []), area];
+      const currentAreas = filterController.appliedFilters.areas ?? [];
+      const nextAreas = [
+        ...(area.type === 'current-location'
+          ? currentAreas.filter((currentArea) => currentArea.type !== 'current-location')
+          : currentAreas),
+        area,
+      ];
       filterController.replaceAppliedFilters({
         ...filterController.appliedFilters,
         areas: nextAreas,
       });
-      centerNativeMapOnAreas(nextAreas);
+      if (area.type !== 'current-location') {
+        centerNativeMapOnAreas(nextAreas);
+      }
     },
     [centerNativeMapOnAreas, filterController]
   );
@@ -1324,15 +1345,18 @@ export default function MapScreen() {
     try {
       const { longitude, latitude } = await getCurrentLocation();
       setShowUserLocation(true);
+      const existingCurrentLocation = (filterController.appliedFilters.areas ?? []).find(
+        (area) => area.type === 'current-location'
+      );
       const area: LocationFilterToken = {
         type: 'current-location',
         countryCode: null,
         value: `${latitude.toFixed(6)},${longitude.toFixed(6)}`,
-        label: 'Current location',
+        label: t('search.currentLocationLabel'),
         coordinates: [longitude, latitude],
-        radiusMeters: 5_000,
+        radiusMeters:
+          existingCurrentLocation?.radiusMeters ?? DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
       };
-      handleAreaSelected(area);
       const zoom = Math.max(currentZoom, 14);
       cameraRef.current?.flyTo({
         center: [longitude, latitude],
@@ -1340,12 +1364,13 @@ export default function MapScreen() {
         pitch: getPitchForZoom(zoom),
         duration: 800,
       });
+      handleAreaSelected(area);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('map.locationUnable');
       console.warn('[MapScreen] Search current location failed:', message);
       Alert.alert(t('map.locationUnavailable'), message);
     }
-  }, [currentZoom, handleAreaSelected, t]);
+  }, [currentZoom, filterController.appliedFilters.areas, handleAreaSelected, t]);
 
   // Zoom control handlers
   const handleZoomIn = useCallback(async () => {

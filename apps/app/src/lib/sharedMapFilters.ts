@@ -68,6 +68,7 @@ const LOCATION_FILTER_TOKEN_TYPES = [
 ] as const satisfies readonly LocationFilterTokenType[];
 const LOCATION_FILTER_TOKEN_TYPE_SET = new Set<string>(LOCATION_FILTER_TOKEN_TYPES);
 const CURRENT_LOCATION_RADIUS_METERS = 5_000;
+export const DEFAULT_CURRENT_LOCATION_RADIUS_METERS = CURRENT_LOCATION_RADIUS_METERS;
 export const MAP_ACTIVITY_TIME_FILTERS = [
   'today',
   '10d',
@@ -257,6 +258,38 @@ function normalizeCountryCode(value: string | null | undefined): string | null {
   return normalized && /^[A-Z]{2}$/u.test(normalized) ? normalized : null;
 }
 
+function formatTokenLabel(value: string): string {
+  return value
+    .split('-')
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+}
+
+function serializeTokenMetadata(key: string, value: string | null | undefined): string | null {
+  const normalized = value ? normalizeTokenValue(value) : '';
+  return normalized ? `${key}=${normalized}` : null;
+}
+
+function parseTokenMetadata(parts: string[]): Record<string, string> {
+  const metadata: Record<string, string> = {};
+
+  for (const part of parts) {
+    const separatorIndex = part.indexOf('=');
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = part.slice(0, separatorIndex);
+    const metadataValue = normalizeTokenValue(part.slice(separatorIndex + 1));
+    if (metadataValue) {
+      metadata[key] = metadataValue;
+    }
+  }
+
+  return metadata;
+}
+
 export function serializeLocationFilterToken(token: LocationFilterToken): string | null {
   if (token.type === 'current-location') {
     const coordinates = token.coordinates;
@@ -272,7 +305,14 @@ export function serializeLocationFilterToken(token: LocationFilterToken): string
     return null;
   }
   const countryCode = normalizeCountryCode(token.countryCode) ?? '';
-  return `${token.type}:${countryCode}:${value}`;
+  const metadata = [
+    serializeTokenMetadata('city', token.city),
+    serializeTokenMetadata('region', token.region),
+    serializeTokenMetadata('postcode', token.postalCode),
+    token.type !== 'street' ? serializeTokenMetadata('street', token.street) : null,
+  ].filter((part): part is string => part != null);
+
+  return [token.type, countryCode, value, ...metadata].join(':');
 }
 
 export function parseLocationFilterToken(value: string): LocationFilterToken | null {
@@ -302,20 +342,21 @@ export function parseLocationFilterToken(value: string): LocationFilterToken | n
     };
   }
 
-  const tokenValue = normalizeTokenValue(parts.slice(2).join(':'));
+  const tokenValue = normalizeTokenValue(parts[2] ?? '');
   if (!tokenValue) {
     return null;
   }
+  const metadata = parseTokenMetadata(parts.slice(3));
 
   return {
     type,
     countryCode: normalizeCountryCode(parts[1]),
     value: tokenValue,
-    label: tokenValue
-      .split('-')
-      .filter(Boolean)
-      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-      .join(' '),
+    label: formatTokenLabel(tokenValue),
+    city: metadata.city ? formatTokenLabel(metadata.city) : null,
+    region: metadata.region ? formatTokenLabel(metadata.region) : null,
+    postalCode: metadata.postcode ? metadata.postcode.toUpperCase() : null,
+    street: metadata.street ? formatTokenLabel(metadata.street) : null,
   };
 }
 
@@ -340,6 +381,7 @@ export function normalizeLocationFilterTokens(
     }
     const normalized: LocationFilterToken = {
       ...token,
+      id: token.id?.trim() || null,
       countryCode: normalizeCountryCode(token.countryCode),
       value,
       label: token.label?.trim() || value,
@@ -362,6 +404,85 @@ export function normalizeLocationFilterTokens(
   }
 
   return Array.from(deduped.values());
+}
+
+function isFiniteCoordinate(coordinates: unknown): coordinates is [number, number] {
+  return (
+    Array.isArray(coordinates) &&
+    coordinates.length >= 2 &&
+    typeof coordinates[0] === 'number' &&
+    Number.isFinite(coordinates[0]) &&
+    typeof coordinates[1] === 'number' &&
+    Number.isFinite(coordinates[1])
+  );
+}
+
+function isFiniteBbox(bbox: unknown): bbox is [number, number, number, number] {
+  return (
+    Array.isArray(bbox) &&
+    bbox.length >= 4 &&
+    bbox.every((value) => typeof value === 'number' && Number.isFinite(value)) &&
+    bbox[0] <= bbox[2] &&
+    bbox[1] <= bbox[3]
+  );
+}
+
+function getCurrentLocationRadiusBbox(
+  coordinates: [number, number],
+  radiusMeters: number
+): [number, number, number, number] {
+  const [lon, lat] = coordinates;
+  const latRadiusDegrees = radiusMeters / 110574;
+  const lonScale = Math.max(Math.cos((lat * Math.PI) / 180), 0.01);
+  const lonRadiusDegrees = radiusMeters / (111320 * lonScale);
+
+  return [
+    lon - lonRadiusDegrees,
+    lat - latRadiusDegrees,
+    lon + lonRadiusDegrees,
+    lat + latRadiusDegrees,
+  ];
+}
+
+export function getLocationFilterTokenCameraBounds(
+  tokens: readonly LocationFilterToken[] | null | undefined
+): [number, number, number, number] | null {
+  let west = Number.POSITIVE_INFINITY;
+  let south = Number.POSITIVE_INFINITY;
+  let east = Number.NEGATIVE_INFINITY;
+  let north = Number.NEGATIVE_INFINITY;
+  let hasBounds = false;
+
+  const extend = (bounds: [number, number, number, number]) => {
+    west = Math.min(west, bounds[0]);
+    south = Math.min(south, bounds[1]);
+    east = Math.max(east, bounds[2]);
+    north = Math.max(north, bounds[3]);
+    hasBounds = true;
+  };
+
+  for (const token of tokens ?? []) {
+    if (isFiniteBbox(token.bbox)) {
+      extend(token.bbox);
+      continue;
+    }
+
+    if (isFiniteCoordinate(token.coordinates)) {
+      if (token.type === 'current-location') {
+        extend(
+          getCurrentLocationRadiusBbox(
+            token.coordinates,
+            Math.max(1, Math.round(token.radiusMeters ?? CURRENT_LOCATION_RADIUS_METERS)),
+          ),
+        );
+      } else {
+        const [lon, lat] = token.coordinates;
+        extend([lon, lat, lon, lat]);
+      }
+    }
+  }
+
+  return hasBounds ? [west, south, east, north] : null;
 }
 
 export function createMapFilterDraftState(filters: MapFilters): MapFilterDraftState {

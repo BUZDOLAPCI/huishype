@@ -401,10 +401,20 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
   appendSearchToPath: jest.fn((pathname, search) => `${pathname}${search}`),
   buildPropertyTileTemplateUrl: jest.fn((_apiUrl, filters) => `https://tiles.test/${filters.tag}`),
   createDefaultMapFilters: jest.fn(() => ({ tag: 'default' })),
+  DEFAULT_CURRENT_LOCATION_RADIUS_METERS: 5000,
   doesMapFilterCandidateMatch: jest.fn(() => true),
   getCanonicalMapFilterSignature: jest.fn((filters) => filters.tag),
+  getLocationFilterTokenCameraBounds: jest.fn((areas) => {
+    const coordinates = areas
+      ?.map((area: { coordinates?: [number, number] | null }) => area.coordinates)
+      .find(Boolean);
+    return coordinates ? [coordinates[0], coordinates[1], coordinates[0], coordinates[1]] : null;
+  }),
   getMapFilterSearchString: jest.fn((_filters, currentSearch) => currentSearch),
   parseMapFiltersFromSearchParams: jest.fn(() => ({ tag: 'default' })),
+  serializeLocationFilterToken: jest.fn(
+    (area) => `${area.type}:${area.countryCode ?? ''}:${area.value}`,
+  ),
 }));
 
 jest.mock('@/src/lib/webMapUrlSync', () => ({

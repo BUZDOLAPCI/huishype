@@ -74,9 +74,12 @@ import {
   appendSearchToPath,
   buildPropertyTileTemplateUrl,
   createDefaultMapFilters,
+  DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
   getCanonicalMapFilterSignature,
+  getLocationFilterTokenCameraBounds,
   getMapFilterSearchString,
   parseMapFiltersFromSearchParams,
+  serializeLocationFilterToken,
   type MapActivityTimeFilter,
   type MapFilters,
 } from '@/src/lib/sharedMapFilters';
@@ -100,6 +103,7 @@ import { MapWelcomeInfoButton } from '@/src/components/map/MapWelcomeInfoButton'
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useT } from '@/src/i18n';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
+import { hydrateLocationFilterTokens } from '@/src/services/location-search';
 import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import {
@@ -293,6 +297,13 @@ function emitFollowingFeatureClickAnalytics(
     pointCount: group.pointCount,
     propertyId: group.primaryPropertyId,
   });
+}
+
+function getAreaTokenSignature(areas: readonly LocationFilterToken[] | null | undefined): string {
+  return (areas ?? [])
+    .map((area) => serializeLocationFilterToken(area))
+    .filter((area): area is string => area != null)
+    .join('|');
 }
 
 function getWebClickCoordinate(
@@ -941,7 +952,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const t = useT();
   const welcomeModal = useWelcomeModal();
   const isFocused = useIsFocused();
-  const initialAppliedFilters = useMemo(
+  const initialParsedFilters = useMemo(
     () =>
       typeof window === 'undefined'
         ? createDefaultMapFilters()
@@ -949,6 +960,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
             new URLSearchParams(window.location.search),
           ),
     [],
+  );
+  const initialAppliedFilters = useMemo(
+    () => ({
+      ...initialParsedFilters,
+      areas: (initialParsedFilters.areas ?? []).filter(
+        (area) => area.type === 'current-location',
+      ),
+    }),
+    [initialParsedFilters],
   );
   const initialSocialScope = useMemo<MapSocialScope>(
     () =>
@@ -2783,21 +2803,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
-    const bounds = new maplibregl.LngLatBounds();
-    let hasBounds = false;
-    for (const area of areas) {
-      if (area.bbox) {
-        bounds.extend([area.bbox[0], area.bbox[1]]);
-        bounds.extend([area.bbox[2], area.bbox[3]]);
-        hasBounds = true;
-      } else if (area.coordinates) {
-        bounds.extend(area.coordinates);
-        hasBounds = true;
-      }
-    }
-
-    if (hasBounds) {
-      map.fitBounds(bounds, {
+    const bounds = getLocationFilterTokenCameraBounds(areas);
+    if (bounds) {
+      map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], {
         padding: 96,
         maxZoom: areas.length === 1 ? 13 : 11,
         duration: 650,
@@ -2805,6 +2813,63 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       });
     }
   }, []);
+  const suppressedAreaFitSignatureRef = useRef<string | null>(null);
+
+  const areaFitSignature = useMemo(
+    () => getAreaTokenSignature(filterController.appliedFilters.areas),
+    [filterController.appliedFilters.areas],
+  );
+
+  useEffect(() => {
+    if (!mapLoaded || !areaFitSignature) {
+      return;
+    }
+
+    if (suppressedAreaFitSignatureRef.current === areaFitSignature) {
+      return;
+    }
+
+    fitMapToAreaTokens(appliedFiltersRef.current.areas ?? []);
+  }, [
+    areaFitSignature,
+    fitMapToAreaTokens,
+    mapLoaded,
+  ]);
+
+  useEffect(() => {
+    const parsedAreas = initialParsedFilters.areas ?? [];
+    const hydratableAreas = parsedAreas.filter((area) => area.type !== 'current-location');
+    if (hydratableAreas.length === 0) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    void hydrateLocationFilterTokens(hydratableAreas)
+      .then((hydratedAreas) => {
+        if (cancelled) {
+          return;
+        }
+
+        replaceAppliedFilters({
+          ...initialParsedFilters,
+          areas: [
+            ...parsedAreas.filter((area) => area.type === 'current-location'),
+            ...hydratedAreas,
+          ],
+        });
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        replaceAppliedFilters(initialParsedFilters);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialParsedFilters, replaceAppliedFilters]);
 
   const commitAreaFilters = useCallback(
     (nextFilters: MapFilters) => {
@@ -2827,13 +2892,30 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
   const handleAreaSelected = useCallback(
     (area: LocationFilterToken) => {
-      const nextAreas = [...(filterController.appliedFilters.areas ?? []), area];
+      const currentAreas = filterController.appliedFilters.areas ?? [];
+      const nextAreas = [
+        ...(area.type === 'current-location'
+          ? currentAreas.filter((currentArea) => currentArea.type !== 'current-location')
+          : currentAreas),
+        area,
+      ];
       const nextFilters = {
         ...filterController.appliedFilters,
         areas: nextAreas,
       };
+      if (area.type === 'current-location') {
+        const suppressedSignature = getAreaTokenSignature(nextAreas);
+        suppressedAreaFitSignatureRef.current = suppressedSignature;
+        window.setTimeout(() => {
+          if (suppressedAreaFitSignatureRef.current === suppressedSignature) {
+            suppressedAreaFitSignatureRef.current = null;
+          }
+        }, 2_000);
+      }
       commitAreaFilters(nextFilters);
-      fitMapToAreaTokens(nextAreas);
+      if (area.type !== 'current-location') {
+        fitMapToAreaTokens(nextAreas);
+      }
     },
     [
       commitAreaFilters,
@@ -2873,27 +2955,47 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const handleSearchCurrentLocation = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
+      const existingCurrentLocation = (filterController.appliedFilters.areas ?? []).find(
+        (area) => area.type === 'current-location',
+      );
       const area: LocationFilterToken = {
         type: 'current-location',
         countryCode: null,
         value: `${latitude.toFixed(6)},${longitude.toFixed(6)}`,
-        label: 'Current location',
+        label: t('search.currentLocationLabel'),
         coordinates: [longitude, latitude],
-        radiusMeters: 5_000,
+        radiusMeters:
+          existingCurrentLocation?.radiusMeters ?? DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
       };
+      const map = mapRef.current ??
+        (window as unknown as { __mapInstance?: maplibregl.Map }).__mapInstance;
+      const targetZoom = Math.max(currentZoomRef.current, 14);
+      map?.stop();
       handleAreaSelected(area);
-      mapRef.current?.flyTo({
-        center: [longitude, latitude],
-        zoom: Math.max(currentZoomRef.current, 14),
-        duration: 650,
-        essential: true,
-      });
+      window.setTimeout(() => {
+        const activeMap = mapRef.current ??
+          (window as unknown as { __mapInstance?: maplibregl.Map }).__mapInstance;
+        activeMap?.stop();
+        activeMap?.flyTo({
+          center: [longitude, latitude],
+          zoom: targetZoom,
+          duration: 650,
+          essential: true,
+        });
+        window.setTimeout(() => {
+          activeMap?.stop();
+          activeMap?.jumpTo({
+            center: [longitude, latitude],
+            zoom: targetZoom,
+          });
+        }, 700);
+      }, 0);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('map.locationUnable');
       console.warn('[MapScreen] Search current location failed:', message);
       Alert.alert(t('map.locationUnavailable'), message);
     }
-  }, [handleAreaSelected, t]);
+  }, [filterController.appliedFilters.areas, handleAreaSelected, t]);
 
   useEffect(() => {
     const nextRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');

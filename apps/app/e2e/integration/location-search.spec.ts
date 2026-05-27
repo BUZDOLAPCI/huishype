@@ -44,6 +44,53 @@ async function getTestProperty(request: APIRequestContext): Promise<TestProperty
 }
 
 async function mockLocationSearch(page: Page, property: TestProperty): Promise<void> {
+  await page.route('**/search/location-tokens**', async (route) => {
+    const url = new URL(route.request().url());
+    const areas = url.searchParams.getAll('area');
+    const hydrated = areas.flatMap((area) => {
+      if (area === 'city:NL:waalre') {
+        return [
+          {
+            id: 'city:NL:waalre',
+            type: 'city',
+            countryCode: 'NL',
+            value: 'waalre',
+            label: 'Waalre',
+            parentLabel: 'Noord-Brabant',
+            city: 'Waalre',
+            region: 'Noord-Brabant',
+            coordinates: [5.444, 51.386],
+            bbox: [5.39, 51.34, 5.52, 51.43],
+          },
+        ];
+      }
+
+      if (area === 'city:NL:eindhoven') {
+        return [
+          {
+            id: 'city:NL:eindhoven',
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+            parentLabel: 'Noord-Brabant',
+            city: 'Eindhoven',
+            region: 'Noord-Brabant',
+            coordinates: [5.4697, 51.4416],
+            bbox: [5.35, 51.36, 5.57, 51.51],
+          },
+        ];
+      }
+
+      return [];
+    });
+
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(hydrated),
+    });
+  });
+
   await page.route('**/search/locations**', async (route) => {
     const url = new URL(route.request().url());
     const query = (url.searchParams.get('q') ?? '').toLowerCase();
@@ -150,6 +197,13 @@ async function getPropertyTileUrl(page: Page): Promise<string | null> {
   });
 }
 
+async function getMapCenter(page: Page): Promise<{ lng: number; lat: number } | null> {
+  return page.evaluate(() => {
+    const map = (window as Window & { __mapInstance?: InspectableMapInstance }).__mapInstance;
+    return map?.getCenter?.() ?? null;
+  });
+}
+
 test.describe('Merged Location Search', () => {
   test.setTimeout(90_000);
 
@@ -199,6 +253,10 @@ test.describe('Merged Location Search', () => {
     await waitForMapReady(page, 60_000);
     await expect(page.getByTestId('search-area-chip').filter({ hasText: 'Waalre' })).toBeVisible();
     await expect(page.getByTestId('search-area-chip').filter({ hasText: 'Eindhoven' })).toBeVisible();
+    await expect.poll(async () => {
+      const center = await getMapCenter(page);
+      return center ? `${center.lng.toFixed(1)},${center.lat.toFixed(1)}` : null;
+    }, { timeout: 15_000 }).toBe('5.5,51.4');
 
     const searchInput = page.getByTestId('search-bar-input');
     await searchInput.click();
@@ -207,6 +265,10 @@ test.describe('Merged Location Search', () => {
 
     await expect.poll(() => page.evaluate(() => window.location.search)).toContain('area=current-location%3A52.090700%3A5.121400');
     await expect.poll(() => getPropertyTileUrl(page)).toContain('area=current-location%3A52.090700%3A5.121400');
+    await expect.poll(async () => {
+      const center = await getMapCenter(page);
+      return center ? `${center.lng.toFixed(3)},${center.lat.toFixed(3)}` : null;
+    }, { timeout: 15_000 }).toBe('5.121,52.091');
     await expect(page.getByRole('heading', { name: /Current location:/i })).toBeVisible({
       timeout: 15_000,
     });

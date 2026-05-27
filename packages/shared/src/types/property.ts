@@ -399,6 +399,7 @@ export type LocationFilterTokenType =
   | 'current-location';
 
 export interface LocationFilterToken {
+  id?: string | null;
   type: LocationFilterTokenType;
   countryCode?: string | null;
   value: string;

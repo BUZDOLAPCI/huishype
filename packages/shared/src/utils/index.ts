@@ -101,6 +101,8 @@ export {
   getMapMarketStateLabel,
   getMapFilterPillSummary,
   resetMapFilterCategory,
+  serializeLocationFilterToken,
+  parseLocationFilterToken,
   mapMarketStateSchema,
   mapFiltersQuerySchema,
   MAP_ACTIVITY_TIME_FILTERS,

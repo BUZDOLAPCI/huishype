@@ -122,6 +122,38 @@ function normalizeCountryCode(value: string | null | undefined): string | null {
   return normalized && /^[A-Z]{2}$/u.test(normalized) ? normalized : null;
 }
 
+function formatTokenLabel(value: string): string {
+  return value
+    .split('-')
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+}
+
+function serializeTokenMetadata(key: string, value: string | null | undefined): string | null {
+  const normalized = value ? normalizeTokenValue(value) : '';
+  return normalized ? `${key}=${normalized}` : null;
+}
+
+function parseTokenMetadata(parts: string[]): Record<string, string> {
+  const metadata: Record<string, string> = {};
+
+  for (const part of parts) {
+    const separatorIndex = part.indexOf('=');
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = part.slice(0, separatorIndex);
+    const value = normalizeTokenValue(part.slice(separatorIndex + 1));
+    if (value) {
+      metadata[key] = value;
+    }
+  }
+
+  return metadata;
+}
+
 export function parseLocationFilterToken(value: string): LocationFilterToken | null {
   const parts = value.split(':');
   const type = parts[0] as LocationFilterTokenType | undefined;
@@ -149,16 +181,21 @@ export function parseLocationFilterToken(value: string): LocationFilterToken | n
     };
   }
 
-  const tokenValue = normalizeTokenValue(parts.slice(2).join(':'));
+  const tokenValue = normalizeTokenValue(parts[2] ?? '');
   if (!tokenValue) {
     return null;
   }
+  const metadata = parseTokenMetadata(parts.slice(3));
 
   return {
     type,
     countryCode: normalizeCountryCode(parts[1]),
     value: tokenValue,
-    label: tokenValue,
+    label: formatTokenLabel(tokenValue),
+    city: metadata.city ? formatTokenLabel(metadata.city) : null,
+    region: metadata.region ? formatTokenLabel(metadata.region) : null,
+    postalCode: metadata.postcode ? metadata.postcode.toUpperCase() : null,
+    street: metadata.street ? formatTokenLabel(metadata.street) : null,
   };
 }
 
@@ -176,7 +213,14 @@ function serializeLocationFilterToken(token: LocationFilterToken): string | null
   if (!value) {
     return null;
   }
-  return `${token.type}:${normalizeCountryCode(token.countryCode) ?? ''}:${value}`;
+  const metadata = [
+    serializeTokenMetadata('city', token.city),
+    serializeTokenMetadata('region', token.region),
+    serializeTokenMetadata('postcode', token.postalCode),
+    token.type !== 'street' ? serializeTokenMetadata('street', token.street) : null,
+  ].filter((part): part is string => part != null);
+
+  return [token.type, normalizeCountryCode(token.countryCode) ?? '', value, ...metadata].join(':');
 }
 
 function parseAreaInput(input: string | string[] | undefined): LocationFilterToken[] {

@@ -2,7 +2,9 @@ import {
   buildNearbyGroupPath,
   buildPropertyTileTemplateUrl,
   createDefaultMapFilters,
+  DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
   doesMapFilterCandidateMatch,
+  getLocationFilterTokenCameraBounds,
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
   isMapStatusPillActive,
@@ -275,5 +277,128 @@ describe('sharedMapFilters price suggestions', () => {
       expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' }),
       expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'waalre' }),
     ]);
+  });
+
+  it('serializes street and postcode area metadata through repeated URL params', () => {
+    const filters = {
+      ...createDefaultMapFilters(),
+      areas: [
+        {
+          type: 'street' as const,
+          countryCode: 'NL',
+          value: 'boschdijk',
+          label: 'Boschdijk',
+          city: 'Eindhoven',
+          region: 'Noord-Brabant',
+        },
+        {
+          type: 'postcode' as const,
+          countryCode: 'NL',
+          value: '5612-ma',
+          label: '5612 MA',
+          city: 'Eindhoven',
+          street: 'Boschdijk',
+        },
+      ],
+    };
+    const params = updateMapFilterSearchParams(new URLSearchParams(), filters);
+
+    expect(params.toString()).toBe(
+      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant&area=postcode%3ANL%3A5612-ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
+    );
+    expect(buildPropertyTileTemplateUrl('http://api.test', filters)).toContain(
+      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant&area=postcode%3ANL%3A5612-ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
+    );
+    expect(parseMapFiltersFromSearchParams(params).areas).toEqual([
+      expect.objectContaining({
+        type: 'street',
+        countryCode: 'NL',
+        value: 'boschdijk',
+        label: 'Boschdijk',
+        city: 'Eindhoven',
+        region: 'Noord Brabant',
+        postalCode: null,
+        street: null,
+      }),
+      expect.objectContaining({
+        type: 'postcode',
+        countryCode: 'NL',
+        value: '5612-ma',
+        label: '5612 Ma',
+        city: 'Eindhoven',
+        postalCode: null,
+        street: 'Boschdijk',
+      }),
+    ]);
+  });
+
+  it('keeps same street value distinct across cities in area params', () => {
+    const filters = {
+      ...createDefaultMapFilters(),
+      areas: [
+        {
+          type: 'street' as const,
+          countryCode: 'NL',
+          value: 'kerkstraat',
+          label: 'Kerkstraat',
+          city: 'Eindhoven',
+        },
+        {
+          type: 'street' as const,
+          countryCode: 'NL',
+          value: 'kerkstraat',
+          label: 'Kerkstraat',
+          city: 'Waalre',
+        },
+      ],
+    };
+
+    const params = updateMapFilterSearchParams(new URLSearchParams(), filters);
+
+    expect(params.getAll('area')).toEqual([
+      'street:NL:kerkstraat:city=eindhoven',
+      'street:NL:kerkstraat:city=waalre',
+    ]);
+    expect(parseMapFiltersFromSearchParams(params).areas).toEqual([
+      expect.objectContaining({ value: 'kerkstraat', city: 'Eindhoven' }),
+      expect.objectContaining({ value: 'kerkstraat', city: 'Waalre' }),
+    ]);
+  });
+
+  it('builds camera bounds from area bboxes, centers, and current-location radius', () => {
+    const bounds = getLocationFilterTokenCameraBounds([
+      {
+        type: 'city',
+        countryCode: 'NL',
+        value: 'eindhoven',
+        label: 'Eindhoven',
+        bbox: [5.35, 51.36, 5.57, 51.51],
+      },
+      {
+        type: 'city',
+        countryCode: 'NL',
+        value: 'waalre',
+        label: 'Waalre',
+        coordinates: [5.444, 51.386],
+      },
+    ]);
+
+    expect(bounds).toEqual([5.35, 51.36, 5.57, 51.51]);
+
+    const currentLocationBounds = getLocationFilterTokenCameraBounds([
+      {
+        type: 'current-location',
+        countryCode: null,
+        value: '52.090700,5.121400',
+        label: 'Current location',
+        coordinates: [5.1214, 52.0907],
+        radiusMeters: DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+      },
+    ]);
+
+    expect(currentLocationBounds?.[0]).toBeLessThan(5.1214);
+    expect(currentLocationBounds?.[1]).toBeLessThan(52.0907);
+    expect(currentLocationBounds?.[2]).toBeGreaterThan(5.1214);
+    expect(currentLocationBounds?.[3]).toBeGreaterThan(52.0907);
   });
 });

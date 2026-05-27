@@ -21,8 +21,10 @@ import {
   isMapFilterCategoryDefault,
   normalizeMapFilterQueryParams,
   normalizeMapFilters,
+  parseLocationFilterToken,
   parseMapFiltersFromSearchParams,
   resetMapFilterCategory,
+  serializeLocationFilterToken,
   serializeMapFiltersToSearchParams,
   updateMapFilterSearchParams,
 } from '../utils/index.js';
@@ -243,6 +245,42 @@ describe('map filter query param helpers', () => {
       expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' }),
       expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'waalre' }),
     ]);
+  });
+
+  it('keeps street and postcode context readable in area URL tokens', () => {
+    const streetToken = {
+      type: 'street' as const,
+      countryCode: 'NL',
+      value: 'boschdijk',
+      label: 'Boschdijk',
+      city: 'Eindhoven',
+      region: 'Noord-Brabant',
+    };
+    const postcodeToken = {
+      type: 'postcode' as const,
+      countryCode: 'NL',
+      value: '5612-ma',
+      label: '5612 MA',
+      city: 'Eindhoven',
+    };
+
+    expect(serializeLocationFilterToken(streetToken)).toBe(
+      'street:NL:boschdijk:city=eindhoven:region=noord-brabant'
+    );
+    expect(parseLocationFilterToken('street:NL:boschdijk:city=eindhoven')).toEqual(
+      expect.objectContaining({
+        type: 'street',
+        countryCode: 'NL',
+        value: 'boschdijk',
+        city: 'Eindhoven',
+      })
+    );
+    expect(serializeLocationFilterToken(postcodeToken)).toBe(
+      'postcode:NL:5612-ma:city=eindhoven'
+    );
+    expect(serializeMapFiltersToSearchParams({ ...createDefaultMapFilters(), areas: [streetToken] }).toString()).toBe(
+      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant'
+    );
   });
 
   it('normalizes map filter params while rejecting unknown keys at the whitelist layer', () => {

@@ -1686,18 +1686,24 @@ export async function advancePropertyTilePyramidSourceWatermark(
           watermark_json,
           updated_at
         )
-        VALUES (
+        SELECT
           ${scope}::property_tile_pyramid_watermark_scope,
           'global',
           1,
-          now(),
+          watermark_advance.advanced_at,
           '{}'::jsonb,
-          now()
-        )
+          watermark_advance.advanced_at
+        FROM (SELECT clock_timestamp() AS advanced_at) AS watermark_advance
         ON CONFLICT (scope, scope_key) DO UPDATE SET
           watermark_value = property_tile_pyramid_source_watermarks.watermark_value + 1,
-          watermark_timestamp = now(),
-          updated_at = now()
+          watermark_timestamp = GREATEST(
+            COALESCE(
+              property_tile_pyramid_source_watermarks.watermark_timestamp,
+              '-infinity'::timestamptz
+            ),
+            EXCLUDED.watermark_timestamp
+          ),
+          updated_at = EXCLUDED.updated_at
       `);
     }
   } catch (error) {

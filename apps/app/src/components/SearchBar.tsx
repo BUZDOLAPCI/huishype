@@ -258,7 +258,18 @@ export function SearchBar({
         return;
       }
 
-      const token = suggestion.filterToken;
+      const token = suggestion.filterToken
+        ? {
+            ...suggestion.filterToken,
+            countryCode: suggestion.filterToken.countryCode ?? suggestion.countryCode ?? null,
+            coordinates: suggestion.filterToken.coordinates ?? suggestion.coordinates ?? null,
+            bbox: suggestion.filterToken.bbox ?? suggestion.bbox ?? null,
+            city: suggestion.filterToken.city ?? suggestion.city ?? null,
+            region: suggestion.filterToken.region ?? suggestion.region ?? null,
+            postalCode: suggestion.filterToken.postalCode ?? suggestion.postalCode ?? null,
+            street: suggestion.filterToken.street ?? suggestion.street ?? null,
+          }
+        : null;
       if (!token) {
         if (suggestion.coordinates) {
           onLocationResolved(
@@ -428,21 +439,22 @@ export function SearchBar({
               onPress={() => onAreaRemoved?.(area)}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel={`Remove ${area.label}`}
+              accessibilityLabel={t('search.removeArea', { label: area.label })}
             >
               <Icon name="X" size="sm" color={COLORS.warm400} />
             </Pressable>
           </View>
         );
       })}
-      {selectedAreas.length > 1 ? (
+      {selectedAreas.length > 0 ? (
         <Pressable
           testID="search-area-clear-all"
           onPress={onClearAreas}
           style={styles.clearAreasButton}
           accessibilityRole="button"
+          accessibilityLabel={t('search.clearAreas')}
         >
-          <Text style={styles.clearAreasText}>Clear all</Text>
+          <Text style={styles.clearAreasText}>{t('search.clearAreas')}</Text>
         </Pressable>
       ) : null}
     </View>

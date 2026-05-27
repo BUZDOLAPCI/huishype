@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { sql } from 'drizzle-orm';
 import { db } from '../../db/index.js';
+import { advancePropertyTilePyramidSourceWatermark } from '../../services/property-tile-pyramid.js';
 
 const coveragePrefix = `schema-promotion-${crypto.randomUUID()}`;
 
@@ -25,6 +26,13 @@ async function cleanupPyramidSchemaTestRows(): Promise<void> {
     DELETE FROM property_tile_candidate_source_snapshots
     WHERE coverage_id LIKE ${`${coveragePrefix}%`}
   `);
+}
+
+function timestampMs(value: string | Date | null | undefined): number {
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  return value == null ? 0 : Date.parse(value);
 }
 
 async function insertPyramidVersion(input?: {
@@ -448,6 +456,58 @@ async function insertDefaultSlotVersionWithCandidate(input: {
 describe('property tile pyramid schema safeguards', () => {
   afterEach(async () => {
     await cleanupPyramidSchemaTestRows();
+  });
+
+  it('keeps source watermark timestamps monotonic across overlapping transactions', async () => {
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_source_watermarks
+      WHERE scope = 'listing_candidates'::property_tile_pyramid_watermark_scope
+        AND scope_key = 'global'
+    `);
+
+    try {
+      await db.transaction(async (olderTx) => {
+        await olderTx.execute(sql`SELECT now()`);
+        await advancePropertyTilePyramidSourceWatermark(['listing_candidates']);
+
+        const [concurrentRow] = Array.from(
+          await db.execute<{
+            watermark_value: string;
+            watermark_timestamp: string | Date;
+          }>(sql`
+            SELECT watermark_value::text, watermark_timestamp
+            FROM property_tile_pyramid_source_watermarks
+            WHERE scope = 'listing_candidates'::property_tile_pyramid_watermark_scope
+              AND scope_key = 'global'
+          `)
+        );
+
+        await advancePropertyTilePyramidSourceWatermark(['listing_candidates'], olderTx);
+
+        const [advancedRow] = Array.from(
+          await olderTx.execute<{
+            watermark_value: string;
+            watermark_timestamp: string | Date;
+          }>(sql`
+            SELECT watermark_value::text, watermark_timestamp
+            FROM property_tile_pyramid_source_watermarks
+            WHERE scope = 'listing_candidates'::property_tile_pyramid_watermark_scope
+              AND scope_key = 'global'
+          `)
+        );
+
+        expect(advancedRow?.watermark_value).toBe('2');
+        expect(timestampMs(advancedRow?.watermark_timestamp)).toBeGreaterThanOrEqual(
+          timestampMs(concurrentRow?.watermark_timestamp)
+        );
+      });
+    } finally {
+      await db.execute(sql`
+        DELETE FROM property_tile_pyramid_source_watermarks
+        WHERE scope = 'listing_candidates'::property_tile_pyramid_watermark_scope
+          AND scope_key = 'global'
+      `);
+    }
   });
 
   it('exposes the expected catalog constraints, indexes, functions, and triggers', async () => {

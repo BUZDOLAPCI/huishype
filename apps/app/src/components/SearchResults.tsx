@@ -38,18 +38,23 @@ const COLORS = {
   gold500: '#F5A623',
 } as const;
 
-const LOCATION_TYPE_LABELS: Record<LocationSearchSuggestion['type'], string> = {
-  property: 'Property',
-  address: 'Address',
-  street: 'Street',
-  postcode: 'Postcode',
-  city: 'City',
-  region: 'Region',
-  country: 'Country',
-};
-
-function formatLocationSuggestionSubtitle(item: LocationSearchSuggestion): string {
-  return [LOCATION_TYPE_LABELS[item.type], item.subtitle].filter(Boolean).join(' - ');
+function getLocationTypeLabelKey(type: LocationSearchSuggestion['type']) {
+  switch (type) {
+    case 'property':
+      return 'search.locationType.property';
+    case 'address':
+      return 'search.locationType.address';
+    case 'street':
+      return 'search.locationType.street';
+    case 'postcode':
+      return 'search.locationType.postcode';
+    case 'city':
+      return 'search.locationType.city';
+    case 'region':
+      return 'search.locationType.region';
+    case 'country':
+      return 'search.locationType.country';
+  }
 }
 
 export interface SearchResultsProps {
@@ -80,6 +85,11 @@ export function SearchResults({
   const t = useT();
   const typedSuggestions = locationSuggestions ?? [];
   const hasTypedSuggestions = typedSuggestions.length > 0;
+  const formatLocationSuggestionSubtitle = (item: LocationSearchSuggestion): string =>
+    [
+      t(getLocationTypeLabelKey(item.type)),
+      item.subtitle,
+    ].filter(Boolean).join(' - ');
 
   // Don't render anything if query is too short
   if (query.length < 2 && !showCurrentLocationAction) return null;
@@ -121,7 +131,7 @@ export function SearchResults({
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.addressText} numberOfLines={1}>
-              Search current location
+              {t('search.currentLocation')}
             </Text>
           </View>
         </Pressable>
