@@ -614,7 +614,13 @@ function getFeatureAreaType(feature: PhotonFeature): SupportedFeatureAreaType | 
   if (rawType === 'state' || rawType === 'county' || rawType === 'region' || rawType === 'province') {
     return 'region';
   }
-  if (props.street || rawType === 'street') {
+  if (rawType === 'street') {
+    return 'street';
+  }
+  if (rawType === 'house') {
+    return null;
+  }
+  if (props.street) {
     return 'street';
   }
   if (props.postcode && !props.street && !props.housenumber) {

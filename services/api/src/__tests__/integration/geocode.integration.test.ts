@@ -726,6 +726,80 @@ describe('GET /search/locations', () => {
     );
   });
 
+  it('does not classify Photon house features with street fields as duplicate street areas', async () => {
+    const property = await createIntegrationProperty({
+      street: 'Tegenbosch',
+      houseNumber: 42,
+      city: 'Eindhoven',
+      region: 'Noord-Brabant',
+      postalCode: '5651TB',
+      lon: 5.401,
+      lat: 51.451,
+    });
+    createdPropertyIds.push(property.id);
+
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.061, 51.563] },
+              properties: {
+                osm_type: 'W',
+                osm_id: 693356158,
+                name: 'Tegenbosch',
+                street: 'Tilburgseweg',
+                postcode: '5651TB',
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'house',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=Tegenbosch&limit=8&countrycode=NL',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    const streetSuggestions = body.filter(
+      (suggestion: { type: string; street?: string | null; label?: string }) =>
+        suggestion.type === 'street' &&
+        (suggestion.street === 'Tegenbosch' || suggestion.label === 'Tegenbosch')
+    );
+
+    expect(streetSuggestions).toHaveLength(1);
+    expect(streetSuggestions[0]).toEqual(
+      expect.objectContaining({
+        type: 'street',
+        label: 'Tegenbosch',
+        city: 'Eindhoven',
+        street: 'Tegenbosch',
+        filterToken: expect.objectContaining({
+          id: expect.stringMatching(/^street:NL:tegenbosch:/u),
+          type: 'street',
+          countryCode: 'NL',
+          value: 'tegenbosch',
+          label: 'Tegenbosch',
+          city: 'Eindhoven',
+          street: 'Tegenbosch',
+        }),
+      })
+    );
+    expect(streetSuggestions[0].id).toBe(streetSuggestions[0].filterToken.id);
+    expect(JSON.stringify(body)).not.toContain('Tilburgseweg');
+    expect(JSON.stringify(body)).not.toContain('W_693356158');
+  });
+
   it('keeps a Photon street token and expands it with a same-street address when DB rows are missing', async () => {
     mockFetchFn
       .mockResolvedValueOnce({
