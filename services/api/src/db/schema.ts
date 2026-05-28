@@ -428,6 +428,18 @@ export const properties = pgTable(
     uniqueIndex('properties_national_id_idx').on(table.countryCode, table.nationalId),
     index('properties_city_idx').on(table.city),
     index('properties_postal_code_idx').on(table.postalCode),
+    index('properties_country_normalized_postal_idx').on(
+      table.countryCode,
+      sql`REGEXP_REPLACE(UPPER(${table.postalCode}), '\\s+', '', 'g')`
+    ),
+    index('properties_country_lower_street_idx').on(
+      table.countryCode,
+      sql`LOWER(${table.street})`
+    ),
+    index('properties_country_lower_city_idx').on(
+      table.countryCode,
+      sql`LOWER(${table.city})`
+    ),
     index('properties_resolve_address_idx').on(
       table.countryCode,
       table.postalCode,

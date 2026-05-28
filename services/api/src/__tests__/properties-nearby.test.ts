@@ -983,7 +983,7 @@ describe('GET /properties/nearby', () => {
   });
 
   describe('grouped nearby fallback', () => {
-    it('returns a pyramid null contract instead of dynamic grouping for default covered low-zoom nearby', async () => {
+    it('uses the pyramid path instead of dynamic fallback for default covered low-zoom nearby', async () => {
       await withHermeticNearbyActiveCluster(
         async ({ lon, lat }) => {
           const response = await app.inject({
@@ -992,8 +992,18 @@ describe('GET /properties/nearby', () => {
           });
 
           expect(response.statusCode).toBe(200);
-          expect(JSON.parse(response.body)).toBeNull();
-          expect(response.headers['x-huishype-nearby-status']).toMatch(/^pyramid-/);
+          const nearbyStatus = response.headers['x-huishype-nearby-status'];
+          expect(nearbyStatus).toMatch(/^pyramid-/);
+
+          const body = JSON.parse(response.body);
+          if (body !== null) {
+            expect(nearbyStatus).toBe('pyramid-promoted');
+            expect(body.pyramidVersionId).toEqual(expect.any(String));
+            expect(body.pyramidVersionId.length).toBeGreaterThan(0);
+            expect(body.pyramidNodeId).toEqual(expect.any(String));
+            expect(body.pyramidNodeId.length).toBeGreaterThan(0);
+            expect(body.groupKind).toBe('cluster');
+          }
         },
         { lon: 5.812345, lat: 52.123456 }
       );

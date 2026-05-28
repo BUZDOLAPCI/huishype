@@ -1345,6 +1345,7 @@ export default function MapScreen() {
     try {
       const { longitude, latitude } = await getCurrentLocation();
       setShowUserLocation(true);
+      const currentAreas = filterController.appliedFilters.areas ?? [];
       const existingCurrentLocation = (filterController.appliedFilters.areas ?? []).find(
         (area) => area.type === 'current-location'
       );
@@ -1357,20 +1358,23 @@ export default function MapScreen() {
         radiusMeters:
           existingCurrentLocation?.radiusMeters ?? DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
       };
-      const zoom = Math.max(currentZoom, 14);
-      cameraRef.current?.flyTo({
-        center: [longitude, latitude],
-        zoom,
-        pitch: getPitchForZoom(zoom),
-        duration: 800,
-      });
+      const nextAreas = [
+        ...currentAreas.filter((currentArea) => currentArea.type !== 'current-location'),
+        area,
+      ];
       handleAreaSelected(area);
+      centerNativeMapOnAreas(nextAreas);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('map.locationUnable');
       console.warn('[MapScreen] Search current location failed:', message);
       Alert.alert(t('map.locationUnavailable'), message);
     }
-  }, [currentZoom, filterController.appliedFilters.areas, handleAreaSelected, t]);
+  }, [
+    centerNativeMapOnAreas,
+    filterController.appliedFilters.areas,
+    handleAreaSelected,
+    t,
+  ]);
 
   // Zoom control handlers
   const handleZoomIn = useCallback(async () => {

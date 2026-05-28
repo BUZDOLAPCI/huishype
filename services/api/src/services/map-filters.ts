@@ -117,12 +117,28 @@ function normalizeTokenValue(value: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+function normalizePostcodeTokenValue(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function normalizeLocationTokenValue(type: LocationFilterTokenType, value: string): string {
+  return type === 'postcode' ? normalizePostcodeTokenValue(value) : normalizeTokenValue(value);
+}
+
 function normalizeCountryCode(value: string | null | undefined): string | null {
   const normalized = value?.trim().toUpperCase();
   return normalized && /^[A-Z]{2}$/u.test(normalized) ? normalized : null;
 }
 
-function formatTokenLabel(value: string): string {
+function formatTokenLabel(value: string, type?: LocationFilterTokenType): string {
+  if (type === 'postcode') {
+    return value.toUpperCase();
+  }
+
   return value
     .split('-')
     .filter(Boolean)
@@ -131,7 +147,11 @@ function formatTokenLabel(value: string): string {
 }
 
 function serializeTokenMetadata(key: string, value: string | null | undefined): string | null {
-  const normalized = value ? normalizeTokenValue(value) : '';
+  const normalized = value
+    ? key === 'postcode'
+      ? normalizePostcodeTokenValue(value)
+      : normalizeTokenValue(value)
+    : '';
   return normalized ? `${key}=${normalized}` : null;
 }
 
@@ -145,7 +165,10 @@ function parseTokenMetadata(parts: string[]): Record<string, string> {
     }
 
     const key = part.slice(0, separatorIndex);
-    const value = normalizeTokenValue(part.slice(separatorIndex + 1));
+    const value =
+      key === 'postcode'
+        ? normalizePostcodeTokenValue(part.slice(separatorIndex + 1))
+        : normalizeTokenValue(part.slice(separatorIndex + 1));
     if (value) {
       metadata[key] = value;
     }
@@ -181,20 +204,21 @@ export function parseLocationFilterToken(value: string): LocationFilterToken | n
     };
   }
 
-  const tokenValue = normalizeTokenValue(parts[2] ?? '');
+  const tokenValue = normalizeLocationTokenValue(type, parts[2] ?? '');
   if (!tokenValue) {
     return null;
   }
   const metadata = parseTokenMetadata(parts.slice(3));
+  const postalCode = metadata.postcode ?? (type === 'postcode' ? tokenValue : null);
 
   return {
     type,
     countryCode: normalizeCountryCode(parts[1]),
     value: tokenValue,
-    label: formatTokenLabel(tokenValue),
+    label: formatTokenLabel(tokenValue, type),
     city: metadata.city ? formatTokenLabel(metadata.city) : null,
     region: metadata.region ? formatTokenLabel(metadata.region) : null,
-    postalCode: metadata.postcode ? metadata.postcode.toUpperCase() : null,
+    postalCode: postalCode ? postalCode.toUpperCase() : null,
     street: metadata.street ? formatTokenLabel(metadata.street) : null,
   };
 }
@@ -209,15 +233,23 @@ function serializeLocationFilterToken(token: LocationFilterToken): string | null
     return `current-location:${coordinates[1].toFixed(6)}:${coordinates[0].toFixed(6)}:${radius}`;
   }
 
-  const value = normalizeTokenValue(token.value || token.label || '');
+  const value = normalizeLocationTokenValue(token.type, token.value || token.label || '');
   if (!value) {
     return null;
   }
+  const postalCodeMetadata =
+    token.type === 'postcode' && normalizePostcodeTokenValue(token.postalCode ?? '') === value
+      ? null
+      : token.postalCode;
+  const streetMetadata =
+    token.type === 'street' && normalizeTokenValue(token.street ?? '') === value
+      ? null
+      : token.street;
   const metadata = [
     serializeTokenMetadata('city', token.city),
     serializeTokenMetadata('region', token.region),
-    serializeTokenMetadata('postcode', token.postalCode),
-    token.type !== 'street' ? serializeTokenMetadata('street', token.street) : null,
+    serializeTokenMetadata('postcode', postalCodeMetadata),
+    serializeTokenMetadata('street', streetMetadata),
   ].filter((part): part is string => part != null);
 
   return [token.type, normalizeCountryCode(token.countryCode) ?? '', value, ...metadata].join(':');
@@ -239,7 +271,7 @@ function normalizeLocationFilterTokens(tokens: readonly LocationFilterToken[] | 
     const value =
       token.type === 'current-location'
         ? token.value.trim()
-        : normalizeTokenValue(token.value || token.label || '');
+        : normalizeLocationTokenValue(token.type, token.value || token.label || '');
     if (!value) {
       continue;
     }
@@ -250,7 +282,9 @@ function normalizeLocationFilterTokens(tokens: readonly LocationFilterToken[] | 
       label: token.label?.trim() || value,
       city: token.city?.trim() || null,
       region: token.region?.trim() || null,
-      postalCode: token.postalCode?.trim() || null,
+      postalCode: token.postalCode
+        ? normalizePostcodeTokenValue(token.postalCode).toUpperCase()
+        : null,
       street: token.street?.trim() || null,
       coordinates: token.coordinates ?? null,
       bbox: token.bbox ?? null,
@@ -452,7 +486,16 @@ function buildSlugExpression(column: SQL): SQL {
 }
 
 function buildPostalCodeExpression(column: SQL): SQL {
-  return sql`LOWER(REGEXP_REPLACE(COALESCE(${column}, ''), '[^[:alnum:]]+', '', 'g'))`;
+  return sql`REGEXP_REPLACE(UPPER(COALESCE(${column}, '')), '\\s+', '', 'g')`;
+}
+
+function getPostcodePrefixUpperBound(value: string): string | null {
+  if (!/^\d{4}$/u.test(value)) {
+    return null;
+  }
+
+  const next = Number.parseInt(value, 10) + 1;
+  return next <= 9999 ? String(next).padStart(4, '0') : null;
 }
 
 function buildLocationTokenPredicate(token: LocationFilterToken, propertyAlias: string): SQL {
@@ -466,6 +509,26 @@ function buildLocationTokenPredicate(token: LocationFilterToken, propertyAlias: 
   if (token.countryCode) {
     predicates.push(sql`UPPER(${countryColumn}) = ${token.countryCode}`);
   }
+
+  const addSlugPredicate = (column: SQL, value: string | null | undefined) => {
+    const normalized = value ? normalizeTokenValue(value) : '';
+    if (normalized) {
+      predicates.push(sql`${buildSlugExpression(column)} = ${normalized}`);
+    }
+  };
+
+  const addPostcodePredicate = (value: string | null | undefined) => {
+    const normalized = value ? normalizePostcodeTokenValue(value).toUpperCase() : '';
+    if (normalized) {
+      const expression = buildPostalCodeExpression(postalCodeColumn);
+      const upperBound = getPostcodePrefixUpperBound(normalized);
+      predicates.push(
+        upperBound
+          ? sql`(${expression} >= ${normalized} AND ${expression} < ${upperBound})`
+          : sql`${expression} = ${normalized}`
+      );
+    }
+  };
 
   if (token.type === 'current-location') {
     const [lon, lat] = token.coordinates ?? [];
@@ -481,19 +544,29 @@ function buildLocationTokenPredicate(token: LocationFilterToken, propertyAlias: 
 
   if (token.type === 'country') {
     if (!token.countryCode && token.value) {
-      predicates.push(sql`${buildSlugExpression(countryColumn)} = ${normalizeTokenValue(token.value)}`);
+      addSlugPredicate(countryColumn, token.value);
     }
   } else if (token.type === 'city') {
-    predicates.push(sql`${buildSlugExpression(cityColumn)} = ${normalizeTokenValue(token.city ?? token.value)}`);
+    addSlugPredicate(cityColumn, token.city ?? token.value);
   } else if (token.type === 'region') {
-    predicates.push(sql`${buildSlugExpression(regionColumn)} = ${normalizeTokenValue(token.region ?? token.value)}`);
+    addSlugPredicate(regionColumn, token.region ?? token.value);
   } else if (token.type === 'postcode') {
-    predicates.push(sql`${buildPostalCodeExpression(postalCodeColumn)} = ${normalizeTokenValue(token.postalCode ?? token.value).replace(/-/g, '')}`);
+    addPostcodePredicate(token.postalCode ?? token.value);
   } else if (token.type === 'street') {
-    predicates.push(sql`${buildSlugExpression(streetColumn)} = ${normalizeTokenValue(token.street ?? token.value)}`);
-    if (token.city) {
-      predicates.push(sql`${buildSlugExpression(cityColumn)} = ${normalizeTokenValue(token.city)}`);
-    }
+    addSlugPredicate(streetColumn, token.street ?? token.value);
+  }
+
+  if (token.type !== 'city') {
+    addSlugPredicate(cityColumn, token.city);
+  }
+  if (token.type !== 'region') {
+    addSlugPredicate(regionColumn, token.region);
+  }
+  if (token.type !== 'postcode') {
+    addPostcodePredicate(token.postalCode);
+  }
+  if (token.type !== 'street') {
+    addSlugPredicate(streetColumn, token.street);
   }
 
   return predicates.length > 0 ? sql`(${sql.join(predicates, sql` AND `)})` : sql`TRUE`;

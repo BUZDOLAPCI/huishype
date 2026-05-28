@@ -2955,6 +2955,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const handleSearchCurrentLocation = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
+      const currentAreas = filterController.appliedFilters.areas ?? [];
       const existingCurrentLocation = (filterController.appliedFilters.areas ?? []).find(
         (area) => area.type === 'current-location',
       );
@@ -2967,35 +2968,18 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         radiusMeters:
           existingCurrentLocation?.radiusMeters ?? DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
       };
-      const map = mapRef.current ??
-        (window as unknown as { __mapInstance?: maplibregl.Map }).__mapInstance;
-      const targetZoom = Math.max(currentZoomRef.current, 14);
-      map?.stop();
+      const nextAreas = [
+        ...currentAreas.filter((currentArea) => currentArea.type !== 'current-location'),
+        area,
+      ];
       handleAreaSelected(area);
-      window.setTimeout(() => {
-        const activeMap = mapRef.current ??
-          (window as unknown as { __mapInstance?: maplibregl.Map }).__mapInstance;
-        activeMap?.stop();
-        activeMap?.flyTo({
-          center: [longitude, latitude],
-          zoom: targetZoom,
-          duration: 650,
-          essential: true,
-        });
-        window.setTimeout(() => {
-          activeMap?.stop();
-          activeMap?.jumpTo({
-            center: [longitude, latitude],
-            zoom: targetZoom,
-          });
-        }, 700);
-      }, 0);
+      fitMapToAreaTokens(nextAreas);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('map.locationUnable');
       console.warn('[MapScreen] Search current location failed:', message);
       Alert.alert(t('map.locationUnavailable'), message);
     }
-  }, [filterController.appliedFilters.areas, handleAreaSelected, t]);
+  }, [filterController.appliedFilters.areas, fitMapToAreaTokens, handleAreaSelected, t]);
 
   useEffect(() => {
     const nextRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');

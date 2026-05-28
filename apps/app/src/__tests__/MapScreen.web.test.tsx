@@ -6,6 +6,10 @@ import { PREVIEW_CARD_VIEWPORT_ANCHOR, viewportAnchorToOffset } from '@/src/lib/
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import { PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT } from '@/src/lib/propertyTileRetryProtocol';
 import type { ResolvedMapRoute } from '@/src/lib/mapRoute';
+import {
+  DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+  getLocationFilterTokenCameraBounds,
+} from '@/src/lib/sharedMapFilters';
 
 type MockMapEventHandler = (...args: unknown[]) => void;
 
@@ -122,6 +126,7 @@ let capturedSearchBarProps: {
       };
     },
   ) => void;
+  onCurrentLocationSelected?: () => void | Promise<void>;
   searchBias?: {
     lon?: number;
     lat?: number;
@@ -1456,6 +1461,72 @@ describe('MapScreen web grouped Following mode', () => {
       duration: 800,
       essential: true,
     });
+  });
+
+  it('fits web search current location to the token radius bounds', async () => {
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+    mockGetCurrentLocation.mockResolvedValue({
+      longitude: 5.1214,
+      latitude: 52.0907,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.flyTo.mockClear();
+    map.fitBounds.mockClear();
+
+    await act(async () => {
+      await capturedSearchBarProps?.onCurrentLocationSelected?.();
+    });
+
+    const expectedBounds = getLocationFilterTokenCameraBounds([
+      {
+        type: 'current-location',
+        countryCode: null,
+        value: '52.090700,5.121400',
+        label: 'Current location',
+        coordinates: [5.1214, 52.0907],
+        radiusMeters: DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+      },
+    ]);
+
+    expect(mockReplaceAppliedFilters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        areas: [
+          expect.objectContaining({
+            type: 'current-location',
+            coordinates: [5.1214, 52.0907],
+            radiusMeters: DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+          }),
+        ],
+      }),
+    );
+    expect(expectedBounds).not.toBeNull();
+    expect(map.fitBounds).toHaveBeenCalledWith(
+      [
+        [expectedBounds![0], expectedBounds![1]],
+        [expectedBounds![2], expectedBounds![3]],
+      ],
+      {
+        padding: 96,
+        maxZoom: 13,
+        duration: 650,
+        essential: true,
+      },
+    );
+    expect(map.flyTo).not.toHaveBeenCalled();
+    expect(map.jumpTo).not.toHaveBeenCalled();
   });
 
   it('does not auto-locate if the user moves the web map before idle', async () => {

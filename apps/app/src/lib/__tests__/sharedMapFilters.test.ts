@@ -8,9 +8,11 @@ import {
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
   isMapStatusPillActive,
+  parseLocationFilterToken,
   toggleMapStatusPill,
   updateMapFilterSearchParams,
   parseMapFiltersFromSearchParams,
+  serializeLocationFilterToken,
 } from '../sharedMapFilters';
 
 describe('sharedMapFilters price suggestions', () => {
@@ -304,10 +306,10 @@ describe('sharedMapFilters price suggestions', () => {
     const params = updateMapFilterSearchParams(new URLSearchParams(), filters);
 
     expect(params.toString()).toBe(
-      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant&area=postcode%3ANL%3A5612-ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
+      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant&area=postcode%3ANL%3A5612ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
     );
     expect(buildPropertyTileTemplateUrl('http://api.test', filters)).toContain(
-      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant&area=postcode%3ANL%3A5612-ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
+      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant&area=postcode%3ANL%3A5612ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
     );
     expect(parseMapFiltersFromSearchParams(params).areas).toEqual([
       expect.objectContaining({
@@ -323,13 +325,79 @@ describe('sharedMapFilters price suggestions', () => {
       expect.objectContaining({
         type: 'postcode',
         countryCode: 'NL',
-        value: '5612-ma',
-        label: '5612 Ma',
+        value: '5612ma',
+        label: '5612MA',
         city: 'Eindhoven',
-        postalCode: null,
+        postalCode: '5612MA',
         street: 'Boschdijk',
       }),
     ]);
+  });
+
+  it('matches shared/backend-compatible location token identities', () => {
+    const postcodeToken = {
+      type: 'postcode' as const,
+      countryCode: 'NL',
+      value: '5651 HA',
+      label: '5651 HA',
+      postalCode: '5651 HA',
+    };
+    const streetToken = {
+      type: 'street' as const,
+      countryCode: 'NL',
+      value: 'Beeldbuisring',
+      label: 'Beeldbuisring',
+      street: 'Beeldbuisring',
+      city: 'Eindhoven',
+      postalCode: '5651 HA',
+    };
+    const currentLocationToken = {
+      type: 'current-location' as const,
+      countryCode: null,
+      value: '52.090700,5.121400',
+      label: 'Current location',
+      coordinates: [5.1214, 52.0907] as [number, number],
+      radiusMeters: DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+    };
+
+    expect(serializeLocationFilterToken(postcodeToken)).toBe('postcode:NL:5651ha');
+    expect(parseLocationFilterToken('postcode:NL:5651ha')).toEqual(
+      expect.objectContaining({
+        type: 'postcode',
+        countryCode: 'NL',
+        value: '5651ha',
+        label: '5651HA',
+        postalCode: '5651HA',
+      }),
+    );
+
+    expect(serializeLocationFilterToken(streetToken)).toBe(
+      'street:NL:beeldbuisring:city=eindhoven:postcode=5651ha',
+    );
+    expect(
+      parseLocationFilterToken('street:NL:beeldbuisring:city=eindhoven:postcode=5651ha'),
+    ).toEqual(
+      expect.objectContaining({
+        type: 'street',
+        countryCode: 'NL',
+        value: 'beeldbuisring',
+        city: 'Eindhoven',
+        postalCode: '5651HA',
+      }),
+    );
+
+    expect(serializeLocationFilterToken(currentLocationToken)).toBe(
+      'current-location:52.090700:5.121400:5000',
+    );
+    expect(parseLocationFilterToken('current-location:52.090700:5.121400:5000')).toEqual(
+      expect.objectContaining({
+        type: 'current-location',
+        countryCode: null,
+        value: '52.090700,5.121400',
+        coordinates: [5.1214, 52.0907],
+        radiusMeters: DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+      }),
+    );
   });
 
   it('keeps same street value distinct across cities in area params', () => {

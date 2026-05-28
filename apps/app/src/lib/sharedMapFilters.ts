@@ -253,12 +253,28 @@ function normalizeTokenValue(value: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+function normalizePostcodeTokenValue(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function normalizeLocationTokenValue(type: LocationFilterTokenType, value: string): string {
+  return type === 'postcode' ? normalizePostcodeTokenValue(value) : normalizeTokenValue(value);
+}
+
 function normalizeCountryCode(value: string | null | undefined): string | null {
   const normalized = value?.trim().toUpperCase();
   return normalized && /^[A-Z]{2}$/u.test(normalized) ? normalized : null;
 }
 
-function formatTokenLabel(value: string): string {
+function formatTokenLabel(value: string, type?: LocationFilterTokenType): string {
+  if (type === 'postcode') {
+    return value.toUpperCase();
+  }
+
   return value
     .split('-')
     .filter(Boolean)
@@ -267,7 +283,11 @@ function formatTokenLabel(value: string): string {
 }
 
 function serializeTokenMetadata(key: string, value: string | null | undefined): string | null {
-  const normalized = value ? normalizeTokenValue(value) : '';
+  const normalized = value
+    ? key === 'postcode'
+      ? normalizePostcodeTokenValue(value)
+      : normalizeTokenValue(value)
+    : '';
   return normalized ? `${key}=${normalized}` : null;
 }
 
@@ -281,7 +301,10 @@ function parseTokenMetadata(parts: string[]): Record<string, string> {
     }
 
     const key = part.slice(0, separatorIndex);
-    const metadataValue = normalizeTokenValue(part.slice(separatorIndex + 1));
+    const metadataValue =
+      key === 'postcode'
+        ? normalizePostcodeTokenValue(part.slice(separatorIndex + 1))
+        : normalizeTokenValue(part.slice(separatorIndex + 1));
     if (metadataValue) {
       metadata[key] = metadataValue;
     }
@@ -300,16 +323,24 @@ export function serializeLocationFilterToken(token: LocationFilterToken): string
     return `current-location:${coordinates[1].toFixed(6)}:${coordinates[0].toFixed(6)}:${radius}`;
   }
 
-  const value = normalizeTokenValue(token.value || token.label || '');
+  const value = normalizeLocationTokenValue(token.type, token.value || token.label || '');
   if (!value) {
     return null;
   }
   const countryCode = normalizeCountryCode(token.countryCode) ?? '';
+  const postalCodeMetadata =
+    token.type === 'postcode' && normalizePostcodeTokenValue(token.postalCode ?? '') === value
+      ? null
+      : token.postalCode;
+  const streetMetadata =
+    token.type === 'street' && normalizeTokenValue(token.street ?? '') === value
+      ? null
+      : token.street;
   const metadata = [
     serializeTokenMetadata('city', token.city),
     serializeTokenMetadata('region', token.region),
-    serializeTokenMetadata('postcode', token.postalCode),
-    token.type !== 'street' ? serializeTokenMetadata('street', token.street) : null,
+    serializeTokenMetadata('postcode', postalCodeMetadata),
+    serializeTokenMetadata('street', streetMetadata),
   ].filter((part): part is string => part != null);
 
   return [token.type, countryCode, value, ...metadata].join(':');
@@ -342,20 +373,21 @@ export function parseLocationFilterToken(value: string): LocationFilterToken | n
     };
   }
 
-  const tokenValue = normalizeTokenValue(parts[2] ?? '');
+  const tokenValue = normalizeLocationTokenValue(type, parts[2] ?? '');
   if (!tokenValue) {
     return null;
   }
   const metadata = parseTokenMetadata(parts.slice(3));
+  const postalCode = metadata.postcode ?? (type === 'postcode' ? tokenValue : null);
 
   return {
     type,
     countryCode: normalizeCountryCode(parts[1]),
     value: tokenValue,
-    label: formatTokenLabel(tokenValue),
+    label: formatTokenLabel(tokenValue, type),
     city: metadata.city ? formatTokenLabel(metadata.city) : null,
     region: metadata.region ? formatTokenLabel(metadata.region) : null,
-    postalCode: metadata.postcode ? metadata.postcode.toUpperCase() : null,
+    postalCode: postalCode ? postalCode.toUpperCase() : null,
     street: metadata.street ? formatTokenLabel(metadata.street) : null,
   };
 }
@@ -375,7 +407,7 @@ export function normalizeLocationFilterTokens(
     const value =
       token.type === 'current-location'
         ? token.value.trim()
-        : normalizeTokenValue(token.value || token.label || '');
+        : normalizeLocationTokenValue(token.type, token.value || token.label || '');
     if (!value) {
       continue;
     }
@@ -388,7 +420,9 @@ export function normalizeLocationFilterTokens(
       parentLabel: token.parentLabel?.trim() || null,
       city: token.city?.trim() || null,
       region: token.region?.trim() || null,
-      postalCode: token.postalCode?.trim() || null,
+      postalCode: token.postalCode
+        ? normalizePostcodeTokenValue(token.postalCode).toUpperCase()
+        : null,
       street: token.street?.trim() || null,
       coordinates: token.coordinates ?? null,
       bbox: token.bbox ?? null,

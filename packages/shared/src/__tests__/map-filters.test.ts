@@ -275,11 +275,35 @@ describe('map filter query param helpers', () => {
         city: 'Eindhoven',
       })
     );
-    expect(serializeLocationFilterToken(postcodeToken)).toBe(
-      'postcode:NL:5612-ma:city=eindhoven'
-    );
+    expect(serializeLocationFilterToken(postcodeToken)).toBe('postcode:NL:5612ma:city=eindhoven');
     expect(serializeMapFiltersToSearchParams({ ...createDefaultMapFilters(), areas: [streetToken] }).toString()).toBe(
       'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant'
+    );
+  });
+
+  it('canonicalizes compact, spaced, and dashed postcode tokens to one identity', () => {
+    const dashedPostcodeToken = parseLocationFilterToken('postcode:NL:5651-ha');
+    expect(dashedPostcodeToken).not.toBeNull();
+
+    const filters = normalizeMapFilters({
+      ...createDefaultMapFilters(),
+      areas: [
+        { type: 'postcode', countryCode: 'NL', value: '5651HA', label: '5651HA' },
+        { type: 'postcode', countryCode: 'NL', value: '5651 HA', label: '5651 HA' },
+        dashedPostcodeToken!,
+      ],
+    });
+
+    expect(filters.areas).toHaveLength(1);
+    expect(filters.areas?.[0]).toEqual(
+      expect.objectContaining({
+        type: 'postcode',
+        countryCode: 'NL',
+        value: '5651ha',
+      })
+    );
+    expect(serializeMapFiltersToSearchParams(filters).toString()).toBe(
+      'area=postcode%3ANL%3A5651ha'
     );
   });
 

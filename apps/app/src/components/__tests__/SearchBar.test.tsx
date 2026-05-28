@@ -606,12 +606,64 @@ describe('SearchBar', () => {
 
     expect(screen.getByText('City - Noord-Brabant, Nederland')).toBeTruthy();
 
-    fireEvent.press(screen.getByText('Eindhoven'));
+    fireEvent.press(screen.getByTestId('search-result-item'));
 
     expect(onAreaSelected).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' }),
     );
     expect(onPropertyResolved).not.toHaveBeenCalled();
+  });
+
+  it('ignores a duplicate area token returned by location search', () => {
+    const onAreaSelected = jest.fn();
+    const selectedArea = {
+      type: 'city' as const,
+      countryCode: 'NL',
+      value: 'eindhoven',
+      label: 'Eindhoven',
+      coordinates: [5.4697, 51.4416] as [number, number],
+    };
+    mockUseLocationSearch.mockReturnValue({
+      data: [
+        {
+          id: 'city:NL:eindhoven',
+          type: 'city',
+          label: 'Eindhoven',
+          subtitle: 'Noord-Brabant, Nederland',
+          countryCode: 'NL',
+          coordinates: [5.4697, 51.4416],
+          filterToken: {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+            coordinates: [5.4697, 51.4416],
+          },
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        selectedAreas={[selectedArea]}
+        onAreaSelected={onAreaSelected}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Eindhoven');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    fireEvent.press(screen.getByTestId('search-result-item'));
+
+    expect(onAreaSelected).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('search-results-list')).toBeNull();
+    expect(screen.getAllByTestId('search-area-chip')).toHaveLength(1);
   });
 
   it('passes suggestion bbox into selected area chips', () => {

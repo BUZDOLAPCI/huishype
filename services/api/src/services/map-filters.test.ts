@@ -15,6 +15,10 @@ function renderSql(query: SQL) {
   return dialect.sqlToQuery(query).sql;
 }
 
+function renderQuery(query: SQL) {
+  return dialect.sqlToQuery(query);
+}
+
 describe('parseFollowingMapFiltersQuery', () => {
   it('defaults Following activity to all-time instead of the public all filter', () => {
     expect(parseFollowingMapFiltersQuery({}).activity).toBe('all-time');
@@ -67,6 +71,21 @@ describe('buildPropertyMarketFilterQuery', () => {
 });
 
 describe('selected area filters', () => {
+  it('dedupes compact, spaced, and dashed postcode area tokens', () => {
+    const filters = parseMapFiltersQuery({
+      area: ['postcode:NL:5651HA', 'postcode:NL:5651 HA', 'postcode:NL:5651-ha'],
+    });
+
+    expect(filters.areas).toHaveLength(1);
+    expect(filters.areas[0]).toEqual(
+      expect.objectContaining({
+        type: 'postcode',
+        countryCode: 'NL',
+        value: '5651ha',
+      })
+    );
+  });
+
   it('parses repeated area params without treating them as market filters', () => {
     const filters = parseMapFiltersQuery({
       area: ['city:NL:eindhoven', 'city:NL:waalre'],
@@ -79,6 +98,19 @@ describe('selected area filters', () => {
     ]);
     expect(renderSql(marketQuery.join).trim()).toBe('');
     expect(renderSql(marketQuery.predicate).toLowerCase()).toBe('true');
+  });
+
+  it('keeps Waalre and Aalst as separate exact city token branches', () => {
+    const query = renderQuery(
+      buildLocationAreaFilterPredicate([
+        { type: 'city', countryCode: 'NL', value: 'waalre', label: 'Waalre' },
+        { type: 'city', countryCode: 'NL', value: 'aalst', label: 'Aalst' },
+      ])
+    );
+
+    expect(query.sql).toContain(' OR ');
+    expect(query.sql.match(/p\.city/g)).toHaveLength(2);
+    expect(query.params).toEqual(['NL', 'waalre', 'NL', 'aalst']);
   });
 
   it('parses readable street metadata so reload predicates keep city context', () => {
@@ -111,5 +143,75 @@ describe('selected area filters', () => {
     expect(sqlText).toContain('p.street');
     expect(sqlText).toContain(' OR ');
     expect(sqlText).toContain(' AND ');
+  });
+
+  it('uses exact street metadata constraints for city, region, and postcode', () => {
+    const query = renderQuery(
+      buildLocationAreaFilterPredicate([
+        {
+          type: 'street',
+          countryCode: 'NL',
+          value: 'markt',
+          label: 'Markt',
+          city: 'Aalst',
+          region: 'Noord-Brabant',
+          postalCode: '5651 HA',
+        },
+      ])
+    );
+
+    expect(query.sql).toContain('p.country_code');
+    expect(query.sql).toContain('p.street');
+    expect(query.sql).toContain('p.city');
+    expect(query.sql).toContain('p.region');
+    expect(query.sql).toContain('p.postal_code');
+    expect(query.sql).toContain(' AND ');
+    expect(query.params).toEqual(['NL', 'markt', 'aalst', 'noord-brabant', '5651HA']);
+  });
+
+  it('keeps postcode token metadata exact without broadening to a whole postcode area', () => {
+    const query = renderQuery(
+      buildLocationAreaFilterPredicate([
+        {
+          type: 'postcode',
+          countryCode: 'NL',
+          value: '5651 HA',
+          label: '5651 HA',
+          city: 'Aalst',
+          region: 'Noord-Brabant',
+          street: 'Markt',
+        },
+      ])
+    );
+
+    expect(query.sql).toContain('p.country_code');
+    expect(query.sql).toContain('p.postal_code');
+    expect(query.sql).toContain('p.city');
+    expect(query.sql).toContain('p.region');
+    expect(query.sql).toContain('p.street');
+    expect(query.sql).not.toContain('p.postal_code) <');
+    expect(query.sql).toContain(' AND ');
+    expect(query.params).toEqual(['NL', '5651HA', 'aalst', 'noord-brabant', 'markt']);
+  });
+
+  it('supports four-digit NL postcode area tokens with an index-friendly prefix range', () => {
+    const query = renderQuery(
+      buildLocationAreaFilterPredicate([
+        {
+          type: 'postcode',
+          countryCode: 'NL',
+          value: '5617',
+          label: 'Strijp-S',
+          postalCode: '5617',
+          city: 'Eindhoven',
+        },
+      ])
+    );
+
+    expect(query.sql).toContain('p.country_code');
+    expect(query.sql).toContain('p.postal_code');
+    expect(query.sql).toContain('>=');
+    expect(query.sql).toContain('<');
+    expect(query.params).toEqual(['NL', '5617', '5618', 'eindhoven']);
   });
 });

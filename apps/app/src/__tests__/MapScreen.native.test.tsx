@@ -1,6 +1,10 @@
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
+import {
+  DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+  getLocationFilterTokenCameraBounds,
+} from '@/src/lib/sharedMapFilters';
 
 const mockGetBounds = jest.fn(async () => [4.8, 52.3, 5.0, 52.4]);
 const mockGetCenter = jest.fn(async () => [4.9, 52.37]);
@@ -48,6 +52,16 @@ const mockOnViewportCenterChanged = jest.fn();
 const mockCameraFlyTo = jest.fn();
 const mockCameraFitBounds = jest.fn();
 const mockCameraSetStop = jest.fn();
+const mockReplaceAppliedFilters = jest.fn();
+let mockAppliedFilters: {
+  salePriceFrom: null;
+  salePriceTo: null;
+  rentPriceFrom: null;
+  rentPriceTo: null;
+  marketState: string[];
+  activity: string;
+  areas?: unknown[];
+};
 
 let capturedMapFilterBarProps: {
   socialScope?: 'all' | 'following';
@@ -61,6 +75,7 @@ let capturedSearchBarProps: {
     lat?: number;
     countryCode?: string | null;
   };
+  onCurrentLocationSelected?: () => void | Promise<void>;
 } | null = null;
 
 const mockAmbientCommentBubbles = {
@@ -288,14 +303,8 @@ jest.mock('@/src/hooks/useMapCityName', () => ({
 
 jest.mock('@/src/hooks/useMapFilterController', () => ({
   useMapFilterController: jest.fn(() => ({
-    appliedFilters: {
-      salePriceFrom: null,
-      salePriceTo: null,
-      rentPriceFrom: null,
-      rentPriceTo: null,
-      marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
-      activity: 'all',
-    },
+    appliedFilters: mockAppliedFilters,
+    replaceAppliedFilters: mockReplaceAppliedFilters,
   })),
 }));
 
@@ -419,6 +428,15 @@ describe('MapScreen native grouped Following mode', () => {
     mockReadHeaderValue = 'session-123';
     mockWelcomeVisible = false;
     mockViewportCountryCode = 'NL';
+    mockAppliedFilters = {
+      salePriceFrom: null,
+      salePriceTo: null,
+      rentPriceFrom: null,
+      rentPriceTo: null,
+      marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
+      activity: 'all',
+    };
+    mockReplaceAppliedFilters.mockReset();
     mockSetSearchCity.mockReset();
     mockOnViewportCenterChanged.mockReset();
     mockRecordPropertyView.mockReset();
@@ -661,6 +679,59 @@ describe('MapScreen native grouped Following mode', () => {
       pitch: expect.any(Number),
       duration: 800,
     });
+  });
+
+  it('fits native search current location to the token radius bounds', async () => {
+    await renderMapScreen();
+
+    mockGetCurrentLocation.mockResolvedValue({
+      longitude: 5.1214,
+      latitude: 52.0907,
+    });
+    mockCameraFlyTo.mockClear();
+    mockCameraFitBounds.mockClear();
+
+    await act(async () => {
+      await capturedSearchBarProps?.onCurrentLocationSelected?.();
+      await Promise.resolve();
+    });
+
+    const expectedBounds = getLocationFilterTokenCameraBounds([
+      {
+        type: 'current-location',
+        countryCode: null,
+        value: '52.090700,5.121400',
+        label: 'Current location',
+        coordinates: [5.1214, 52.0907],
+        radiusMeters: DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+      },
+    ]);
+
+    expect(mockReplaceAppliedFilters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        areas: [
+          expect.objectContaining({
+            type: 'current-location',
+            coordinates: [5.1214, 52.0907],
+            radiusMeters: DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+          }),
+        ],
+      })
+    );
+    expect(expectedBounds).not.toBeNull();
+    expect(mockCameraFitBounds).toHaveBeenCalledWith(
+      expectedBounds,
+      {
+        padding: {
+          top: 96,
+          right: 96,
+          bottom: 96,
+          left: 96,
+        },
+        duration: 650,
+      }
+    );
+    expect(mockCameraFlyTo).not.toHaveBeenCalled();
   });
 
   it('does not auto-locate if the user moves the native map before full render', async () => {
