@@ -81,11 +81,14 @@ test.describe('Comment action menu visual', () => {
 
       await openCommentActionMenu(page, fixture.content);
 
-      await expect(page.getByTestId('comment-report-menu-item')).toBeVisible();
-      await expect(page.getByTestId('comment-copy-menu-item')).toBeVisible();
-      await expect(page.getByText('Report')).toBeVisible();
-      await expect(page.getByText('Copy')).toBeVisible();
-      await expect(page.getByText('Translate')).toHaveCount(0);
+      const menu = page.getByTestId('comment-action-menu');
+      const reportItem = menu.getByTestId('comment-report-menu-item');
+      const copyItem = menu.getByTestId('comment-copy-menu-item');
+      await expect(reportItem).toBeVisible();
+      await expect(copyItem).toBeVisible();
+      await expect(reportItem.getByText('Report')).toBeVisible();
+      await expect(copyItem.getByText('Copy')).toBeVisible();
+      await expect(menu.getByText('Translate')).toHaveCount(0);
 
       await page.screenshot({
         path: `${SCREENSHOT_DIR}/${viewport.name}-current.png`,

@@ -30,6 +30,7 @@ const KNOWN_PREVIEW_PROPERTY = {
   city: 'Eindhoven',
   postalCode: '5651HA',
   countryCode: 'NL',
+  geometry: { type: 'Point', coordinates: [5.44566, 51.4523] as [number, number] },
 } as const;
 
 // Eindhoven center coordinates

@@ -32,6 +32,8 @@ export interface CanonicalPropertyResolveInput extends PropertyRouteAddressLike 
   city: string;
   postalCode: string;
   houseNumber: string | number;
+  id?: string;
+  geometry?: { type: 'Point'; coordinates: [number, number] } | null;
 }
 
 export interface CanonicalPropertyRouteMockOptions {
@@ -52,6 +54,8 @@ interface CanonicalPropertyResolvePayload {
   hasActiveListing?: boolean | null;
   officialValuation?: number | null;
 }
+
+const SYNTHETIC_CANONICAL_FIXTURE_ID = '00000000-0000-4000-8000-000000000041';
 
 export async function fetchCanonicalPropertyFixture(
   request: APIRequestContext,
@@ -122,7 +126,29 @@ export async function resolveCanonicalPropertyFixture(
 
   const payload = (await response.json()) as CanonicalPropertyResolvePayload | null;
   if (!payload?.id) {
-    return null;
+    await assertResolveDidNotMissExistingProperty(request, property);
+    const fallbackAddress = buildResolvedAddress({
+      ...property,
+      id: property.id ?? SYNTHETIC_CANONICAL_FIXTURE_ID,
+      address: null,
+      geometry: property.geometry ?? null,
+    });
+
+    const fallbackProperty: CanonicalPropertyFixture = {
+      ...property,
+      id: property.id ?? SYNTHETIC_CANONICAL_FIXTURE_ID,
+      address: fallbackAddress,
+      countryCode: property.countryCode ?? 'NL',
+      geometry: property.geometry ?? null,
+      hasListing: null,
+      officialValuation: null,
+    };
+
+    return {
+      property: fallbackProperty,
+      route: buildPropertyRoute(fallbackProperty),
+      previewRoute: buildPropertyMapRoute(fallbackProperty),
+    };
   }
 
   const lon = payload.coordinates?.lon;
@@ -152,6 +178,68 @@ export async function resolveCanonicalPropertyFixture(
     route: buildPropertyRoute(resolvedProperty),
     previewRoute: buildPropertyMapRoute(resolvedProperty),
   };
+}
+
+async function assertResolveDidNotMissExistingProperty(
+  request: APIRequestContext,
+  property: CanonicalPropertyResolveInput,
+): Promise<void> {
+  const coordinates = property.geometry?.coordinates;
+  if (!coordinates) {
+    return;
+  }
+
+  const [lon, lat] = coordinates;
+  const delta = 0.003;
+  const bbox = [lon - delta, lat - delta, lon + delta, lat + delta].join(',');
+  const response = await request.get(
+    `${API_BASE_URL}/properties?limit=100&bbox=${encodeURIComponent(bbox)}`,
+    { timeout: REQUEST_TIMEOUT_MS },
+  );
+  if (!response.ok()) {
+    return;
+  }
+
+  const payload = await response.json();
+  const properties = Array.isArray(payload?.data)
+    ? (payload.data as CanonicalPropertyFixture[])
+    : [];
+  const expectedStreet = normalizeRoutePart(property.streetName ?? property.street);
+  const expectedCity = normalizeRoutePart(property.city);
+  const expectedPostalCode = property.postalCode.replace(/\s/g, '').toUpperCase();
+  const expectedHouseNumber = String(property.houseNumber).trim();
+  const expectedAddition = normalizeAddition(property.houseNumberAddition);
+
+  const exactMatch = properties.find((candidate) => {
+    return (
+      normalizeRoutePart(candidate.streetName ?? candidate.street) === expectedStreet &&
+      normalizeRoutePart(candidate.city) === expectedCity &&
+      String(candidate.postalCode ?? '').replace(/\s/g, '').toUpperCase() === expectedPostalCode &&
+      String(candidate.houseNumber ?? '').trim() === expectedHouseNumber &&
+      normalizeAddition(candidate.houseNumberAddition) === expectedAddition
+    );
+  });
+
+  if (exactMatch) {
+    const resolvedAddress = buildResolvedAddress({
+      ...property,
+      id: property.id ?? SYNTHETIC_CANONICAL_FIXTURE_ID,
+      address: null,
+      geometry: property.geometry ?? null,
+    });
+    throw new Error(
+      `GET /properties/resolve returned null for ${resolvedAddress}, but /properties returned ` +
+        `exact property ${exactMatch.id}. Keep this as a product-route regression.`,
+    );
+  }
+}
+
+function normalizeRoutePart(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function normalizeAddition(value: string | null | undefined): string {
+  return (value ?? '').trim().toUpperCase();
 }
 
 function buildResolvedAddress(property: CanonicalPropertyFixture): string {

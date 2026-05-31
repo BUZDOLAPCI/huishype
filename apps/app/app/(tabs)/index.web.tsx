@@ -990,8 +990,30 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           ),
     [],
   );
+  const initialRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
+  const [initialMapCamera] = useState(() =>
+    getInitialWebMapCamera(initialRoutePathname),
+  );
+  const currentZoomRef = useRef(initialMapCamera.zoom);
+  const isMapTabActive = isFocused;
+  const browserPathRef = useRef(getCurrentBrowserPathname(initialRoutePathname));
+  const browserSearchRef = useRef(
+    typeof window === 'undefined' ? '' : window.location.search || '',
+  );
+  const isMapTabActiveRef = useRef(isMapTabActive);
+  isMapTabActiveRef.current = isMapTabActive;
+  const replaceMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
+  const handleAppliedFiltersChange = useCallback((nextFilters: MapFilters) => {
+    if (!isMapTabActiveRef.current) {
+      return;
+    }
+
+    browserSearchRef.current = getMapFilterSearchString(nextFilters, browserSearchRef.current);
+    replaceMapBrowserPathRef.current(browserPathRef.current);
+  }, []);
   const filterController = useMapFilterController({
     initialAppliedFilters: hasInitialFilterSearchParams ? initialAppliedFilters : undefined,
+    onAppliedFiltersChange: handleAppliedFiltersChange,
   });
   const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
   const [socialScope, setSocialScope] = useState<MapSocialScope>(initialSocialScope);
@@ -1065,15 +1087,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const initialRoutePathname = pathnameOverride ?? getCurrentBrowserPathname('/');
-  const [initialMapCamera] = useState(() =>
-    getInitialWebMapCamera(initialRoutePathname),
-  );
-  const currentZoomRef = useRef(initialMapCamera.zoom);
   const lastSettledAmbientBubbleZoomRef = useRef<number | null>(null);
   const [visibleZoom, setVisibleZoom] = useState(initialMapCamera.zoom);
   const [searchResetToken, setSearchResetToken] = useState(0);
-  const isMapTabActive = isFocused;
   const [routePathname, setRoutePathname] = useState(initialRoutePathname);
   const routeState = useResolvedMapRoute(routePathname);
   const appliedRoutePathRef = useRef<string | null>(null);
@@ -1101,12 +1117,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const expandedSheetHistoryPathRef = useRef<string | null>(null);
   const lockedAreaPathRef = useRef<string | null>(null);
   const canReplaceLockedAreaPathRef = useRef(true);
-  const browserPathRef = useRef(getCurrentBrowserPathname(initialRoutePathname));
-  const browserSearchRef = useRef(
-    typeof window === 'undefined' ? '' : window.location.search || '',
-  );
-  const isMapTabActiveRef = useRef(isMapTabActive);
-  isMapTabActiveRef.current = isMapTabActive;
   const ambientBubbleRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followingRenderedFeatureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [followingRenderedFeatureCount, setFollowingRenderedFeatureCount] = useState<number | null>(null);
@@ -1310,7 +1320,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   readTileSourceRef.current = readTileSource.data;
   const readTileRequestPatternRef = useRef<RegExp | null>(readTileRequestPattern);
   readTileRequestPatternRef.current = readTileRequestPattern;
-  const replaceMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
   const pushMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
   const bottomSheetRefBridge = useRef(bottomSheetRef);
   bottomSheetRefBridge.current = bottomSheetRef;

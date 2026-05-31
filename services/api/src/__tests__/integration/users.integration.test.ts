@@ -31,6 +31,15 @@ import { eq } from 'drizzle-orm';
 describe('User profile routes', () => {
   let app: FastifyInstance;
   const cleanupIds: { users: string[]; properties: string[] } = { users: [], properties: [] };
+  let uniqueHandleSequence = 0;
+
+  function createUniqueHandle(label: string) {
+    uniqueHandleSequence += 1;
+    const token = `${Date.now().toString(36)}${uniqueHandleSequence.toString(36)}${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    return `${label}_${token}`.slice(0, 20);
+  }
 
   async function createTestUser(label: string) {
     const user = await createIntegrationUser(app, { label });
@@ -514,13 +523,14 @@ describe('User profile routes', () => {
 
     it('does not consume cooldowns for no-op display name and handle saves', async () => {
       const { accessToken, userId } = await createTestUser('noop');
+      const noopHandle = createUniqueHandle('noop');
       const oldDisplayChange = new Date('2026-01-01T12:00:00.000Z');
       const oldHandleChange = new Date('2026-01-02T12:00:00.000Z');
 
       await db
         .update(users)
         .set({
-          username: 'noop_handle',
+          username: noopHandle,
           displayName: 'Noop Name',
           lastDisplayNameChangeAt: oldDisplayChange,
           lastUsernameChangeAt: oldHandleChange,
@@ -531,13 +541,13 @@ describe('User profile routes', () => {
         method: 'PUT',
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${accessToken}` },
-        payload: { displayName: '  Noop Name  ', handle: '@NOOP_HANDLE' },
+        payload: { displayName: '  Noop Name  ', handle: `@${noopHandle.toUpperCase()}` },
       });
 
       expect(resp.statusCode).toBe(200);
       const body = JSON.parse(resp.body);
       expect(body.displayName).toBe('Noop Name');
-      expect(body.handle).toBe('noop_handle');
+      expect(body.handle).toBe(noopHandle);
       expect(body.lastDisplayNameChangeAt).toBe(oldDisplayChange.toISOString());
       expect(body.lastHandleChangeAt).toBe(oldHandleChange.toISOString());
 
@@ -549,14 +559,15 @@ describe('User profile routes', () => {
     it('returns 409 when the requested handle is taken', async () => {
       const target = await createTestUser('dupetarget');
       const owner = await createTestUser('dupeowner');
+      const takenHandle = createUniqueHandle('taken');
 
-      await db.update(users).set({ username: 'taken_handle' }).where(eq(users.id, owner.userId));
+      await db.update(users).set({ username: takenHandle }).where(eq(users.id, owner.userId));
 
       const resp = await app.inject({
         method: 'PUT',
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${target.accessToken}` },
-        payload: { handle: '@TAKEN_HANDLE' },
+        payload: { handle: `@${takenHandle.toUpperCase()}` },
       });
 
       expect(resp.statusCode).toBe(409);

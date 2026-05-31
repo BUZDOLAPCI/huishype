@@ -21,6 +21,7 @@ const KNOWN_PREVIEW_PROPERTY = {
   city: 'Eindhoven',
   postalCode: '5651HA',
   countryCode: 'NL',
+  geometry: { type: 'Point', coordinates: [5.44566, 51.4523] as [number, number] },
 } as const;
 
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;

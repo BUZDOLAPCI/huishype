@@ -852,7 +852,9 @@ test.describe('Cluster Tap Flow', () => {
     );
 
     // Click the property card
-    const propertyCard = page.locator('[data-testid="property-preview-card"]');
+    const propertyCard = page
+      .locator('[data-testid="group-preview-active-card"]')
+      .locator('[data-testid="property-preview-card"]');
     await expect(propertyCard).toBeVisible();
     await propertyCard.click();
     await page.waitForTimeout(1000);
