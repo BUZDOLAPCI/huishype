@@ -1547,6 +1547,63 @@ describe('GET /properties/nearby', () => {
       }
     });
 
+    it('does not resolve selected-area active properties without listing or social facts', async () => {
+      const propertyId = crypto.randomUUID();
+      const lon = 3.1525;
+      const lat = 55.0525;
+      const area = encodeURIComponent(
+        'street:NL:area-nearby-visibility-street:city=area-nearby-city'
+      );
+
+      await db.execute(sql`
+        INSERT INTO properties (
+          id,
+          country_code,
+          street,
+          house_number,
+          city,
+          postal_code,
+          status,
+          geometry,
+          official_valuation,
+          year_built,
+          floor_area_m2
+        )
+        VALUES (
+          ${propertyId},
+          'NL',
+          'Area Nearby Visibility Street',
+          17,
+          'Area Nearby City',
+          '9998 ZZ',
+          'active',
+          ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+          234567,
+          1994,
+          101
+        )
+      `);
+
+      try {
+        const defaultResponse = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM}`,
+        });
+        const areaResponse = await app.inject({
+          method: 'GET',
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM}&area=${area}`,
+        });
+
+        expect(defaultResponse.statusCode).toBe(200);
+        expect(JSON.parse(defaultResponse.body)).toBeNull();
+
+        expect(areaResponse.statusCode).toBe(200);
+        expect(JSON.parse(areaResponse.body)).toBeNull();
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${propertyId}`);
+      }
+    });
+
     it('keeps listing-backed for-sale properties visible at low zoom without an activity filter', async () => {
       await withHermeticNearbyListingOnlyProperty(async ({ lon, lat, propertyId }) => {
         const response = await app.inject({

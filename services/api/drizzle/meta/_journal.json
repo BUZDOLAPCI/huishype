@@ -330,6 +330,20 @@
       "when": 1778198400020,
       "tag": "0046_location_search_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1778198400021,
+      "tag": "0047_location_area_filter_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1778198400022,
+      "tag": "0048_property_tile_property_fk_indexes",
+      "breakpoints": true
     }
   ]
 }

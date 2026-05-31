@@ -292,6 +292,48 @@ describe('property-grouping', () => {
     );
   });
 
+  it('uses bounded active properties directly for selected-area candidate discovery', () => {
+    const query = buildGroupingCandidateScopeCtes(
+      [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
+      false,
+      normalizeMapFilters({
+        areas: [
+          {
+            type: 'street',
+            countryCode: 'NL',
+            value: 'area-visibility-street',
+            label: 'Area Visibility Street',
+            city: 'Area City',
+          },
+        ],
+      }),
+      13,
+      { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
+    );
+    const text = renderSql(query).replace(/\s+/g, ' ').trim();
+
+    expect(text).toContain('candidate_properties AS MATERIALIZED');
+    expect(text).toContain('FROM properties p');
+    expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
+    expect(text).toContain('p.geometry && ST_MakeEnvelope');
+    expect(text).toContain('p.country_code = $');
+    expect(text).not.toContain('UPPER(p.country_code)');
+    expect(text).toContain('p.street');
+    expect(text).toContain('p.city');
+    expect(text).not.toContain('bounded_properties AS MATERIALIZED');
+    expect(text).not.toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
+    expect(text).not.toContain('property_tile_grouping_facts');
+    expect(text).not.toContain('property_tile_listing_candidates');
+    expect(text).not.toContain('property_tile_listing_facts');
+    expect(text).not.toContain('property_tile_social_facts');
+    expect(text).not.toContain('canonical_listings cl');
+    expect(text).not.toContain('FROM comments c');
+    expect(text).not.toContain('FROM reactions r');
+    expect(text).not.toContain('FROM price_guesses pg');
+    expect(text).not.toContain('FROM property_views pv');
+  });
+
   it('skips low-zoom social-only candidate discovery when market filters can only return listed states', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
@@ -318,6 +360,85 @@ describe('property-grouping', () => {
     expect(text.match(/INNER JOIN properties p ON p\.id/g) ?? []).toHaveLength(0);
     expect(text.match(/p\.status = 'active'/g) ?? []).toHaveLength(0);
     expect(text.match(/p\.geometry && ST_MakeEnvelope/g) ?? []).toHaveLength(0);
+  });
+
+  it('keeps default live grouping behind the listing or social visibility gate', async () => {
+    const renderedQueries: string[] = [];
+    const txExecuteMock = jest.fn(async (query: SQL) => {
+      renderedQueries.push(renderSql(query).replace(/\s+/g, ' ').trim());
+      return [] as never;
+    });
+    jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+
+    await expect(
+      buildCanonicalGroupsForTile({ z: 15, x: 16892, y: 10898 }, createDefaultMapFilters())
+    ).resolves.toEqual([]);
+
+    const candidateQuery = renderedQueries.find((text) =>
+      text.includes('candidate_properties AS MATERIALIZED')
+    );
+
+    expect(candidateQuery).toBeDefined();
+    expect(candidateQuery).toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(candidateQuery).toContain('social_activity_candidate_ids AS MATERIALIZED');
+    expect(candidateQuery).toContain('FROM listing_candidate_ids');
+    expect(candidateQuery).toContain('COALESCE(lf.has_active_listing, FALSE)');
+    expect(candidateQuery).toContain('OR COALESCE(lf.has_completed_listing, FALSE)');
+    expect(candidateQuery).toContain('OR COALESCE(sf.social_score, 0) >= $');
+  });
+
+  it('keeps selected-area live grouping off snapshot facts while preserving listing and social visibility gates', async () => {
+    const renderedQueries: string[] = [];
+    const txExecuteMock = jest.fn(async (query: SQL) => {
+      renderedQueries.push(renderSql(query).replace(/\s+/g, ' ').trim());
+      return [] as never;
+    });
+    jest
+      .spyOn(db, 'transaction')
+      .mockImplementation(async (callback) => callback({ execute: txExecuteMock } as never));
+
+    await expect(
+      buildCanonicalGroupsForTile(
+        { z: 13, x: 4206, y: 2692 },
+        normalizeMapFilters({
+          areas: [
+            {
+              type: 'street',
+              countryCode: 'NL',
+              value: 'area-visibility-street',
+              label: 'Area Visibility Street',
+              city: 'Area City',
+            },
+          ],
+        }),
+        { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
+      )
+    ).resolves.toEqual([]);
+
+    const candidateQuery = renderedQueries.find((text) =>
+      text.includes('candidate_properties AS MATERIALIZED')
+    );
+
+    expect(candidateQuery).toBeDefined();
+    expect(candidateQuery).toContain('FROM properties p');
+    expect(candidateQuery).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
+    expect(candidateQuery).toContain('FROM canonical_listings cl');
+    expect(candidateQuery).toContain('INNER JOIN candidate_properties cp ON cp.id = cl.property_id');
+    expect(candidateQuery).toContain('latest_public_guesses AS MATERIALIZED');
+    expect(candidateQuery).not.toContain('property_tile_grouping_facts');
+    expect(candidateQuery).not.toContain('property_tile_listing_candidates');
+    expect(candidateQuery).not.toContain('property_tile_listing_facts');
+    expect(candidateQuery).not.toContain('property_tile_social_facts');
+    expect(candidateQuery).not.toContain('pgf.snapshot_id');
+    expect(candidateQuery).not.toContain('ptlf.snapshot_id');
+    expect(candidateQuery).not.toContain('ptsf.snapshot_id');
+    expect(candidateQuery).not.toContain('listing_candidate_ids AS MATERIALIZED');
+    expect(candidateQuery).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
+    expect(candidateQuery).not.toContain('candidate_property_ids AS MATERIALIZED');
+    expect(candidateQuery).toContain('OR COALESCE(lf.has_completed_listing, FALSE)');
+    expect(candidateQuery).toContain('OR COALESCE(sf.social_score, 0) >= $');
   });
 
   it('scopes price-filter listing, history, and guess work through candidate properties', async () => {
@@ -1482,6 +1603,31 @@ describe('property-grouping', () => {
     });
 
     const groups = groupCandidatesForTile(tile, [viewed]);
+
+    expect(groups).toHaveLength(0);
+  });
+
+  it('drops selected-area not-listed candidates with zero listing and social counts', () => {
+    const zoom = GHOST_NODE_REVEAL_ZOOM;
+    const baseLon = 5.4697;
+    const baseLat = 51.4416;
+    const tile = tileForCoordinate(baseLon, baseLat, zoom);
+    const selectedAreaCandidate = makeCandidate(
+      '00000000-0000-0000-0000-000000000018',
+      baseLon,
+      baseLat,
+      zoom,
+      {
+        hasActiveListing: false,
+        hasCompletedListing: false,
+        socialScore: 0,
+        recentSocialScore: 0,
+        commentCount: 0,
+        marketState: 'not-listed',
+      }
+    );
+
+    const groups = groupCandidatesForTile(tile, [selectedAreaCandidate]);
 
     expect(groups).toHaveLength(0);
   });

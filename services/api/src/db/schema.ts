@@ -440,6 +440,27 @@ export const properties = pgTable(
       table.countryCode,
       sql`LOWER(${table.city})`
     ),
+    index('properties_country_lower_region_idx').on(
+      table.countryCode,
+      sql`LOWER(${table.region})`
+    ),
+    index('properties_country_lower_city_region_idx').on(
+      table.countryCode,
+      sql`LOWER(${table.city})`,
+      sql`LOWER(${table.region})`
+    ),
+    index('properties_country_lower_street_city_region_idx').on(
+      table.countryCode,
+      sql`LOWER(${table.street})`,
+      sql`LOWER(${table.city})`,
+      sql`LOWER(${table.region})`
+    ),
+    index('properties_country_normalized_postal_city_region_idx').on(
+      table.countryCode,
+      sql`REGEXP_REPLACE(UPPER(${table.postalCode}), '\\s+', '', 'g')`,
+      sql`LOWER(${table.city})`,
+      sql`LOWER(${table.region})`
+    ),
     index('properties_resolve_address_idx').on(
       table.countryCode,
       table.postalCode,
@@ -950,6 +971,7 @@ export const propertyTileListingCandidates = pgTable(
     }),
     index('property_tile_listing_candidates_snapshot_geometry_gist_idx').using('gist', table.geometry),
     index('property_tile_listing_candidates_snapshot_id_idx').on(table.snapshotId),
+    index('property_tile_listing_candidates_property_id_idx').on(table.propertyId),
   ]
 );
 
@@ -975,6 +997,7 @@ export const propertyTileListingFacts = pgTable(
       table.snapshotId,
       table.marketState,
     ),
+    index('property_tile_listing_facts_property_id_idx').on(table.propertyId),
     check(
       'property_tile_listing_facts_market_state_check',
       sql`${table.marketState} IN ('for-sale', 'for-rent', 'sold', 'rented', 'not-listed')`,
@@ -1022,6 +1045,7 @@ export const propertyTileSocialFacts = pgTable(
       table.snapshotId,
       table.lastSocialAt,
     ),
+    index('property_tile_social_facts_property_id_idx').on(table.propertyId),
   ]
 );
 
@@ -1068,6 +1092,7 @@ export const propertyTileGroupingFacts = pgTable(
       table.snapshotId,
       table.lastSocialAt,
     ),
+    index('property_tile_grouping_facts_property_id_idx').on(table.propertyId),
     check(
       'property_tile_grouping_facts_market_state_check',
       sql`${table.marketState} IN ('for-sale', 'for-rent', 'sold', 'rented', 'not-listed')`,

@@ -3401,12 +3401,21 @@ async function readLeasedActivePropertyTilePyramidBuild(
   return Array.from(rows)[0] ?? null;
 }
 
+let enqueuePropertyTilePyramidBuildSignalOverrideForTests:
+  | ((input: { versionId: string; reason: string; jobId: string }) => Promise<void>)
+  | null = null;
+
 async function enqueuePropertyTilePyramidBuildSignal(input: {
   versionId: string;
   reason: string;
   jobId: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
+    if (enqueuePropertyTilePyramidBuildSignalOverrideForTests) {
+      await enqueuePropertyTilePyramidBuildSignalOverrideForTests(input);
+      return { ok: true };
+    }
+
     const { enqueuePropertyTilePyramidBuild } = await import('./ingest/queue.js');
     await enqueuePropertyTilePyramidBuild(
       {
@@ -3428,6 +3437,16 @@ async function enqueuePropertyTilePyramidBuildSignal(input: {
     `);
     return { ok: false, message };
   }
+}
+
+export function setPropertyTilePyramidBuildSignalOverrideForTests(
+  override: ((input: { versionId: string; reason: string; jobId: string }) => Promise<void>) | null,
+): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('Property tile pyramid build signal override is only available in tests');
+  }
+
+  enqueuePropertyTilePyramidBuildSignalOverrideForTests = override;
 }
 
 export function buildPropertyTilePyramidQueueJobId(input: {

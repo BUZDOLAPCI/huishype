@@ -329,7 +329,8 @@ export function serializeLocationFilterToken(token: LocationFilterToken): string
   }
   const countryCode = normalizeCountryCode(token.countryCode) ?? '';
   const postalCodeMetadata =
-    token.type === 'postcode' && normalizePostcodeTokenValue(token.postalCode ?? '') === value
+    token.type === 'street' ||
+    (token.type === 'postcode' && normalizePostcodeTokenValue(token.postalCode ?? '') === value)
       ? null
       : token.postalCode;
   const streetMetadata =

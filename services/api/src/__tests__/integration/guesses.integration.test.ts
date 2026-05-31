@@ -5,6 +5,7 @@ import { db } from '../../db/index.js';
 import { users, priceGuesses, properties } from '../../db/schema.js';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { createIntegrationListing, createIntegrationProperty } from './helpers/fixtures.js';
+import { setPropertyTilePyramidBuildSignalOverrideForTests } from '../../services/property-tile-pyramid.js';
 
 /**
  * Integration tests for guess routes.
@@ -48,6 +49,7 @@ describe('Guess routes', () => {
   }
 
   beforeAll(async () => {
+    setPropertyTilePyramidBuildSignalOverrideForTests(async () => {});
     app = await buildApp({ logger: false });
 
     // Create test user
@@ -88,6 +90,7 @@ describe('Guess routes', () => {
       await db.delete(properties).where(inArray(properties.id, cleanupPropertyIds));
       await refreshPriceGuessMarketSummaries();
     }
+    setPropertyTilePyramidBuildSignalOverrideForTests(null);
     await app.close();
   });
 

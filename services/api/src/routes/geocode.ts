@@ -660,14 +660,14 @@ function buildLocationSuggestionDedupeKey(
     if (token.type === 'street') {
       const street = token.street ?? suggestion.street ?? token.label;
       const city = token.city ?? suggestion.city;
-      const postalCode = token.postalCode ?? suggestion.postalCode;
+      const region = token.region ?? suggestion.region;
       return [
         'area',
         token.type,
         token.countryCode ?? suggestion.countryCode ?? '',
         street ? `street=${normalizeSearchToken(street)}` : '',
         city ? `city=${normalizeSearchToken(city)}` : '',
-        postalCode ? `postcode=${normalizePostalCodeForMatch(postalCode).toLowerCase()}` : '',
+        region ? `region=${normalizeSearchToken(region)}` : '',
       ].join(':');
     }
 
@@ -816,7 +816,7 @@ function buildDbAreaSuggestion(
         : buildDbLocationParentLabel(row),
     city: type === 'city' ? label : row.city,
     region: row.region,
-    postalCode: type === 'postcode' ? label : type === 'street' ? row.postal_code : null,
+    postalCode: type === 'postcode' ? label : null,
     street: type === 'street' ? label : null,
     coordinates: coordinatesFromDbRow(row),
     bbox: null,
@@ -1089,8 +1089,8 @@ function buildLocationFilterTokenFromFeature(
     label,
     parentLabel: parentLabel || null,
     city,
-    region: props.state ?? props.county ?? null,
-    postalCode: props.postcode ?? null,
+    region: type === 'street' ? null : (props.state ?? props.county ?? null),
+    postalCode: type === 'street' ? null : (props.postcode ?? null),
     street: props.street ?? (type === 'street' ? props.name : null) ?? null,
     coordinates,
     bbox: null,
@@ -1114,7 +1114,7 @@ async function queryAreaTokenHasBackingRows(
   const cityPredicate = token.city && token.type !== 'city'
     ? sql`AND ${buildTextCandidatePredicate(sql`p.city`, token.city)}`
     : sql``;
-  const regionPredicate = token.region
+  const regionPredicate = token.region && token.type !== 'street'
     ? sql`AND ${buildTextCandidatePredicate(sql`p.region`, token.region)}`
     : sql``;
   let predicate = sql`FALSE`;
@@ -1357,6 +1357,56 @@ async function queryNearbyDominantPostcodeAreaSuggestion(
   return buildDbPostcodeAreaSuggestion(row, label);
 }
 
+async function queryBackedStreetSuggestionForFeatureLabel(
+  feature: PhotonFeature,
+  label: string,
+  requestedCountryCode: CountryCode | undefined
+): Promise<LocationSearchSuggestionResponse | null> {
+  const props = feature.properties;
+  const countryCode =
+    normalizeCountryCode(props.countrycode) ?? requestedCountryCode ?? null;
+  const city = props.city ?? props.locality ?? null;
+  if (!countryCode || !city) {
+    return null;
+  }
+
+  const region = props.state ?? props.county ?? null;
+  const rows = Array.from(await db.execute<DbLocationSearchRow>(sql`
+    SELECT
+      NULL::uuid AS id,
+      p.country_code,
+      p.street,
+      NULL::integer AS house_number,
+      NULL::text AS house_number_addition,
+      p.city,
+      p.region,
+      NULL::text AS postal_code,
+      ST_X(p.geometry) AS lon,
+      ST_Y(p.geometry) AS lat
+    FROM properties p
+    WHERE p.status = 'active'
+      AND p.country_code = ${countryCode}
+      AND ${buildTextCandidatePredicate(sql`p.street`, label)}
+      AND ${buildTextCandidatePredicate(sql`p.city`, city)}
+    ORDER BY
+      CASE
+        WHEN ${region == null} THEN 0
+        WHEN ${buildTextCandidatePredicate(sql`p.region`, region ?? '')} THEN 0
+        ELSE 1
+      END,
+      p.country_code,
+      p.street,
+      p.city,
+      p.region,
+      p.house_number,
+      p.id
+    LIMIT 1
+  `));
+
+  const row = rows[0];
+  return row ? buildDbAreaSuggestion(row, 'street') : null;
+}
+
 async function transformLocationFeature(
   feature: PhotonFeature,
   requestedCountryCode: CountryCode | undefined,
@@ -1412,6 +1462,15 @@ async function transformLocationFeature(
     : featureLabel;
 
   if (isNeighborhoodLikeFeature(feature, label)) {
+    const backedStreetSuggestion = await queryBackedStreetSuggestionForFeatureLabel(
+      feature,
+      label,
+      requestedCountryCode
+    );
+    if (backedStreetSuggestion) {
+      return backedStreetSuggestion;
+    }
+
     const nearbyPostcodeSuggestion = await queryNearbyDominantPostcodeAreaSuggestion(
       feature,
       label,
@@ -1428,6 +1487,17 @@ async function transformLocationFeature(
     label,
     requestedCountryCode
   );
+  if (type === 'street') {
+    const backedStreetSuggestion = await queryBackedStreetSuggestionForFeatureLabel(
+      feature,
+      label,
+      requestedCountryCode
+    );
+    if (backedStreetSuggestion) {
+      return backedStreetSuggestion;
+    }
+  }
+
   const hasBackingRows = await queryAreaTokenHasBackingRows(filterToken, requestedCountryCode);
 
   if (!hasBackingRows) {
@@ -1442,9 +1512,9 @@ async function transformLocationFeature(
         bbox: null,
         propertyId: null,
         address: null,
-        postalCode: props.postcode ?? null,
+        postalCode: null,
         city: filterToken.city,
-        region: props.state ?? props.county ?? null,
+        region: filterToken.region,
         street: props.street ?? props.name ?? label,
         houseNumber: null,
         houseNumberAddition: null,
@@ -1464,9 +1534,9 @@ async function transformLocationFeature(
     bbox: null,
     propertyId: null,
     address: null,
-    postalCode: props.postcode ?? null,
+    postalCode: type === 'street' ? null : (props.postcode ?? null),
     city: filterToken.city,
-    region: props.state ?? props.county ?? null,
+    region: filterToken.region,
     street: props.street ?? (type === 'street' ? props.name : null) ?? null,
     houseNumber: null,
     houseNumberAddition: null,
@@ -1611,7 +1681,7 @@ function buildTokenId(token: LocationFilterToken): string {
 
   if (token.city) parts.push(`city=${normalizeSearchToken(token.city)}`);
   if (token.region) parts.push(`region=${normalizeSearchToken(token.region)}`);
-  if (token.postalCode) {
+  if (token.type !== 'street' && token.postalCode) {
     parts.push(`postcode=${normalizePostalCodeForMatch(token.postalCode).toLowerCase()}`);
   }
 
@@ -1722,12 +1792,8 @@ async function queryHydratedLocationToken(
   const cityPredicate = token.city
     ? sql`AND LOWER(p.city) = LOWER(${token.city})`
     : sql``;
-  const regionPredicate = token.region
+  const regionPredicate = token.region && token.type !== 'street'
     ? sql`AND LOWER(p.region) = LOWER(${token.region})`
-    : sql``;
-  const postalPredicate = token.postalCode
-    ? sql`AND REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g')
-        = REGEXP_REPLACE(UPPER(${tokenPostalCode}), '\\s+', '', 'g')`
     : sql``;
 
   let rows: LocationTokenHydrationRow[] = [];
@@ -1796,7 +1862,7 @@ async function queryHydratedLocationToken(
         p.street AS label,
         p.city,
         MIN(p.region) AS region,
-        MIN(p.postal_code) AS postal_code,
+        NULL::text AS postal_code,
         p.street,
         ${buildHydrationAggregateSelect()}
       FROM properties p
@@ -1804,7 +1870,6 @@ async function queryHydratedLocationToken(
         ${countryPredicate}
         ${cityPredicate}
         ${regionPredicate}
-        ${postalPredicate}
         AND LOWER(p.street) = LOWER(${streetLabel})
       GROUP BY p.country_code, p.street, p.city
       ORDER BY COUNT(*) DESC

@@ -4,6 +4,10 @@ import { resetReverseGeocodeCacheForTests } from '../../routes/geocode.js';
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { db } from '../../db/index.js';
+import {
+  buildLocationAreaFilterPredicate,
+  parseLocationFilterToken,
+} from '../../services/map-filters.js';
 import { createIntegrationProperty } from './helpers/fixtures.js';
 
 // Mock global fetch to simulate Photon responses
@@ -688,22 +692,22 @@ describe('GET /search/locations', () => {
     expect(streetSuggestions).toHaveLength(1);
     expect(streetSuggestions[0]).toEqual(
       expect.objectContaining({
-        id: 'street:NL:deflectiespoelstraat:city=eindhoven:region=eindhoven:postcode=5651hp',
+        id: 'street:NL:deflectiespoelstraat:city=eindhoven:region=eindhoven',
         type: 'street',
         label: 'Deflectiespoelstraat',
         city: 'Eindhoven',
         region: 'Eindhoven',
-        postalCode: '5651HP',
+        postalCode: null,
         street: 'Deflectiespoelstraat',
         filterToken: expect.objectContaining({
-          id: 'street:NL:deflectiespoelstraat:city=eindhoven:region=eindhoven:postcode=5651hp',
+          id: 'street:NL:deflectiespoelstraat:city=eindhoven:region=eindhoven',
           type: 'street',
           countryCode: 'NL',
           value: 'deflectiespoelstraat',
           label: 'Deflectiespoelstraat',
           city: 'Eindhoven',
           region: 'Eindhoven',
-          postalCode: '5651HP',
+          postalCode: null,
           street: 'Deflectiespoelstraat',
         }),
       })
@@ -724,6 +728,189 @@ describe('GET /search/locations', () => {
         }),
       ])
     );
+  });
+
+  it('dedupes same-city street suggestions across postcodes and converts street-labelled postcode rows', async () => {
+    const firstProperty = await createIntegrationProperty({
+      street: 'Zwaanstraat',
+      houseNumber: 1,
+      city: 'Eindhoven',
+      region: 'Eindhoven',
+      postalCode: '5651ZA',
+      lon: 5.4621,
+      lat: 51.4481,
+    });
+    const secondProperty = await createIntegrationProperty({
+      street: 'Zwaanstraat',
+      houseNumber: 2,
+      city: 'Eindhoven',
+      region: 'Eindhoven',
+      postalCode: '5652ZB',
+      lon: 5.4622,
+      lat: 51.4482,
+    });
+    createdPropertyIds.push(firstProperty.id, secondProperty.id);
+
+    mockFetchFn
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [5.462, 51.448] },
+                properties: {
+                  osm_type: 'N',
+                  osm_id: 96100,
+                  name: 'Zwaanstraat',
+                  postcode: '5651',
+                  city: 'Eindhoven',
+                  state: 'Noord-Brabant',
+                  country: 'Nederland',
+                  countrycode: 'nl',
+                  type: 'district',
+                },
+              },
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [5.4621, 51.4481] },
+                properties: {
+                  osm_type: 'W',
+                  osm_id: 96101,
+                  name: 'Zwaanstraat',
+                  postcode: '5651ZA',
+                  city: 'Eindhoven',
+                  state: 'Noord-Brabant',
+                  country: 'Nederland',
+                  countrycode: 'nl',
+                  type: 'street',
+                },
+              },
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [5.4622, 51.4482] },
+                properties: {
+                  osm_type: 'W',
+                  osm_id: 96102,
+                  name: 'Zwaanstraat',
+                  postcode: '5652ZB',
+                  city: 'Eindhoven',
+                  state: 'Noord-Brabant',
+                  country: 'Nederland',
+                  countrycode: 'nl',
+                  type: 'street',
+                },
+              },
+            ],
+          }),
+      } as unknown as Response)
+      .mockResolvedValueOnce(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=zwaanstraat&limit=8&countrycode=NL&lon=5.462&lat=51.448',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    const streetSuggestions = body.filter(
+      (suggestion: { type: string; label: string; city?: string | null }) =>
+        suggestion.type === 'street' &&
+        suggestion.label === 'Zwaanstraat' &&
+        suggestion.city === 'Eindhoven'
+    );
+    const streetLabelledPostcodeSuggestions = body.filter(
+      (suggestion: { type: string; label: string }) =>
+        suggestion.type === 'postcode' && suggestion.label === 'Zwaanstraat'
+    );
+
+    expect(streetSuggestions).toHaveLength(1);
+    expect(streetSuggestions[0]).toEqual(
+      expect.objectContaining({
+        id: 'street:NL:zwaanstraat:city=eindhoven:region=eindhoven',
+        type: 'street',
+        label: 'Zwaanstraat',
+        city: 'Eindhoven',
+        region: 'Eindhoven',
+        postalCode: null,
+        filterToken: expect.objectContaining({
+          id: 'street:NL:zwaanstraat:city=eindhoven:region=eindhoven',
+          type: 'street',
+          countryCode: 'NL',
+          value: 'zwaanstraat',
+          label: 'Zwaanstraat',
+          city: 'Eindhoven',
+          region: 'Eindhoven',
+          postalCode: null,
+          street: 'Zwaanstraat',
+        }),
+      })
+    );
+    expect(streetLabelledPostcodeSuggestions).toHaveLength(0);
+    expect(streetSuggestions[0].id).not.toContain('postcode=');
+    expect(streetSuggestions[0].filterToken.id).not.toContain('postcode=');
+  });
+
+  it('strips unsafe Photon state metadata from unbacked street fallback tokens', async () => {
+    mockFetchFn
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [5.462, 51.448] },
+                properties: {
+                  osm_type: 'W',
+                  osm_id: 96201,
+                  name: 'No Backed Filterstraat',
+                  postcode: '5651ZA',
+                  city: 'Eindhoven',
+                  state: 'Noord-Brabant',
+                  country: 'Nederland',
+                  countrycode: 'nl',
+                  type: 'street',
+                },
+              },
+            ],
+          }),
+      } as unknown as Response)
+      .mockResolvedValueOnce(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=No%20Backed%20Filterstraat&limit=8&countrycode=NL&lon=5.462&lat=51.448',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    const streetSuggestion = body.find(
+      (suggestion: { type: string; label: string }) =>
+        suggestion.type === 'street' && suggestion.label === 'No Backed Filterstraat'
+    );
+
+    expect(streetSuggestion).toEqual(
+      expect.objectContaining({
+        type: 'street',
+        label: 'No Backed Filterstraat',
+        city: 'Eindhoven',
+        region: null,
+        filterToken: expect.objectContaining({
+          type: 'street',
+          countryCode: 'NL',
+          value: 'no-backed-filterstraat',
+          city: 'Eindhoven',
+          region: null,
+          postalCode: null,
+        }),
+      })
+    );
+    expect(streetSuggestion.id).not.toContain('region=');
+    expect(streetSuggestion.filterToken.id).not.toContain('region=');
   });
 
   it('does not classify Photon house features with street fields as duplicate street areas', async () => {
@@ -863,12 +1050,16 @@ describe('GET /search/locations', () => {
       expect.objectContaining({
         type: 'street',
         label: 'Beeldbuisring',
+        region: null,
         filterToken: expect.objectContaining({
           type: 'street',
           street: 'Beeldbuisring',
+          region: null,
         }),
       })
     );
+    expect(body[0].id).not.toContain('region=');
+    expect(body[0].filterToken.id).not.toContain('region=');
     expect(body).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1586,13 +1777,14 @@ describe('GET /search/location-tokens', () => {
     expect(body).toHaveLength(2);
     expect(body[0]).toEqual(
       expect.objectContaining({
-        id: 'street:NL:hydrationstraat:city=hydratiedam:region=noord-brabant:postcode=5612ma',
+        id: 'street:NL:hydrationstraat:city=hydratiedam:region=noord-brabant',
         type: 'street',
         label: 'Hydrationstraat',
         value: 'hydrationstraat',
         countryCode: 'NL',
         city: 'Hydratiedam',
         region: 'Noord-Brabant',
+        postalCode: null,
         street: 'Hydrationstraat',
         parentLabel: 'Hydratiedam, Noord-Brabant',
         coordinates: expect.any(Array),
@@ -1608,6 +1800,73 @@ describe('GET /search/location-tokens', () => {
         city: 'Hydratiedam',
         bbox: expect.any(Array),
       })
+    );
+  });
+
+  it('heals stale Zwaanstraat street tokens with Photon state metadata to the DB-backed region', async () => {
+    const firstProperty = await createIntegrationProperty({
+      street: 'Zwaanstraat',
+      houseNumber: 71001,
+      city: 'Eindhoven',
+      region: 'Eindhoven',
+      postalCode: '5651ZA',
+      lon: 5.4621,
+      lat: 51.4481,
+    });
+    const secondProperty = await createIntegrationProperty({
+      street: 'Zwaanstraat',
+      houseNumber: 71003,
+      city: 'Eindhoven',
+      region: 'Eindhoven',
+      postalCode: '5652ZB',
+      lon: 5.4623,
+      lat: 51.4483,
+    });
+    createdPropertyIds.push(firstProperty.id, secondProperty.id);
+
+    const staleStreetArea = encodeURIComponent(
+      'street:NL:zwaanstraat:city=eindhoven:region=noord-brabant'
+    );
+    const hydrationResponse = await app.inject({
+      method: 'GET',
+      url: `/search/location-tokens?area=${staleStreetArea}&countrycode=NL`,
+    });
+
+    expect(hydrationResponse.statusCode).toBe(200);
+    const hydratedTokens = JSON.parse(hydrationResponse.body);
+    expect(hydratedTokens).toHaveLength(1);
+    expect(hydratedTokens[0]).toEqual(
+      expect.objectContaining({
+        id: 'street:NL:zwaanstraat:city=eindhoven:region=eindhoven',
+        type: 'street',
+        label: 'Zwaanstraat',
+        value: 'zwaanstraat',
+        countryCode: 'NL',
+        city: 'Eindhoven',
+        region: 'Eindhoven',
+        postalCode: null,
+        street: 'Zwaanstraat',
+        parentLabel: 'Eindhoven, Eindhoven',
+        coordinates: expect.any(Array),
+        bbox: expect.any(Array),
+      })
+    );
+
+    const hydratedAreaToken = parseLocationFilterToken(hydratedTokens[0].id);
+    expect(hydratedAreaToken).not.toBeNull();
+
+    const filteredRows = Array.from(await db.execute<{ id: string }>(sql`
+      SELECT p.id
+      FROM properties p
+      WHERE p.id IN (${sql.join(
+        [firstProperty.id, secondProperty.id].map((id) => sql`${id}`),
+        sql`, `
+      )})
+        AND ${buildLocationAreaFilterPredicate(hydratedAreaToken ? [hydratedAreaToken] : [])}
+      ORDER BY p.id
+    `));
+    expect(filteredRows.map((row) => row.id)).toEqual(
+      expect.arrayContaining([firstProperty.id, secondProperty.id])
     );
   });
 

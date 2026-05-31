@@ -113,6 +113,34 @@ describe('selected area filters', () => {
     expect(query.params).toEqual(['NL', 'waalre', 'NL', 'aalst']);
   });
 
+  it('uses index-friendly selected street predicates for generated location area tokens', () => {
+    const token = parseLocationFilterToken(
+      'street:NL:zwaanstraat:city=eindhoven:region=eindhoven'
+    );
+    const query = renderQuery(buildLocationAreaFilterPredicate(token ? [token] : []));
+
+    expect(query.sql).toContain('p.country_code =');
+    expect(query.sql).toContain('LOWER(p.street)');
+    expect(query.sql).toContain('LOWER(p.city)');
+    expect(query.sql).toContain('LOWER(p.region)');
+    expect(query.sql).not.toContain('UPPER(p.country_code)');
+    expect(query.sql).not.toContain('BTRIM(LOWER(REGEXP_REPLACE');
+    expect(query.sql).not.toContain('COALESCE(p.street');
+    expect(query.sql).not.toContain('COALESCE(p.city');
+    expect(query.sql).not.toContain('COALESCE(p.region');
+    expect(query.params).toEqual(['NL', 'zwaanstraat', 'eindhoven', 'eindhoven']);
+  });
+
+  it('keeps dashed street tokens matched through LOWER expressions', () => {
+    const token = parseLocationFilterToken('street:NL:strijp-s:city=eindhoven');
+    const query = renderQuery(buildLocationAreaFilterPredicate(token ? [token] : []));
+
+    expect(query.sql).toContain('LOWER(p.street)');
+    expect(query.sql).toContain(' OR ');
+    expect(query.sql).not.toContain('BTRIM(LOWER(REGEXP_REPLACE');
+    expect(query.params).toEqual(['NL', 'strijp s', 'strijp-s', 'eindhoven']);
+  });
+
   it('parses readable street metadata so reload predicates keep city context', () => {
     const token = parseLocationFilterToken('street:NL:boschdijk:city=eindhoven');
     expect(token).toEqual(
@@ -145,7 +173,7 @@ describe('selected area filters', () => {
     expect(sqlText).toContain(' AND ');
   });
 
-  it('uses exact street metadata constraints for city, region, and postcode', () => {
+  it('uses street metadata constraints for city and region without narrowing by postcode', () => {
     const query = renderQuery(
       buildLocationAreaFilterPredicate([
         {
@@ -164,9 +192,9 @@ describe('selected area filters', () => {
     expect(query.sql).toContain('p.street');
     expect(query.sql).toContain('p.city');
     expect(query.sql).toContain('p.region');
-    expect(query.sql).toContain('p.postal_code');
     expect(query.sql).toContain(' AND ');
-    expect(query.params).toEqual(['NL', 'markt', 'aalst', 'noord-brabant', '5651HA']);
+    expect(query.sql).not.toContain('p.postal_code');
+    expect(query.params).toEqual(['NL', 'markt', 'aalst', 'noord-brabant']);
   });
 
   it('keeps postcode token metadata exact without broadening to a whole postcode area', () => {
@@ -189,7 +217,9 @@ describe('selected area filters', () => {
     expect(query.sql).toContain('p.city');
     expect(query.sql).toContain('p.region');
     expect(query.sql).toContain('p.street');
+    expect(query.sql).toContain("REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g')");
     expect(query.sql).not.toContain('p.postal_code) <');
+    expect(query.sql).not.toContain('COALESCE(p.postal_code');
     expect(query.sql).toContain(' AND ');
     expect(query.params).toEqual(['NL', '5651HA', 'aalst', 'noord-brabant', 'markt']);
   });
@@ -210,8 +240,11 @@ describe('selected area filters', () => {
 
     expect(query.sql).toContain('p.country_code');
     expect(query.sql).toContain('p.postal_code');
+    expect(query.sql).toContain("REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g') >=");
+    expect(query.sql).toContain("REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g') <");
     expect(query.sql).toContain('>=');
     expect(query.sql).toContain('<');
+    expect(query.sql).not.toContain('COALESCE(p.postal_code');
     expect(query.params).toEqual(['NL', '5617', '5618', 'eindhoven']);
   });
 });

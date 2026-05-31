@@ -238,7 +238,8 @@ function serializeLocationFilterToken(token: LocationFilterToken): string | null
     return null;
   }
   const postalCodeMetadata =
-    token.type === 'postcode' && normalizePostcodeTokenValue(token.postalCode ?? '') === value
+    token.type === 'street' ||
+    (token.type === 'postcode' && normalizePostcodeTokenValue(token.postalCode ?? '') === value)
       ? null
       : token.postalCode;
   const streetMetadata =
@@ -481,12 +482,29 @@ function buildScopedPricePredicate(
   )`;
 }
 
-function buildSlugExpression(column: SQL): SQL {
-  return sql`BTRIM(LOWER(REGEXP_REPLACE(COALESCE(${column}, ''), '[^[:alnum:]]+', '-', 'g')), '-')`;
+function normalizeLowerComparisonValue(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function getLowerComparisonValues(value: string | null | undefined): string[] {
+  const normalized = value ? normalizeLowerComparisonValue(value) : '';
+  const slug = value ? normalizeTokenValue(value) : '';
+  const values = [normalized, slug].filter(Boolean);
+
+  return Array.from(new Set(values));
+}
+
+function buildLowerExpression(column: SQL): SQL {
+  return sql`LOWER(${column})`;
 }
 
 function buildPostalCodeExpression(column: SQL): SQL {
-  return sql`REGEXP_REPLACE(UPPER(COALESCE(${column}, '')), '\\s+', '', 'g')`;
+  return sql`REGEXP_REPLACE(UPPER(${column}), '\\s+', '', 'g')`;
 }
 
 function getPostcodePrefixUpperBound(value: string): string | null {
@@ -507,13 +525,19 @@ function buildLocationTokenPredicate(token: LocationFilterToken, propertyAlias: 
   const streetColumn = sql.raw(`${propertyAlias}.street`);
 
   if (token.countryCode) {
-    predicates.push(sql`UPPER(${countryColumn}) = ${token.countryCode}`);
+    predicates.push(sql`${countryColumn} = ${token.countryCode}`);
   }
 
-  const addSlugPredicate = (column: SQL, value: string | null | undefined) => {
-    const normalized = value ? normalizeTokenValue(value) : '';
-    if (normalized) {
-      predicates.push(sql`${buildSlugExpression(column)} = ${normalized}`);
+  const addLowerPredicate = (column: SQL, value: string | null | undefined) => {
+    const values = getLowerComparisonValues(value);
+    if (values.length === 1) {
+      predicates.push(sql`${buildLowerExpression(column)} = ${values[0]}`);
+    } else if (values.length > 1) {
+      const expression = buildLowerExpression(column);
+      predicates.push(sql`(${sql.join(
+        values.map((candidate) => sql`${expression} = ${candidate}`),
+        sql` OR `
+      )})`);
     }
   };
 
@@ -544,29 +568,29 @@ function buildLocationTokenPredicate(token: LocationFilterToken, propertyAlias: 
 
   if (token.type === 'country') {
     if (!token.countryCode && token.value) {
-      addSlugPredicate(countryColumn, token.value);
+      addLowerPredicate(countryColumn, token.label ?? token.value);
     }
   } else if (token.type === 'city') {
-    addSlugPredicate(cityColumn, token.city ?? token.value);
+    addLowerPredicate(cityColumn, token.city ?? token.label ?? token.value);
   } else if (token.type === 'region') {
-    addSlugPredicate(regionColumn, token.region ?? token.value);
+    addLowerPredicate(regionColumn, token.region ?? token.label ?? token.value);
   } else if (token.type === 'postcode') {
     addPostcodePredicate(token.postalCode ?? token.value);
   } else if (token.type === 'street') {
-    addSlugPredicate(streetColumn, token.street ?? token.value);
+    addLowerPredicate(streetColumn, token.street ?? token.label ?? token.value);
   }
 
   if (token.type !== 'city') {
-    addSlugPredicate(cityColumn, token.city);
+    addLowerPredicate(cityColumn, token.city);
   }
   if (token.type !== 'region') {
-    addSlugPredicate(regionColumn, token.region);
+    addLowerPredicate(regionColumn, token.region);
   }
-  if (token.type !== 'postcode') {
+  if (token.type !== 'postcode' && token.type !== 'street') {
     addPostcodePredicate(token.postalCode);
   }
   if (token.type !== 'street') {
-    addSlugPredicate(streetColumn, token.street);
+    addLowerPredicate(streetColumn, token.street);
   }
 
   return predicates.length > 0 ? sql`(${sql.join(predicates, sql` AND `)})` : sql`TRUE`;

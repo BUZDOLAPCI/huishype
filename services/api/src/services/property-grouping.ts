@@ -1054,6 +1054,10 @@ function hasPriceFilters(filters: MapFilters): boolean {
   );
 }
 
+function hasLocationAreaFilters(filters: MapFilters): boolean {
+  return filters.areas.length > 0;
+}
+
 function getClosedSocialActivityCutoff(options?: PropertyTileBuildOptions): string | Date | null {
   if (!options?.candidateSnapshotId) {
     return null;
@@ -1555,7 +1559,7 @@ function usesSnapshotGroupingFacts(input: {
     input.options?.candidateSnapshotId != null &&
     !input.includeGhostCandidates &&
     !hasPriceFilters(input.filters) &&
-    input.filters.areas.length === 0 &&
+    !hasLocationAreaFilters(input.filters) &&
     input.zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM
   );
 }
@@ -1581,10 +1585,11 @@ export function buildGroupingCandidateScopeCtes(
     options
   );
   const canIncludeSocialOnlyCandidates = filters.marketState.includes('not-listed');
+  const hasAreaFilters = hasLocationAreaFilters(filters);
   const useSourceFirstCandidateScope =
     options?.candidateSnapshotId != null &&
     !includeGhostCandidates &&
-    filters.areas.length === 0 &&
+    !hasAreaFilters &&
     zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
   const useSnapshotGroupingFacts = usesSnapshotGroupingFacts({
     includeGhostCandidates,
@@ -1626,6 +1631,22 @@ export function buildGroupingCandidateScopeCtes(
           FROM property_tile_grouping_facts pgf
           WHERE ${buildBoundsFilter(boundsList, sql.raw('pgf.geometry'))}
             AND ${candidateSnapshotFilter('pgf', options)}
+        )
+      `;
+  }
+
+  if (!useSourceFirstCandidateScope && hasAreaFilters) {
+    return sql`
+        candidate_properties AS MATERIALIZED (
+          SELECT
+            p.id,
+            p.geometry,
+            p.official_valuation
+          FROM properties p
+          WHERE p.geometry IS NOT NULL
+            AND p.status = 'active'
+            AND (${bboxFilter})
+            AND ${areaFilter}
         )
       `;
   }
@@ -1878,6 +1899,7 @@ async function fetchGroupingCandidatesInBBoxes(
     'sf',
     options
   );
+  const hasAreaFilters = hasLocationAreaFilters(filters);
   const candidateVisibilityFilter = includeGhostCandidates
     ? sql`TRUE`
     : sql`(
@@ -2025,9 +2047,13 @@ async function fetchGroupingCandidatesInBBoxes(
           LEFT JOIN guess_facts ON guess_facts.property_id = cp.id
         )
       `
-    : buildTileListingFactsProjectionCte(options, useSnapshotGroupingFactProjection);
+    : buildTileListingFactsProjectionCte(
+        hasAreaFilters ? undefined : options,
+        useSnapshotGroupingFactProjection
+      );
   const useSnapshotSocialFacts =
     options?.candidateSnapshotId != null &&
+    !hasAreaFilters &&
     !includeEffectivePrices &&
     !useSnapshotGroupingFactProjection;
   const socialFactsCtes = useSnapshotGroupingFactProjection

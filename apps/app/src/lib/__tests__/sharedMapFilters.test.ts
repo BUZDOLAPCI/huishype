@@ -372,7 +372,7 @@ describe('sharedMapFilters price suggestions', () => {
     );
 
     expect(serializeLocationFilterToken(streetToken)).toBe(
-      'street:NL:beeldbuisring:city=eindhoven:postcode=5651ha',
+      'street:NL:beeldbuisring:city=eindhoven',
     );
     expect(
       parseLocationFilterToken('street:NL:beeldbuisring:city=eindhoven:postcode=5651ha'),

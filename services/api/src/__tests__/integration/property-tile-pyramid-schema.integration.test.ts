@@ -581,15 +581,19 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_candidate_source_snapshots_status_idx',
         'property_tile_listing_candidates_snapshot_id_idx',
         'property_tile_listing_candidates_snapshot_geometry_gist_idx',
+        'property_tile_listing_candidates_property_id_idx',
         'property_tile_listing_facts_snapshot_market_state_idx',
+        'property_tile_listing_facts_property_id_idx',
         'property_tile_social_facts_snapshot_id_idx',
         'property_tile_social_facts_geometry_gist_idx',
         'property_tile_social_facts_snapshot_last_social_at_idx',
+        'property_tile_social_facts_property_id_idx',
         'property_tile_grouping_facts_snapshot_id_idx',
         'property_tile_grouping_facts_snapshot_geometry_gist_idx',
         'property_tile_grouping_facts_snapshot_market_state_idx',
         'property_tile_grouping_facts_snapshot_last_social_at_idx',
         'property_tile_grouping_facts_visible_snapshot_geometry_gist_idx',
+        'property_tile_grouping_facts_property_id_idx',
       ])
     );
 
