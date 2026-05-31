@@ -208,11 +208,19 @@ export default function FeedScreen() {
   const isPropertyFeed = activeFilter === 'trending' || activeFilter === 'latest';
   const activityScope = activeFilter === 'following' ? 'following' : 'public';
   const propertyFeedFilter: PropertyFeedFilter = activeFilter === 'latest' ? 'latest' : 'trending';
-  const isBootstrappingPropertyFeed = isPropertyFeed && !feedScope;
+  const hasAppliedAreaFilters = (filterController.appliedFilters.areas ?? []).length > 0;
+  const propertyFeedScope = useMemo(() => {
+    if (hasAppliedAreaFilters) {
+      return undefined;
+    }
+
+    return feedScope;
+  }, [feedScope, hasAppliedAreaFilters]);
+  const isBootstrappingPropertyFeed = isPropertyFeed && !hasAppliedAreaFilters && !feedScope;
   const feedQuery = useInfiniteFeed(
     isPropertyFeed ? propertyFeedFilter : 'trending',
-    feedScope,
-    isPropertyFeed && !!feedScope,
+    propertyFeedScope,
+    isPropertyFeed && (hasAppliedAreaFilters || !!feedScope),
     filterController.appliedFilters
   );
 

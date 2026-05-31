@@ -631,7 +631,7 @@ describe('FeedScreen following surface', () => {
     expect(queryByTestId('feed-map-following-control')).toBeNull();
   });
 
-  it('passes shared filter changes to property and activity feed queries', async () => {
+  it('passes area filters to property feed queries without the default location scope', async () => {
     mockUseActivityFeed.mockImplementation(
       (scope) =>
         createQueryResult([
@@ -647,13 +647,10 @@ describe('FeedScreen following surface', () => {
     fireEvent.press(getByTestId('feed-select-area'));
 
     await waitFor(() => {
-      expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
+      const lastPropertyFeedCall = mockUseInfiniteFeed.mock.calls.at(-1);
+      expect(lastPropertyFeedCall).toEqual([
         'trending',
-        {
-          country: 'NL',
-          lat: 51.4416,
-          lon: 5.4697,
-        },
+        undefined,
         true,
         expect.objectContaining({
           marketState: ['for-sale'],
@@ -663,8 +660,8 @@ describe('FeedScreen following surface', () => {
               value: 'eindhoven',
             }),
           ],
-        })
-      );
+        }),
+      ]);
       expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
         'public',
         false,
