@@ -88,6 +88,37 @@ function stringifySqlQuery(query: unknown): string {
     .join(' ');
 }
 
+type LocationSearchTestSuggestion = {
+  id?: string;
+  type: string;
+  label?: string;
+  countryCode?: string | null;
+  coordinates?: [number, number] | null;
+  propertyId?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  region?: string | null;
+  street?: string | null;
+  houseNumber?: string | null;
+  filterToken?: {
+    id?: string | null;
+    type?: string;
+    countryCode?: string | null;
+    value?: string;
+    label?: string;
+    city?: string | null;
+    region?: string | null;
+    postalCode?: string | null;
+    street?: string | null;
+  } | null;
+};
+
+const AREA_SUGGESTION_TYPES = new Set(['street', 'postcode', 'city', 'region', 'country']);
+
+function isAreaSuggestion(suggestion: LocationSearchTestSuggestion) {
+  return AREA_SUGGESTION_TYPES.has(suggestion.type);
+}
+
 describe('GET /geocode/search', () => {
   let app: FastifyInstance;
 
@@ -111,6 +142,18 @@ describe('GET /geocode/search', () => {
       url: '/geocode/search',
     });
     expect(response.statusCode).toBe(400);
+  });
+
+  it('still accepts one-character proxy searches', async () => {
+    mockFetchFn.mockResolvedValueOnce(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/geocode/search?q=a&countrycode=NL',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockFetchFn).toHaveBeenCalledTimes(1);
   });
 
   it('returns transformed suggestions from Photon', async () => {
@@ -515,9 +558,9 @@ describe('GET /search/locations', () => {
           street = CONCAT('__geocode_fixture_cleanup_', id::text),
           postal_code = LEFT(REPLACE(id::text, '-', ''), 10)
         WHERE id IN (${sql.join(
-        createdPropertyIds.map((id) => sql`${id}`),
-        sql`, `
-      )})`);
+          createdPropertyIds.map((id) => sql`${id}`),
+          sql`, `
+        )})`);
     }
     // Keep the shared DB connection open for the following hydration tests.
   });
@@ -525,6 +568,16 @@ describe('GET /search/locations', () => {
   beforeEach(() => {
     mockFetchFn.mockReset();
     resetReverseGeocodeCacheForTests();
+  });
+
+  it('rejects one-character typed location searches', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=a&countrycode=NL',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockFetchFn).not.toHaveBeenCalled();
   });
 
   it('returns DB-backed street and property suggestions before weak Photon results', async () => {
@@ -612,6 +665,72 @@ describe('GET /search/locations', () => {
     `);
   });
 
+  it('keeps backed DB suggestions ahead of closer Photon-only coordinate fallbacks', async () => {
+    const street = `Proximity Backed Lane ${Date.now().toString(36)}`;
+    const property = await createIntegrationProperty({
+      street,
+      houseNumber: 1,
+      city: 'Backed Ranking City',
+      region: 'Backed Ranking Region',
+      postalCode: '5666PR',
+      lon: 5.1,
+      lat: 51.1,
+    });
+    createdPropertyIds.push(property.id);
+
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [6.1, 52.1] },
+              properties: {
+                osm_type: 'N',
+                osm_id: 97001,
+                street,
+                housenumber: '99',
+                postcode: '9999ZZ',
+                city: 'Photon Only City',
+                state: 'Photon Only Region',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'house',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL&lon=6.1&lat=52.1`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const backedIndex = body.findIndex(
+      (suggestion) =>
+        suggestion.type === 'street' &&
+        suggestion.label === street &&
+        suggestion.filterToken?.type === 'street'
+    );
+    const photonOnlyIndex = body.findIndex(
+      (suggestion) =>
+        suggestion.type === 'address' &&
+        suggestion.street === street &&
+        suggestion.houseNumber === '99' &&
+        suggestion.propertyId == null &&
+        suggestion.filterToken == null
+    );
+
+    expect(backedIndex).toBeGreaterThanOrEqual(0);
+    expect(photonOnlyIndex).toBeGreaterThanOrEqual(0);
+    expect(backedIndex).toBeLessThan(photonOnlyIndex);
+  });
+
   it('dedupes DB and Photon street area suggestions when only the region differs', async () => {
     const property = await createIntegrationProperty({
       street: 'Deflectiespoelstraat',
@@ -681,16 +800,17 @@ describe('GET /search/locations', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
     const streetSuggestions = body.filter(
-      (suggestion: { type: string; street?: string | null; label?: string }) =>
+      (suggestion) =>
         suggestion.type === 'street' &&
         (suggestion.street === 'Deflectiespoelstraat' ||
           suggestion.label === 'Deflectiespoelstraat')
     );
 
     expect(streetSuggestions).toHaveLength(1);
-    expect(streetSuggestions[0]).toEqual(
+    const streetSuggestion = streetSuggestions[0]!;
+    expect(streetSuggestion).toEqual(
       expect.objectContaining({
         id: 'street:NL:deflectiespoelstraat:city=eindhoven:region=eindhoven',
         type: 'street',
@@ -712,8 +832,11 @@ describe('GET /search/locations', () => {
         }),
       })
     );
-    expect(streetSuggestions[0].id).not.toContain('W_95101');
-    expect(streetSuggestions[0].filterToken.id).not.toContain('W_95101');
+    expect(streetSuggestion.id).not.toContain('W_95101');
+    expect(streetSuggestion.filterToken?.id).not.toContain('W_95101');
+    expect(body.filter(isAreaSuggestion).every((suggestion) => suggestion.filterToken)).toBe(
+      true
+    );
     expect(body).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -728,6 +851,17 @@ describe('GET /search/locations', () => {
         }),
       ])
     );
+    const streetIndex = body.findIndex((suggestion) => suggestion === streetSuggestion);
+    const addressIndex = body.findIndex(
+      (suggestion) =>
+        suggestion.type === 'address' &&
+        suggestion.street === 'Deflectiespoelstraat' &&
+        suggestion.postalCode === '5651HP' &&
+        suggestion.propertyId == null &&
+        suggestion.filterToken == null
+    );
+    expect(addressIndex).toBeGreaterThanOrEqual(0);
+    expect(streetIndex).toBeLessThan(addressIndex);
   });
 
   it('dedupes same-city street suggestions across postcodes and converts street-labelled postcode rows', async () => {
@@ -887,30 +1021,28 @@ describe('GET /search/locations', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    const streetSuggestion = body.find(
-      (suggestion: { type: string; label: string }) =>
-        suggestion.type === 'street' && suggestion.label === 'No Backed Filterstraat'
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const unsafeAreaSuggestion = body.find(
+      (suggestion) =>
+        suggestion.type === 'street' &&
+        suggestion.label === 'No Backed Filterstraat' &&
+        suggestion.filterToken
+    );
+    const coordinateFallback = body.find(
+      (suggestion) => suggestion.label === 'No Backed Filterstraat'
     );
 
-    expect(streetSuggestion).toEqual(
-      expect.objectContaining({
-        type: 'street',
-        label: 'No Backed Filterstraat',
-        city: 'Eindhoven',
-        region: null,
-        filterToken: expect.objectContaining({
-          type: 'street',
-          countryCode: 'NL',
-          value: 'no-backed-filterstraat',
-          city: 'Eindhoven',
-          region: null,
-          postalCode: null,
-        }),
-      })
-    );
-    expect(streetSuggestion.id).not.toContain('region=');
-    expect(streetSuggestion.filterToken.id).not.toContain('region=');
+    expect(unsafeAreaSuggestion).toBeUndefined();
+    if (coordinateFallback) {
+      expect(coordinateFallback).toEqual(
+        expect.objectContaining({
+          type: 'address',
+          label: 'No Backed Filterstraat',
+          filterToken: null,
+          coordinates: [5.462, 51.448],
+        })
+      );
+    }
   });
 
   it('does not classify Photon house features with street fields as duplicate street areas', async () => {
@@ -957,37 +1089,43 @@ describe('GET /search/locations', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
     const streetSuggestions = body.filter(
-      (suggestion: { type: string; street?: string | null; label?: string }) =>
+      (suggestion) =>
         suggestion.type === 'street' &&
         (suggestion.street === 'Tegenbosch' || suggestion.label === 'Tegenbosch')
     );
 
-    expect(streetSuggestions).toHaveLength(1);
-    expect(streetSuggestions[0]).toEqual(
-      expect.objectContaining({
-        type: 'street',
-        label: 'Tegenbosch',
-        city: 'Eindhoven',
-        street: 'Tegenbosch',
-        filterToken: expect.objectContaining({
-          id: expect.stringMatching(/^street:NL:tegenbosch:/u),
+    expect(streetSuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
           type: 'street',
-          countryCode: 'NL',
-          value: 'tegenbosch',
           label: 'Tegenbosch',
           city: 'Eindhoven',
+          region: 'Noord-Brabant',
           street: 'Tegenbosch',
+          filterToken: expect.objectContaining({
+            id: expect.stringMatching(/^street:NL:tegenbosch:/u),
+            type: 'street',
+            countryCode: 'NL',
+            value: 'tegenbosch',
+            label: 'Tegenbosch',
+            city: 'Eindhoven',
+            region: 'Noord-Brabant',
+            street: 'Tegenbosch',
+          }),
         }),
-      })
+      ])
     );
-    expect(streetSuggestions[0].id).toBe(streetSuggestions[0].filterToken.id);
+    expect(streetSuggestions.every((suggestion) => suggestion.id === suggestion.filterToken?.id)).toBe(
+      true
+    );
     expect(JSON.stringify(body)).not.toContain('Tilburgseweg');
     expect(JSON.stringify(body)).not.toContain('W_693356158');
   });
 
-  it('keeps a Photon street token and expands it with a same-street address when DB rows are missing', async () => {
+  it('does not keep an unbacked Photon street token but still expands same-street addresses', async () => {
+    const street = 'No Backed Expansionstraat';
     mockFetchFn
       .mockResolvedValueOnce({
         ok: true,
@@ -1001,7 +1139,7 @@ describe('GET /search/locations', () => {
                 properties: {
                   osm_type: 'W',
                   osm_id: 94001,
-                  name: 'Beeldbuisring',
+                  name: street,
                   postcode: '5651 HJ',
                   city: 'Eindhoven',
                   state: 'Noord-Brabant',
@@ -1025,7 +1163,7 @@ describe('GET /search/locations', () => {
                 properties: {
                   osm_type: 'N',
                   osm_id: 94002,
-                  street: 'Beeldbuisring',
+                  street,
                   housenumber: '1',
                   postcode: '5651HA',
                   city: 'Eindhoven',
@@ -1041,38 +1179,36 @@ describe('GET /search/locations', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/search/locations?q=Beeldbuisring&limit=8&countrycode=NL',
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL`,
     });
 
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(body[0]).toEqual(
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const unbackedAreaSuggestion = body.find(
+      (suggestion) =>
+        isAreaSuggestion(suggestion) &&
+        suggestion.filterToken &&
+        (suggestion.label === street || suggestion.street === street)
+    );
+    const expandedAddress = body.find(
+      (suggestion) =>
+        (suggestion.type === 'address' || suggestion.type === 'property') &&
+        suggestion.street === street &&
+        suggestion.houseNumber === '1'
+    );
+
+    expect(unbackedAreaSuggestion).toBeUndefined();
+    expect(expandedAddress).toEqual(
       expect.objectContaining({
-        type: 'street',
-        label: 'Beeldbuisring',
-        region: null,
-        filterToken: expect.objectContaining({
-          type: 'street',
-          street: 'Beeldbuisring',
-          region: null,
-        }),
+        street,
+        postalCode: '5651HA',
+        coordinates: [5.4455092, 51.4524433],
       })
     );
-    expect(body[0].id).not.toContain('region=');
-    expect(body[0].filterToken.id).not.toContain('region=');
-    expect(body).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'address',
-          label: 'Beeldbuisring 1, 5651HA Eindhoven',
-          street: 'Beeldbuisring',
-          postalCode: '5651HA',
-        }),
-      ])
-    );
+    expect(expandedAddress?.filterToken).toBeNull();
   });
 
-  it('normalizes compact and spaced postcode searches to postcode and property suggestions', async () => {
+  it('normalizes compact, spaced, and dashed postcode searches to postcode and property suggestions', async () => {
     const property = await createIntegrationProperty({
       street: 'Compact Postcodehof',
       houseNumber: 12,
@@ -1086,7 +1222,7 @@ describe('GET /search/locations', () => {
 
     mockFetchFn.mockResolvedValue(emptyPhotonResponse());
 
-    for (const query of ['5651HA', '5651 HA']) {
+    for (const query of ['5651HA', '5651 HA', '5651-HA']) {
       const response = await app.inject({
         method: 'GET',
         url: `/search/locations?q=${encodeURIComponent(query)}&limit=8&countrycode=NL`,
@@ -1154,6 +1290,220 @@ describe('GET /search/locations', () => {
           label: '7777 AA Eindhoven',
           postalCode: '7777AA',
           city: 'Eindhoven',
+        }),
+      ])
+    );
+  });
+
+  it('returns backed region area suggestions when active properties exist', async () => {
+    const suffix = Date.now().toString(36);
+    const region = `Coverage Region ${suffix}`;
+    const property = await createIntegrationProperty({
+      street: `Coverage Country Street ${suffix}`,
+      houseNumber: 1,
+      city: `Coverage City ${suffix}`,
+      region,
+      postalCode: '5666CA',
+      lon: 5.49,
+      lat: 51.45,
+    });
+    createdPropertyIds.push(property.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const regionResponse = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(region)}&limit=8&countrycode=NL`,
+    });
+    expect(regionResponse.statusCode).toBe(200);
+    const regionBody = JSON.parse(regionResponse.body) as LocationSearchTestSuggestion[];
+    expect(regionBody).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'region',
+          label: region,
+          countryCode: 'NL',
+          filterToken: expect.objectContaining({
+            type: 'region',
+            countryCode: 'NL',
+            value: expect.any(String),
+            label: region,
+          }),
+        }),
+      ])
+    );
+  });
+
+  it('returns backed country area suggestions and skips countries without active properties', async () => {
+    const suffix = Date.now().toString(36);
+    const property = await createIntegrationProperty({
+      street: `Coverage Country Street ${suffix}`,
+      houseNumber: 1,
+      city: `Coverage Country City ${suffix}`,
+      region: `Coverage Country Region ${suffix}`,
+      postalCode: '5666CB',
+      lon: 5.491,
+      lat: 51.451,
+    });
+    createdPropertyIds.push(property.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const countryResponse = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=Netherlands&limit=8',
+    });
+    expect(countryResponse.statusCode).toBe(200);
+    const countryBody = JSON.parse(countryResponse.body) as LocationSearchTestSuggestion[];
+    expect(countryBody).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'country',
+          label: 'Netherlands',
+          countryCode: 'NL',
+          filterToken: expect.objectContaining({
+            type: 'country',
+            countryCode: 'NL',
+          }),
+        }),
+      ])
+    );
+
+    const unbackedCountryResponse = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=Portugal&limit=8&countrycode=PT',
+    });
+    expect(unbackedCountryResponse.statusCode).toBe(200);
+    const unbackedCountryBody = JSON.parse(
+      unbackedCountryResponse.body
+    ) as LocationSearchTestSuggestion[];
+    expect(
+      unbackedCountryBody.some(
+        (suggestion) => suggestion.type === 'country' && suggestion.countryCode === 'PT'
+      )
+    ).toBe(false);
+  });
+
+  it('keeps same-name streets in different cities and regions as distinct backed identities', async () => {
+    const suffix = Date.now().toString(36);
+    const street = `Shared Identity Lane ${suffix}`;
+    const firstProperty = await createIntegrationProperty({
+      street,
+      houseNumber: 1,
+      city: `Identitydam ${suffix}`,
+      region: `Identity Region A ${suffix}`,
+      postalCode: '5666IA',
+      lon: 5.501,
+      lat: 51.451,
+    });
+    const secondProperty = await createIntegrationProperty({
+      street,
+      houseNumber: 2,
+      city: `Identityburg ${suffix}`,
+      region: `Identity Region B ${suffix}`,
+      postalCode: '5666IB',
+      lon: 5.502,
+      lat: 51.452,
+    });
+    createdPropertyIds.push(firstProperty.id, secondProperty.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const streetSuggestions = body.filter(
+      (suggestion) => suggestion.type === 'street' && suggestion.label === street
+    );
+    const ids = streetSuggestions.map((suggestion) => suggestion.filterToken?.id);
+
+    expect(streetSuggestions).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(streetSuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          city: `Identitydam ${suffix}`,
+          region: `Identity Region A ${suffix}`,
+          filterToken: expect.objectContaining({
+            type: 'street',
+            street,
+            city: `Identitydam ${suffix}`,
+            region: `Identity Region A ${suffix}`,
+          }),
+        }),
+        expect.objectContaining({
+          city: `Identityburg ${suffix}`,
+          region: `Identity Region B ${suffix}`,
+          filterToken: expect.objectContaining({
+            type: 'street',
+            street,
+            city: `Identityburg ${suffix}`,
+            region: `Identity Region B ${suffix}`,
+          }),
+        }),
+      ])
+    );
+  });
+
+  it('keeps same-name streets in the same city but different regions distinct', async () => {
+    const suffix = `alpha${Date.now().toString(36).replace(/\d/gu, 'a')}`;
+    const city = `Regional Identity City ${suffix}`;
+    const street = `Regional Identity Street ${suffix}`;
+    const firstProperty = await createIntegrationProperty({
+      street,
+      houseNumber: 1,
+      city,
+      region: `Regional Identity A ${suffix}`,
+      postalCode: '5666RA',
+      lon: 5.503,
+      lat: 51.453,
+    });
+    const secondProperty = await createIntegrationProperty({
+      street,
+      houseNumber: 2,
+      city,
+      region: `Regional Identity B ${suffix}`,
+      postalCode: '5666RB',
+      lon: 5.504,
+      lat: 51.454,
+    });
+    createdPropertyIds.push(firstProperty.id, secondProperty.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const streetResponse = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL`,
+    });
+    expect(streetResponse.statusCode).toBe(200);
+    const streetBody = JSON.parse(streetResponse.body) as LocationSearchTestSuggestion[];
+    const streetSuggestions = streetBody.filter(
+      (suggestion) => suggestion.type === 'street' && suggestion.label === street
+    );
+
+    expect(streetSuggestions).toHaveLength(2);
+    expect(new Set(streetSuggestions.map((suggestion) => suggestion.filterToken?.id)).size).toBe(2);
+    expect(streetSuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          city,
+          region: `Regional Identity A ${suffix}`,
+          filterToken: expect.objectContaining({
+            city,
+            region: `Regional Identity A ${suffix}`,
+          }),
+        }),
+        expect.objectContaining({
+          city,
+          region: `Regional Identity B ${suffix}`,
+          filterToken: expect.objectContaining({
+            city,
+            region: `Regional Identity B ${suffix}`,
+          }),
         }),
       ])
     );
@@ -1311,6 +1661,103 @@ describe('GET /search/locations', () => {
     ).toHaveLength(1);
   });
 
+  it('never turns Photon-only unresolved area-like results into filterable area tokens', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [3.1, 53.2] },
+              properties: {
+                osm_type: 'N',
+                osm_id: 92501,
+                name: 'Ghost Quarter',
+                city: 'Farawaystad',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'locality',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=Ghost%20Quarter&limit=8&countrycode=NL&lon=3.1&lat=53.2',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const unbackedAreaSuggestion = body.find(
+      (suggestion) =>
+        isAreaSuggestion(suggestion) &&
+        suggestion.filterToken &&
+        suggestion.label === 'Ghost Quarter'
+    );
+    const coordinateFallback = body.find((suggestion) => suggestion.label === 'Ghost Quarter');
+
+    expect(unbackedAreaSuggestion).toBeUndefined();
+    if (coordinateFallback) {
+      expect(coordinateFallback).toEqual(
+        expect.objectContaining({
+          type: 'address',
+          filterToken: null,
+          coordinates: [3.1, 53.2],
+        })
+      );
+    }
+  });
+
+  it('returns sparse GB Photon-only house fallbacks as coordinate-only addresses', async () => {
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [-0.1276, 51.5072] },
+              properties: {
+                osm_type: 'N',
+                osm_id: 92502,
+                street: 'Sparse Search Road',
+                housenumber: '10',
+                postcode: 'SW1A 1AA',
+                city: 'London',
+                country: 'United Kingdom',
+                countrycode: 'gb',
+                type: 'house',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=Sparse%20Search%20Road%2010&limit=8&countrycode=GB',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        type: 'address',
+        label: 'Sparse Search Road 10, SW1A 1AA London',
+        countryCode: 'GB',
+        propertyId: null,
+        filterToken: null,
+        coordinates: [-0.1276, 51.5072],
+      })
+    );
+  });
+
   it('does not run aggregate token hydration on the location-search hot path', async () => {
     const executeSpy = jest.spyOn(db, 'execute');
     mockFetchFn.mockResolvedValueOnce({
@@ -1419,22 +1866,31 @@ describe('GET /search/locations', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(body).toHaveLength(1);
-    expect(body[0]).toEqual(
-      expect.objectContaining({
-        type: 'city',
-        label: 'Eindhoven',
-        postalCode: null,
-        filterToken: expect.objectContaining({
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const citySuggestions = body.filter(
+      (suggestion) => suggestion.type === 'city' && suggestion.label === 'Eindhoven'
+    );
+    expect(citySuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
           type: 'city',
-          countryCode: 'NL',
-          value: 'eindhoven',
           label: 'Eindhoven',
           postalCode: null,
+          filterToken: expect.objectContaining({
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+            postalCode: null,
+          }),
         }),
-      })
+      ])
     );
+    expect(citySuggestions.every((suggestion) => suggestion.id === suggestion.filterToken?.id)).toBe(
+      true
+    );
+    expect(JSON.stringify(body)).not.toContain('N_200');
+    expect(JSON.stringify(body)).not.toContain('railway');
   });
 
   it('falls back to local country filtering when Photon countrycode search returns no features', async () => {
@@ -1495,15 +1951,26 @@ describe('GET /search/locations', () => {
     expect(firstUrl).toContain('countrycode=nl');
     expect(secondUrl).not.toContain('countrycode=');
 
-    const body = JSON.parse(response.body);
-    expect(body).toHaveLength(1);
-    expect(body[0]).toEqual(
-      expect.objectContaining({
-        type: 'city',
-        label: 'Eindhoven',
-        countryCode: 'NL',
-      })
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const citySuggestions = body.filter(
+      (suggestion) => suggestion.type === 'city' && suggestion.label === 'Eindhoven'
     );
+    expect(citySuggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'city',
+          label: 'Eindhoven',
+          countryCode: 'NL',
+          filterToken: expect.objectContaining({
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+          }),
+        }),
+      ])
+    );
+    expect(body.every((suggestion) => suggestion.countryCode === 'NL')).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('Aachen');
   });
 
   it('keeps supported same-name suggestions distinguishable by type', async () => {
@@ -1731,10 +2198,12 @@ describe('GET /search/location-tokens', () => {
 
   afterAll(async () => {
     if (createdPropertyIds.length > 0) {
-      await db.execute(sql`DELETE FROM properties WHERE id IN (${sql.join(
-        createdPropertyIds.map((id) => sql`${id}`),
-        sql`, `
-      )})`);
+      await db.execute(
+        sql`DELETE FROM properties WHERE id IN (${sql.join(
+          createdPropertyIds.map((id) => sql`${id}`),
+          sql`, `
+        )})`
+      );
     }
     // The final reverse-geocode describe closes the Fastify app/DB connection.
   });
@@ -1855,7 +2324,8 @@ describe('GET /search/location-tokens', () => {
     const hydratedAreaToken = parseLocationFilterToken(hydratedTokens[0].id);
     expect(hydratedAreaToken).not.toBeNull();
 
-    const filteredRows = Array.from(await db.execute<{ id: string }>(sql`
+    const filteredRows = Array.from(
+      await db.execute<{ id: string }>(sql`
       SELECT p.id
       FROM properties p
       WHERE p.id IN (${sql.join(
@@ -1864,7 +2334,8 @@ describe('GET /search/location-tokens', () => {
       )})
         AND ${buildLocationAreaFilterPredicate(hydratedAreaToken ? [hydratedAreaToken] : [])}
       ORDER BY p.id
-    `));
+    `)
+    );
     expect(filteredRows.map((row) => row.id)).toEqual(
       expect.arrayContaining([firstProperty.id, secondProperty.id])
     );
@@ -1955,6 +2426,41 @@ describe('GET /search/location-tokens', () => {
     );
     expect(body[0].coordinates[0]).toBeCloseTo(5.51, 5);
     expect(body[1].coordinates[0]).toBeCloseTo(13.4, 5);
+  });
+
+  it('does not hydrate readable area tokens from inactive-only property rows', async () => {
+    const suffix = Date.now().toString(36);
+    const city = `Inactive Hydration City ${suffix}`;
+    const inactiveProperty = await createIntegrationProperty({
+      street: `Inactive Hydration Street ${suffix}`,
+      houseNumber: 1,
+      city,
+      region: `Inactive Hydration Region ${suffix}`,
+      postalCode: '5666IH',
+      status: 'inactive',
+      lon: 5.52,
+      lat: 51.49,
+    });
+    createdPropertyIds.push(inactiveProperty.id);
+
+    const area = encodeURIComponent(`city:NL:${city.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/location-tokens?area=${area}&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toHaveLength(1);
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        type: 'city',
+        countryCode: 'NL',
+        coordinates: null,
+        bbox: null,
+      })
+    );
+    expect(body[0].region).toBeNull();
   });
 });
 
