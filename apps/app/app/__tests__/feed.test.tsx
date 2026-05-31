@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { QueryObserverSuccessResult } from '@tanstack/react-query';
+import { router } from 'expo-router';
 
 import FeedScreen from '../(tabs)/feed';
 import { useActivityFeed, useInfiniteFeed, useMyProfile } from '@/src/hooks';
@@ -29,6 +30,7 @@ let capturedSearchBarProps: {
     lat?: number;
     lon?: number;
   };
+  onLocationResolved?: (coordinates: { lon: number; lat: number }, address: string) => void;
 } | null = null;
 
 jest.mock('expo-router', () => ({
@@ -107,6 +109,7 @@ jest.mock('@/src/components', () => ({
     searchBias,
     selectedAreas,
     onAreaSelected,
+    onLocationResolved,
   }: {
     searchBias?: {
       countryCode?: string | null;
@@ -121,9 +124,10 @@ jest.mock('@/src/components', () => ({
       label: string;
       city: string;
     }) => void;
+    onLocationResolved: (coordinates: { lon: number; lat: number }, address: string) => void;
   }) => {
     const ReactNative = require('react-native');
-    capturedSearchBarProps = { searchBias };
+    capturedSearchBarProps = { searchBias, onLocationResolved };
     return (
       <ReactNative.View testID="feed-search-bar">
         <ReactNative.Text>Areas {selectedAreas.length}</ReactNative.Text>
@@ -676,6 +680,26 @@ describe('FeedScreen following surface', () => {
         })
       );
     });
+  });
+
+  it('navigates unresolved direct feed address selections to a visible map camera route', async () => {
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    render(<FeedScreen />);
+
+    capturedSearchBarProps?.onLocationResolved?.(
+      { lon: 5.469722, lat: 51.441642 },
+      'Unresolvedstraat 10, Eindhoven'
+    );
+
+    expect(router.push).toHaveBeenCalledWith('/@51.441642,5.469722,17z');
   });
 
   it('emits following-feed post click analytics with grouped property-post payloads', async () => {

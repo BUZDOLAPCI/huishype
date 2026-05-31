@@ -97,6 +97,12 @@ type ContactResponse =
 type AdminReportsQuery =
   NonNullable<paths['/admin/reports/properties']['get']['parameters']['query']>;
 
+function serializeMarketStateQuery(
+  marketState: string | string[] | undefined
+): string | undefined {
+  return Array.isArray(marketState) ? marketState.join(',') : marketState;
+}
+
 /**
  * API client configuration options
  */
@@ -600,6 +606,8 @@ export class HuisHypeApiClient {
   // ============================================
 
   async getFeed(params: GetFeedRequest): Promise<GetFeedResponse> {
+    const marketState = serializeMarketStateQuery(params.marketState);
+
     return this.request<GetFeedResponse>('GET', '/feed', {
       query: {
         filter: params.filter,
@@ -608,6 +616,12 @@ export class HuisHypeApiClient {
         lat: params.lat,
         lon: params.lon,
         country: params.country,
+        salePriceFrom: params.salePriceFrom,
+        salePriceTo: params.salePriceTo,
+        rentPriceFrom: params.rentPriceFrom,
+        rentPriceTo: params.rentPriceTo,
+        marketState,
+        area: params.area,
       },
     });
   }
@@ -647,10 +661,17 @@ export class HuisHypeApiClient {
   async getGroupedPropertyActivity(
     params: GetGroupedPropertyActivityRequest = {},
   ): Promise<GetGroupedPropertyActivityResponse> {
+    const marketState = serializeMarketStateQuery(params.marketState);
     const query = {
       scope: params.scope,
       limit: params.limit,
       offset: params.offset,
+      salePriceFrom: params.salePriceFrom,
+      salePriceTo: params.salePriceTo,
+      rentPriceFrom: params.rentPriceFrom,
+      rentPriceTo: params.rentPriceTo,
+      marketState,
+      area: params.area,
     } satisfies GroupedPropertyActivityQuery;
 
     return this.request<GroupedPropertyActivityResponseFromOpenApi>('GET', '/activity/properties', {

@@ -207,7 +207,8 @@ export async function feedRoutes(app: FastifyInstance) {
         summary: 'Get property feed',
         description:
           'Get a paginated feed of properties with active listings. ' +
-          'Filters: trending (weighted 7-day activity) and latest (most recent activity).',
+          'Filters: trending (weighted 7-day activity) and latest (most recent activity). ' +
+          'Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.',
         querystring: feedRouteQuerySchema,
         response: {
           200: feedResponseSchema,

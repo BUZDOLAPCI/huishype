@@ -97,6 +97,40 @@ describe('usePropertyLike', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
+  it('does not rerender when an unrelated query cache entry updates', () => {
+    const propertyId = 'prop-1';
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
+    let renderCount = 0;
+
+    queryClient.setQueryData(queryKey, {
+      id: propertyId,
+      address: '123 Main St',
+      city: 'Eindhoven',
+      isLiked: true,
+      likeCount: 5,
+    });
+
+    const { result } = renderHook(
+      () => {
+        renderCount += 1;
+        return usePropertyLike({ propertyId });
+      },
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    const initialRenderCount = renderCount;
+
+    act(() => {
+      queryClient.setQueryData(['listings', propertyId], {
+        data: [{ id: 'listing-1' }],
+      });
+    });
+
+    expect(renderCount).toBe(initialRenderCount);
+    expect(result.current.isLiked).toBe(true);
+    expect(result.current.likeCount).toBe(5);
+  });
+
   it('returns defaults when property is not in cache', () => {
     const { result } = renderHook(
       () => usePropertyLike({ propertyId: 'missing-prop' }),

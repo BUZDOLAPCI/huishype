@@ -97,6 +97,38 @@ describe('usePropertySave', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
+  it('does not rerender when an unrelated query cache entry updates', () => {
+    const propertyId = 'prop-1';
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
+    let renderCount = 0;
+
+    queryClient.setQueryData(queryKey, {
+      id: propertyId,
+      address: '123 Main St',
+      city: 'Eindhoven',
+      isSaved: true,
+    });
+
+    const { result } = renderHook(
+      () => {
+        renderCount += 1;
+        return usePropertySave({ propertyId });
+      },
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    const initialRenderCount = renderCount;
+
+    act(() => {
+      queryClient.setQueryData(['comments', propertyId], {
+        data: [{ id: 'comment-1' }],
+      });
+    });
+
+    expect(renderCount).toBe(initialRenderCount);
+    expect(result.current.isSaved).toBe(true);
+  });
+
   it('returns defaults when property is not in cache', () => {
     const { result } = renderHook(
       () => usePropertySave({ propertyId: 'missing-prop' }),

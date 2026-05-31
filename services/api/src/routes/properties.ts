@@ -27,10 +27,13 @@ import {
   parseFollowingMapFiltersQuery,
   parseMapFiltersQuery,
   followingMapFiltersQuerySchema,
+  type MapFilters,
 } from '../services/map-filters.js';
 import {
   ACTIVE_SOCIAL_SCORE_THRESHOLD,
-  buildActivityFilterPredicate,
+  PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE,
+  PROPERTY_ACTIVITY_FILTERED_IDS_CTE,
+  buildPropertyActivityFilterCtes,
   buildCanonicalHouseNumberAdditionExpression,
   buildPropertyListingFactsJoin,
   buildPropertySocialFactsJoin,
@@ -1370,6 +1373,124 @@ function buildPublicPropertySelect(options: { useSnappedImagery?: boolean } = {}
 const PUBLIC_PROPERTY_SELECT = buildPublicPropertySelect();
 const PUBLIC_PROPERTY_LIST_SELECT = buildPublicPropertySelect({ useSnappedImagery: false });
 
+type PropertyListSqlInput = {
+  city?: string;
+  bbox?: string;
+  lat?: number;
+  lon?: number;
+  radius: number;
+  filters: MapFilters;
+};
+
+type PropertyListRowsSqlInput = PropertyListSqlInput & {
+  limit: number;
+  offset: number;
+};
+
+function buildPropertyListQueryFragments(input: PropertyListSqlInput) {
+  const mapFilterQuery = buildPropertyMarketFilterQuery(input.filters, 'p');
+  const areaFilterPredicate = buildLocationAreaFilterPredicate(input.filters.areas, 'p');
+  const requiresListingFactsForMarketFilters = !areMapFiltersDefault(mapFilterQuery.filters);
+  const requiresActivityFilter = input.filters.activity !== 'all';
+  const conditions = buildPropertyWhereConditions({
+    city: input.city,
+    bbox: input.bbox,
+    lat: input.lat,
+    lon: input.lon,
+    radius: input.radius,
+  });
+
+  conditions.push(mapFilterQuery.predicate, areaFilterPredicate);
+
+  return {
+    mapFilterQuery,
+    requiresListingFactsForMarketFilters,
+    requiresActivityFilter,
+    whereFragment: sql`WHERE ${sql.join(conditions, sql` AND `)}`,
+  };
+}
+
+function buildPropertyActivityCandidateCte(params: { join: SQL; whereFragment: SQL }) {
+  return sql`
+    ${sql.raw(PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE)} AS MATERIALIZED (
+      SELECT
+        p.id,
+        p.comments_disabled_at
+      FROM properties p
+      ${params.join}
+      ${params.whereFragment}
+    )
+  `;
+}
+
+export function buildPropertyListCountQuery(input: PropertyListSqlInput): SQL {
+  const fragments = buildPropertyListQueryFragments(input);
+
+  if (fragments.requiresActivityFilter) {
+    return sql`
+      WITH ${buildPropertyActivityCandidateCte({
+        join: fragments.mapFilterQuery.join,
+        whereFragment: fragments.whereFragment,
+      })},
+      ${buildPropertyActivityFilterCtes(input.filters.activity)}
+      SELECT COUNT(*)::int AS cnt
+      FROM ${sql.raw(PROPERTY_ACTIVITY_FILTERED_IDS_CTE)}
+    `;
+  }
+
+  return sql`
+    SELECT COUNT(*)::int AS cnt
+    FROM properties p
+    ${fragments.mapFilterQuery.join}
+    ${fragments.whereFragment}
+  `;
+}
+
+export function buildPropertyListRowsQuery(input: PropertyListRowsSqlInput): SQL {
+  const fragments = buildPropertyListQueryFragments(input);
+  const pageIdsCte = fragments.requiresActivityFilter
+    ? sql`
+        page_ids AS (
+          SELECT id
+          FROM ${sql.raw(PROPERTY_ACTIVITY_FILTERED_IDS_CTE)}
+          ORDER BY id
+          LIMIT ${input.limit}
+          OFFSET ${input.offset}
+        )
+      `
+    : sql`
+        page_ids AS (
+          SELECT p.id
+          FROM properties p
+          ${fragments.requiresListingFactsForMarketFilters ? fragments.mapFilterQuery.join : sql``}
+          ${fragments.whereFragment}
+          ORDER BY p.id
+          LIMIT ${input.limit}
+          OFFSET ${input.offset}
+        )
+      `;
+
+  return sql`
+    WITH ${
+      fragments.requiresActivityFilter
+        ? sql`${buildPropertyActivityCandidateCte({
+            join: fragments.mapFilterQuery.join,
+            whereFragment: fragments.whereFragment,
+          })},
+          ${buildPropertyActivityFilterCtes(input.filters.activity)},`
+        : sql``
+    }
+    ${pageIdsCte}
+    SELECT
+      ${PUBLIC_PROPERTY_LIST_SELECT}
+    FROM page_ids page
+    INNER JOIN properties p ON p.id = page.id
+    ${buildPropertyListingFactsJoin('p', 'lf')}
+    ${buildPropertySocialFactsJoin('p', 'sf')}
+    ORDER BY p.id
+  `;
+}
+
 const RESOLVE_TAP_BUILDING_SEARCH_RADIUS_METERS = 16;
 const RESOLVE_TAP_BUILDING_PROPERTY_TOLERANCE_METERS = 3;
 const RESOLVE_TAP_PROPERTY_SEARCH_RADIUS_METERS = 12;
@@ -1943,50 +2064,18 @@ export async function propertyRoutes(app: FastifyInstance) {
         salePriceFrom: parsedMapFilters.salePriceFrom ?? minPrice ?? null,
         salePriceTo: parsedMapFilters.salePriceTo ?? maxPrice ?? null,
       });
-      const mapFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
-      const areaFilterPredicate = buildLocationAreaFilterPredicate(filters.areas, 'p');
-      const requiresListingFactsForMarketFilters = !areMapFiltersDefault(mapFilterQuery.filters);
-      const requiresSocialFactsForCount = filters.activity !== 'all';
-      const activityPredicate = requiresSocialFactsForCount
-        ? buildActivityFilterPredicate(filters.activity, 'sf')
-        : sql`TRUE`;
-      const conditions = buildPropertyWhereConditions({ city, bbox, lat, lon, radius });
-
-      conditions.push(mapFilterQuery.predicate, activityPredicate, areaFilterPredicate);
-
-      const whereFragment = sql`WHERE ${sql.join(conditions, sql` AND `)}`;
 
       let total = 0;
       if (!usesSpatialPropertyListFilter) {
-        const countRows = await db.execute<{ cnt: number }>(sql`
-          SELECT COUNT(*)::int AS cnt
-          FROM properties p
-          ${mapFilterQuery.join}
-          ${requiresSocialFactsForCount ? buildPropertySocialFactsJoin('p', 'sf') : sql``}
-          ${whereFragment}
-        `);
+        const countRows = await db.execute<{ cnt: number }>(
+          buildPropertyListCountQuery({ city, bbox, lat, lon, radius, filters })
+        );
         total = Array.from(countRows)[0]?.cnt ?? 0;
       }
 
-      const rows = await db.execute<PropertyRow>(sql`
-        WITH page_ids AS (
-          SELECT p.id
-          FROM properties p
-          ${requiresListingFactsForMarketFilters ? mapFilterQuery.join : sql``}
-          ${requiresSocialFactsForCount ? buildPropertySocialFactsJoin('p', 'sf') : sql``}
-          ${whereFragment}
-          ORDER BY p.id
-          LIMIT ${limit}
-          OFFSET ${offset}
-        )
-        SELECT
-          ${PUBLIC_PROPERTY_LIST_SELECT}
-        FROM page_ids page
-        INNER JOIN properties p ON p.id = page.id
-        ${buildPropertyListingFactsJoin('p', 'lf')}
-        ${buildPropertySocialFactsJoin('p', 'sf')}
-        ORDER BY p.id
-      `);
+      const rows = await db.execute<PropertyRow>(
+        buildPropertyListRowsQuery({ city, bbox, lat, lon, radius, filters, limit, offset })
+      );
       const rowArray = Array.from(rows);
       if (usesSpatialPropertyListFilter) {
         total = offset + rowArray.length;

@@ -9,12 +9,16 @@ import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvi
 import { useT, type TranslationKey } from '@/src/i18n';
 import type { MapSocialScope } from '@/src/lib/mapRoute';
 import {
+  createMapFilterDraftState,
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
   isMapFilterCategoryActive,
   isMapStatusPillActive,
   MAP_ACTIVITY_TIME_FILTERS,
   MAP_STATUS_PILL_STATES,
+  parseDraftNumber,
+  resetMapFilterCategory,
+  sanitizeDraftNumber,
   type MapActivityFilter,
   type MapActivityTimeFilter,
   type MapFilterCategory,
@@ -347,20 +351,18 @@ export function MapFilterBar({
   const insets = useSafeAreaInsets();
   const t = useT();
   const [activePriceInput, setActivePriceInput] = useState<ActivePriceInputState | null>(null);
+  const [draftFilters, setDraftFilters] = useState<MapFilterDraftState>(() =>
+    createMapFilterDraftState(controller.appliedFilters)
+  );
+  const [openCategory, setOpenCategory] = useState<MapFilterCategory | null>(null);
   const [openOptionsPanel, setOpenOptionsPanel] = useState<'activity' | 'following' | null>(null);
   const priceInputBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webSuggestionPressKeyRef = useRef<string | null>(null);
   const {
     appliedFilters,
-    draftFilters,
-    openCategory,
     orderedCategories,
-    toggleCategory,
-    closeCategoryPanel,
-    dismissCategory,
-    updatePriceDraft,
-    selectPriceSuggestion,
-    commitPriceDraft,
+    commitAppliedFilters,
+    resetCategory,
     toggleStatusPill,
     toggleActivity,
     setActivity,
@@ -396,6 +398,55 @@ export function MapFilterBar({
   }, [cancelScheduledPriceInputBlur]);
 
   useEffect(() => () => cancelScheduledPriceInputBlur(), [cancelScheduledPriceInputBlur]);
+
+  const closeCategoryPanel = useCallback(() => {
+    setOpenCategory(null);
+  }, []);
+
+  const updatePriceDraft = useCallback(
+    (mode: MapPriceMode, bound: PriceBound, value: string) => {
+      const sanitized = sanitizeDraftNumber(value);
+      setDraftFilters((current: MapFilterDraftState) => {
+        if (mode === 'sale') {
+          return {
+            ...current,
+            salePriceFrom: bound === 'from' ? sanitized : current.salePriceFrom,
+            salePriceTo: bound === 'to' ? sanitized : current.salePriceTo,
+          };
+        }
+
+        return {
+          ...current,
+          rentPriceFrom: bound === 'from' ? sanitized : current.rentPriceFrom,
+          rentPriceTo: bound === 'to' ? sanitized : current.rentPriceTo,
+        };
+      });
+    },
+    []
+  );
+
+  const commitPriceDraft = useCallback(() => {
+    commitAppliedFilters({
+      ...appliedFilters,
+      salePriceFrom: parseDraftNumber(draftFilters.salePriceFrom),
+      salePriceTo: parseDraftNumber(draftFilters.salePriceTo),
+      rentPriceFrom: parseDraftNumber(draftFilters.rentPriceFrom),
+      rentPriceTo: parseDraftNumber(draftFilters.rentPriceTo),
+    });
+  }, [appliedFilters, commitAppliedFilters, draftFilters]);
+
+  const dismissCategory = useCallback(
+    (category: MapFilterCategory) => {
+      const nextFilters = resetMapFilterCategory(appliedFilters, category);
+      resetCategory(category);
+      if (category === 'price') {
+        setDraftFilters(createMapFilterDraftState(nextFilters));
+        setActivePriceInput(null);
+      }
+      setOpenCategory((current) => (current === category ? null : current));
+    },
+    [appliedFilters, resetCategory]
+  );
 
   const visiblePriceModes = useMemo(
     () => (isPricePanelOpen ? getMapVisiblePriceModes(appliedFilters.marketState) : []),
@@ -515,9 +566,16 @@ export function MapFilterBar({
         return;
       }
 
-      toggleCategory(nextCategory);
+      setDraftFilters(createMapFilterDraftState(appliedFilters));
+      setOpenCategory(nextCategory);
     },
-    [closeCategoryPanel, commitAndClosePricePanel, commitPriceDraft, openCategory, toggleCategory]
+    [
+      appliedFilters,
+      closeCategoryPanel,
+      commitAndClosePricePanel,
+      commitPriceDraft,
+      openCategory,
+    ]
   );
 
   const openActivityPanel = useCallback(() => {
@@ -621,10 +679,10 @@ export function MapFilterBar({
   const handleSuggestionSelect = useCallback(
     (mode: MapPriceMode, bound: PriceBound, value: string) => {
       cancelScheduledPriceInputBlur();
-      selectPriceSuggestion(mode, bound, value);
+      updatePriceDraft(mode, bound, value);
       setActivePriceInput(null);
     },
-    [cancelScheduledPriceInputBlur, selectPriceSuggestion]
+    [cancelScheduledPriceInputBlur, updatePriceDraft]
   );
 
   const handleSuggestionPointerDown = useCallback(
@@ -802,7 +860,7 @@ export function MapFilterBar({
       {isAnyPanelOpen ? (
         <Pressable
           onPress={handlePanelBackdropPress}
-          style={styles.panelBackdrop}
+          style={[styles.panelBackdrop, isInline && styles.inlinePanelBackdrop]}
           testID="map-filter-panel-backdrop"
         />
       ) : null}
@@ -1201,6 +1259,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     inset: 0,
     zIndex: 92,
+  },
+  inlinePanelBackdrop: {
+    zIndex: 0,
   },
   container: {
     position: 'absolute',

@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 import { useReadTileSource } from '../useReadTileSource';
 import { bumpReadTileSourceVersion } from '../readTileSourceInvalidation';
-import type { MapFilters } from '../../lib/sharedMapFilters';
+import { getReadTileFilterSignature } from '../tileFilterSignature';
+import type { LocationFilterToken, MapFilters } from '../../lib/sharedMapFilters';
 
 const mockGetAccessToken = jest.fn<Promise<string | null>, []>();
 const mockGetAnonymousSessionId = jest.fn<Promise<string | null>, []>();
@@ -114,6 +115,52 @@ describe('useReadTileSource', () => {
       1,
     );
     expect(mockGetAnonymousSessionId).not.toHaveBeenCalled();
+  });
+
+  it('keys read tile sources by the canonical filter and area signature', async () => {
+    const queryClient = createQueryClient();
+    const cityArea: LocationFilterToken = {
+      type: 'city',
+      countryCode: 'NL',
+      value: 'Eindhoven',
+      label: 'Eindhoven',
+    };
+    const currentLocationArea: LocationFilterToken = {
+      type: 'current-location',
+      value: '52.370216,4.895168',
+      label: 'Current location',
+      coordinates: [4.895168, 52.370216],
+      radiusMeters: 7500,
+    };
+    const filtered: MapFilters = {
+      ...filters,
+      salePriceFrom: 450000,
+      marketState: ['for-sale', 'sold'],
+      activity: '30d',
+      areas: [cityArea, currentLocationArea],
+    };
+    const expectedSignature = getReadTileFilterSignature(filtered);
+
+    act(() => {
+      bumpReadTileSourceVersion(queryClient);
+    });
+
+    renderHook(() => useReadTileSource(filtered, true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(mockFetchReadTileSource).toHaveBeenCalledTimes(1);
+    });
+
+    expect(expectedSignature).toContain('area=city%3ANL%3Aeindhoven');
+    expect(expectedSignature).toContain('current-location%3A52.370216%3A4.895168%3A7500');
+    expect(
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .some((query) => query.queryKey.at(-1) === expectedSignature)
+    ).toBe(true);
   });
 
   it('uses the anonymous session ID for signed-out read TileJSON requests', async () => {

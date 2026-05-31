@@ -7,17 +7,7 @@ import {
   type ResolvedFollowingTileSource,
 } from '@/src/lib/mapPropertySource';
 import { getViewerCacheKey, propertyKeys } from '@/src/hooks/useProperties';
-
-function getFollowingTileFilterKey(filters: MapFilters, followingActivity: MapActivityFilter) {
-  return {
-    salePriceFrom: filters.salePriceFrom,
-    salePriceTo: filters.salePriceTo,
-    rentPriceFrom: filters.rentPriceFrom,
-    rentPriceTo: filters.rentPriceTo,
-    marketState: filters.marketState,
-    activity: followingActivity,
-  };
-}
+import { getFollowingTileFilterSignature } from '@/src/hooks/tileFilterSignature';
 
 export function useFollowingTileSource(
   filters: MapFilters,
@@ -26,10 +16,10 @@ export function useFollowingTileSource(
 ) {
   const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = getViewerCacheKey(user, isAuthenticated);
-  const filterKey = getFollowingTileFilterKey(filters, followingActivity);
+  const filterSignature = getFollowingTileFilterSignature(filters, followingActivity);
 
   return useQuery<ResolvedFollowingTileSource>({
-    queryKey: [...propertyKeys.followingViewportRoot(viewerKey), 'tile-source', filterKey],
+    queryKey: [...propertyKeys.followingViewportRoot(viewerKey), 'tile-source', filterSignature],
     queryFn: async () => {
       const accessToken = await getAccessToken();
       if (!accessToken) {

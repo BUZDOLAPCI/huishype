@@ -10,19 +10,14 @@ import {
 import {
   areMapFiltersEqual,
   createDefaultMapFilters,
-  createMapFilterDraftState,
   getOrderedMapFilterCategories,
   normalizeMapFilters,
-  parseDraftNumber,
   resetMapFilterCategory,
-  sanitizeDraftNumber,
   toggleMapActivityFilter,
   toggleMapStatusPill,
   type MapActivityFilter,
   type MapFilterCategory,
-  type MapFilterDraftState,
   type MapFilters,
-  type MapPriceMode,
   type MapStatusPillState,
 } from '@/src/lib/sharedMapFilters';
 
@@ -33,16 +28,10 @@ export interface UseMapFilterControllerOptions {
 
 export interface UseMapFilterControllerReturn {
   appliedFilters: MapFilters;
-  draftFilters: MapFilterDraftState;
-  openCategory: MapFilterCategory | null;
   orderedCategories: MapFilterCategory[];
+  commitAppliedFilters: (filters: MapFilters) => void;
   replaceAppliedFilters: (filters: MapFilters) => void;
-  toggleCategory: (category: MapFilterCategory) => void;
-  closeCategoryPanel: () => void;
-  dismissCategory: (category: MapFilterCategory) => void;
-  updatePriceDraft: (mode: MapPriceMode, bound: 'from' | 'to', value: string) => void;
-  selectPriceSuggestion: (mode: MapPriceMode, bound: 'from' | 'to', value: string) => void;
-  commitPriceDraft: () => void;
+  resetCategory: (category: MapFilterCategory) => void;
   toggleStatusPill: (value: MapStatusPillState) => void;
   toggleActivity: (value: Exclude<MapActivityFilter, 'all'>) => void;
   setActivity: (value: MapActivityFilter) => void;
@@ -57,20 +46,15 @@ export function useLocalMapFilterController({
   const [appliedFilters, setAppliedFilters] = useState<MapFilters>(() =>
     normalizeMapFilters(initialAppliedFilters ?? createDefaultMapFilters())
   );
-  const [draftFilters, setDraftFilters] = useState<MapFilterDraftState>(() =>
-    createMapFilterDraftState(initialAppliedFilters ?? createDefaultMapFilters())
-  );
-  const [openCategory, setOpenCategory] = useState<MapFilterCategory | null>(null);
 
   const orderedCategories = useMemo(
     () => getOrderedMapFilterCategories(appliedFilters),
     [appliedFilters]
   );
 
-  const applyFilters = useCallback(
+  const commitAppliedFilters = useCallback(
     (nextFilters: MapFilters) => {
       const normalized = normalizeMapFilters(nextFilters);
-      setDraftFilters(createMapFilterDraftState(normalized));
       setAppliedFilters((current: MapFilters) => {
         if (areMapFiltersEqual(current, normalized)) {
           return current;
@@ -86,108 +70,45 @@ export function useLocalMapFilterController({
   const replaceAppliedFilters = useCallback((nextFilters: MapFilters) => {
     const normalized = normalizeMapFilters(nextFilters);
     setAppliedFilters(normalized);
-    setDraftFilters(createMapFilterDraftState(normalized));
   }, []);
 
-  const toggleCategory = useCallback(
+  const resetCategory = useCallback(
     (category: MapFilterCategory) => {
-      setOpenCategory((current: MapFilterCategory | null) =>
-        current === category ? null : category
-      );
-      setDraftFilters(createMapFilterDraftState(appliedFilters));
+      commitAppliedFilters(resetMapFilterCategory(appliedFilters, category));
     },
-    [appliedFilters]
+    [appliedFilters, commitAppliedFilters]
   );
-
-  const dismissCategory = useCallback(
-    (category: MapFilterCategory) => {
-      applyFilters(resetMapFilterCategory(appliedFilters, category));
-      setOpenCategory((current: MapFilterCategory | null) =>
-        current === category ? null : current
-      );
-    },
-    [appliedFilters, applyFilters]
-  );
-
-  const closeCategoryPanel = useCallback(() => {
-    setOpenCategory(null);
-  }, []);
-
-  const updatePriceDraft = useCallback(
-    (mode: MapPriceMode, bound: 'from' | 'to', value: string) => {
-      const sanitized = sanitizeDraftNumber(value);
-      setDraftFilters((current: MapFilterDraftState) => {
-        if (mode === 'sale') {
-          return {
-            ...current,
-            salePriceFrom: bound === 'from' ? sanitized : current.salePriceFrom,
-            salePriceTo: bound === 'to' ? sanitized : current.salePriceTo,
-          };
-        }
-
-        return {
-          ...current,
-          rentPriceFrom: bound === 'from' ? sanitized : current.rentPriceFrom,
-          rentPriceTo: bound === 'to' ? sanitized : current.rentPriceTo,
-        };
-      });
-    },
-    []
-  );
-
-  const selectPriceSuggestion = useCallback(
-    (mode: MapPriceMode, bound: 'from' | 'to', value: string) => {
-      updatePriceDraft(mode, bound, value);
-    },
-    [updatePriceDraft]
-  );
-
-  const commitPriceDraft = useCallback(() => {
-    applyFilters({
-      ...appliedFilters,
-      salePriceFrom: parseDraftNumber(draftFilters.salePriceFrom),
-      salePriceTo: parseDraftNumber(draftFilters.salePriceTo),
-      rentPriceFrom: parseDraftNumber(draftFilters.rentPriceFrom),
-      rentPriceTo: parseDraftNumber(draftFilters.rentPriceTo),
-    });
-  }, [appliedFilters, applyFilters, draftFilters]);
 
   const toggleStatusPill = useCallback(
     (value: MapStatusPillState) => {
-      applyFilters(toggleMapStatusPill(appliedFilters, value));
+      commitAppliedFilters(toggleMapStatusPill(appliedFilters, value));
     },
-    [appliedFilters, applyFilters]
+    [appliedFilters, commitAppliedFilters]
   );
 
   const toggleActivity = useCallback(
     (value: Exclude<MapActivityFilter, 'all'>) => {
-      applyFilters(toggleMapActivityFilter(appliedFilters, value));
+      commitAppliedFilters(toggleMapActivityFilter(appliedFilters, value));
     },
-    [appliedFilters, applyFilters]
+    [appliedFilters, commitAppliedFilters]
   );
 
   const setActivity = useCallback(
     (value: MapActivityFilter) => {
-      applyFilters({
+      commitAppliedFilters({
         ...appliedFilters,
         activity: value,
       });
     },
-    [appliedFilters, applyFilters]
+    [appliedFilters, commitAppliedFilters]
   );
 
   return {
     appliedFilters,
-    draftFilters,
-    openCategory,
     orderedCategories,
+    commitAppliedFilters,
     replaceAppliedFilters,
-    toggleCategory,
-    closeCategoryPanel,
-    dismissCategory,
-    updatePriceDraft,
-    selectPriceSuggestion,
-    commitPriceDraft,
+    resetCategory,
     toggleStatusPill,
     toggleActivity,
     setActivity,
@@ -201,6 +122,7 @@ export function useMapFilterController(
   const localController = useLocalMapFilterController(options);
   const appliedSharedInitialRef = useRef(false);
   const initialAppliedFilters = options.initialAppliedFilters;
+  const onAppliedFiltersChange = options.onAppliedFiltersChange;
 
   useEffect(() => {
     if (!sharedController || !initialAppliedFilters || appliedSharedInitialRef.current) {
@@ -211,5 +133,95 @@ export function useMapFilterController(
     sharedController.replaceAppliedFilters(initialAppliedFilters);
   }, [initialAppliedFilters, sharedController]);
 
-  return sharedController ?? localController;
+  const sharedCommitAppliedFilters = useCallback(
+    (nextFilters: MapFilters) => {
+      if (!sharedController) {
+        return;
+      }
+
+      const normalized = normalizeMapFilters(nextFilters);
+      const changed = !areMapFiltersEqual(sharedController.appliedFilters, normalized);
+      sharedController.commitAppliedFilters(normalized);
+      if (changed) {
+        onAppliedFiltersChange?.(normalized);
+      }
+    },
+    [onAppliedFiltersChange, sharedController]
+  );
+
+  const sharedResetCategory = useCallback(
+    (category: MapFilterCategory) => {
+      if (!sharedController) {
+        return;
+      }
+
+      sharedCommitAppliedFilters(resetMapFilterCategory(sharedController.appliedFilters, category));
+    },
+    [sharedCommitAppliedFilters, sharedController]
+  );
+
+  const sharedToggleStatusPill = useCallback(
+    (value: MapStatusPillState) => {
+      if (!sharedController) {
+        return;
+      }
+
+      sharedCommitAppliedFilters(toggleMapStatusPill(sharedController.appliedFilters, value));
+    },
+    [sharedCommitAppliedFilters, sharedController]
+  );
+
+  const sharedToggleActivity = useCallback(
+    (value: Exclude<MapActivityFilter, 'all'>) => {
+      if (!sharedController) {
+        return;
+      }
+
+      sharedCommitAppliedFilters(toggleMapActivityFilter(sharedController.appliedFilters, value));
+    },
+    [sharedCommitAppliedFilters, sharedController]
+  );
+
+  const sharedSetActivity = useCallback(
+    (value: MapActivityFilter) => {
+      if (!sharedController) {
+        return;
+      }
+
+      sharedCommitAppliedFilters({
+        ...sharedController.appliedFilters,
+        activity: value,
+      });
+    },
+    [sharedCommitAppliedFilters, sharedController]
+  );
+
+  const returnedSharedController = useMemo<UseMapFilterControllerReturn | null>(() => {
+    if (!sharedController) {
+      return null;
+    }
+
+    if (!onAppliedFiltersChange) {
+      return sharedController;
+    }
+
+    return {
+      ...sharedController,
+      commitAppliedFilters: sharedCommitAppliedFilters,
+      resetCategory: sharedResetCategory,
+      toggleStatusPill: sharedToggleStatusPill,
+      toggleActivity: sharedToggleActivity,
+      setActivity: sharedSetActivity,
+    };
+  }, [
+    onAppliedFiltersChange,
+    sharedCommitAppliedFilters,
+    sharedController,
+    sharedResetCategory,
+    sharedSetActivity,
+    sharedToggleActivity,
+    sharedToggleStatusPill,
+  ]);
+
+  return returnedSharedController ?? localController;
 }

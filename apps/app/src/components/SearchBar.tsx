@@ -191,7 +191,7 @@ export function SearchBar({
       setIsFocused(false);
       suppressDebounce.current = true;
       setDebouncedQuery('');
-      setInputValue(address.formattedAddress);
+      setInputValue('');
       inputRef.current?.blur();
       setIsResolving(true);
 

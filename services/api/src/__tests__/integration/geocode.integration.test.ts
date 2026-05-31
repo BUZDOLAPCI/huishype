@@ -1791,7 +1791,6 @@ describe('GET /search/locations', () => {
 
     expect(response.statusCode).toBe(200);
     const executedSql = executeSpy.mock.calls.map((call) => stringifySqlQuery(call[0])).join('\n');
-    expect(executedSql).not.toContain('AVG(ST_X');
     expect(executedSql).not.toContain('MIN(ST_X');
     executeSpy.mockRestore();
   });
@@ -1870,17 +1869,22 @@ describe('GET /search/locations', () => {
     const citySuggestions = body.filter(
       (suggestion) => suggestion.type === 'city' && suggestion.label === 'Eindhoven'
     );
+    expect(citySuggestions).toHaveLength(1);
     expect(citySuggestions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          id: 'city:NL:eindhoven',
           type: 'city',
           label: 'Eindhoven',
+          region: null,
           postalCode: null,
           filterToken: expect.objectContaining({
+            id: 'city:NL:eindhoven',
             type: 'city',
             countryCode: 'NL',
             value: 'eindhoven',
             label: 'Eindhoven',
+            region: null,
             postalCode: null,
           }),
         }),
@@ -1891,6 +1895,127 @@ describe('GET /search/locations', () => {
     );
     expect(JSON.stringify(body)).not.toContain('N_200');
     expect(JSON.stringify(body)).not.toContain('railway');
+  });
+
+  it('collapses same-city region variants into one canonical regionless city suggestion', async () => {
+    const suffix = Date.now().toString(36);
+    const city = `Variantstad ${suffix}`;
+    const properties = await Promise.all([
+      createIntegrationProperty({
+        street: `Variantstraat A ${suffix}`,
+        houseNumber: 1,
+        city,
+        region: city,
+        postalCode: '5666VA',
+        lon: 5.41,
+        lat: 51.41,
+      }),
+      createIntegrationProperty({
+        street: `Variantstraat B ${suffix}`,
+        houseNumber: 2,
+        city,
+        region: `Variant Province ${suffix}`,
+        postalCode: '5666VB',
+        lon: 5.42,
+        lat: 51.42,
+      }),
+      createIntegrationProperty({
+        street: `Variantstraat C ${suffix}`,
+        houseNumber: 3,
+        city,
+        region: null,
+        postalCode: '5666VC',
+        lon: 5.43,
+        lat: 51.43,
+      }),
+    ]);
+    createdPropertyIds.push(...properties.map((property) => property.id));
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(city)}&limit=8&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const citySuggestions = body.filter(
+      (suggestion) => suggestion.type === 'city' && suggestion.label === city
+    );
+
+    expect(citySuggestions).toHaveLength(1);
+    expect(citySuggestions[0]).toEqual(
+      expect.objectContaining({
+        id: `city:NL:variantstad-${suffix}`,
+        type: 'city',
+        label: city,
+        region: null,
+        filterToken: expect.objectContaining({
+          id: `city:NL:variantstad-${suffix}`,
+          type: 'city',
+          countryCode: 'NL',
+          value: `variantstad-${suffix}`,
+          label: city,
+          region: null,
+        }),
+      })
+    );
+    expect(citySuggestions[0]).not.toHaveProperty('resultCount');
+    expect(citySuggestions[0]?.filterToken).not.toHaveProperty('resultCount');
+    expect(JSON.stringify(citySuggestions)).not.toContain(`Variant Province ${suffix}`);
+  });
+
+  it('uses country default ranking for no-bias street searches and lets explicit bias override it', async () => {
+    const suffix = Date.now().toString(36);
+    const street = `Zwaanstraat Ranking ${suffix}`;
+    const defaultNear = await createIntegrationProperty({
+      street,
+      houseNumber: 1,
+      city: `Defaultstad ${suffix}`,
+      region: 'Noord-Brabant',
+      postalCode: '5666ZD',
+      lon: 5.47,
+      lat: 51.44,
+    });
+    const explicitNear = await createIntegrationProperty({
+      street,
+      houseNumber: 2,
+      city: `Biasstad ${suffix}`,
+      region: 'Noord-Holland',
+      postalCode: '1066ZD',
+      lon: 4.89,
+      lat: 52.37,
+    });
+    createdPropertyIds.push(defaultNear.id, explicitNear.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const noBiasResponse = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL`,
+    });
+    const defaultBiasResponse = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL&lon=5.47&lat=51.44`,
+    });
+    const explicitBiasResponse = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL&lon=4.89&lat=52.37`,
+    });
+
+    expect(noBiasResponse.statusCode).toBe(200);
+    expect(defaultBiasResponse.statusCode).toBe(200);
+    expect(explicitBiasResponse.statusCode).toBe(200);
+
+    const firstStreetCity = (responseBody: string) =>
+      (JSON.parse(responseBody) as LocationSearchTestSuggestion[]).find(
+        (suggestion) => suggestion.type === 'street' && suggestion.label === street
+      )?.city;
+
+    expect(firstStreetCity(noBiasResponse.body)).toBe(`Defaultstad ${suffix}`);
+    expect(firstStreetCity(defaultBiasResponse.body)).toBe(`Defaultstad ${suffix}`);
+    expect(firstStreetCity(explicitBiasResponse.body)).toBe(`Biasstad ${suffix}`);
   });
 
   it('falls back to local country filtering when Photon countrycode search returns no features', async () => {
@@ -2272,6 +2397,151 @@ describe('GET /search/location-tokens', () => {
     );
   });
 
+  it('hydrates regionless city tokens as one broad city token matching all region variants', async () => {
+    const suffix = Date.now().toString(36);
+    const city = `Hydration Variantstad ${suffix}`;
+    const properties = await Promise.all([
+      createIntegrationProperty({
+        street: `Hydration Variant A ${suffix}`,
+        houseNumber: 1,
+        city,
+        region: city,
+        postalCode: '5677HA',
+        lon: 5.31,
+        lat: 51.31,
+      }),
+      createIntegrationProperty({
+        street: `Hydration Variant B ${suffix}`,
+        houseNumber: 2,
+        city,
+        region: `Hydration Province ${suffix}`,
+        postalCode: '5677HB',
+        lon: 5.34,
+        lat: 51.34,
+      }),
+      createIntegrationProperty({
+        street: `Hydration Variant C ${suffix}`,
+        houseNumber: 3,
+        city,
+        region: null,
+        postalCode: '5677HC',
+        lon: 5.37,
+        lat: 51.37,
+      }),
+    ]);
+    createdPropertyIds.push(...properties.map((property) => property.id));
+
+    const cityArea = encodeURIComponent(`city:NL:hydration-variantstad-${suffix}`);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/location-tokens?area=${cityArea}&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toHaveLength(1);
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        id: `city:NL:hydration-variantstad-${suffix}`,
+        type: 'city',
+        label: city,
+        value: `hydration-variantstad-${suffix}`,
+        countryCode: 'NL',
+        region: null,
+        parentLabel: 'Netherlands',
+        coordinates: expect.any(Array),
+        bbox: expect.any(Array),
+      })
+    );
+    expect(body[0]).not.toHaveProperty('resultCount');
+    expect(body[0].bbox[0]).toBeCloseTo(5.31, 5);
+    expect(body[0].bbox[2]).toBeCloseTo(5.37, 5);
+
+    const hydratedAreaToken = parseLocationFilterToken(body[0].id);
+    const filteredRows = Array.from(
+      await db.execute<{ id: string }>(sql`
+      SELECT p.id
+      FROM properties p
+      WHERE p.id IN (${sql.join(
+        properties.map((property) => sql`${property.id}`),
+        sql`, `
+      )})
+        AND ${buildLocationAreaFilterPredicate(hydratedAreaToken ? [hydratedAreaToken] : [])}
+      ORDER BY p.id
+    `)
+    );
+    expect(filteredRows.map((row) => row.id).sort()).toEqual(
+      properties.map((property) => property.id).sort()
+    );
+  });
+
+  it('hydrates region-specific city tokens only when region metadata is explicit', async () => {
+    const suffix = Date.now().toString(36);
+    const city = `Explicit Regionstad ${suffix}`;
+    const firstRegion = `Explicit Region A ${suffix}`;
+    const secondRegion = `Explicit Region B ${suffix}`;
+    const firstProperty = await createIntegrationProperty({
+      street: `Explicit Region A Street ${suffix}`,
+      houseNumber: 1,
+      city,
+      region: firstRegion,
+      postalCode: '5678EA',
+      lon: 5.21,
+      lat: 51.21,
+    });
+    const secondProperty = await createIntegrationProperty({
+      street: `Explicit Region B Street ${suffix}`,
+      houseNumber: 2,
+      city,
+      region: secondRegion,
+      postalCode: '5678EB',
+      lon: 5.28,
+      lat: 51.28,
+    });
+    createdPropertyIds.push(firstProperty.id, secondProperty.id);
+
+    const broadArea = encodeURIComponent(`city:NL:explicit-regionstad-${suffix}`);
+    const regionalArea = encodeURIComponent(
+      `city:NL:explicit-regionstad-${suffix}:region=explicit-region-a-${suffix}`
+    );
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/location-tokens?area=${broadArea}&area=${regionalArea}&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toHaveLength(2);
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        id: `city:NL:explicit-regionstad-${suffix}`,
+        type: 'city',
+        label: city,
+        region: null,
+      })
+    );
+    expect(body[1]).toEqual(
+      expect.objectContaining({
+        id: `city:NL:explicit-regionstad-${suffix}:region=explicit-region-a-${suffix}`,
+        type: 'city',
+        label: city,
+        region: firstRegion,
+      })
+    );
+
+    const regionalToken = parseLocationFilterToken(body[1].id);
+    const filteredRows = Array.from(
+      await db.execute<{ id: string }>(sql`
+      SELECT p.id
+      FROM properties p
+      WHERE p.id IN (${firstProperty.id}, ${secondProperty.id})
+        AND ${buildLocationAreaFilterPredicate(regionalToken ? [regionalToken] : [])}
+      ORDER BY p.id
+    `)
+    );
+    expect(filteredRows.map((row) => row.id)).toEqual([firstProperty.id]);
+  });
+
   it('heals stale Zwaanstraat street tokens with Photon state metadata to the DB-backed region', async () => {
     const firstProperty = await createIntegrationProperty({
       street: 'Zwaanstraat',
@@ -2411,7 +2681,7 @@ describe('GET /search/location-tokens', () => {
         type: 'city',
         label: 'Sharedhydration',
         countryCode: 'NL',
-        region: 'Noord-Brabant',
+        region: null,
         bbox: expect.any(Array),
       })
     );
@@ -2420,7 +2690,7 @@ describe('GET /search/location-tokens', () => {
         type: 'city',
         label: 'Sharedhydration',
         countryCode: 'DE',
-        region: 'Berlin',
+        region: null,
         bbox: expect.any(Array),
       })
     );

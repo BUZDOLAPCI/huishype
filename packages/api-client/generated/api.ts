@@ -4961,7 +4961,7 @@ export interface paths {
         };
         /**
          * Get property feed
-         * @description Get a paginated feed of properties with active listings. Filters: trending (weighted 7-day activity) and latest (most recent activity).
+         * @description Get a paginated feed of properties with active listings. Filters: trending (weighted 7-day activity) and latest (most recent activity). Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.
          */
         get: {
             parameters: {
@@ -4972,6 +4972,12 @@ export interface paths {
                     lat?: number;
                     lon?: number;
                     country?: string;
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string | string[];
+                    area?: string | string[];
                 };
                 header?: never;
                 path?: never;
@@ -5045,6 +5051,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/search/location-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hydrate selected location URL tokens
+         * @description Hydrates repeated readable area query params into structured selected location tokens for chips and map camera fitting.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    area?: string | string[];
+                    countrycode?: string | string[];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id?: string | null;
+                            /** @enum {string} */
+                            type: "street" | "postcode" | "city" | "region" | "country" | "current-location";
+                            countryCode?: string | null;
+                            value: string;
+                            label: string;
+                            parentLabel?: string | null;
+                            city?: string | null;
+                            region?: string | null;
+                            postalCode?: string | null;
+                            street?: string | null;
+                            coordinates?: [
+                                number,
+                                number
+                            ] | null;
+                            bbox?: [
+                                number,
+                                number,
+                                number,
+                                number
+                            ] | null;
+                            radiusMeters?: number | null;
+                        }[];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search/locations": {
         parameters: {
             query?: never;
@@ -5103,6 +5174,7 @@ export interface paths {
                             houseNumber?: string | null;
                             houseNumberAddition?: string | null;
                             filterToken?: {
+                                id?: string | null;
                                 /** @enum {string} */
                                 type: "street" | "postcode" | "city" | "region" | "country" | "current-location";
                                 countryCode?: string | null;
@@ -5781,7 +5853,7 @@ export interface paths {
         };
         /**
          * Get grouped property activity feed
-         * @description Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users.
+         * @description Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users. Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.
          */
         get: {
             parameters: {
@@ -5789,6 +5861,12 @@ export interface paths {
                     scope?: "public" | "following";
                     limit?: number;
                     offset?: number;
+                    salePriceFrom?: number;
+                    salePriceTo?: number;
+                    rentPriceFrom?: number;
+                    rentPriceTo?: number;
+                    marketState?: string | string[];
+                    area?: string | string[];
                 };
                 header?: never;
                 path?: never;

@@ -24,17 +24,14 @@ test.use({ trace: 'off' });
 
 /** Fetch a real property with known postal code from the API */
 async function getTestPropertyWithPostalCode(request: APIRequestContext) {
-  const response = await request.get(
-    `${API_BASE_URL}/properties?limit=10&city=Eindhoven`
-  );
+  const response = await request.get(`${API_BASE_URL}/properties?limit=10&city=Eindhoven`);
   expect(response.ok()).toBe(true);
   const data = await response.json();
   expect(data.data.length).toBeGreaterThan(0);
 
   // Find a property with a postal code and house number
   const prop = data.data.find(
-    (p: { postalCode: string | null; houseNumber: number | null }) =>
-      p.postalCode && p.houseNumber
+    (p: { postalCode: string | null; houseNumber: number | null }) => p.postalCode && p.houseNumber
   );
   expect(prop).toBeTruthy();
 
@@ -117,10 +114,7 @@ test.describe('Search Navigation Flow', () => {
     console.log(`Geocoder returned ${resultCount} results for "Eindhoven Markt"`);
   });
 
-  test('selecting search result navigates to property', async ({
-    page,
-    request,
-  }) => {
+  test('selecting search result navigates to property', async ({ page, request }) => {
     // Get a real property from our database to search for
     const testProp = await getTestPropertyWithPostalCode(request);
     console.log(
@@ -149,8 +143,9 @@ test.describe('Search Navigation Flow', () => {
 
     // Record initial center before clicking the result
     const initialCenter = await page.evaluate(() => {
-      const map = (window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } })
-        .__mapInstance;
+      const map = (
+        window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } }
+      ).__mapInstance;
       const c = map?.getCenter?.();
       return c ? { lng: c.lng, lat: c.lat } : null;
     });
@@ -164,28 +159,29 @@ test.describe('Search Navigation Flow', () => {
     // at or above the shared flyTo target.
     await page.waitForFunction(
       (init: { lng: number; lat: number }) => {
-        const map = (window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } }).__mapInstance;
+        const map = (
+          window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } }
+        ).__mapInstance;
         if (!map) return false;
         const center = map.getCenter();
-        return (
-          Math.abs(center.lng - init.lng) > 0.001 ||
-          Math.abs(center.lat - init.lat) > 0.001
-        );
+        return Math.abs(center.lng - init.lng) > 0.001 || Math.abs(center.lat - init.lat) > 0.001;
       },
       initialCenter!,
       { timeout: 20000, polling: 200 }
     );
 
     // Now wait for the fly animation to finish (map stops moving)
-    await page.waitForFunction(() => {
-      const map = (window as unknown as { __mapInstance: { isMoving(): boolean } }).__mapInstance;
-      return map && !map.isMoving();
-    }, { timeout: 10000 });
+    await page.waitForFunction(
+      () => {
+        const map = (window as unknown as { __mapInstance: { isMoving(): boolean } }).__mapInstance;
+        return map && !map.isMoving();
+      },
+      { timeout: 10000 }
+    );
 
     // Verify the camera remains at a reasonable zoom after flyTo.
     const zoom = await page.evaluate(() => {
-      const map = (window as unknown as { __mapInstance: { getZoom(): number } })
-        .__mapInstance;
+      const map = (window as unknown as { __mapInstance: { getZoom(): number } }).__mapInstance;
       return map?.getZoom?.() ?? 0;
     });
     expect(zoom).toBeGreaterThanOrEqual(15);
@@ -226,8 +222,9 @@ test.describe('Search Navigation Flow', () => {
     const matchingResult = resultItem.filter({ hasText: testProp.address }).first();
 
     const initialCenter = await page.evaluate(() => {
-      const map = (window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } })
-        .__mapInstance;
+      const map = (
+        window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } }
+      ).__mapInstance;
       const c = map?.getCenter?.();
       return c ? { lng: c.lng, lat: c.lat } : null;
     });
@@ -237,25 +234,30 @@ test.describe('Search Navigation Flow', () => {
 
     await page.waitForFunction(
       (init: { lng: number; lat: number }) => {
-        const map = (window as unknown as { __mapInstance?: { getCenter(): { lng: number; lat: number } } }).__mapInstance;
+        const map = (
+          window as unknown as { __mapInstance?: { getCenter(): { lng: number; lat: number } } }
+        ).__mapInstance;
         if (!map) return false;
         const center = map.getCenter();
-        return (
-          Math.abs(center.lng - init.lng) > 0.001 ||
-          Math.abs(center.lat - init.lat) > 0.001
-        );
+        return Math.abs(center.lng - init.lng) > 0.001 || Math.abs(center.lat - init.lat) > 0.001;
       },
       initialCenter!,
       { timeout: 20000, polling: 200 }
     );
-    await page.waitForFunction(() => {
-      const map = (window as unknown as { __mapInstance?: { isMoving(): boolean } }).__mapInstance;
-      return map && !map.isMoving();
-    }, { timeout: 20000 });
+    await page.waitForFunction(
+      () => {
+        const map = (window as unknown as { __mapInstance?: { isMoving(): boolean } })
+          .__mapInstance;
+        return map && !map.isMoving();
+      },
+      { timeout: 20000 }
+    );
     await waitForMapIdle(page, 10000);
 
     await expect(page.locator('[data-testid="selected-marker"]')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('[data-testid="group-preview-card"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="group-preview-card"]')).toBeVisible({
+      timeout: 15000,
+    });
 
     const alignment = await page.evaluate(() => {
       const selected = document.querySelector('[data-testid="selected-marker"]');
@@ -273,7 +275,7 @@ test.describe('Search Navigation Flow', () => {
       return {
         selectedCenterX: selectedRect.left + selectedRect.width / 2,
         arrowTipX: arrowRect.left + arrowRect.width / 2,
-        deltaX: (arrowRect.left + arrowRect.width / 2) - (selectedRect.left + selectedRect.width / 2),
+        deltaX: arrowRect.left + arrowRect.width / 2 - (selectedRect.left + selectedRect.width / 2),
         arrowTestId: arrow.getAttribute('data-testid'),
         gapY:
           arrow.getAttribute('data-testid') === 'group-preview-arrow-down'
@@ -298,9 +300,7 @@ test.describe('Search Navigation Flow', () => {
     ).toBeGreaterThanOrEqual(4);
   });
 
-  test('search for non-existent local property handles gracefully', async ({
-    page,
-  }) => {
+  test('search for non-existent local property handles gracefully', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
     await waitForMapStyleLoaded(page);
@@ -345,23 +345,24 @@ test.describe('Search Navigation Flow', () => {
         ).__mapInstance;
         if (!map) return false;
         const center = map.getCenter();
-        return (
-          Math.abs(center.lng - init.lng) > 0.001 ||
-          Math.abs(center.lat - init.lat) > 0.001
-        );
+        return Math.abs(center.lng - init.lng) > 0.001 || Math.abs(center.lat - init.lat) > 0.001;
       },
       initialCenter!,
       { timeout: 15000, polling: 200 }
     );
 
     // Now wait for fly animation to complete
-    await page.waitForFunction(() => {
-      const map = (window as unknown as { __mapInstance: { isMoving(): boolean } }).__mapInstance;
-      return map && !map.isMoving();
-    }, { timeout: 10000 });
+    await page.waitForFunction(
+      () => {
+        const map = (window as unknown as { __mapInstance: { isMoving(): boolean } }).__mapInstance;
+        return map && !map.isMoving();
+      },
+      { timeout: 10000 }
+    );
 
-    await expect(page.locator('[data-testid="selected-marker"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="selected-marker"]')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('[data-testid="group-preview-card"]')).toHaveCount(0);
+    await expect(searchInput).toHaveValue('');
   });
 
   test('clear search resets the search bar', async ({ page }) => {
@@ -388,9 +389,11 @@ test.describe('Search Navigation Flow', () => {
     // Input should be empty
     await expect(searchInput).toHaveValue('');
 
-    // Results should be hidden
-    const resultsList = page.locator('[data-testid="search-results-list"]');
-    await expect(resultsList).not.toBeVisible();
+    // Stale typed results should be gone; empty focused search may show current-location action.
+    await expect(page.getByTestId('search-current-location')).toBeVisible();
+    await expect(
+      page.getByTestId('search-result-item').filter({ hasText: 'Eindhoven' })
+    ).toHaveCount(0);
 
     // Clear button should be gone
     await expect(clearButton).not.toBeVisible();

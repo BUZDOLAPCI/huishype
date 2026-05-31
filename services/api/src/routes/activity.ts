@@ -195,7 +195,7 @@ export async function activityRoutes(fastify: FastifyInstance) {
         tags: ['activity'],
         summary: 'Get grouped property activity feed',
         description:
-          'Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users.',
+          'Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users. Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.',
         querystring: groupedActivityQuerySchema,
         response: {
           200: groupedActivityResponseSchema,

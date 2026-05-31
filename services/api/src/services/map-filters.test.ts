@@ -113,6 +113,25 @@ describe('selected area filters', () => {
     expect(query.params).toEqual(['NL', 'waalre', 'NL', 'aalst']);
   });
 
+  it('keeps regionless city predicates broad across backing region variants', () => {
+    const token = parseLocationFilterToken('city:NL:eindhoven');
+    const query = renderQuery(buildLocationAreaFilterPredicate(token ? [token] : []));
+
+    expect(query.sql).toContain('p.country_code');
+    expect(query.sql).toContain('LOWER(p.city)');
+    expect(query.sql).not.toContain('p.region');
+    expect(query.params).toEqual(['NL', 'eindhoven']);
+  });
+
+  it('only narrows city predicates by region when the city token explicitly has region metadata', () => {
+    const token = parseLocationFilterToken('city:NL:eindhoven:region=noord-brabant');
+    const query = renderQuery(buildLocationAreaFilterPredicate(token ? [token] : []));
+
+    expect(query.sql).toContain('LOWER(p.city)');
+    expect(query.sql).toContain('LOWER(p.region)');
+    expect(query.params).toEqual(['NL', 'eindhoven', 'noord brabant', 'noord-brabant']);
+  });
+
   it('uses index-friendly selected street predicates for generated location area tokens', () => {
     const token = parseLocationFilterToken(
       'street:NL:zwaanstraat:city=eindhoven:region=eindhoven'

@@ -23,6 +23,11 @@ describe('Property routes', () => {
   const seededPropertyIds: string[] = [];
   const fixtureCity = 'Fixtureville';
   const nearbyFixture = { lon: 5.4697, lat: 51.4416 };
+  const cityAreaToken = (city: string) =>
+    `city:NL:${city
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')}`;
 
   beforeAll(async () => {
     app = await buildApp({ logger: false });
@@ -443,6 +448,241 @@ describe('Property routes', () => {
         await db.execute(
           sql`DELETE FROM properties WHERE id IN (${propertyIds[0]}, ${propertyIds[1]})`
         );
+      }
+    });
+
+    it('should combine area and activity filters using live social facts', async () => {
+      const user = await createIntegrationUser(app, { label: 'Area Activity User' });
+      const city = `Activity Area ${crypto.randomUUID().slice(0, 8)}`;
+      const outsideCity = `Outside Activity Area ${crypto.randomUUID().slice(0, 8)}`;
+      const properties = [
+        await createIntegrationProperty({
+          street: 'Area Activity Street',
+          houseNumber: 1,
+          city,
+          postalCode: '9911AA',
+          lon: 6.71,
+          lat: 52.21,
+        }),
+        await createIntegrationProperty({
+          street: 'Area Activity Street',
+          houseNumber: 2,
+          city,
+          postalCode: '9911AB',
+          lon: 6.7102,
+          lat: 52.2102,
+        }),
+        await createIntegrationProperty({
+          street: 'Area Activity Street',
+          houseNumber: 3,
+          city,
+          postalCode: '9911AC',
+          lon: 6.7104,
+          lat: 52.2104,
+        }),
+        await createIntegrationProperty({
+          street: 'Outside Activity Street',
+          houseNumber: 1,
+          city: outsideCity,
+          postalCode: '9912AA',
+          lon: 6.72,
+          lat: 52.22,
+        }),
+      ];
+      const comments = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+
+      await db.execute(sql`
+        UPDATE properties
+        SET comments_disabled_at = NOW()
+        WHERE id = ${properties[2].id}
+      `);
+      await db.execute(sql`
+        INSERT INTO comments (id, property_id, user_id, content, created_at, updated_at)
+        VALUES
+          (
+            ${comments[0]},
+            ${properties[0].id},
+            ${user.userId},
+            'recent in selected area',
+            NOW() - INTERVAL '2 hours',
+            NOW() - INTERVAL '2 hours'
+          ),
+          (
+            ${comments[1]},
+            ${properties[2].id},
+            ${user.userId},
+            'comments disabled should not count',
+            NOW() - INTERVAL '2 hours',
+            NOW() - INTERVAL '2 hours'
+          ),
+          (
+            ${comments[2]},
+            ${properties[3].id},
+            ${user.userId},
+            'recent outside selected area',
+            NOW() - INTERVAL '2 hours',
+            NOW() - INTERVAL '2 hours'
+          )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: `/properties?area=${encodeURIComponent(cityAreaToken(city))}&activity=30d&limit=10`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.data.map((item: { id: string }) => item.id)).toEqual([properties[0].id]);
+        expect(body.meta.total).toBe(1);
+      } finally {
+        await db.execute(
+          sql`DELETE FROM comments WHERE id IN (${sql.join(
+            comments.map((id) => sql`${id}`),
+            sql`, `
+          )})`
+        );
+        await db.execute(
+          sql`DELETE FROM properties WHERE id IN (${sql.join(
+            properties.map((property) => sql`${property.id}`),
+            sql`, `
+          )})`
+        );
+        await db.execute(sql`DELETE FROM users WHERE id = ${user.userId}`);
+      }
+    });
+
+    it('should combine area, activity, market-state, and sale-price filters', async () => {
+      const user = await createIntegrationUser(app, { label: 'Area Activity Market User' });
+      const city = `Activity Market ${crypto.randomUUID().slice(0, 8)}`;
+      const outsideCity = `Activity Market Outside ${crypto.randomUUID().slice(0, 8)}`;
+      const properties = [
+        await createIntegrationProperty({
+          street: 'Area Activity Market Street',
+          houseNumber: 1,
+          city,
+          postalCode: '9921AA',
+          lon: 6.81,
+          lat: 52.31,
+        }),
+        await createIntegrationProperty({
+          street: 'Area Activity Market Street',
+          houseNumber: 2,
+          city,
+          postalCode: '9921AB',
+          lon: 6.8102,
+          lat: 52.3102,
+        }),
+        await createIntegrationProperty({
+          street: 'Area Activity Market Street',
+          houseNumber: 3,
+          city,
+          postalCode: '9921AC',
+          lon: 6.8104,
+          lat: 52.3104,
+        }),
+        await createIntegrationProperty({
+          street: 'Area Activity Market Street',
+          houseNumber: 4,
+          city,
+          postalCode: '9921AD',
+          lon: 6.8106,
+          lat: 52.3106,
+        }),
+        await createIntegrationProperty({
+          street: 'Outside Activity Market Street',
+          houseNumber: 1,
+          city: outsideCity,
+          postalCode: '9922AA',
+          lon: 6.82,
+          lat: 52.32,
+        }),
+      ];
+      const comments = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+
+      await Promise.all([
+        createIntegrationListing({
+          propertyId: properties[0].id,
+          status: 'active',
+          askingPrice: 425000,
+          priceType: 'sale',
+        }),
+        createIntegrationListing({
+          propertyId: properties[1].id,
+          status: 'active',
+          askingPrice: 525000,
+          priceType: 'sale',
+        }),
+        createIntegrationListing({
+          propertyId: properties[2].id,
+          status: 'active',
+          askingPrice: 425000,
+          priceType: 'sale',
+        }),
+        createIntegrationListing({
+          propertyId: properties[4].id,
+          status: 'active',
+          askingPrice: 425000,
+          priceType: 'sale',
+        }),
+      ]);
+      await db.execute(sql`
+        INSERT INTO comments (id, property_id, user_id, content, created_at, updated_at)
+        VALUES
+          (
+            ${comments[0]},
+            ${properties[0].id},
+            ${user.userId},
+            'recent qualifying area market activity',
+            NOW() - INTERVAL '2 hours',
+            NOW() - INTERVAL '2 hours'
+          ),
+          (
+            ${comments[1]},
+            ${properties[1].id},
+            ${user.userId},
+            'recent outside selected sale price',
+            NOW() - INTERVAL '2 hours',
+            NOW() - INTERVAL '2 hours'
+          ),
+          (
+            ${comments[2]},
+            ${properties[4].id},
+            ${user.userId},
+            'recent outside selected market area',
+            NOW() - INTERVAL '2 hours',
+            NOW() - INTERVAL '2 hours'
+          )
+      `);
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url:
+            `/properties?area=${encodeURIComponent(cityAreaToken(city))}` +
+            '&activity=30d&marketState=for-sale&salePriceFrom=400000&salePriceTo=450000&limit=10',
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+
+        expect(body.data.map((item: { id: string }) => item.id)).toEqual([properties[0].id]);
+        expect(body.meta.total).toBe(1);
+      } finally {
+        await db.execute(
+          sql`DELETE FROM comments WHERE id IN (${sql.join(
+            comments.map((id) => sql`${id}`),
+            sql`, `
+          )})`
+        );
+        await db.execute(
+          sql`DELETE FROM properties WHERE id IN (${sql.join(
+            properties.map((property) => sql`${property.id}`),
+            sql`, `
+          )})`
+        );
+        await db.execute(sql`DELETE FROM users WHERE id = ${user.userId}`);
       }
     });
 

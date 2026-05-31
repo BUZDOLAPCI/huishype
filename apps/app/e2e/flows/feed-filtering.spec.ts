@@ -58,10 +58,7 @@ test.describe('Feed Filtering', () => {
     });
 
     page.on('response', (response) => {
-      if (
-        response.status() === 409 &&
-        response.url().includes('/properties/resolve')
-      ) {
+      if (response.status() === 409 && response.url().includes('/properties/resolve')) {
         expectedResolveConflictResponses.push(response.url());
       }
     });
@@ -102,7 +99,9 @@ test.describe('Feed Filtering', () => {
       page.waitForSelector('[data-testid="feed-loading"]', { timeout: 10000 }).catch(() => null),
       page.waitForSelector('[data-testid="feed-empty"]', { timeout: 10000 }).catch(() => null),
       page.waitForSelector('[data-testid="feed-error"]', { timeout: 10000 }).catch(() => null),
-      page.waitForSelector('[data-testid="filter-chip-trending"]', { timeout: 10000 }).catch(() => null),
+      page
+        .waitForSelector('[data-testid="filter-chip-trending"]', { timeout: 10000 })
+        .catch(() => null),
     ]);
 
     // Additional wait for content to settle
@@ -112,7 +111,9 @@ test.describe('Feed Filtering', () => {
 
     // Filter chips should always be visible (they show even in loading/empty/error states)
     const trendingFilter = page.locator('[data-testid="filter-chip-trending"]');
-    await expect(trendingFilter, '"Trending" filter chip should be visible').toBeVisible({ timeout: 5000 });
+    await expect(trendingFilter, '"Trending" filter chip should be visible').toBeVisible({
+      timeout: 5000,
+    });
 
     // Check for other filter chips
     const latestFilter = page.locator('[data-testid="filter-chip-latest"]');
@@ -135,7 +136,9 @@ test.describe('Feed Filtering', () => {
     const groupedCards = page.locator('[data-testid="property-activity-card"]');
     const cardCount = await propertyCards.count();
     const groupedCardCount = await groupedCards.count();
-    console.log(`Found ${cardCount} property feed cards and ${groupedCardCount} grouped activity cards`);
+    console.log(
+      `Found ${cardCount} property feed cards and ${groupedCardCount} grouped activity cards`
+    );
 
     // Should not show error state
     const errorState = page.locator('[data-testid="feed-error"]');
@@ -157,19 +160,30 @@ test.describe('Feed Filtering', () => {
 
     // Click "Latest" filter — assert it exists before interacting
     const latestFilter = page.locator('[data-testid="filter-chip-latest"]');
-    await expect(latestFilter, '"Latest" filter chip should be visible').toBeVisible({ timeout: 5000 });
+    await expect(latestFilter, '"Latest" filter chip should be visible').toBeVisible({
+      timeout: 5000,
+    });
     await latestFilter.click();
     await page.waitForTimeout(2000);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-latest.png` });
 
     // Click "Recent Activity" filter — assert it exists before interacting
     const activityFilter = page.locator('[data-testid="filter-chip-recent-activity"]');
-    await expect(activityFilter, '"Recent Activity" filter chip should be visible').toBeVisible({ timeout: 5000 });
+    await expect(activityFilter, '"Recent Activity" filter chip should be visible').toBeVisible({
+      timeout: 5000,
+    });
     await activityFilter.click();
     await page.waitForTimeout(2000);
     await Promise.race([
-      page.locator('[data-testid="property-activity-card"]').first().waitFor({ timeout: 5000 }).catch(() => null),
-      page.locator('[data-testid="feed-empty"]').waitFor({ timeout: 5000 }).catch(() => null),
+      page
+        .locator('[data-testid="property-activity-card"]')
+        .first()
+        .waitFor({ timeout: 5000 })
+        .catch(() => null),
+      page
+        .locator('[data-testid="feed-empty"]')
+        .waitFor({ timeout: 5000 })
+        .catch(() => null),
     ]);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-activity.png` });
 
@@ -177,6 +191,109 @@ test.describe('Feed Filtering', () => {
     await trendingFilter.click();
     await page.waitForTimeout(2000);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-trending.png` });
+  });
+
+  test('unresolved direct address search keeps area chip and navigates to map focus', async ({
+    page,
+  }) => {
+    await page.route('**/search/locations?**', async (route) => {
+      const url = new URL(route.request().url());
+      const query = (url.searchParams.get('q') ?? '').toLowerCase();
+
+      if (query.includes('eindhoven')) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'city:NL:eindhoven',
+              type: 'city',
+              label: 'Eindhoven',
+              subtitle: 'Noord-Brabant, Nederland',
+              countryCode: 'NL',
+              coordinates: [5.4697, 51.4416],
+              bbox: [5.35, 51.36, 5.57, 51.51],
+              filterToken: {
+                type: 'city',
+                countryCode: 'NL',
+                value: 'eindhoven',
+                label: 'Eindhoven',
+                coordinates: [5.4697, 51.4416],
+                bbox: [5.35, 51.36, 5.57, 51.51],
+              },
+            },
+          ]),
+        });
+        return;
+      }
+
+      if (query.includes('unresolvedstraat')) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'address:NL:unresolvedstraat-10',
+              type: 'address',
+              label: 'Unresolvedstraat 10, Eindhoven',
+              subtitle: '9999ZZ Eindhoven',
+              address: 'Unresolvedstraat 10, Eindhoven',
+              city: 'Eindhoven',
+              countryCode: 'NL',
+              street: 'Unresolvedstraat',
+              postalCode: '9999ZZ',
+              houseNumber: '10',
+              houseNumberAddition: null,
+              coordinates: [5.49, 51.45],
+            },
+          ]),
+        });
+        return;
+      }
+
+      await route.fulfill({ contentType: 'application/json', body: '[]' });
+    });
+    await page.route('**/properties/resolve?**', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: 'null' });
+    });
+
+    await page.goto('/feed');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
+    const searchInput = page.getByTestId('search-bar-input');
+    await expect(searchInput).toBeVisible({ timeout: 15_000 });
+
+    const eindhovenResult = page
+      .getByTestId('search-result-item')
+      .filter({ hasText: 'Eindhoven' })
+      .first();
+    await searchInput.click();
+    await searchInput.focus();
+    await searchInput.fill('Eindhoven');
+    await expect(eindhovenResult).toBeVisible({ timeout: 15_000 });
+    await eindhovenResult.click();
+    await expect(
+      page.getByTestId('search-area-chip').filter({ hasText: 'Eindhoven' })
+    ).toBeVisible();
+    await expect(searchInput).toHaveValue('');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(500);
+
+    const unresolvedResult = page
+      .getByTestId('search-result-item')
+      .filter({ hasText: 'Unresolvedstraat 10, Eindhoven' })
+      .first();
+    await searchInput.click();
+    await searchInput.focus();
+    await searchInput.fill('Unresolvedstraat 10');
+    await expect(unresolvedResult).toBeVisible({ timeout: 15_000 });
+    await unresolvedResult.click();
+
+    await expect(page).toHaveURL(/\/@51\.45,5\.49,17z(?:[/?#]|$)/, { timeout: 15_000 });
+    await expect(page.getByTestId('map-view')).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(() => page.getByTestId('search-area-chip').filter({ hasText: 'Eindhoven' }).count(), {
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(0);
   });
 
   test('property card has expected content structure', async ({ page }) => {
@@ -216,7 +333,7 @@ test.describe('Feed Filtering', () => {
       const hasAddress = await addressElement.isVisible().catch(() => false);
 
       if (hasAddress) {
-        const addressText = await addressElement.textContent() || '';
+        const addressText = (await addressElement.textContent()) || '';
         console.log(`First card address: ${addressText}`);
         // Address should not be empty
         expect(addressText.length).toBeGreaterThan(0);
@@ -296,15 +413,16 @@ test.describe('Feed Filtering', () => {
 
       if (navigated) {
         // Should show property detail page content
-        const detailContent = page.locator('text=Property Details').or(
-          page.locator('text=WOZ Value')
-        ).or(
-          page.locator('text=Loading property')
-        ).or(
-          page.locator('text=Property not found')
-        );
+        const detailContent = page
+          .locator('text=Property Details')
+          .or(page.locator('text=WOZ Value'))
+          .or(page.locator('text=Loading property'))
+          .or(page.locator('text=Property not found'));
 
-        const hasDetailContent = await detailContent.first().isVisible({ timeout: 5000 }).catch(() => false);
+        const hasDetailContent = await detailContent
+          .first()
+          .isVisible({ timeout: 5000 })
+          .catch(() => false);
         console.log(`Property detail content visible: ${hasDetailContent}`);
       }
     } else {

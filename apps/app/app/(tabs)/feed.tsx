@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
+import { serializeCanonicalCameraPath } from '@huishype/shared';
 import { isValidCountryCode } from '@huishype/shared/config';
 
 import {
@@ -70,6 +71,7 @@ const FEED_LIST_WINDOW_SIZE = 3;
 const FEED_LIST_INITIAL_NUM_TO_RENDER = 3;
 const FEED_LIST_MAX_TO_RENDER_PER_BATCH = 2;
 const FEED_LIST_BATCHING_PERIOD_MS = 100;
+const FEED_DIRECT_ADDRESS_MAP_ZOOM = 17;
 
 // --- Header title per filter ---
 
@@ -302,10 +304,20 @@ export default function FeedScreen() {
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
     router.push(toInternalAppHref(buildPropertyRoute(property, '/feed')));
   }, []);
-  const handleFeedSearchLocationResolved = useCallback(() => {
-    // Property-result selection still navigates; broad area suggestions update
-    // filters through SearchBar's onAreaSelected callback.
-  }, []);
+  const handleFeedSearchLocationResolved = useCallback(
+    (coordinates: { lon: number; lat: number }) => {
+      router.push(
+        toInternalAppHref(
+          serializeCanonicalCameraPath({
+            lat: coordinates.lat,
+            lng: coordinates.lon,
+            zoom: FEED_DIRECT_ADDRESS_MAP_ZOOM,
+          })
+        )
+      );
+    },
+    []
+  );
   const handleFeedAreaSelected = useCallback(
     (area: LocationFilterToken) => {
       const currentAreas = filterController.appliedFilters.areas ?? [];

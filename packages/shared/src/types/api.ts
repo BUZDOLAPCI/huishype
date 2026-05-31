@@ -520,6 +520,12 @@ export interface GetFeedRequest {
   lat?: number;
   lon?: number;
   country?: string;
+  salePriceFrom?: number;
+  salePriceTo?: number;
+  rentPriceFrom?: number;
+  rentPriceTo?: number;
+  marketState?: string | string[];
+  area?: string | string[];
 }
 
 export interface GetFeedResponse {
@@ -753,6 +759,12 @@ export interface GetGroupedPropertyActivityRequest {
   scope?: 'public' | 'following';
   limit?: number;
   offset?: number;
+  salePriceFrom?: number;
+  salePriceTo?: number;
+  rentPriceFrom?: number;
+  rentPriceTo?: number;
+  marketState?: string | string[];
+  area?: string | string[];
 }
 
 export interface GetUserActivityRequest {

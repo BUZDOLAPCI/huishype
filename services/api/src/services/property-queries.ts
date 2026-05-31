@@ -10,6 +10,9 @@ const COMMENT_LIKE_WEIGHT = 0.8;
 const GUESS_WEIGHT = 0.85;
 const UNIQUE_VIEWER_WEIGHT = 0.1;
 export const ACTIVE_SOCIAL_SCORE_THRESHOLD = 0.75;
+export const PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE = 'property_activity_candidates';
+export const PROPERTY_ACTIVITY_FILTERED_IDS_CTE = 'property_activity_candidate_ids';
+export const PROPERTY_ACTIVITY_SOCIAL_FACTS_CTE = 'property_activity_social_facts';
 
 function propertyIdColumn(propertyAlias: string): SQL {
   return sql.raw(`${propertyAlias}.id`);
@@ -350,6 +353,174 @@ export function buildPropertySocialFactsJoin(propertyAlias = 'p', alias = 'sf'):
         ) AS last_social_at
       FROM top_level_comments, replies, property_likes, comment_likes, guesses, views
     ) ${sql.raw(alias)} ON TRUE
+  `;
+}
+
+export function buildPropertyActivityFilterCtes(activity: MapActivityFilter): SQL {
+  return sql`
+    latest_public_guesses AS MATERIALIZED (
+      SELECT DISTINCT ON (pg.property_id, pg.user_id)
+        pg.property_id,
+        pg.user_id,
+        pg.is_meme_guess,
+        GREATEST(pg.created_at, pg.updated_at) AS effective_at
+      FROM price_guesses pg
+      INNER JOIN ${sql.raw(PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE)} pac
+        ON pac.id = pg.property_id
+      ORDER BY
+        pg.property_id,
+        pg.user_id,
+        GREATEST(pg.created_at, pg.updated_at) DESC,
+        pg.created_at DESC,
+        pg.id DESC
+    ),
+    guess_activity AS MATERIALIZED (
+      SELECT
+        lpg.property_id,
+        COUNT(*)::int AS guess_count,
+        COUNT(*) FILTER (
+          WHERE lpg.effective_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_guess_count,
+        MAX(lpg.effective_at) AS latest_guess_at
+      FROM latest_public_guesses lpg
+      GROUP BY lpg.property_id
+    ),
+    top_level_comments AS MATERIALIZED (
+      SELECT
+        c.property_id,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (
+          WHERE c.created_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_count,
+        MAX(c.created_at) AS latest
+      FROM comments c
+      INNER JOIN ${sql.raw(PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE)} pac
+        ON pac.id = c.property_id
+      WHERE pac.comments_disabled_at IS NULL
+        AND c.parent_id IS NULL
+        AND c.hidden_at IS NULL
+      GROUP BY c.property_id
+    ),
+    replies AS MATERIALIZED (
+      SELECT
+        c.property_id,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (
+          WHERE c.created_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_count,
+        MAX(c.created_at) AS latest
+      FROM comments c
+      INNER JOIN ${sql.raw(PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE)} pac
+        ON pac.id = c.property_id
+      WHERE pac.comments_disabled_at IS NULL
+        AND c.parent_id IS NOT NULL
+        AND c.hidden_at IS NULL
+      GROUP BY c.property_id
+    ),
+    property_likes AS MATERIALIZED (
+      SELECT
+        r.target_id AS property_id,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (
+          WHERE r.created_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_count,
+        MAX(r.created_at) AS latest
+      FROM reactions r
+      INNER JOIN ${sql.raw(PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE)} pac
+        ON pac.id = r.target_id
+      WHERE r.target_type = 'property'
+        AND r.reaction_type = 'like'
+      GROUP BY r.target_id
+    ),
+    comment_likes AS MATERIALIZED (
+      SELECT
+        c.property_id,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (
+          WHERE r.created_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_count,
+        MAX(r.created_at) AS latest
+      FROM reactions r
+      INNER JOIN comments c ON c.id = r.target_id
+      INNER JOIN ${sql.raw(PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE)} pac
+        ON pac.id = c.property_id
+      WHERE r.target_type = 'comment'
+        AND r.reaction_type = 'like'
+        AND pac.comments_disabled_at IS NULL
+        AND c.hidden_at IS NULL
+      GROUP BY c.property_id
+    ),
+    view_facts AS MATERIALIZED (
+      SELECT
+        pv.property_id,
+        COUNT(*)::int AS view_count,
+        COUNT(*) FILTER (
+          WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_view_count,
+        COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id))::int AS unique_viewer_count,
+        COUNT(DISTINCT COALESCE(pv.user_id::text, pv.session_id)) FILTER (
+          WHERE pv.viewed_at > NOW() - INTERVAL '7 days'
+        )::int AS recent_unique_viewer_count,
+        MAX(pv.viewed_at) AS latest
+      FROM property_views pv
+      INNER JOIN ${sql.raw(PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE)} pac
+        ON pac.id = pv.property_id
+      GROUP BY pv.property_id
+    ),
+    ${sql.raw(PROPERTY_ACTIVITY_SOCIAL_FACTS_CTE)} AS MATERIALIZED (
+      SELECT
+        pac.id AS property_id,
+        COALESCE(top_level_comments.count, 0)::int AS top_level_comment_count,
+        COALESCE(replies.count, 0)::int AS reply_count,
+        COALESCE(property_likes.count, 0)::int AS property_like_count,
+        COALESCE(comment_likes.count, 0)::int AS comment_like_count,
+        COALESCE(guess_activity.guess_count, 0)::int AS guess_count,
+        COALESCE(view_facts.view_count, 0)::int AS view_count,
+        COALESCE(view_facts.unique_viewer_count, 0)::int AS unique_viewer_count,
+        COALESCE(top_level_comments.recent_count, 0)::int AS recent_top_level_comment_count,
+        COALESCE(replies.recent_count, 0)::int AS recent_reply_count,
+        COALESCE(property_likes.recent_count, 0)::int AS recent_property_like_count,
+        COALESCE(comment_likes.recent_count, 0)::int AS recent_comment_like_count,
+        COALESCE(guess_activity.recent_guess_count, 0)::int AS recent_guess_count,
+        COALESCE(view_facts.recent_view_count, 0)::int AS recent_view_count,
+        COALESCE(view_facts.recent_unique_viewer_count, 0)::int AS recent_unique_viewer_count,
+        (
+          COALESCE(top_level_comments.count, 0)::double precision * ${TOP_LEVEL_COMMENT_WEIGHT}
+          + COALESCE(replies.count, 0)::double precision * ${REPLY_WEIGHT}
+          + COALESCE(property_likes.count, 0)::double precision * ${PROPERTY_LIKE_WEIGHT}
+          + COALESCE(comment_likes.count, 0)::double precision * ${COMMENT_LIKE_WEIGHT}
+          + COALESCE(guess_activity.guess_count, 0)::double precision * ${GUESS_WEIGHT}
+          + COALESCE(view_facts.unique_viewer_count, 0)::double precision * ${UNIQUE_VIEWER_WEIGHT}
+        )::double precision AS social_score,
+        (
+          COALESCE(top_level_comments.recent_count, 0)::double precision * ${TOP_LEVEL_COMMENT_WEIGHT}
+          + COALESCE(replies.recent_count, 0)::double precision * ${REPLY_WEIGHT}
+          + COALESCE(property_likes.recent_count, 0)::double precision * ${PROPERTY_LIKE_WEIGHT}
+          + COALESCE(comment_likes.recent_count, 0)::double precision * ${COMMENT_LIKE_WEIGHT}
+          + COALESCE(guess_activity.recent_guess_count, 0)::double precision * ${GUESS_WEIGHT}
+          + COALESCE(view_facts.recent_unique_viewer_count, 0)::double precision * ${UNIQUE_VIEWER_WEIGHT}
+        )::double precision AS recent_social_score,
+        GREATEST(
+          top_level_comments.latest,
+          replies.latest,
+          property_likes.latest,
+          comment_likes.latest,
+          guess_activity.latest_guess_at,
+          view_facts.latest
+        ) AS last_social_at
+      FROM ${sql.raw(PROPERTY_ACTIVITY_FILTER_CANDIDATE_CTE)} pac
+      LEFT JOIN top_level_comments ON top_level_comments.property_id = pac.id
+      LEFT JOIN replies ON replies.property_id = pac.id
+      LEFT JOIN property_likes ON property_likes.property_id = pac.id
+      LEFT JOIN comment_likes ON comment_likes.property_id = pac.id
+      LEFT JOIN guess_activity ON guess_activity.property_id = pac.id
+      LEFT JOIN view_facts ON view_facts.property_id = pac.id
+    ),
+    ${sql.raw(PROPERTY_ACTIVITY_FILTERED_IDS_CTE)} AS MATERIALIZED (
+      SELECT sf.property_id AS id
+      FROM ${sql.raw(PROPERTY_ACTIVITY_SOCIAL_FACTS_CTE)} sf
+      WHERE ${buildActivityFilterPredicate(activity, 'sf')}
+    )
   `;
 }
 

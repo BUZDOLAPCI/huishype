@@ -1,6 +1,10 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
-import { attachConsoleErrorCollector, expectNoConsoleErrors, NETWORK_ALLOWED_CONSOLE_PATTERNS } from '../helpers/console';
+import {
+  attachConsoleErrorCollector,
+  expectNoConsoleErrors,
+  NETWORK_ALLOWED_CONSOLE_PATTERNS,
+} from '../helpers/console';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import { waitForMapReady } from './helpers';
 
@@ -74,11 +78,7 @@ async function getTestProperty(request: APIRequestContext): Promise<TestProperty
   const data = await response.json();
   const property = data.data.find(
     (item: Partial<TestProperty>) =>
-      item.address &&
-      item.city &&
-      item.street &&
-      item.postalCode &&
-      item.houseNumber,
+      item.address && item.city && item.street && item.postalCode && item.houseNumber
   ) as TestProperty | undefined;
 
   expect(property).toBeTruthy();
@@ -162,6 +162,29 @@ async function mockLocationSearch(page: Page, property: TestProperty): Promise<v
       return;
     }
 
+    if (query.includes('unresolvedstraat')) {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 'address:NL:unresolvedstraat-10',
+            type: 'address',
+            label: 'Unresolvedstraat 10, Eindhoven',
+            subtitle: '9999ZZ Eindhoven',
+            address: 'Unresolvedstraat 10, Eindhoven',
+            city: 'Eindhoven',
+            countryCode: 'NL',
+            street: 'Unresolvedstraat',
+            postalCode: '9999ZZ',
+            houseNumber: '10',
+            houseNumberAddition: null,
+            coordinates: [5.49, 51.45],
+          },
+        ]),
+      });
+      return;
+    }
+
     if (query.includes('waalre')) {
       await route.fulfill({
         contentType: 'application/json',
@@ -223,7 +246,9 @@ async function addAreaChip(page: Page, query: string, label: string): Promise<vo
 
   await searchInput.click();
   await searchInput.pressSequentially(query, { delay: 20 });
-  await expect(page.getByTestId('search-result-item').filter({ hasText: label }).first()).toBeVisible({
+  await expect(
+    page.getByTestId('search-result-item').filter({ hasText: label }).first()
+  ).toBeVisible({
     timeout: 10_000,
   });
   await page.getByTestId('search-result-item').filter({ hasText: label }).first().click();
@@ -360,7 +385,7 @@ function getRadiusBounds(location: typeof MOCK_CURRENT_LOCATION): SerializableMa
 
 function boundsContainBounds(
   actual: SerializableMapBounds,
-  expected: SerializableMapBounds,
+  expected: SerializableMapBounds
 ): boolean {
   const tolerance = 0.001;
   return (
@@ -373,8 +398,7 @@ function boundsContainBounds(
 
 async function getFitBoundsCalls(page: Page): Promise<RecordedFitBoundsCall[]> {
   return page.evaluate(
-    () =>
-      ((window as Window & { __fitBoundsCalls?: RecordedFitBoundsCall[] }).__fitBoundsCalls ?? []),
+    () => (window as Window & { __fitBoundsCalls?: RecordedFitBoundsCall[] }).__fitBoundsCalls ?? []
   );
 }
 
@@ -418,15 +442,21 @@ test.describe('Merged Location Search', () => {
     await addAreaChip(page, 'Waalre', 'Waalre');
     await addAreaChip(page, 'Eindhoven', 'Eindhoven');
 
-    await expect.poll(() => page.evaluate(() => window.location.search)).toContain('area=city%3ANL%3Awaalre');
-    await expect.poll(() => page.evaluate(() => window.location.search)).toContain('area=city%3ANL%3Aeindhoven');
+    await expect
+      .poll(() => page.evaluate(() => window.location.search))
+      .toContain('area=city%3ANL%3Awaalre');
+    await expect
+      .poll(() => page.evaluate(() => window.location.search))
+      .toContain('area=city%3ANL%3Aeindhoven');
     await expect.poll(() => getPropertyTileUrl(page)).toContain('area=city%3ANL%3Awaalre');
     await expect.poll(() => getPropertyTileUrl(page)).toContain('area=city%3ANL%3Aeindhoven');
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await waitForMapReady(page, 60_000);
     await expect(page.getByTestId('search-area-chip').filter({ hasText: 'Waalre' })).toBeVisible();
-    await expect(page.getByTestId('search-area-chip').filter({ hasText: 'Eindhoven' })).toBeVisible();
+    await expect(
+      page.getByTestId('search-area-chip').filter({ hasText: 'Eindhoven' })
+    ).toBeVisible();
     await expect
       .poll(() => page.evaluate(() => window.location.search), { timeout: 15_000 })
       .toContain('area=city%3ANL%3Awaalre%3Acity%3Dwaalre%3Aregion%3Dnoord-brabant');
@@ -439,10 +469,15 @@ test.describe('Merged Location Search', () => {
     await expect
       .poll(() => getPropertyTileUrl(page), { timeout: 15_000 })
       .toContain('area=city%3ANL%3Aeindhoven%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant');
-    await expect.poll(async () => {
-      const center = await getMapCenter(page);
-      return center ? `${center.lng.toFixed(1)},${center.lat.toFixed(1)}` : null;
-    }, { timeout: 15_000 }).toBe('5.5,51.4');
+    await expect
+      .poll(
+        async () => {
+          const center = await getMapCenter(page);
+          return center ? `${center.lng.toFixed(1)},${center.lat.toFixed(1)}` : null;
+        },
+        { timeout: 15_000 }
+      )
+      .toBe('5.5,51.4');
     await expect.poll(() => getMapIsMoving(page), { timeout: 15_000 }).toBe(false);
 
     const searchInput = page.getByTestId('search-bar-input');
@@ -457,18 +492,23 @@ test.describe('Merged Location Search', () => {
     await expect
       .poll(() => getPropertyTileUrl(page))
       .toContain(`area=${ENCODED_CURRENT_LOCATION_AREA_TOKEN}`);
-    await expect.poll(async () => {
-      const fitBoundsCalls = await getFitBoundsCalls(page);
-      const latestCall = fitBoundsCalls.at(-1);
-      if (!latestCall) {
-        return null;
-      }
+    await expect
+      .poll(
+        async () => {
+          const fitBoundsCalls = await getFitBoundsCalls(page);
+          const latestCall = fitBoundsCalls.at(-1);
+          if (!latestCall) {
+            return null;
+          }
 
-      const expectedBounds = getRadiusBounds(MOCK_CURRENT_LOCATION);
-      return boundsContainBounds(latestCall.bounds, expectedBounds)
-        ? 'contains-current-location-radius'
-        : JSON.stringify({ fitBoundsCalls, expectedBounds });
-    }, { timeout: 15_000 }).toBe('contains-current-location-radius');
+          const expectedBounds = getRadiusBounds(MOCK_CURRENT_LOCATION);
+          return boundsContainBounds(latestCall.bounds, expectedBounds)
+            ? 'contains-current-location-radius'
+            : JSON.stringify({ fitBoundsCalls, expectedBounds });
+        },
+        { timeout: 15_000 }
+      )
+      .toBe('contains-current-location-radius');
     await expect(page.getByRole('heading', { name: /Current location:/i })).toBeVisible({
       timeout: 15_000,
     });
@@ -476,13 +516,49 @@ test.describe('Merged Location Search', () => {
     const chipCountBeforeAddressSearch = await page.getByTestId('search-area-chip').count();
     await searchInput.click();
     await searchInput.pressSequentially(`${property.address}, ${property.city}`, { delay: 20 });
-    await page.getByTestId('search-result-item').filter({ hasText: property.address }).first().click();
+    await page
+      .getByTestId('search-result-item')
+      .filter({ hasText: property.address })
+      .first()
+      .click();
 
     await expect(page.getByTestId('group-preview-card')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('property-preview-address').first()).toContainText(
-      property.address.split(',', 1)[0] ?? property.address,
+      property.address.split(',', 1)[0] ?? property.address
     );
     await expect(page.getByTestId('search-area-chip')).toHaveCount(chipCountBeforeAddressSearch);
+    await expect(searchInput).toHaveValue('');
+
+    const centerBeforeUnresolvedAddress = await getMapCenter(page);
+    expect(centerBeforeUnresolvedAddress).toBeTruthy();
+    await searchInput.click();
+    await searchInput.pressSequentially('Unresolvedstraat 10', { delay: 20 });
+    await page
+      .getByTestId('search-result-item')
+      .filter({ hasText: 'Unresolvedstraat 10, Eindhoven' })
+      .first()
+      .click();
+
+    await expect(searchInput).toHaveValue('');
+    await expect(page.getByTestId('search-area-chip')).toHaveCount(chipCountBeforeAddressSearch);
+    await expect(page.getByTestId('selected-marker')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('group-preview-card')).toHaveCount(0);
+    await expect
+      .poll(
+        async () => {
+          const center = await getMapCenter(page);
+          if (!center || !centerBeforeUnresolvedAddress) {
+            return null;
+          }
+
+          return (
+            Math.abs(center.lng - centerBeforeUnresolvedAddress.lng) > 0.001 ||
+            Math.abs(center.lat - centerBeforeUnresolvedAddress.lat) > 0.001
+          );
+        },
+        { timeout: 15_000 }
+      )
+      .toBe(true);
 
     expectNoConsoleErrors(consoleErrors);
   });

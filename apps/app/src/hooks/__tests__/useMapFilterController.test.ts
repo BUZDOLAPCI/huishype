@@ -1,29 +1,35 @@
 import React from 'react';
 import { act, renderHook } from '@testing-library/react-native';
 
-import { useMapFilterController } from '../useMapFilterController';
+import {
+  MapFilterControllerContext,
+  useLocalMapFilterController,
+  useMapFilterController,
+} from '../useMapFilterController';
+
+function SharedControllerProvider({ children }: { children: React.ReactNode }) {
+  const controller = useLocalMapFilterController();
+
+  return React.createElement(
+    MapFilterControllerContext.Provider,
+    { value: controller },
+    children,
+  );
+}
 
 describe('useMapFilterController', () => {
-  it('keeps price edits in draft state until commit', () => {
+  it('commits normalized applied filters through the shared controller', () => {
     const onAppliedFiltersChange = jest.fn();
     const { result } = renderHook(() =>
       useMapFilterController({ onAppliedFiltersChange }),
     );
 
     act(() => {
-      result.current.toggleCategory('price');
-      result.current.updatePriceDraft('sale', 'from', '500000');
-      result.current.updatePriceDraft('sale', 'to', '750000');
-    });
-
-    expect(result.current.appliedFilters.salePriceFrom).toBeNull();
-    expect(result.current.appliedFilters.salePriceTo).toBeNull();
-    expect(result.current.draftFilters.salePriceFrom).toBe('500000');
-    expect(result.current.draftFilters.salePriceTo).toBe('750000');
-    expect(onAppliedFiltersChange).not.toHaveBeenCalled();
-
-    act(() => {
-      result.current.commitPriceDraft();
+      result.current.commitAppliedFilters({
+        ...result.current.appliedFilters,
+        salePriceFrom: 500000,
+        salePriceTo: 750000,
+      });
     });
 
     expect(result.current.appliedFilters.salePriceFrom).toBe(500000);
@@ -32,6 +38,28 @@ describe('useMapFilterController', () => {
       expect.objectContaining({
         salePriceFrom: 500000,
         salePriceTo: 750000,
+      }),
+    );
+  });
+
+  it('preserves onAppliedFiltersChange when consuming a shared controller', () => {
+    const onAppliedFiltersChange = jest.fn();
+    const { result } = renderHook(
+      () => useMapFilterController({ onAppliedFiltersChange }),
+      { wrapper: SharedControllerProvider },
+    );
+
+    act(() => {
+      result.current.commitAppliedFilters({
+        ...result.current.appliedFilters,
+        salePriceFrom: 612345,
+      });
+    });
+
+    expect(result.current.appliedFilters.salePriceFrom).toBe(612345);
+    expect(onAppliedFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        salePriceFrom: 612345,
       }),
     );
   });
@@ -53,7 +81,7 @@ describe('useMapFilterController', () => {
     expect(result.current.appliedFilters.activity).toBe('today');
 
     act(() => {
-      result.current.dismissCategory('marketState');
+      result.current.resetCategory('marketState');
     });
 
     expect(result.current.appliedFilters.marketState).toEqual([
@@ -64,7 +92,6 @@ describe('useMapFilterController', () => {
       'not-listed',
     ]);
     expect(result.current.appliedFilters.activity).toBe('today');
-    expect(result.current.openCategory).toBeNull();
     expect(result.current.orderedCategories).toEqual([
       'activity',
       'price',

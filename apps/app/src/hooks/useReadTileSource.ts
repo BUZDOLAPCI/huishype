@@ -7,21 +7,11 @@ import {
   type ReadTileCredential,
 } from '@/src/lib/mapPropertySource';
 import { readTileSourceKeys } from '@/src/hooks/readTileSourceInvalidation';
+import { getReadTileFilterSignature } from '@/src/hooks/tileFilterSignature';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { API_URL } from '@/src/utils/api';
 
 const READ_TILE_SOURCE_STALE_MS = 15 * 1000;
-
-function getReadTileFilterKey(filters: MapFilters) {
-  return {
-    salePriceFrom: filters.salePriceFrom,
-    salePriceTo: filters.salePriceTo,
-    rentPriceFrom: filters.rentPriceFrom,
-    rentPriceTo: filters.rentPriceTo,
-    marketState: filters.marketState,
-    activity: filters.activity,
-  };
-}
 
 function useReadTileSourceVersion(): number {
   const { data } = useQuery<number>({
@@ -56,12 +46,12 @@ export function useReadTileSource(filters: MapFilters, enabled = true) {
   const { accessToken, getAccessToken, isAuthenticated, user } = useAuthContext();
   const readTileSourceVersion = useReadTileSourceVersion();
   const readOverlayEnabled = enabled && readTileSourceVersion > 0;
-  const filterKey = getReadTileFilterKey(filters);
+  const filterSignature = getReadTileFilterSignature(filters);
   const anonymousViewerKey = useAnonymousViewerKey(readOverlayEnabled && !isAuthenticated);
   const viewerKey = isAuthenticated && user?.id ? `auth:${user.id}` : anonymousViewerKey;
 
   return useQuery<ResolvedReadTileSource>({
-    queryKey: [...readTileSourceKeys.sourceRoot, viewerKey ?? 'anon:pending', filterKey],
+    queryKey: [...readTileSourceKeys.sourceRoot, viewerKey ?? 'anon:pending', filterSignature],
     queryFn: async () => {
       let credential: ReadTileCredential;
 

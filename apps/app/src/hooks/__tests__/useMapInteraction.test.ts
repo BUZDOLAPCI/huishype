@@ -1449,7 +1449,7 @@ describe('useMapInteraction', () => {
       expect(result.current.previewGroup).toBeNull();
     });
 
-    it('handleLocationResolved flies to coordinate without setting preview', () => {
+    it('handleLocationResolved highlights the coordinate without setting preview', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),
       });
@@ -1465,6 +1465,7 @@ describe('useMapInteraction', () => {
         zoom: 18,
         duration: 1000,
       });
+      expect(result.current.highlightedCoordinate).toEqual([4.9, 52.37]);
       // Location resolve doesn't set preview group
       expect(result.current.previewGroup).toBeNull();
     });

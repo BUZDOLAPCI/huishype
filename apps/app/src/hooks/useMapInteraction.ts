@@ -392,7 +392,8 @@ function mergeHydratedPreviewProperty(
     hasActiveListing: selectedProperty.hasActiveListing ?? currentProperty.hasActiveListing,
   });
   const nextAerialImageUrl = derivePropertyAerialImageUrl(selectedProperty);
-  const mergedOfficialValuation = selectedProperty.officialValuation ?? currentProperty.officialValuation ?? null;
+  const mergedOfficialValuation =
+    selectedProperty.officialValuation ?? currentProperty.officialValuation ?? null;
   const mergedOfficialValuationYear =
     selectedProperty.officialValuationYear ?? currentProperty.officialValuationYear ?? null;
   const mergedAskingPrice = currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
@@ -1246,13 +1247,16 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
   const handleLocationResolved = useCallback(
     (coordinates: { lon: number; lat: number }, _address: string, camera: MapCameraCommands) => {
+      const coord: [number, number] = [coordinates.lon, coordinates.lat];
+      clearPreviewSelection();
+      setHighlightedCoordinate(coord);
       camera.flyTo({
-        center: [coordinates.lon, coordinates.lat],
+        center: coord,
         zoom: SEARCH_TARGET_ZOOM,
         duration: 1000,
       });
     },
-    []
+    [clearPreviewSelection]
   );
 
   return {

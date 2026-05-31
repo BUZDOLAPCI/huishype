@@ -629,6 +629,35 @@ function getSuggestionDistanceScore(
   return (lon - proximity.lon) ** 2 + (lat - proximity.lat) ** 2;
 }
 
+function buildGeometryDistanceOrder(
+  geometry: SQL,
+  proximity: SearchProximity | undefined
+): SQL {
+  if (!proximity) {
+    return sql``;
+  }
+
+  return sql`
+    CASE WHEN ${geometry} IS NULL THEN 1 ELSE 0 END,
+    POWER(ST_X(${geometry}) - ${proximity.lon}, 2) + POWER(ST_Y(${geometry}) - ${proximity.lat}, 2),
+  `;
+}
+
+function buildCoordinateDistanceOrder(
+  lonExpression: SQL,
+  latExpression: SQL,
+  proximity: SearchProximity | undefined
+): SQL {
+  if (!proximity) {
+    return sql``;
+  }
+
+  return sql`
+    CASE WHEN ${lonExpression} IS NULL OR ${latExpression} IS NULL THEN 1 ELSE 0 END,
+    POWER(${lonExpression} - ${proximity.lon}, 2) + POWER(${latExpression} - ${proximity.lat}, 2),
+  `;
+}
+
 function sortSuggestionsByProximity(
   suggestions: Array<LocationSearchSuggestionResponse | null>,
   proximity: SearchProximity | undefined,
@@ -734,7 +763,7 @@ function buildDbAreaSuggestion(
       : type === 'region'
         ? countryName
         : type === 'city'
-          ? joinParentLabel([row.region, countryName])
+          ? countryName
           : buildDbLocationParentLabel(row);
   const filterToken: HydratedLocationFilterToken = withHydratedTokenDefaults({
     type,
@@ -742,7 +771,7 @@ function buildDbAreaSuggestion(
     value: label,
     label,
     parentLabel,
-    city: type === 'city' ? label : type === 'region' || type === 'country' ? null : row.city,
+    city: type === 'city' || type === 'region' || type === 'country' ? null : row.city,
     region: type === 'region' ? label : type === 'country' ? null : row.region,
     postalCode: type === 'postcode' ? label : null,
     street: type === 'street' ? label : null,
@@ -774,7 +803,8 @@ function buildDbAreaSuggestion(
 async function queryDbPropertyLocationSuggestions(
   q: string,
   limit: number,
-  requestedCountryCode: CountryCode | undefined
+  requestedCountryCode: CountryCode | undefined,
+  proximity: SearchProximity | undefined
 ): Promise<LocationSearchSuggestionResponse[]> {
   const postalCodeCandidates = getPostalCodeSearchCandidates(q, requestedCountryCode);
   const { rawStreetQuery, houseNumber, houseNumberAddition } = parseSearchHouseNumber(q);
@@ -839,6 +869,7 @@ async function queryDbPropertyLocationSuggestions(
       END,
       ${houseNumberRank}
       ${houseNumberAdditionRank}
+      ${buildGeometryDistanceOrder(sql`p.geometry`, proximity)}
       p.country_code,
       p.city,
       p.street,
@@ -856,7 +887,8 @@ async function queryDbPropertyLocationSuggestions(
 async function queryDbAreaLocationSuggestions(
   q: string,
   limit: number,
-  requestedCountryCode: CountryCode | undefined
+  requestedCountryCode: CountryCode | undefined,
+  proximity: SearchProximity | undefined
 ): Promise<LocationSearchSuggestionResponse[]> {
   const rawText = normalizeSearchText(q);
   const postalCodeCandidates = getPostalCodeSearchCandidates(q, requestedCountryCode);
@@ -911,27 +943,28 @@ async function queryDbAreaLocationSuggestions(
   if (rawText.length >= 2 && /[a-z]/iu.test(rawText)) {
     const rows = Array.from(
       await db.execute<DbLocationSearchRow>(sql`
-      SELECT DISTINCT ON (p.country_code, p.city, p.region)
+      SELECT
         NULL::uuid AS id,
         p.country_code,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
-        p.city,
-        p.region,
-        p.postal_code,
-        ST_X(p.geometry) AS lon,
-        ST_Y(p.geometry) AS lat
+        MIN(p.city) AS city,
+        NULL::text AS region,
+        MIN(p.postal_code) AS postal_code,
+        AVG(ST_X(p.geometry)) AS lon,
+        AVG(ST_Y(p.geometry)) AS lat
       FROM properties p
       WHERE p.status = 'active'
         ${countryPredicate}
-        AND ${buildTextCandidatePredicate(sql`p.city`, rawText)}
+        AND ${buildCaseInsensitiveTextPredicate(sql`p.city`, rawText)}
+      GROUP BY p.country_code, LOWER(p.city)
       ORDER BY
         p.country_code,
-        p.city,
-        p.region,
-        p.house_number,
-        p.id
+        LOWER(p.city),
+        ${buildCoordinateDistanceOrder(sql`AVG(ST_X(p.geometry))`, sql`AVG(ST_Y(p.geometry))`, proximity)}
+        COUNT(*) DESC,
+        MIN(p.city)
       LIMIT ${Math.max(1, Math.min(limit, 3))}
     `)
     );
@@ -987,28 +1020,53 @@ async function queryDbAreaLocationSuggestions(
   if (rawStreetQuery.length >= 2 && /[a-z]/iu.test(rawStreetQuery)) {
     const rows = Array.from(
       await db.execute<DbLocationSearchRow>(sql`
-      SELECT DISTINCT ON (p.country_code, p.street, p.city, p.region)
-        NULL::uuid AS id,
-        p.country_code,
-        p.street,
-        NULL::integer AS house_number,
-        NULL::text AS house_number_addition,
-        p.city,
-        p.region,
-        p.postal_code,
-        ST_X(p.geometry) AS lon,
-        ST_Y(p.geometry) AS lat
-      FROM properties p
-      WHERE p.status = 'active'
-        ${countryPredicate}
-        AND ${buildTextCandidatePredicate(sql`p.street`, rawStreetQuery)}
+      WITH ranked_streets AS (
+        SELECT
+          NULL::uuid AS id,
+          p.country_code,
+          p.street,
+          NULL::integer AS house_number,
+          NULL::text AS house_number_addition,
+          p.city,
+          p.region,
+          p.postal_code,
+          ST_X(p.geometry) AS lon,
+          ST_Y(p.geometry) AS lat,
+          ROW_NUMBER() OVER (
+            PARTITION BY p.country_code, LOWER(p.street), LOWER(p.city), LOWER(COALESCE(p.region, ''))
+            ORDER BY
+              ${buildGeometryDistanceOrder(sql`p.geometry`, proximity)}
+              p.house_number,
+              p.id
+          ) AS row_number,
+          COUNT(*) OVER (
+            PARTITION BY p.country_code, LOWER(p.street), LOWER(p.city), LOWER(COALESCE(p.region, ''))
+          ) AS row_count
+        FROM properties p
+        WHERE p.status = 'active'
+          ${countryPredicate}
+          AND ${buildTextCandidatePredicate(sql`p.street`, rawStreetQuery)}
+      )
+      SELECT
+        id,
+        country_code,
+        street,
+        house_number,
+        house_number_addition,
+        city,
+        region,
+        postal_code,
+        lon,
+        lat
+      FROM ranked_streets
+      WHERE row_number = 1
       ORDER BY
-        p.country_code,
-        p.street,
-        p.city,
-        p.region,
-        p.house_number,
-        p.id
+        ${buildCoordinateDistanceOrder(sql.raw('lon'), sql.raw('lat'), proximity)}
+        row_count DESC,
+        country_code,
+        street,
+        city,
+        region
       LIMIT ${Math.max(1, Math.min(limit, 3))}
     `)
     );
@@ -1069,7 +1127,8 @@ async function queryDbLocationSuggestions(
   app: FastifyInstance,
   q: string,
   limit: number,
-  requestedCountryCode: CountryCode | undefined
+  requestedCountryCode: CountryCode | undefined,
+  proximity: SearchProximity | undefined
 ): Promise<LocationSearchSuggestionResponse[]> {
   const startedAt = performance.now();
   try {
@@ -1087,8 +1146,8 @@ async function queryDbLocationSuggestions(
     }
 
     const [areaSuggestions, propertySuggestions] = await Promise.all([
-      queryDbAreaLocationSuggestions(q, limit, requestedCountryCode),
-      queryDbPropertyLocationSuggestions(q, limit, requestedCountryCode),
+      queryDbAreaLocationSuggestions(q, limit, requestedCountryCode, proximity),
+      queryDbPropertyLocationSuggestions(q, limit, requestedCountryCode, proximity),
     ]);
     const suggestions =
       parseSearchHouseNumber(q).houseNumber == null
@@ -1120,10 +1179,10 @@ function buildLocationFilterTokenFromFeature(
   const props = feature.properties;
   const coordinates = feature.geometry.coordinates;
   const countryCode = normalizeCountryCode(props.countrycode) ?? requestedCountryCode ?? null;
-  const city = type === 'city' ? label : (props.city ?? props.locality ?? null);
+  const city = type === 'city' ? null : (props.city ?? props.locality ?? null);
   const parentLabel = [
     type !== 'city' && props.city && props.city !== label ? props.city : null,
-    props.state,
+    type === 'city' ? null : props.state,
     props.country,
   ]
     .filter(Boolean)
@@ -1136,7 +1195,7 @@ function buildLocationFilterTokenFromFeature(
     label,
     parentLabel: parentLabel || null,
     city,
-    region: type === 'street' ? null : (props.state ?? props.county ?? null),
+    region: type === 'city' || type === 'street' ? null : (props.state ?? props.county ?? null),
     postalCode: type === 'street' ? null : (props.postcode ?? null),
     street: props.street ?? (type === 'street' ? props.name : null) ?? null,
     coordinates,
@@ -1779,7 +1838,7 @@ function buildTokenId(token: LocationFilterToken): string {
     normalizeLocationTokenValue(token.type, token.value || token.label),
   ];
 
-  if (token.city) parts.push(`city=${normalizeSearchToken(token.city)}`);
+  if (token.city && token.type !== 'city') parts.push(`city=${normalizeSearchToken(token.city)}`);
   if (token.region) parts.push(`region=${normalizeSearchToken(token.region)}`);
   if (token.type !== 'street' && token.postalCode) {
     parts.push(`postcode=${normalizePostalCodeForMatch(token.postalCode).toLowerCase()}`);
@@ -1826,7 +1885,7 @@ function buildHydratedTokenFromRow(
     countryCode,
     label,
     value: normalizeSearchToken(label || token.value),
-    city: row.city,
+    city: token.type === 'city' ? null : row.city,
     region: row.region,
     postalCode: row.postal_code,
     street: row.street,
@@ -1840,7 +1899,7 @@ function buildHydratedTokenFromRow(
   } else if (token.type === 'postcode') {
     hydrated.parentLabel = joinParentLabel([row.city, row.region]);
   } else if (token.type === 'city') {
-    hydrated.parentLabel = joinParentLabel([row.region, countryName]);
+    hydrated.parentLabel = row.region ? joinParentLabel([row.region, countryName]) : countryName;
   } else if (token.type === 'region') {
     hydrated.parentLabel = countryName;
   } else {
@@ -1902,27 +1961,48 @@ async function queryHydratedLocationToken(
   let rows: LocationTokenHydrationRow[] = [];
 
   if (token.type === 'city') {
-    rows = Array.from(
-      await db.execute<LocationTokenHydrationRow>(sql`
-      SELECT
-        p.country_code,
-        p.city AS label,
-        p.city,
-        MIN(p.region) AS region,
-        NULL::text AS postal_code,
-        NULL::text AS street,
-        ${buildHydrationAggregateSelect()}
-      FROM properties p
-      WHERE p.status = 'active'
-        AND p.geometry IS NOT NULL
-        ${countryPredicate}
-        AND LOWER(p.city) = LOWER(${cityLabel})
-        ${regionPredicate}
-      GROUP BY p.country_code, p.city, p.region
-      ORDER BY COUNT(*) DESC
-      LIMIT 2
-    `)
-    );
+    rows = token.region
+      ? Array.from(
+          await db.execute<LocationTokenHydrationRow>(sql`
+          SELECT
+            p.country_code,
+            p.city AS label,
+            p.city,
+            p.region,
+            NULL::text AS postal_code,
+            NULL::text AS street,
+            ${buildHydrationAggregateSelect()}
+          FROM properties p
+          WHERE p.status = 'active'
+            AND p.geometry IS NOT NULL
+            ${countryPredicate}
+            AND LOWER(p.city) = LOWER(${cityLabel})
+            ${regionPredicate}
+          GROUP BY p.country_code, p.city, p.region
+          ORDER BY COUNT(*) DESC
+          LIMIT 2
+        `)
+        )
+      : Array.from(
+          await db.execute<LocationTokenHydrationRow>(sql`
+          SELECT
+            p.country_code,
+            MIN(p.city) AS label,
+            MIN(p.city) AS city,
+            NULL::text AS region,
+            NULL::text AS postal_code,
+            NULL::text AS street,
+            ${buildHydrationAggregateSelect()}
+          FROM properties p
+          WHERE p.status = 'active'
+            AND p.geometry IS NOT NULL
+            ${countryPredicate}
+            AND LOWER(p.city) = LOWER(${cityLabel})
+          GROUP BY p.country_code, LOWER(p.city)
+          ORDER BY COUNT(*) DESC
+          LIMIT 2
+        `)
+        );
   } else if (token.type === 'region') {
     rows = Array.from(
       await db.execute<LocationTokenHydrationRow>(sql`
@@ -2055,7 +2135,15 @@ export async function searchLocations(input: {
   }
 
   const requestedCountryCode = normalizeCountryCode(countrycode);
-  const proximity = getSearchProximity(lon, lat);
+  const explicitProximity = getSearchProximity(lon, lat);
+  const rankingProximity =
+    explicitProximity ??
+    (requestedCountryCode
+      ? {
+          lon: getCountryConfig(requestedCountryCode).defaultCenter[0],
+          lat: getCountryConfig(requestedCountryCode).defaultCenter[1],
+        }
+      : undefined);
   const photonLimit = requestedCountryCode
     ? Math.min(
         Math.max(limit * PHOTON_COUNTRY_FILTER_MULTIPLIER, limit),
@@ -2064,19 +2152,25 @@ export async function searchLocations(input: {
     : limit;
 
   try {
-    const dbSuggestions = await queryDbLocationSuggestions(app, q, limit, requestedCountryCode);
+    const dbSuggestions = await queryDbLocationSuggestions(
+      app,
+      q,
+      limit,
+      requestedCountryCode,
+      rankingProximity
+    );
     const preferredFeatures = await fetchPhotonFeatures(app, {
       q,
       limit: photonLimit,
       countryCode: requestedCountryCode,
-      proximity,
+      proximity: explicitProximity,
     });
     const features =
       requestedCountryCode && preferredFeatures.length === 0
         ? await fetchPhotonFeatures(app, {
             q,
             limit: photonLimit,
-            proximity,
+            proximity: explicitProximity,
           })
         : preferredFeatures;
     const supplementalFeatures = await fetchSupplementalStreetAddressFeatures(
@@ -2084,7 +2178,7 @@ export async function searchLocations(input: {
       features,
       q,
       requestedCountryCode,
-      proximity
+      rankingProximity
     );
     const countryFiltered = features
       .concat(supplementalFeatures)
@@ -2096,10 +2190,10 @@ export async function searchLocations(input: {
     const dedupedSuggestions = new Map<string, LocationSearchSuggestionResponse>();
     const sortedTransformedSuggestions = sortSuggestionsByProximity(
       transformedSuggestions,
-      proximity,
+      rankingProximity,
       q
     );
-    const orderedSuggestions = proximity
+    const orderedSuggestions = rankingProximity
       ? [
           ...sortSuggestionsByProximity(
             [
@@ -2109,7 +2203,7 @@ export async function searchLocations(input: {
                   suggestion != null && !isCoordinateFallbackSuggestion(suggestion)
               ),
             ],
-            proximity,
+            rankingProximity,
             q
           ),
           ...sortedTransformedSuggestions.filter(

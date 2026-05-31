@@ -32,6 +32,26 @@ function MapFilterBarHarness() {
   );
 }
 
+function SharedMapFilterBarsHarness() {
+  const controller = useMapFilterController();
+
+  return (
+    <View>
+      <MapFilterBar
+        controller={controller}
+        showActivityFilter={false}
+        showFollowingFilter={false}
+      />
+      <MapFilterBar
+        controller={controller}
+        showActivityFilter={false}
+        showFollowingFilter={false}
+      />
+      <Text testID="applied-state">{JSON.stringify(controller.appliedFilters)}</Text>
+    </View>
+  );
+}
+
 const originalPlatform = Platform.OS;
 
 function render(ui: React.ReactElement) {
@@ -68,6 +88,28 @@ describe('MapFilterBar', () => {
 
     expect(getByTestId('applied-state').props.children).toContain('"salePriceFrom":600000');
     expect(getByTestId('applied-state').props.children).toContain('"salePriceTo":800000');
+  });
+
+  it('lets two filter bars share committed filters without sharing panel state', () => {
+    const { getAllByTestId, getByTestId, queryAllByTestId } = render(
+      <SharedMapFilterBarsHarness />
+    );
+
+    fireEvent.press(getAllByTestId('map-filter-pill-price')[0]!);
+
+    expect(queryAllByTestId('map-filter-panel-price')).toHaveLength(1);
+
+    fireEvent.changeText(getByTestId('map-filter-input-price-sale-from'), '500000');
+    fireEvent.press(getByTestId('map-filter-apply-price'));
+
+    expect(queryAllByTestId('map-filter-panel-price')).toHaveLength(0);
+    expect(getByTestId('applied-state').props.children).toContain('"salePriceFrom":500000');
+    expect(getAllByTestId('map-filter-pill-price-dismiss')).toHaveLength(2);
+
+    fireEvent.press(getAllByTestId('map-filter-pill-price')[1]!);
+
+    expect(queryAllByTestId('map-filter-panel-price')).toHaveLength(1);
+    expect(getByTestId('map-filter-input-price-sale-from').props.value).toBe('500000');
   });
 
   it('fills a price input from the suggestion list without applying until Apply is pressed', () => {

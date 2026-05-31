@@ -6,12 +6,13 @@
  * (GET /properties/:id response). Auth gating is handled inside the hook.
  */
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { getViewerCacheKey, propertyKeys } from './useProperties';
 import { savedPropertyKeys } from './useSavedProperties';
+import { useExactQueryCacheValue } from './useExactQueryCacheValue';
 import type { EnrichedProperty } from './usePropertyLike';
 
 export interface UsePropertySaveOptions {
@@ -123,11 +124,7 @@ export function usePropertySave({
   const viewerKey = getViewerCacheKey(user, isAuthenticated);
 
   const queryKey = propertyId ? propertyKeys.detail(propertyId, viewerKey) : null;
-  const cachedProperty = useSyncExternalStore(
-    (onStoreChange) => queryClient.getQueryCache().subscribe(onStoreChange),
-    () => (queryKey ? queryClient.getQueryData<EnrichedProperty>(queryKey) : undefined),
-    () => (queryKey ? queryClient.getQueryData<EnrichedProperty>(queryKey) : undefined),
-  );
+  const cachedProperty = useExactQueryCacheValue<EnrichedProperty>(queryClient, queryKey);
 
   const isSaved = cachedProperty?.isSaved ?? false;
 

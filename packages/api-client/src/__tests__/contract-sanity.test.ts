@@ -411,6 +411,16 @@ type Equal<A, B> =
     : false;
 
 type FeedQuery = NonNullable<paths['/feed']['get']['parameters']['query']>;
+type GroupedPropertyActivityQuery = NonNullable<
+  paths['/activity/properties']['get']['parameters']['query']
+>;
+type SharedMarketAreaQueryKeys =
+  | 'salePriceFrom'
+  | 'salePriceTo'
+  | 'rentPriceFrom'
+  | 'rentPriceTo'
+  | 'marketState'
+  | 'area';
 const feedContractAssertions = [
   true as Assert<IsExact<FeedQueryFromOpenApi, GetFeedRequest>>,
   true as Assert<IsExact<FeedResponseFromOpenApi, GetFeedResponse>>,
@@ -420,7 +430,23 @@ const feedContractAssertions = [
   true as Assert<IsExact<SubmitListingResponseFromOpenApi, CanonicalSubmitListingResponse>>,
   true as Assert<IsExact<SubmitListingErrorFromOpenApi, CanonicalSubmitListingError>>,
   true as Assert<IsExact<PropertyListingsResponseFromOpenApi, CanonicalPropertyListingsResponse>>,
-  true as Expect<Equal<keyof FeedQuery, 'filter' | 'page' | 'limit' | 'lat' | 'lon' | 'country'>>,
+  true as Expect<
+    Equal<
+      keyof FeedQuery,
+      | 'filter'
+      | 'page'
+      | 'limit'
+      | 'lat'
+      | 'lon'
+      | 'country'
+      | SharedMarketAreaQueryKeys
+    >
+  >,
+  true as Expect<Equal<Extract<keyof FeedQuery, 'activity'>, never>>,
+  true as Expect<
+    Equal<keyof GroupedPropertyActivityQuery, 'scope' | 'limit' | 'offset' | SharedMarketAreaQueryKeys>
+  >,
+  true as Expect<Equal<Extract<keyof GroupedPropertyActivityQuery, 'activity'>, never>>,
   true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
   true as Expect<
     Equal<FeedResponseFromOpenApi['items'][number]['activityLevel'], 'hot' | 'warm' | 'cold'>
@@ -1065,6 +1091,100 @@ describe('HuisHypeApiClient', () => {
 
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:3100/tiles/following/properties.json?marketState=for-sale%2Csold&activity=30d',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer mock-token',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes feed shared market, price, and area filters', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          pagination: {
+            page: 1,
+            limit: 20,
+            hasMore: false,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    try {
+      await expect(
+        client.getFeed({
+          filter: 'latest',
+          salePriceFrom: 450000,
+          marketState: ['for-sale', 'sold'],
+          area: ['city:NL:eindhoven', 'current-location:52.370216:4.895168:7500'],
+        })
+      ).resolves.toHaveProperty('items');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/feed?filter=latest&salePriceFrom=450000&marketState=for-sale%2Csold&area=city%3ANL%3Aeindhoven&area=current-location%3A52.370216%3A4.895168%3A7500',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('serializes grouped property activity shared filters without activity time filters', async () => {
+    const client = createApiClient({
+      baseUrl: 'http://localhost:3100',
+      accessToken: 'mock-token',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          pagination: {
+            limit: 20,
+            offset: 0,
+            hasMore: false,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    try {
+      await expect(
+        client.getGroupedPropertyActivity({
+          scope: 'following',
+          limit: 20,
+          offset: 0,
+          rentPriceTo: 2500,
+          marketState: ['for-rent', 'rented'],
+          area: ['city:NL:eindhoven'],
+        })
+      ).resolves.toHaveProperty('items');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:3100/activity/properties?scope=following&limit=20&offset=0&rentPriceTo=2500&marketState=for-rent%2Crented&area=city%3ANL%3Aeindhoven',
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({

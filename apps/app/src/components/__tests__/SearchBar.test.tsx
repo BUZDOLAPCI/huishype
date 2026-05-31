@@ -1,5 +1,11 @@
 import React from 'react';
-import { render as rtlRender, fireEvent, screen, act, waitFor } from '@testing-library/react-native';
+import {
+  render as rtlRender,
+  fireEvent,
+  screen,
+  act,
+  waitFor,
+} from '@testing-library/react-native';
 import { Platform } from 'react-native';
 import { SearchBar } from '../SearchBar';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
@@ -105,10 +111,7 @@ describe('SearchBar', () => {
 
   it('renders search input with correct testID', () => {
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     expect(screen.getByTestId('search-bar-focus-target')).toBeTruthy();
@@ -117,10 +120,7 @@ describe('SearchBar', () => {
 
   it('renders placeholder text', () => {
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     expect(screen.getByText('Search address...')).toBeTruthy();
@@ -132,10 +132,7 @@ describe('SearchBar', () => {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, 'nl');
 
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     await waitFor(() => {
@@ -145,10 +142,7 @@ describe('SearchBar', () => {
 
   it('enters the focused search state when the native focus target is pressed', () => {
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     fireEvent.press(screen.getByTestId('search-bar-focus-target'));
@@ -160,10 +154,7 @@ describe('SearchBar', () => {
 
   it('debounces input - does not call search immediately', () => {
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
@@ -176,10 +167,7 @@ describe('SearchBar', () => {
 
   it('calls useAddressSearch with debounced query after delay', () => {
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
@@ -231,10 +219,7 @@ describe('SearchBar', () => {
       .mockReturnValue({ data: mockResults, isLoading: false });
 
     const { rerender } = render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
@@ -247,10 +232,7 @@ describe('SearchBar', () => {
 
     // Re-render to pick up new hook return value
     rerender(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     // Results should be visible
@@ -279,10 +261,7 @@ describe('SearchBar', () => {
     mockResolveProperty.mockResolvedValue(mockProperty);
 
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     // Simulate typing + debounce by directly setting the debounced query state
@@ -291,9 +270,12 @@ describe('SearchBar', () => {
     fireEvent.changeText(input, 'Teststraat 42');
 
     // Wait for debounce
-    await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
-    }, { timeout: 1000 });
+    await waitFor(
+      () => {
+        expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
+      },
+      { timeout: 1000 }
+    );
 
     // Find and tap result
     const resultItems = screen.queryAllByTestId('search-result-item');
@@ -328,18 +310,18 @@ describe('SearchBar', () => {
     mockResolveProperty.mockResolvedValue(null);
 
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'Teststraat 42');
 
-    await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
-    }, { timeout: 1000 });
+    await waitFor(
+      () => {
+        expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
+      },
+      { timeout: 1000 }
+    );
 
     const resultItems = screen.queryAllByTestId('search-result-item');
     if (resultItems.length > 0) {
@@ -351,7 +333,7 @@ describe('SearchBar', () => {
         expect(onLocationResolved).toHaveBeenCalledWith(
           { lon: TEST_LNG, lat: TEST_LAT },
           'Teststraat 42, 5651HA Eindhoven',
-          mockAddress,
+          mockAddress
         );
       });
     }
@@ -378,18 +360,18 @@ describe('SearchBar', () => {
     mockResolveProperty.mockResolvedValue(mockProperty);
 
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'Teststraat 42');
 
-    await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
-    }, { timeout: 1000 });
+    await waitFor(
+      () => {
+        expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
+      },
+      { timeout: 1000 }
+    );
 
     const resultItems = screen.queryAllByTestId('search-result-item');
     expect(resultItems.length).toBeGreaterThan(0);
@@ -398,13 +380,17 @@ describe('SearchBar', () => {
       fireEvent.press(resultItems[0]);
     });
 
-    await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenLastCalledWith('', 5, undefined);
-    }, { timeout: 1000 });
+    await waitFor(
+      () => {
+        expect(mockUseAddressSearch).toHaveBeenLastCalledWith('', 5, undefined);
+      },
+      { timeout: 1000 }
+    );
 
     fireEvent.press(screen.getByTestId('search-bar-focus-target'));
 
-    expect(screen.queryByTestId('search-results-list')).toBeNull();
+    expect(screen.getByTestId('search-current-location')).toBeTruthy();
+    expect(screen.queryByText('Teststraat 42, 5651HA Eindhoven')).toBeNull();
     expect(screen.queryByTestId('search-results-loading')).toBeNull();
     expect(screen.queryByTestId('search-results-empty')).toBeNull();
   });
@@ -441,9 +427,12 @@ describe('SearchBar', () => {
     const input = focusNativeSearchInput();
     fireEvent.changeText(input, 'Teststraat 42');
 
-    await waitFor(() => {
-      expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
-    }, { timeout: 1000 });
+    await waitFor(
+      () => {
+        expect(mockUseAddressSearch).toHaveBeenCalledWith('Teststraat 42', 5, undefined);
+      },
+      { timeout: 1000 }
+    );
 
     const resultItems = screen.queryAllByTestId('search-result-item');
     expect(resultItems.length).toBeGreaterThan(0);
@@ -471,10 +460,7 @@ describe('SearchBar', () => {
 
   it('shows clear button and resets on tap', () => {
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
@@ -498,10 +484,7 @@ describe('SearchBar', () => {
 
   it('does not show results for queries shorter than 2 characters', () => {
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
@@ -551,10 +534,7 @@ describe('SearchBar', () => {
     });
 
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
@@ -609,7 +589,7 @@ describe('SearchBar', () => {
     fireEvent.press(screen.getByTestId('search-result-item'));
 
     expect(onAreaSelected).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' }),
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' })
     );
     expect(onPropertyResolved).not.toHaveBeenCalled();
   });
@@ -712,13 +692,20 @@ describe('SearchBar', () => {
         value: 'eindhoven',
         coordinates: [5.4697, 51.4416],
         bbox: [5.35, 51.36, 5.57, 51.51],
-      }),
+      })
     );
   });
 
-  it('opens direct address suggestions without creating area chips', async () => {
+  it('opens direct address suggestions without changing active area chips and clears transient search', async () => {
     jest.useRealTimers();
     const onAreaSelected = jest.fn();
+    const selectedArea = {
+      type: 'city' as const,
+      countryCode: 'NL',
+      value: 'eindhoven',
+      label: 'Eindhoven',
+      coordinates: [5.4697, 51.4416] as [number, number],
+    };
     mockUseLocationSearch.mockReturnValue({
       data: [
         {
@@ -749,6 +736,7 @@ describe('SearchBar', () => {
       <SearchBar
         onPropertyResolved={onPropertyResolved}
         onLocationResolved={onLocationResolved}
+        selectedAreas={[selectedArea]}
         onAreaSelected={onAreaSelected}
       />
     );
@@ -770,10 +758,101 @@ describe('SearchBar', () => {
         'Teststraat 42, Eindhoven',
         expect.objectContaining({
           formattedAddress: 'Teststraat 42, Eindhoven',
-        }),
+        })
       );
     });
     expect(onAreaSelected).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId('search-area-chip')).toHaveLength(1);
+    expect(screen.queryByTestId('search-results-list')).toBeNull();
+    expect(screen.queryByText('Teststraat 42, Eindhoven')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('search-bar-focus-target'));
+    expect(screen.getByTestId('search-bar-input').props.value).toBe('');
+  });
+
+  it('opens direct property suggestions without changing active area chips and clears transient search', async () => {
+    jest.useRealTimers();
+    const onAreaSelected = jest.fn();
+    const selectedArea = {
+      type: 'city' as const,
+      countryCode: 'NL',
+      value: 'eindhoven',
+      label: 'Eindhoven',
+      coordinates: [5.4697, 51.4416] as [number, number],
+    };
+    const mockProperty = {
+      id: 'prop-123',
+      address: 'Teststraat 42',
+      postalCode: '5651HA',
+      city: 'Eindhoven',
+      coordinates: { lon: TEST_LNG, lat: TEST_LAT },
+      hasListing: true,
+      officialValuation: 350000,
+    };
+
+    mockUseLocationSearch.mockReturnValue({
+      data: [
+        {
+          id: 'property:prop-123',
+          type: 'property',
+          label: 'Teststraat 42',
+          subtitle: '5651HA Eindhoven',
+          address: 'Teststraat 42',
+          city: 'Eindhoven',
+          countryCode: 'NL',
+          street: 'Teststraat',
+          postalCode: '5651HA',
+          houseNumber: '42',
+          houseNumberAddition: null,
+          coordinates: [TEST_LNG, TEST_LAT],
+          propertyId: 'prop-123',
+          filterToken: {
+            type: 'street',
+            countryCode: 'NL',
+            value: 'teststraat',
+            label: 'Teststraat',
+          },
+        },
+      ],
+      isLoading: false,
+    });
+    mockResolveProperty.mockResolvedValue(mockProperty);
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        selectedAreas={[selectedArea]}
+        onAreaSelected={onAreaSelected}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Teststraat 42');
+
+    await waitFor(() => {
+      expect(screen.getByText('Teststraat 42')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('Teststraat 42'));
+    });
+
+    await waitFor(() => {
+      expect(onPropertyResolved).toHaveBeenCalledWith(
+        mockProperty,
+        expect.objectContaining({
+          formattedAddress: 'Teststraat 42',
+        })
+      );
+    });
+    expect(onAreaSelected).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId('search-area-chip')).toHaveLength(1);
+    expect(screen.queryByTestId('search-results-list')).toBeNull();
+    expect(screen.queryByText('Teststraat 42')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('search-bar-focus-target'));
+    expect(screen.getByTestId('search-bar-input').props.value).toBe('');
   });
 
   it('distinguishes same-name location suggestions by type subtitle', () => {
@@ -815,10 +894,7 @@ describe('SearchBar', () => {
     });
 
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     const input = focusNativeSearchInput();
@@ -878,10 +954,7 @@ describe('SearchBar', () => {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, 'nl');
 
     render(
-      <SearchBar
-        onPropertyResolved={onPropertyResolved}
-        onLocationResolved={onLocationResolved}
-      />
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
     );
 
     fireEvent(screen.getByTestId('search-bar-input'), 'focus');
