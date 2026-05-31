@@ -45,10 +45,12 @@ export function normalizePostalCode(code: string, countryCode: CountryCode = 'NL
  */
 export function postalCodeSchemaForCountry(countryCode: CountryCode) {
   const cfg = getCountryConfig(countryCode);
-  return z.string().refine(
-    (val) => cfg.postalCodeRegex.test(val.trim().toUpperCase()),
-    `Invalid postal code format for ${cfg.name}`,
-  );
+  return z
+    .string()
+    .refine(
+      (val) => cfg.postalCodeRegex.test(val.trim().toUpperCase()),
+      `Invalid postal code format for ${cfg.name}`
+    );
 }
 
 export function normalizeHandle(value: string): string {
@@ -149,14 +151,13 @@ export const activityLevelSchema = z.enum(['cold', 'warm', 'hot']);
 /** All valid listing source names from the country-config registry, plus 'other' as fallback. */
 const ALL_LISTING_SOURCES = [...getAllListingSourceNames(), 'other'] as const;
 
-export const listingSourceSchema = z.string().refine(
-  (val) => (ALL_LISTING_SOURCES as readonly string[]).includes(val),
-  { message: `Must be one of: ${ALL_LISTING_SOURCES.join(', ')}` },
-);
-
-const listingUrlSchema = z
+export const listingSourceSchema = z
   .string()
-  .url('Invalid URL');
+  .refine((val) => (ALL_LISTING_SOURCES as readonly string[]).includes(val), {
+    message: `Must be one of: ${ALL_LISTING_SOURCES.join(', ')}`,
+  });
+
+const listingUrlSchema = z.string().url('Invalid URL');
 
 const listingPropertyIdSchema = idSchema;
 
@@ -172,9 +173,7 @@ export const submitListingSchema = z.object({
 export const getListingsSchema = z.object({
   page: z.number().int().min(1).default(1),
   pageSize: z.number().int().min(1).max(100).default(20),
-  sort: z
-    .enum(['newest', 'price_asc', 'price_desc', 'most_active'])
-    .default('newest'),
+  sort: z.enum(['newest', 'price_asc', 'price_desc', 'most_active']).default('newest'),
   city: z.string().max(100).optional(),
   minPrice: priceSchema.optional(),
   maxPrice: priceSchema.optional(),
@@ -203,12 +202,7 @@ export const commentContentSchema = z
   .max(500, 'Comment must be at most 500 characters')
   .trim();
 
-export const commentSortSchema = z.enum([
-  'popular_recent',
-  'newest',
-  'oldest',
-  'most_liked',
-]);
+export const commentSortSchema = z.enum(['popular_recent', 'newest', 'oldest', 'most_liked']);
 
 export const createCommentSchema = z.object({
   propertyId: idSchema,
@@ -238,6 +232,7 @@ export const reactionTypeSchema = z.enum(['like', 'share']);
 // ============================================
 
 export const propertyFeedFilterSchema = z.enum(['trending', 'latest']);
+const feedMarketStateSchema = z.enum(['for-sale', 'for-rent', 'sold', 'rented', 'not-listed']);
 
 export const feedQuerySchema = z.object({
   filter: propertyFeedFilterSchema.default('trending'),
@@ -251,6 +246,23 @@ export const feedQuerySchema = z.object({
     .transform((value) => value.toUpperCase())
     .refine((value) => isValidCountryCode(value), 'Invalid country code')
     .optional(),
+  salePriceFrom: z.coerce.number().int().positive().optional(),
+  salePriceTo: z.coerce.number().int().positive().optional(),
+  rentPriceFrom: z.coerce.number().int().positive().optional(),
+  rentPriceTo: z.coerce.number().int().positive().optional(),
+  marketState: z
+    .string()
+    .refine(
+      (value) =>
+        value
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .every((part) => feedMarketStateSchema.safeParse(part).success),
+      'Invalid market state'
+    )
+    .optional(),
+  area: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
 export type FeedQuery = z.output<typeof feedQuerySchema>;

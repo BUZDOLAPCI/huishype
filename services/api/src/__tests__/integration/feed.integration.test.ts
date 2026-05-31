@@ -590,6 +590,36 @@ describe('Feed routes', () => {
       });
     });
 
+    it('applies shared price, status, and area filters to feed rows', async () => {
+      const saleResponse = await app.inject({
+        method: 'GET',
+        url: buildFeedUrl({
+          filter: 'trending',
+          marketState: 'for-sale',
+          salePriceFrom: 550000,
+          area: `postcode:${slice.country}:9811ab`,
+        }),
+      });
+      const rentResponse = await app.inject({
+        method: 'GET',
+        url: buildFeedUrl({
+          filter: 'trending',
+          marketState: 'for-rent',
+          rentPriceTo: 500000,
+        }),
+      });
+
+      expect(saleResponse.statusCode).toBe(200);
+      expect(JSON.parse(saleResponse.body).items.map((item: { id: string }) => item.id)).toEqual([
+        feedFixtures.hot.propertyId,
+      ]);
+
+      expect(rentResponse.statusCode).toBe(200);
+      expect(JSON.parse(rentResponse.body).items.map((item: { id: string }) => item.id)).toEqual([
+        feedFixtures.warm.propertyId,
+      ]);
+    });
+
     it('treats an edited guess as one public guess and uses the latest edit timestamp for recency', async () => {
       const user = await createIntegrationUser(app, { label: `feedguessupdate${runId}` });
       const property = await createIntegrationProperty({

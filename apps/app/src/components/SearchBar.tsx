@@ -1,5 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { View, TextInput, Pressable, Text, Platform, StyleSheet, InteractionManager } from 'react-native';
+import {
+  View,
+  TextInput,
+  Pressable,
+  Text,
+  Platform,
+  StyleSheet,
+  InteractionManager,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAddressSearch } from '@/src/hooks/useAddressResolver';
 import { useLocationSearch } from '@/src/hooks/useLocationSearch';
@@ -48,10 +56,7 @@ export interface SearchBarProps {
    * Called when a search result is tapped AND the property is found
    * in our local database via /properties/resolve.
    */
-  onPropertyResolved: (
-    property: PropertyResolveResult,
-    resolvedAddress?: ResolvedAddress,
-  ) => void;
+  onPropertyResolved: (property: PropertyResolveResult, resolvedAddress?: ResolvedAddress) => void;
   /**
    * Called when a search result is tapped but the property is NOT found
    * in our local database. Falls back to geocoder coordinates.
@@ -59,7 +64,7 @@ export interface SearchBarProps {
   onLocationResolved: (
     coordinates: { lon: number; lat: number },
     address: string,
-    resolvedAddress?: ResolvedAddress,
+    resolvedAddress?: ResolvedAddress
   ) => void;
   /** Incremented by the parent screen when it loses focus to clear transient search UI. */
   transientResetKey?: number;
@@ -70,6 +75,7 @@ export interface SearchBarProps {
   onAreaRemoved?: (area: LocationFilterToken) => void;
   onClearAreas?: () => void;
   onCurrentLocationSelected?: () => void | Promise<void>;
+  layout?: 'overlay' | 'inline';
 }
 
 const DEBOUNCE_MS = 300;
@@ -90,6 +96,7 @@ export function SearchBar({
   onAreaRemoved,
   onClearAreas,
   onCurrentLocationSelected,
+  layout = 'overlay',
 }: SearchBarProps) {
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -144,12 +151,12 @@ export function SearchBar({
   const { data: results = [], isLoading } = useAddressSearch(
     debouncedQuery,
     5,
-    searchBias ? { searchBias } : undefined,
+    searchBias ? { searchBias } : undefined
   );
   const { data: locationSuggestions = [], isLoading: isLoadingLocations } = useLocationSearch(
     debouncedQuery,
     8,
-    searchBias ? { searchBias } : undefined,
+    searchBias ? { searchBias } : undefined
   );
   const addressResults = results.filter((result) =>
     Boolean(result.details.houseNumber || result.details.street || result.details.zip)
@@ -217,7 +224,7 @@ export function SearchBar({
             onLocationResolved(
               { lon: address.lon, lat: address.lat },
               address.formattedAddress,
-              address,
+              address
             );
           }
         } else {
@@ -228,7 +235,7 @@ export function SearchBar({
           onLocationResolved(
             { lon: address.lon, lat: address.lat },
             address.formattedAddress,
-            address,
+            address
           );
         }
       } catch (error) {
@@ -240,7 +247,7 @@ export function SearchBar({
         onLocationResolved(
           { lon: address.lon, lat: address.lat },
           address.formattedAddress,
-          address,
+          address
         );
       } finally {
         if (operationId === searchOperationIdRef.current) {
@@ -248,7 +255,7 @@ export function SearchBar({
         }
       }
     },
-    [invalidatePendingSearch, onPropertyResolved, onLocationResolved],
+    [invalidatePendingSearch, onPropertyResolved, onLocationResolved]
   );
 
   const handleLocationSuggestionPress = useCallback(
@@ -274,7 +281,7 @@ export function SearchBar({
         if (suggestion.coordinates) {
           onLocationResolved(
             { lon: suggestion.coordinates[0], lat: suggestion.coordinates[1] },
-            suggestion.label,
+            suggestion.label
           );
         }
         return;
@@ -299,7 +306,7 @@ export function SearchBar({
       onLocationResolved,
       selectedAreaKeys,
       toResolvedAddress,
-    ],
+    ]
   );
 
   const handleCurrentLocationPress = useCallback(() => {
@@ -362,7 +369,10 @@ export function SearchBar({
 
   const handleFocus = useCallback(() => {
     setIsFocused(true);
-    if (debouncedQuery.length >= 2 && (locationSuggestions.length > 0 || addressResults.length > 0)) {
+    if (
+      debouncedQuery.length >= 2 &&
+      (locationSuggestions.length > 0 || addressResults.length > 0)
+    ) {
       setShowResults(true);
     }
   }, [addressResults.length, debouncedQuery, locationSuggestions.length]);
@@ -418,9 +428,11 @@ export function SearchBar({
 
   // Compute the top offset for the search bar.
   // It must sit below the header row: safe area top + header height + gap.
-  const topOffset = Platform.OS === 'web'
-    ? 54 // Below the web header row
-    : insets.top + 46; // Below native header row
+  const topOffset =
+    Platform.OS === 'web'
+      ? 54 // Below the web header row
+      : insets.top + 46; // Below native header row
+  const isInline = layout === 'inline';
 
   const searchIconColor = isFocused ? COLORS.gold500 : COLORS.warm400;
   const hasSelectedAreas = selectedAreas.length > 0;
@@ -511,7 +523,13 @@ export function SearchBar({
           testID="search-clear-button"
           onPress={handleClear}
           hitSlop={12}
-          style={{ padding: 8, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+          style={{
+            padding: 8,
+            minWidth: 44,
+            minHeight: 44,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
           accessibilityLabel={t('search.clear')}
           accessibilityRole="button"
         >
@@ -522,13 +540,7 @@ export function SearchBar({
   );
 
   const unfocusedNativeField = (
-    <View
-      style={[
-        styles.inputContainer,
-        styles.inputContainerUnfocused,
-      ]}
-      pointerEvents="none"
-    >
+    <View style={[styles.inputContainer, styles.inputContainerUnfocused]} pointerEvents="none">
       <View style={styles.iconWrapper}>
         <Icon name="MagnifyingGlass" size="md" color={COLORS.warm400} />
       </View>
@@ -561,23 +573,23 @@ export function SearchBar({
           onPress={handleBackdropPress}
           accessibilityLabel={t('search.dismiss')}
           accessibilityRole="button"
-        style={[
-          styles.backdrop,
-          reducedMotion && { opacity: 1 },
-          Platform.OS === 'web'
-            ? ({
-                backdropFilter: 'blur(6px)',
-                WebkitBackdropFilter: 'blur(6px)',
-              } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-            : null,
-        ]}
-      />
+          style={[
+            isInline ? styles.inlineBackdrop : styles.backdrop,
+            reducedMotion && { opacity: 1 },
+            Platform.OS === 'web'
+              ? ({
+                  backdropFilter: 'blur(6px)',
+                  WebkitBackdropFilter: 'blur(6px)',
+                } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+              : null,
+          ]}
+        />
       )}
 
       <View
         style={[
-          styles.container,
-          { top: topOffset },
+          isInline ? styles.inlineContainer : styles.container,
+          isInline ? null : { top: topOffset },
         ]}
         testID="search-bar-container"
       >
@@ -591,11 +603,7 @@ export function SearchBar({
             accessibilityHint={t('search.focusHint')}
             onPress={handleFocusTargetPress}
           >
-            <BlurContainer
-              intensity={60}
-              tint="light"
-              style={styles.blurInputWrapper}
-            >
+            <BlurContainer intensity={60} tint="light" style={styles.blurInputWrapper}>
               {unfocusedNativeField}
             </BlurContainer>
           </Pressable>
@@ -647,6 +655,15 @@ const styles = StyleSheet.create({
     right: 14,
     zIndex: 100,
   },
+  inlineContainer: {
+    position: 'relative',
+    zIndex: 10,
+  },
+  inlineBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: COLORS.dimOverlay,
+    zIndex: 9,
+  },
   blurInputWrapper: {
     borderRadius: 16,
     overflow: 'hidden',
@@ -694,9 +711,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   inputContainerUnfocused: {
-    backgroundColor: Platform.OS === 'web'
-      ? COLORS.whiteTranslucent
-      : 'transparent',
+    backgroundColor: Platform.OS === 'web' ? COLORS.whiteTranslucent : 'transparent',
     borderWidth: 1,
     borderColor: COLORS.warm300,
     shadowColor: '#6A5A48',

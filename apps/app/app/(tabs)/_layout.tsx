@@ -3,18 +3,20 @@ import { Tabs } from 'expo-router';
 
 import { CustomTabBar } from '@/src/components/navigation/CustomTabBar';
 import { useT } from '@/src/i18n';
+import { PropertyFilterProvider } from '@/src/providers/PropertyFilterProvider';
 
 export default function TabLayout() {
   const t = useT();
 
   return (
-    <Tabs
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        // All system headers are disabled — each screen manages its own.
-        headerShown: false,
-      }}
-    >
+    <PropertyFilterProvider>
+      <Tabs
+        tabBar={(props) => <CustomTabBar {...props} />}
+        screenOptions={{
+          // All system headers are disabled — each screen manages its own.
+          headerShown: false,
+        }}
+      >
       <Tabs.Screen
         name="index"
         options={{
@@ -147,6 +149,7 @@ export default function TabLayout() {
           href: null,
         }}
       />
-    </Tabs>
+      </Tabs>
+    </PropertyFilterProvider>
   );
 }

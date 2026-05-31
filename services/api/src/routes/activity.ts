@@ -10,6 +10,7 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { fetchActivityFeed } from '../services/activity-feed.js';
 import { fetchGroupedPropertyActivityFeed } from '../services/grouped-property-activity-feed.js';
+import { parsePropertyMarketFiltersQuery } from '../services/map-filters.js';
 
 const publicActivityEventTypes = ['property_like', 'comment', 'price_guess'] as const;
 const selfActivityEventTypes = [...publicActivityEventTypes, 'save'] as const;
@@ -96,7 +97,7 @@ const groupedActivityResponseSchema = z.object({
         groupedActivityCommentPreviewSchema,
         groupedActivitySummaryPreviewSchema,
       ]),
-    }),
+    })
   ),
   pagination: z.object({
     limit: z.number(),
@@ -109,6 +110,15 @@ const activityQuerySchema = z.object({
   scope: z.enum(['public', 'following']).default('public'),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   offset: z.coerce.number().int().min(0).default(0),
+});
+
+const groupedActivityQuerySchema = activityQuerySchema.extend({
+  salePriceFrom: z.coerce.number().int().positive().optional(),
+  salePriceTo: z.coerce.number().int().positive().optional(),
+  rentPriceFrom: z.coerce.number().int().positive().optional(),
+  rentPriceTo: z.coerce.number().int().positive().optional(),
+  marketState: z.union([z.string(), z.array(z.string())]).optional(),
+  area: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
 const selfActivityQuerySchema = z.object({
@@ -186,7 +196,7 @@ export async function activityRoutes(fastify: FastifyInstance) {
         summary: 'Get grouped property activity feed',
         description:
           'Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users.',
-        querystring: activityQuerySchema,
+        querystring: groupedActivityQuerySchema,
         response: {
           200: groupedActivityResponseSchema,
           401: errorResponseSchema,
@@ -210,8 +220,9 @@ export async function activityRoutes(fastify: FastifyInstance) {
         viewerId: request.userId ?? null,
         limit,
         offset,
+        filters: parsePropertyMarketFiltersQuery(request.query),
       });
-    },
+    }
   );
 
   app.get(

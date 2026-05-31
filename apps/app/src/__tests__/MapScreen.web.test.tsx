@@ -416,6 +416,7 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
     return coordinates ? [coordinates[0], coordinates[1], coordinates[0], coordinates[1]] : null;
   }),
   getMapFilterSearchString: jest.fn((_filters, currentSearch) => currentSearch),
+  hasMapFilterQueryParams: jest.fn(() => false),
   parseMapFiltersFromSearchParams: jest.fn(() => ({ tag: 'default' })),
   serializeLocationFilterToken: jest.fn(
     (area) => `${area.type}:${area.countryCode ?? ''}:${area.value}`,

@@ -14,6 +14,12 @@ import {
   useVisibleOfficialValuationHydration,
   type OfficialValuationPatch,
 } from './useVisibleOfficialValuationHydration';
+import {
+  MAP_MARKET_STATES,
+  normalizeMapFilters,
+  serializeLocationFilterToken,
+  type MapFilters,
+} from '../lib/sharedMapFilters';
 
 export type { FeedTab, PropertyFeedFilter } from '@huishype/shared';
 
@@ -93,11 +99,59 @@ interface FeedApiResponse {
 export const feedKeys = {
   all: ['feed'] as const,
   lists: () => [...feedKeys.all, 'list'] as const,
-  list: (filter: PropertyFeedFilter, scope?: FeedScope) =>
-    [...feedKeys.lists(), { filter, ...scope }] as const,
-  infinite: (filter: PropertyFeedFilter, scope?: FeedScope) =>
-    [...feedKeys.all, 'infinite', { filter, ...scope }] as const,
+  list: (filter: PropertyFeedFilter, scope?: FeedScope, sharedFilters?: MapFilters) =>
+    [
+      ...feedKeys.lists(),
+      { filter, ...scope, filters: getSharedFeedFilterKey(sharedFilters) },
+    ] as const,
+  infinite: (filter: PropertyFeedFilter, scope?: FeedScope, sharedFilters?: MapFilters) =>
+    [
+      ...feedKeys.all,
+      'infinite',
+      { filter, ...scope, filters: getSharedFeedFilterKey(sharedFilters) },
+    ] as const,
 };
+
+function getSharedFeedFilterKey(filters?: MapFilters): string {
+  if (!filters) {
+    return 'default';
+  }
+
+  const normalized = normalizeMapFilters(filters);
+  const params = new URLSearchParams();
+  appendSharedFeedFilterParams(params, normalized);
+  const serialized = params.toString();
+  return serialized.length > 0 ? serialized : 'default';
+}
+
+function appendSharedFeedFilterParams(params: URLSearchParams, filters?: MapFilters): void {
+  if (!filters) {
+    return;
+  }
+
+  const normalized = normalizeMapFilters(filters);
+  if (normalized.salePriceFrom != null) {
+    params.set('salePriceFrom', String(normalized.salePriceFrom));
+  }
+  if (normalized.salePriceTo != null) {
+    params.set('salePriceTo', String(normalized.salePriceTo));
+  }
+  if (normalized.rentPriceFrom != null) {
+    params.set('rentPriceFrom', String(normalized.rentPriceFrom));
+  }
+  if (normalized.rentPriceTo != null) {
+    params.set('rentPriceTo', String(normalized.rentPriceTo));
+  }
+  if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
+    params.set('marketState', normalized.marketState.join(','));
+  }
+  for (const area of normalized.areas ?? []) {
+    const serialized = serializeLocationFilterToken(area);
+    if (serialized) {
+      params.append('area', serialized);
+    }
+  }
+}
 
 // Transform API item to FeedProperty (adds compat fields used by PropertyFeedCard)
 function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
@@ -123,7 +177,7 @@ function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
 
 function applyOfficialValuationPatchToFeedProperty(
   property: FeedProperty,
-  patch: OfficialValuationPatch,
+  patch: OfficialValuationPatch
 ): FeedProperty {
   if (property.id !== patch.propertyId) {
     return property;
@@ -144,7 +198,7 @@ function applyOfficialValuationPatchToFeedProperty(
 
 function hideOfficialValuationForFeedProperty(
   property: FeedProperty,
-  propertyId: string,
+  propertyId: string
 ): FeedProperty {
   return property.id === propertyId
     ? { ...property, officialValuationHydrationHidden: true }
@@ -156,7 +210,8 @@ async function fetchFeed(
   page: number = 1,
   limit: number = 20,
   filter: PropertyFeedFilter = 'trending',
-  scope?: FeedScope
+  scope?: FeedScope,
+  sharedFilters?: MapFilters
 ): Promise<{
   properties: FeedProperty[];
   meta: { page: number; limit: number; hasMore: boolean };
@@ -178,6 +233,7 @@ async function fetchFeed(
   if (scope?.lon != null) {
     params.set('lon', String(scope.lon));
   }
+  appendSharedFeedFilterParams(params, sharedFilters);
 
   const response = await fetch(`${API_URL}/feed?${params.toString()}`);
 
@@ -203,12 +259,13 @@ async function fetchFeed(
 export function useFeed(
   filter: PropertyFeedFilter = 'trending',
   scope?: FeedScope,
-  enabled = true
+  enabled = true,
+  sharedFilters?: MapFilters
 ) {
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: feedKeys.list(filter, scope),
-    queryFn: () => fetchFeed(1, FEED_PAGE_SIZE, filter, scope),
+    queryKey: feedKeys.list(filter, scope, sharedFilters),
+    queryFn: () => fetchFeed(1, FEED_PAGE_SIZE, filter, scope, sharedFilters),
     enabled,
     staleTime: 30 * 1000, // 30 seconds
     refetchOnWindowFocus: false,
@@ -219,40 +276,36 @@ export function useFeed(
       queryClient.setQueriesData<{
         properties: FeedProperty[];
         meta: { page: number; limit: number; hasMore: boolean };
-      }>(
-        { queryKey: feedKeys.lists() },
-        (current) =>
-          current
-            ? {
-                ...current,
-                properties: current.properties.map((property) =>
-                  applyOfficialValuationPatchToFeedProperty(property, patch),
-                ),
-              }
-            : current,
+      }>({ queryKey: feedKeys.lists() }, (current) =>
+        current
+          ? {
+              ...current,
+              properties: current.properties.map((property) =>
+                applyOfficialValuationPatchToFeedProperty(property, patch)
+              ),
+            }
+          : current
       );
     },
-    [queryClient],
+    [queryClient]
   );
   const hideFeedProperty = useCallback(
     (propertyId: string) => {
       queryClient.setQueriesData<{
         properties: FeedProperty[];
         meta: { page: number; limit: number; hasMore: boolean };
-      }>(
-        { queryKey: feedKeys.lists() },
-        (current) =>
-          current
-            ? {
-                ...current,
-                properties: current.properties.map((property) =>
-                  hideOfficialValuationForFeedProperty(property, propertyId),
-                ),
-              }
-            : current,
+      }>({ queryKey: feedKeys.lists() }, (current) =>
+        current
+          ? {
+              ...current,
+              properties: current.properties.map((property) =>
+                hideOfficialValuationForFeedProperty(property, propertyId)
+              ),
+            }
+          : current
       );
     },
-    [queryClient],
+    [queryClient]
   );
   useVisibleOfficialValuationHydration({
     properties: visibleProperties,
@@ -270,12 +323,14 @@ export function useFeed(
 export function useInfiniteFeed(
   filter: PropertyFeedFilter = 'trending',
   scope?: FeedScope,
-  enabled = true
+  enabled = true,
+  sharedFilters?: MapFilters
 ) {
   const queryClient = useQueryClient();
   const query = useInfiniteQuery({
-    queryKey: feedKeys.infinite(filter, scope),
-    queryFn: ({ pageParam = 1 }) => fetchFeed(pageParam, FEED_PAGE_SIZE, filter, scope),
+    queryKey: feedKeys.infinite(filter, scope, sharedFilters),
+    queryFn: ({ pageParam = 1 }) =>
+      fetchFeed(pageParam, FEED_PAGE_SIZE, filter, scope, sharedFilters),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => {
       return lastPage.meta.hasMore ? lastPage.meta.page + 1 : undefined;
@@ -286,7 +341,7 @@ export function useInfiniteFeed(
   });
   const visibleProperties = useMemo(
     () => query.data?.pages.flatMap((page) => page.properties) ?? [],
-    [query.data?.pages],
+    [query.data?.pages]
   );
   const patchFeedProperty = useCallback(
     (patch: OfficialValuationPatch) => {
@@ -296,23 +351,21 @@ export function useInfiniteFeed(
           meta: { page: number; limit: number; hasMore: boolean };
         }>;
         pageParams: unknown[];
-      }>(
-        { queryKey: [...feedKeys.all, 'infinite'] },
-        (current) =>
-          current
-            ? {
-                ...current,
-                pages: current.pages.map((page) => ({
-                  ...page,
-                  properties: page.properties.map((property) =>
-                    applyOfficialValuationPatchToFeedProperty(property, patch),
-                  ),
-                })),
-              }
-            : current,
+      }>({ queryKey: [...feedKeys.all, 'infinite'] }, (current) =>
+        current
+          ? {
+              ...current,
+              pages: current.pages.map((page) => ({
+                ...page,
+                properties: page.properties.map((property) =>
+                  applyOfficialValuationPatchToFeedProperty(property, patch)
+                ),
+              })),
+            }
+          : current
       );
     },
-    [queryClient],
+    [queryClient]
   );
   const hideFeedProperty = useCallback(
     (propertyId: string) => {
@@ -322,23 +375,21 @@ export function useInfiniteFeed(
           meta: { page: number; limit: number; hasMore: boolean };
         }>;
         pageParams: unknown[];
-      }>(
-        { queryKey: [...feedKeys.all, 'infinite'] },
-        (current) =>
-          current
-            ? {
-                ...current,
-                pages: current.pages.map((page) => ({
-                  ...page,
-                  properties: page.properties.map((property) =>
-                    hideOfficialValuationForFeedProperty(property, propertyId),
-                  ),
-                })),
-              }
-            : current,
+      }>({ queryKey: [...feedKeys.all, 'infinite'] }, (current) =>
+        current
+          ? {
+              ...current,
+              pages: current.pages.map((page) => ({
+                ...page,
+                properties: page.properties.map((property) =>
+                  hideOfficialValuationForFeedProperty(property, propertyId)
+                ),
+              })),
+            }
+          : current
       );
     },
-    [queryClient],
+    [queryClient]
   );
   useVisibleOfficialValuationHydration({
     properties: visibleProperties,

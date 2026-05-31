@@ -1,4 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   areMapFiltersEqual,
   createDefaultMapFilters,
@@ -32,37 +40,31 @@ export interface UseMapFilterControllerReturn {
   toggleCategory: (category: MapFilterCategory) => void;
   closeCategoryPanel: () => void;
   dismissCategory: (category: MapFilterCategory) => void;
-  updatePriceDraft: (
-    mode: MapPriceMode,
-    bound: 'from' | 'to',
-    value: string,
-  ) => void;
-  selectPriceSuggestion: (
-    mode: MapPriceMode,
-    bound: 'from' | 'to',
-    value: string,
-  ) => void;
+  updatePriceDraft: (mode: MapPriceMode, bound: 'from' | 'to', value: string) => void;
+  selectPriceSuggestion: (mode: MapPriceMode, bound: 'from' | 'to', value: string) => void;
   commitPriceDraft: () => void;
   toggleStatusPill: (value: MapStatusPillState) => void;
   toggleActivity: (value: Exclude<MapActivityFilter, 'all'>) => void;
   setActivity: (value: MapActivityFilter) => void;
 }
 
-export function useMapFilterController({
+export const MapFilterControllerContext = createContext<UseMapFilterControllerReturn | null>(null);
+
+export function useLocalMapFilterController({
   initialAppliedFilters,
   onAppliedFiltersChange,
 }: UseMapFilterControllerOptions = {}): UseMapFilterControllerReturn {
   const [appliedFilters, setAppliedFilters] = useState<MapFilters>(() =>
-    normalizeMapFilters(initialAppliedFilters ?? createDefaultMapFilters()),
+    normalizeMapFilters(initialAppliedFilters ?? createDefaultMapFilters())
   );
   const [draftFilters, setDraftFilters] = useState<MapFilterDraftState>(() =>
-    createMapFilterDraftState(initialAppliedFilters ?? createDefaultMapFilters()),
+    createMapFilterDraftState(initialAppliedFilters ?? createDefaultMapFilters())
   );
   const [openCategory, setOpenCategory] = useState<MapFilterCategory | null>(null);
 
   const orderedCategories = useMemo(
     () => getOrderedMapFilterCategories(appliedFilters),
-    [appliedFilters],
+    [appliedFilters]
   );
 
   const applyFilters = useCallback(
@@ -78,36 +80,33 @@ export function useMapFilterController({
         return normalized;
       });
     },
-    [onAppliedFiltersChange],
+    [onAppliedFiltersChange]
   );
 
-  const replaceAppliedFilters = useCallback(
-    (nextFilters: MapFilters) => {
-      const normalized = normalizeMapFilters(nextFilters);
-      setAppliedFilters(normalized);
-      setDraftFilters(createMapFilterDraftState(normalized));
-    },
-    [],
-  );
+  const replaceAppliedFilters = useCallback((nextFilters: MapFilters) => {
+    const normalized = normalizeMapFilters(nextFilters);
+    setAppliedFilters(normalized);
+    setDraftFilters(createMapFilterDraftState(normalized));
+  }, []);
 
   const toggleCategory = useCallback(
     (category: MapFilterCategory) => {
       setOpenCategory((current: MapFilterCategory | null) =>
-        current === category ? null : category,
+        current === category ? null : category
       );
       setDraftFilters(createMapFilterDraftState(appliedFilters));
     },
-    [appliedFilters],
+    [appliedFilters]
   );
 
   const dismissCategory = useCallback(
     (category: MapFilterCategory) => {
       applyFilters(resetMapFilterCategory(appliedFilters, category));
       setOpenCategory((current: MapFilterCategory | null) =>
-        current === category ? null : current,
+        current === category ? null : current
       );
     },
-    [appliedFilters, applyFilters],
+    [appliedFilters, applyFilters]
   );
 
   const closeCategoryPanel = useCallback(() => {
@@ -115,11 +114,7 @@ export function useMapFilterController({
   }, []);
 
   const updatePriceDraft = useCallback(
-    (
-      mode: MapPriceMode,
-      bound: 'from' | 'to',
-      value: string,
-    ) => {
+    (mode: MapPriceMode, bound: 'from' | 'to', value: string) => {
       const sanitized = sanitizeDraftNumber(value);
       setDraftFilters((current: MapFilterDraftState) => {
         if (mode === 'sale') {
@@ -137,45 +132,38 @@ export function useMapFilterController({
         };
       });
     },
-    [],
+    []
   );
 
   const selectPriceSuggestion = useCallback(
-    (
-      mode: MapPriceMode,
-      bound: 'from' | 'to',
-      value: string,
-    ) => {
+    (mode: MapPriceMode, bound: 'from' | 'to', value: string) => {
       updatePriceDraft(mode, bound, value);
     },
-    [updatePriceDraft],
+    [updatePriceDraft]
   );
 
-  const commitPriceDraft = useCallback(
-    () => {
-      applyFilters({
-        ...appliedFilters,
-        salePriceFrom: parseDraftNumber(draftFilters.salePriceFrom),
-        salePriceTo: parseDraftNumber(draftFilters.salePriceTo),
-        rentPriceFrom: parseDraftNumber(draftFilters.rentPriceFrom),
-        rentPriceTo: parseDraftNumber(draftFilters.rentPriceTo),
-      });
-    },
-    [appliedFilters, applyFilters, draftFilters],
-  );
+  const commitPriceDraft = useCallback(() => {
+    applyFilters({
+      ...appliedFilters,
+      salePriceFrom: parseDraftNumber(draftFilters.salePriceFrom),
+      salePriceTo: parseDraftNumber(draftFilters.salePriceTo),
+      rentPriceFrom: parseDraftNumber(draftFilters.rentPriceFrom),
+      rentPriceTo: parseDraftNumber(draftFilters.rentPriceTo),
+    });
+  }, [appliedFilters, applyFilters, draftFilters]);
 
   const toggleStatusPill = useCallback(
     (value: MapStatusPillState) => {
       applyFilters(toggleMapStatusPill(appliedFilters, value));
     },
-    [appliedFilters, applyFilters],
+    [appliedFilters, applyFilters]
   );
 
   const toggleActivity = useCallback(
     (value: Exclude<MapActivityFilter, 'all'>) => {
       applyFilters(toggleMapActivityFilter(appliedFilters, value));
     },
-    [appliedFilters, applyFilters],
+    [appliedFilters, applyFilters]
   );
 
   const setActivity = useCallback(
@@ -185,7 +173,7 @@ export function useMapFilterController({
         activity: value,
       });
     },
-    [appliedFilters, applyFilters],
+    [appliedFilters, applyFilters]
   );
 
   return {
@@ -204,4 +192,24 @@ export function useMapFilterController({
     toggleActivity,
     setActivity,
   };
+}
+
+export function useMapFilterController(
+  options: UseMapFilterControllerOptions = {}
+): UseMapFilterControllerReturn {
+  const sharedController = useContext(MapFilterControllerContext);
+  const localController = useLocalMapFilterController(options);
+  const appliedSharedInitialRef = useRef(false);
+  const initialAppliedFilters = options.initialAppliedFilters;
+
+  useEffect(() => {
+    if (!sharedController || !initialAppliedFilters || appliedSharedInitialRef.current) {
+      return;
+    }
+
+    appliedSharedInitialRef.current = true;
+    sharedController.replaceAppliedFilters(initialAppliedFilters);
+  }, [initialAppliedFilters, sharedController]);
+
+  return sharedController ?? localController;
 }

@@ -368,9 +368,7 @@ export function parseLocationFilterToken(value: string): LocationFilterToken | n
       label: 'Current location',
       coordinates: [lon, lat],
       radiusMeters:
-        Number.isFinite(radius) && radius > 0
-          ? Math.round(radius)
-          : CURRENT_LOCATION_RADIUS_METERS,
+        Number.isFinite(radius) && radius > 0 ? Math.round(radius) : CURRENT_LOCATION_RADIUS_METERS,
     };
   }
 
@@ -507,8 +505,8 @@ export function getLocationFilterTokenCameraBounds(
         extend(
           getCurrentLocationRadiusBbox(
             token.coordinates,
-            Math.max(1, Math.round(token.radiusMeters ?? CURRENT_LOCATION_RADIUS_METERS)),
-          ),
+            Math.max(1, Math.round(token.radiusMeters ?? CURRENT_LOCATION_RADIUS_METERS))
+          )
         );
       } else {
         const [lon, lat] = token.coordinates;
@@ -1084,4 +1082,14 @@ export function hasOnlyAllowedMapFilterQueryParams(params: URLSearchParams): boo
   }
 
   return true;
+}
+
+export function hasMapFilterQueryParams(params: URLSearchParams): boolean {
+  for (const key of params.keys()) {
+    if (isMapFilterQueryKey(key)) {
+      return true;
+    }
+  }
+
+  return false;
 }

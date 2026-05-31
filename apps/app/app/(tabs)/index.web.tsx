@@ -22,6 +22,7 @@ import {
 } from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
+import { useMapSearchBias } from '@/src/hooks/useMapSearchBias';
 import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
 import { usePropertyView } from '@/src/hooks/usePropertyView';
 import { useReadTileSource } from '@/src/hooks/useReadTileSource';
@@ -78,6 +79,7 @@ import {
   getCanonicalMapFilterSignature,
   getLocationFilterTokenCameraBounds,
   getMapFilterSearchString,
+  hasMapFilterQueryParams,
   parseMapFiltersFromSearchParams,
   serializeLocationFilterToken,
   type MapActivityTimeFilter,
@@ -952,14 +954,23 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const t = useT();
   const welcomeModal = useWelcomeModal();
   const isFocused = useIsFocused();
-  const initialParsedFilters = useMemo(
+  const initialSearchParams = useMemo(
     () =>
       typeof window === 'undefined'
-        ? createDefaultMapFilters()
-        : parseMapFiltersFromSearchParams(
-            new URLSearchParams(window.location.search),
-          ),
+        ? new URLSearchParams()
+        : new URLSearchParams(window.location.search),
     [],
+  );
+  const hasInitialFilterSearchParams = useMemo(
+    () => hasMapFilterQueryParams(initialSearchParams),
+    [initialSearchParams],
+  );
+  const initialParsedFilters = useMemo(
+    () =>
+      hasInitialFilterSearchParams
+        ? parseMapFiltersFromSearchParams(initialSearchParams)
+        : createDefaultMapFilters(),
+    [hasInitialFilterSearchParams, initialSearchParams],
   );
   const initialAppliedFilters = useMemo(
     () => ({
@@ -980,7 +991,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [],
   );
   const filterController = useMapFilterController({
-    initialAppliedFilters,
+    initialAppliedFilters: hasInitialFilterSearchParams ? initialAppliedFilters : undefined,
   });
   const { accessToken, getAccessToken, isAuthenticated } = useAuthContext();
   const [socialScope, setSocialScope] = useState<MapSocialScope>(initialSocialScope);
@@ -1600,6 +1611,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     }),
     [searchBiasCenter, viewportCountryCode],
   );
+  const { setMapSearchBias } = useMapSearchBias();
+  useEffect(() => {
+    setMapSearchBias(searchBias);
+  }, [searchBias, setMapSearchBias]);
   // Ref bridge so the map init effect (which runs once) can call the latest onViewportCenterChanged
   const onViewportCenterChangedRef = useRef(onViewportCenterChanged);
   onViewportCenterChangedRef.current = onViewportCenterChanged;

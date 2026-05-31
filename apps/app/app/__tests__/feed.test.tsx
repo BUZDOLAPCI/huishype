@@ -6,14 +6,30 @@ import FeedScreen from '../(tabs)/feed';
 import { useActivityFeed, useInfiniteFeed, useMyProfile } from '@/src/hooks';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { getCurrentLocation } from '@/src/lib/currentLocation';
 import type { MyProfile } from '@/src/hooks/useUserProfile';
 
 const mockUseInfiniteFeed = useInfiniteFeed as jest.MockedFunction<typeof useInfiniteFeed>;
 const mockUseActivityFeed = useActivityFeed as jest.MockedFunction<typeof useActivityFeed>;
 const mockUseMyProfile = useMyProfile as jest.MockedFunction<typeof useMyProfile>;
-const mockUseUnreadNotificationCount =
-  useUnreadNotificationCount as jest.MockedFunction<typeof useUnreadNotificationCount>;
+const mockUseUnreadNotificationCount = useUnreadNotificationCount as jest.MockedFunction<
+  typeof useUnreadNotificationCount
+>;
 const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthContext>;
+const mockGetCurrentLocation = getCurrentLocation as jest.MockedFunction<typeof getCurrentLocation>;
+const DEFAULT_MARKET_STATES = ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'];
+let mockSharedMapSearchBias: {
+  countryCode?: string | null;
+  lat?: number;
+  lon?: number;
+} | null = null;
+let capturedSearchBarProps: {
+  searchBias?: {
+    countryCode?: string | null;
+    lat?: number;
+    lon?: number;
+  };
+} | null = null;
 
 jest.mock('expo-router', () => ({
   router: {
@@ -35,21 +51,23 @@ jest.mock('@/src/providers/AuthProvider', () => ({
   useAuthContext: jest.fn(),
 }));
 
+jest.mock('@/src/hooks/useMapSearchBias', () => ({
+  useMapSearchBias: jest.fn(() => ({
+    mapSearchBias: mockSharedMapSearchBias,
+    setMapSearchBias: jest.fn(),
+  })),
+}));
+
+jest.mock('@/src/lib/currentLocation', () => ({
+  getCurrentLocation: jest.fn(),
+}));
+
 jest.mock('@/src/components', () => ({
-  ActivityFeedCard: ({
-    property,
-    onPress,
-  }: {
-    property: { id: string };
-    onPress: () => void;
-  }) => {
+  ActivityFeedCard: ({ property, onPress }: { property: { id: string }; onPress: () => void }) => {
     const ReactNative = require('react-native');
     return (
       <ReactNative.View>
-        <ReactNative.Pressable
-          testID={`activity-card-${property.id}`}
-          onPress={onPress}
-        >
+        <ReactNative.Pressable testID={`activity-card-${property.id}`} onPress={onPress}>
           <ReactNative.Text>Open property {property.id}</ReactNative.Text>
         </ReactNative.Pressable>
       </ReactNative.View>
@@ -70,16 +88,10 @@ jest.mock('@/src/components', () => ({
     const ReactNative = require('react-native');
     return (
       <ReactNative.View>
-        <ReactNative.Pressable
-          testID="chip-trending"
-          onPress={() => onFilterChange('trending')}
-        >
+        <ReactNative.Pressable testID="chip-trending" onPress={() => onFilterChange('trending')}>
           <ReactNative.Text>Trending</ReactNative.Text>
         </ReactNative.Pressable>
-        <ReactNative.Pressable
-          testID="chip-following"
-          onPress={() => onFilterChange('following')}
-        >
+        <ReactNative.Pressable testID="chip-following" onPress={() => onFilterChange('following')}>
           <ReactNative.Text>Following</ReactNative.Text>
         </ReactNative.Pressable>
       </ReactNative.View>
@@ -90,6 +102,77 @@ jest.mock('@/src/components', () => ({
   PropertyFeedCard: ({ id }: { id: string }) => {
     const ReactNative = require('react-native');
     return <ReactNative.Text>Property {id}</ReactNative.Text>;
+  },
+  SearchBar: ({
+    searchBias,
+    selectedAreas,
+    onAreaSelected,
+  }: {
+    searchBias?: {
+      countryCode?: string | null;
+      lat?: number;
+      lon?: number;
+    };
+    selectedAreas: Array<{ label: string }>;
+    onAreaSelected: (area: {
+      type: 'city';
+      countryCode: string;
+      value: string;
+      label: string;
+      city: string;
+    }) => void;
+  }) => {
+    const ReactNative = require('react-native');
+    capturedSearchBarProps = { searchBias };
+    return (
+      <ReactNative.View testID="feed-search-bar">
+        <ReactNative.Text>Areas {selectedAreas.length}</ReactNative.Text>
+        <ReactNative.Pressable
+          testID="feed-select-area"
+          onPress={() =>
+            onAreaSelected({
+              type: 'city',
+              countryCode: 'NL',
+              value: 'eindhoven',
+              label: 'Eindhoven',
+              city: 'Eindhoven',
+            })
+          }
+        >
+          <ReactNative.Text>Select Eindhoven</ReactNative.Text>
+        </ReactNative.Pressable>
+      </ReactNative.View>
+    );
+  },
+}));
+
+jest.mock('@/src/components/map/MapFilterBar', () => ({
+  MapFilterBar: ({
+    controller,
+    showActivityFilter,
+    showFollowingFilter,
+  }: {
+    controller: { toggleStatusPill: (state: 'for-sale') => void };
+    showActivityFilter?: boolean;
+    showFollowingFilter?: boolean;
+  }) => {
+    const ReactNative = require('react-native');
+    return (
+      <ReactNative.View testID="feed-shared-map-filter-bar">
+        <ReactNative.Pressable
+          testID="feed-toggle-for-sale"
+          onPress={() => controller.toggleStatusPill('for-sale')}
+        >
+          <ReactNative.Text>For Sale</ReactNative.Text>
+        </ReactNative.Pressable>
+        {showActivityFilter ? (
+          <ReactNative.Text testID="feed-map-activity-control">Activity</ReactNative.Text>
+        ) : null}
+        {showFollowingFilter ? (
+          <ReactNative.Text testID="feed-map-following-control">Following</ReactNative.Text>
+        ) : null}
+      </ReactNative.View>
+    );
   },
 }));
 
@@ -275,6 +358,9 @@ function seedAuth() {
 describe('FeedScreen following surface', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSharedMapSearchBias = null;
+    capturedSearchBarProps = null;
+    mockGetCurrentLocation.mockRejectedValue(new Error('Location unavailable'));
     seedAuth();
     mockUseMyProfile.mockReturnValue(createMyProfileResult());
     mockUseUnreadNotificationCount.mockReturnValue({
@@ -323,32 +409,51 @@ describe('FeedScreen following surface', () => {
   });
 
   it('uses the following activity scope and emits feed-opened plus empty-viewed analytics', async () => {
-    mockUseActivityFeed.mockImplementation((scope) =>
-      createQueryResult([
-        {
-          items: scope === 'following' ? [] : [],
-        },
-      ]) as unknown as ReturnType<typeof useActivityFeed>
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
     );
 
     const { getByTestId } = render(<FeedScreen />);
 
-    expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith('trending', {
-      country: 'NL',
-      lat: 51.4416,
-      lon: 5.4697,
-    }, true);
-    expect(mockUseActivityFeed).toHaveBeenLastCalledWith('public', false);
+    expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
+      'trending',
+      {
+        country: 'NL',
+        lat: 51.4416,
+        lon: 5.4697,
+      },
+      true,
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+    );
+    expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
+      'public',
+      false,
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+    );
 
     fireEvent.press(getByTestId('chip-following'));
 
     await waitFor(() => {
-      expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith('trending', {
-        country: 'NL',
-        lat: 51.4416,
-        lon: 5.4697,
-      }, false);
-      expect(mockUseActivityFeed).toHaveBeenLastCalledWith('following', true);
+      expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
+        'trending',
+        {
+          country: 'NL',
+          lat: 51.4416,
+          lon: 5.4697,
+        },
+        false,
+        expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+      );
+      expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
+        'following',
+        true,
+        expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+      );
     });
 
     const analyticsEvents = (
@@ -368,108 +473,266 @@ describe('FeedScreen following surface', () => {
   });
 
   it('scopes the property feed to the default country center', () => {
-    mockUseActivityFeed.mockImplementation((scope) =>
-      createQueryResult([
-        {
-          items: scope === 'following' ? [] : [],
-        },
-      ]) as unknown as ReturnType<typeof useActivityFeed>
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
     );
 
     render(<FeedScreen />);
 
-    expect(mockUseInfiniteFeed).toHaveBeenCalledWith('trending', {
-      country: 'NL',
+    expect(mockUseInfiniteFeed).toHaveBeenCalledWith(
+      'trending',
+      {
+        country: 'NL',
+        lat: 51.4416,
+        lon: 5.4697,
+      },
+      true,
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+    );
+  });
+
+  it('passes the feed country scope as search bias to shared search', () => {
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    render(<FeedScreen />);
+
+    expect(capturedSearchBarProps?.searchBias).toEqual({
+      countryCode: 'NL',
       lat: 51.4416,
       lon: 5.4697,
-    }, true);
+    });
+  });
+
+  it('uses shared map viewport bias for feed search when available', () => {
+    mockSharedMapSearchBias = {
+      countryCode: 'FR',
+      lat: 48.8566,
+      lon: 2.3522,
+    };
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    render(<FeedScreen />);
+
+    expect(capturedSearchBarProps?.searchBias).toEqual({
+      countryCode: 'FR',
+      lat: 48.8566,
+      lon: 2.3522,
+    });
+    expect(mockGetCurrentLocation).not.toHaveBeenCalled();
+  });
+
+  it('uses current location as the feed search bias fallback before country defaults', async () => {
+    mockGetCurrentLocation.mockResolvedValue({
+      latitude: 51.4523,
+      longitude: 5.4457,
+    });
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    render(<FeedScreen />);
+
+    await waitFor(() => {
+      expect(capturedSearchBarProps?.searchBias).toEqual({
+        countryCode: 'NL',
+        lat: 51.4523,
+        lon: 5.4457,
+      });
+    });
   });
 
   it('scopes the property feed to the signed-in user profile country when available', () => {
-    mockUseActivityFeed.mockImplementation((scope) =>
-      createQueryResult([
-        {
-          items: scope === 'following' ? [] : [],
-        },
-      ]) as unknown as ReturnType<typeof useActivityFeed>
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
     );
     mockUseMyProfile.mockReturnValue(createMyProfileResult({ homeCountry: 'DE' }));
 
     render(<FeedScreen />);
 
-    expect(mockUseInfiniteFeed).toHaveBeenCalledWith('trending', {
-      country: 'DE',
-      lat: 52.52,
-      lon: 13.405,
-    }, true);
+    expect(mockUseInfiniteFeed).toHaveBeenCalledWith(
+      'trending',
+      {
+        country: 'DE',
+        lat: 52.52,
+        lon: 13.405,
+      },
+      true,
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+    );
   });
 
   it('waits for the authenticated profile scope before enabling the property feed query', () => {
     mockUseMyProfile.mockReturnValue(createMyProfileLoadingResult());
-    mockUseActivityFeed.mockImplementation((scope) =>
-      createQueryResult([
-        {
-          items: scope === 'following' ? [] : [],
-        },
-      ]) as unknown as ReturnType<typeof useActivityFeed>
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
     );
 
     render(<FeedScreen />);
 
-    expect(mockUseInfiniteFeed).toHaveBeenCalledWith('trending', undefined, false);
+    expect(mockUseInfiniteFeed).toHaveBeenCalledWith(
+      'trending',
+      undefined,
+      false,
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+    );
+  });
+
+  it('renders feed tabs separately from shared map/feed filters without map social controls', () => {
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId, queryByTestId } = render(<FeedScreen />);
+
+    expect(getByTestId('chip-trending')).toBeTruthy();
+    expect(getByTestId('feed-shared-filter-section')).toBeTruthy();
+    expect(getByTestId('feed-search-bar')).toBeTruthy();
+    expect(getByTestId('feed-shared-map-filter-bar')).toBeTruthy();
+    expect(queryByTestId('feed-map-activity-control')).toBeNull();
+    expect(queryByTestId('feed-map-following-control')).toBeNull();
+  });
+
+  it('passes shared filter changes to property and activity feed queries', async () => {
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId } = render(<FeedScreen />);
+
+    fireEvent.press(getByTestId('feed-toggle-for-sale'));
+    fireEvent.press(getByTestId('feed-select-area'));
+
+    await waitFor(() => {
+      expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
+        'trending',
+        {
+          country: 'NL',
+          lat: 51.4416,
+          lon: 5.4697,
+        },
+        true,
+        expect.objectContaining({
+          marketState: ['for-sale'],
+          areas: [
+            expect.objectContaining({
+              type: 'city',
+              value: 'eindhoven',
+            }),
+          ],
+        })
+      );
+      expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
+        'public',
+        false,
+        expect.objectContaining({
+          marketState: ['for-sale'],
+          areas: [
+            expect.objectContaining({
+              type: 'city',
+              value: 'eindhoven',
+            }),
+          ],
+        })
+      );
+    });
   });
 
   it('emits following-feed post click analytics with grouped property-post payloads', async () => {
-    mockUseActivityFeed.mockImplementation((scope) =>
-      createQueryResult([
-        {
-          items:
-            scope === 'following'
-              ? [
-                  {
-                    property: {
-                      id: 'property-9',
-                      address: 'Main 9',
-                      streetName: 'Main',
-                      houseNumber: 9,
-                      houseNumberAddition: null,
-                      city: 'Eindhoven',
-                      postalCode: '5611 AA',
-                      countryCode: 'NL',
-                      geometry: null,
-                      thumbnailUrl: null,
-                    },
-                    lastActivityAt: '2026-04-19T10:00:00.000Z',
-                    recentActors: [
-                      {
-                        id: 'actor-1',
-                        displayName: 'Actor 1',
-                        handle: 'actor-1',
-                        profilePhotoUrl: null,
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items:
+              scope === 'following'
+                ? [
+                    {
+                      property: {
+                        id: 'property-9',
+                        address: 'Main 9',
+                        streetName: 'Main',
+                        houseNumber: 9,
+                        houseNumberAddition: null,
+                        city: 'Eindhoven',
+                        postalCode: '5611 AA',
+                        countryCode: 'NL',
+                        geometry: null,
+                        thumbnailUrl: null,
                       },
-                    ],
-                    preview: {
-                      kind: 'comment',
-                      commentId: 'comment-1',
-                      createdAt: '2026-04-19T09:30:00.000Z',
-                      actor: {
-                        id: 'actor-1',
-                        displayName: 'Actor 1',
-                        handle: 'actor-1',
-                        profilePhotoUrl: null,
+                      lastActivityAt: '2026-04-19T10:00:00.000Z',
+                      recentActors: [
+                        {
+                          id: 'actor-1',
+                          displayName: 'Actor 1',
+                          handle: 'actor-1',
+                          profilePhotoUrl: null,
+                        },
+                      ],
+                      preview: {
+                        kind: 'comment',
+                        commentId: 'comment-1',
+                        createdAt: '2026-04-19T09:30:00.000Z',
+                        actor: {
+                          id: 'actor-1',
+                          displayName: 'Actor 1',
+                          handle: 'actor-1',
+                          profilePhotoUrl: null,
+                        },
+                        contentPreview: 'Nice one',
                       },
-                      contentPreview: 'Nice one',
+                      counts: {
+                        likeCount: 4,
+                        commentCount: 2,
+                        guessCount: 1,
+                      },
                     },
-                    counts: {
-                      likeCount: 4,
-                      commentCount: 2,
-                      guessCount: 1,
-                    },
-                  },
-                ]
-              : [],
-        },
-      ]) as unknown as ReturnType<typeof useActivityFeed>
+                  ]
+                : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
     );
 
     const { getByTestId } = render(<FeedScreen />);

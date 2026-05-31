@@ -71,6 +71,13 @@ describe('Activity routes', () => {
       lat: 51.4402,
     });
     propertyId = property.id;
+    await createIntegrationListing({
+      propertyId,
+      askingPrice: 350000,
+      priceType: 'sale',
+      createdAt: new Date('2034-12-30T10:00:00.000Z'),
+      updatedAt: new Date('2034-12-30T10:00:00.000Z'),
+    });
 
     await db.insert(reactions).values({
       id: activityEventIds.viewerLike,
@@ -351,6 +358,61 @@ describe('Activity routes', () => {
         }),
         contentPreview: 'Followed user comment',
       });
+    });
+
+    it('applies shared price, status, and area filters to public grouped property posts', async () => {
+      const matchingResponse = await app.inject({
+        method: 'GET',
+        url: '/activity/properties?scope=public&limit=10&marketState=for-sale&salePriceTo=360000&area=postcode:NL:9020aa',
+      });
+      const excludedResponse = await app.inject({
+        method: 'GET',
+        url: '/activity/properties?scope=public&limit=10&marketState=for-sale&salePriceTo=300000',
+      });
+
+      expect(matchingResponse.statusCode).toBe(200);
+      const matchingBody = JSON.parse(matchingResponse.body);
+      expect(
+        matchingBody.items.some(
+          (item: { property: { id: string } }) => item.property.id === propertyId
+        )
+      ).toBe(true);
+
+      expect(excludedResponse.statusCode).toBe(200);
+      const excludedBody = JSON.parse(excludedResponse.body);
+      expect(
+        excludedBody.items.some(
+          (item: { property: { id: string } }) => item.property.id === propertyId
+        )
+      ).toBe(false);
+    });
+
+    it('applies shared price, status, and area filters to following grouped property posts', async () => {
+      const matchingResponse = await app.inject({
+        method: 'GET',
+        url: '/activity/properties?scope=following&limit=10&marketState=for-sale&salePriceTo=360000&area=postcode:NL:9020aa',
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      });
+      const excludedResponse = await app.inject({
+        method: 'GET',
+        url: '/activity/properties?scope=following&limit=10&marketState=for-sale&salePriceTo=300000',
+        headers: { authorization: `Bearer ${viewerAccessToken}` },
+      });
+
+      expect(matchingResponse.statusCode).toBe(200);
+      expect(JSON.parse(matchingResponse.body).items).toEqual([
+        expect.objectContaining({
+          property: expect.objectContaining({ id: propertyId }),
+          counts: {
+            likeCount: 0,
+            commentCount: 1,
+            guessCount: 1,
+          },
+        }),
+      ]);
+
+      expect(excludedResponse.statusCode).toBe(200);
+      expect(JSON.parse(excludedResponse.body).items).toHaveLength(0);
     });
 
     it('orders grouped properties by latest activity and paginates grouped rows', async () => {

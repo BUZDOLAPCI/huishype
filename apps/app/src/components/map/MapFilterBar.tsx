@@ -49,6 +49,9 @@ interface MapFilterBarProps {
   onToggleFollowing?: () => void;
   followingActivity?: MapActivityTimeFilter;
   onFollowingActivityChange?: (activity: MapActivityTimeFilter) => void;
+  layout?: 'overlay' | 'inline';
+  showActivityFilter?: boolean;
+  showFollowingFilter?: boolean;
 }
 
 type PriceBound = 'from' | 'to';
@@ -250,7 +253,10 @@ function formatCompactPrice(value: number | null): string | null {
   return formatPropertyPrice(value, 'NL', { compact: true }).replace(/\s+/g, ' ').trim();
 }
 
-function getPriceBoundsForMode(filters: MapFilters, mode: MapPriceMode): [number | null, number | null] {
+function getPriceBoundsForMode(
+  filters: MapFilters,
+  mode: MapPriceMode
+): [number | null, number | null] {
   return mode === 'sale'
     ? [filters.salePriceFrom, filters.salePriceTo]
     : [filters.rentPriceFrom, filters.rentPriceTo];
@@ -279,7 +285,10 @@ function summarizePriceBounds(
   return null;
 }
 
-function getMapActivityFilterLabel(activity: MapActivityFilter, t: ReturnType<typeof useT>): string {
+function getMapActivityFilterLabel(
+  activity: MapActivityFilter,
+  t: ReturnType<typeof useT>
+): string {
   return t(ACTIVITY_LABEL_KEYS[activity]);
 }
 
@@ -331,6 +340,9 @@ export function MapFilterBar({
   onToggleFollowing,
   followingActivity = 'all-time',
   onFollowingActivityChange,
+  layout = 'overlay',
+  showActivityFilter = true,
+  showFollowingFilter = true,
 }: MapFilterBarProps) {
   const insets = useSafeAreaInsets();
   const t = useT();
@@ -355,9 +367,10 @@ export function MapFilterBar({
   } = controller;
 
   const topOffset = Platform.OS === 'web' ? 116 : insets.top + 108;
+  const isInline = layout === 'inline';
   const isPricePanelOpen = openCategory === 'price';
-  const isActivityPanelOpen = openOptionsPanel === 'activity';
-  const isFollowingPanelOpen = openOptionsPanel === 'following';
+  const isActivityPanelOpen = showActivityFilter && openOptionsPanel === 'activity';
+  const isFollowingPanelOpen = showFollowingFilter && openOptionsPanel === 'following';
   const isAnyPanelOpen = isPricePanelOpen || openOptionsPanel != null;
 
   useEffect(() => {
@@ -796,7 +809,10 @@ export function MapFilterBar({
 
       <View
         pointerEvents={isAnyPanelOpen ? 'auto' : 'box-none'}
-        style={[styles.container, { top: topOffset }]}
+        style={[
+          isInline ? styles.inlineContainer : styles.container,
+          isInline ? null : { top: topOffset },
+        ]}
       >
         <ScrollView
           horizontal
@@ -838,20 +854,22 @@ export function MapFilterBar({
             />
           ))}
 
-          <OptionedFilterPill
-            active={appliedFilters.activity !== 'all'}
-            label={
-              appliedFilters.activity === 'all'
-                ? t('filter.activity')
-                : `${t('filter.activity')}: ${getMapActivityFilterLabel(appliedFilters.activity, t)}`
-            }
-            onArrowPress={openActivityPanel}
-            onBodyPress={handleActivityBodyPress}
-            open={isActivityPanelOpen}
-            testID="map-filter-pill-activity"
-          />
+          {showActivityFilter ? (
+            <OptionedFilterPill
+              active={appliedFilters.activity !== 'all'}
+              label={
+                appliedFilters.activity === 'all'
+                  ? t('filter.activity')
+                  : `${t('filter.activity')}: ${getMapActivityFilterLabel(appliedFilters.activity, t)}`
+              }
+              onArrowPress={openActivityPanel}
+              onBodyPress={handleActivityBodyPress}
+              open={isActivityPanelOpen}
+              testID="map-filter-pill-activity"
+            />
+          ) : null}
 
-          {onToggleFollowing ? (
+          {showFollowingFilter && onToggleFollowing ? (
             <OptionedFilterPill
               active={socialScope === 'following'}
               label={
@@ -884,9 +902,7 @@ export function MapFilterBar({
 
             {openCategory === 'price' ? (
               <>
-                <Text style={styles.panelHint}>
-                  {t('filter.price.hint')}
-                </Text>
+                <Text style={styles.panelHint}>{t('filter.price.hint')}</Text>
 
                 {visiblePriceModes.map((mode) => {
                   const meta = PRICE_MODE_META[mode];
@@ -1191,6 +1207,10 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     zIndex: 95,
+  },
+  inlineContainer: {
+    position: 'relative',
+    zIndex: 5,
   },
   rail: {
     overflow: 'visible',

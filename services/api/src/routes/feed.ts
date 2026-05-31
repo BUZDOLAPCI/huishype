@@ -5,9 +5,16 @@ import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
 import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
-import { feedQuerySchema, isValidCountryCode, type FeedQuery } from '@huishype/shared';
+import { feedQuerySchema, isValidCountryCode } from '@huishype/shared';
 import { listingThumbnailOrderExpression } from '../services/property-queries.js';
 import { getOfficialValuationSourceFetchHint } from '../services/official-valuations/index.js';
+import {
+  buildLocationAreaFilterPredicate,
+  buildPropertyMarketFilterQuery,
+  getMapFilterSignature,
+  parsePropertyMarketFiltersQuery,
+  type MapFilters,
+} from '../services/map-filters.js';
 
 // --- Zod schemas ---
 
@@ -57,6 +64,17 @@ const feedResponseSchema = z.object({
   }),
 });
 
+const feedRouteQuerySchema = feedQuerySchema.extend({
+  salePriceFrom: z.coerce.number().int().positive().optional(),
+  salePriceTo: z.coerce.number().int().positive().optional(),
+  rentPriceFrom: z.coerce.number().int().positive().optional(),
+  rentPriceTo: z.coerce.number().int().positive().optional(),
+  marketState: z.union([z.string(), z.array(z.string())]).optional(),
+  area: z.union([z.string(), z.array(z.string())]).optional(),
+});
+
+type FeedRouteQuery = z.output<typeof feedRouteQuerySchema>;
+
 // --- SQL row type ---
 
 interface FeedRow extends Record<string, unknown> {
@@ -101,7 +119,7 @@ export function resetFeedCacheForTests(): void {
   feedCache.clear();
 }
 
-function buildFeedCacheKey(query: FeedQuery): string {
+function buildFeedCacheKey(query: FeedRouteQuery, filters: MapFilters): string {
   return [
     query.filter,
     query.page,
@@ -109,6 +127,7 @@ function buildFeedCacheKey(query: FeedQuery): string {
     query.country ?? '',
     query.lat ?? '',
     query.lon ?? '',
+    getMapFilterSignature({ ...filters, activity: 'all' }),
   ].join('|');
 }
 
@@ -163,7 +182,7 @@ function buildFeedScopedListingOrderExpression(scopedAlias: string) {
   )} DESC`;
 }
 
-function buildFeedOrderExpression(scoreAlias: string, filter: FeedQuery['filter']) {
+function buildFeedOrderExpression(scoreAlias: string, filter: FeedRouteQuery['filter']) {
   switch (filter) {
     case 'latest':
       return sql`${sql.raw(`${scoreAlias}.last_activity_at`)} DESC, ${sql.raw(`${scoreAlias}.id`)}`;
@@ -180,7 +199,7 @@ function buildFeedOrderExpression(scoreAlias: string, filter: FeedQuery['filter'
 export async function feedRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
-  typedApp.get<{ Querystring: FeedQuery }>(
+  typedApp.get<{ Querystring: FeedRouteQuery }>(
     '/feed',
     {
       schema: {
@@ -189,7 +208,7 @@ export async function feedRoutes(app: FastifyInstance) {
         description:
           'Get a paginated feed of properties with active listings. ' +
           'Filters: trending (weighted 7-day activity) and latest (most recent activity).',
-        querystring: feedQuerySchema,
+        querystring: feedRouteQuerySchema,
         response: {
           200: feedResponseSchema,
         },
@@ -198,7 +217,10 @@ export async function feedRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { filter, page, limit, lat, lon, country } = request.query;
       const offset = (page - 1) * limit;
-      const cacheKey = buildFeedCacheKey(request.query);
+      const sharedFilters = parsePropertyMarketFiltersQuery(request.query);
+      const marketFilterQuery = buildPropertyMarketFilterQuery(sharedFilters, 'p');
+      const areaFilterPredicate = buildLocationAreaFilterPredicate(sharedFilters.areas, 'p');
+      const cacheKey = buildFeedCacheKey(request.query, sharedFilters);
       const cached = getCachedFeedResponse(cacheKey);
 
       if (cached) {
@@ -242,9 +264,12 @@ export async function feedRoutes(app: FastifyInstance) {
             l.sort_at AS active_listing_sort_at
           FROM v_canonical_listing_facts l
           INNER JOIN properties p ON p.id = l.property_id
+          ${marketFilterQuery.join}
           WHERE l.status = 'active'
             AND p.status = 'active'
             AND p.geometry IS NOT NULL
+            AND ${marketFilterQuery.predicate}
+            AND ${areaFilterPredicate}
             ${spatialCondition}
             ${countryCondition}
         ),

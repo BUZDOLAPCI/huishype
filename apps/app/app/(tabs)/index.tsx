@@ -54,6 +54,7 @@ import {
 } from '@/src/hooks/useAmbientCommentBubbles';
 import { useMapCityName, extractCityFromAddress } from '@/src/hooks/useMapCityName';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
+import { useMapSearchBias } from '@/src/hooks/useMapSearchBias';
 import { useFollowingTileSource } from '@/src/hooks/useFollowingTileSource';
 import { useReadTileSource } from '@/src/hooks/useReadTileSource';
 import { usePropertyView } from '@/src/hooks/usePropertyView';
@@ -575,6 +576,10 @@ export default function MapScreen() {
     }),
     [searchBiasCenter, viewportCountryCode]
   );
+  const { setMapSearchBias } = useMapSearchBias();
+  useEffect(() => {
+    setMapSearchBias(searchBias);
+  }, [searchBias, setMapSearchBias]);
   const currentPreviewProperty = useMemo(
     () => interaction.previewGroup?.properties[interaction.currentPreviewIndex] ?? null,
     [interaction.currentPreviewIndex, interaction.previewGroup]

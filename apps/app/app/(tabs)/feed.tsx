@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, View } from 'react-native';
+import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { isValidCountryCode } from '@huishype/shared/config';
 
@@ -19,7 +19,9 @@ import {
   FeedLoadingState,
   FeedLoadingMore,
   PropertyFeedCard,
+  SearchBar,
 } from '@/src/components';
+import { MapFilterBar } from '@/src/components/map/MapFilterBar';
 import {
   useInfiniteFeed,
   useActivityFeed,
@@ -39,6 +41,14 @@ import { useT, type TranslationKey } from '@/src/i18n';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { getDefaultCenter } from '@/src/lib/mapDefaults';
 import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
+import { getCurrentLocation } from '@/src/lib/currentLocation';
+import {
+  DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+  type LocationFilterToken,
+} from '@/src/lib/sharedMapFilters';
+import { useMapFilterController } from '@/src/hooks/useMapFilterController';
+import { useMapSearchBias } from '@/src/hooks/useMapSearchBias';
+import type { AddressSearchBias } from '@/src/services/address-resolver';
 import {
   buildPropertyRoute,
   toInternalAppHref,
@@ -109,6 +119,13 @@ export default function FeedScreen() {
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const filterController = useMapFilterController();
+  const { mapSearchBias } = useMapSearchBias();
+  const [userLocationBiasCenter, setUserLocationBiasCenter] = useState<{
+    lat: number;
+    lon: number;
+  } | null>(null);
+  const attemptedUserLocationBiasRef = useRef(false);
   const trackedFollowingEmptyViewRef = useRef(false);
   const hasInteractedWithListRef = useRef(false);
 
@@ -137,6 +154,53 @@ export default function FeedScreen() {
       lon,
     };
   }, [feedCountryCode]);
+  const countryDefaultSearchBias = useMemo<AddressSearchBias | undefined>(() => {
+    if (!feedScope) {
+      return undefined;
+    }
+
+    return {
+      countryCode: feedScope.country,
+      lat: feedScope.lat,
+      lon: feedScope.lon,
+    };
+  }, [feedScope]);
+  const userLocationSearchBias = useMemo<AddressSearchBias | undefined>(() => {
+    if (!userLocationBiasCenter) {
+      return undefined;
+    }
+
+    return {
+      ...userLocationBiasCenter,
+      ...(feedCountryCode ? { countryCode: feedCountryCode } : {}),
+    };
+  }, [feedCountryCode, userLocationBiasCenter]);
+  const feedSearchBias = mapSearchBias ?? userLocationSearchBias ?? countryDefaultSearchBias;
+
+  useEffect(() => {
+    if (mapSearchBias || attemptedUserLocationBiasRef.current) {
+      return;
+    }
+
+    attemptedUserLocationBiasRef.current = true;
+    let cancelled = false;
+
+    void getCurrentLocation()
+      .then(({ longitude, latitude }) => {
+        if (cancelled) {
+          return;
+        }
+
+        setUserLocationBiasCenter({ lon: longitude, lat: latitude });
+      })
+      .catch(() => {
+        // Silent fallback: country/default bias is still better than global search.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapSearchBias]);
 
   const headerRightAction = useMemo(() => <FeedHeaderActions />, []);
 
@@ -148,11 +212,16 @@ export default function FeedScreen() {
   const feedQuery = useInfiniteFeed(
     isPropertyFeed ? propertyFeedFilter : 'trending',
     feedScope,
-    isPropertyFeed && !!feedScope
+    isPropertyFeed && !!feedScope,
+    filterController.appliedFilters
   );
 
   // Activity feed
-  const activityQuery = useActivityFeed(activityScope, !isPropertyFeed);
+  const activityQuery = useActivityFeed(
+    activityScope,
+    !isPropertyFeed,
+    filterController.appliedFilters
+  );
 
   const properties = useMemo(() => {
     if (!isPropertyFeed) return [];
@@ -225,6 +294,64 @@ export default function FeedScreen() {
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
     router.push(toInternalAppHref(buildPropertyRoute(property, '/feed')));
   }, []);
+  const handleFeedSearchLocationResolved = useCallback(() => {
+    // Property-result selection still navigates; broad area suggestions update
+    // filters through SearchBar's onAreaSelected callback.
+  }, []);
+  const handleFeedAreaSelected = useCallback(
+    (area: LocationFilterToken) => {
+      const currentAreas = filterController.appliedFilters.areas ?? [];
+      filterController.replaceAppliedFilters({
+        ...filterController.appliedFilters,
+        areas: [
+          ...(area.type === 'current-location'
+            ? currentAreas.filter((currentArea) => currentArea.type !== 'current-location')
+            : currentAreas),
+          area,
+        ],
+      });
+    },
+    [filterController]
+  );
+  const handleFeedAreaRemoved = useCallback(
+    (area: LocationFilterToken) => {
+      const removeKey = `${area.type}:${area.countryCode ?? ''}:${area.value}`;
+      filterController.replaceAppliedFilters({
+        ...filterController.appliedFilters,
+        areas: (filterController.appliedFilters.areas ?? []).filter(
+          (candidate) =>
+            `${candidate.type}:${candidate.countryCode ?? ''}:${candidate.value}` !== removeKey
+        ),
+      });
+    },
+    [filterController]
+  );
+  const handleClearFeedAreas = useCallback(() => {
+    filterController.replaceAppliedFilters({
+      ...filterController.appliedFilters,
+      areas: [],
+    });
+  }, [filterController]);
+  const handleFeedCurrentLocation = useCallback(async () => {
+    try {
+      const { longitude, latitude } = await getCurrentLocation();
+      const existingCurrentLocation = (filterController.appliedFilters.areas ?? []).find(
+        (area) => area.type === 'current-location'
+      );
+      handleFeedAreaSelected({
+        type: 'current-location',
+        countryCode: null,
+        value: `${latitude.toFixed(6)},${longitude.toFixed(6)}`,
+        label: t('search.currentLocationLabel'),
+        coordinates: [longitude, latitude],
+        radiusMeters:
+          existingCurrentLocation?.radiusMeters ?? DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('map.locationUnable');
+      Alert.alert(t('map.locationUnavailable'), message);
+    }
+  }, [filterController.appliedFilters.areas, handleFeedAreaSelected, t]);
   const handleLoadMore = useCallback(() => {
     if (!hasInteractedWithListRef.current) {
       return;
@@ -335,12 +462,35 @@ export default function FeedScreen() {
     />
   );
 
+  const sharedFilterSection = (
+    <View style={styles.sharedFilterSection} testID="feed-shared-filter-section">
+      <SearchBar
+        layout="inline"
+        onPropertyResolved={handlePropertyPress}
+        onLocationResolved={handleFeedSearchLocationResolved}
+        searchBias={feedSearchBias}
+        selectedAreas={filterController.appliedFilters.areas ?? []}
+        onAreaSelected={handleFeedAreaSelected}
+        onAreaRemoved={handleFeedAreaRemoved}
+        onClearAreas={handleClearFeedAreas}
+        onCurrentLocationSelected={handleFeedCurrentLocation}
+      />
+      <MapFilterBar
+        controller={filterController}
+        layout="inline"
+        showActivityFilter={false}
+        showFollowingFilter={false}
+      />
+    </View>
+  );
+
   // Loading state
   if ((isBootstrappingPropertyFeed || activeQuery.isLoading) && !isRefreshing) {
     return (
       <ScreenBackground>
         <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
+        {sharedFilterSection}
         <FeedLoadingState />
         {authModal}
       </ScreenBackground>
@@ -353,6 +503,7 @@ export default function FeedScreen() {
       <ScreenBackground>
         <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
+        {sharedFilterSection}
         <FeedErrorState
           message={activeQuery.error?.message || t('feed.error.default')}
           onRetry={activeQuery.refetch}
@@ -371,6 +522,7 @@ export default function FeedScreen() {
       <ScreenBackground>
         <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
+        {sharedFilterSection}
         <FeedEmptyState
           filter={activeFilter}
           signedIn={signedInFollowing}
@@ -397,6 +549,7 @@ export default function FeedScreen() {
       <View style={FEED_LIST_CONTAINER_STYLE}>
         <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
+        {sharedFilterSection}
 
         {isPropertyFeed ? (
           <FlatList
@@ -442,3 +595,12 @@ export default function FeedScreen() {
     </ScreenBackground>
   );
 }
+
+const styles = StyleSheet.create({
+  sharedFilterSection: {
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 6,
+  },
+});

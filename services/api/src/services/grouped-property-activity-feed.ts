@@ -12,6 +12,12 @@ import { db } from '../db/index.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { activityActorPredicate } from './activity-feed.js';
 import { buildPropertyThumbnailLateralJoin } from './property-queries.js';
+import {
+  buildLocationAreaFilterPredicate,
+  buildPropertyMarketFilterQuery,
+  createDefaultMapFilters,
+  type MapFilters,
+} from './map-filters.js';
 
 export type GroupedPropertyActivityFeedScope = 'public' | 'following';
 
@@ -146,7 +152,11 @@ export async function fetchGroupedPropertyActivityFeed(params: {
   viewerId: string | null;
   limit: number;
   offset: number;
+  filters?: MapFilters;
 }): Promise<GroupedPropertyActivityResponse> {
+  const filters = params.filters ?? createDefaultMapFilters();
+  const marketFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
+  const areaFilterPredicate = buildLocationAreaFilterPredicate(filters.areas, 'p');
   const propertyLikeActorPredicate = activityActorPredicate(
     params.scope,
     'r.user_id',
@@ -184,10 +194,13 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         FROM reactions r
         INNER JOIN users u ON u.id = r.user_id
         INNER JOIN properties p ON p.id = r.target_id
+        ${marketFilterQuery.join}
         ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE r.target_type = 'property'
           AND r.reaction_type = 'like'
           AND ${propertyLikeActorPredicate}
+          AND ${marketFilterQuery.predicate}
+          AND ${areaFilterPredicate}
       )
       UNION ALL
       (
@@ -213,9 +226,12 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         FROM comments c
         INNER JOIN users u ON u.id = c.user_id
         INNER JOIN properties p ON p.id = c.property_id
+        ${marketFilterQuery.join}
         ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE c.hidden_at IS NULL
           AND ${commentActorPredicate}
+          AND ${marketFilterQuery.predicate}
+          AND ${areaFilterPredicate}
       )
       UNION ALL
       (
@@ -241,8 +257,11 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         FROM price_guesses pg
         INNER JOIN users u ON u.id = pg.user_id
         INNER JOIN properties p ON p.id = pg.property_id
+        ${marketFilterQuery.join}
         ${buildPropertyThumbnailLateralJoin('p', 'lt')}
         WHERE ${priceGuessActorPredicate}
+          AND ${marketFilterQuery.predicate}
+          AND ${areaFilterPredicate}
       )
     ),
     grouped_events AS (
