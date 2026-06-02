@@ -69,7 +69,6 @@ import {
 } from '@/src/utils/api';
 import { viewportAnchorToPadding } from '@/src/lib/mapCameraAnchor';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, DEBUG_CAMERA } from '@/src/lib/mapDefaults';
-import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getNativePreviewOverlayLayout } from '@/src/lib/nativePreviewOverlay';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import {
@@ -1463,25 +1462,6 @@ export default function MapScreen() {
     setCopiedFlash(true);
     setTimeout(() => setCopiedFlash(false), 1500);
   }, [currentZoom]);
-
-  useEffect(() => {
-    if (!interaction.previewGroup && !interaction.selectedPropertyForSheet) {
-      return;
-    }
-
-    const matchesFilters = doesMapSelectionMatchFilters({
-      previewProperty: currentPreviewProperty,
-      selectedProperty: interaction.selectedPropertyForSheet ?? null,
-      filters: filterController.appliedFilters,
-    });
-
-    if (matchesFilters) {
-      return;
-    }
-
-    interaction.bottomSheetRef.current?.close();
-    interaction.handleClosePreview();
-  }, [currentPreviewProperty, filterController.appliedFilters, interaction]);
 
   return (
     <ScreenBackground>

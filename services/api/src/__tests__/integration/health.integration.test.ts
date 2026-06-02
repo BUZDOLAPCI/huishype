@@ -19,6 +19,93 @@ type SavedCurrentPointer = {
   updated_at: string;
 };
 
+async function restoreCurrentPointerMetadata(input: {
+  slot: ReturnType<typeof getDefaultPropertyTilePyramidSlot>;
+  currentVersionId: string;
+  previousVersionId: string | null;
+  currentPromotedAt: string;
+  promotionReason: string | null;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const txRows = await tx.execute<{ txid: string }>(sql`
+      SELECT txid_current()::bigint::text AS txid
+    `);
+    const txid = Array.from(txRows)[0]?.txid;
+    if (!txid) {
+      throw new Error('Failed to acquire transaction id for current pointer metadata restore');
+    }
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_promotion_intents (
+        txid,
+        version_id,
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        actor,
+        reason
+      )
+      VALUES (
+        ${txid}::bigint,
+        ${input.currentVersionId}::uuid,
+        ${input.slot.coverageId},
+        ${input.slot.filterSignature},
+        ${input.slot.maxZoom},
+        ${input.slot.pyramidKind}::property_tile_pyramid_kind,
+        'health.integration.test',
+        'restore health integration fixture current pointer metadata'
+      )
+      ON CONFLICT (txid, version_id) DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_current (
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        current_version_id,
+        previous_version_id,
+        current_promoted_at,
+        promotion_reason,
+        updated_at
+      )
+      VALUES (
+        ${input.slot.coverageId},
+        ${input.slot.filterSignature},
+        ${input.slot.maxZoom},
+        ${input.slot.pyramidKind}::property_tile_pyramid_kind,
+        ${input.currentVersionId}::uuid,
+        NULL,
+        ${input.currentPromotedAt}::timestamptz,
+        ${input.promotionReason},
+        NOW()
+      )
+      ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
+      DO UPDATE SET
+        current_version_id = EXCLUDED.current_version_id,
+        previous_version_id = property_tile_pyramid_current.current_version_id,
+        current_promoted_at = EXCLUDED.current_promoted_at,
+        promotion_reason = EXCLUDED.promotion_reason,
+        updated_at = NOW()
+    `);
+
+    await tx.execute(sql`
+      UPDATE property_tile_pyramid_current
+      SET
+        previous_version_id = ${input.previousVersionId}::uuid,
+        current_promoted_at = ${input.currentPromotedAt}::timestamptz,
+        promotion_reason = ${input.promotionReason},
+        updated_at = NOW()
+      WHERE coverage_id = ${input.slot.coverageId}
+        AND filter_signature = ${input.slot.filterSignature}
+        AND max_zoom = ${input.slot.maxZoom}
+        AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
+    `);
+  });
+}
+
 function lonLatToTile(lon: number, lat: number, zoom: number): { x: number; y: number } {
   const scale = 2 ** zoom;
   const x = Math.floor(((lon + 180) / 360) * scale);
@@ -395,21 +482,13 @@ describe('GET /health', () => {
     const slot = getDefaultPropertyTilePyramidSlot();
 
     if (savedCurrentPointer) {
-      await db.execute(sql`
-        DELETE FROM property_tile_pyramid_current
-        WHERE coverage_id = ${slot.coverageId}
-          AND filter_signature = ${slot.filterSignature}
-          AND max_zoom = ${slot.maxZoom}
-          AND pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
-      `);
-      await db.execute(sql`
-        SELECT promote_property_tile_pyramid_version(
-          ${savedCurrentPointer.current_version_id}::uuid,
-          NULL::uuid,
-          'restore health integration fixture',
-          'health.integration.test'
-        )
-      `);
+      await restoreCurrentPointerMetadata({
+        slot,
+        currentVersionId: savedCurrentPointer.current_version_id,
+        previousVersionId: savedCurrentPointer.previous_version_id,
+        currentPromotedAt: savedCurrentPointer.current_promoted_at,
+        promotionReason: savedCurrentPointer.promotion_reason,
+      });
     } else {
       await db.execute(sql`
         DELETE FROM property_tile_pyramid_current
@@ -426,7 +505,16 @@ describe('GET /health', () => {
       WHERE actor = 'health.integration.test'
         AND reason IN (
           'health integration fixture',
-          'restore health integration fixture'
+          'restore health integration fixture',
+          'restore health integration fixture current pointer metadata'
+        )
+    `);
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_promotion_intents
+      WHERE actor = 'health.integration.test'
+        AND reason IN (
+          'health integration fixture',
+          'restore health integration fixture current pointer metadata'
         )
     `);
     await db.execute(sql`

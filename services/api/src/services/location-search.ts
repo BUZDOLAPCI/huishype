@@ -319,15 +319,10 @@ function buildTextCandidatePredicate(column: SQL, value: string): SQL {
     return sql`FALSE`;
   }
 
-  return sql`${column} IN (${sql.join(
-    candidates.map((candidate) => sql`${candidate}`),
+  return sql`LOWER(${column}) IN (${sql.join(
+    candidates.map((candidate) => sql`LOWER(${candidate})`),
     sql`, `
   )})`;
-}
-
-function buildCaseInsensitiveTextPredicate(column: SQL, value: string): SQL {
-  const trimmed = value.trim();
-  return trimmed ? sql`LOWER(${column}) = LOWER(${trimmed})` : sql`FALSE`;
 }
 
 function getCountrySearchMatches(
@@ -809,7 +804,8 @@ async function queryDbPropertyLocationSuggestions(
   const postalCodeCandidates = getPostalCodeSearchCandidates(q, requestedCountryCode);
   const { rawStreetQuery, houseNumber, houseNumberAddition } = parseSearchHouseNumber(q);
   const usePostal = postalCodeCandidates.length > 0;
-  const useStreet = rawStreetQuery.length >= 2 && /[a-z]/iu.test(rawStreetQuery);
+  const useStreet =
+    !usePostal && rawStreetQuery.length >= 2 && /[a-z]/iu.test(rawStreetQuery);
 
   if (!usePostal && !useStreet) {
     return [];
@@ -893,6 +889,7 @@ async function queryDbAreaLocationSuggestions(
   const rawText = normalizeSearchText(q);
   const postalCodeCandidates = getPostalCodeSearchCandidates(q, requestedCountryCode);
   const { rawStreetQuery } = parseSearchHouseNumber(q);
+  const isPostalCodeSearch = postalCodeCandidates.length > 0;
   const countryPredicate = requestedCountryCode
     ? sql`AND p.country_code = ${requestedCountryCode}`
     : sql``;
@@ -940,7 +937,7 @@ async function queryDbAreaLocationSuggestions(
     }
   }
 
-  if (rawText.length >= 2 && /[a-z]/iu.test(rawText)) {
+  if (!isPostalCodeSearch && rawText.length >= 2 && /[a-z]/iu.test(rawText)) {
     const rows = Array.from(
       await db.execute<DbLocationSearchRow>(sql`
       SELECT
@@ -957,7 +954,7 @@ async function queryDbAreaLocationSuggestions(
       FROM properties p
       WHERE p.status = 'active'
         ${countryPredicate}
-        AND ${buildCaseInsensitiveTextPredicate(sql`p.city`, rawText)}
+        AND ${buildTextCandidatePredicate(sql`p.city`, q)}
       GROUP BY p.country_code, LOWER(p.city)
       ORDER BY
         p.country_code,
@@ -975,7 +972,7 @@ async function queryDbAreaLocationSuggestions(
     );
   }
 
-  if (rawText.length >= 2 && /[a-z]/iu.test(rawText)) {
+  if (!isPostalCodeSearch && rawText.length >= 2 && /[a-z]/iu.test(rawText)) {
     const rows = Array.from(
       await db.execute<DbLocationSearchRow>(sql`
       SELECT DISTINCT ON (p.country_code, p.region)
@@ -993,7 +990,7 @@ async function queryDbAreaLocationSuggestions(
       WHERE p.status = 'active'
         ${countryPredicate}
         AND p.region IS NOT NULL
-        AND ${buildCaseInsensitiveTextPredicate(sql`p.region`, q)}
+        AND ${buildTextCandidatePredicate(sql`p.region`, q)}
         AND NOT EXISTS (
           SELECT 1
           FROM properties p_city
@@ -1017,7 +1014,7 @@ async function queryDbAreaLocationSuggestions(
     );
   }
 
-  if (rawStreetQuery.length >= 2 && /[a-z]/iu.test(rawStreetQuery)) {
+  if (!isPostalCodeSearch && rawStreetQuery.length >= 2 && /[a-z]/iu.test(rawStreetQuery)) {
     const rows = Array.from(
       await db.execute<DbLocationSearchRow>(sql`
       WITH ranked_streets AS (

@@ -68,6 +68,9 @@ export type PropertyTilePyramidBuildEnqueueResult =
 let ingestBatchQueue: QueueLike<IngestBatchJobData> | null = null;
 let maintenanceQueue: QueueLike<MaintenanceRefreshJobData> | null = null;
 let propertyTilePyramidQueue: QueueLike<PropertyTilePyramidBuildJobData> | null = null;
+let latestListingsRefreshOverrideForTests:
+  | ((data: MaintenanceRefreshJobData) => Promise<void>)
+  | null = null;
 
 const WORKER_SWEEP_MAINTENANCE_REFRESH_JOB_ID = `${REFRESH_LATEST_LISTINGS_JOB}-worker-sweep`;
 
@@ -171,6 +174,11 @@ export async function enqueueIngestBatch(batchId: string): Promise<void> {
 }
 
 export async function requestLatestListingsRefresh(data: MaintenanceRefreshJobData): Promise<void> {
+  if (latestListingsRefreshOverrideForTests) {
+    await latestListingsRefreshOverrideForTests(data);
+    return;
+  }
+
   const queue = await getMaintenanceQueue();
 
   if (data.requestedBy === 'worker-sweep' && !data.batchId) {
@@ -207,6 +215,16 @@ export async function requestLatestListingsRefresh(data: MaintenanceRefreshJobDa
     data,
     { jobId: `${REFRESH_LATEST_LISTINGS_JOB}-${dedupeId}` },
   );
+}
+
+export function setLatestListingsRefreshOverrideForTests(
+  override: ((data: MaintenanceRefreshJobData) => Promise<void>) | null,
+): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('Latest listings refresh override is only available in tests');
+  }
+
+  latestListingsRefreshOverrideForTests = override;
 }
 
 export async function enqueuePropertyTileSnapshotRefresh(
@@ -274,4 +292,5 @@ export async function closeIngestQueues(): Promise<void> {
   ingestBatchQueue = null;
   maintenanceQueue = null;
   propertyTilePyramidQueue = null;
+  latestListingsRefreshOverrideForTests = null;
 }

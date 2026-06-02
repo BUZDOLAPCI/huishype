@@ -54,10 +54,10 @@ const mockCameraFitBounds = jest.fn();
 const mockCameraSetStop = jest.fn();
 const mockReplaceAppliedFilters = jest.fn();
 let mockAppliedFilters: {
-  salePriceFrom: null;
-  salePriceTo: null;
-  rentPriceFrom: null;
-  rentPriceTo: null;
+  salePriceFrom: number | null;
+  salePriceTo: number | null;
+  rentPriceFrom: number | null;
+  rentPriceTo: number | null;
   marketState: string[];
   activity: string;
   areas?: unknown[];
@@ -582,6 +582,43 @@ describe('MapScreen native grouped Following mode', () => {
     const pattern = addCall?.[2] as RegExp;
     expect(pattern.test('https://tiles.test/properties/read/12/2048/1363.pbf')).toBe(true);
     expect(pattern.test('https://tiles.test/properties/12/2048/1363.pbf')).toBe(false);
+  });
+
+  it('keeps an open preview when filters change to exclude it while updating tile inputs', async () => {
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [
+          {
+            id: 'property-filtered-preview',
+            nodeClass: 'active',
+            askingPrice: 325000,
+          },
+        ],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    const screen = await renderMapScreen();
+
+    mockInteraction.bottomSheetRef.current.close.mockClear();
+    mockInteraction.handleClosePreview.mockClear();
+
+    const nextFilters = {
+      ...mockAppliedFilters,
+      salePriceFrom: 600000,
+    };
+    mockAppliedFilters = nextFilters;
+
+    await act(async () => {
+      screen.rerender(<MapScreen />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockUseReadTileSource).toHaveBeenLastCalledWith(nextFilters, true);
+    expect(mockInteraction.bottomSheetRef.current.close).not.toHaveBeenCalled();
+    expect(mockInteraction.handleClosePreview).not.toHaveBeenCalled();
   });
 
   it('does not refetch the merged native style when only the cache-busted read tile URL changes', async () => {

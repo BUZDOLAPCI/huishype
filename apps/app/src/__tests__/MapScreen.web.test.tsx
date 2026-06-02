@@ -69,7 +69,10 @@ type MockMapInstance = {
   trigger: (event: string, payload?: unknown, layerId?: string) => void;
 };
 
-let mockAppliedFilters = { tag: 'tile-a' };
+let mockAppliedFilters: {
+  tag: string;
+  salePriceFrom?: number | null;
+} = { tag: 'tile-a' };
 let mockIsAuthenticated = true;
 let mockAccessToken: string | null = 'viewer-token';
 let mockIsFocused = true;
@@ -407,7 +410,13 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
   buildPropertyTileTemplateUrl: jest.fn((_apiUrl, filters) => `https://tiles.test/${filters.tag}`),
   createDefaultMapFilters: jest.fn(() => ({ tag: 'default' })),
   DEFAULT_CURRENT_LOCATION_RADIUS_METERS: 5000,
-  doesMapFilterCandidateMatch: jest.fn(() => true),
+  doesMapFilterCandidateMatch: jest.fn((candidate, filters) => {
+    const salePriceFrom = filters?.salePriceFrom;
+    if (typeof salePriceFrom === 'number' && typeof candidate?.askingPrice === 'number') {
+      return candidate.askingPrice >= salePriceFrom;
+    }
+    return true;
+  }),
   getCanonicalMapFilterSignature: jest.fn((filters) => filters.tag),
   getLocationFilterTokenCameraBounds: jest.fn((areas) => {
     const coordinates = areas
@@ -1658,6 +1667,20 @@ describe('MapScreen web grouped Following mode', () => {
   });
 
   it('updates public property source tiles in place when filters change', async () => {
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [
+          {
+            id: 'property-filtered-preview',
+            nodeClass: 'active',
+            askingPrice: 325000,
+          },
+        ],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
     await act(async () => {
       root.render(<MapScreen />);
     });
@@ -1674,7 +1697,10 @@ describe('MapScreen web grouped Following mode', () => {
       map.trigger('load');
     });
 
-    mockAppliedFilters = { tag: 'tile-b' };
+    mockInteraction.bottomSheetRef.current.close.mockClear();
+    mockInteraction.handleClosePreview.mockClear();
+
+    mockAppliedFilters = { tag: 'tile-b', salePriceFrom: 600000 };
 
     await act(async () => {
       root.render(<MapScreen />);
@@ -1682,6 +1708,8 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     expect(map.propertySource.setTiles).toHaveBeenCalledWith(['https://tiles.test/tile-b']);
+    expect(mockInteraction.bottomSheetRef.current.close).not.toHaveBeenCalled();
+    expect(mockInteraction.handleClosePreview).not.toHaveBeenCalled();
   });
 
   it('reloads the public property source after exhausted timeout-empty tile retries', async () => {

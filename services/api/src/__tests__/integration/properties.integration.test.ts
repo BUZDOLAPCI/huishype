@@ -102,6 +102,15 @@ describe('Property routes', () => {
     for (const property of fixtureProperties) {
       const created = await createIntegrationProperty(property);
       seededPropertyIds.push(created.id);
+
+      if (property.street === 'Fixture Street' && property.houseNumber === 1) {
+        await createIntegrationListing({
+          propertyId: created.id,
+          status: 'active',
+          askingPrice: 410000,
+          sourceUrl: `https://example.com/hermetic-nearby-${created.id}`,
+        });
+      }
     }
   });
 
@@ -945,7 +954,7 @@ describe('Property routes', () => {
     it('should return the nearest grouped feature for the hermetic nearby fixture', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: `/properties/nearby?lon=${nearbyFixture.lon}&lat=${nearbyFixture.lat}&zoom=14`,
+        url: `/properties/nearby?lon=${nearbyFixture.lon}&lat=${nearbyFixture.lat}&zoom=17`,
       });
 
       expect(response.statusCode).toBe(200);
@@ -964,10 +973,18 @@ describe('Property routes', () => {
       expect(body).not.toHaveProperty('activityScore');
       expect(body).not.toHaveProperty('streetName');
       expect(body).not.toHaveProperty('postalCode');
-      expect(body).not.toHaveProperty('countryCode');
-      expect(body).not.toHaveProperty('officialValuation');
       expect(body).not.toHaveProperty('yearBuilt');
       expect(body).not.toHaveProperty('floorAreaM2');
+
+      if (body.groupKind === 'single') {
+        expect(body.countryCode).toBe('NL');
+        expect(body).toHaveProperty('officialValuation');
+        expect(body).toHaveProperty('officialValuationYear');
+      } else {
+        expect(body).not.toHaveProperty('countryCode');
+        expect(body).not.toHaveProperty('officialValuation');
+        expect(body).not.toHaveProperty('officialValuationYear');
+      }
     });
 
     it('rejects partial pyramid nearby params before exact node lookup', async () => {

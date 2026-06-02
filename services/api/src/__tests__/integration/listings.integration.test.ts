@@ -20,12 +20,19 @@ import {
   users,
 } from '../../db/schema.js';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { acceptIngestBatch, encodeOpaqueIngestCursor, getIngestWatermark, processIngestBatch } from '../../services/ingest/index.js';
+import {
+  acceptIngestBatch,
+  encodeOpaqueIngestCursor,
+  getIngestWatermark,
+  processIngestBatch,
+  setLatestListingsRefreshOverrideForTests,
+} from '../../services/ingest/index.js';
 import {
   claimCandidateHandoff,
   processCandidateHandoffJob,
   setCandidateHandoffEnqueueOverrideForTests,
 } from '../../services/candidate-handoffs/index.js';
+import { setPropertyTilePyramidBuildSignalOverrideForTests } from '../../services/property-tile-pyramid.js';
 import {
   createIntegrationListing,
   createIntegrationPriceHistory,
@@ -53,6 +60,9 @@ describe('Listing routes', () => {
   const otherPropertyStreet = `Listings Mismatch Street ${listingFixtureRunId}`;
   const testUserIds: string[] = [];
   const legacyListingIds: string[] = [];
+  const fixtureIngestBatchIds: string[] = [];
+  const fixtureIngestRunIds: string[] = [];
+  let fixtureCursorSequence = 0;
   const originalFetch = global.fetch;
   const originalIngestApiKey = process.env.INGEST_API_KEY;
   const sourceServicesConfig = config.sourceServices as MutableSourceServices;
@@ -253,6 +263,33 @@ describe('Listing routes', () => {
     `);
   }
 
+  async function acceptListingRouteIngestBatch(
+    request: Parameters<typeof acceptIngestBatch>[0],
+  ) {
+    const accepted = await acceptIngestBatch(request);
+    fixtureIngestBatchIds.push(accepted.batchId);
+    if (accepted.runId) {
+      fixtureIngestRunIds.push(accepted.runId);
+    }
+    return accepted;
+  }
+
+  async function buildFixtureCursor(sourceName: 'funda' | 'pararius', listingKey: string) {
+    const watermark = await getIngestWatermark(sourceName);
+    fixtureCursorSequence += 1;
+    const committedAt = watermark.lastCommittedChangedAt
+      ? new Date(watermark.lastCommittedChangedAt).getTime()
+      : 0;
+    const changedAt = new Date(
+      Math.max(Date.now(), committedAt) + fixtureCursorSequence * 1000,
+    ).toISOString();
+
+    return {
+      cursorStart: watermark.cursor,
+      cursorEnd: encodeOpaqueIngestCursor({ changedAt, listingKey }),
+    };
+  }
+
   async function cleanupListingRouteFixtureArtifacts() {
     await db.execute(sql`
       DELETE FROM listing_price_observations
@@ -300,33 +337,26 @@ describe('Listing routes', () => {
       WHERE country_code = 'NL'
         AND street IN (${testPropertyStreet}, ${otherPropertyStreet})
     `);
-    await db.execute(sql`
-      DELETE FROM ingest_sources
-      WHERE source_name IN ('funda', 'pararius')
-    `);
-    await db.execute(sql`
-      DELETE FROM ingest_batches
-      WHERE source_name IN ('funda', 'pararius')
-        AND (
-          idempotency_key LIKE 'funda-promotion-%'
-          OR idempotency_key LIKE 'funda-diagnostic-pushback-%'
-          OR idempotency_key LIKE 'funda-source-candidate-%'
-          OR idempotency_key LIKE 'funda-addressless-candidate-outcomes-%'
-          OR idempotency_key LIKE 'funda-existing-scraper-%'
-          OR idempotency_key LIKE 'listing-submit:%'
-        )
-    `);
-    await db.execute(sql`
-      DELETE FROM ingest_runs
-      WHERE source_name IN ('funda', 'pararius')
-        AND (
-          upstream_run_key LIKE 'funda-promotion-run-%'
-          OR upstream_run_key LIKE 'funda-diagnostic-pushback-run-%'
-          OR upstream_run_key LIKE 'funda-source-candidate-run-%'
-          OR upstream_run_key LIKE 'funda-addressless-candidate-outcomes-run-%'
-          OR upstream_run_key LIKE 'funda-existing-scraper-run-%'
-        )
-    `);
+    if (fixtureIngestBatchIds.length > 0) {
+      await db.execute(sql`
+        DELETE FROM ingest_batches
+        WHERE id IN (${sql.join(
+          [...new Set(fixtureIngestBatchIds)].map((id) => sql`${id}`),
+          sql`, `
+        )})
+      `);
+      fixtureIngestBatchIds.length = 0;
+    }
+    if (fixtureIngestRunIds.length > 0) {
+      await db.execute(sql`
+        DELETE FROM ingest_runs
+        WHERE id IN (${sql.join(
+          [...new Set(fixtureIngestRunIds)].map((id) => sql`${id}`),
+          sql`, `
+        )})
+      `);
+      fixtureIngestRunIds.length = 0;
+    }
   }
 
   beforeAll(async () => {
@@ -336,6 +366,8 @@ describe('Listing routes', () => {
     mockFetchFn = jest.fn() as jest.Mock<typeof global.fetch>;
     global.fetch = mockFetchFn;
     setCandidateHandoffEnqueueOverrideForTests(async () => {});
+    setLatestListingsRefreshOverrideForTests(async () => {});
+    setPropertyTilePyramidBuildSignalOverrideForTests(async () => {});
     app = await buildApp({ logger: false });
     await cleanupListingRouteFixtureArtifacts();
 
@@ -441,6 +473,8 @@ describe('Listing routes', () => {
 
     global.fetch = originalFetch;
     setCandidateHandoffEnqueueOverrideForTests(null);
+    setLatestListingsRefreshOverrideForTests(null);
+    setPropertyTilePyramidBuildSignalOverrideForTests(null);
     process.env.INGEST_API_KEY = originalIngestApiKey;
     sourceServicesConfig.fundaApiKey = originalSourceServiceKeys.fundaApiKey;
     sourceServicesConfig.parariusApiKey = originalSourceServiceKeys.parariusApiKey;
@@ -1580,17 +1614,13 @@ describe('Listing routes', () => {
         state: 'queued',
       });
 
-      const mirrorCursor = encodeOpaqueIngestCursor({
-        changedAt: '2026-04-07T10:00:00.000Z',
-        listingKey: `funda-promotion-${submittedId}`,
-      });
-      const watermark = await getIngestWatermark('funda');
-      const acceptedMirror = await acceptIngestBatch({
+      const promotionCursor = await buildFixtureCursor('funda', `funda-promotion-${submittedId}`);
+      const acceptedMirror = await acceptListingRouteIngestBatch({
         sourceName: 'funda',
         idempotencyKey: `funda-promotion-${submittedId}`,
         batchSequence: 0,
-        cursorStart: watermark.cursor,
-        cursorEnd: mirrorCursor,
+        cursorStart: promotionCursor.cursorStart,
+        cursorEnd: promotionCursor.cursorEnd,
         upstreamRunKey: `funda-promotion-run-${submittedId}`,
         listings: [
           {
@@ -2210,16 +2240,16 @@ describe('Listing routes', () => {
       const sourceListingId = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-12);
       const rawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-existing-scraper/${sourceListingId}/`;
       const canonicalUrl = `https://www.funda.nl/detail/${sourceListingId}/`;
-      const watermark = await getIngestWatermark('funda');
-      const acceptedMirror = await acceptIngestBatch({
+      const scraperCursor = await buildFixtureCursor(
+        'funda',
+        `funda-existing-scraper-${sourceListingId}`,
+      );
+      const acceptedMirror = await acceptListingRouteIngestBatch({
         sourceName: 'funda',
         idempotencyKey: `funda-existing-scraper-${sourceListingId}`,
         batchSequence: 0,
-        cursorStart: watermark.cursor,
-        cursorEnd: encodeOpaqueIngestCursor({
-          changedAt: '2026-04-09T10:00:00.000Z',
-          listingKey: `funda-existing-scraper-${sourceListingId}`,
-        }),
+        cursorStart: scraperCursor.cursorStart,
+        cursorEnd: scraperCursor.cursorEnd,
         upstreamRunKey: `funda-existing-scraper-run-${sourceListingId}`,
         repairMode: true,
         repairReason: 'integration fixture projection',
@@ -2358,20 +2388,19 @@ describe('Listing routes', () => {
 
     it('reconciles mirror observations by source candidate id without preview id', async () => {
       const fixture = await createMatchedSubmissionFixture('source-candidate-observation');
-      const watermark = await getIngestWatermark('funda');
       const changedSourceListingId = `${fixture.sourceListingId}-mirror`;
       const changedCanonicalUrl = `https://www.funda.nl/detail/${changedSourceListingId}`;
       const changedRawUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-source-candidate/${changedSourceListingId}/`;
-      const cursorEnd = encodeOpaqueIngestCursor({
-        changedAt: new Date(Date.now() + 1_000).toISOString(),
-        listingKey: `funda-source-candidate-observation-${fixture.sourceListingId}`,
-      });
-      const acceptedMirror = await acceptIngestBatch({
+      const observationCursor = await buildFixtureCursor(
+        'funda',
+        `funda-source-candidate-observation-${fixture.sourceListingId}`,
+      );
+      const acceptedMirror = await acceptListingRouteIngestBatch({
         sourceName: 'funda',
         idempotencyKey: `funda-source-candidate-observation-${fixture.sourceListingId}`,
         batchSequence: 0,
-        cursorStart: watermark.cursor,
-        cursorEnd,
+        cursorStart: observationCursor.cursorStart,
+        cursorEnd: observationCursor.cursorEnd,
         upstreamRunKey: `funda-source-candidate-run-observation-${fixture.sourceListingId}`,
         listings: [
           {
@@ -2491,18 +2520,18 @@ describe('Listing routes', () => {
         ));
       expect(oldPropertyRentRowsBefore).toHaveLength(1);
 
-      const watermark = await getIngestWatermark('funda');
       const changedSourceListingId = `${fixture.sourceListingId}-corrected`;
       const changedCanonicalUrl = `https://www.funda.nl/detail/${changedSourceListingId}/`;
-      const acceptedMirror = await acceptIngestBatch({
+      const correctionCursor = await buildFixtureCursor(
+        'funda',
+        `funda-source-candidate-property-correction-${fixture.sourceListingId}`,
+      );
+      const acceptedMirror = await acceptListingRouteIngestBatch({
         sourceName: 'funda',
         idempotencyKey: `funda-source-candidate-property-correction-${fixture.sourceListingId}`,
         batchSequence: 0,
-        cursorStart: watermark.cursor,
-        cursorEnd: encodeOpaqueIngestCursor({
-          changedAt: new Date(Date.now() + 1_000).toISOString(),
-          listingKey: `funda-source-candidate-property-correction-${fixture.sourceListingId}`,
-        }),
+        cursorStart: correctionCursor.cursorStart,
+        cursorEnd: correctionCursor.cursorEnd,
         upstreamRunKey: `funda-source-candidate-property-correction-run-${fixture.sourceListingId}`,
         listings: [
           {
@@ -2616,16 +2645,16 @@ describe('Listing routes', () => {
         ));
       expect(staleRentRowsBefore).toHaveLength(1);
 
-      const watermark = await getIngestWatermark('funda');
-      const acceptedMirror = await acceptIngestBatch({
+      const outcomesCursor = await buildFixtureCursor(
+        'funda',
+        `funda-addressless-candidate-outcomes-${withdrawnFixture.sourceListingId}`,
+      );
+      const acceptedMirror = await acceptListingRouteIngestBatch({
         sourceName: 'funda',
         idempotencyKey: `funda-addressless-candidate-outcomes-${withdrawnFixture.sourceListingId}`,
         batchSequence: 0,
-        cursorStart: watermark.cursor,
-        cursorEnd: encodeOpaqueIngestCursor({
-          changedAt: new Date(Date.now() + 1_000).toISOString(),
-          listingKey: `funda-addressless-candidate-outcomes-${withdrawnFixture.sourceListingId}`,
-        }),
+        cursorStart: outcomesCursor.cursorStart,
+        cursorEnd: outcomesCursor.cursorEnd,
         upstreamRunKey: `funda-addressless-candidate-outcomes-run-${withdrawnFixture.sourceListingId}`,
         listings: [
           {
@@ -2723,19 +2752,18 @@ describe('Listing routes', () => {
 
     it('keeps provisional listings active when diagnostic pushback is retryable', async () => {
       const fixture = await createMatchedSubmissionFixture('diagnostic-pushback');
-      const watermark = await getIngestWatermark('funda');
       const changedSourceListingId = `${fixture.sourceListingId}-parser`;
       const changedCanonicalUrl = `https://www.funda.nl/detail/${changedSourceListingId}/`;
-      const cursorEnd = encodeOpaqueIngestCursor({
-        changedAt: new Date(Date.now() + 1_000).toISOString(),
-        listingKey: `funda-diagnostic-pushback-${fixture.sourceListingId}`,
-      });
-      const acceptedMirror = await acceptIngestBatch({
+      const pushbackCursor = await buildFixtureCursor(
+        'funda',
+        `funda-diagnostic-pushback-${fixture.sourceListingId}`,
+      );
+      const acceptedMirror = await acceptListingRouteIngestBatch({
         sourceName: 'funda',
         idempotencyKey: `funda-diagnostic-pushback-${fixture.sourceListingId}`,
         batchSequence: 0,
-        cursorStart: watermark.cursor,
-        cursorEnd,
+        cursorStart: pushbackCursor.cursorStart,
+        cursorEnd: pushbackCursor.cursorEnd,
         upstreamRunKey: `funda-diagnostic-pushback-run-${fixture.sourceListingId}`,
         listings: [
           {

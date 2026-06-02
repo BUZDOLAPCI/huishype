@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import { resetReverseGeocodeCacheForTests } from '../../routes/geocode.js';
 import type { FastifyInstance } from 'fastify';
@@ -13,14 +13,24 @@ import { createIntegrationProperty } from './helpers/fixtures.js';
 // Mock global fetch to simulate Photon responses
 const originalFetch = global.fetch;
 let mockFetchFn: jest.Mock<typeof global.fetch>;
+const geocodeTestApps: FastifyInstance[] = [];
+
+async function buildGeocodeTestApp() {
+  const app = await buildApp({ logger: false });
+  geocodeTestApps.push(app);
+  return app;
+}
 
 beforeAll(() => {
   mockFetchFn = jest.fn() as jest.Mock<typeof global.fetch>;
   global.fetch = mockFetchFn;
 });
 
-afterAll(() => {
+afterAll(async () => {
   global.fetch = originalFetch;
+  for (const app of [...geocodeTestApps].reverse()) {
+    await app.close();
+  }
 });
 
 const MOCK_PHOTON_RESPONSE = {
@@ -66,6 +76,28 @@ function emptyPhotonResponse() {
     ok: true,
     json: () => Promise.resolve({ type: 'FeatureCollection', features: [] }),
   } as unknown as Response;
+}
+
+async function cleanupCreatedProperties(createdPropertyIds: string[]) {
+  if (createdPropertyIds.length === 0) {
+    return;
+  }
+
+  const ids = [...new Set(createdPropertyIds)];
+  await db.execute(
+    sql`
+      UPDATE properties
+      SET
+        status = 'inactive',
+        street = CONCAT('__geocode_fixture_cleanup_', id::text),
+        postal_code = LEFT(REPLACE(id::text, '-', ''), 10)
+      WHERE id IN (${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `
+      )})
+    `
+  );
+  createdPropertyIds.length = 0;
 }
 
 function stringifySqlQuery(query: unknown): string {
@@ -123,7 +155,7 @@ describe('GET /geocode/search', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
-    app = await buildApp({ logger: false });
+    app = await buildGeocodeTestApp();
   });
 
   afterAll(async () => {
@@ -546,28 +578,21 @@ describe('GET /search/locations', () => {
   const createdPropertyIds: string[] = [];
 
   beforeAll(async () => {
-    app = await buildApp({ logger: false });
+    app = await buildGeocodeTestApp();
   });
 
   afterAll(async () => {
-    if (createdPropertyIds.length > 0) {
-      await db.execute(sql`
-        UPDATE properties
-        SET
-          status = 'inactive',
-          street = CONCAT('__geocode_fixture_cleanup_', id::text),
-          postal_code = LEFT(REPLACE(id::text, '-', ''), 10)
-        WHERE id IN (${sql.join(
-          createdPropertyIds.map((id) => sql`${id}`),
-          sql`, `
-        )})`);
-    }
+    await cleanupCreatedProperties(createdPropertyIds);
     // Keep the shared DB connection open for the following hydration tests.
   });
 
   beforeEach(() => {
     mockFetchFn.mockReset();
     resetReverseGeocodeCacheForTests();
+  });
+
+  afterEach(async () => {
+    await cleanupCreatedProperties(createdPropertyIds);
   });
 
   it('rejects one-character typed location searches', async () => {
@@ -580,90 +605,85 @@ describe('GET /search/locations', () => {
     expect(mockFetchFn).not.toHaveBeenCalled();
   });
 
-  it('returns DB-backed street and property suggestions before weak Photon results', async () => {
-    const firstProperty = await createIntegrationProperty({
-      street: 'Beeldbuisring',
-      houseNumber: 41,
-      city: 'Eindhoven',
-      region: 'Noord-Brabant',
-      postalCode: '5651HA',
-      lon: 5.455,
-      lat: 51.43,
-    });
-    const secondProperty = await createIntegrationProperty({
-      street: 'Beeldbuisring',
-      houseNumber: 43,
-      city: 'Eindhoven',
-      region: 'Noord-Brabant',
-      postalCode: '5651HA',
-      lon: 5.456,
-      lat: 51.431,
-    });
-    createdPropertyIds.push(firstProperty.id, secondProperty.id);
-
-    mockFetchFn.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          type: 'FeatureCollection',
-          features: [
-            {
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [5.45, 51.43] },
-              properties: {
-                osm_type: 'N',
-                osm_id: 9901,
-                name: '5651',
-                postcode: '5651',
-                city: 'Eindhoven',
-                state: 'Noord-Brabant',
-                country: 'Nederland',
-                countrycode: 'nl',
-                type: 'postcode',
-              },
-            },
-          ],
-        }),
-    } as unknown as Response);
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/search/locations?q=beeldbuisring&limit=8&countrycode=NL',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(body[0]).toEqual(
-      expect.objectContaining({
-        type: 'street',
-        label: 'Beeldbuisring',
+  it(
+    'returns DB-backed street and property suggestions before weak Photon results',
+    async () => {
+      const firstProperty = await createIntegrationProperty({
+        street: 'Beeldbuisring',
+        houseNumber: 41,
         city: 'Eindhoven',
-        filterToken: expect.objectContaining({
-          type: 'street',
-          street: 'Beeldbuisring',
-          city: 'Eindhoven',
-        }),
-      })
-    );
-    expect(body).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'property',
-          street: 'Beeldbuisring',
-          postalCode: '5651HA',
-        }),
-      ])
-    );
+        region: 'Noord-Brabant',
+        postalCode: '5651HA',
+        lon: 5.455,
+        lat: 51.43,
+      });
+      const secondProperty = await createIntegrationProperty({
+        street: 'Beeldbuisring',
+        houseNumber: 43,
+        city: 'Eindhoven',
+        region: 'Noord-Brabant',
+        postalCode: '5651HA',
+        lon: 5.456,
+        lat: 51.431,
+      });
+      createdPropertyIds.push(firstProperty.id, secondProperty.id);
 
-    await db.execute(sql`
-      UPDATE properties
-      SET
-        status = 'inactive',
-        street = CONCAT('__geocode_fixture_cleanup_', id::text),
-        postal_code = LEFT(REPLACE(id::text, '-', ''), 10)
-      WHERE id IN (${firstProperty.id}, ${secondProperty.id})
-    `);
-  });
+      mockFetchFn.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [5.45, 51.43] },
+                properties: {
+                  osm_type: 'N',
+                  osm_id: 9901,
+                  name: '5651',
+                  postcode: '5651',
+                  city: 'Eindhoven',
+                  state: 'Noord-Brabant',
+                  country: 'Nederland',
+                  countrycode: 'nl',
+                  type: 'postcode',
+                },
+              },
+            ],
+          }),
+      } as unknown as Response);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/search/locations?q=beeldbuisring&limit=8&countrycode=NL',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body[0]).toEqual(
+        expect.objectContaining({
+          type: 'street',
+          label: 'Beeldbuisring',
+          city: 'Eindhoven',
+          filterToken: expect.objectContaining({
+            type: 'street',
+            street: 'Beeldbuisring',
+            city: 'Eindhoven',
+          }),
+        })
+      );
+      expect(body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'property',
+            street: 'Beeldbuisring',
+            postalCode: '5651HA',
+          }),
+        ])
+      );
+
+    }
+  );
 
   it('keeps backed DB suggestions ahead of closer Photon-only coordinate fallbacks', async () => {
     const street = `Proximity Backed Lane ${Date.now().toString(36)}`;
@@ -1208,21 +1228,27 @@ describe('GET /search/locations', () => {
     expect(expandedAddress?.filterToken).toBeNull();
   });
 
-  it('normalizes compact, spaced, and dashed postcode searches to postcode and property suggestions', async () => {
-    const property = await createIntegrationProperty({
-      street: 'Compact Postcodehof',
-      houseNumber: 12,
-      city: 'Eindhoven',
-      region: 'Noord-Brabant',
-      postalCode: '5651 HA',
-      lon: 5.457,
-      lat: 51.432,
-    });
-    createdPropertyIds.push(property.id);
+  it.each([
+    ['compact', '0999ZZ'],
+    ['spaced', '0999 ZZ'],
+    ['dashed', '0999-ZZ'],
+  ])(
+    'normalizes %s postcode searches to postcode and property suggestions',
+    async (_format, query) => {
+      const postalCode = '0999 ZZ';
+      const property = await createIntegrationProperty({
+        street: 'Compact Postcodehof',
+        houseNumber: 12,
+        city: 'Eindhoven',
+        region: 'Noord-Brabant',
+        postalCode,
+        lon: 5.457,
+        lat: 51.432,
+      });
+      createdPropertyIds.push(property.id);
 
-    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+      mockFetchFn.mockResolvedValue(emptyPhotonResponse());
 
-    for (const query of ['5651HA', '5651 HA', '5651-HA']) {
       const response = await app.inject({
         method: 'GET',
         url: `/search/locations?q=${encodeURIComponent(query)}&limit=8&countrycode=NL`,
@@ -1236,17 +1262,17 @@ describe('GET /search/locations', () => {
             type: 'postcode',
             filterToken: expect.objectContaining({
               type: 'postcode',
-              value: '5651ha',
+              value: '0999zz',
             }),
           }),
           expect.objectContaining({
             type: 'property',
-            postalCode: expect.stringMatching(/^5651\s?HA$/u),
+            postalCode,
           }),
         ])
       );
     }
-  });
+  );
 
   it('falls back from an exact NL postcode to a supported postcode token and address label when exact rows are absent', async () => {
     const properties = await Promise.all(
@@ -1966,7 +1992,10 @@ describe('GET /search/locations', () => {
     expect(JSON.stringify(citySuggestions)).not.toContain(`Variant Province ${suffix}`);
   });
 
-  it('uses country default ranking for no-bias street searches and lets explicit bias override it', async () => {
+  it.each([
+    ['country default ranking for no-bias street searches', '', 'Defaultstad'],
+    ['explicit proximity bias over country default ranking', '&lon=4.89&lat=52.37', 'Biasstad'],
+  ])('uses %s', async (_caseName, biasParams, expectedCityPrefix) => {
     const suffix = Date.now().toString(36);
     const street = `Zwaanstraat Ranking ${suffix}`;
     const defaultNear = await createIntegrationProperty({
@@ -1991,34 +2020,35 @@ describe('GET /search/locations', () => {
 
     mockFetchFn.mockResolvedValue(emptyPhotonResponse());
 
-    const noBiasResponse = await app.inject({
+    const response = await app.inject({
       method: 'GET',
-      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL`,
-    });
-    const defaultBiasResponse = await app.inject({
-      method: 'GET',
-      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL&lon=5.47&lat=51.44`,
-    });
-    const explicitBiasResponse = await app.inject({
-      method: 'GET',
-      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL&lon=4.89&lat=52.37`,
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL${biasParams}`,
     });
 
-    expect(noBiasResponse.statusCode).toBe(200);
-    expect(defaultBiasResponse.statusCode).toBe(200);
-    expect(explicitBiasResponse.statusCode).toBe(200);
+    expect(response.statusCode).toBe(200);
 
     const firstStreetCity = (responseBody: string) =>
       (JSON.parse(responseBody) as LocationSearchTestSuggestion[]).find(
         (suggestion) => suggestion.type === 'street' && suggestion.label === street
       )?.city;
 
-    expect(firstStreetCity(noBiasResponse.body)).toBe(`Defaultstad ${suffix}`);
-    expect(firstStreetCity(defaultBiasResponse.body)).toBe(`Defaultstad ${suffix}`);
-    expect(firstStreetCity(explicitBiasResponse.body)).toBe(`Biasstad ${suffix}`);
+    expect(firstStreetCity(response.body)).toBe(`${expectedCityPrefix} ${suffix}`);
   });
 
   it('falls back to local country filtering when Photon countrycode search returns no features', async () => {
+    const suffix = Date.now().toString(36);
+    const city = `Photon Fallbackstad ${suffix}`;
+    const property = await createIntegrationProperty({
+      street: `Photon Fallback Street ${suffix}`,
+      houseNumber: 1,
+      city,
+      region: `Photon Fallback Region ${suffix}`,
+      postalCode: '0988ZZ',
+      lon: 5.4697,
+      lat: 51.4416,
+    });
+    createdPropertyIds.push(property.id);
+
     mockFetchFn
       .mockResolvedValueOnce({
         ok: true,
@@ -2040,8 +2070,9 @@ describe('GET /search/locations', () => {
                 properties: {
                   osm_type: 'R',
                   osm_id: 100,
-                  name: 'Eindhoven',
-                  state: 'Noord-Brabant',
+                  name: city,
+                  city,
+                  state: `Photon Fallback Region ${suffix}`,
                   country: 'Nederland',
                   countrycode: 'NL',
                   type: 'city',
@@ -2066,7 +2097,7 @@ describe('GET /search/locations', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/search/locations?q=Eindhoven&limit=8&countrycode=NL',
+      url: `/search/locations?q=${encodeURIComponent(city)}&limit=8&countrycode=NL`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -2078,18 +2109,18 @@ describe('GET /search/locations', () => {
 
     const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
     const citySuggestions = body.filter(
-      (suggestion) => suggestion.type === 'city' && suggestion.label === 'Eindhoven'
+      (suggestion) => suggestion.type === 'city' && suggestion.label === city
     );
     expect(citySuggestions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: 'city',
-          label: 'Eindhoven',
+          label: city,
           countryCode: 'NL',
           filterToken: expect.objectContaining({
             type: 'city',
             countryCode: 'NL',
-            value: 'eindhoven',
+            value: `photon-fallbackstad-${suffix}`,
           }),
         }),
       ])
@@ -2318,24 +2349,21 @@ describe('GET /search/location-tokens', () => {
   const createdPropertyIds: string[] = [];
 
   beforeAll(async () => {
-    app = await buildApp({ logger: false });
+    app = await buildGeocodeTestApp();
   });
 
   afterAll(async () => {
-    if (createdPropertyIds.length > 0) {
-      await db.execute(
-        sql`DELETE FROM properties WHERE id IN (${sql.join(
-          createdPropertyIds.map((id) => sql`${id}`),
-          sql`, `
-        )})`
-      );
-    }
-    // The final reverse-geocode describe closes the Fastify app/DB connection.
+    await cleanupCreatedProperties(createdPropertyIds);
+    // The file-level teardown closes all Fastify apps and the shared DB connection.
   });
 
   beforeEach(() => {
     mockFetchFn.mockReset();
     resetReverseGeocodeCacheForTests();
+  });
+
+  afterEach(async () => {
+    await cleanupCreatedProperties(createdPropertyIds);
   });
 
   it('hydrates repeated readable area tokens with labels, hierarchy, center, and bbox', async () => {
@@ -2738,13 +2766,11 @@ describe('GET /geocode/reverse', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
-    app = await buildApp({ logger: false });
+    app = await buildGeocodeTestApp();
   });
 
   afterAll(async () => {
-    if (app) {
-      await app.close();
-    }
+    // The file-level teardown closes all Fastify apps and the shared DB connection.
   });
 
   beforeEach(() => {

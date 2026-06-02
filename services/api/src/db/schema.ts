@@ -702,6 +702,12 @@ export const ingestBatches = pgTable(
     uniqueIndex('ingest_batches_run_sequence_idx').on(table.runId, table.batchSequence).where(sql`run_id IS NOT NULL`),
     index('ingest_batches_source_status_received_idx').on(table.sourceName, table.status, table.receivedAt),
     index('ingest_batches_source_cursor_status_idx').on(table.sourceName, table.cursorStart, table.status),
+    index('ingest_batches_source_completed_cursor_bound_order_idx')
+      .on(table.sourceName, table.receivedAt, table.batchSequence, table.id)
+      .where(sql`status = 'completed'
+        AND cursor_start IS NOT NULL
+        AND NOT (payload_json ? 'requestedBy')
+        AND COALESCE(payload_json->>'scopeKey', '') <> 'candidate'`),
     index('ingest_batches_completed_idx').on(table.completedAt),
     index('ingest_batches_maintenance_pending_idx')
       .on(table.maintenanceRequestedAt, table.maintenanceCompletedAt)

@@ -258,35 +258,20 @@ describe('GET /properties/resolve', () => {
     expect(body.id).toBe(knownPropertyId);
   });
 
-  it('canonicalizes blank stored additions as missing during resolve lookups', async () => {
+  it('normalizes blank fixture additions as missing during resolve lookups', async () => {
     const key = await findUnusedAddressKey('NL');
-    const propertyId = crypto.randomUUID();
-    cleanupPropertyIds.push(propertyId);
+    const property = await createIntegrationProperty({
+      street: 'Resolve Blank Addition Street',
+      houseNumber: key.houseNumber,
+      houseNumberAddition: '   ',
+      city: 'Resolve Blank City',
+      postalCode: key.postalCode,
+      lon: 5.473,
+      lat: 51.443,
+    });
+    cleanupPropertyIds.push(property.id);
 
-    await db.execute(sql`
-      INSERT INTO properties (
-        id,
-        country_code,
-        street,
-        house_number,
-        house_number_addition,
-        city,
-        postal_code,
-        status,
-        geometry
-      )
-      VALUES (
-        ${propertyId},
-        'NL',
-        'Resolve Blank Addition Street',
-        ${key.houseNumber},
-        '   ',
-        'Resolve Blank City',
-        ${key.postalCode},
-        'active',
-        ST_SetSRID(ST_MakePoint(5.473, 51.443), 4326)
-      )
-    `);
+    expect(property.houseNumberAddition).toBeNull();
 
     const response = await app.inject({
       method: 'GET',
@@ -295,7 +280,7 @@ describe('GET /properties/resolve', () => {
 
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body.id).toBe(propertyId);
+    expect(body.id).toBe(property.id);
     expect(body.address).toBe(`${'Resolve Blank Addition Street'} ${key.houseNumber}, ${key.postalCode} Resolve Blank City`);
   });
 

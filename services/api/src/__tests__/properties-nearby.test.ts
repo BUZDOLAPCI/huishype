@@ -295,6 +295,38 @@ async function restoreCurrentPointerMetadata(input: {
     `);
 
     await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_current (
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        current_version_id,
+        previous_version_id,
+        current_promoted_at,
+        promotion_reason,
+        updated_at
+      )
+      VALUES (
+        ${input.slot.coverageId},
+        ${input.slot.filterSignature},
+        ${input.slot.maxZoom},
+        ${input.slot.pyramidKind}::property_tile_pyramid_kind,
+        ${input.currentVersionId}::uuid,
+        NULL,
+        ${input.currentPromotedAt},
+        ${input.promotionReason},
+        NOW()
+      )
+      ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
+      DO UPDATE SET
+        current_version_id = EXCLUDED.current_version_id,
+        previous_version_id = property_tile_pyramid_current.current_version_id,
+        current_promoted_at = EXCLUDED.current_promoted_at,
+        promotion_reason = EXCLUDED.promotion_reason,
+        updated_at = NOW()
+    `);
+
+    await tx.execute(sql`
       UPDATE property_tile_pyramid_current
       SET
         previous_version_id = ${input.previousVersionId}::uuid,
@@ -576,14 +608,6 @@ async function withHermeticCurrentPyramidNode(
     await run({ lon, lat, nodeId, versionId, propertyIds });
   } finally {
     if (previousCurrent) {
-      await db.execute(sql`
-        SELECT promote_property_tile_pyramid_version(
-          ${previousCurrent.current_version_id}::uuid,
-          ${versionId}::uuid,
-          'restore nearby test fixture',
-          'jest'
-        )
-      `);
       await restoreCurrentPointerMetadata({
         slot,
         currentVersionId: previousCurrent.current_version_id,
@@ -640,14 +664,6 @@ async function withTemporarilyNoCurrentPyramid(
     await run({ slot });
   } finally {
     if (previousCurrent) {
-      await db.execute(sql`
-        SELECT promote_property_tile_pyramid_version(
-          ${previousCurrent.current_version_id}::uuid,
-          NULL::uuid,
-          'restore nearby no-current fixture',
-          'jest'
-        )
-      `);
       await restoreCurrentPointerMetadata({
         slot,
         currentVersionId: previousCurrent.current_version_id,

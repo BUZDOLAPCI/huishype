@@ -50,7 +50,6 @@ import {
   type MapSocialScope,
 } from '@/src/lib/mapRoute';
 import { isMapFacingNorth } from '@/src/lib/mapCompass';
-import { doesMapSelectionMatchFilters } from '@/src/lib/mapFilterSelection';
 import { getPitchForZoom } from '@/src/lib/mapPitch';
 import {
   applyReadPropertyFeatureStateStyles,
@@ -3702,29 +3701,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.off('idle', syncReadFeatureStates);
     };
   }, [activeReadPropertyTiles, appliedFilterSignature, mapLoaded]);
-
-  useEffect(() => {
-    if (!interaction.previewGroup && !interaction.selectedPropertyForSheet) {
-      return;
-    }
-
-    const matchesFilters = doesMapSelectionMatchFilters({
-      previewProperty: currentPreviewProperty,
-      selectedProperty: interaction.selectedPropertyForSheet ?? null,
-      filters: filterController.appliedFilters,
-    });
-
-    if (matchesFilters) {
-      return;
-    }
-
-    interaction.bottomSheetRef.current?.close();
-    interaction.handleClosePreview();
-  }, [
-    currentPreviewProperty,
-    filterController.appliedFilters,
-    interaction,
-  ]);
 
   // Manage selected marker with pulsing animation
   useEffect(() => {
