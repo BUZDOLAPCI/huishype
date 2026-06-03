@@ -1228,6 +1228,119 @@ describe('GET /search/locations', () => {
     expect(expandedAddress?.filterToken).toBeNull();
   });
 
+  it('routes short street and house-number queries through property lookup, not postcode-only lookup', async () => {
+    const property = await createIntegrationProperty({
+      street: 'Dam',
+      houseNumber: 1,
+      city: 'Postcode Heuristic City',
+      region: 'Noord-Brabant',
+      postalCode: '1099ZZ',
+      lon: 5.458,
+      lat: 51.433,
+    });
+    createdPropertyIds.push(property.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=Dam%201&limit=8&countrycode=NL',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    expect(body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'property',
+          propertyId: property.id,
+          street: 'Dam',
+          houseNumber: '1',
+          postalCode: '1099ZZ',
+        }),
+      ])
+    );
+  });
+
+  it('treats numeric postcode queries as postcode searches for countries with numeric postcodes', async () => {
+    const property = await createIntegrationProperty({
+      countryCode: 'DE',
+      street: 'Numeric Postcodeallee',
+      houseNumber: 5,
+      city: 'Aaa Numeric Postcode City',
+      region: 'Berlin',
+      postalCode: '10115',
+      lon: 13.405,
+      lat: 52.52,
+    });
+    createdPropertyIds.push(property.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=10115&limit=20&countrycode=DE',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    expect(body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'postcode',
+          postalCode: '10115',
+          countryCode: 'DE',
+        }),
+        expect.objectContaining({
+          type: 'property',
+          propertyId: property.id,
+          postalCode: '10115',
+          countryCode: 'DE',
+        }),
+      ])
+    );
+  });
+
+  it('does not treat a German numeric postcode as a Dutch postcode search', async () => {
+    const property = await createIntegrationProperty({
+      countryCode: 'DE',
+      street: 'Dutch Rejection Postcodeallee',
+      houseNumber: 15,
+      city: 'Dutch Rejection City',
+      region: 'Berlin',
+      postalCode: '10115',
+      lon: 13.406,
+      lat: 52.521,
+    });
+    createdPropertyIds.push(property.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=10115&limit=8&countrycode=NL',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    expect(body).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'postcode',
+          postalCode: '10115',
+          countryCode: 'NL',
+        }),
+      ])
+    );
+    expect(body).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          propertyId: property.id,
+        }),
+      ])
+    );
+  });
+
   it.each([
     ['compact', '0999ZZ'],
     ['spaced', '0999 ZZ'],

@@ -213,10 +213,6 @@ function normalizeLocationTokenValue(
     : normalizeSearchToken(value);
 }
 
-function looksLikePostalCodeSearch(value: string): boolean {
-  return value.length >= 3 && value.length <= 10 && /\d/u.test(value);
-}
-
 function parseSearchHouseNumber(value: string): {
   streetQuery: string;
   rawStreetQuery: string;
@@ -245,20 +241,52 @@ function parseSearchHouseNumber(value: string): {
   };
 }
 
+function normalizePostalCodeQueryVariant(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getMatchingPostalCodeConfigs(
+  value: string,
+  requestedCountryCode: CountryCode | undefined
+) {
+  const raw = normalizePostalCodeQueryVariant(value);
+  const compact = normalizePostalCodeForMatch(value);
+  if (!raw || !compact) {
+    return [];
+  }
+
+  const configs = requestedCountryCode
+    ? [getCountryConfig(requestedCountryCode)]
+    : Object.values(COUNTRY_CONFIGS);
+
+  return configs.filter((cfg) =>
+    [raw, compact].some((candidate) => {
+      const normalized = cfg.postalCodeNormalize(candidate).toUpperCase();
+      return cfg.postalCodeRegex.test(normalized);
+    })
+  );
+}
+
 function getPostalCodeSearchCandidates(
   value: string,
   requestedCountryCode: CountryCode | undefined
 ): string[] {
+  const raw = normalizePostalCodeQueryVariant(value);
   const compact = normalizePostalCodeForMatch(value);
-  if (!looksLikePostalCodeSearch(compact)) {
+  const matchingConfigs = getMatchingPostalCodeConfigs(value, requestedCountryCode);
+  if (matchingConfigs.length === 0) {
     return [];
   }
 
-  const candidates = new Set<string>([compact]);
-  if (requestedCountryCode) {
-    candidates.add(
-      getCountryConfig(requestedCountryCode).postalCodeNormalize(compact).toUpperCase()
-    );
+  const candidates = new Set<string>([raw, compact]);
+  for (const cfg of matchingConfigs) {
+    candidates.add(cfg.postalCodeNormalize(raw).toUpperCase());
+    candidates.add(cfg.postalCodeNormalize(compact).toUpperCase());
   }
   const dutchPostcodeMatch = compact.match(/^(\d{4})([A-Z]{2})$/u);
   if (dutchPostcodeMatch) {
