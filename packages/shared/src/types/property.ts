@@ -405,6 +405,8 @@ export interface LocationFilterToken {
   value: string;
   label: string;
   parentLabel?: string | null;
+  source?: string | null;
+  divisionId?: string | null;
   city?: string | null;
   region?: string | null;
   postalCode?: string | null;

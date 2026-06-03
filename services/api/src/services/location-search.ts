@@ -51,6 +51,8 @@ type LocationSearchSuggestionResponse = LocationSearchSuggestion;
 type DbLocationSearchRow = {
   id: string | null;
   country_code: string | null;
+  source?: string | null;
+  division_id?: string | null;
   street: string | null;
   house_number: number | string | null;
   house_number_addition: string | null;
@@ -184,6 +186,20 @@ function normalizeSearchToken(value: string | null | undefined): string {
     .replace(/\p{Mark}/gu, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function normalizeDivisionId(value: string | null | undefined): string {
+  const raw = value?.trim();
+  if (!raw || raw.includes(':')) {
+    return '';
+  }
+
+  return raw
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
 
@@ -631,6 +647,54 @@ function shouldReplaceLocationSuggestion(
   return isDbBackedAreaSuggestion(candidate) && !isDbBackedAreaSuggestion(existing);
 }
 
+function getSuggestionCountryDedupeValue(
+  suggestion: LocationSearchSuggestionResponse
+): CountryCode | null {
+  return (
+    normalizeCountryCode(
+      suggestion.countryCode ?? suggestion.filterToken?.countryCode ?? undefined
+    ) ?? null
+  );
+}
+
+function suppressSameLabelStreetDuplicatesForExactCityQuery(
+  suggestions: LocationSearchSuggestionResponse[],
+  q: string
+): LocationSearchSuggestionResponse[] {
+  const queryToken = normalizeSearchToken(q);
+  if (!queryToken || parseSearchHouseNumber(q).houseNumber != null) {
+    return suggestions;
+  }
+
+  const exactCityKeys = new Set<string>();
+  for (const suggestion of suggestions) {
+    const countryCode = getSuggestionCountryDedupeValue(suggestion);
+    if (
+      suggestion.type === 'city' &&
+      countryCode &&
+      normalizeSearchToken(suggestion.label) === queryToken
+    ) {
+      exactCityKeys.add(`${countryCode}:${normalizeSearchToken(suggestion.label)}`);
+    }
+  }
+
+  if (exactCityKeys.size === 0) {
+    return suggestions;
+  }
+
+  return suggestions.filter((suggestion) => {
+    if (suggestion.type !== 'street' || normalizeSearchToken(suggestion.label) !== queryToken) {
+      return true;
+    }
+
+    const countryCode = getSuggestionCountryDedupeValue(suggestion);
+    return (
+      !countryCode ||
+      !exactCityKeys.has(`${countryCode}:${normalizeSearchToken(suggestion.label)}`)
+    );
+  });
+}
+
 function getSuggestionDistanceScore(
   suggestion: LocationSearchSuggestionResponse | null,
   proximity: SearchProximity | undefined
@@ -790,6 +854,8 @@ function buildDbAreaSuggestion(
     value: label,
     label,
     parentLabel,
+    source: row.source === 'overture' ? 'overture' : null,
+    divisionId: row.source === 'overture' ? (row.division_id ?? null) : null,
     city: type === 'city' || type === 'region' || type === 'country' ? null : row.city,
     region: type === 'region' ? label : type === 'country' ? null : row.region,
     postalCode: type === 'postcode' ? label : null,
@@ -928,6 +994,8 @@ async function queryDbAreaLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
+        lsa.source,
+        lsa.division_id,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -969,6 +1037,8 @@ async function queryDbAreaLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
+        lsa.source,
+        lsa.division_id,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1003,6 +1073,8 @@ async function queryDbAreaLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
+        lsa.source,
+        lsa.division_id,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1045,6 +1117,8 @@ async function queryDbAreaLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
+        lsa.source,
+        lsa.division_id,
         lsa.street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1097,6 +1171,8 @@ async function queryDbCountryLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
+        lsa.source,
+        lsa.division_id,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1762,6 +1838,8 @@ async function fetchSupplementalStreetAddressFeatures(
 
 type LocationTokenHydrationRow = {
   country_code: string | null;
+  source: string | null;
+  division_id: string | null;
   label: string | null;
   city: string | null;
   region: string | null;
@@ -1839,6 +1917,12 @@ function buildTokenId(token: LocationFilterToken): string {
   if (token.type !== 'street' && token.postalCode) {
     parts.push(`postcode=${normalizePostalCodeForMatch(token.postalCode).toLowerCase()}`);
   }
+  if (token.divisionId) {
+    parts.push(`division=${normalizeDivisionId(token.divisionId)}`);
+  }
+  if (token.source && token.source !== 'properties') {
+    parts.push(`source=${normalizeSearchToken(token.source)}`);
+  }
 
   return parts.join(':');
 }
@@ -1881,6 +1965,11 @@ function buildHydratedTokenFromRow(
     countryCode,
     label,
     value: normalizeSearchToken(label || token.value),
+    source: row.source === 'overture' ? 'overture' : (token.source ?? null),
+    divisionId:
+      row.source === 'overture'
+        ? (row.division_id ?? token.divisionId ?? null)
+        : (token.divisionId ?? null),
     city: token.type === 'city' ? null : row.city,
     region: row.region,
     postalCode: row.postal_code,
@@ -1912,18 +2001,12 @@ async function queryHydratedLocationToken(
   token: LocationFilterTokenWithId,
   requestedCountryCode: CountryCode | undefined
 ): Promise<HydratedLocationFilterToken> {
-  if (token.type === 'current-location' || token.type === 'country') {
+  if (token.type === 'current-location') {
     const countryCode =
       normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode ?? null;
-    const countryName = getCountryName(countryCode);
     const hydrated = withHydratedTokenDefaults({
       ...token,
       countryCode,
-      label: token.type === 'country' && countryName ? countryName : token.label,
-      coordinates:
-        token.type === 'country' && countryCode
-          ? getCountryConfig(countryCode).defaultCenter
-          : token.coordinates,
     });
     return hydrated;
   }
@@ -1931,6 +2014,54 @@ async function queryHydratedLocationToken(
   const countryCode =
     normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode ?? null;
   const countryPredicate = countryCode ? sql`AND lsa.country_code = ${countryCode}` : sql``;
+  const divisionPredicate = token.divisionId
+    ? sql`AND lsa.source = 'overture' AND lsa.division_id = ${token.divisionId}`
+    : sql``;
+  const divisionSelectPredicate =
+    token.divisionId && (token.type === 'city' || token.type === 'region' || token.type === 'country');
+  if (divisionSelectPredicate) {
+    const rows = Array.from(
+      await db.execute<LocationTokenHydrationRow>(sql`
+      SELECT
+        lsa.country_code,
+        lsa.source,
+        lsa.division_id,
+        lsa.label,
+        CASE WHEN lsa.area_kind = 'city' THEN lsa.city ELSE NULL::text END AS city,
+        CASE WHEN lsa.area_kind = 'region' THEN lsa.region ELSE NULL::text END AS region,
+        NULL::text AS postal_code,
+        NULL::text AS street,
+        lsa.lon AS center_lon,
+        lsa.lat AS center_lat,
+        lsa.min_lon,
+        lsa.min_lat,
+        lsa.max_lon,
+        lsa.max_lat,
+        lsa.property_count AS row_count
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = ${token.type}
+        AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
+        ${countryPredicate}
+        ${divisionPredicate}
+      ORDER BY lsa.property_count DESC
+      LIMIT 2
+    `)
+    );
+
+    if (rows.length === 1) {
+      return buildHydratedTokenFromRow(token, rows[0]!);
+    }
+  }
+
+  if (token.type === 'country') {
+    const countryName = getCountryName(countryCode);
+    return withHydratedTokenDefaults({
+      ...token,
+      countryCode,
+      label: countryName ?? token.label,
+      coordinates: countryCode ? getCountryConfig(countryCode).defaultCenter : token.coordinates,
+    });
+  }
   const tokenValue = normalizeSearchToken(token.value || token.label);
   const tokenPostalCode = token.postalCode ?? token.label ?? tokenValue;
   const cityLabel = token.city ?? token.label;
@@ -1950,6 +2081,8 @@ async function queryHydratedLocationToken(
           await db.execute<LocationTokenHydrationRow>(sql`
           SELECT
             lsa.country_code,
+            lsa.source,
+            lsa.division_id,
             lsa.label,
             lsa.city,
             lsa.region,
@@ -1976,6 +2109,8 @@ async function queryHydratedLocationToken(
           await db.execute<LocationTokenHydrationRow>(sql`
           SELECT
             lsa.country_code,
+            lsa.source,
+            lsa.division_id,
             lsa.label,
             lsa.city,
             NULL::text AS region,
@@ -2003,6 +2138,8 @@ async function queryHydratedLocationToken(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
         lsa.country_code,
+        lsa.source,
+        lsa.division_id,
         lsa.label,
         NULL::text AS city,
         lsa.region,
@@ -2029,6 +2166,8 @@ async function queryHydratedLocationToken(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
         lsa.country_code,
+        lsa.source,
+        lsa.division_id,
         lsa.label,
         lsa.city,
         lsa.region,
@@ -2057,6 +2196,8 @@ async function queryHydratedLocationToken(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
         lsa.country_code,
+        lsa.source,
+        lsa.division_id,
         lsa.label,
         lsa.city,
         lsa.region,
@@ -2245,7 +2386,11 @@ export async function searchLocations(input: {
       }
     }
 
-    return limitLocationSuggestions(Array.from(dedupedSuggestions.values()), limit);
+    const filteredSuggestions = suppressSameLabelStreetDuplicatesForExactCityQuery(
+      Array.from(dedupedSuggestions.values()),
+      q
+    );
+    return limitLocationSuggestions(filteredSuggestions, limit);
   } catch (error) {
     app.log.warn({ err: error }, 'Typed location search unavailable');
     return [];

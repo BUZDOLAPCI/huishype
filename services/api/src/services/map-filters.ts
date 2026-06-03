@@ -150,9 +150,25 @@ function serializeTokenMetadata(key: string, value: string | null | undefined): 
   const normalized = value
     ? key === 'postcode'
       ? normalizePostcodeTokenValue(value)
+      : key === 'division'
+        ? normalizeDivisionId(value)
       : normalizeTokenValue(value)
     : '';
   return normalized ? `${key}=${normalized}` : null;
+}
+
+function normalizeDivisionId(value: string | null | undefined): string {
+  const raw = value?.trim();
+  if (!raw || raw.includes(':')) {
+    return '';
+  }
+
+  return raw
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function parseTokenMetadata(parts: string[]): Record<string, string> {
@@ -168,6 +184,8 @@ function parseTokenMetadata(parts: string[]): Record<string, string> {
     const value =
       key === 'postcode'
         ? normalizePostcodeTokenValue(part.slice(separatorIndex + 1))
+        : key === 'division'
+          ? normalizeDivisionId(part.slice(separatorIndex + 1))
         : normalizeTokenValue(part.slice(separatorIndex + 1));
     if (value) {
       metadata[key] = value;
@@ -216,6 +234,8 @@ export function parseLocationFilterToken(value: string): LocationFilterToken | n
     countryCode: normalizeCountryCode(parts[1]),
     value: tokenValue,
     label: formatTokenLabel(tokenValue, type),
+    source: metadata.source ?? null,
+    divisionId: metadata.division ?? null,
     city: metadata.city ? formatTokenLabel(metadata.city) : null,
     region: metadata.region ? formatTokenLabel(metadata.region) : null,
     postalCode: postalCode ? postalCode.toUpperCase() : null,
@@ -251,6 +271,8 @@ function serializeLocationFilterToken(token: LocationFilterToken): string | null
     serializeTokenMetadata('region', token.region),
     serializeTokenMetadata('postcode', postalCodeMetadata),
     serializeTokenMetadata('street', streetMetadata),
+    serializeTokenMetadata('division', token.divisionId),
+    serializeTokenMetadata('source', token.source),
   ].filter((part): part is string => part != null);
 
   return [token.type, normalizeCountryCode(token.countryCode) ?? '', value, ...metadata].join(':');
@@ -281,6 +303,8 @@ function normalizeLocationFilterTokens(tokens: readonly LocationFilterToken[] | 
       countryCode: normalizeCountryCode(token.countryCode),
       value,
       label: token.label?.trim() || value,
+      source: token.source ? normalizeTokenValue(token.source) : null,
+      divisionId: normalizeDivisionId(token.divisionId) || null,
       city: token.city?.trim() || null,
       region: token.region?.trim() || null,
       postalCode: token.postalCode
@@ -516,7 +540,42 @@ function getPostcodePrefixUpperBound(value: string): string | null {
   return next <= 9999 ? String(next).padStart(4, '0') : null;
 }
 
+function getLocationDivisionAreaKind(type: LocationFilterTokenType): 'city' | 'region' | 'country' | null {
+  return type === 'city' || type === 'region' || type === 'country' ? type : null;
+}
+
+function buildLocationDivisionMembershipPredicate(
+  token: LocationFilterToken,
+  propertyAlias: string
+): SQL | null {
+  const divisionId = normalizeDivisionId(token.divisionId);
+  const areaKind = getLocationDivisionAreaKind(token.type);
+  if (!divisionId || !areaKind) {
+    return null;
+  }
+
+  const membershipPredicates = [
+    sql`pldm.property_id = ${sql.raw(`${propertyAlias}.id`)}`,
+    sql`pldm.area_kind = ${areaKind}`,
+    sql`pldm.division_id = ${divisionId}`,
+  ];
+  if (token.countryCode) {
+    membershipPredicates.push(sql`pldm.country_code = ${token.countryCode}`);
+  }
+
+  return sql`EXISTS (
+    SELECT 1
+    FROM property_location_division_memberships pldm
+    WHERE ${sql.join(membershipPredicates, sql` AND `)}
+  )`;
+}
+
 function buildLocationTokenPredicate(token: LocationFilterToken, propertyAlias: string): SQL {
+  const membershipPredicate = buildLocationDivisionMembershipPredicate(token, propertyAlias);
+  if (membershipPredicate) {
+    return sql`(${membershipPredicate})`;
+  }
+
   const predicates: SQL[] = [];
   const countryColumn = sql.raw(`${propertyAlias}.country_code`);
   const cityColumn = sql.raw(`${propertyAlias}.city`);

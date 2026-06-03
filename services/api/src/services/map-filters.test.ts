@@ -123,6 +123,68 @@ describe('selected area filters', () => {
     expect(query.params).toEqual(['NL', 'eindhoven']);
   });
 
+  it('parses Overture division metadata from readable area tokens', () => {
+    expect(
+      parseLocationFilterToken(
+        'city:NL:eindhoven:division=D724E74F-017A-4902-9031-BC784FFC1789:source=Overture'
+      )
+    ).toEqual(
+      expect.objectContaining({
+        type: 'city',
+        countryCode: 'NL',
+        value: 'eindhoven',
+        divisionId: 'd724e74f-017a-4902-9031-bc784ffc1789',
+        source: 'overture',
+      })
+    );
+  });
+
+  it('uses Overture division memberships for city, region, and country area tokens', () => {
+    const divisionId = 'd724e74f-017a-4902-9031-bc784ffc1789';
+    const cityToken = parseLocationFilterToken(
+      `city:NL:eindhoven:division=${divisionId}:source=overture`
+    );
+    const regionToken = parseLocationFilterToken(`region:BE:vlaanderen:division=${divisionId}`);
+    const countryToken = parseLocationFilterToken(`country:DE:deutschland:division=${divisionId}`);
+
+    const query = renderQuery(
+      buildLocationAreaFilterPredicate(
+        [cityToken, regionToken, countryToken].filter(
+          (token): token is NonNullable<typeof token> => token != null
+        ),
+        'property'
+      )
+    );
+
+    expect(query.sql).toContain('FROM property_location_division_memberships pldm');
+    expect(query.sql).toContain('pldm.property_id = property.id');
+    expect(query.sql).toContain('pldm.area_kind =');
+    expect(query.sql).toContain('pldm.division_id =');
+    expect(query.sql).toContain('pldm.country_code =');
+    expect(query.sql).not.toContain('LOWER(property.city)');
+    expect(query.sql).not.toContain('LOWER(property.region)');
+    expect(query.params).toEqual([
+      'city',
+      divisionId,
+      'NL',
+      'region',
+      divisionId,
+      'BE',
+      'country',
+      divisionId,
+      'DE',
+    ]);
+  });
+
+  it('keeps legacy text behavior for area tokens without division metadata', () => {
+    const token = parseLocationFilterToken('region:NL:noord-brabant');
+    const query = renderQuery(buildLocationAreaFilterPredicate(token ? [token] : []));
+
+    expect(query.sql).not.toContain('property_location_division_memberships');
+    expect(query.sql).toContain('LOWER(p.region)');
+    expect(query.params).toEqual(['NL', 'noord brabant', 'noord-brabant']);
+  });
+
   it('only narrows city predicates by region when the city token explicitly has region metadata', () => {
     const token = parseLocationFilterToken('city:NL:eindhoven:region=noord-brabant');
     const query = renderQuery(buildLocationAreaFilterPredicate(token ? [token] : []));

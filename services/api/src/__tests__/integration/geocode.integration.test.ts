@@ -106,6 +106,24 @@ async function cleanupCreatedProperties(createdPropertyIds: string[]) {
   createdPropertyIds.length = 0;
 }
 
+async function cleanupOvertureDivisionFixtures(createdDivisionIds: string[]) {
+  if (createdDivisionIds.length === 0) {
+    return;
+  }
+
+  const ids = [...new Set(createdDivisionIds)];
+  await db.execute(sql`
+    DELETE FROM location_search_areas
+    WHERE source = 'overture'
+      AND division_id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+  `);
+  await db.execute(sql`
+    DELETE FROM overture_divisions
+    WHERE id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+  `);
+  createdDivisionIds.length = 0;
+}
+
 function stringifySqlQuery(query: unknown): string {
   const chunks = (query as { queryChunks?: unknown[] }).queryChunks;
   if (!Array.isArray(chunks)) {
@@ -144,6 +162,8 @@ type LocationSearchTestSuggestion = {
     countryCode?: string | null;
     value?: string;
     label?: string;
+    source?: string | null;
+    divisionId?: string | null;
     city?: string | null;
     region?: string | null;
     postalCode?: string | null;
@@ -582,6 +602,7 @@ describe('GET /geocode/search', () => {
 describe('GET /search/locations', () => {
   let app: FastifyInstance;
   const createdPropertyIds: string[] = [];
+  const createdDivisionIds: string[] = [];
 
   beforeAll(async () => {
     app = await buildGeocodeTestApp();
@@ -589,6 +610,7 @@ describe('GET /search/locations', () => {
 
   afterAll(async () => {
     await cleanupCreatedProperties(createdPropertyIds);
+    await cleanupOvertureDivisionFixtures(createdDivisionIds);
     // Keep the shared DB connection open for the following hydration tests.
   });
 
@@ -599,6 +621,7 @@ describe('GET /search/locations', () => {
 
   afterEach(async () => {
     await cleanupCreatedProperties(createdPropertyIds);
+    await cleanupOvertureDivisionFixtures(createdDivisionIds);
   });
 
   it('rejects one-character typed location searches', async () => {
@@ -2248,7 +2271,7 @@ describe('GET /search/locations', () => {
     expect(JSON.stringify(body)).not.toContain('Aachen');
   });
 
-  it('keeps supported same-name suggestions distinguishable by type', async () => {
+  it('suppresses same-label street duplicate for exact city searches', async () => {
     const streetProperty = await createIntegrationProperty({
       street: 'Eindhoven',
       houseNumber: 1,
@@ -2307,9 +2330,120 @@ describe('GET /search/locations', () => {
 
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body.map((suggestion: { type: string }) => suggestion.type)).toEqual(
-      expect.arrayContaining(['city', 'street'])
+    expect(body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'city',
+          label: 'Eindhoven',
+          countryCode: 'NL',
+        }),
+      ])
     );
+    expect(
+      body.some(
+        (suggestion: { type: string; label: string; countryCode: string }) =>
+          suggestion.type === 'street' &&
+          suggestion.label === 'Eindhoven' &&
+          suggestion.countryCode === 'NL'
+      )
+    ).toBe(false);
+  });
+
+  it('returns and filters Overture-backed city suggestions by division membership', async () => {
+    const suffix = Date.now().toString(36);
+    const divisionId = `test-overture-city-${suffix}`;
+    const areaId = `test-overture-city-area-${suffix}`;
+    const overtureCity = `Overture Fixture City ${suffix}`;
+    createdDivisionIds.push(divisionId);
+
+    await db.execute(sql`
+      INSERT INTO overture_divisions (
+        id,
+        subtype,
+        country_code,
+        name,
+        geometry
+      )
+      VALUES (
+        ${divisionId},
+        'locality',
+        'NL',
+        ${overtureCity},
+        ST_SetSRID(ST_MakePoint(5.62, 51.62), 4326)
+      )
+    `);
+    await db.execute(sql`
+      INSERT INTO overture_division_areas (
+        id,
+        division_id,
+        subtype,
+        country_code,
+        name,
+        min_lon,
+        min_lat,
+        max_lon,
+        max_lat,
+        geometry
+      )
+      VALUES (
+        ${areaId},
+        ${divisionId},
+        'locality',
+        'NL',
+        ${overtureCity},
+        5.60,
+        51.60,
+        5.64,
+        51.64,
+        ST_SetSRID(ST_Multi(ST_MakeEnvelope(5.60, 51.60, 5.64, 51.64, 4326)), 4326)
+      )
+    `);
+
+    const property = await createIntegrationProperty({
+      street: `Overture Member Street ${suffix}`,
+      houseNumber: 1,
+      city: `Property Text City ${suffix}`,
+      region: 'Noord-Brabant',
+      postalCode: '5688OC',
+      lon: 5.62,
+      lat: 51.62,
+    });
+    createdPropertyIds.push(property.id);
+
+    mockFetchFn.mockResolvedValue(emptyPhotonResponse());
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(overtureCity)}&limit=8&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const citySuggestion = body.find(
+      (suggestion) =>
+        suggestion.type === 'city' && suggestion.filterToken?.divisionId === divisionId
+    );
+    expect(citySuggestion).toEqual(
+      expect.objectContaining({
+        type: 'city',
+        label: overtureCity,
+        filterToken: expect.objectContaining({
+          source: 'overture',
+          divisionId,
+        }),
+      })
+    );
+
+    const token = parseLocationFilterToken(citySuggestion?.filterToken?.id ?? '');
+    const filteredRows = Array.from(
+      await db.execute<{ id: string }>(sql`
+      SELECT p.id
+      FROM properties p
+      WHERE p.id = ${property.id}
+        AND ${buildLocationAreaFilterPredicate(token ? [token] : [])}
+    `)
+    );
+    expect(filteredRows.map((row) => row.id)).toEqual([property.id]);
   });
 
   it('resolves property suggestions only for exact unambiguous house-number additions', async () => {

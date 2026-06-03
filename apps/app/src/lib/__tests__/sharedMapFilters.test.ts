@@ -400,6 +400,38 @@ describe('sharedMapFilters price suggestions', () => {
     );
   });
 
+  it('matches shared/backend-compatible Overture division token metadata', () => {
+    const divisionId = 'D724E74F-017A-4902-9031-BC784FFC1789';
+    const cityToken = {
+      type: 'city' as const,
+      countryCode: 'NL',
+      value: 'Eindhoven',
+      label: 'Eindhoven',
+      divisionId,
+      source: 'Overture',
+    };
+
+    expect(serializeLocationFilterToken(cityToken)).toBe(
+      'city:NL:eindhoven:division=d724e74f-017a-4902-9031-bc784ffc1789:source=overture',
+    );
+    expect(
+      parseLocationFilterToken(
+        'region:NL:noord-brabant:division=4C7E.GERS_ID-01:source=Overture',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        type: 'region',
+        countryCode: 'NL',
+        value: 'noord-brabant',
+        divisionId: '4c7e.gers_id-01',
+        source: 'overture',
+      }),
+    );
+    expect(
+      serializeLocationFilterToken({ ...cityToken, divisionId: 'abc:def', source: null }),
+    ).toBe('city:NL:eindhoven');
+  });
+
   it('keeps same street value distinct across cities in area params', () => {
     const filters = {
       ...createDefaultMapFilters(),

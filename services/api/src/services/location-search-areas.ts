@@ -52,7 +52,9 @@ const AREA_COLUMNS = `
   max_lon,
   max_lat,
   property_count,
-  geometry_count
+  geometry_count,
+  source,
+  division_id
 `;
 
 const TEXT_MATCH = (column: string) => `NULLIF(LOWER(TRIM(COALESCE(${column}, ''))), '')`;
@@ -64,6 +66,7 @@ const POSTCODE_MATCH = (column: string) =>
 const ACTIVE_PROPERTIES_CTE = `
   WITH active_properties AS (
     SELECT
+      p.id,
       p.country_code,
       p.city,
       p.region,
@@ -108,8 +111,16 @@ const INSERT_COUNTRY_AREAS = `
     NULL::varchar(255) AS region,
     NULL::varchar(32) AS postal_code,
     NULL::varchar(255) AS street,
-    ${AGGREGATE_COLUMNS}
+    ${AGGREGATE_COLUMNS},
+    'properties'::varchar(32) AS source,
+    NULL::text AS division_id
   FROM active_properties
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM property_location_division_memberships membership
+    WHERE membership.property_id = active_properties.id
+      AND membership.area_kind = 'country'
+  )
   GROUP BY country_code
 `;
 
@@ -127,10 +138,20 @@ const INSERT_BROAD_CITY_AREAS = `
     NULL::varchar(255) AS region,
     NULL::varchar(32) AS postal_code,
     NULL::varchar(255) AS street,
-    ${AGGREGATE_COLUMNS}
+    ${AGGREGATE_COLUMNS},
+    'properties'::varchar(32) AS source,
+    NULL::text AS division_id
   FROM active_properties
   WHERE city_match IS NOT NULL
     AND city_token IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM {destination} existing
+      WHERE existing.area_kind = 'city'
+        AND existing.source = 'overture'
+        AND existing.country_code = active_properties.country_code
+        AND existing.match_value = active_properties.city_match
+    )
   GROUP BY country_code, city_match, city_token
 `;
 
@@ -148,12 +169,22 @@ const INSERT_REGIONAL_CITY_AREAS = `
     MIN(region)::varchar(255) AS region,
     NULL::varchar(32) AS postal_code,
     NULL::varchar(255) AS street,
-    ${AGGREGATE_COLUMNS}
+    ${AGGREGATE_COLUMNS},
+    'properties'::varchar(32) AS source,
+    NULL::text AS division_id
   FROM active_properties
   WHERE city_match IS NOT NULL
     AND city_token IS NOT NULL
     AND region_match IS NOT NULL
     AND region_token IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM {destination} existing
+      WHERE existing.area_kind = 'city'
+        AND existing.source = 'overture'
+        AND existing.country_code = active_properties.country_code
+        AND existing.match_value = active_properties.city_match
+    )
   GROUP BY country_code, city_match, city_token, region_match, region_token
 `;
 
@@ -171,10 +202,18 @@ const INSERT_REGION_AREAS = `
     MIN(region)::varchar(255) AS region,
     NULL::varchar(32) AS postal_code,
     NULL::varchar(255) AS street,
-    ${AGGREGATE_COLUMNS}
+    ${AGGREGATE_COLUMNS},
+    'properties'::varchar(32) AS source,
+    NULL::text AS division_id
   FROM active_properties
   WHERE region_match IS NOT NULL
     AND region_token IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM property_location_division_memberships membership
+      WHERE membership.property_id = active_properties.id
+        AND membership.area_kind = 'region'
+    )
   GROUP BY country_code, region_match, region_token
 `;
 
@@ -195,7 +234,9 @@ const INSERT_POSTCODE_AREAS = `
     MIN(region)::varchar(255) AS region,
     MIN(postal_code)::varchar(32) AS postal_code,
     NULL::varchar(255) AS street,
-    ${AGGREGATE_COLUMNS}
+    ${AGGREGATE_COLUMNS},
+    'properties'::varchar(32) AS source,
+    NULL::text AS division_id
   FROM active_properties
   WHERE postcode_match IS NOT NULL
   GROUP BY country_code, postcode_match, city_match, city_token, region_match, region_token
@@ -215,7 +256,9 @@ const INSERT_POSTCODE_PREFIX_AREAS = `
     MIN(region)::varchar(255) AS region,
     LEFT(postcode_match, 4)::varchar(32) AS postal_code,
     NULL::varchar(255) AS street,
-    ${AGGREGATE_COLUMNS}
+    ${AGGREGATE_COLUMNS},
+    'properties'::varchar(32) AS source,
+    NULL::text AS division_id
   FROM active_properties
   WHERE postcode_match ~ '^\\d{4}[a-z]{2}$'
   GROUP BY country_code, LEFT(postcode_match, 4)
@@ -236,7 +279,9 @@ const INSERT_STREET_AREAS = `
     MIN(region)::varchar(255) AS region,
     NULL::varchar(32) AS postal_code,
     MIN(street)::varchar(255) AS street,
-    ${AGGREGATE_COLUMNS}
+    ${AGGREGATE_COLUMNS},
+    'properties'::varchar(32) AS source,
+    NULL::text AS division_id
   FROM active_properties
   WHERE street_match IS NOT NULL
     AND street_token IS NOT NULL
@@ -245,7 +290,160 @@ const INSERT_STREET_AREAS = `
   GROUP BY country_code, street_match, street_token, city_match, city_token, region_match, region_token
 `;
 
+const INSERT_OVERTURE_COUNTRY_AREAS = `
+  WITH membership_counts AS (
+    SELECT
+      membership.division_id,
+      MIN(membership.country_code)::varchar(2) AS country_code,
+      COUNT(*)::int AS property_count,
+      COUNT(p.geometry)::int AS geometry_count
+    FROM property_location_division_memberships membership
+    JOIN properties p ON p.id = membership.property_id
+    WHERE membership.area_kind = 'country'
+      AND p.status = 'active'
+    GROUP BY membership.division_id
+  ),
+  area_bounds AS (
+    SELECT
+      area.division_id,
+      ST_Collect(area.geometry) AS geometry
+    FROM overture_division_areas area
+    JOIN membership_counts counts ON counts.division_id = area.division_id
+    WHERE area.subtype = 'country'
+    GROUP BY area.division_id
+  )
+  INSERT INTO {destination} (${AREA_COLUMNS})
+  SELECT
+    'country:overture:' || division.id AS area_key,
+    'country' AS area_kind,
+    'country' AS suggestion_type,
+    counts.country_code,
+    ${TEXT_MATCH('division.name')} AS match_value,
+    division.name AS label,
+    NULL::varchar(100) AS city,
+    NULL::varchar(255) AS region,
+    NULL::varchar(32) AS postal_code,
+    NULL::varchar(255) AS street,
+    ST_X(ST_Centroid(bounds.geometry)) AS lon,
+    ST_Y(ST_Centroid(bounds.geometry)) AS lat,
+    ST_XMin(Box3D(bounds.geometry)) AS min_lon,
+    ST_YMin(Box3D(bounds.geometry)) AS min_lat,
+    ST_XMax(Box3D(bounds.geometry)) AS max_lon,
+    ST_YMax(Box3D(bounds.geometry)) AS max_lat,
+    counts.property_count,
+    counts.geometry_count,
+    'overture'::varchar(32) AS source,
+    division.id AS division_id
+  FROM membership_counts counts
+  JOIN overture_divisions division ON division.id = counts.division_id
+  JOIN area_bounds bounds ON bounds.division_id = counts.division_id
+  WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
+`;
+
+const INSERT_OVERTURE_REGION_AREAS = `
+  WITH membership_counts AS (
+    SELECT
+      membership.division_id,
+      MIN(membership.country_code)::varchar(2) AS country_code,
+      COUNT(*)::int AS property_count,
+      COUNT(p.geometry)::int AS geometry_count
+    FROM property_location_division_memberships membership
+    JOIN properties p ON p.id = membership.property_id
+    WHERE membership.area_kind = 'region'
+      AND p.status = 'active'
+    GROUP BY membership.division_id
+  ),
+  area_bounds AS (
+    SELECT
+      area.division_id,
+      ST_Collect(area.geometry) AS geometry
+    FROM overture_division_areas area
+    JOIN membership_counts counts ON counts.division_id = area.division_id
+    WHERE area.subtype = 'region'
+    GROUP BY area.division_id
+  )
+  INSERT INTO {destination} (${AREA_COLUMNS})
+  SELECT
+    'region:overture:' || division.id AS area_key,
+    'region' AS area_kind,
+    'region' AS suggestion_type,
+    counts.country_code,
+    ${TEXT_MATCH('division.name')} AS match_value,
+    division.name AS label,
+    NULL::varchar(100) AS city,
+    division.name::varchar(255) AS region,
+    NULL::varchar(32) AS postal_code,
+    NULL::varchar(255) AS street,
+    ST_X(ST_Centroid(bounds.geometry)) AS lon,
+    ST_Y(ST_Centroid(bounds.geometry)) AS lat,
+    ST_XMin(Box3D(bounds.geometry)) AS min_lon,
+    ST_YMin(Box3D(bounds.geometry)) AS min_lat,
+    ST_XMax(Box3D(bounds.geometry)) AS max_lon,
+    ST_YMax(Box3D(bounds.geometry)) AS max_lat,
+    counts.property_count,
+    counts.geometry_count,
+    'overture'::varchar(32) AS source,
+    division.id AS division_id
+  FROM membership_counts counts
+  JOIN overture_divisions division ON division.id = counts.division_id
+  JOIN area_bounds bounds ON bounds.division_id = counts.division_id
+  WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
+`;
+
+const INSERT_OVERTURE_CITY_AREAS = `
+  WITH membership_counts AS (
+    SELECT
+      membership.division_id,
+      MIN(membership.country_code)::varchar(2) AS country_code,
+      COUNT(*)::int AS property_count,
+      COUNT(p.geometry)::int AS geometry_count
+    FROM property_location_division_memberships membership
+    JOIN properties p ON p.id = membership.property_id
+    WHERE membership.area_kind = 'city'
+      AND p.status = 'active'
+    GROUP BY membership.division_id
+  ),
+  area_bounds AS (
+    SELECT
+      area.division_id,
+      ST_Collect(area.geometry) AS geometry
+    FROM overture_division_areas area
+    JOIN membership_counts counts ON counts.division_id = area.division_id
+    WHERE area.subtype IN ('locality', 'localadmin')
+    GROUP BY area.division_id
+  )
+  INSERT INTO {destination} (${AREA_COLUMNS})
+  SELECT
+    'city:overture:' || division.id AS area_key,
+    'city' AS area_kind,
+    'city' AS suggestion_type,
+    counts.country_code,
+    ${TEXT_MATCH('division.name')} AS match_value,
+    division.name AS label,
+    division.name::varchar(100) AS city,
+    NULL::varchar(255) AS region,
+    NULL::varchar(32) AS postal_code,
+    NULL::varchar(255) AS street,
+    ST_X(ST_Centroid(bounds.geometry)) AS lon,
+    ST_Y(ST_Centroid(bounds.geometry)) AS lat,
+    ST_XMin(Box3D(bounds.geometry)) AS min_lon,
+    ST_YMin(Box3D(bounds.geometry)) AS min_lat,
+    ST_XMax(Box3D(bounds.geometry)) AS max_lon,
+    ST_YMax(Box3D(bounds.geometry)) AS max_lat,
+    counts.property_count,
+    counts.geometry_count,
+    'overture'::varchar(32) AS source,
+    division.id AS division_id
+  FROM membership_counts counts
+  JOIN overture_divisions division ON division.id = counts.division_id
+  JOIN area_bounds bounds ON bounds.division_id = counts.division_id
+  WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
+`;
+
 const FULL_INSERTS = [
+  INSERT_OVERTURE_COUNTRY_AREAS,
+  INSERT_OVERTURE_REGION_AREAS,
+  INSERT_OVERTURE_CITY_AREAS,
   INSERT_COUNTRY_AREAS,
   INSERT_BROAD_CITY_AREAS,
   INSERT_REGIONAL_CITY_AREAS,
@@ -274,6 +472,8 @@ const TARGETED_AREA_UPSERT = `
     max_lat = EXCLUDED.max_lat,
     property_count = EXCLUDED.property_count,
     geometry_count = EXCLUDED.geometry_count,
+    source = EXCLUDED.source,
+    division_id = EXCLUDED.division_id,
     updated_at = NOW()
 `;
 
@@ -315,6 +515,367 @@ function locationSearchAreaInsertSql(template: string, destination: string): SQL
   return sql.raw(template.replaceAll('{destination}', destination));
 }
 
+async function insertPropertyLocationDivisionMemberships(
+  executor: QueryExecutor,
+  destination: string,
+  propertyJoinSql = ''
+): Promise<void> {
+  await executor.execute(sql.raw(`
+    INSERT INTO ${destination} (
+      property_id,
+      area_kind,
+      division_id,
+      division_area_id,
+      subtype,
+      country_code
+    )
+    SELECT DISTINCT ON (p.id)
+      p.id,
+      'city',
+      area.division_id,
+      area.id,
+      area.subtype,
+      p.country_code
+    FROM properties p
+    ${propertyJoinSql}
+    JOIN overture_division_areas area
+      ON area.country_code = p.country_code
+     AND area.subtype IN ('locality', 'localadmin')
+     AND area.geometry && p.geometry
+     AND ST_Covers(area.geometry, p.geometry)
+    WHERE p.status = 'active'
+      AND p.geometry IS NOT NULL
+    ORDER BY
+      p.id,
+      CASE area.subtype WHEN 'locality' THEN 0 ELSE 1 END,
+      ST_Area(area.geometry) ASC,
+      area.id
+  `));
+
+  await executor.execute(sql.raw(`
+    INSERT INTO ${destination} (
+      property_id,
+      area_kind,
+      division_id,
+      division_area_id,
+      subtype,
+      country_code
+    )
+    SELECT DISTINCT ON (p.id)
+      p.id,
+      'region',
+      area.division_id,
+      area.id,
+      area.subtype,
+      p.country_code
+    FROM properties p
+    ${propertyJoinSql}
+    JOIN overture_division_areas area
+      ON area.country_code = p.country_code
+     AND area.subtype = 'region'
+     AND area.geometry && p.geometry
+     AND ST_Covers(area.geometry, p.geometry)
+    WHERE p.status = 'active'
+      AND p.geometry IS NOT NULL
+    ORDER BY p.id, ST_Area(area.geometry) ASC, area.id
+  `));
+
+  await executor.execute(sql.raw(`
+    INSERT INTO ${destination} (
+      property_id,
+      area_kind,
+      division_id,
+      division_area_id,
+      subtype,
+      country_code
+    )
+    SELECT DISTINCT ON (p.id)
+      p.id,
+      'country',
+      area.division_id,
+      area.id,
+      area.subtype,
+      p.country_code
+    FROM properties p
+    ${propertyJoinSql}
+    JOIN overture_division_areas area
+      ON area.country_code = p.country_code
+     AND area.subtype = 'country'
+     AND area.geometry && p.geometry
+     AND ST_Covers(area.geometry, p.geometry)
+    WHERE p.status = 'active'
+      AND p.geometry IS NOT NULL
+    ORDER BY p.id, ST_Area(area.geometry) ASC, area.id
+  `));
+}
+
+async function rebuildPropertyLocationDivisionMemberships(
+  executor: QueryExecutor
+): Promise<void> {
+  await executor.execute(sql`
+    CREATE TEMP TABLE property_location_division_memberships_rebuild
+    (LIKE property_location_division_memberships INCLUDING DEFAULTS)
+    ON COMMIT DROP
+  `);
+
+  await insertPropertyLocationDivisionMemberships(
+    executor,
+    'property_location_division_memberships_rebuild'
+  );
+
+  await executor.execute(sql`TRUNCATE property_location_division_memberships`);
+  await executor.execute(sql.raw(`
+    INSERT INTO property_location_division_memberships (
+      property_id,
+      area_kind,
+      division_id,
+      division_area_id,
+      subtype,
+      country_code,
+      updated_at
+    )
+    SELECT
+      property_id,
+      area_kind,
+      division_id,
+      division_area_id,
+      subtype,
+      country_code,
+      updated_at
+    FROM property_location_division_memberships_rebuild
+  `));
+  await executor.execute(sql`ANALYZE property_location_division_memberships`);
+}
+
+async function refreshOvertureLocationSearchAreasForAffectedDivisions(
+  executor: QueryExecutor
+): Promise<void> {
+  await executor.execute(sql.raw(`
+    DELETE FROM location_search_areas area
+    USING affected_overture_location_search_area_keys affected
+    WHERE area.source = 'overture'
+      AND area.area_kind = affected.area_kind
+      AND area.division_id = affected.division_id
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH membership_counts AS (
+      SELECT
+        membership.division_id,
+        MIN(membership.country_code)::varchar(2) AS country_code,
+        COUNT(*)::int AS property_count,
+        COUNT(p.geometry)::int AS geometry_count
+      FROM property_location_division_memberships membership
+      JOIN affected_overture_location_search_area_keys affected
+        ON affected.area_kind = 'country'
+       AND affected.division_id = membership.division_id
+      JOIN properties p ON p.id = membership.property_id
+      WHERE membership.area_kind = 'country'
+        AND p.status = 'active'
+      GROUP BY membership.division_id
+    ),
+    area_bounds AS (
+      SELECT area.division_id, ST_Collect(area.geometry) AS geometry
+      FROM overture_division_areas area
+      JOIN membership_counts counts ON counts.division_id = area.division_id
+      WHERE area.subtype = 'country'
+      GROUP BY area.division_id
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'country:overture:' || division.id,
+      'country',
+      'country',
+      counts.country_code,
+      ${TEXT_MATCH('division.name')},
+      division.name,
+      NULL::varchar(100),
+      NULL::varchar(255),
+      NULL::varchar(32),
+      NULL::varchar(255),
+      ST_X(ST_Centroid(bounds.geometry)),
+      ST_Y(ST_Centroid(bounds.geometry)),
+      ST_XMin(Box3D(bounds.geometry)),
+      ST_YMin(Box3D(bounds.geometry)),
+      ST_XMax(Box3D(bounds.geometry)),
+      ST_YMax(Box3D(bounds.geometry)),
+      counts.property_count,
+      counts.geometry_count,
+      'overture'::varchar(32),
+      division.id
+    FROM membership_counts counts
+    JOIN overture_divisions division ON division.id = counts.division_id
+    JOIN area_bounds bounds ON bounds.division_id = counts.division_id
+    WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
+    ${TARGETED_AREA_UPSERT}
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH membership_counts AS (
+      SELECT
+        membership.division_id,
+        MIN(membership.country_code)::varchar(2) AS country_code,
+        COUNT(*)::int AS property_count,
+        COUNT(p.geometry)::int AS geometry_count
+      FROM property_location_division_memberships membership
+      JOIN affected_overture_location_search_area_keys affected
+        ON affected.area_kind = 'region'
+       AND affected.division_id = membership.division_id
+      JOIN properties p ON p.id = membership.property_id
+      WHERE membership.area_kind = 'region'
+        AND p.status = 'active'
+      GROUP BY membership.division_id
+    ),
+    area_bounds AS (
+      SELECT area.division_id, ST_Collect(area.geometry) AS geometry
+      FROM overture_division_areas area
+      JOIN membership_counts counts ON counts.division_id = area.division_id
+      WHERE area.subtype = 'region'
+      GROUP BY area.division_id
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'region:overture:' || division.id,
+      'region',
+      'region',
+      counts.country_code,
+      ${TEXT_MATCH('division.name')},
+      division.name,
+      NULL::varchar(100),
+      division.name::varchar(255),
+      NULL::varchar(32),
+      NULL::varchar(255),
+      ST_X(ST_Centroid(bounds.geometry)),
+      ST_Y(ST_Centroid(bounds.geometry)),
+      ST_XMin(Box3D(bounds.geometry)),
+      ST_YMin(Box3D(bounds.geometry)),
+      ST_XMax(Box3D(bounds.geometry)),
+      ST_YMax(Box3D(bounds.geometry)),
+      counts.property_count,
+      counts.geometry_count,
+      'overture'::varchar(32),
+      division.id
+    FROM membership_counts counts
+    JOIN overture_divisions division ON division.id = counts.division_id
+    JOIN area_bounds bounds ON bounds.division_id = counts.division_id
+    WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
+    ${TARGETED_AREA_UPSERT}
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH membership_counts AS (
+      SELECT
+        membership.division_id,
+        MIN(membership.country_code)::varchar(2) AS country_code,
+        COUNT(*)::int AS property_count,
+        COUNT(p.geometry)::int AS geometry_count
+      FROM property_location_division_memberships membership
+      JOIN affected_overture_location_search_area_keys affected
+        ON affected.area_kind = 'city'
+       AND affected.division_id = membership.division_id
+      JOIN properties p ON p.id = membership.property_id
+      WHERE membership.area_kind = 'city'
+        AND p.status = 'active'
+      GROUP BY membership.division_id
+    ),
+    area_bounds AS (
+      SELECT area.division_id, ST_Collect(area.geometry) AS geometry
+      FROM overture_division_areas area
+      JOIN membership_counts counts ON counts.division_id = area.division_id
+      WHERE area.subtype IN ('locality', 'localadmin')
+      GROUP BY area.division_id
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'city:overture:' || division.id,
+      'city',
+      'city',
+      counts.country_code,
+      ${TEXT_MATCH('division.name')},
+      division.name,
+      division.name::varchar(100),
+      NULL::varchar(255),
+      NULL::varchar(32),
+      NULL::varchar(255),
+      ST_X(ST_Centroid(bounds.geometry)),
+      ST_Y(ST_Centroid(bounds.geometry)),
+      ST_XMin(Box3D(bounds.geometry)),
+      ST_YMin(Box3D(bounds.geometry)),
+      ST_XMax(Box3D(bounds.geometry)),
+      ST_YMax(Box3D(bounds.geometry)),
+      counts.property_count,
+      counts.geometry_count,
+      'overture'::varchar(32),
+      division.id
+    FROM membership_counts counts
+    JOIN overture_divisions division ON division.id = counts.division_id
+    JOIN area_bounds bounds ON bounds.division_id = counts.division_id
+    WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
+    ${TARGETED_AREA_UPSERT}
+  `));
+}
+
+async function refreshPropertyLocationDivisionMembershipsForPropertyIds(
+  propertyIds: readonly string[]
+): Promise<void> {
+  const ids = [...new Set(propertyIds.filter(Boolean))];
+  if (ids.length === 0) {
+    return;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('location_search_areas_targeted_refresh'))`);
+    await tx.execute(sql`
+      CREATE TEMP TABLE affected_property_ids (
+        id uuid PRIMARY KEY
+      ) ON COMMIT DROP
+    `);
+    await tx.execute(sql`
+      INSERT INTO affected_property_ids (id)
+      VALUES ${sql.join(ids.map((id) => sql`(${id})`), sql`, `)}
+      ON CONFLICT DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      CREATE TEMP TABLE affected_overture_location_search_area_keys (
+        area_kind varchar(16) NOT NULL,
+        division_id text NOT NULL,
+        PRIMARY KEY (area_kind, division_id)
+      ) ON COMMIT DROP
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO affected_overture_location_search_area_keys (area_kind, division_id)
+      SELECT DISTINCT membership.area_kind, membership.division_id
+      FROM property_location_division_memberships membership
+      JOIN affected_property_ids affected ON affected.id = membership.property_id
+      ON CONFLICT DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      DELETE FROM property_location_division_memberships membership
+      USING affected_property_ids affected
+      WHERE membership.property_id = affected.id
+    `);
+
+    await insertPropertyLocationDivisionMemberships(
+      tx,
+      'property_location_division_memberships',
+      'JOIN affected_property_ids affected ON affected.id = p.id'
+    );
+
+    await tx.execute(sql`
+      INSERT INTO affected_overture_location_search_area_keys (area_kind, division_id)
+      SELECT DISTINCT membership.area_kind, membership.division_id
+      FROM property_location_division_memberships membership
+      JOIN affected_property_ids affected ON affected.id = membership.property_id
+      ON CONFLICT DO NOTHING
+    `);
+
+    await refreshOvertureLocationSearchAreasForAffectedDivisions(tx);
+  });
+}
+
 async function countLocationSearchAreas(executor: QueryExecutor): Promise<number> {
   const rows = Array.from(
     (await executor.execute(
@@ -347,6 +908,8 @@ export async function rebuildLocationSearchAreas(
   const beforeCount = await countLocationSearchAreas(db);
 
   const result = await db.transaction(async (tx) => {
+    await rebuildPropertyLocationDivisionMemberships(tx);
+
     await tx.execute(sql`
       CREATE TEMP TABLE location_search_areas_rebuild
       (LIKE location_search_areas INCLUDING DEFAULTS)
@@ -419,6 +982,7 @@ export async function getLocationSearchAreaPropertyKeysForIds(
 export async function refreshLocationSearchAreasForPropertyIds(
   propertyIds: readonly string[]
 ): Promise<void> {
+  await refreshPropertyLocationDivisionMembershipsForPropertyIds(propertyIds);
   const keys = await getLocationSearchAreaPropertyKeysForIds(propertyIds);
   await refreshLocationSearchAreasForPropertyKeys(keys);
 }
@@ -500,9 +1064,6 @@ export async function refreshLocationSearchAreasForPropertyKeys(
 
     await tx.execute(sql.raw(`
       WITH affected_area_keys AS (
-        SELECT DISTINCT 'country:' || country_code AS area_key
-        FROM affected_location_search_area_keys
-        UNION
         SELECT DISTINCT 'city:' || country_code || ':' || city_token AS area_key
         FROM affected_location_search_area_keys
         WHERE city_token IS NOT NULL
@@ -560,14 +1121,14 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         NULL::double precision,
         NULL::double precision,
         1,
-        0
+        0,
+        'properties'::varchar(32),
+        NULL::text
       FROM target
-      WHERE EXISTS (
+      WHERE NOT EXISTS (
         SELECT 1
-        FROM properties p
-        WHERE p.status = 'active'
-          AND p.country_code = target.country_code
-        LIMIT 1
+        FROM location_search_areas existing
+        WHERE existing.area_key = 'country:' || target.country_code
       )
       ${TARGETED_AREA_UPSERT}
     `));
@@ -590,12 +1151,22 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         NULL::varchar(255),
         NULL::varchar(32),
         NULL::varchar(255),
-        ${AGGREGATE_COLUMNS}
+        ${AGGREGATE_COLUMNS},
+        'properties'::varchar(32),
+        NULL::text
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code
        AND LOWER(p.city) = target.city_match
       WHERE p.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM location_search_areas existing
+          WHERE existing.area_kind = 'city'
+            AND existing.source = 'overture'
+            AND existing.country_code = p.country_code
+            AND existing.match_value = target.city_match
+        )
       GROUP BY p.country_code, target.city_match, target.city_token
       ${TARGETED_AREA_UPSERT}
     `));
@@ -621,13 +1192,23 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         MIN(p.region)::varchar(255),
         NULL::varchar(32),
         NULL::varchar(255),
-        ${AGGREGATE_COLUMNS}
+        ${AGGREGATE_COLUMNS},
+        'properties'::varchar(32),
+        NULL::text
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code
        AND LOWER(p.city) = target.city_match
        AND LOWER(p.region) = target.region_match
       WHERE p.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM location_search_areas existing
+          WHERE existing.area_kind = 'city'
+            AND existing.source = 'overture'
+            AND existing.country_code = p.country_code
+            AND existing.match_value = target.city_match
+        )
       GROUP BY p.country_code, target.city_match, target.city_token, target.region_match, target.region_token
       ${TARGETED_AREA_UPSERT}
     `));
@@ -650,12 +1231,20 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         MIN(p.region)::varchar(255),
         NULL::varchar(32),
         NULL::varchar(255),
-        ${AGGREGATE_COLUMNS}
+        ${AGGREGATE_COLUMNS},
+        'properties'::varchar(32),
+        NULL::text
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code
        AND LOWER(p.region) = target.region_match
       WHERE p.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM property_location_division_memberships membership
+          WHERE membership.property_id = p.id
+            AND membership.area_kind = 'region'
+        )
       GROUP BY p.country_code, target.region_match, target.region_token
       ${TARGETED_AREA_UPSERT}
     `));
@@ -689,7 +1278,9 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         MIN(p.region)::varchar(255),
         MIN(p.postal_code)::varchar(32),
         NULL::varchar(255),
-        ${AGGREGATE_COLUMNS}
+        ${AGGREGATE_COLUMNS},
+        'properties'::varchar(32),
+        NULL::text
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code
@@ -738,7 +1329,9 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         MAX(exact.max_lon),
         MAX(exact.max_lat),
         SUM(exact.property_count)::int,
-        SUM(exact.geometry_count)::int
+        SUM(exact.geometry_count)::int,
+        'properties'::varchar(32),
+        NULL::text
       FROM location_search_areas exact
       JOIN target
         ON target.country_code = exact.country_code
@@ -775,7 +1368,9 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         MIN(p.region)::varchar(255),
         NULL::varchar(32),
         MIN(p.street)::varchar(255),
-        ${AGGREGATE_COLUMNS}
+        ${AGGREGATE_COLUMNS},
+        'properties'::varchar(32),
+        NULL::text
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code

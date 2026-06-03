@@ -28,6 +28,7 @@
     "db:seed-tall-buildings": "tsx src/scripts/import-tall-buildings.ts",
     "db:import-buildings": "tsx src/scripts/import-osm-buildings.ts",
     "db:seed-overture": "tsx src/scripts/import-overture-addresses.ts",
+    "db:import-overture-divisions": "tsx src/scripts/import-overture-divisions.ts",
     "sprites:paper": "tsx src/scripts/build-paper-sprites.ts",
     "ingest:recover": "tsx src/scripts/ingest-recovery.ts",
     "pyramid:rollback": "tsx scripts/property-tile-pyramid-rollback.ts",
