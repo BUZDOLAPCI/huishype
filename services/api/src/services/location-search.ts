@@ -537,43 +537,7 @@ function buildLocationSuggestionDedupeKey(
   }
 
   if (suggestion.filterToken) {
-    const token = suggestion.filterToken;
-    if (token.type === 'city' || token.type === 'region' || token.type === 'country') {
-      return [
-        'area',
-        token.type,
-        token.countryCode ?? '',
-        normalizeLocationTokenValue(token.type, token.value || token.label),
-        token.type === 'city' && token.region ? `region=${normalizeSearchToken(token.region)}` : '',
-      ].join(':');
-    }
-
-    if (token.type === 'street') {
-      const street = token.street ?? suggestion.street ?? token.label;
-      const city = token.city ?? suggestion.city;
-      const region = token.region ?? suggestion.region;
-      return [
-        'area',
-        token.type,
-        token.countryCode ?? suggestion.countryCode ?? '',
-        street ? `street=${normalizeSearchToken(street)}` : '',
-        city ? `city=${normalizeSearchToken(city)}` : '',
-        region ? `region=${normalizeSearchToken(region)}` : '',
-      ].join(':');
-    }
-
-    return [
-      'area',
-      token.type,
-      token.countryCode ?? '',
-      normalizeLocationTokenValue(token.type, token.value || token.label),
-      token.city ? `city=${normalizeSearchToken(token.city)}` : '',
-      token.region ? `region=${normalizeSearchToken(token.region)}` : '',
-      token.postalCode
-        ? `postcode=${normalizePostalCodeForMatch(token.postalCode).toLowerCase()}`
-        : '',
-      token.street ? `street=${normalizeSearchToken(token.street)}` : '',
-    ].join(':');
+    return `area:${buildTokenId(suggestion.filterToken)}`;
   }
 
   return [suggestion.type, suggestion.propertyId ?? suggestion.id].join(':');
@@ -725,6 +689,54 @@ function shouldReplaceLocationSuggestion(
   candidate: LocationSearchSuggestionResponse
 ): boolean {
   return isDbBackedAreaSuggestion(candidate) && !isDbBackedAreaSuggestion(existing);
+}
+
+function hasClearerParentRegion(suggestion: LocationSearchSuggestionResponse): boolean {
+  const region = suggestion.filterToken?.region ?? suggestion.region;
+  if (!region) {
+    return false;
+  }
+
+  const city = suggestion.filterToken?.city ?? suggestion.city;
+  return !city || normalizeSearchToken(region) !== normalizeSearchToken(city);
+}
+
+function selectDisplayMetadataSuggestion(
+  preferred: LocationSearchSuggestionResponse,
+  candidate: LocationSearchSuggestionResponse
+): LocationSearchSuggestionResponse {
+  const preferredHasClearRegion = hasClearerParentRegion(preferred);
+  const candidateHasClearRegion = hasClearerParentRegion(candidate);
+  if (candidateHasClearRegion && !preferredHasClearRegion) {
+    return candidate;
+  }
+
+  return preferred;
+}
+
+function mergeCanonicalAreaSuggestion(
+  preferred: LocationSearchSuggestionResponse,
+  candidate: LocationSearchSuggestionResponse
+): LocationSearchSuggestionResponse {
+  if (!preferred.filterToken || !candidate.filterToken) {
+    return preferred;
+  }
+
+  const displaySource = selectDisplayMetadataSuggestion(preferred, candidate);
+  const displayToken = displaySource.filterToken;
+  const region = displayToken?.region ?? displaySource.region ?? null;
+  const parentLabel = displayToken?.parentLabel ?? displaySource.subtitle ?? null;
+
+  return {
+    ...preferred,
+    subtitle: parentLabel,
+    region,
+    filterToken: {
+      ...preferred.filterToken,
+      region,
+      parentLabel,
+    },
+  };
 }
 
 function getSuggestionCountryDedupeValue(
@@ -2590,7 +2602,9 @@ export async function searchLocations(input: {
       if (!existing) {
         dedupedSuggestions.set(key, suggestion);
       } else if (shouldReplaceLocationSuggestion(existing, suggestion)) {
-        dedupedSuggestions.set(key, suggestion);
+        dedupedSuggestions.set(key, mergeCanonicalAreaSuggestion(suggestion, existing));
+      } else {
+        dedupedSuggestions.set(key, mergeCanonicalAreaSuggestion(existing, suggestion));
       }
     }
 

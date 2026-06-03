@@ -124,6 +124,19 @@ async function cleanupOvertureDivisionFixtures(createdDivisionIds: string[]) {
   createdDivisionIds.length = 0;
 }
 
+async function cleanupLocationSearchAreaFixtures(createdAreaKeys: string[]) {
+  if (createdAreaKeys.length === 0) {
+    return;
+  }
+
+  const keys = [...new Set(createdAreaKeys)];
+  await db.execute(sql`
+    DELETE FROM location_search_areas
+    WHERE area_key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})
+  `);
+  createdAreaKeys.length = 0;
+}
+
 function stringifySqlQuery(query: unknown): string {
   const chunks = (query as { queryChunks?: unknown[] }).queryChunks;
   if (!Array.isArray(chunks)) {
@@ -612,12 +625,14 @@ describe('GET /search/locations', () => {
   let app: FastifyInstance;
   const createdPropertyIds: string[] = [];
   const createdDivisionIds: string[] = [];
+  const createdAreaKeys: string[] = [];
 
   beforeAll(async () => {
     app = await buildGeocodeTestApp();
   });
 
   afterAll(async () => {
+    await cleanupLocationSearchAreaFixtures(createdAreaKeys);
     await cleanupCreatedProperties(createdPropertyIds);
     await cleanupOvertureDivisionFixtures(createdDivisionIds);
     // Keep the shared DB connection open for the following hydration tests.
@@ -629,6 +644,7 @@ describe('GET /search/locations', () => {
   });
 
   afterEach(async () => {
+    await cleanupLocationSearchAreaFixtures(createdAreaKeys);
     await cleanupCreatedProperties(createdPropertyIds);
     await cleanupOvertureDivisionFixtures(createdDivisionIds);
   });
@@ -919,8 +935,12 @@ describe('GET /search/locations', () => {
   });
 
   it('dedupes DB and Photon street area suggestions when only the region differs', async () => {
+    const suffix = Date.now().toString(36);
+    const street = `Dedupe Display Street ${suffix}`;
+    const streetToken = normalizeSearchToken(street);
+    const clearerAreaKey = `test:street:${streetToken}:city=eindhoven:region=noord-brabant`;
     const property = await createIntegrationProperty({
-      street: 'Deflectiespoelstraat',
+      street,
       houseNumber: 432100,
       city: 'Eindhoven',
       region: 'Eindhoven',
@@ -929,6 +949,54 @@ describe('GET /search/locations', () => {
       lat: 51.4522789,
     });
     createdPropertyIds.push(property.id);
+    await db.execute(sql`
+      INSERT INTO location_search_areas (
+        area_key,
+        scope_key,
+        area_kind,
+        suggestion_type,
+        country_code,
+        match_value,
+        label,
+        city,
+        region,
+        postal_code,
+        street,
+        lon,
+        lat,
+        min_lon,
+        min_lat,
+        max_lon,
+        max_lat,
+        property_count,
+        geometry_count,
+        source
+      )
+      VALUES (
+        ${clearerAreaKey},
+        ${clearerAreaKey},
+        'street',
+        'street',
+        'NL',
+        ${street.toLowerCase()},
+        ${street},
+        'Eindhoven',
+        'Noord-Brabant',
+        NULL,
+        ${street},
+        5.4467,
+        51.4527,
+        5.4467,
+        51.4527,
+        5.4467,
+        51.4527,
+        1,
+        1,
+        'properties'
+      )
+      ON CONFLICT (area_key) DO NOTHING
+    `);
+    createdAreaKeys.push(clearerAreaKey);
 
     mockFetchFn
       .mockResolvedValueOnce({
@@ -943,7 +1011,7 @@ describe('GET /search/locations', () => {
                 properties: {
                   osm_type: 'W',
                   osm_id: 95101,
-                  name: 'Deflectiespoelstraat',
+                  name: street,
                   postcode: '5651HP',
                   city: 'Eindhoven',
                   state: 'Noord-Brabant',
@@ -967,7 +1035,7 @@ describe('GET /search/locations', () => {
                 properties: {
                   osm_type: 'N',
                   osm_id: 95102,
-                  street: 'Deflectiespoelstraat',
+                  street,
                   housenumber: '9876',
                   postcode: '5651HP',
                   city: 'Eindhoven',
@@ -983,7 +1051,7 @@ describe('GET /search/locations', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/search/locations?q=Deflectiespoelstraat&countrycode=NL&lon=5.4463575&lat=51.4522789',
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL&lon=5.4463575&lat=51.4522789`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -991,49 +1059,56 @@ describe('GET /search/locations', () => {
     const streetSuggestions = body.filter(
       (suggestion) =>
         suggestion.type === 'street' &&
-        (suggestion.street === 'Deflectiespoelstraat' ||
-          suggestion.label === 'Deflectiespoelstraat')
+        (suggestion.street === street || suggestion.label === street)
     );
 
     expect(streetSuggestions).toHaveLength(1);
     const streetSuggestion = streetSuggestions[0]!;
     expect(streetSuggestion).toEqual(
       expect.objectContaining({
-        id: 'street:NL:deflectiespoelstraat:city=eindhoven',
+        id: `street:NL:${streetToken}:city=eindhoven`,
         type: 'street',
-        label: 'Deflectiespoelstraat',
+        label: street,
+        subtitle: 'Eindhoven, Noord-Brabant',
         city: 'Eindhoven',
-        region: 'Eindhoven',
+        region: 'Noord-Brabant',
         postalCode: null,
-        street: 'Deflectiespoelstraat',
+        street,
         filterToken: expect.objectContaining({
-          id: 'street:NL:deflectiespoelstraat:city=eindhoven',
+          id: `street:NL:${streetToken}:city=eindhoven`,
           type: 'street',
           countryCode: 'NL',
-          value: 'deflectiespoelstraat',
-          label: 'Deflectiespoelstraat',
+          value: streetToken,
+          label: street,
+          parentLabel: 'Eindhoven, Noord-Brabant',
           city: 'Eindhoven',
-          region: 'Eindhoven',
+          region: 'Noord-Brabant',
           postalCode: null,
-          street: 'Deflectiespoelstraat',
+          street,
         }),
       })
     );
     expect(streetSuggestion.id).not.toContain('W_95101');
     expect(streetSuggestion.filterToken?.id).not.toContain('W_95101');
+    expect(streetSuggestion.id).not.toContain('region=');
+    expect(streetSuggestion.filterToken?.id).not.toContain('region=');
     expect(body.filter(isAreaSuggestion).every((suggestion) => suggestion.filterToken)).toBe(
       true
     );
+    const propertyIds = body
+      .filter((suggestion) => suggestion.type === 'property')
+      .map((suggestion) => suggestion.propertyId);
+    expect(propertyIds).toEqual(expect.arrayContaining([property.id]));
     expect(body).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: 'property',
-          street: 'Deflectiespoelstraat',
+          street,
           postalCode: '5651HP',
         }),
         expect.objectContaining({
           type: 'address',
-          street: 'Deflectiespoelstraat',
+          street,
           postalCode: '5651HP',
         }),
       ])
@@ -1042,7 +1117,7 @@ describe('GET /search/locations', () => {
     const addressIndex = body.findIndex(
       (suggestion) =>
         suggestion.type === 'address' &&
-        suggestion.street === 'Deflectiespoelstraat' &&
+        suggestion.street === street &&
         suggestion.postalCode === '5651HP' &&
         suggestion.propertyId == null &&
         suggestion.filterToken == null
