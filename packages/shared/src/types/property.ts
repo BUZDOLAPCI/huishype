@@ -398,6 +398,8 @@ export type LocationFilterTokenType =
   | 'country'
   | 'current-location';
 
+export type LocationFilterParentDivisionKind = 'city' | 'region' | 'country';
+
 export interface LocationFilterToken {
   id?: string | null;
   type: LocationFilterTokenType;
@@ -407,6 +409,8 @@ export interface LocationFilterToken {
   parentLabel?: string | null;
   source?: string | null;
   divisionId?: string | null;
+  parentDivisionId?: string | null;
+  parentDivisionKind?: LocationFilterParentDivisionKind | null;
   city?: string | null;
   region?: string | null;
   postalCode?: string | null;

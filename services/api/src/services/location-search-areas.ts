@@ -36,6 +36,7 @@ type PropertyKeyRow = {
 
 const AREA_COLUMNS = `
   area_key,
+  scope_key,
   area_kind,
   suggestion_type,
   country_code,
@@ -54,7 +55,9 @@ const AREA_COLUMNS = `
   property_count,
   geometry_count,
   source,
-  division_id
+  division_id,
+  parent_division_id,
+  parent_area_kind
 `;
 
 const TEXT_MATCH = (column: string) => `NULLIF(LOWER(TRIM(COALESCE(${column}, ''))), '')`;
@@ -62,6 +65,9 @@ const TOKEN_TEXT = (column: string) =>
   `NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(${column}, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '')`;
 const POSTCODE_MATCH = (column: string) =>
   `NULLIF(LOWER(REGEXP_REPLACE(UPPER(COALESCE(${column}, '')), '[^A-Z0-9]+', '', 'g')), '')`;
+const INDEXED_TEXT_MATCH = (column: string) => `LOWER(${column})`;
+const INDEXED_POSTCODE_MATCH = (column: string) =>
+  `REGEXP_REPLACE(UPPER(${column}), '\\s+', '', 'g')`;
 
 const ACTIVE_PROPERTIES_CTE = `
   WITH active_properties AS (
@@ -79,8 +85,12 @@ const ACTIVE_PROPERTIES_CTE = `
       ${TOKEN_TEXT('p.city')} AS city_token,
       ${TOKEN_TEXT('p.region')} AS region_token,
       ${TOKEN_TEXT('p.street')} AS street_token,
-      ${POSTCODE_MATCH('p.postal_code')} AS postcode_match
+      ${POSTCODE_MATCH('p.postal_code')} AS postcode_match,
+      city_membership.division_id AS parent_city_division_id
     FROM properties p
+    LEFT JOIN property_location_division_memberships city_membership
+      ON city_membership.property_id = p.id
+     AND city_membership.area_kind = 'city'
     WHERE p.status = 'active'
       AND p.country_code IS NOT NULL
   )
@@ -102,6 +112,7 @@ const INSERT_COUNTRY_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'country:' || country_code AS area_key,
+    'country:' || country_code AS scope_key,
     'country' AS area_kind,
     'country' AS suggestion_type,
     country_code,
@@ -113,7 +124,9 @@ const INSERT_COUNTRY_AREAS = `
     NULL::varchar(255) AS street,
     ${AGGREGATE_COLUMNS},
     'properties'::varchar(32) AS source,
-    NULL::text AS division_id
+    NULL::text AS division_id,
+    NULL::text AS parent_division_id,
+    NULL::varchar(16) AS parent_area_kind
   FROM active_properties
   WHERE NOT EXISTS (
     SELECT 1
@@ -129,6 +142,7 @@ const INSERT_BROAD_CITY_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'city:' || country_code || ':' || city_token AS area_key,
+    'city:' || country_code || ':' || city_token AS scope_key,
     'city' AS area_kind,
     'city' AS suggestion_type,
     country_code,
@@ -140,7 +154,9 @@ const INSERT_BROAD_CITY_AREAS = `
     NULL::varchar(255) AS street,
     ${AGGREGATE_COLUMNS},
     'properties'::varchar(32) AS source,
-    NULL::text AS division_id
+    NULL::text AS division_id,
+    NULL::text AS parent_division_id,
+    NULL::varchar(16) AS parent_area_kind
   FROM active_properties
   WHERE city_match IS NOT NULL
     AND city_token IS NOT NULL
@@ -160,6 +176,7 @@ const INSERT_REGIONAL_CITY_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'city:' || country_code || ':' || city_token || ':region=' || region_token AS area_key,
+    'city:' || country_code || ':' || city_token || ':region=' || region_token AS scope_key,
     'city' AS area_kind,
     'city' AS suggestion_type,
     country_code,
@@ -171,7 +188,9 @@ const INSERT_REGIONAL_CITY_AREAS = `
     NULL::varchar(255) AS street,
     ${AGGREGATE_COLUMNS},
     'properties'::varchar(32) AS source,
-    NULL::text AS division_id
+    NULL::text AS division_id,
+    NULL::text AS parent_division_id,
+    NULL::varchar(16) AS parent_area_kind
   FROM active_properties
   WHERE city_match IS NOT NULL
     AND city_token IS NOT NULL
@@ -193,6 +212,7 @@ const INSERT_REGION_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'region:' || country_code || ':' || region_token AS area_key,
+    'region:' || country_code || ':' || region_token AS scope_key,
     'region' AS area_kind,
     'region' AS suggestion_type,
     country_code,
@@ -204,7 +224,9 @@ const INSERT_REGION_AREAS = `
     NULL::varchar(255) AS street,
     ${AGGREGATE_COLUMNS},
     'properties'::varchar(32) AS source,
-    NULL::text AS division_id
+    NULL::text AS division_id,
+    NULL::text AS parent_division_id,
+    NULL::varchar(16) AS parent_area_kind
   FROM active_properties
   WHERE region_match IS NOT NULL
     AND region_token IS NOT NULL
@@ -222,9 +244,16 @@ const INSERT_POSTCODE_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'postcode:' || country_code || ':' || postcode_match
-      || CASE WHEN city_token IS NOT NULL THEN ':city=' || city_token ELSE '' END
-      || CASE WHEN region_token IS NOT NULL THEN ':region=' || region_token ELSE '' END
-      || ':postcode=' || postcode_match AS area_key,
+      || CASE
+        WHEN parent_city_division_id IS NOT NULL
+          THEN ':city=' || COALESCE(MIN(city_token), '') || ':parentDivision=' || parent_city_division_id || ':parentKind=city'
+        ELSE ''
+      END AS area_key,
+    'postcode:' || country_code || ':' || postcode_match
+      || CASE
+        WHEN parent_city_division_id IS NOT NULL THEN ':parentDivision=' || parent_city_division_id
+        ELSE ''
+      END AS scope_key,
     'postcode' AS area_kind,
     'postcode' AS suggestion_type,
     country_code,
@@ -236,10 +265,12 @@ const INSERT_POSTCODE_AREAS = `
     NULL::varchar(255) AS street,
     ${AGGREGATE_COLUMNS},
     'properties'::varchar(32) AS source,
-    NULL::text AS division_id
+    NULL::text AS division_id,
+    parent_city_division_id AS parent_division_id,
+    CASE WHEN parent_city_division_id IS NOT NULL THEN 'city' ELSE NULL END::varchar(16) AS parent_area_kind
   FROM active_properties
   WHERE postcode_match IS NOT NULL
-  GROUP BY country_code, postcode_match, city_match, city_token, region_match, region_token
+  GROUP BY country_code, postcode_match, parent_city_division_id
 `;
 
 const INSERT_POSTCODE_PREFIX_AREAS = `
@@ -247,6 +278,7 @@ const INSERT_POSTCODE_PREFIX_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'postcode-prefix:' || country_code || ':' || LEFT(postcode_match, 4) AS area_key,
+    'postcode-prefix:' || country_code || ':' || LEFT(postcode_match, 4) AS scope_key,
     'postcode_prefix' AS area_kind,
     'postcode' AS suggestion_type,
     country_code,
@@ -258,7 +290,9 @@ const INSERT_POSTCODE_PREFIX_AREAS = `
     NULL::varchar(255) AS street,
     ${AGGREGATE_COLUMNS},
     'properties'::varchar(32) AS source,
-    NULL::text AS division_id
+    NULL::text AS division_id,
+    NULL::text AS parent_division_id,
+    NULL::varchar(16) AS parent_area_kind
   FROM active_properties
   WHERE postcode_match ~ '^\\d{4}[a-z]{2}$'
   GROUP BY country_code, LEFT(postcode_match, 4)
@@ -268,8 +302,18 @@ const INSERT_STREET_AREAS = `
   ${ACTIVE_PROPERTIES_CTE}
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
-    'street:' || country_code || ':' || street_token || ':city=' || city_token
-      || CASE WHEN region_token IS NOT NULL THEN ':region=' || region_token ELSE '' END AS area_key,
+    'street:' || country_code || ':' || street_token || ':city=' || COALESCE(MIN(city_token), '')
+      || CASE
+        WHEN parent_city_division_id IS NOT NULL
+          THEN ':parentDivision=' || parent_city_division_id || ':parentKind=city'
+        ELSE ''
+      END AS area_key,
+    'street:' || country_code || ':' || street_token
+      || CASE
+        WHEN parent_city_division_id IS NOT NULL
+          THEN ':parentDivision=' || parent_city_division_id
+        ELSE ':city=' || COALESCE(MIN(city_token), '')
+      END AS scope_key,
     'street' AS area_kind,
     'street' AS suggestion_type,
     country_code,
@@ -281,13 +325,15 @@ const INSERT_STREET_AREAS = `
     MIN(street)::varchar(255) AS street,
     ${AGGREGATE_COLUMNS},
     'properties'::varchar(32) AS source,
-    NULL::text AS division_id
+    NULL::text AS division_id,
+    parent_city_division_id AS parent_division_id,
+    CASE WHEN parent_city_division_id IS NOT NULL THEN 'city' ELSE NULL END::varchar(16) AS parent_area_kind
   FROM active_properties
   WHERE street_match IS NOT NULL
     AND street_token IS NOT NULL
     AND city_match IS NOT NULL
     AND city_token IS NOT NULL
-  GROUP BY country_code, street_match, street_token, city_match, city_token, region_match, region_token
+  GROUP BY country_code, street_match, street_token, parent_city_division_id, CASE WHEN parent_city_division_id IS NULL THEN city_match ELSE NULL END
 `;
 
 const INSERT_OVERTURE_COUNTRY_AREAS = `
@@ -315,6 +361,7 @@ const INSERT_OVERTURE_COUNTRY_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'country:overture:' || division.id AS area_key,
+    'country:overture:' || division.id AS scope_key,
     'country' AS area_kind,
     'country' AS suggestion_type,
     counts.country_code,
@@ -333,7 +380,9 @@ const INSERT_OVERTURE_COUNTRY_AREAS = `
     counts.property_count,
     counts.geometry_count,
     'overture'::varchar(32) AS source,
-    division.id AS division_id
+    division.id AS division_id,
+    NULL::text AS parent_division_id,
+    NULL::varchar(16) AS parent_area_kind
   FROM membership_counts counts
   JOIN overture_divisions division ON division.id = counts.division_id
   JOIN area_bounds bounds ON bounds.division_id = counts.division_id
@@ -365,6 +414,7 @@ const INSERT_OVERTURE_REGION_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'region:overture:' || division.id AS area_key,
+    'region:overture:' || division.id AS scope_key,
     'region' AS area_kind,
     'region' AS suggestion_type,
     counts.country_code,
@@ -383,7 +433,9 @@ const INSERT_OVERTURE_REGION_AREAS = `
     counts.property_count,
     counts.geometry_count,
     'overture'::varchar(32) AS source,
-    division.id AS division_id
+    division.id AS division_id,
+    NULL::text AS parent_division_id,
+    NULL::varchar(16) AS parent_area_kind
   FROM membership_counts counts
   JOIN overture_divisions division ON division.id = counts.division_id
   JOIN area_bounds bounds ON bounds.division_id = counts.division_id
@@ -415,6 +467,7 @@ const INSERT_OVERTURE_CITY_AREAS = `
   INSERT INTO {destination} (${AREA_COLUMNS})
   SELECT
     'city:overture:' || division.id AS area_key,
+    'city:overture:' || division.id AS scope_key,
     'city' AS area_kind,
     'city' AS suggestion_type,
     counts.country_code,
@@ -433,7 +486,9 @@ const INSERT_OVERTURE_CITY_AREAS = `
     counts.property_count,
     counts.geometry_count,
     'overture'::varchar(32) AS source,
-    division.id AS division_id
+    division.id AS division_id,
+    NULL::text AS parent_division_id,
+    NULL::varchar(16) AS parent_area_kind
   FROM membership_counts counts
   JOIN overture_divisions division ON division.id = counts.division_id
   JOIN area_bounds bounds ON bounds.division_id = counts.division_id
@@ -455,6 +510,7 @@ const FULL_INSERTS = [
 
 const TARGETED_AREA_UPSERT = `
   ON CONFLICT (area_key) DO UPDATE SET
+    scope_key = EXCLUDED.scope_key,
     area_kind = EXCLUDED.area_kind,
     suggestion_type = EXCLUDED.suggestion_type,
     country_code = EXCLUDED.country_code,
@@ -474,24 +530,39 @@ const TARGETED_AREA_UPSERT = `
     geometry_count = EXCLUDED.geometry_count,
     source = EXCLUDED.source,
     division_id = EXCLUDED.division_id,
+    parent_division_id = EXCLUDED.parent_division_id,
+    parent_area_kind = EXCLUDED.parent_area_kind,
     updated_at = NOW()
 `;
-
-function normalizeTextExpression(value: SQL): SQL {
-  return sql`NULLIF(LOWER(TRIM(COALESCE(${value}, ''))), '')`;
-}
-
-function normalizeTokenExpression(value: SQL): SQL {
-  return sql`NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(${value}, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '')`;
-}
-
-function normalizePostalCodeExpression(value: SQL): SQL {
-  return sql`NULLIF(LOWER(REGEXP_REPLACE(UPPER(COALESCE(${value}, '')), '[^A-Z0-9]+', '', 'g')), '')`;
-}
 
 function normalizeCountryCode(value: string | null | undefined): string | null {
   const normalized = value?.trim().toUpperCase();
   return normalized && /^[A-Z]{2}$/u.test(normalized) ? normalized : null;
+}
+
+function normalizeTextValue(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function normalizeTokenValue(value: string | null | undefined): string | null {
+  const normalized = value
+    ?.normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || null;
+}
+
+function normalizePostcodeValue(value: string | null | undefined): string | null {
+  const normalized = value
+    ?.normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '')
+    .toLowerCase();
+  return normalized || null;
 }
 
 function normalizePropertyKey(
@@ -684,6 +755,7 @@ async function refreshOvertureLocationSearchAreasForAffectedDivisions(
     INSERT INTO location_search_areas (${AREA_COLUMNS})
     SELECT
       'country:overture:' || division.id,
+      'country:overture:' || division.id,
       'country',
       'country',
       counts.country_code,
@@ -702,7 +774,9 @@ async function refreshOvertureLocationSearchAreasForAffectedDivisions(
       counts.property_count,
       counts.geometry_count,
       'overture'::varchar(32),
-      division.id
+      division.id,
+      NULL::text,
+      NULL::varchar(16)
     FROM membership_counts counts
     JOIN overture_divisions division ON division.id = counts.division_id
     JOIN area_bounds bounds ON bounds.division_id = counts.division_id
@@ -736,6 +810,7 @@ async function refreshOvertureLocationSearchAreasForAffectedDivisions(
     INSERT INTO location_search_areas (${AREA_COLUMNS})
     SELECT
       'region:overture:' || division.id,
+      'region:overture:' || division.id,
       'region',
       'region',
       counts.country_code,
@@ -754,7 +829,9 @@ async function refreshOvertureLocationSearchAreasForAffectedDivisions(
       counts.property_count,
       counts.geometry_count,
       'overture'::varchar(32),
-      division.id
+      division.id,
+      NULL::text,
+      NULL::varchar(16)
     FROM membership_counts counts
     JOIN overture_divisions division ON division.id = counts.division_id
     JOIN area_bounds bounds ON bounds.division_id = counts.division_id
@@ -788,6 +865,7 @@ async function refreshOvertureLocationSearchAreasForAffectedDivisions(
     INSERT INTO location_search_areas (${AREA_COLUMNS})
     SELECT
       'city:overture:' || division.id,
+      'city:overture:' || division.id,
       'city',
       'city',
       counts.country_code,
@@ -806,11 +884,492 @@ async function refreshOvertureLocationSearchAreasForAffectedDivisions(
       counts.property_count,
       counts.geometry_count,
       'overture'::varchar(32),
-      division.id
+      division.id,
+      NULL::text,
+      NULL::varchar(16)
     FROM membership_counts counts
     JOIN overture_divisions division ON division.id = counts.division_id
     JOIN area_bounds bounds ON bounds.division_id = counts.division_id
     WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
+    ${TARGETED_AREA_UPSERT}
+  `));
+}
+
+async function createAffectedLocationSearchAreaTargets(executor: QueryExecutor): Promise<void> {
+  await executor.execute(sql`
+    CREATE TEMP TABLE affected_location_search_area_targets (
+      scope_key text PRIMARY KEY,
+      country_code varchar(2) NOT NULL,
+      city_match text,
+      city_token text,
+      region_match text,
+      region_token text,
+      postcode_match text,
+      postcode_prefix text,
+      street_match text,
+      street_token text,
+      parent_division_id text,
+      parent_area_kind varchar(16)
+    ) ON COMMIT DROP
+  `);
+
+  await executor.execute(sql`
+    CREATE INDEX affected_location_search_area_targets_city_idx
+      ON affected_location_search_area_targets (country_code, city_match, city_token)
+  `);
+  await executor.execute(sql`
+    CREATE INDEX affected_location_search_area_targets_region_idx
+      ON affected_location_search_area_targets (country_code, region_match, region_token)
+  `);
+  await executor.execute(sql`
+    CREATE INDEX affected_location_search_area_targets_postcode_idx
+      ON affected_location_search_area_targets (country_code, postcode_match, parent_division_id)
+  `);
+  await executor.execute(sql`
+    CREATE INDEX affected_location_search_area_targets_street_idx
+      ON affected_location_search_area_targets (
+        country_code,
+        street_match,
+        city_match,
+        parent_division_id
+      )
+  `);
+}
+
+async function insertAffectedLocationSearchAreaTargetsFromProperties(
+  executor: QueryExecutor
+): Promise<void> {
+  await executor.execute(sql.raw(`
+    WITH affected_properties AS (
+      SELECT
+        p.id,
+        p.country_code,
+        ${TEXT_MATCH('p.city')} AS city_match,
+        ${TOKEN_TEXT('p.city')} AS city_token,
+        ${TEXT_MATCH('p.region')} AS region_match,
+        ${TOKEN_TEXT('p.region')} AS region_token,
+        ${POSTCODE_MATCH('p.postal_code')} AS postcode_match,
+        ${TEXT_MATCH('p.street')} AS street_match,
+        ${TOKEN_TEXT('p.street')} AS street_token,
+        city_membership.division_id AS parent_city_division_id,
+        region_membership.division_id AS parent_region_division_id,
+        country_membership.division_id AS parent_country_division_id
+      FROM properties p
+      JOIN affected_property_ids affected ON affected.id = p.id
+      LEFT JOIN property_location_division_memberships city_membership
+        ON city_membership.property_id = p.id
+       AND city_membership.area_kind = 'city'
+      LEFT JOIN property_location_division_memberships region_membership
+        ON region_membership.property_id = p.id
+       AND region_membership.area_kind = 'region'
+      LEFT JOIN property_location_division_memberships country_membership
+        ON country_membership.property_id = p.id
+       AND country_membership.area_kind = 'country'
+      WHERE p.country_code IS NOT NULL
+    ),
+    target_rows AS (
+      SELECT 'country:' || country_code AS scope_key, country_code, NULL::text AS city_match, NULL::text AS city_token, NULL::text AS region_match, NULL::text AS region_token, NULL::text AS postcode_match, NULL::text AS postcode_prefix, NULL::text AS street_match, NULL::text AS street_token, NULL::text AS parent_division_id, NULL::varchar(16) AS parent_area_kind
+      FROM affected_properties
+      WHERE parent_country_division_id IS NULL
+      UNION
+      SELECT 'city:' || country_code || ':' || city_token, country_code, city_match, city_token, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+      FROM affected_properties
+      WHERE parent_city_division_id IS NULL AND city_match IS NOT NULL AND city_token IS NOT NULL
+      UNION
+      SELECT 'city:' || country_code || ':' || city_token || ':region=' || region_token, country_code, city_match, city_token, region_match, region_token, NULL, NULL, NULL, NULL, NULL, NULL
+      FROM affected_properties
+      WHERE parent_city_division_id IS NULL AND city_match IS NOT NULL AND city_token IS NOT NULL AND region_match IS NOT NULL AND region_token IS NOT NULL
+      UNION
+      SELECT 'region:' || country_code || ':' || region_token, country_code, NULL, NULL, region_match, region_token, NULL, NULL, NULL, NULL, NULL, NULL
+      FROM affected_properties
+      WHERE parent_region_division_id IS NULL AND region_match IS NOT NULL AND region_token IS NOT NULL
+      UNION
+      SELECT
+        'postcode:' || country_code || ':' || postcode_match
+          || CASE WHEN parent_city_division_id IS NOT NULL THEN ':parentDivision=' || parent_city_division_id ELSE '' END,
+        country_code,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        postcode_match,
+        NULL,
+        NULL,
+        NULL,
+        parent_city_division_id,
+        CASE WHEN parent_city_division_id IS NOT NULL THEN 'city' ELSE NULL END::varchar(16)
+      FROM affected_properties
+      WHERE postcode_match IS NOT NULL
+      UNION
+      SELECT 'postcode-prefix:' || country_code || ':' || LEFT(postcode_match, 4), country_code, NULL, NULL, NULL, NULL, NULL, LEFT(postcode_match, 4), NULL, NULL, NULL, NULL
+      FROM affected_properties
+      WHERE postcode_match ~ '^\\d{4}[a-z]{2}$'
+      UNION
+      SELECT
+        'street:' || country_code || ':' || street_token
+          || CASE
+            WHEN parent_city_division_id IS NOT NULL THEN ':parentDivision=' || parent_city_division_id
+            ELSE ':city=' || city_token
+          END,
+        country_code,
+        CASE WHEN parent_city_division_id IS NULL THEN city_match ELSE NULL END,
+        CASE WHEN parent_city_division_id IS NULL THEN city_token ELSE NULL END,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        street_match,
+        street_token,
+        parent_city_division_id,
+        CASE WHEN parent_city_division_id IS NOT NULL THEN 'city' ELSE NULL END::varchar(16)
+      FROM affected_properties
+      WHERE street_match IS NOT NULL AND street_token IS NOT NULL AND city_match IS NOT NULL AND city_token IS NOT NULL
+    )
+    INSERT INTO affected_location_search_area_targets (
+      scope_key,
+      country_code,
+      city_match,
+      city_token,
+      region_match,
+      region_token,
+      postcode_match,
+      postcode_prefix,
+      street_match,
+      street_token,
+      parent_division_id,
+      parent_area_kind
+    )
+    SELECT * FROM target_rows
+    ON CONFLICT DO NOTHING
+  `));
+
+  await executor.execute(sql`ANALYZE affected_location_search_area_targets`);
+}
+
+async function refreshLocationSearchAreasForAffectedTargets(
+  executor: QueryExecutor
+): Promise<void> {
+  await executor.execute(sql.raw(`
+    DELETE FROM location_search_areas area
+    USING affected_location_search_area_targets target
+    WHERE area.scope_key = target.scope_key
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH target AS (
+      SELECT DISTINCT country_code
+      FROM affected_location_search_area_targets
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'country:' || target.country_code,
+      'country:' || target.country_code,
+      'country',
+      'country',
+      target.country_code,
+      LOWER(target.country_code),
+      target.country_code,
+      NULL::varchar(100),
+      NULL::varchar(255),
+      NULL::varchar(32),
+      NULL::varchar(255),
+      NULL::double precision,
+      NULL::double precision,
+      NULL::double precision,
+      NULL::double precision,
+      NULL::double precision,
+      NULL::double precision,
+      1,
+      0,
+      'properties'::varchar(32),
+      NULL::text,
+      NULL::text,
+      NULL::varchar(16)
+    FROM target
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM location_search_areas existing
+      WHERE existing.area_key = 'country:' || target.country_code
+    )
+    ${TARGETED_AREA_UPSERT}
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH target AS (
+      SELECT DISTINCT country_code, city_match, city_token
+      FROM affected_location_search_area_targets
+      WHERE city_match IS NOT NULL AND city_token IS NOT NULL
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'city:' || p.country_code || ':' || target.city_token,
+      'city:' || p.country_code || ':' || target.city_token,
+      'city',
+      'city',
+      p.country_code,
+      target.city_match,
+      MIN(p.city)::text,
+      MIN(p.city)::varchar(100),
+      NULL::varchar(255),
+      NULL::varchar(32),
+      NULL::varchar(255),
+      ${AGGREGATE_COLUMNS},
+      'properties'::varchar(32),
+      NULL::text,
+      NULL::text,
+      NULL::varchar(16)
+    FROM properties p
+    JOIN target
+      ON target.country_code = p.country_code
+     AND ${INDEXED_TEXT_MATCH('p.city')} = target.city_match
+     AND ${TEXT_MATCH('p.city')} = target.city_match
+    WHERE p.status = 'active'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM location_search_areas existing
+        WHERE existing.area_kind = 'city'
+          AND existing.source = 'overture'
+          AND existing.country_code = p.country_code
+          AND existing.match_value = target.city_match
+      )
+    GROUP BY p.country_code, target.city_match, target.city_token
+    ${TARGETED_AREA_UPSERT}
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH target AS (
+      SELECT DISTINCT country_code, city_match, city_token, region_match, region_token
+      FROM affected_location_search_area_targets
+      WHERE city_match IS NOT NULL
+        AND city_token IS NOT NULL
+        AND region_match IS NOT NULL
+        AND region_token IS NOT NULL
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'city:' || p.country_code || ':' || target.city_token || ':region=' || target.region_token,
+      'city:' || p.country_code || ':' || target.city_token || ':region=' || target.region_token,
+      'city',
+      'city',
+      p.country_code,
+      target.city_match,
+      MIN(p.city)::text,
+      MIN(p.city)::varchar(100),
+      MIN(p.region)::varchar(255),
+      NULL::varchar(32),
+      NULL::varchar(255),
+      ${AGGREGATE_COLUMNS},
+      'properties'::varchar(32),
+      NULL::text,
+      NULL::text,
+      NULL::varchar(16)
+    FROM properties p
+    JOIN target
+      ON target.country_code = p.country_code
+     AND ${INDEXED_TEXT_MATCH('p.city')} = target.city_match
+     AND ${INDEXED_TEXT_MATCH('p.region')} = target.region_match
+     AND ${TEXT_MATCH('p.city')} = target.city_match
+     AND ${TEXT_MATCH('p.region')} = target.region_match
+    WHERE p.status = 'active'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM location_search_areas existing
+        WHERE existing.area_kind = 'city'
+          AND existing.source = 'overture'
+          AND existing.country_code = p.country_code
+          AND existing.match_value = target.city_match
+      )
+    GROUP BY p.country_code, target.city_match, target.city_token, target.region_match, target.region_token
+    ${TARGETED_AREA_UPSERT}
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH target AS (
+      SELECT DISTINCT country_code, region_match, region_token
+      FROM affected_location_search_area_targets
+      WHERE region_match IS NOT NULL AND region_token IS NOT NULL
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'region:' || p.country_code || ':' || target.region_token,
+      'region:' || p.country_code || ':' || target.region_token,
+      'region',
+      'region',
+      p.country_code,
+      target.region_match,
+      MIN(p.region)::text,
+      NULL::varchar(100),
+      MIN(p.region)::varchar(255),
+      NULL::varchar(32),
+      NULL::varchar(255),
+      ${AGGREGATE_COLUMNS},
+      'properties'::varchar(32),
+      NULL::text,
+      NULL::text,
+      NULL::varchar(16)
+    FROM properties p
+    JOIN target
+      ON target.country_code = p.country_code
+     AND ${INDEXED_TEXT_MATCH('p.region')} = target.region_match
+     AND ${TEXT_MATCH('p.region')} = target.region_match
+    WHERE p.status = 'active'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM property_location_division_memberships membership
+        WHERE membership.property_id = p.id
+          AND membership.area_kind = 'region'
+      )
+    GROUP BY p.country_code, target.region_match, target.region_token
+    ${TARGETED_AREA_UPSERT}
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH target AS (
+      SELECT DISTINCT country_code, postcode_match, parent_division_id, parent_area_kind
+      FROM affected_location_search_area_targets
+      WHERE postcode_match IS NOT NULL
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'postcode:' || p.country_code || ':' || target.postcode_match
+        || CASE
+          WHEN target.parent_division_id IS NOT NULL
+            THEN ':city=' || COALESCE(MIN(${TOKEN_TEXT('p.city')}), '') || ':parentDivision=' || target.parent_division_id || ':parentKind=city'
+          ELSE ''
+        END,
+      'postcode:' || p.country_code || ':' || target.postcode_match
+        || CASE WHEN target.parent_division_id IS NOT NULL THEN ':parentDivision=' || target.parent_division_id ELSE '' END,
+      'postcode',
+      'postcode',
+      p.country_code,
+      target.postcode_match,
+      MIN(p.postal_code)::text,
+      MIN(p.city)::varchar(100),
+      MIN(p.region)::varchar(255),
+      MIN(p.postal_code)::varchar(32),
+      NULL::varchar(255),
+      ${AGGREGATE_COLUMNS},
+      'properties'::varchar(32),
+      NULL::text,
+      target.parent_division_id,
+      target.parent_area_kind
+    FROM properties p
+    LEFT JOIN property_location_division_memberships city_membership
+      ON city_membership.property_id = p.id
+     AND city_membership.area_kind = 'city'
+    JOIN target
+      ON target.country_code = p.country_code
+     AND ${INDEXED_POSTCODE_MATCH('p.postal_code')} = UPPER(target.postcode_match)
+     AND ${POSTCODE_MATCH('p.postal_code')} = target.postcode_match
+     AND (
+       (target.parent_division_id IS NULL AND city_membership.division_id IS NULL)
+       OR city_membership.division_id = target.parent_division_id
+     )
+    WHERE p.status = 'active'
+    GROUP BY p.country_code, target.postcode_match, target.parent_division_id, target.parent_area_kind
+    ${TARGETED_AREA_UPSERT}
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH target AS (
+      SELECT DISTINCT
+        country_code,
+        postcode_prefix,
+        CASE
+          WHEN postcode_prefix = '9999' THEN NULL
+          ELSE LPAD((postcode_prefix::int + 1)::text, 4, '0')
+        END AS postcode_prefix_upper
+      FROM affected_location_search_area_targets
+      WHERE postcode_prefix IS NOT NULL
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'postcode-prefix:' || exact.country_code || ':' || target.postcode_prefix,
+      'postcode-prefix:' || exact.country_code || ':' || target.postcode_prefix,
+      'postcode_prefix',
+      'postcode',
+      exact.country_code,
+      target.postcode_prefix,
+      target.postcode_prefix,
+      MIN(exact.city)::varchar(100),
+      MIN(exact.region)::varchar(255),
+      target.postcode_prefix::varchar(32),
+      NULL::varchar(255),
+      SUM(exact.lon * exact.property_count) / NULLIF(SUM(exact.property_count), 0),
+      SUM(exact.lat * exact.property_count) / NULLIF(SUM(exact.property_count), 0),
+      MIN(exact.min_lon),
+      MIN(exact.min_lat),
+      MAX(exact.max_lon),
+      MAX(exact.max_lat),
+      SUM(exact.property_count)::int,
+      SUM(exact.geometry_count)::int,
+      'properties'::varchar(32),
+      NULL::text,
+      NULL::text,
+      NULL::varchar(16)
+    FROM location_search_areas exact
+    JOIN target
+      ON target.country_code = exact.country_code
+     AND exact.match_value >= target.postcode_prefix
+     AND (
+       target.postcode_prefix_upper IS NULL
+       OR exact.match_value < target.postcode_prefix_upper
+     )
+    WHERE exact.area_kind = 'postcode'
+      AND exact.match_value ~ '^\\d{4}[a-z]{2}$'
+    GROUP BY exact.country_code, target.postcode_prefix
+    ${TARGETED_AREA_UPSERT}
+  `));
+
+  await executor.execute(sql.raw(`
+    WITH target AS (
+      SELECT DISTINCT scope_key, country_code, city_match, city_token, street_match, street_token, parent_division_id, parent_area_kind
+      FROM affected_location_search_area_targets
+      WHERE street_match IS NOT NULL
+        AND street_token IS NOT NULL
+    )
+    INSERT INTO location_search_areas (${AREA_COLUMNS})
+    SELECT
+      'street:' || p.country_code || ':' || target.street_token || ':city=' || COALESCE(MIN(${TOKEN_TEXT('p.city')}), '')
+        || CASE
+          WHEN target.parent_division_id IS NOT NULL
+            THEN ':parentDivision=' || target.parent_division_id || ':parentKind=city'
+          ELSE ''
+        END,
+      target.scope_key,
+      'street',
+      'street',
+      p.country_code,
+      target.street_match,
+      MIN(p.street)::text,
+      MIN(p.city)::varchar(100),
+      MIN(p.region)::varchar(255),
+      NULL::varchar(32),
+      MIN(p.street)::varchar(255),
+      ${AGGREGATE_COLUMNS},
+      'properties'::varchar(32),
+      NULL::text,
+      target.parent_division_id,
+      target.parent_area_kind
+    FROM properties p
+    LEFT JOIN property_location_division_memberships city_membership
+      ON city_membership.property_id = p.id
+     AND city_membership.area_kind = 'city'
+    JOIN target
+      ON target.country_code = p.country_code
+     AND ${INDEXED_TEXT_MATCH('p.street')} = target.street_match
+     AND ${TEXT_MATCH('p.street')} = target.street_match
+     AND (
+       (
+         target.parent_division_id IS NULL
+         AND city_membership.division_id IS NULL
+         AND ${INDEXED_TEXT_MATCH('p.city')} = target.city_match
+         AND ${TEXT_MATCH('p.city')} = target.city_match
+       )
+       OR city_membership.division_id = target.parent_division_id
+     )
+    WHERE p.status = 'active'
+    GROUP BY p.country_code, target.scope_key, target.street_match, target.street_token, target.parent_division_id, target.parent_area_kind
     ${TARGETED_AREA_UPSERT}
   `));
 }
@@ -864,6 +1423,9 @@ async function refreshPropertyLocationDivisionMembershipsForPropertyIds(
       'JOIN affected_property_ids affected ON affected.id = p.id'
     );
 
+    await createAffectedLocationSearchAreaTargets(tx);
+    await insertAffectedLocationSearchAreaTargetsFromProperties(tx);
+
     await tx.execute(sql`
       INSERT INTO affected_overture_location_search_area_keys (area_kind, division_id)
       SELECT DISTINCT membership.area_kind, membership.division_id
@@ -873,6 +1435,7 @@ async function refreshPropertyLocationDivisionMembershipsForPropertyIds(
     `);
 
     await refreshOvertureLocationSearchAreasForAffectedDivisions(tx);
+    await refreshLocationSearchAreasForAffectedTargets(tx);
   });
 }
 
@@ -983,8 +1546,6 @@ export async function refreshLocationSearchAreasForPropertyIds(
   propertyIds: readonly string[]
 ): Promise<void> {
   await refreshPropertyLocationDivisionMembershipsForPropertyIds(propertyIds);
-  const keys = await getLocationSearchAreaPropertyKeysForIds(propertyIds);
-  await refreshLocationSearchAreasForPropertyKeys(keys);
 }
 
 export async function refreshLocationSearchAreasForPropertyKeys(
@@ -998,394 +1559,179 @@ export async function refreshLocationSearchAreasForPropertyKeys(
     return;
   }
 
+  const targetRows = normalizedKeys.flatMap((key) => {
+    const countryCode = key.countryCode;
+    if (!countryCode) {
+      return [];
+    }
+    const rows: Array<{
+      scopeKey: string;
+      countryCode: string;
+      cityMatch: string | null;
+      cityToken: string | null;
+      regionMatch: string | null;
+      regionToken: string | null;
+      postcodeMatch: string | null;
+      postcodePrefix: string | null;
+      streetMatch: string | null;
+      streetToken: string | null;
+    }> = [];
+    const cityMatch = normalizeTextValue(key.city);
+    const cityToken = normalizeTokenValue(key.city);
+    const regionMatch = normalizeTextValue(key.region);
+    const regionToken = normalizeTokenValue(key.region);
+    const postcodeMatch = normalizePostcodeValue(key.postalCode);
+    const postcodePrefix =
+      postcodeMatch && /^\d{4}[a-z]{2}$/u.test(postcodeMatch)
+        ? postcodeMatch.slice(0, 4)
+        : null;
+    const streetMatch = normalizeTextValue(key.street);
+    const streetToken = normalizeTokenValue(key.street);
+
+    rows.push({
+      scopeKey: `country:${countryCode}`,
+      countryCode,
+      cityMatch: null,
+      cityToken: null,
+      regionMatch: null,
+      regionToken: null,
+      postcodeMatch: null,
+      postcodePrefix: null,
+      streetMatch: null,
+      streetToken: null,
+    });
+    if (cityMatch && cityToken) {
+      rows.push({
+        scopeKey: `city:${countryCode}:${cityToken}`,
+        countryCode,
+        cityMatch,
+        cityToken,
+        regionMatch: null,
+        regionToken: null,
+        postcodeMatch: null,
+        postcodePrefix: null,
+        streetMatch: null,
+        streetToken: null,
+      });
+    }
+    if (cityMatch && cityToken && regionMatch && regionToken) {
+      rows.push({
+        scopeKey: `city:${countryCode}:${cityToken}:region=${regionToken}`,
+        countryCode,
+        cityMatch,
+        cityToken,
+        regionMatch,
+        regionToken,
+        postcodeMatch: null,
+        postcodePrefix: null,
+        streetMatch: null,
+        streetToken: null,
+      });
+    }
+    if (regionMatch && regionToken) {
+      rows.push({
+        scopeKey: `region:${countryCode}:${regionToken}`,
+        countryCode,
+        cityMatch: null,
+        cityToken: null,
+        regionMatch,
+        regionToken,
+        postcodeMatch: null,
+        postcodePrefix: null,
+        streetMatch: null,
+        streetToken: null,
+      });
+    }
+    if (postcodeMatch) {
+      rows.push({
+        scopeKey: `postcode:${countryCode}:${postcodeMatch}`,
+        countryCode,
+        cityMatch: null,
+        cityToken: null,
+        regionMatch: null,
+        regionToken: null,
+        postcodeMatch,
+        postcodePrefix: null,
+        streetMatch: null,
+        streetToken: null,
+      });
+    }
+    if (postcodePrefix) {
+      rows.push({
+        scopeKey: `postcode-prefix:${countryCode}:${postcodePrefix}`,
+        countryCode,
+        cityMatch: null,
+        cityToken: null,
+        regionMatch: null,
+        regionToken: null,
+        postcodeMatch: null,
+        postcodePrefix,
+        streetMatch: null,
+        streetToken: null,
+      });
+    }
+    if (streetMatch && streetToken && cityMatch && cityToken) {
+      rows.push({
+        scopeKey: `street:${countryCode}:${streetToken}:city=${cityToken}`,
+        countryCode,
+        cityMatch,
+        cityToken,
+        regionMatch: null,
+        regionToken: null,
+        postcodeMatch: null,
+        postcodePrefix: null,
+        streetMatch,
+        streetToken,
+      });
+    }
+
+    return rows;
+  });
+
+  if (targetRows.length === 0) {
+    return;
+  }
+
   await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('location_search_areas_targeted_refresh'))`);
-    await tx.execute(sql`SET LOCAL enable_seqscan = off`);
-    await tx.execute(sql`SET LOCAL jit = off`);
+    await createAffectedLocationSearchAreaTargets(tx);
     await tx.execute(sql`
-      CREATE TEMP TABLE affected_location_search_area_keys (
-        country_code varchar(2) NOT NULL,
-        city text,
-        city_match text,
-        city_token text,
-        region text,
-        region_match text,
-        region_token text,
-        postal_code text,
-        postcode_match text,
-        postcode_prefix text,
-        street text,
-        street_match text,
-        street_token text
-      ) ON COMMIT DROP
-    `);
-
-    await tx.execute(sql`
-      INSERT INTO affected_location_search_area_keys (
+      INSERT INTO affected_location_search_area_targets (
+        scope_key,
         country_code,
-        city,
         city_match,
         city_token,
-        region,
         region_match,
         region_token,
-        postal_code,
         postcode_match,
         postcode_prefix,
-        street,
         street_match,
-        street_token
+        street_token,
+        parent_division_id,
+        parent_area_kind
       )
       VALUES ${sql.join(
-        normalizedKeys.map(
-          (key) => sql`(
-            ${key.countryCode},
-            ${key.city},
-            ${normalizeTextExpression(sql`${key.city}`)},
-            ${normalizeTokenExpression(sql`${key.city}`)},
-            ${key.region},
-            ${normalizeTextExpression(sql`${key.region}`)},
-            ${normalizeTokenExpression(sql`${key.region}`)},
-            ${key.postalCode},
-            ${normalizePostalCodeExpression(sql`${key.postalCode}`)},
-            CASE
-              WHEN ${normalizePostalCodeExpression(sql`${key.postalCode}`)} ~ '^\\d{4}[a-z]{2}$'
-                THEN LEFT(${normalizePostalCodeExpression(sql`${key.postalCode}`)}, 4)
-              ELSE NULL
-            END,
-            ${key.street},
-            ${normalizeTextExpression(sql`${key.street}`)},
-            ${normalizeTokenExpression(sql`${key.street}`)}
+        targetRows.map(
+          (row) => sql`(
+            ${row.scopeKey},
+            ${row.countryCode},
+            ${row.cityMatch},
+            ${row.cityToken},
+            ${row.regionMatch},
+            ${row.regionToken},
+            ${row.postcodeMatch},
+            ${row.postcodePrefix},
+            ${row.streetMatch},
+            ${row.streetToken},
+            NULL,
+            NULL
           )`
         ),
         sql`, `
       )}
+      ON CONFLICT DO NOTHING
     `);
-
-    await tx.execute(sql.raw(`
-      WITH affected_area_keys AS (
-        SELECT DISTINCT 'city:' || country_code || ':' || city_token AS area_key
-        FROM affected_location_search_area_keys
-        WHERE city_token IS NOT NULL
-        UNION
-        SELECT DISTINCT 'city:' || country_code || ':' || city_token || ':region=' || region_token AS area_key
-        FROM affected_location_search_area_keys
-        WHERE city_token IS NOT NULL AND region_token IS NOT NULL
-        UNION
-        SELECT DISTINCT 'region:' || country_code || ':' || region_token AS area_key
-        FROM affected_location_search_area_keys
-        WHERE region_token IS NOT NULL
-        UNION
-        SELECT DISTINCT 'postcode:' || country_code || ':' || postcode_match
-          || CASE WHEN city_token IS NOT NULL THEN ':city=' || city_token ELSE '' END
-          || CASE WHEN region_token IS NOT NULL THEN ':region=' || region_token ELSE '' END
-          || ':postcode=' || postcode_match AS area_key
-        FROM affected_location_search_area_keys
-        WHERE postcode_match IS NOT NULL
-        UNION
-        SELECT DISTINCT 'postcode-prefix:' || country_code || ':' || postcode_prefix AS area_key
-        FROM affected_location_search_area_keys
-        WHERE postcode_prefix IS NOT NULL
-        UNION
-        SELECT DISTINCT 'street:' || country_code || ':' || street_token || ':city=' || city_token
-          || CASE WHEN region_token IS NOT NULL THEN ':region=' || region_token ELSE '' END AS area_key
-        FROM affected_location_search_area_keys
-        WHERE street_token IS NOT NULL AND city_token IS NOT NULL
-      )
-      DELETE FROM location_search_areas area
-      USING affected_area_keys affected
-      WHERE area.area_key = affected.area_key
-    `));
-
-    await tx.execute(sql.raw(`
-      WITH target AS (
-        SELECT DISTINCT country_code
-        FROM affected_location_search_area_keys
-      )
-      INSERT INTO location_search_areas (${AREA_COLUMNS})
-      SELECT
-        'country:' || target.country_code,
-        'country',
-        'country',
-        target.country_code,
-        LOWER(target.country_code),
-        target.country_code,
-        NULL::varchar(100),
-        NULL::varchar(255),
-        NULL::varchar(32),
-        NULL::varchar(255),
-        NULL::double precision,
-        NULL::double precision,
-        NULL::double precision,
-        NULL::double precision,
-        NULL::double precision,
-        NULL::double precision,
-        1,
-        0,
-        'properties'::varchar(32),
-        NULL::text
-      FROM target
-      WHERE NOT EXISTS (
-        SELECT 1
-        FROM location_search_areas existing
-        WHERE existing.area_key = 'country:' || target.country_code
-      )
-      ${TARGETED_AREA_UPSERT}
-    `));
-
-    await tx.execute(sql.raw(`
-      WITH target AS (
-        SELECT DISTINCT country_code, city_match, city_token
-        FROM affected_location_search_area_keys
-        WHERE city_match IS NOT NULL AND city_token IS NOT NULL
-      )
-      INSERT INTO location_search_areas (${AREA_COLUMNS})
-      SELECT
-        'city:' || p.country_code || ':' || target.city_token,
-        'city',
-        'city',
-        p.country_code,
-        target.city_match,
-        MIN(p.city)::text,
-        MIN(p.city)::varchar(100),
-        NULL::varchar(255),
-        NULL::varchar(32),
-        NULL::varchar(255),
-        ${AGGREGATE_COLUMNS},
-        'properties'::varchar(32),
-        NULL::text
-      FROM properties p
-      JOIN target
-        ON target.country_code = p.country_code
-       AND LOWER(p.city) = target.city_match
-      WHERE p.status = 'active'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM location_search_areas existing
-          WHERE existing.area_kind = 'city'
-            AND existing.source = 'overture'
-            AND existing.country_code = p.country_code
-            AND existing.match_value = target.city_match
-        )
-      GROUP BY p.country_code, target.city_match, target.city_token
-      ${TARGETED_AREA_UPSERT}
-    `));
-
-    await tx.execute(sql.raw(`
-      WITH target AS (
-        SELECT DISTINCT country_code, city_match, city_token, region_match, region_token
-        FROM affected_location_search_area_keys
-        WHERE city_match IS NOT NULL
-          AND city_token IS NOT NULL
-          AND region_match IS NOT NULL
-          AND region_token IS NOT NULL
-      )
-      INSERT INTO location_search_areas (${AREA_COLUMNS})
-      SELECT
-        'city:' || p.country_code || ':' || target.city_token || ':region=' || target.region_token,
-        'city',
-        'city',
-        p.country_code,
-        target.city_match,
-        MIN(p.city)::text,
-        MIN(p.city)::varchar(100),
-        MIN(p.region)::varchar(255),
-        NULL::varchar(32),
-        NULL::varchar(255),
-        ${AGGREGATE_COLUMNS},
-        'properties'::varchar(32),
-        NULL::text
-      FROM properties p
-      JOIN target
-        ON target.country_code = p.country_code
-       AND LOWER(p.city) = target.city_match
-       AND LOWER(p.region) = target.region_match
-      WHERE p.status = 'active'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM location_search_areas existing
-          WHERE existing.area_kind = 'city'
-            AND existing.source = 'overture'
-            AND existing.country_code = p.country_code
-            AND existing.match_value = target.city_match
-        )
-      GROUP BY p.country_code, target.city_match, target.city_token, target.region_match, target.region_token
-      ${TARGETED_AREA_UPSERT}
-    `));
-
-    await tx.execute(sql.raw(`
-      WITH target AS (
-        SELECT DISTINCT country_code, region_match, region_token
-        FROM affected_location_search_area_keys
-        WHERE region_match IS NOT NULL AND region_token IS NOT NULL
-      )
-      INSERT INTO location_search_areas (${AREA_COLUMNS})
-      SELECT
-        'region:' || p.country_code || ':' || target.region_token,
-        'region',
-        'region',
-        p.country_code,
-        target.region_match,
-        MIN(p.region)::text,
-        NULL::varchar(100),
-        MIN(p.region)::varchar(255),
-        NULL::varchar(32),
-        NULL::varchar(255),
-        ${AGGREGATE_COLUMNS},
-        'properties'::varchar(32),
-        NULL::text
-      FROM properties p
-      JOIN target
-        ON target.country_code = p.country_code
-       AND LOWER(p.region) = target.region_match
-      WHERE p.status = 'active'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM property_location_division_memberships membership
-          WHERE membership.property_id = p.id
-            AND membership.area_kind = 'region'
-        )
-      GROUP BY p.country_code, target.region_match, target.region_token
-      ${TARGETED_AREA_UPSERT}
-    `));
-
-    await tx.execute(sql.raw(`
-      WITH target AS (
-        SELECT DISTINCT
-          country_code,
-          city_match,
-          city_token,
-          region_match,
-          region_token,
-          postal_code,
-          postcode_match
-        FROM affected_location_search_area_keys
-        WHERE postal_code IS NOT NULL
-          AND postcode_match IS NOT NULL
-      )
-      INSERT INTO location_search_areas (${AREA_COLUMNS})
-      SELECT
-        'postcode:' || p.country_code || ':' || target.postcode_match
-          || CASE WHEN target.city_token IS NOT NULL THEN ':city=' || target.city_token ELSE '' END
-          || CASE WHEN target.region_token IS NOT NULL THEN ':region=' || target.region_token ELSE '' END
-          || ':postcode=' || target.postcode_match,
-        'postcode',
-        'postcode',
-        p.country_code,
-        target.postcode_match,
-        MIN(p.postal_code)::text,
-        MIN(p.city)::varchar(100),
-        MIN(p.region)::varchar(255),
-        MIN(p.postal_code)::varchar(32),
-        NULL::varchar(255),
-        ${AGGREGATE_COLUMNS},
-        'properties'::varchar(32),
-        NULL::text
-      FROM properties p
-      JOIN target
-        ON target.country_code = p.country_code
-       AND p.postal_code = target.postal_code
-       AND (
-         target.city_match IS NULL
-         OR LOWER(p.city) = target.city_match
-       )
-       AND (
-         target.region_match IS NULL
-         OR LOWER(p.region) = target.region_match
-       )
-      WHERE p.status = 'active'
-      GROUP BY p.country_code, target.postcode_match, target.city_match, target.city_token, target.region_match, target.region_token
-      ${TARGETED_AREA_UPSERT}
-    `));
-
-    await tx.execute(sql.raw(`
-      WITH target AS (
-        SELECT DISTINCT
-          country_code,
-          postcode_prefix,
-          CASE
-            WHEN postcode_prefix = '9999' THEN NULL
-            ELSE LPAD((postcode_prefix::int + 1)::text, 4, '0')
-          END AS postcode_prefix_upper
-        FROM affected_location_search_area_keys
-        WHERE postcode_prefix IS NOT NULL
-      )
-      INSERT INTO location_search_areas (${AREA_COLUMNS})
-      SELECT
-        'postcode-prefix:' || exact.country_code || ':' || target.postcode_prefix,
-        'postcode_prefix',
-        'postcode',
-        exact.country_code,
-        target.postcode_prefix,
-        target.postcode_prefix,
-        MIN(exact.city)::varchar(100),
-        MIN(exact.region)::varchar(255),
-        target.postcode_prefix::varchar(32),
-        NULL::varchar(255),
-        SUM(exact.lon * exact.property_count) / NULLIF(SUM(exact.property_count), 0),
-        SUM(exact.lat * exact.property_count) / NULLIF(SUM(exact.property_count), 0),
-        MIN(exact.min_lon),
-        MIN(exact.min_lat),
-        MAX(exact.max_lon),
-        MAX(exact.max_lat),
-        SUM(exact.property_count)::int,
-        SUM(exact.geometry_count)::int,
-        'properties'::varchar(32),
-        NULL::text
-      FROM location_search_areas exact
-      JOIN target
-        ON target.country_code = exact.country_code
-       AND exact.match_value >= target.postcode_prefix
-       AND (
-         target.postcode_prefix_upper IS NULL
-         OR exact.match_value < target.postcode_prefix_upper
-       )
-      WHERE exact.area_kind = 'postcode'
-        AND exact.match_value ~ '^\\d{4}[a-z]{2}$'
-      GROUP BY exact.country_code, target.postcode_prefix
-      ${TARGETED_AREA_UPSERT}
-    `));
-
-    await tx.execute(sql.raw(`
-      WITH target AS (
-        SELECT DISTINCT country_code, street_match, street_token, city_match, city_token, region_match, region_token
-        FROM affected_location_search_area_keys
-        WHERE street_match IS NOT NULL
-          AND street_token IS NOT NULL
-          AND city_match IS NOT NULL
-          AND city_token IS NOT NULL
-      )
-      INSERT INTO location_search_areas (${AREA_COLUMNS})
-      SELECT
-        'street:' || p.country_code || ':' || target.street_token || ':city=' || target.city_token
-          || CASE WHEN target.region_token IS NOT NULL THEN ':region=' || target.region_token ELSE '' END,
-        'street',
-        'street',
-        p.country_code,
-        target.street_match,
-        MIN(p.street)::text,
-        MIN(p.city)::varchar(100),
-        MIN(p.region)::varchar(255),
-        NULL::varchar(32),
-        MIN(p.street)::varchar(255),
-        ${AGGREGATE_COLUMNS},
-        'properties'::varchar(32),
-        NULL::text
-      FROM properties p
-      JOIN target
-        ON target.country_code = p.country_code
-       AND LOWER(p.street) = target.street_match
-       AND LOWER(p.city) = target.city_match
-       AND (
-         (target.region_match IS NULL AND p.region IS NULL)
-         OR (
-           LOWER(p.region) = target.region_match
-         )
-       )
-      WHERE p.status = 'active'
-      GROUP BY p.country_code, target.street_match, target.street_token, target.city_match, target.city_token, target.region_match, target.region_token
-      ${TARGETED_AREA_UPSERT}
-    `));
-
+    await tx.execute(sql`ANALYZE affected_location_search_area_targets`);
+    await refreshLocationSearchAreasForAffectedTargets(tx);
   });
 }

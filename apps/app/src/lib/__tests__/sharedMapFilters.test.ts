@@ -306,10 +306,10 @@ describe('sharedMapFilters price suggestions', () => {
     const params = updateMapFilterSearchParams(new URLSearchParams(), filters);
 
     expect(params.toString()).toBe(
-      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant&area=postcode%3ANL%3A5612ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
+      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven&area=postcode%3ANL%3A5612ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
     );
     expect(buildPropertyTileTemplateUrl('http://api.test', filters)).toContain(
-      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant&area=postcode%3ANL%3A5612ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
+      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven&area=postcode%3ANL%3A5612ma%3Acity%3Deindhoven%3Astreet%3Dboschdijk',
     );
     expect(parseMapFiltersFromSearchParams(params).areas).toEqual([
       expect.objectContaining({
@@ -318,7 +318,7 @@ describe('sharedMapFilters price suggestions', () => {
         value: 'boschdijk',
         label: 'Boschdijk',
         city: 'Eindhoven',
-        region: 'Noord Brabant',
+        region: null,
         postalCode: null,
         street: null,
       }),
@@ -430,6 +430,33 @@ describe('sharedMapFilters price suggestions', () => {
     expect(
       serializeLocationFilterToken({ ...cityToken, divisionId: 'abc:def', source: null }),
     ).toBe('city:NL:eindhoven');
+  });
+
+  it('matches shared/backend-compatible parent division token metadata', () => {
+    const token = {
+      type: 'street' as const,
+      countryCode: 'NL',
+      value: 'Beeldbuisring',
+      label: 'Beeldbuisring',
+      city: 'Eindhoven',
+      region: 'Noord-Brabant',
+      parentDivisionId: 'CITY.DIVISION-01',
+      parentDivisionKind: 'city' as const,
+    };
+
+    expect(serializeLocationFilterToken(token)).toBe(
+      'street:NL:beeldbuisring:city=eindhoven:parentDivision=city.division-01:parentKind=city',
+    );
+    expect(
+      parseLocationFilterToken(
+        'postcode:NL:5651ha:parentDivision=CITY.DIVISION-01:parentKind=city',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        parentDivisionId: 'city.division-01',
+        parentDivisionKind: 'city',
+      }),
+    );
   });
 
   it('keeps same street value distinct across cities in area params', () => {

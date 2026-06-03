@@ -53,6 +53,8 @@ type DbLocationSearchRow = {
   country_code: string | null;
   source?: string | null;
   division_id?: string | null;
+  parent_division_id?: string | null;
+  parent_area_kind?: 'city' | 'region' | 'country' | null;
   street: string | null;
   house_number: number | string | null;
   house_number_addition: string | null;
@@ -856,6 +858,8 @@ function buildDbAreaSuggestion(
     parentLabel,
     source: row.source === 'overture' ? 'overture' : null,
     divisionId: row.source === 'overture' ? (row.division_id ?? null) : null,
+    parentDivisionId: row.parent_division_id ?? null,
+    parentDivisionKind: row.parent_area_kind ?? null,
     city: type === 'city' || type === 'region' || type === 'country' ? null : row.city,
     region: type === 'region' ? label : type === 'country' ? null : row.region,
     postalCode: type === 'postcode' ? label : null,
@@ -996,6 +1000,8 @@ async function queryDbAreaLocationSuggestions(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1039,6 +1045,8 @@ async function queryDbAreaLocationSuggestions(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1075,6 +1083,8 @@ async function queryDbAreaLocationSuggestions(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1119,6 +1129,8 @@ async function queryDbAreaLocationSuggestions(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         lsa.street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1173,6 +1185,8 @@ async function queryDbCountryLocationSuggestions(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1308,12 +1322,17 @@ async function queryAreaTokenHasBackingRows(
   const countryCode = normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode;
   const countryPredicate = countryCode ? sql`AND lsa.country_code = ${countryCode}` : sql``;
   const cityPredicate =
-    token.city && token.type !== 'city'
+    token.city && token.type !== 'city' && token.type !== 'postcode'
       ? sql`AND ${buildTextCandidatePredicate(sql`lsa.city`, token.city)}`
       : sql``;
   const regionPredicate =
-    token.region && token.type !== 'street'
+    token.region && token.type !== 'street' && token.type !== 'postcode'
       ? sql`AND ${buildTextCandidatePredicate(sql`lsa.region`, token.region)}`
+      : sql``;
+  const parentDivisionPredicate =
+    token.parentDivisionId && (token.type === 'street' || token.type === 'postcode')
+      ? sql`AND lsa.parent_division_id = ${token.parentDivisionId}
+        ${token.parentDivisionKind ? sql`AND lsa.parent_area_kind = ${token.parentDivisionKind}` : sql``}`
       : sql``;
   let predicate = sql`FALSE`;
 
@@ -1339,6 +1358,7 @@ async function queryAreaTokenHasBackingRows(
       FROM location_search_areas lsa
       WHERE lsa.area_kind = ${token.type}
         ${countryPredicate}
+        ${parentDivisionPredicate}
         ${cityPredicate}
         ${regionPredicate}
         AND ${predicate}
@@ -1840,6 +1860,8 @@ type LocationTokenHydrationRow = {
   country_code: string | null;
   source: string | null;
   division_id: string | null;
+  parent_division_id: string | null;
+  parent_area_kind: 'city' | 'region' | 'country' | null;
   label: string | null;
   city: string | null;
   region: string | null;
@@ -1913,12 +1935,20 @@ function buildTokenId(token: LocationFilterToken): string {
   ];
 
   if (token.city && token.type !== 'city') parts.push(`city=${normalizeSearchToken(token.city)}`);
-  if (token.region) parts.push(`region=${normalizeSearchToken(token.region)}`);
+  if (token.region && token.type !== 'street' && token.type !== 'postcode') {
+    parts.push(`region=${normalizeSearchToken(token.region)}`);
+  }
   if (token.type !== 'street' && token.postalCode) {
     parts.push(`postcode=${normalizePostalCodeForMatch(token.postalCode).toLowerCase()}`);
   }
   if (token.divisionId) {
     parts.push(`division=${normalizeDivisionId(token.divisionId)}`);
+  }
+  if (token.parentDivisionId) {
+    parts.push(`parentDivision=${normalizeDivisionId(token.parentDivisionId)}`);
+  }
+  if (token.parentDivisionKind) {
+    parts.push(`parentKind=${normalizeSearchToken(token.parentDivisionKind)}`);
   }
   if (token.source && token.source !== 'properties') {
     parts.push(`source=${normalizeSearchToken(token.source)}`);
@@ -1938,6 +1968,8 @@ function withHydratedTokenDefaults(token: LocationFilterTokenWithId): HydratedLo
         : normalizeLocationTokenValue(token.type, token.value || token.label),
     label: token.label || token.value,
     parentLabel: token.parentLabel ?? null,
+    parentDivisionId: token.parentDivisionId ?? null,
+    parentDivisionKind: token.parentDivisionKind ?? null,
     city: token.city ?? null,
     region: token.region ?? null,
     postalCode: token.postalCode ?? null,
@@ -1970,6 +2002,8 @@ function buildHydratedTokenFromRow(
       row.source === 'overture'
         ? (row.division_id ?? token.divisionId ?? null)
         : (token.divisionId ?? null),
+    parentDivisionId: row.parent_division_id ?? token.parentDivisionId ?? null,
+    parentDivisionKind: row.parent_area_kind ?? token.parentDivisionKind ?? null,
     city: token.type === 'city' ? null : row.city,
     region: row.region,
     postalCode: row.postal_code,
@@ -2026,6 +2060,8 @@ async function queryHydratedLocationToken(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         lsa.label,
         CASE WHEN lsa.area_kind = 'city' THEN lsa.city ELSE NULL::text END AS city,
         CASE WHEN lsa.area_kind = 'region' THEN lsa.region ELSE NULL::text END AS region,
@@ -2064,13 +2100,21 @@ async function queryHydratedLocationToken(
   }
   const tokenValue = normalizeSearchToken(token.value || token.label);
   const tokenPostalCode = token.postalCode ?? token.label ?? tokenValue;
-  const cityLabel = token.city ?? token.label;
-  const regionLabel = token.region ?? token.label;
-  const streetLabel = token.street ?? token.label;
-  const cityPredicate = token.city ? sql`AND LOWER(lsa.city) = LOWER(${token.city})` : sql``;
+  const cityLabel = token.city ?? token.label ?? token.value;
+  const regionLabel = token.region ?? token.label ?? token.value;
+  const streetLabel = token.street ?? token.label ?? token.value;
+  const cityPredicate =
+    token.city && token.type !== 'postcode'
+      ? sql`AND LOWER(lsa.city) = LOWER(${token.city})`
+      : sql``;
   const regionPredicate =
-    token.region && token.type !== 'street'
+    token.region && token.type !== 'street' && token.type !== 'postcode'
       ? sql`AND LOWER(lsa.region) = LOWER(${token.region})`
+      : sql``;
+  const parentDivisionPredicate =
+    token.parentDivisionId && (token.type === 'street' || token.type === 'postcode')
+      ? sql`AND lsa.parent_division_id = ${token.parentDivisionId}
+        ${token.parentDivisionKind ? sql`AND lsa.parent_area_kind = ${token.parentDivisionKind}` : sql``}`
       : sql``;
 
   let rows: LocationTokenHydrationRow[] = [];
@@ -2083,6 +2127,8 @@ async function queryHydratedLocationToken(
             lsa.country_code,
             lsa.source,
             lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
             lsa.label,
             lsa.city,
             lsa.region,
@@ -2111,6 +2157,8 @@ async function queryHydratedLocationToken(
             lsa.country_code,
             lsa.source,
             lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
             lsa.label,
             lsa.city,
             NULL::text AS region,
@@ -2140,6 +2188,8 @@ async function queryHydratedLocationToken(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         lsa.label,
         NULL::text AS city,
         lsa.region,
@@ -2168,6 +2218,8 @@ async function queryHydratedLocationToken(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         lsa.label,
         lsa.city,
         lsa.region,
@@ -2182,8 +2234,11 @@ async function queryHydratedLocationToken(
         lsa.property_count AS row_count
       FROM location_search_areas lsa
       WHERE lsa.area_kind = 'postcode'
+        AND lsa.scope_key NOT LIKE '%:city=%'
+        AND lsa.scope_key NOT LIKE '%:region=%'
         AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
+        ${parentDivisionPredicate}
         ${cityPredicate}
         ${regionPredicate}
         AND lsa.match_value = ${normalizePostalCodeForMatch(tokenPostalCode).toLowerCase()}
@@ -2198,6 +2253,8 @@ async function queryHydratedLocationToken(
         lsa.country_code,
         lsa.source,
         lsa.division_id,
+        lsa.parent_division_id,
+        lsa.parent_area_kind,
         lsa.label,
         lsa.city,
         lsa.region,
@@ -2212,8 +2269,10 @@ async function queryHydratedLocationToken(
         lsa.property_count AS row_count
       FROM location_search_areas lsa
       WHERE lsa.area_kind = 'street'
+        AND lsa.scope_key NOT LIKE '%:region=%'
         AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
+        ${parentDivisionPredicate}
         ${cityPredicate}
         AND LOWER(lsa.street) = LOWER(${streetLabel})
       ORDER BY

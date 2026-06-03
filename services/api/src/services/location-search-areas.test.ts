@@ -72,10 +72,10 @@ describe('location search area city fallbacks', () => {
       'existing.country_code = active_properties.country_code'
     );
     expect(broadCityInsert).toContain('existing.match_value = active_properties.city_match');
-    expect(broadCityInsert).not.toContain("membership.area_kind = 'city'");
+    expect(broadCityInsert).not.toContain("membership.property_id = active_properties.id");
   });
 
-  it('keeps targeted-refresh property city fallbacks unless an Overture city has the same normalized name', async () => {
+  it('routes key-based refresh through scoped dependency targets', async () => {
     const { refreshLocationSearchAreasForPropertyKeys } = await import(
       './location-search-areas.js'
     );
@@ -94,6 +94,7 @@ describe('location search area city fallbacks', () => {
       txExecuteMock,
       "'city:' || p.country_code || ':' || target.city_token"
     );
+    expect(broadCityInsert).toContain('affected_location_search_area_targets');
     expect(broadCityInsert).toContain('FROM location_search_areas existing');
     expect(broadCityInsert).toContain("existing.area_kind = 'city'");
     expect(broadCityInsert).toContain("existing.source = 'overture'");
@@ -105,6 +106,7 @@ describe('location search area city fallbacks', () => {
       txExecuteMock,
       "'street:' || p.country_code || ':' || target.street_token"
     );
-    expect(streetInsert).not.toContain("existing.source = 'overture'");
+    expect(streetInsert).toContain('target.scope_key');
+    expect(streetInsert).not.toContain("':region=' || region_token");
   });
 });

@@ -14548,6 +14548,51 @@
                           }
                         ]
                       },
+                      "source": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "divisionId": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "parentDivisionId": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "parentDivisionKind": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "city",
+                              "region",
+                              "country"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "city": {
                         "anyOf": [
                           {
@@ -14928,6 +14973,51 @@
                                 "anyOf": [
                                   {
                                     "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "source": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "divisionId": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "parentDivisionId": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "parentDivisionKind": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "city",
+                                      "region",
+                                      "country"
+                                    ]
                                   },
                                   {
                                     "type": "null"

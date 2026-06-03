@@ -500,6 +500,7 @@ export const locationSearchAreas = pgTable(
   'location_search_areas',
   {
     areaKey: text('area_key').primaryKey(),
+    scopeKey: text('scope_key').notNull(),
     areaKind: varchar('area_kind', { length: 32 }).notNull(),
     suggestionType: varchar('suggestion_type', { length: 16 }).notNull(),
     countryCode: varchar('country_code', { length: 2 }).notNull(),
@@ -519,6 +520,8 @@ export const locationSearchAreas = pgTable(
     geometryCount: integer('geometry_count').notNull().default(0),
     source: varchar('source', { length: 32 }),
     divisionId: text('division_id'),
+    parentDivisionId: text('parent_division_id'),
+    parentAreaKind: varchar('parent_area_kind', { length: 16 }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -544,6 +547,14 @@ export const locationSearchAreas = pgTable(
       sql`${table.propertyCount} DESC`
     ),
     index('location_search_areas_source_division_idx').on(table.source, table.divisionId),
+    index('location_search_areas_scope_key_idx').on(table.scopeKey),
+    index('location_search_areas_parent_division_idx').on(table.parentDivisionId),
+    index('location_search_areas_street_parent_rank_idx')
+      .on(table.countryCode, table.matchValue, table.parentDivisionId, sql`${table.propertyCount} DESC`)
+      .where(sql`area_kind = 'street'`),
+    index('location_search_areas_postcode_parent_rank_idx')
+      .on(table.countryCode, table.matchValue, table.parentDivisionId, sql`${table.propertyCount} DESC`)
+      .where(sql`area_kind IN ('postcode', 'postcode_prefix')`),
     check(
       'location_search_areas_area_kind_check',
       sql`${table.areaKind} IN ('city', 'street', 'postcode', 'postcode_prefix', 'region', 'country')`
@@ -570,6 +581,10 @@ export const locationSearchAreas = pgTable(
     check(
       'location_search_areas_division_source_check',
       sql`(${table.divisionId} IS NULL) OR (${table.source} = 'overture')`
+    ),
+    check(
+      'location_search_areas_parent_area_kind_check',
+      sql`${table.parentAreaKind} IS NULL OR ${table.parentAreaKind} IN ('city', 'region', 'country')`
     ),
     check(
       'location_search_areas_geometry_count_check',

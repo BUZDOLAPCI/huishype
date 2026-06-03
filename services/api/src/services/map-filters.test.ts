@@ -194,7 +194,7 @@ describe('selected area filters', () => {
     expect(query.params).toEqual(['NL', 'eindhoven', 'noord brabant', 'noord-brabant']);
   });
 
-  it('uses index-friendly selected street predicates for generated location area tokens', () => {
+  it('uses index-friendly selected street predicates without raw-region narrowing', () => {
     const token = parseLocationFilterToken(
       'street:NL:zwaanstraat:city=eindhoven:region=eindhoven'
     );
@@ -203,13 +203,47 @@ describe('selected area filters', () => {
     expect(query.sql).toContain('p.country_code =');
     expect(query.sql).toContain('LOWER(p.street)');
     expect(query.sql).toContain('LOWER(p.city)');
-    expect(query.sql).toContain('LOWER(p.region)');
+    expect(query.sql).not.toContain('LOWER(p.region)');
     expect(query.sql).not.toContain('UPPER(p.country_code)');
     expect(query.sql).not.toContain('BTRIM(LOWER(REGEXP_REPLACE');
     expect(query.sql).not.toContain('COALESCE(p.street');
     expect(query.sql).not.toContain('COALESCE(p.city');
     expect(query.sql).not.toContain('COALESCE(p.region');
-    expect(query.params).toEqual(['NL', 'zwaanstraat', 'eindhoven', 'eindhoven']);
+    expect(query.params).toEqual(['NL', 'zwaanstraat', 'eindhoven']);
+  });
+
+  it('uses parent division memberships for canonical street and postcode tokens', () => {
+    const parentDivisionId = 'city-division-01';
+    const streetToken = parseLocationFilterToken(
+      `street:NL:zwaanstraat:city=eindhoven:parentDivision=${parentDivisionId}:parentKind=city`
+    );
+    const postcodeToken = parseLocationFilterToken(
+      `postcode:NL:5651ha:parentDivision=${parentDivisionId}:parentKind=city`
+    );
+    const query = renderQuery(
+      buildLocationAreaFilterPredicate(
+        [streetToken, postcodeToken].filter(
+          (token): token is NonNullable<typeof token> => token != null
+        )
+      )
+    );
+
+    expect(query.sql).toContain('FROM property_location_division_memberships pldm');
+    expect(query.sql).toContain('pldm.area_kind =');
+    expect(query.sql).toContain('pldm.division_id =');
+    expect(query.sql).not.toContain('LOWER(p.region)');
+    expect(query.params).toEqual([
+      'NL',
+      'zwaanstraat',
+      'city',
+      parentDivisionId,
+      'NL',
+      'NL',
+      '5651HA',
+      'city',
+      parentDivisionId,
+      'NL',
+    ]);
   });
 
   it('keeps dashed street tokens matched through LOWER expressions', () => {
@@ -254,7 +288,7 @@ describe('selected area filters', () => {
     expect(sqlText).toContain(' AND ');
   });
 
-  it('uses street metadata constraints for city and region without narrowing by postcode', () => {
+  it('uses street metadata constraints for city without narrowing by region or postcode', () => {
     const query = renderQuery(
       buildLocationAreaFilterPredicate([
         {
@@ -272,13 +306,13 @@ describe('selected area filters', () => {
     expect(query.sql).toContain('p.country_code');
     expect(query.sql).toContain('p.street');
     expect(query.sql).toContain('p.city');
-    expect(query.sql).toContain('p.region');
+    expect(query.sql).not.toContain('p.region');
     expect(query.sql).toContain(' AND ');
     expect(query.sql).not.toContain('p.postal_code');
-    expect(query.params).toEqual(['NL', 'markt', 'aalst', 'noord-brabant']);
+    expect(query.params).toEqual(['NL', 'markt', 'aalst']);
   });
 
-  it('keeps postcode token metadata exact without broadening to a whole postcode area', () => {
+  it('keeps postcode and street token metadata exact without city or region narrowing', () => {
     const query = renderQuery(
       buildLocationAreaFilterPredicate([
         {
@@ -295,14 +329,14 @@ describe('selected area filters', () => {
 
     expect(query.sql).toContain('p.country_code');
     expect(query.sql).toContain('p.postal_code');
-    expect(query.sql).toContain('p.city');
-    expect(query.sql).toContain('p.region');
+    expect(query.sql).not.toContain('p.city');
+    expect(query.sql).not.toContain('p.region');
     expect(query.sql).toContain('p.street');
     expect(query.sql).toContain("REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g')");
     expect(query.sql).not.toContain('p.postal_code) <');
     expect(query.sql).not.toContain('COALESCE(p.postal_code');
     expect(query.sql).toContain(' AND ');
-    expect(query.params).toEqual(['NL', '5651HA', 'aalst', 'noord-brabant', 'markt']);
+    expect(query.params).toEqual(['NL', '5651HA', 'markt']);
   });
 
   it('supports four-digit NL postcode area tokens with an index-friendly prefix range', () => {
@@ -326,6 +360,6 @@ describe('selected area filters', () => {
     expect(query.sql).toContain('>=');
     expect(query.sql).toContain('<');
     expect(query.sql).not.toContain('COALESCE(p.postal_code');
-    expect(query.params).toEqual(['NL', '5617', '5618', 'eindhoven']);
+    expect(query.params).toEqual(['NL', '5617', '5618']);
   });
 });

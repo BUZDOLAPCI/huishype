@@ -144,6 +144,15 @@ function stringifySqlQuery(query: unknown): string {
     .join(' ');
 }
 
+function normalizeSearchToken(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 type LocationSearchTestSuggestion = {
   id?: string;
   type: string;
@@ -861,7 +870,7 @@ describe('GET /search/locations', () => {
     const streetSuggestion = streetSuggestions[0]!;
     expect(streetSuggestion).toEqual(
       expect.objectContaining({
-        id: 'street:NL:deflectiespoelstraat:city=eindhoven:region=eindhoven',
+        id: 'street:NL:deflectiespoelstraat:city=eindhoven',
         type: 'street',
         label: 'Deflectiespoelstraat',
         city: 'Eindhoven',
@@ -869,7 +878,7 @@ describe('GET /search/locations', () => {
         postalCode: null,
         street: 'Deflectiespoelstraat',
         filterToken: expect.objectContaining({
-          id: 'street:NL:deflectiespoelstraat:city=eindhoven:region=eindhoven',
+          id: 'street:NL:deflectiespoelstraat:city=eindhoven',
           type: 'street',
           countryCode: 'NL',
           value: 'deflectiespoelstraat',
@@ -1012,14 +1021,14 @@ describe('GET /search/locations', () => {
     expect(streetSuggestions).toHaveLength(1);
     expect(streetSuggestions[0]).toEqual(
       expect.objectContaining({
-        id: 'street:NL:zwaanstraat:city=eindhoven:region=eindhoven',
+        id: 'street:NL:zwaanstraat:city=eindhoven',
         type: 'street',
         label: 'Zwaanstraat',
         city: 'Eindhoven',
         region: 'Eindhoven',
         postalCode: null,
         filterToken: expect.objectContaining({
-          id: 'street:NL:zwaanstraat:city=eindhoven:region=eindhoven',
+          id: 'street:NL:zwaanstraat:city=eindhoven',
           type: 'street',
           countryCode: 'NL',
           value: 'zwaanstraat',
@@ -1617,7 +1626,7 @@ describe('GET /search/locations', () => {
     );
   });
 
-  it('keeps same-name streets in the same city but different regions distinct', async () => {
+  it('merges same-name streets in the same city when only raw region differs', async () => {
     const suffix = `alpha${Date.now().toString(36).replace(/\d/gu, 'a')}`;
     const city = `Regional Identity City ${suffix}`;
     const street = `Regional Identity Street ${suffix}`;
@@ -1653,28 +1662,19 @@ describe('GET /search/locations', () => {
       (suggestion) => suggestion.type === 'street' && suggestion.label === street
     );
 
-    expect(streetSuggestions).toHaveLength(2);
-    expect(new Set(streetSuggestions.map((suggestion) => suggestion.filterToken?.id)).size).toBe(2);
-    expect(streetSuggestions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
+    expect(streetSuggestions).toHaveLength(1);
+    expect(streetSuggestions[0]).toEqual(
+      expect.objectContaining({
+        city,
+        street,
+        filterToken: expect.objectContaining({
+          id: `street:NL:${normalizeSearchToken(street)}:city=${normalizeSearchToken(city)}`,
           city,
-          region: `Regional Identity A ${suffix}`,
-          filterToken: expect.objectContaining({
-            city,
-            region: `Regional Identity A ${suffix}`,
-          }),
+          street,
         }),
-        expect.objectContaining({
-          city,
-          region: `Regional Identity B ${suffix}`,
-          filterToken: expect.objectContaining({
-            city,
-            region: `Regional Identity B ${suffix}`,
-          }),
-        }),
-      ])
+      })
     );
+    expect(streetSuggestions[0]?.filterToken?.id).not.toContain('region=');
   });
 
   it('prefers Waalre-area Aalst when proximity makes that Photon district relevant', async () => {
@@ -2652,7 +2652,7 @@ describe('GET /search/location-tokens', () => {
     expect(body).toHaveLength(2);
     expect(body[0]).toEqual(
       expect.objectContaining({
-        id: 'street:NL:hydrationstraat:city=hydratiedam:region=noord-brabant',
+        id: 'street:NL:hydrationstraat:city=hydratiedam',
         type: 'street',
         label: 'Hydrationstraat',
         value: 'hydrationstraat',
@@ -2672,7 +2672,8 @@ describe('GET /search/location-tokens', () => {
       expect.objectContaining({
         type: 'postcode',
         label: '5612MA',
-        city: 'Hydratiedam',
+        postalCode: '5612MA',
+        coordinates: expect.any(Array),
         bbox: expect.any(Array),
       })
     );
@@ -2857,7 +2858,7 @@ describe('GET /search/location-tokens', () => {
     expect(hydratedTokens).toHaveLength(1);
     expect(hydratedTokens[0]).toEqual(
       expect.objectContaining({
-        id: 'street:NL:zwaanstraat:city=eindhoven:region=eindhoven',
+        id: 'street:NL:zwaanstraat:city=eindhoven',
         type: 'street',
         label: 'Zwaanstraat',
         value: 'zwaanstraat',

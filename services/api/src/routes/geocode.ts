@@ -96,6 +96,8 @@ const locationFilterTokenSchema = z.object({
   parentLabel: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
   divisionId: z.string().nullable().optional(),
+  parentDivisionId: z.string().nullable().optional(),
+  parentDivisionKind: z.enum(['city', 'region', 'country']).nullable().optional(),
   city: z.string().nullable().optional(),
   region: z.string().nullable().optional(),
   postalCode: z.string().nullable().optional(),

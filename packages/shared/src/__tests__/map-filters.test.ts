@@ -264,9 +264,7 @@ describe('map filter query param helpers', () => {
       city: 'Eindhoven',
     };
 
-    expect(serializeLocationFilterToken(streetToken)).toBe(
-      'street:NL:boschdijk:city=eindhoven:region=noord-brabant'
-    );
+    expect(serializeLocationFilterToken(streetToken)).toBe('street:NL:boschdijk:city=eindhoven');
     expect(parseLocationFilterToken('street:NL:boschdijk:city=eindhoven')).toEqual(
       expect.objectContaining({
         type: 'street',
@@ -277,7 +275,7 @@ describe('map filter query param helpers', () => {
     );
     expect(serializeLocationFilterToken(postcodeToken)).toBe('postcode:NL:5612ma:city=eindhoven');
     expect(serializeMapFiltersToSearchParams({ ...createDefaultMapFilters(), areas: [streetToken] }).toString()).toBe(
-      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven%3Aregion%3Dnoord-brabant'
+      'area=street%3ANL%3Aboschdijk%3Acity%3Deindhoven'
     );
   });
 
@@ -311,6 +309,37 @@ describe('map filter query param helpers', () => {
     expect(
       serializeLocationFilterToken({ ...cityToken, divisionId: 'abc:def', source: null })
     ).toBe('city:NL:eindhoven');
+  });
+
+  it('keeps canonical parent division metadata in address area URL tokens', () => {
+    const token = {
+      type: 'street' as const,
+      countryCode: 'NL',
+      value: 'Boschdijk',
+      label: 'Boschdijk',
+      city: 'Eindhoven',
+      region: 'Noord-Brabant',
+      parentDivisionId: 'CITY.DIVISION-01',
+      parentDivisionKind: 'city' as const,
+    };
+
+    expect(serializeLocationFilterToken(token)).toBe(
+      'street:NL:boschdijk:city=eindhoven:parentDivision=city.division-01:parentKind=city'
+    );
+    expect(
+      parseLocationFilterToken(
+        'postcode:NL:5612ma:region=noord-brabant:parentDivision=CITY.DIVISION-01:parentKind=city'
+      )
+    ).toEqual(
+      expect.objectContaining({
+        type: 'postcode',
+        countryCode: 'NL',
+        value: '5612ma',
+        region: 'Noord Brabant',
+        parentDivisionId: 'city.division-01',
+        parentDivisionKind: 'city',
+      })
+    );
   });
 
   it('canonicalizes compact, spaced, and dashed postcode tokens to one identity', () => {
