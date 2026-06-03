@@ -607,6 +607,84 @@ function isHouseCoordinateFallbackSuggestion(
   return isCoordinateFallbackSuggestion(suggestion) && Boolean(suggestion.houseNumber);
 }
 
+function getSuggestionStreetLabel(
+  suggestion: LocationSearchSuggestionResponse
+): string | null {
+  return suggestion.filterToken?.street ?? suggestion.street ?? suggestion.label ?? null;
+}
+
+function getStrongBackedStreetMatch(
+  suggestion: LocationSearchSuggestionResponse,
+  q: string
+): LocationSearchSuggestionResponse | null {
+  const parsed = parseSearchHouseNumber(q);
+  const normalizedQuery = normalizeSearchToken(parsed.rawStreetQuery || q);
+  const street = getSuggestionStreetLabel(suggestion);
+  if (
+    parsed.houseNumber != null ||
+    normalizedQuery.length < 3 ||
+    suggestion.type !== 'street' ||
+    !suggestion.filterToken?.id ||
+    suggestion.filterToken.type !== 'street' ||
+    !street
+  ) {
+    return null;
+  }
+
+  const normalizedStreet = normalizeSearchToken(street);
+  return normalizedStreet !== normalizedQuery && normalizedStreet.startsWith(normalizedQuery)
+    ? suggestion
+    : null;
+}
+
+function isSameStreetHouseCoordinateFallback(
+  suggestion: LocationSearchSuggestionResponse,
+  strongStreetMatches: readonly LocationSearchSuggestionResponse[]
+): boolean {
+  if (!isHouseCoordinateFallbackSuggestion(suggestion)) {
+    return false;
+  }
+
+  const suggestionCountry = getSuggestionCountryDedupeValue(suggestion);
+  const suggestionStreet = normalizeSearchToken(suggestion.street ?? '');
+  const suggestionCity = normalizeSearchToken(suggestion.city ?? '');
+  if (!suggestionStreet) {
+    return false;
+  }
+
+  return strongStreetMatches.some((streetMatch) => {
+    const streetMatchCountry = getSuggestionCountryDedupeValue(streetMatch);
+    const streetMatchStreet = normalizeSearchToken(getSuggestionStreetLabel(streetMatch));
+    const streetMatchCity = normalizeSearchToken(
+      streetMatch.filterToken?.city ?? streetMatch.city ?? ''
+    );
+    return (
+      suggestionStreet === streetMatchStreet &&
+      (!streetMatchCountry || !suggestionCountry || streetMatchCountry === suggestionCountry) &&
+      (!streetMatchCity || !suggestionCity || streetMatchCity === suggestionCity)
+    );
+  });
+}
+
+function suppressUnrelatedCoordinateFallbacksForStrongStreetMatch(
+  suggestions: LocationSearchSuggestionResponse[],
+  q: string
+): LocationSearchSuggestionResponse[] {
+  const strongStreetMatches = suggestions
+    .map((suggestion) => getStrongBackedStreetMatch(suggestion, q))
+    .filter((suggestion): suggestion is LocationSearchSuggestionResponse => suggestion != null);
+
+  if (strongStreetMatches.length === 0) {
+    return suggestions;
+  }
+
+  return suggestions.filter(
+    (suggestion) =>
+      !isCoordinateFallbackSuggestion(suggestion) ||
+      isSameStreetHouseCoordinateFallback(suggestion, strongStreetMatches)
+  );
+}
+
 function limitLocationSuggestions(
   suggestions: LocationSearchSuggestionResponse[],
   limit: number
@@ -965,6 +1043,56 @@ async function queryDbPropertyLocationSuggestions(
       p.street,
       p.house_number,
       p.house_number_addition NULLS FIRST
+    LIMIT ${Math.max(limit, 6)}
+  `)
+  );
+
+  return rows
+    .map(buildDbPropertySuggestion)
+    .filter((suggestion): suggestion is LocationSearchSuggestionResponse => suggestion != null);
+}
+
+async function queryDbPropertiesForBackedStreetSuggestion(
+  streetSuggestion: LocationSearchSuggestionResponse,
+  limit: number,
+  proximity: SearchProximity | undefined
+): Promise<LocationSearchSuggestionResponse[]> {
+  const countryCode = normalizeCountryCode(
+    streetSuggestion.filterToken?.countryCode ?? streetSuggestion.countryCode ?? undefined
+  );
+  const street = getSuggestionStreetLabel(streetSuggestion);
+  if (!countryCode || !street) {
+    return [];
+  }
+
+  const city = streetSuggestion.filterToken?.city ?? streetSuggestion.city ?? null;
+  const cityPredicate = city ? sql`AND ${buildTextCandidatePredicate(sql`p.city`, city)}` : sql``;
+  const rows = Array.from(
+    await db.execute<DbLocationSearchRow>(sql`
+    SELECT
+      p.id,
+      p.country_code,
+      p.street,
+      p.house_number,
+      p.house_number_addition,
+      p.city,
+      p.region,
+      p.postal_code,
+      ST_X(p.geometry) AS lon,
+      ST_Y(p.geometry) AS lat
+    FROM properties p
+    WHERE p.status = 'active'
+      AND p.country_code = ${countryCode}
+      AND ${buildTextCandidatePredicate(sql`p.street`, street)}
+      ${cityPredicate}
+    ORDER BY
+      ${buildGeometryDistanceOrder(sql`p.geometry`, proximity)}
+      p.country_code,
+      p.city,
+      p.street,
+      p.house_number,
+      p.house_number_addition NULLS FIRST,
+      p.id
     LIMIT ${Math.max(limit, 6)}
   `)
   );
@@ -2426,8 +2554,29 @@ export async function searchLocations(input: {
           ),
         ]
       : [...dbSuggestions, ...sortedTransformedSuggestions];
+    const orderedWithStreetExpansions: Array<LocationSearchSuggestionResponse | null> = [];
+    const expandedStreetKeys = new Set<string>();
 
     for (const suggestion of orderedSuggestions) {
+      orderedWithStreetExpansions.push(suggestion);
+
+      const strongStreetMatch = suggestion ? getStrongBackedStreetMatch(suggestion, q) : null;
+      const streetKey = buildLocationSuggestionDedupeKey(strongStreetMatch);
+      if (!strongStreetMatch || !streetKey || expandedStreetKeys.has(streetKey)) {
+        continue;
+      }
+
+      expandedStreetKeys.add(streetKey);
+      orderedWithStreetExpansions.push(
+        ...(await queryDbPropertiesForBackedStreetSuggestion(
+          strongStreetMatch,
+          limit,
+          rankingProximity
+        ))
+      );
+    }
+
+    for (const suggestion of orderedWithStreetExpansions) {
       if (suggestion && isUnbackedAreaSuggestion(suggestion)) {
         continue;
       }
@@ -2449,7 +2598,10 @@ export async function searchLocations(input: {
       Array.from(dedupedSuggestions.values()),
       q
     );
-    return limitLocationSuggestions(filteredSuggestions, limit);
+    return limitLocationSuggestions(
+      suppressUnrelatedCoordinateFallbacksForStrongStreetMatch(filteredSuggestions, q),
+      limit
+    );
   } catch (error) {
     app.log.warn({ err: error }, 'Typed location search unavailable');
     return [];

@@ -723,6 +723,135 @@ describe('GET /search/locations', () => {
     }
   );
 
+  it('expands a strong backed street prefix into exact DB addresses and suppresses weak Photon fallbacks', async () => {
+    const suffix = Date.now().toString(36);
+    const street = `Deflectiespoelstraat Prefix ${suffix}`;
+    const weakStreet = `De Lei ${suffix}`;
+    const otherWeakStreet = `De Klem ${suffix}`;
+    const properties = await Promise.all(
+      [10, 12, 14].map((houseNumber, index) =>
+        createIntegrationProperty({
+          street,
+          houseNumber,
+          city: 'Eindhoven',
+          region: 'Noord-Brabant',
+          postalCode: '5651PF',
+          lon: 5.4461 + index * 0.0001,
+          lat: 51.4521 + index * 0.0001,
+        })
+      )
+    );
+    createdPropertyIds.push(...properties.map((property) => property.id));
+
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.4461, 51.4521] },
+              properties: {
+                osm_type: 'W',
+                osm_id: 98001,
+                name: street,
+                postcode: '5651PF',
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'street',
+              },
+            },
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.4465, 51.4525] },
+              properties: {
+                osm_type: 'N',
+                osm_id: 98002,
+                street,
+                housenumber: '999',
+                postcode: '5651PF',
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'house',
+              },
+            },
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.45, 51.45] },
+              properties: {
+                osm_type: 'W',
+                osm_id: 98003,
+                name: weakStreet,
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'street',
+              },
+            },
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.46, 51.46] },
+              properties: {
+                osm_type: 'W',
+                osm_id: 98004,
+                name: otherWeakStreet,
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'street',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=deflec&limit=8&countrycode=NL&lon=5.446&lat=51.452',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        type: 'street',
+        label: street,
+        city: 'Eindhoven',
+        filterToken: expect.objectContaining({
+          type: 'street',
+          street,
+          city: 'Eindhoven',
+        }),
+      })
+    );
+
+    const propertyIds = body
+      .filter((suggestion) => suggestion.type === 'property')
+      .map((suggestion) => suggestion.propertyId);
+    expect(propertyIds).toEqual(expect.arrayContaining(properties.map((property) => property.id)));
+    expect(body.slice(1, 4).every((suggestion) => suggestion.type === 'property')).toBe(true);
+    expect(body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'address',
+          street,
+          houseNumber: '999',
+          propertyId: null,
+          filterToken: null,
+        }),
+      ])
+    );
+    expect(body.map((suggestion) => suggestion.label)).not.toContain(weakStreet);
+    expect(body.map((suggestion) => suggestion.label)).not.toContain(otherWeakStreet);
+  });
+
   it('keeps backed DB suggestions ahead of closer Photon-only coordinate fallbacks', async () => {
     const street = `Proximity Backed Lane ${Date.now().toString(36)}`;
     const property = await createIntegrationProperty({
