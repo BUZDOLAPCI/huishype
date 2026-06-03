@@ -481,6 +481,124 @@ export const properties = pgTable(
   ]
 );
 
+export const locationSearchAreas = pgTable(
+  'location_search_areas',
+  {
+    areaKey: text('area_key').primaryKey(),
+    areaKind: varchar('area_kind', { length: 32 }).notNull(),
+    suggestionType: varchar('suggestion_type', { length: 16 }).notNull(),
+    countryCode: varchar('country_code', { length: 2 }).notNull(),
+    matchValue: text('match_value').notNull(),
+    label: text('label').notNull(),
+    city: varchar('city', { length: 100 }),
+    region: varchar('region', { length: 255 }),
+    postalCode: varchar('postal_code', { length: 32 }),
+    street: varchar('street', { length: 255 }),
+    lon: doublePrecision('lon'),
+    lat: doublePrecision('lat'),
+    minLon: doublePrecision('min_lon'),
+    minLat: doublePrecision('min_lat'),
+    maxLon: doublePrecision('max_lon'),
+    maxLat: doublePrecision('max_lat'),
+    propertyCount: integer('property_count').notNull(),
+    geometryCount: integer('geometry_count').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('location_search_areas_kind_country_match_idx').on(
+      table.areaKind,
+      table.countryCode,
+      table.matchValue
+    ),
+    index('location_search_areas_city_exists_idx')
+      .on(table.countryCode, table.matchValue)
+      .where(sql`area_kind = 'city' AND region IS NULL`),
+    index('location_search_areas_postcode_prefix_idx')
+      .on(table.countryCode, table.matchValue)
+      .where(sql`area_kind = 'postcode_prefix'`),
+    index('location_search_areas_suggestion_country_match_idx').on(
+      table.suggestionType,
+      table.countryCode,
+      table.matchValue
+    ),
+    index('location_search_areas_kind_country_count_idx').on(
+      table.areaKind,
+      table.countryCode,
+      sql`${table.propertyCount} DESC`
+    ),
+    check(
+      'location_search_areas_area_kind_check',
+      sql`${table.areaKind} IN ('city', 'street', 'postcode', 'postcode_prefix', 'region', 'country')`
+    ),
+    check(
+      'location_search_areas_suggestion_type_check',
+      sql`${table.suggestionType} IN ('city', 'street', 'postcode', 'region', 'country')`
+    ),
+    check(
+      'location_search_areas_kind_type_check',
+      sql`(${table.areaKind} = ${table.suggestionType})
+        OR (${table.areaKind} = 'postcode_prefix' AND ${table.suggestionType} = 'postcode')`
+    ),
+    check(
+      'location_search_areas_country_code_check',
+      sql`${table.countryCode} = UPPER(${table.countryCode}) AND LENGTH(${table.countryCode}) = 2`
+    ),
+    check('location_search_areas_match_value_check', sql`${table.matchValue} <> ''`),
+    check('location_search_areas_property_count_check', sql`${table.propertyCount} > 0`),
+    check(
+      'location_search_areas_geometry_count_check',
+      sql`${table.geometryCount} >= 0 AND ${table.geometryCount} <= ${table.propertyCount}`
+    ),
+    check(
+      'location_search_areas_geometry_extent_check',
+      sql`(
+        (
+          ${table.geometryCount} = 0
+          AND ${table.lon} IS NULL
+          AND ${table.lat} IS NULL
+          AND ${table.minLon} IS NULL
+          AND ${table.minLat} IS NULL
+          AND ${table.maxLon} IS NULL
+          AND ${table.maxLat} IS NULL
+        )
+        OR
+        (
+          ${table.geometryCount} > 0
+          AND ${table.lon} IS NOT NULL
+          AND ${table.lat} IS NOT NULL
+          AND ${table.minLon} IS NOT NULL
+          AND ${table.minLat} IS NOT NULL
+          AND ${table.maxLon} IS NOT NULL
+          AND ${table.maxLat} IS NOT NULL
+        )
+      )`
+    ),
+    check(
+      'location_search_areas_kind_columns_check',
+      sql`(
+        (${table.areaKind} = 'country')
+        OR (
+          ${table.areaKind} = 'region'
+          AND ${table.region} IS NOT NULL
+        )
+        OR (
+          ${table.areaKind} = 'city'
+          AND ${table.city} IS NOT NULL
+        )
+        OR (
+          ${table.areaKind} IN ('postcode', 'postcode_prefix')
+          AND ${table.postalCode} IS NOT NULL
+        )
+        OR (
+          ${table.areaKind} = 'street'
+          AND ${table.street} IS NOT NULL
+          AND ${table.city} IS NOT NULL
+        )
+      )`
+    ),
+  ]
+);
+
 // Listings table (when property is for sale)
 export const listings = pgTable(
   'listings',

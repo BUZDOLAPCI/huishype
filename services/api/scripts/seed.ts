@@ -294,8 +294,24 @@ async function phase3Upsert(sql: postgres.Sql, limit?: number, offset?: number):
   );
   if (changedCount > 0) {
     await requestPropertyTilePyramidBuildAfterBulkImport('bag-seed');
+    await rebuildLocationSearchAreasAfterBulkImport('bag-seed');
   }
   return totalProperties;
+}
+
+async function rebuildLocationSearchAreasAfterBulkImport(reason: string): Promise<void> {
+  const { rebuildLocationSearchAreas } = await import(
+    '../src/services/location-search-areas.js'
+  );
+  const { closeConnection } = await import('../src/db/index.js');
+  try {
+    const result = await rebuildLocationSearchAreas();
+    console.log(
+      `  Rebuilt location_search_areas after ${reason}: ${fmt(result.beforeCount)} -> ${fmt(result.afterCount)} rows`,
+    );
+  } finally {
+    await closeConnection();
+  }
 }
 
 async function requestPropertyTilePyramidBuildAfterBulkImport(

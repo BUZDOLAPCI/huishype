@@ -8,6 +8,10 @@ import {
   buildLocationAreaFilterPredicate,
   parseLocationFilterToken,
 } from '../../services/map-filters.js';
+import {
+  getLocationSearchAreaPropertyKeysForIds,
+  refreshLocationSearchAreasForPropertyKeys,
+} from '../../services/location-search-areas.js';
 import { createIntegrationProperty } from './helpers/fixtures.js';
 
 // Mock global fetch to simulate Photon responses
@@ -84,6 +88,7 @@ async function cleanupCreatedProperties(createdPropertyIds: string[]) {
   }
 
   const ids = [...new Set(createdPropertyIds)];
+  const beforeKeys = await getLocationSearchAreaPropertyKeysForIds(ids);
   await db.execute(
     sql`
       UPDATE properties
@@ -97,6 +102,7 @@ async function cleanupCreatedProperties(createdPropertyIds: string[]) {
       )})
     `
   );
+  await refreshLocationSearchAreasForPropertyKeys(beforeKeys);
   createdPropertyIds.length = 0;
 }
 

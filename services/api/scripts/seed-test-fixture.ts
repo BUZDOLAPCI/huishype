@@ -60,6 +60,7 @@ function formatTime(ms: number): string {
 
 async function seedTestFixture() {
   const startTime = Date.now();
+  let closeLocationSearchAreaConnection: (() => Promise<void>) | null = null;
 
   console.log('='.repeat(60));
   console.log('Seed Test Fixture');
@@ -343,11 +344,22 @@ async function seedTestFixture() {
     // ------------------------------------------------------------------
     console.log('Step 7: Setting WOZ value and country code...');
 
+    const {
+      getLocationSearchAreaPropertyKeysForIds,
+      refreshLocationSearchAreasForPropertyKeys,
+    } = await import('../src/services/location-search-areas.js');
+    const { closeConnection } = await import('../src/db/index.js');
+    closeLocationSearchAreaConnection = closeConnection;
+    const beforeAreaKeys = await getLocationSearchAreaPropertyKeysForIds([propertyId]);
+
     await sql`
       UPDATE properties SET official_valuation = ${385000}, country_code = 'NL' WHERE id = ${propertyId}
     `;
+    const afterAreaKeys = await getLocationSearchAreaPropertyKeysForIds([propertyId]);
+    await refreshLocationSearchAreasForPropertyKeys([...beforeAreaKeys, ...afterAreaKeys]);
     console.log(`  Official valuation: 385,000 EUR`);
     console.log(`  Country code: NL`);
+    console.log('  Refreshed location_search_areas for fixture property');
     console.log('');
 
     // ------------------------------------------------------------------
@@ -377,6 +389,9 @@ async function seedTestFixture() {
     console.log(`  Time:     ${formatTime(Date.now() - startTime)}`);
   } finally {
     await sql.end();
+    if (closeLocationSearchAreaConnection) {
+      await closeLocationSearchAreaConnection();
+    }
   }
 }
 

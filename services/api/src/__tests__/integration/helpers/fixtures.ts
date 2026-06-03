@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { db } from '../../../db/index.js';
 import { canonicalListings, userFollows, users } from '../../../db/schema.js';
 import { generateAccessToken } from '../../../plugins/auth.js';
+import { refreshLocationSearchAreasForPropertyIds } from '../../../services/location-search-areas.js';
 
 // Shared builders for integration suites that create and clean up their own
 // rows instead of relying on ambient seeded property/listing data.
@@ -197,6 +198,8 @@ export async function createIntegrationProperty(options: CreatePropertyOptions =
       ${property.floorAreaM2}
     )
   `);
+
+  await refreshLocationSearchAreasForPropertyIds([property.id]);
 
   return property;
 }

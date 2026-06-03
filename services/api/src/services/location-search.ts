@@ -408,10 +408,6 @@ function getExactCountrySearchMatches(
     .map((country) => country.code);
 }
 
-function buildNormalizedPostalCodeExpression(column: SQL): SQL {
-  return sql`REGEXP_REPLACE(UPPER(COALESCE(${column}, '')), '\\s+', '', 'g')`;
-}
-
 function getPostcodePrefixUpperBound(value: string): string | null {
   if (!/^\d{4}$/u.test(value)) {
     return null;
@@ -916,36 +912,38 @@ async function queryDbAreaLocationSuggestions(
 ): Promise<LocationSearchSuggestionResponse[]> {
   const rawText = normalizeSearchText(q);
   const postalCodeCandidates = getPostalCodeSearchCandidates(q, requestedCountryCode);
+  const normalizedPostalCodeCandidates = postalCodeCandidates.map((candidate) =>
+    normalizePostalCodeForMatch(candidate).toLowerCase()
+  );
   const { rawStreetQuery } = parseSearchHouseNumber(q);
   const isPostalCodeSearch = postalCodeCandidates.length > 0;
   const countryPredicate = requestedCountryCode
-    ? sql`AND p.country_code = ${requestedCountryCode}`
+    ? sql`AND lsa.country_code = ${requestedCountryCode}`
     : sql``;
   const suggestions: LocationSearchSuggestionResponse[] = [];
 
   if (postalCodeCandidates.length > 0) {
     const rows = Array.from(
       await db.execute<DbLocationSearchRow>(sql`
-      SELECT DISTINCT ON (p.country_code, p.postal_code)
+      SELECT
         NULL::uuid AS id,
-        p.country_code,
+        lsa.country_code,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
-        p.city,
-        p.region,
-        p.postal_code,
-        ST_X(p.geometry) AS lon,
-        ST_Y(p.geometry) AS lat
-      FROM properties p
-      WHERE p.status = 'active'
+        lsa.city,
+        lsa.region,
+        lsa.postal_code,
+        lsa.lon AS lon,
+        lsa.lat AS lat
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'postcode'
         ${countryPredicate}
-        AND ${buildStringInPredicate(sql`p.postal_code`, postalCodeCandidates)}
+        AND ${buildStringInPredicate(sql`lsa.match_value`, normalizedPostalCodeCandidates)}
       ORDER BY
-        p.country_code,
-        p.postal_code,
-        p.house_number,
-        p.id
+        lsa.property_count DESC,
+        lsa.country_code,
+        lsa.postal_code
       LIMIT ${Math.max(1, Math.min(limit, 3))}
     `)
     );
@@ -970,26 +968,25 @@ async function queryDbAreaLocationSuggestions(
       await db.execute<DbLocationSearchRow>(sql`
       SELECT
         NULL::uuid AS id,
-        p.country_code,
+        lsa.country_code,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
-        MIN(p.city) AS city,
+        lsa.city,
         NULL::text AS region,
-        MIN(p.postal_code) AS postal_code,
-        AVG(ST_X(p.geometry)) AS lon,
-        AVG(ST_Y(p.geometry)) AS lat
-      FROM properties p
-      WHERE p.status = 'active'
+        NULL::text AS postal_code,
+        lsa.lon AS lon,
+        lsa.lat AS lat
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'city'
+        AND lsa.region IS NULL
         ${countryPredicate}
-        AND ${buildTextCandidatePredicate(sql`p.city`, q)}
-      GROUP BY p.country_code, LOWER(p.city)
+        AND ${buildTextCandidatePredicate(sql`lsa.city`, q)}
       ORDER BY
-        p.country_code,
-        LOWER(p.city),
-        ${buildCoordinateDistanceOrder(sql`AVG(ST_X(p.geometry))`, sql`AVG(ST_Y(p.geometry))`, proximity)}
-        COUNT(*) DESC,
-        MIN(p.city)
+        ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
+        lsa.property_count DESC,
+        lsa.country_code,
+        lsa.city
       LIMIT ${Math.max(1, Math.min(limit, 3))}
     `)
     );
@@ -1003,35 +1000,35 @@ async function queryDbAreaLocationSuggestions(
   if (!isPostalCodeSearch && rawText.length >= 2 && /[a-z]/iu.test(rawText)) {
     const rows = Array.from(
       await db.execute<DbLocationSearchRow>(sql`
-      SELECT DISTINCT ON (p.country_code, p.region)
+      SELECT
         NULL::uuid AS id,
-        p.country_code,
+        lsa.country_code,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
         NULL::text AS city,
-        p.region,
+        lsa.region,
         NULL::text AS postal_code,
-        ST_X(p.geometry) AS lon,
-        ST_Y(p.geometry) AS lat
-      FROM properties p
-      WHERE p.status = 'active'
+        lsa.lon AS lon,
+        lsa.lat AS lat
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'region'
         ${countryPredicate}
-        AND p.region IS NOT NULL
-        AND ${buildTextCandidatePredicate(sql`p.region`, q)}
+        AND ${buildTextCandidatePredicate(sql`lsa.region`, q)}
         AND NOT EXISTS (
           SELECT 1
-          FROM properties p_city
-          WHERE p_city.status = 'active'
-            AND p_city.country_code = p.country_code
-            AND ${buildTextCandidatePredicate(sql`p_city.city`, rawText)}
+          FROM location_search_areas city_area
+          WHERE city_area.area_kind = 'city'
+            AND city_area.region IS NULL
+            AND city_area.country_code = lsa.country_code
+            AND ${buildTextCandidatePredicate(sql`city_area.city`, rawText)}
           LIMIT 1
         )
       ORDER BY
-        p.country_code,
-        p.region,
-        (p.geometry IS NULL),
-        p.id
+        ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
+        lsa.property_count DESC,
+        lsa.country_code,
+        lsa.region
       LIMIT ${Math.max(1, Math.min(limit, 3))}
     `)
     );
@@ -1045,53 +1042,28 @@ async function queryDbAreaLocationSuggestions(
   if (!isPostalCodeSearch && rawStreetQuery.length >= 2 && /[a-z]/iu.test(rawStreetQuery)) {
     const rows = Array.from(
       await db.execute<DbLocationSearchRow>(sql`
-      WITH ranked_streets AS (
-        SELECT
-          NULL::uuid AS id,
-          p.country_code,
-          p.street,
-          NULL::integer AS house_number,
-          NULL::text AS house_number_addition,
-          p.city,
-          p.region,
-          p.postal_code,
-          ST_X(p.geometry) AS lon,
-          ST_Y(p.geometry) AS lat,
-          ROW_NUMBER() OVER (
-            PARTITION BY p.country_code, LOWER(p.street), LOWER(p.city), LOWER(COALESCE(p.region, ''))
-            ORDER BY
-              ${buildGeometryDistanceOrder(sql`p.geometry`, proximity)}
-              p.house_number,
-              p.id
-          ) AS row_number,
-          COUNT(*) OVER (
-            PARTITION BY p.country_code, LOWER(p.street), LOWER(p.city), LOWER(COALESCE(p.region, ''))
-          ) AS row_count
-        FROM properties p
-        WHERE p.status = 'active'
-          ${countryPredicate}
-          AND ${buildTextCandidatePredicate(sql`p.street`, rawStreetQuery)}
-      )
       SELECT
-        id,
-        country_code,
-        street,
-        house_number,
-        house_number_addition,
-        city,
-        region,
-        postal_code,
-        lon,
-        lat
-      FROM ranked_streets
-      WHERE row_number = 1
+        NULL::uuid AS id,
+        lsa.country_code,
+        lsa.street,
+        NULL::integer AS house_number,
+        NULL::text AS house_number_addition,
+        lsa.city,
+        lsa.region,
+        NULL::text AS postal_code,
+        lsa.lon AS lon,
+        lsa.lat AS lat
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'street'
+        ${countryPredicate}
+        AND ${buildTextCandidatePredicate(sql`lsa.street`, rawStreetQuery)}
       ORDER BY
-        ${buildCoordinateDistanceOrder(sql.raw('lon'), sql.raw('lat'), proximity)}
-        row_count DESC,
-        country_code,
-        street,
-        city,
-        region
+        ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
+        lsa.property_count DESC,
+        lsa.country_code,
+        lsa.street,
+        lsa.city,
+        lsa.region
       LIMIT ${Math.max(1, Math.min(limit, 3))}
     `)
     );
@@ -1122,24 +1094,23 @@ async function queryDbCountryLocationSuggestions(
 
   const rows = Array.from(
     await db.execute<DbLocationSearchRow>(sql`
-      SELECT DISTINCT ON (p.country_code)
+      SELECT
         NULL::uuid AS id,
-        p.country_code,
+        lsa.country_code,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
         NULL::text AS city,
         NULL::text AS region,
         NULL::text AS postal_code,
-        ST_X(p.geometry) AS lon,
-        ST_Y(p.geometry) AS lat
-      FROM properties p
-      WHERE p.status = 'active'
-        AND ${buildStringInPredicate(sql`p.country_code`, countryCodes)}
+        lsa.lon AS lon,
+        lsa.lat AS lat
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'country'
+        AND ${buildStringInPredicate(sql`lsa.country_code`, countryCodes)}
       ORDER BY
-        p.country_code,
-        (p.geometry IS NULL),
-        p.id
+        lsa.property_count DESC,
+        lsa.country_code
       LIMIT ${Math.max(1, Math.min(limit, countryCodes.length))}
     `)
   );
@@ -1244,9 +1215,9 @@ async function queryAreaTokenHasBackingRows(
       await db.execute<{ exists: boolean }>(sql`
       SELECT EXISTS (
         SELECT 1
-        FROM properties p
-        WHERE p.status = 'active'
-          AND p.country_code = ${countryCode}
+        FROM location_search_areas lsa
+        WHERE lsa.area_kind = 'country'
+          AND lsa.country_code = ${countryCode}
         LIMIT 1
       ) AS exists
     `)
@@ -1259,38 +1230,38 @@ async function queryAreaTokenHasBackingRows(
   }
 
   const countryCode = normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode;
-  const countryPredicate = countryCode ? sql`AND p.country_code = ${countryCode}` : sql``;
+  const countryPredicate = countryCode ? sql`AND lsa.country_code = ${countryCode}` : sql``;
   const cityPredicate =
     token.city && token.type !== 'city'
-      ? sql`AND ${buildTextCandidatePredicate(sql`p.city`, token.city)}`
+      ? sql`AND ${buildTextCandidatePredicate(sql`lsa.city`, token.city)}`
       : sql``;
   const regionPredicate =
     token.region && token.type !== 'street'
-      ? sql`AND ${buildTextCandidatePredicate(sql`p.region`, token.region)}`
+      ? sql`AND ${buildTextCandidatePredicate(sql`lsa.region`, token.region)}`
       : sql``;
   let predicate = sql`FALSE`;
 
   if (token.type === 'city') {
-    predicate = buildTextCandidatePredicate(sql`p.city`, token.label);
+    predicate = buildTextCandidatePredicate(sql`lsa.city`, token.label);
   } else if (token.type === 'region') {
-    predicate = buildTextCandidatePredicate(sql`p.region`, token.label);
+    predicate = buildTextCandidatePredicate(sql`lsa.region`, token.label);
   } else if (token.type === 'postcode') {
     const postalCodeCandidates = getPostalCodeSearchCandidates(
       token.postalCode ?? token.label,
       countryCode
-    );
-    predicate = buildStringInPredicate(sql`p.postal_code`, postalCodeCandidates);
+    ).map((candidate) => normalizePostalCodeForMatch(candidate).toLowerCase());
+    predicate = buildStringInPredicate(sql`lsa.match_value`, postalCodeCandidates);
   } else if (token.type === 'street') {
     const street = token.street ?? token.label;
-    predicate = buildTextCandidatePredicate(sql`p.street`, street);
+    predicate = buildTextCandidatePredicate(sql`lsa.street`, street);
   }
 
   const rows = Array.from(
     await db.execute<{ exists: boolean }>(sql`
     SELECT EXISTS (
       SELECT 1
-      FROM properties p
-      WHERE p.status = 'active'
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = ${token.type}
         ${countryPredicate}
         ${cityPredicate}
         ${regionPredicate}
@@ -1410,24 +1381,18 @@ async function queryDbPostcodePrefixFallbackSuggestions(
   const rows = Array.from(
     await db.execute<DbPostcodeAreaSearchRow>(sql`
     SELECT
-      p.country_code,
-      MIN(p.city) AS city,
-      MIN(p.region) AS region,
+      lsa.country_code,
+      lsa.city,
+      lsa.region,
       ${normalized}::text AS postal_code,
-      AVG(ST_X(p.geometry)) AS lon,
-      AVG(ST_Y(p.geometry)) AS lat,
-      COUNT(*) AS row_count,
-      COUNT(*) AS total_count
-    FROM properties p
-    WHERE p.status = 'active'
-      AND p.country_code = ${requestedCountryCode}
-      AND p.geometry IS NOT NULL
-      AND p.postal_code >= ${prefix}
-      AND p.postal_code < ${upperBound}
-      AND ${buildNormalizedPostalCodeExpression(sql`p.postal_code`)} >= ${prefix}
-      AND ${buildNormalizedPostalCodeExpression(sql`p.postal_code`)} < ${upperBound}
-    GROUP BY p.country_code
-    ORDER BY COUNT(*) DESC
+      lsa.lon,
+      lsa.lat,
+      lsa.property_count AS row_count,
+      lsa.property_count AS total_count
+    FROM location_search_areas lsa
+    WHERE lsa.area_kind = 'postcode_prefix'
+      AND lsa.country_code = ${requestedCountryCode}
+      AND lsa.match_value = ${prefix}
     LIMIT 1
   `)
   );
@@ -1454,25 +1419,32 @@ async function queryNearbyDominantPostcodeAreaSuggestion(
     return null;
   }
 
-  const radiusMeters = 300;
-  const radiusDegrees = radiusMeters / 111_320;
+  const radiusMeters = 500;
+  const radiusLatDegrees = radiusMeters / 111_320;
+  const lonScale = Math.max(0.1, Math.cos((lat * Math.PI) / 180));
+  const radiusLonDegrees = radiusMeters / (111_320 * lonScale);
   const rows = Array.from(
     await db.execute<DbPostcodeAreaSearchRow>(sql`
     WITH nearby AS (
       SELECT
-        p.country_code,
-        p.city,
-        p.region,
-        LEFT(${buildNormalizedPostalCodeExpression(sql`p.postal_code`)}, 4) AS postal_code,
-        p.geometry
-      FROM properties p
-      WHERE p.status = 'active'
-        AND p.country_code = ${countryCode}
-        AND p.postal_code IS NOT NULL
-        AND p.geometry IS NOT NULL
-        AND p.geometry && ST_Expand(ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326), ${radiusDegrees})
+        lsa.country_code,
+        lsa.city,
+        lsa.region,
+        LEFT(lsa.match_value, 4) AS postal_code,
+        lsa.lon,
+        lsa.lat,
+        lsa.property_count
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'postcode'
+        AND lsa.country_code = ${countryCode}
+        AND lsa.lon IS NOT NULL
+        AND lsa.lat IS NOT NULL
+        AND lsa.lon >= ${lon - radiusLonDegrees}
+        AND lsa.lon <= ${lon + radiusLonDegrees}
+        AND lsa.lat >= ${lat - radiusLatDegrees}
+        AND lsa.lat <= ${lat + radiusLatDegrees}
         AND ST_DWithin(
-          p.geometry::geography,
+          ST_SetSRID(ST_MakePoint(lsa.lon, lsa.lat), 4326)::geography,
           ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography,
           ${radiusMeters}
         )
@@ -1483,10 +1455,10 @@ async function queryNearbyDominantPostcodeAreaSuggestion(
         MIN(city) AS city,
         MIN(region) AS region,
         postal_code,
-        AVG(ST_X(geometry)) AS lon,
-        AVG(ST_Y(geometry)) AS lat,
-        COUNT(*) AS row_count,
-        SUM(COUNT(*)) OVER () AS total_count
+        SUM(lon * property_count) / NULLIF(SUM(property_count), 0) AS lon,
+        SUM(lat * property_count) / NULLIF(SUM(property_count), 0) AS lat,
+        SUM(property_count)::int AS row_count,
+        SUM(SUM(property_count)) OVER ()::int AS total_count
       FROM nearby
       WHERE postal_code <> ''
       GROUP BY country_code, postal_code
@@ -1531,32 +1503,31 @@ async function queryBackedStreetSuggestionForFeatureLabel(
     await db.execute<DbLocationSearchRow>(sql`
     SELECT
       NULL::uuid AS id,
-      p.country_code,
-      p.street,
+      lsa.country_code,
+      lsa.street,
       NULL::integer AS house_number,
       NULL::text AS house_number_addition,
-      p.city,
-      p.region,
+      lsa.city,
+      lsa.region,
       NULL::text AS postal_code,
-      ST_X(p.geometry) AS lon,
-      ST_Y(p.geometry) AS lat
-    FROM properties p
-    WHERE p.status = 'active'
-      AND p.country_code = ${countryCode}
-      AND ${buildTextCandidatePredicate(sql`p.street`, label)}
-      AND ${buildTextCandidatePredicate(sql`p.city`, city)}
+      lsa.lon AS lon,
+      lsa.lat AS lat
+    FROM location_search_areas lsa
+    WHERE lsa.area_kind = 'street'
+      AND lsa.country_code = ${countryCode}
+      AND ${buildTextCandidatePredicate(sql`lsa.street`, label)}
+      AND ${buildTextCandidatePredicate(sql`lsa.city`, city)}
     ORDER BY
       CASE
         WHEN ${region == null} THEN 0
-        WHEN ${buildTextCandidatePredicate(sql`p.region`, region ?? '')} THEN 0
+        WHEN ${buildTextCandidatePredicate(sql`lsa.region`, region ?? '')} THEN 0
         ELSE 1
       END,
-      p.country_code,
-      p.street,
-      p.city,
-      p.region,
-      p.house_number,
-      p.id
+      lsa.property_count DESC,
+      lsa.country_code,
+      lsa.street,
+      lsa.city,
+      lsa.region
     LIMIT 1
   `)
   );
@@ -1937,18 +1908,6 @@ function buildHydratedTokenFromRow(
   };
 }
 
-function buildHydrationAggregateSelect() {
-  return sql`
-    AVG(ST_X(p.geometry)) AS center_lon,
-    AVG(ST_Y(p.geometry)) AS center_lat,
-    MIN(ST_X(p.geometry)) AS min_lon,
-    MIN(ST_Y(p.geometry)) AS min_lat,
-    MAX(ST_X(p.geometry)) AS max_lon,
-    MAX(ST_Y(p.geometry)) AS max_lat,
-    COUNT(*) AS row_count
-  `;
-}
-
 async function queryHydratedLocationToken(
   token: LocationFilterTokenWithId,
   requestedCountryCode: CountryCode | undefined
@@ -1971,16 +1930,16 @@ async function queryHydratedLocationToken(
 
   const countryCode =
     normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode ?? null;
-  const countryPredicate = countryCode ? sql`AND p.country_code = ${countryCode}` : sql``;
+  const countryPredicate = countryCode ? sql`AND lsa.country_code = ${countryCode}` : sql``;
   const tokenValue = normalizeSearchToken(token.value || token.label);
   const tokenPostalCode = token.postalCode ?? token.label ?? tokenValue;
   const cityLabel = token.city ?? token.label;
   const regionLabel = token.region ?? token.label;
   const streetLabel = token.street ?? token.label;
-  const cityPredicate = token.city ? sql`AND LOWER(p.city) = LOWER(${token.city})` : sql``;
+  const cityPredicate = token.city ? sql`AND LOWER(lsa.city) = LOWER(${token.city})` : sql``;
   const regionPredicate =
     token.region && token.type !== 'street'
-      ? sql`AND LOWER(p.region) = LOWER(${token.region})`
+      ? sql`AND LOWER(lsa.region) = LOWER(${token.region})`
       : sql``;
 
   let rows: LocationTokenHydrationRow[] = [];
@@ -1990,41 +1949,52 @@ async function queryHydratedLocationToken(
       ? Array.from(
           await db.execute<LocationTokenHydrationRow>(sql`
           SELECT
-            p.country_code,
-            p.city AS label,
-            p.city,
-            p.region,
+            lsa.country_code,
+            lsa.label,
+            lsa.city,
+            lsa.region,
             NULL::text AS postal_code,
             NULL::text AS street,
-            ${buildHydrationAggregateSelect()}
-          FROM properties p
-          WHERE p.status = 'active'
-            AND p.geometry IS NOT NULL
+            lsa.lon AS center_lon,
+            lsa.lat AS center_lat,
+            lsa.min_lon,
+            lsa.min_lat,
+            lsa.max_lon,
+            lsa.max_lat,
+            lsa.property_count AS row_count
+          FROM location_search_areas lsa
+          WHERE lsa.area_kind = 'city'
+            AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
             ${countryPredicate}
-            AND LOWER(p.city) = LOWER(${cityLabel})
+            AND LOWER(lsa.city) = LOWER(${cityLabel})
             ${regionPredicate}
-          GROUP BY p.country_code, p.city, p.region
-          ORDER BY COUNT(*) DESC
+          ORDER BY lsa.property_count DESC
           LIMIT 2
         `)
         )
       : Array.from(
           await db.execute<LocationTokenHydrationRow>(sql`
           SELECT
-            p.country_code,
-            MIN(p.city) AS label,
-            MIN(p.city) AS city,
+            lsa.country_code,
+            lsa.label,
+            lsa.city,
             NULL::text AS region,
             NULL::text AS postal_code,
             NULL::text AS street,
-            ${buildHydrationAggregateSelect()}
-          FROM properties p
-          WHERE p.status = 'active'
-            AND p.geometry IS NOT NULL
+            lsa.lon AS center_lon,
+            lsa.lat AS center_lat,
+            lsa.min_lon,
+            lsa.min_lat,
+            lsa.max_lon,
+            lsa.max_lat,
+            lsa.property_count AS row_count
+          FROM location_search_areas lsa
+          WHERE lsa.area_kind = 'city'
+            AND lsa.region IS NULL
+            AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
             ${countryPredicate}
-            AND LOWER(p.city) = LOWER(${cityLabel})
-          GROUP BY p.country_code, LOWER(p.city)
-          ORDER BY COUNT(*) DESC
+            AND LOWER(lsa.city) = LOWER(${cityLabel})
+          ORDER BY lsa.property_count DESC
           LIMIT 2
         `)
         );
@@ -2032,20 +2002,25 @@ async function queryHydratedLocationToken(
     rows = Array.from(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
-        p.country_code,
-        p.region AS label,
+        lsa.country_code,
+        lsa.label,
         NULL::text AS city,
-        p.region,
+        lsa.region,
         NULL::text AS postal_code,
         NULL::text AS street,
-        ${buildHydrationAggregateSelect()}
-      FROM properties p
-      WHERE p.status = 'active'
-        AND p.geometry IS NOT NULL
+        lsa.lon AS center_lon,
+        lsa.lat AS center_lat,
+        lsa.min_lon,
+        lsa.min_lat,
+        lsa.max_lon,
+        lsa.max_lat,
+        lsa.property_count AS row_count
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'region'
+        AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
-        AND LOWER(p.region) = LOWER(${regionLabel})
-      GROUP BY p.country_code, p.region
-      ORDER BY COUNT(*) DESC
+        AND LOWER(lsa.region) = LOWER(${regionLabel})
+      ORDER BY lsa.property_count DESC
       LIMIT 2
     `)
     );
@@ -2053,23 +2028,27 @@ async function queryHydratedLocationToken(
     rows = Array.from(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
-        p.country_code,
-        p.postal_code AS label,
-        MIN(p.city) AS city,
-        MIN(p.region) AS region,
-        p.postal_code,
+        lsa.country_code,
+        lsa.label,
+        lsa.city,
+        lsa.region,
+        lsa.postal_code,
         NULL::text AS street,
-        ${buildHydrationAggregateSelect()}
-      FROM properties p
-      WHERE p.status = 'active'
-        AND p.geometry IS NOT NULL
+        lsa.lon AS center_lon,
+        lsa.lat AS center_lat,
+        lsa.min_lon,
+        lsa.min_lat,
+        lsa.max_lon,
+        lsa.max_lat,
+        lsa.property_count AS row_count
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'postcode'
+        AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
         ${cityPredicate}
         ${regionPredicate}
-        AND REGEXP_REPLACE(UPPER(p.postal_code), '\\s+', '', 'g')
-          = REGEXP_REPLACE(UPPER(${tokenPostalCode}), '\\s+', '', 'g')
-      GROUP BY p.country_code, p.postal_code
-      ORDER BY COUNT(*) DESC
+        AND lsa.match_value = ${normalizePostalCodeForMatch(tokenPostalCode).toLowerCase()}
+      ORDER BY lsa.property_count DESC
       LIMIT 2
     `)
     );
@@ -2077,22 +2056,32 @@ async function queryHydratedLocationToken(
     rows = Array.from(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
-        p.country_code,
-        p.street AS label,
-        p.city,
-        MIN(p.region) AS region,
+        lsa.country_code,
+        lsa.label,
+        lsa.city,
+        lsa.region,
         NULL::text AS postal_code,
-        p.street,
-        ${buildHydrationAggregateSelect()}
-      FROM properties p
-      WHERE p.status = 'active'
-        AND p.geometry IS NOT NULL
+        lsa.street,
+        lsa.lon AS center_lon,
+        lsa.lat AS center_lat,
+        lsa.min_lon,
+        lsa.min_lat,
+        lsa.max_lon,
+        lsa.max_lat,
+        lsa.property_count AS row_count
+      FROM location_search_areas lsa
+      WHERE lsa.area_kind = 'street'
+        AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
         ${cityPredicate}
-        ${regionPredicate}
-        AND LOWER(p.street) = LOWER(${streetLabel})
-      GROUP BY p.country_code, p.street, p.city, p.region
-      ORDER BY COUNT(*) DESC
+        AND LOWER(lsa.street) = LOWER(${streetLabel})
+      ORDER BY
+        CASE
+          WHEN ${token.region == null} THEN 0
+          WHEN LOWER(lsa.region) = LOWER(${token.region ?? ''}) THEN 0
+          ELSE 1
+        END,
+        lsa.property_count DESC
       LIMIT 2
     `)
     );

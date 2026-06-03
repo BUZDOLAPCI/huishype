@@ -410,8 +410,24 @@ async function phase3Upsert(sql: postgres.Sql): Promise<number> {
   );
   if (changedCount > 0) {
     await requestPropertyTilePyramidBuildAfterBulkImport('overture-address-import');
+    await rebuildLocationSearchAreasAfterBulkImport('overture-address-import');
   }
   return totalProperties;
+}
+
+async function rebuildLocationSearchAreasAfterBulkImport(reason: string): Promise<void> {
+  const { rebuildLocationSearchAreas } = await import(
+    '../services/location-search-areas.js'
+  );
+  const { closeConnection } = await import('../db/index.js');
+  try {
+    const result = await rebuildLocationSearchAreas();
+    console.log(
+      `  Rebuilt location_search_areas after ${reason}: ${fmt(result.beforeCount)} -> ${fmt(result.afterCount)} rows`,
+    );
+  } finally {
+    await closeConnection();
+  }
 }
 
 export function buildOvertureUpsertQuery(): string {

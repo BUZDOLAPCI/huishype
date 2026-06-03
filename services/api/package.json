@@ -22,6 +22,7 @@
     "db:seed-listings": "tsx scripts/seed-listings.ts",
     "db:seed-test-fixture": "tsx scripts/seed-test-fixture.ts",
     "db:reset": "tsx scripts/db-reset.ts",
+    "db:rebuild-location-search-areas": "tsx scripts/rebuild-location-search-areas.ts",
     "db:seed-landcover": "tsx src/scripts/import-landcover.ts",
     "db:seed-watercover": "tsx src/scripts/import-watercover.ts",
     "db:seed-tall-buildings": "tsx src/scripts/import-tall-buildings.ts",

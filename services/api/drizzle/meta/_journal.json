@@ -351,6 +351,13 @@
       "when": 1778198400023,
       "tag": "0049_ingest_cursor_bound_order_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1778198400024,
+      "tag": "0050_location_search_areas",
+      "breakpoints": true
     }
   ]
 }
