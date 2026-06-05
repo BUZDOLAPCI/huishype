@@ -15,6 +15,7 @@ import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runti
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 
 const API_BASE_URL = getPlaywrightApiUrl();
+const API_ORIGIN = new URL(API_BASE_URL).origin;
 
 // Screenshot output directory
 const SCREENSHOT_DIR = getPlaywrightArtifactPath('flows');
@@ -193,6 +194,67 @@ test.describe('Feed Filtering', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-trending.png` });
   });
 
+  test('direct feed filter URL hydrates chips, query params, and canonicalizes interactions', async ({
+    page,
+  }) => {
+    const feedRequests: URL[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.origin === API_ORIGIN && url.pathname === '/feed') {
+        feedRequests.push(url);
+      }
+    });
+
+    await page.goto('/feed?marketState=for-sale&area=city:NL:eindhoven&feedTab=latest', {
+      waitUntil: 'domcontentloaded',
+    });
+
+    await expect(page.getByTestId('filter-chip-latest')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('search-area-chip').filter({ hasText: 'Eindhoven' })).toBeVisible(
+      { timeout: 15_000 }
+    );
+
+    await expect
+      .poll(
+        () =>
+          feedRequests.some(
+            (url) =>
+              url.searchParams.get('filter') === 'latest' &&
+              url.searchParams.get('marketState') === 'for-sale' &&
+              url.searchParams.getAll('area').includes('city:NL:eindhoven')
+          ),
+        { timeout: 15_000 }
+      )
+      .toBe(true);
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          feedTab: new URLSearchParams(window.location.search).get('feedTab'),
+          marketState: new URLSearchParams(window.location.search).get('marketState'),
+          area: new URLSearchParams(window.location.search).getAll('area'),
+        }))
+      )
+      .toEqual({
+        feedTab: 'latest',
+        marketState: 'for-sale',
+        area: ['city:NL:eindhoven'],
+      });
+
+    await page.getByTestId('map-filter-pill-market-state-for-rent').click();
+    await expect
+      .poll(() => page.evaluate(() => window.location.pathname + window.location.search))
+      .toBe('/feed?feedTab=latest&marketState=for-sale%2Cfor-rent&area=city%3ANL%3Aeindhoven');
+
+    await page.getByTestId('filter-chip-trending').click();
+    await expect
+      .poll(() => page.evaluate(() => new URLSearchParams(window.location.search).get('feedTab')))
+      .toBeNull();
+    await expect
+      .poll(() => page.evaluate(() => new URLSearchParams(window.location.search).getAll('area')))
+      .toEqual(['city:NL:eindhoven']);
+  });
+
   test('unresolved direct address search keeps area chip and navigates to map focus', async ({
     page,
   }) => {
@@ -251,6 +313,31 @@ test.describe('Feed Filtering', () => {
 
       await route.fulfill({ contentType: 'application/json', body: '[]' });
     });
+    await page.route('**/geocode/search?**', async (route) => {
+      const url = new URL(route.request().url());
+      const query = (url.searchParams.get('q') ?? '').toLowerCase();
+
+      if (query.includes('unresolvedstraat')) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: 'address:NL:unresolvedstraat-10',
+              displayName: 'Unresolvedstraat 10, Eindhoven',
+              coordinates: [5.49, 51.45],
+              city: 'Eindhoven',
+              postalCode: '9999ZZ',
+              street: 'Unresolvedstraat',
+              houseNumber: '10',
+              countryCode: 'NL',
+            },
+          ]),
+        });
+        return;
+      }
+
+      await route.fulfill({ contentType: 'application/json', body: '[]' });
+    });
     await page.route('**/properties/resolve?**', async (route) => {
       await route.fulfill({ contentType: 'application/json', body: 'null' });
     });
@@ -275,7 +362,10 @@ test.describe('Feed Filtering', () => {
     ).toBeVisible();
     await expect(searchInput).toHaveValue('');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(500);
+    await expect(page.getByTestId('feed-screen').or(page.getByTestId('feed-empty'))).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(1500);
 
     const unresolvedResult = page
       .getByTestId('search-result-item')
@@ -283,7 +373,9 @@ test.describe('Feed Filtering', () => {
       .first();
     await searchInput.click();
     await searchInput.focus();
+    await searchInput.fill('');
     await searchInput.fill('Unresolvedstraat 10');
+    await expect(searchInput).toHaveValue('Unresolvedstraat 10', { timeout: 5000 });
     await expect(unresolvedResult).toBeVisible({ timeout: 15_000 });
     await unresolvedResult.click();
 

@@ -44,6 +44,7 @@ let capturedSearchBarProps: {
     label: string;
     city?: string;
   }) => void;
+  onClearAreas?: () => void;
   onLocationResolved?: (coordinates: { lon: number; lat: number }, address: string) => void;
 } | null = null;
 
@@ -96,6 +97,7 @@ jest.mock('@/src/components', () => ({
   },
   FeedErrorState: () => null,
   FeedFilterChips: ({
+    activeFilter,
     onFilterChange,
   }: {
     activeFilter: string;
@@ -105,10 +107,25 @@ jest.mock('@/src/components', () => ({
     return (
       <ReactNative.View>
         <ReactNative.Pressable testID="chip-trending" onPress={() => onFilterChange('trending')}>
-          <ReactNative.Text>Trending</ReactNative.Text>
+          <ReactNative.Text>
+            Trending {activeFilter === 'trending' ? 'active' : ''}
+          </ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable testID="chip-latest" onPress={() => onFilterChange('latest')}>
+          <ReactNative.Text>Latest {activeFilter === 'latest' ? 'active' : ''}</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID="chip-recent-activity"
+          onPress={() => onFilterChange('recent-activity')}
+        >
+          <ReactNative.Text>
+            Recent {activeFilter === 'recent-activity' ? 'active' : ''}
+          </ReactNative.Text>
         </ReactNative.Pressable>
         <ReactNative.Pressable testID="chip-following" onPress={() => onFilterChange('following')}>
-          <ReactNative.Text>Following</ReactNative.Text>
+          <ReactNative.Text>
+            Following {activeFilter === 'following' ? 'active' : ''}
+          </ReactNative.Text>
         </ReactNative.Pressable>
       </ReactNative.View>
     );
@@ -124,6 +141,7 @@ jest.mock('@/src/components', () => ({
     selectedAreas,
     onAreaSelected,
     onAreaRemoved,
+    onClearAreas,
     onLocationResolved,
   }: {
     searchBias?: {
@@ -152,10 +170,17 @@ jest.mock('@/src/components', () => ({
       label: string;
       city?: string;
     }) => void;
+    onClearAreas: () => void;
     onLocationResolved: (coordinates: { lon: number; lat: number }, address: string) => void;
   }) => {
     const ReactNative = require('react-native');
-    capturedSearchBarProps = { searchBias, onAreaSelected, onAreaRemoved, onLocationResolved };
+    capturedSearchBarProps = {
+      searchBias,
+      onAreaSelected,
+      onAreaRemoved,
+      onClearAreas,
+      onLocationResolved,
+    };
     return (
       <ReactNative.View testID="feed-search-bar">
         <ReactNative.Text>Areas {selectedAreas.length}</ReactNative.Text>
@@ -207,6 +232,9 @@ jest.mock('@/src/components', () => ({
         >
           <ReactNative.Text>Remove first area</ReactNative.Text>
         </ReactNative.Pressable>
+        <ReactNative.Pressable testID="feed-clear-areas" onPress={onClearAreas}>
+          <ReactNative.Text>Clear areas</ReactNative.Text>
+        </ReactNative.Pressable>
       </ReactNative.View>
     );
   },
@@ -218,7 +246,14 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
     showActivityFilter,
     showFollowingFilter,
   }: {
-    controller: { toggleStatusPill: (state: 'for-sale') => void };
+    controller: {
+      appliedFilters: { salePriceFrom?: number | null };
+      commitAppliedFilters: (filters: {
+        salePriceFrom?: number | null;
+        marketState?: string[];
+      }) => void;
+      toggleStatusPill: (state: 'for-sale') => void;
+    };
     showActivityFilter?: boolean;
     showFollowingFilter?: boolean;
   }) => {
@@ -230,6 +265,20 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
           onPress={() => controller.toggleStatusPill('for-sale')}
         >
           <ReactNative.Text>For Sale</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable testID="feed-price-draft-sale-from">
+          <ReactNative.Text>Draft sale price</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID="feed-price-commit-sale-from"
+          onPress={() =>
+            controller.commitAppliedFilters({
+              ...controller.appliedFilters,
+              salePriceFrom: 600000,
+            })
+          }
+        >
+          <ReactNative.Text>Commit sale price</ReactNative.Text>
         </ReactNative.Pressable>
         {showActivityFilter ? (
           <ReactNative.Text testID="feed-map-activity-control">Activity</ReactNative.Text>
@@ -421,9 +470,27 @@ function seedAuth() {
   });
 }
 
+function seedUnauth() {
+  mockUseAuthContext.mockReturnValue({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    accessToken: null,
+    authError: null,
+    signInWithGoogle: jest.fn(),
+    signInWithMockToken: jest.fn(),
+    requestEmailLink: jest.fn(),
+    verifyEmailToken: jest.fn(),
+    signOut: jest.fn(),
+    refreshAuth: jest.fn(),
+    getAccessToken: jest.fn(),
+  });
+}
+
 describe('FeedScreen following surface', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.history.replaceState({}, '', '/feed');
     mockSharedMapSearchBias = null;
     capturedSearchBarProps = null;
     mockGetCurrentLocation.mockRejectedValue(new Error('Location unavailable'));
@@ -467,6 +534,7 @@ describe('FeedScreen following surface', () => {
   });
 
   afterEach(() => {
+    window.history.replaceState({}, '', '/');
     delete (
       globalThis as typeof globalThis & {
         __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
@@ -741,6 +809,10 @@ describe('FeedScreen following surface', () => {
         })
       );
     });
+
+    expect(window.location.pathname + window.location.search).toBe(
+      '/feed?marketState=for-sale&area=city%3ANL%3Aeindhoven%3Acity%3Deindhoven'
+    );
   });
 
   it('removes feed area filters by serialized token metadata', async () => {
@@ -790,6 +862,159 @@ describe('FeedScreen following surface', () => {
         })
       );
     });
+    expect(window.location.pathname + window.location.search).toBe(
+      '/feed?area=street%3ANL%3Acentrum%3Acity%3Dutrecht'
+    );
+  });
+
+  it('initializes the feed tab and shared query filters from the feed URL', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/feed?marketState=for-sale&area=street:NL:beeldbuisring:city=eindhoven&feedTab=latest'
+    );
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByText } = render(<FeedScreen />);
+
+    await waitFor(() => {
+      expect(getByText('Latest active')).toBeTruthy();
+      expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
+        'latest',
+        undefined,
+        true,
+        expect.objectContaining({
+          marketState: ['for-sale'],
+          areas: [
+            expect.objectContaining({
+              type: 'street',
+              value: 'beeldbuisring',
+              city: 'Eindhoven',
+            }),
+          ],
+        })
+      );
+    });
+    expect(window.location.pathname + window.location.search).toBe(
+      '/feed?feedTab=latest&marketState=for-sale&area=street%3ANL%3Abeeldbuisring%3Acity%3Deindhoven'
+    );
+  });
+
+  it('falls back from unauthorized following feedTab without opening auth', async () => {
+    window.history.replaceState({}, '', '/feed?feedTab=following');
+    seedUnauth();
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByText } = render(<FeedScreen />);
+
+    await waitFor(() => {
+      expect(getByText('Trending active')).toBeTruthy();
+    });
+    expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
+      'public',
+      false,
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+    );
+    expect(window.location.pathname + window.location.search).toBe('/feed');
+  });
+
+  it('updates the feed URL when tab chips change and omits the default tab', async () => {
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId } = render(<FeedScreen />);
+
+    fireEvent.press(getByTestId('chip-latest'));
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=latest');
+    });
+
+    fireEvent.press(getByTestId('feed-toggle-for-sale'));
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe(
+        '/feed?feedTab=latest&marketState=for-sale'
+      );
+    });
+
+    fireEvent.press(getByTestId('chip-trending'));
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe('/feed?marketState=for-sale');
+    });
+  });
+
+  it('does not update the feed URL for price drafts until shared filters commit', async () => {
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId } = render(<FeedScreen />);
+
+    fireEvent.press(getByTestId('feed-price-draft-sale-from'));
+    expect(window.location.pathname + window.location.search).toBe('/feed');
+
+    fireEvent.press(getByTestId('feed-price-commit-sale-from'));
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe('/feed?salePriceFrom=600000');
+    });
+  });
+
+  it('updates the feed URL with repeated area params when selecting, removing, and clearing areas', async () => {
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId } = render(<FeedScreen />);
+
+    fireEvent.press(getByTestId('feed-select-centrum-eindhoven'));
+    fireEvent.press(getByTestId('feed-select-centrum-utrecht'));
+
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe(
+        '/feed?area=street%3ANL%3Acentrum%3Acity%3Deindhoven&area=street%3ANL%3Acentrum%3Acity%3Dutrecht'
+      );
+    });
+
+    fireEvent.press(getByTestId('feed-remove-first-area'));
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe(
+        '/feed?area=street%3ANL%3Acentrum%3Acity%3Dutrecht'
+      );
+    });
+
+    fireEvent.press(getByTestId('feed-clear-areas'));
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe('/feed');
+    });
   });
 
   it('navigates unresolved direct feed address selections to a visible map camera route', async () => {
@@ -810,6 +1035,27 @@ describe('FeedScreen following surface', () => {
     );
 
     expect(router.push).toHaveBeenCalledWith('/@51.441642,5.469722,17z');
+  });
+
+  it('carries shared filters but not feedTab when unresolved direct feed addresses navigate to map', async () => {
+    window.history.replaceState({}, '', '/feed?feedTab=latest&marketState=for-sale');
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    render(<FeedScreen />);
+
+    capturedSearchBarProps?.onLocationResolved?.(
+      { lon: 5.469722, lat: 51.441642 },
+      'Unresolvedstraat 10, Eindhoven'
+    );
+
+    expect(router.push).toHaveBeenCalledWith('/@51.441642,5.469722,17z?marketState=for-sale');
   });
 
   it('emits following-feed post click analytics with grouped property-post payloads', async () => {

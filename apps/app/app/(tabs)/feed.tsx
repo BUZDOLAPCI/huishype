@@ -45,11 +45,20 @@ import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import {
   DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+  hasMapFilterQueryParams,
+  parseMapFiltersFromSearchParams,
   serializeLocationFilterToken,
   type LocationFilterToken,
+  type MapFilters,
 } from '@/src/lib/sharedMapFilters';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
 import { useMapSearchBias } from '@/src/hooks/useMapSearchBias';
+import {
+  appendSharedFeedFiltersToPath,
+  buildFeedPath,
+  parseFeedTabFromSearchParams,
+} from '@/src/lib/feedUrlSync';
+import { replacePassiveBrowserPath } from '@/src/lib/webMapUrlSync';
 import type { AddressSearchBias } from '@/src/services/address-resolver';
 import {
   buildPropertyRoute,
@@ -122,10 +131,66 @@ export default function FeedScreen() {
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
-  const filterController = useMapFilterController();
+  const activeFilterRef = useRef(activeFilter);
+  activeFilterRef.current = activeFilter;
+  const feedBrowserSearchRef = useRef(
+    typeof window === 'undefined' ? '' : window.location.search || ''
+  );
+  const replaceFeedBrowserPath = useCallback((nextFilters: MapFilters, feedTab: FeedTab) => {
+    const nextPath = buildFeedPath(nextFilters, feedTab, feedBrowserSearchRef.current);
+    const nextSearch = nextPath.includes('?') ? nextPath.slice(nextPath.indexOf('?')) : '';
+    feedBrowserSearchRef.current = nextSearch;
+    replacePassiveBrowserPath(nextPath);
+  }, []);
+  const handleAppliedFiltersChange = useCallback(
+    (nextFilters: MapFilters) => {
+      replaceFeedBrowserPath(nextFilters, activeFilterRef.current);
+    },
+    [replaceFeedBrowserPath]
+  );
+  const filterController = useMapFilterController({
+    onAppliedFiltersChange: handleAppliedFiltersChange,
+  });
   const { mapSearchBias } = useMapSearchBias();
   const trackedFollowingEmptyViewRef = useRef(false);
   const hasInteractedWithListRef = useRef(false);
+  const appliedInitialFeedUrlRef = useRef(false);
+
+  useEffect(() => {
+    if (!appliedInitialFeedUrlRef.current) {
+      appliedInitialFeedUrlRef.current = true;
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      const initialSearchParams = new URLSearchParams(window.location.search);
+      const nextTab = parseFeedTabFromSearchParams(initialSearchParams, { isAuthenticated });
+      const hasInitialFilters = hasMapFilterQueryParams(initialSearchParams);
+      const hasInitialFeedTab = initialSearchParams.has('feedTab');
+      if (!hasInitialFilters && !hasInitialFeedTab) {
+        return;
+      }
+
+      const nextFilters = hasInitialFilters
+        ? parseMapFiltersFromSearchParams(initialSearchParams)
+        : filterController.appliedFilters;
+
+      if (nextTab !== activeFilter) {
+        activeFilterRef.current = nextTab;
+        setActiveFilter(nextTab);
+      }
+      if (hasInitialFilters) {
+        filterController.replaceAppliedFilters(nextFilters);
+      }
+      replaceFeedBrowserPath(nextFilters, nextTab);
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => replaceFeedBrowserPath(nextFilters, nextTab), 0);
+      }
+      return;
+    }
+
+    replaceFeedBrowserPath(filterController.appliedFilters, activeFilter);
+  }, [activeFilter, filterController, isAuthenticated, replaceFeedBrowserPath]);
 
   const feedCountryCode = useMemo(() => {
     const candidate = profile?.homeCountry?.toUpperCase();
@@ -258,8 +323,9 @@ export default function FeedScreen() {
       }
 
       setActiveFilter(filter);
+      replaceFeedBrowserPath(filterController.appliedFilters, filter);
     },
-    [isAuthenticated]
+    [filterController.appliedFilters, isAuthenticated, replaceFeedBrowserPath]
   );
 
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
@@ -269,20 +335,23 @@ export default function FeedScreen() {
     (coordinates: { lon: number; lat: number }) => {
       router.push(
         toInternalAppHref(
-          serializeCanonicalCameraPath({
-            lat: coordinates.lat,
-            lng: coordinates.lon,
-            zoom: FEED_DIRECT_ADDRESS_MAP_ZOOM,
-          })
+          appendSharedFeedFiltersToPath(
+            serializeCanonicalCameraPath({
+              lat: coordinates.lat,
+              lng: coordinates.lon,
+              zoom: FEED_DIRECT_ADDRESS_MAP_ZOOM,
+            }),
+            filterController.appliedFilters
+          )
         )
       );
     },
-    []
+    [filterController.appliedFilters]
   );
   const handleFeedAreaSelected = useCallback(
     (area: LocationFilterToken) => {
       const currentAreas = filterController.appliedFilters.areas ?? [];
-      filterController.replaceAppliedFilters({
+      filterController.commitAppliedFilters({
         ...filterController.appliedFilters,
         areas: [
           ...(area.type === 'current-location'
@@ -297,20 +366,18 @@ export default function FeedScreen() {
   const handleFeedAreaRemoved = useCallback(
     (area: LocationFilterToken) => {
       const removeKey = serializeLocationFilterToken(area);
-      filterController.replaceAppliedFilters({
+      filterController.commitAppliedFilters({
         ...filterController.appliedFilters,
-        areas: (filterController.appliedFilters.areas ?? []).filter(
-          (candidate) => {
-            const candidateKey = serializeLocationFilterToken(candidate);
-            return removeKey == null ? candidate !== area : candidateKey !== removeKey;
-          }
-        ),
+        areas: (filterController.appliedFilters.areas ?? []).filter((candidate) => {
+          const candidateKey = serializeLocationFilterToken(candidate);
+          return removeKey == null ? candidate !== area : candidateKey !== removeKey;
+        }),
       });
     },
     [filterController]
   );
   const handleClearFeedAreas = useCallback(() => {
-    filterController.replaceAppliedFilters({
+    filterController.commitAppliedFilters({
       ...filterController.appliedFilters,
       areas: [],
     });
@@ -441,6 +508,7 @@ export default function FeedScreen() {
       onSuccess={() => {
         setShowAuth(false);
         setActiveFilter('following');
+        replaceFeedBrowserPath(filterController.appliedFilters, 'following');
       }}
     />
   );
@@ -514,6 +582,7 @@ export default function FeedScreen() {
               ? () => {
                   if (signedInFollowing) {
                     setActiveFilter('recent-activity');
+                    replaceFeedBrowserPath(filterController.appliedFilters, 'recent-activity');
                     return;
                   }
 
