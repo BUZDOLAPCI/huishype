@@ -12,6 +12,7 @@ import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { TEST_LAT, TEST_LNG } from '@/src/__tests__/fixtures/test-coordinates';
 import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from '@/src/i18n';
+import type { LocationSearchSuggestion } from '@huishype/shared';
 
 // Mock the useAddressSearch hook
 const mockUseAddressSearch = jest.fn();
@@ -51,6 +52,27 @@ function createMockAddress(overrides?: Partial<ResolvedAddress>): ResolvedAddres
   };
 }
 
+function createMockLocationSuggestion(
+  overrides?: Partial<LocationSearchSuggestion>
+): LocationSearchSuggestion {
+  return {
+    id: 'city:NL:eindhoven',
+    type: 'city',
+    label: 'Eindhoven',
+    subtitle: 'Noord-Brabant, Nederland',
+    countryCode: 'NL',
+    coordinates: [5.4697, 51.4416],
+    filterToken: {
+      type: 'city',
+      countryCode: 'NL',
+      value: 'eindhoven',
+      label: 'Eindhoven',
+      coordinates: [5.4697, 51.4416],
+    },
+    ...overrides,
+  };
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -65,6 +87,13 @@ function createDeferred<T>() {
 function focusNativeSearchInput() {
   fireEvent.press(screen.getByTestId('search-bar-focus-target'));
   return screen.getByTestId('search-bar-input');
+}
+
+function pressSearchKey(input: ReturnType<typeof screen.getByTestId>, key: string) {
+  fireEvent(input, 'keyPress', {
+    nativeEvent: { key },
+    preventDefault: jest.fn(),
+  });
 }
 
 const originalPlatform = Platform.OS;
@@ -633,6 +662,169 @@ describe('SearchBar', () => {
     expect(screen.getByText('Eindhoven')).toBeTruthy();
     expect(screen.getByText('City - Noord-Brabant, Nederland')).toBeTruthy();
     expect(screen.queryByTestId('search-results-loading')).toBeNull();
+  });
+
+  it('selects the first typed location suggestion with arrow down and enter', () => {
+    const onAreaSelected = jest.fn();
+    mockUseLocationSearch.mockReturnValue({
+      data: [createMockLocationSuggestion()],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        onAreaSelected={onAreaSelected}
+      />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Eindhoven');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    pressSearchKey(input, 'ArrowDown');
+
+    expect(screen.getByTestId('search-result-item').props.accessibilityState).toEqual({
+      selected: true,
+    });
+
+    pressSearchKey(input, 'Enter');
+
+    expect(onAreaSelected).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'city', countryCode: 'NL', value: 'eindhoven' })
+    );
+  });
+
+  it('wraps highlighted typed location suggestions with arrow navigation', () => {
+    mockUseLocationSearch.mockReturnValue({
+      data: [
+        createMockLocationSuggestion({
+          id: 'city:NL:eindhoven',
+          label: 'Eindhoven',
+          filterToken: {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+          },
+        }),
+        createMockLocationSuggestion({
+          id: 'city:NL:tilburg',
+          label: 'Tilburg',
+          subtitle: 'Noord-Brabant, Nederland',
+          filterToken: {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'tilburg',
+            label: 'Tilburg',
+          },
+        }),
+        createMockLocationSuggestion({
+          id: 'city:NL:breda',
+          label: 'Breda',
+          subtitle: 'Noord-Brabant, Nederland',
+          filterToken: {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'breda',
+            label: 'Breda',
+          },
+        }),
+      ],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Brabant');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    pressSearchKey(input, 'ArrowUp');
+    expect(screen.getAllByTestId('search-result-item')[2].props.accessibilityState).toEqual({
+      selected: true,
+    });
+
+    pressSearchKey(input, 'ArrowDown');
+    expect(screen.getAllByTestId('search-result-item')[0].props.accessibilityState).toEqual({
+      selected: true,
+    });
+
+    pressSearchKey(input, 'ArrowDown');
+    expect(screen.getAllByTestId('search-result-item')[1].props.accessibilityState).toEqual({
+      selected: true,
+    });
+  });
+
+  it('selects a legacy address result with arrow down and enter when typed suggestions are absent', async () => {
+    jest.useRealTimers();
+    const mockAddress = createMockAddress();
+    mockUseAddressSearch.mockReturnValue({
+      data: [mockAddress],
+      isLoading: false,
+    });
+    mockUseLocationSearch.mockReturnValue({
+      data: [],
+      isLoading: false,
+    });
+    mockResolveProperty.mockResolvedValue(null);
+
+    render(
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Teststraat 42');
+
+    await waitFor(() => {
+      expect(screen.getByText('Teststraat 42, 5651HA Eindhoven')).toBeTruthy();
+    });
+
+    pressSearchKey(input, 'ArrowDown');
+    await act(async () => {
+      pressSearchKey(input, 'Enter');
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(onLocationResolved).toHaveBeenCalledWith(
+        { lon: TEST_LNG, lat: TEST_LAT },
+        'Teststraat 42, 5651HA Eindhoven',
+        mockAddress
+      );
+    });
+  });
+
+  it('closes the results with escape without clearing the typed input', () => {
+    mockUseLocationSearch.mockReturnValue({
+      data: [createMockLocationSuggestion()],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Eindhoven');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(screen.getByTestId('search-results-list')).toBeTruthy();
+
+    pressSearchKey(input, 'ArrowDown');
+    pressSearchKey(input, 'Escape');
+
+    expect(screen.queryByTestId('search-results-list')).toBeNull();
+    expect(screen.getByTestId('search-bar-input').props.value).toBe('Eindhoven');
   });
 
   it('ignores a duplicate area token returned by location search', () => {

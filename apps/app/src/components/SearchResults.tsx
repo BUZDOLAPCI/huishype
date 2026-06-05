@@ -63,6 +63,7 @@ export interface SearchResultsProps {
   isLoading: boolean;
   query: string;
   showCurrentLocationAction?: boolean;
+  highlightedIndex?: number | null;
   onResultPress: (address: ResolvedAddress) => void;
   onLocationSuggestionPress?: (suggestion: LocationSearchSuggestion) => void;
   onCurrentLocationPress?: () => void;
@@ -78,6 +79,7 @@ export function SearchResults({
   isLoading,
   query,
   showCurrentLocationAction = false,
+  highlightedIndex = null,
   onResultPress,
   onLocationSuggestionPress,
   onCurrentLocationPress,
@@ -87,10 +89,7 @@ export function SearchResults({
   const hasTypedSuggestions = typedSuggestions.length > 0;
   const hasAddressResults = results.length > 0;
   const formatLocationSuggestionSubtitle = (item: LocationSearchSuggestion): string =>
-    [
-      t(getLocationTypeLabelKey(item.type)),
-      item.subtitle,
-    ].filter(Boolean).join(' - ');
+    [t(getLocationTypeLabelKey(item.type)), item.subtitle].filter(Boolean).join(' - ');
 
   // Don't render anything if query is too short
   if (query.length < 2 && !showCurrentLocationAction) return null;
@@ -111,9 +110,7 @@ export function SearchResults({
         testID="search-results-loading"
       >
         <ActivityIndicator size="small" color={COLORS.gold500} />
-        <Text style={styles.statusText}>
-          {t('search.loading')}
-        </Text>
+        <Text style={styles.statusText}>{t('search.loading')}</Text>
       </View>
     );
   }
@@ -155,89 +152,89 @@ export function SearchResults({
         ]}
         testID="search-results-empty"
       >
-        <Text style={styles.statusText}>
-          {t('search.empty')}
-        </Text>
+        <Text style={styles.statusText}>{t('search.empty')}</Text>
       </View>
     );
   }
 
-  const renderItem = ({ item, index }: ListRenderItemInfo<ResolvedAddress>) => (
-    <Pressable
-      testID="search-result-item"
-      onPress={() => onResultPress(item)}
-      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ([
-        styles.resultRow,
-        {
-          backgroundColor: pressed
-            ? COLORS.warm200
-            : (Platform.OS === 'web' && hovered)
-              ? COLORS.warm100
-              : COLORS.white,
-          borderBottomWidth: index < results.length - 1 ? 1 : 0,
-          borderBottomColor: COLORS.warm200,
-        },
-        Platform.OS === 'web' ? { cursor: 'pointer' as unknown as undefined } : {},
-      ])}
-    >
-      <View style={styles.pinIconWrapper}>
-        <Icon name="MapPin" size={20} weight="fill" color={COLORS.gold500} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text
-          style={styles.addressText}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {item.formattedAddress}
-        </Text>
-        <Text
-          style={styles.cityText}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {item.details.city}
-        </Text>
-      </View>
-    </Pressable>
-  );
+  const renderItem = ({ item, index }: ListRenderItemInfo<ResolvedAddress>) => {
+    const isHighlighted = highlightedIndex === index;
+    return (
+      <Pressable
+        testID="search-result-item"
+        onPress={() => onResultPress(item)}
+        accessibilityState={isHighlighted ? { selected: true } : undefined}
+        style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
+          styles.resultRow,
+          {
+            backgroundColor: pressed
+              ? COLORS.warm200
+              : isHighlighted || (Platform.OS === 'web' && hovered)
+                ? COLORS.warm100
+                : COLORS.white,
+            borderBottomWidth: index < results.length - 1 ? 1 : 0,
+            borderBottomColor: COLORS.warm200,
+          },
+          Platform.OS === 'web' ? { cursor: 'pointer' as unknown as undefined } : {},
+        ]}
+      >
+        <View style={styles.pinIconWrapper}>
+          <Icon name="MapPin" size={20} weight="fill" color={COLORS.gold500} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="tail">
+            {item.formattedAddress}
+          </Text>
+          <Text style={styles.cityText} numberOfLines={1} ellipsizeMode="tail">
+            {item.details.city}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  };
 
-  const renderLocationItem = ({ item, index }: ListRenderItemInfo<LocationSearchSuggestion>) => (
-    <Pressable
-      testID="search-result-item"
-      onPress={() => onLocationSuggestionPress?.(item)}
-      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ([
-        styles.resultRow,
-        {
-          backgroundColor: pressed
-            ? COLORS.warm200
-            : (Platform.OS === 'web' && hovered)
-              ? COLORS.warm100
-              : COLORS.white,
-          borderBottomWidth: index < typedSuggestions.length - 1 ? 1 : 0,
-          borderBottomColor: COLORS.warm200,
-        },
-        Platform.OS === 'web' ? { cursor: 'pointer' as unknown as undefined } : {},
-      ])}
-    >
-      <View style={styles.pinIconWrapper}>
-        <Icon
-          name={item.type === 'property' || item.type === 'address' ? 'MapPin' : 'MagnifyingGlass'}
-          size={20}
-          weight={item.type === 'property' || item.type === 'address' ? 'fill' : 'regular'}
-          color={COLORS.gold500}
-        />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="tail">
-          {item.label}
-        </Text>
-        <Text style={styles.cityText} numberOfLines={1} ellipsizeMode="tail">
-          {formatLocationSuggestionSubtitle(item)}
-        </Text>
-      </View>
-    </Pressable>
-  );
+  const renderLocationItem = ({ item, index }: ListRenderItemInfo<LocationSearchSuggestion>) => {
+    const isHighlighted = highlightedIndex === index;
+    return (
+      <Pressable
+        testID="search-result-item"
+        onPress={() => onLocationSuggestionPress?.(item)}
+        accessibilityState={isHighlighted ? { selected: true } : undefined}
+        style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
+          styles.resultRow,
+          {
+            backgroundColor: pressed
+              ? COLORS.warm200
+              : isHighlighted || (Platform.OS === 'web' && hovered)
+                ? COLORS.warm100
+                : COLORS.white,
+            borderBottomWidth: index < typedSuggestions.length - 1 ? 1 : 0,
+            borderBottomColor: COLORS.warm200,
+          },
+          Platform.OS === 'web' ? { cursor: 'pointer' as unknown as undefined } : {},
+        ]}
+      >
+        <View style={styles.pinIconWrapper}>
+          <Icon
+            name={
+              item.type === 'property' || item.type === 'address' ? 'MapPin' : 'MagnifyingGlass'
+            }
+            size={20}
+            weight={item.type === 'property' || item.type === 'address' ? 'fill' : 'regular'}
+            color={COLORS.gold500}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="tail">
+            {item.label}
+          </Text>
+          <Text style={styles.cityText} numberOfLines={1} ellipsizeMode="tail">
+            {formatLocationSuggestionSubtitle(item)}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  };
 
   if (hasTypedSuggestions) {
     return (

@@ -199,6 +199,83 @@ test.describe('Search Navigation Flow', () => {
     await expect(previewCard).toContainText(testProp.postalCode);
   });
 
+  test('selecting search result with keyboard navigates to property', async ({ page, request }) => {
+    const testProp = await getTestPropertyWithPostalCode(request);
+    console.log(
+      `Testing keyboard selection with property: ${testProp.address} (${testProp.postalCode} ${testProp.houseNumber})`
+    );
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
+    await waitForMapStyleLoaded(page, 60000);
+
+    const searchInput = page.locator('[data-testid="search-bar-input"]');
+    await expect(searchInput).toBeVisible({ timeout: 10000 });
+
+    const searchQuery = `${testProp.address}, ${testProp.city}`;
+    const expectedAddressText = testProp.address.split(',', 1)[0]?.trim() ?? testProp.address;
+    console.log(`Searching for keyboard selection: "${searchQuery}"`);
+    await searchInput.click();
+    await searchInput.focus();
+    await searchInput.pressSequentially(searchQuery, { delay: 30 });
+
+    const resultItem = page.locator('[data-testid="search-result-item"]');
+    await expect(resultItem.first()).toBeVisible({ timeout: 30000 });
+    await expect(resultItem.first()).toContainText(expectedAddressText, {
+      timeout: 10000,
+    });
+
+    const initialCenter = await page.evaluate(() => {
+      const map = (
+        window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } }
+      ).__mapInstance;
+      const c = map?.getCenter?.();
+      return c ? { lng: c.lng, lat: c.lat } : null;
+    });
+    expect(initialCenter).toBeTruthy();
+
+    await searchInput.press('ArrowDown');
+    await searchInput.press('Enter');
+
+    await page.waitForFunction(
+      (init: { lng: number; lat: number }) => {
+        const map = (
+          window as unknown as { __mapInstance: { getCenter(): { lng: number; lat: number } } }
+        ).__mapInstance;
+        if (!map) return false;
+        const center = map.getCenter();
+        return Math.abs(center.lng - init.lng) > 0.001 || Math.abs(center.lat - init.lat) > 0.001;
+      },
+      initialCenter!,
+      { timeout: 20000, polling: 200 }
+    );
+
+    await page.waitForFunction(
+      () => {
+        const map = (window as unknown as { __mapInstance: { isMoving(): boolean } }).__mapInstance;
+        return map && !map.isMoving();
+      },
+      { timeout: 10000 }
+    );
+
+    const zoom = await page.evaluate(() => {
+      const map = (window as unknown as { __mapInstance: { getZoom(): number } }).__mapInstance;
+      return map?.getZoom?.() ?? 0;
+    });
+    expect(zoom).toBeGreaterThanOrEqual(15);
+
+    await waitForMapIdle(page, 10000);
+
+    const selectedMarker = page.locator('[data-testid="selected-marker"]');
+    const previewCard = page.locator('[data-testid="group-preview-card"]');
+    const previewAddress = previewCard.locator('[data-testid="property-preview-address"]').first();
+    await expect(selectedMarker).toBeVisible({ timeout: 15000 });
+    await expect(previewCard).toBeVisible({ timeout: 15000 });
+    await expect(previewAddress).toContainText(expectedAddressText);
+    await expect(previewCard).toContainText(testProp.city);
+    await expect(previewCard).toContainText(testProp.postalCode);
+  });
+
   test('preview card arrow stays aligned with the selected node', async ({
     page,
     request,
@@ -360,7 +437,7 @@ test.describe('Search Navigation Flow', () => {
       { timeout: 10000 }
     );
 
-    await expect(page.locator('[data-testid="selected-marker"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="selected-marker"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="group-preview-card"]')).toHaveCount(0);
     await expect(searchInput).toHaveValue('');
   });

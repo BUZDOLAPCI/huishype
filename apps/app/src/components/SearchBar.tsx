@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -7,6 +7,8 @@ import {
   Platform,
   StyleSheet,
   InteractionManager,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAddressSearch } from '@/src/hooks/useAddressResolver';
@@ -80,6 +82,10 @@ export interface SearchBarProps {
 
 const DEBOUNCE_MS = 300;
 
+type ActiveSearchResult =
+  | { type: 'location'; value: LocationSearchSuggestion }
+  | { type: 'address'; value: ResolvedAddress };
+
 /**
  * Search bar overlay for the map screen.
  * Uses the geocoding backend (Photon) for address autocomplete and
@@ -103,6 +109,7 @@ export function SearchBar({
   const [showResults, setShowResults] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<TextInput>(null);
   const reducedMotion = useReducedMotion();
@@ -158,9 +165,30 @@ export function SearchBar({
     8,
     searchBias ? { searchBias } : undefined
   );
-  const addressResults = results.filter((result) =>
-    Boolean(result.details.houseNumber || result.details.street || result.details.zip)
+  const addressResults = useMemo(
+    () =>
+      results.filter((result) =>
+        Boolean(result.details.houseNumber || result.details.street || result.details.zip)
+      ),
+    [results]
   );
+  const activeKeyboardResults = useMemo<ActiveSearchResult[]>(() => {
+    if (debouncedQuery.length < 2) {
+      return [];
+    }
+
+    if (locationSuggestions.length > 0) {
+      return locationSuggestions.map((suggestion) => ({
+        type: 'location',
+        value: suggestion,
+      }));
+    }
+
+    return addressResults.map((address) => ({
+      type: 'address',
+      value: address,
+    }));
+  }, [addressResults, debouncedQuery, locationSuggestions]);
 
   const selectedAreaKeys = selectedAreas.map((area) => serializeLocationFilterToken(area));
 
@@ -189,6 +217,7 @@ export function SearchBar({
       const operationId = invalidatePendingSearch();
       setShowResults(false);
       setIsFocused(false);
+      setHighlightedIndex(null);
       suppressDebounce.current = true;
       setDebouncedQuery('');
       setInputValue('');
@@ -297,6 +326,7 @@ export function SearchBar({
       setDebouncedQuery('');
       setShowResults(false);
       setIsFocused(false);
+      setHighlightedIndex(null);
       inputRef.current?.blur();
     },
     [
@@ -314,6 +344,7 @@ export function SearchBar({
     invalidatePendingSearch();
     setShowResults(false);
     setIsFocused(false);
+    setHighlightedIndex(null);
     inputRef.current?.blur();
   }, [invalidatePendingSearch, onCurrentLocationSelected]);
 
@@ -325,6 +356,7 @@ export function SearchBar({
     setDebouncedQuery('');
     setShowResults(false);
     setIsResolving(false);
+    setHighlightedIndex(null);
   }, [invalidatePendingSearch]);
 
   // Dismiss overlay on backdrop press
@@ -334,6 +366,7 @@ export function SearchBar({
     setIsFocused(false);
     setShowResults(false);
     setIsResolving(false);
+    setHighlightedIndex(null);
   }, [invalidatePendingSearch]);
 
   useWebDismissibleLayer({
@@ -355,6 +388,7 @@ export function SearchBar({
     setShowResults(false);
     setIsResolving(false);
     setIsFocused(false);
+    setHighlightedIndex(null);
   }, [invalidatePendingSearch]);
 
   const lastTransientResetKey = useRef(transientResetKey);
@@ -385,6 +419,103 @@ export function SearchBar({
     // Don't immediately clear focus — let result press handler fire first.
     // The backdrop press handler handles dismissal.
   }, []);
+
+  const handleInputChangeText = useCallback((value: string) => {
+    setHighlightedIndex(null);
+    setInputValue(value);
+  }, []);
+
+  const handleHighlightedResultSelect = useCallback(() => {
+    if (highlightedIndex === null) {
+      return;
+    }
+
+    const selectedResult = activeKeyboardResults[highlightedIndex];
+    if (!selectedResult) {
+      return;
+    }
+
+    if (selectedResult.type === 'location') {
+      handleLocationSuggestionPress(selectedResult.value);
+      return;
+    }
+
+    void handleResultPress(selectedResult.value);
+  }, [activeKeyboardResults, handleLocationSuggestionPress, handleResultPress, highlightedIndex]);
+
+  const handleSearchKeyPress = useCallback(
+    (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+      const key = event.nativeEvent.key;
+      const resultCount = activeKeyboardResults.length;
+
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        if (inputValue.length >= 2) {
+          event.preventDefault?.();
+          setShowResults(true);
+        }
+
+        if (resultCount === 0) {
+          setHighlightedIndex(null);
+          return;
+        }
+
+        setHighlightedIndex((currentIndex) => {
+          if (currentIndex === null || currentIndex < 0 || currentIndex >= resultCount) {
+            return key === 'ArrowDown' ? 0 : resultCount - 1;
+          }
+
+          if (key === 'ArrowDown') {
+            return (currentIndex + 1) % resultCount;
+          }
+
+          return (currentIndex - 1 + resultCount) % resultCount;
+        });
+        return;
+      }
+
+      if (key === 'Enter') {
+        if (highlightedIndex !== null) {
+          event.preventDefault?.();
+          handleHighlightedResultSelect();
+        }
+        return;
+      }
+
+      if (key === 'Escape') {
+        if (showResults || highlightedIndex !== null) {
+          event.preventDefault?.();
+          setShowResults(false);
+          setHighlightedIndex(null);
+        }
+      }
+    },
+    [
+      activeKeyboardResults.length,
+      handleHighlightedResultSelect,
+      highlightedIndex,
+      inputValue.length,
+      showResults,
+    ]
+  );
+
+  useEffect(() => {
+    setHighlightedIndex(null);
+  }, [debouncedQuery]);
+
+  useEffect(() => {
+    if (!showResults || activeKeyboardResults.length === 0) {
+      setHighlightedIndex(null);
+      return;
+    }
+
+    setHighlightedIndex((currentIndex) => {
+      if (currentIndex === null || currentIndex < activeKeyboardResults.length) {
+        return currentIndex;
+      }
+
+      return activeKeyboardResults.length - 1;
+    });
+  }, [activeKeyboardResults.length, showResults]);
 
   useEffect(() => {
     if (!isFocused || Platform.OS === 'web') {
@@ -506,7 +637,8 @@ export function SearchBar({
         placeholder={t('search.placeholder')}
         placeholderTextColor={COLORS.warm400}
         value={inputValue}
-        onChangeText={setInputValue}
+        onChangeText={handleInputChangeText}
+        onKeyPress={handleSearchKeyPress}
         onFocus={handleFocus}
         onBlur={handleBlur}
         autoFocus={Platform.OS !== 'web' && isFocused}
@@ -619,6 +751,7 @@ export function SearchBar({
             isLoading={isLoading || isLoadingLocations}
             query={debouncedQuery}
             showCurrentLocationAction={isFocused && inputValue.length === 0}
+            highlightedIndex={highlightedIndex}
             onResultPress={handleResultPress}
             onLocationSuggestionPress={handleLocationSuggestionPress}
             onCurrentLocationPress={handleCurrentLocationPress}
