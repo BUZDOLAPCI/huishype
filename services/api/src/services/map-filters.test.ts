@@ -123,7 +123,7 @@ describe('selected area filters', () => {
     expect(query.params).toEqual(['NL', 'eindhoven']);
   });
 
-  it('parses Overture division metadata from readable area tokens', () => {
+  it('ignores removed Overture division metadata on readable area tokens', () => {
     expect(
       parseLocationFilterToken(
         'city:NL:eindhoven:division=D724E74F-017A-4902-9031-BC784FFC1789:source=Overture'
@@ -133,47 +133,8 @@ describe('selected area filters', () => {
         type: 'city',
         countryCode: 'NL',
         value: 'eindhoven',
-        divisionId: 'd724e74f-017a-4902-9031-bc784ffc1789',
-        source: 'overture',
       })
     );
-  });
-
-  it('uses Overture division memberships for city, region, and country area tokens', () => {
-    const divisionId = 'd724e74f-017a-4902-9031-bc784ffc1789';
-    const cityToken = parseLocationFilterToken(
-      `city:NL:eindhoven:division=${divisionId}:source=overture`
-    );
-    const regionToken = parseLocationFilterToken(`region:BE:vlaanderen:division=${divisionId}`);
-    const countryToken = parseLocationFilterToken(`country:DE:deutschland:division=${divisionId}`);
-
-    const query = renderQuery(
-      buildLocationAreaFilterPredicate(
-        [cityToken, regionToken, countryToken].filter(
-          (token): token is NonNullable<typeof token> => token != null
-        ),
-        'property'
-      )
-    );
-
-    expect(query.sql).toContain('FROM property_location_division_memberships pldm');
-    expect(query.sql).toContain('pldm.property_id = property.id');
-    expect(query.sql).toContain('pldm.area_kind =');
-    expect(query.sql).toContain('pldm.division_id =');
-    expect(query.sql).toContain('pldm.country_code =');
-    expect(query.sql).not.toContain('LOWER(property.city)');
-    expect(query.sql).not.toContain('LOWER(property.region)');
-    expect(query.params).toEqual([
-      'city',
-      divisionId,
-      'NL',
-      'region',
-      divisionId,
-      'BE',
-      'country',
-      divisionId,
-      'DE',
-    ]);
   });
 
   it('keeps legacy text behavior for area tokens without division metadata', () => {
@@ -212,7 +173,7 @@ describe('selected area filters', () => {
     expect(query.params).toEqual(['NL', 'zwaanstraat', 'eindhoven']);
   });
 
-  it('uses parent division memberships for canonical street and postcode tokens', () => {
+  it('ignores removed parent division metadata for canonical street and postcode tokens', () => {
     const parentDivisionId = 'city-division-01';
     const streetToken = parseLocationFilterToken(
       `street:NL:zwaanstraat:city=eindhoven:parentDivision=${parentDivisionId}:parentKind=city`
@@ -228,21 +189,14 @@ describe('selected area filters', () => {
       )
     );
 
-    expect(query.sql).toContain('FROM property_location_division_memberships pldm');
-    expect(query.sql).toContain('pldm.area_kind =');
-    expect(query.sql).toContain('pldm.division_id =');
+    expect(query.sql).not.toContain('property_location_division_memberships');
     expect(query.sql).not.toContain('LOWER(p.region)');
     expect(query.params).toEqual([
       'NL',
       'zwaanstraat',
-      'city',
-      parentDivisionId,
-      'NL',
+      'eindhoven',
       'NL',
       '5651HA',
-      'city',
-      parentDivisionId,
-      'NL',
     ]);
   });
 

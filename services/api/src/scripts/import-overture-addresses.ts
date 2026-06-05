@@ -438,7 +438,6 @@ async function rebuildLocationSearchAreasAfterBulkImport(
     const result = await rebuildLocationSearchAreas({
       countries,
       profile: true,
-      rebuildOvertureMemberships: true,
       logger: {
         info(message, details) {
           console.log(`  ${message}`, details ?? {});

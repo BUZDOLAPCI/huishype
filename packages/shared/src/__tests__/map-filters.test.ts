@@ -279,69 +279,6 @@ describe('map filter query param helpers', () => {
     );
   });
 
-  it('keeps Overture division metadata readable in area URL tokens', () => {
-    const divisionId = 'D724E74F-017A-4902-9031-BC784FFC1789';
-    const cityToken = {
-      type: 'city' as const,
-      countryCode: 'NL',
-      value: 'Eindhoven',
-      label: 'Eindhoven',
-      divisionId,
-      source: 'Overture',
-    };
-
-    expect(serializeLocationFilterToken(cityToken)).toBe(
-      'city:NL:eindhoven:division=d724e74f-017a-4902-9031-bc784ffc1789:source=overture'
-    );
-    expect(
-      parseLocationFilterToken(
-        'region:NL:noord-brabant:division=4C7E.GERS_ID-01:source=Overture'
-      )
-    ).toEqual(
-      expect.objectContaining({
-        type: 'region',
-        countryCode: 'NL',
-        value: 'noord-brabant',
-        divisionId: '4c7e.gers_id-01',
-        source: 'overture',
-      })
-    );
-    expect(
-      serializeLocationFilterToken({ ...cityToken, divisionId: 'abc:def', source: null })
-    ).toBe('city:NL:eindhoven');
-  });
-
-  it('keeps canonical parent division metadata in address area URL tokens', () => {
-    const token = {
-      type: 'street' as const,
-      countryCode: 'NL',
-      value: 'Boschdijk',
-      label: 'Boschdijk',
-      city: 'Eindhoven',
-      region: 'Noord-Brabant',
-      parentDivisionId: 'CITY.DIVISION-01',
-      parentDivisionKind: 'city' as const,
-    };
-
-    expect(serializeLocationFilterToken(token)).toBe(
-      'street:NL:boschdijk:city=eindhoven:parentDivision=city.division-01:parentKind=city'
-    );
-    expect(
-      parseLocationFilterToken(
-        'postcode:NL:5612ma:region=noord-brabant:parentDivision=CITY.DIVISION-01:parentKind=city'
-      )
-    ).toEqual(
-      expect.objectContaining({
-        type: 'postcode',
-        countryCode: 'NL',
-        value: '5612ma',
-        region: 'Noord Brabant',
-        parentDivisionId: 'city.division-01',
-        parentDivisionKind: 'city',
-      })
-    );
-  });
-
   it('canonicalizes compact, spaced, and dashed postcode tokens to one identity', () => {
     const dashedPostcodeToken = parseLocationFilterToken('postcode:NL:5651-ha');
     expect(dashedPostcodeToken).not.toBeNull();

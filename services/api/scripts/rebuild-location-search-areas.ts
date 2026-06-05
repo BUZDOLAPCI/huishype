@@ -7,7 +7,6 @@ dotenv.config({ quiet: true });
 type CliArgs = {
   countries: string[];
   profile: boolean;
-  rebuildOvertureMemberships: boolean;
 };
 
 function formatTime(ms: number): string {
@@ -34,7 +33,6 @@ function parseArgs(): CliArgs {
   return {
     countries,
     profile: args.includes('--profile'),
-    rebuildOvertureMemberships: args.includes('--rebuild-overture-memberships'),
   };
 }
 
@@ -45,14 +43,10 @@ async function main() {
   if (args.countries.length > 0) {
     console.log(`Countries: ${args.countries.join(', ')}`);
   }
-  if (args.rebuildOvertureMemberships) {
-    console.log('Rebuilding Overture property memberships first...');
-  }
 
   const result = await rebuildLocationSearchAreas({
     countries: args.countries,
     profile: args.profile,
-    rebuildOvertureMemberships: args.rebuildOvertureMemberships,
     logger: {
       info(message, details) {
         console.log(message, details ?? {});

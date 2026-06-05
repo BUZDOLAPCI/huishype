@@ -32,7 +32,24 @@ function findExecutedSql(mock: jest.Mock<ExecuteMock>, pattern: string): string 
   return statement ?? '';
 }
 
-describe('location search area city fallbacks', () => {
+function mockSuccessfulRebuildCounts(): void {
+  executeMock.mockResolvedValue([{ count: 0 }]);
+  txExecuteMock.mockImplementation(async (query) => {
+    const sqlText = dialect.sqlToQuery(query).sql;
+
+    if (sqlText.includes('GROUP BY area_kind')) {
+      return [{ area_kind: 'country', count: 1 }];
+    }
+
+    if (sqlText.includes('COUNT(*)::int AS count FROM location_search_areas')) {
+      return [{ count: 1 }];
+    }
+
+    return undefined;
+  });
+}
+
+describe('location search areas', () => {
   beforeEach(() => {
     jest.resetModules();
     executeMock.mockReset();
@@ -41,48 +58,32 @@ describe('location search area city fallbacks', () => {
     transactionMock.mockImplementation(async (run) => run({ execute: txExecuteMock }));
   });
 
-  it('keeps full-rebuild property city fallbacks unless an Overture city has the same normalized name', async () => {
-    executeMock.mockResolvedValue([{ count: 0 }]);
-    txExecuteMock.mockImplementation(async (query) => {
-      const sqlText = dialect.sqlToQuery(query).sql;
-
-      if (sqlText.includes('GROUP BY area_kind')) {
-        return [{ area_kind: 'country', count: 1 }];
-      }
-
-      if (sqlText.includes('COUNT(*)::int AS count FROM location_search_areas')) {
-        return [{ count: 1 }];
-      }
-
-      return undefined;
-    });
-
+  it('rebuilds property-derived city, postcode, postcode-prefix, street, region, and country areas', async () => {
+    mockSuccessfulRebuildCounts();
     const { rebuildLocationSearchAreas } = await import('./location-search-areas.js');
 
     await rebuildLocationSearchAreas();
 
-    const broadCityInsert = findExecutedSql(
-      txExecuteMock,
-      "'city:' || country_code || ':' || city_token AS area_key"
-    );
-    expect(broadCityInsert).toContain('FROM location_search_areas_rebuild existing');
-    expect(broadCityInsert).toContain("existing.area_kind = 'city'");
-    expect(broadCityInsert).toContain("existing.source = 'overture'");
-    expect(broadCityInsert).toContain(
-      'existing.country_code = active_properties.country_code'
-    );
-    expect(broadCityInsert).toContain('existing.match_value = active_properties.city_match');
-    expect(broadCityInsert).not.toContain("membership.property_id = active_properties.id");
+    const executedSql = renderExecutedSql(txExecuteMock).join('\n');
+    expect(executedSql).toContain("'country:' || country_code AS area_key");
+    expect(executedSql).toContain("'city:' || country_code || ':' || city_token AS area_key");
+    expect(executedSql).toContain("'region:' || country_code || ':' || region_token AS area_key");
+    expect(executedSql).toContain("'postcode:' || country_code || ':' || postcode_match AS area_key");
+    expect(executedSql).toContain("'postcode-prefix:' || country_code || ':' || LEFT(postcode_match, 4) AS area_key");
+    expect(executedSql).toContain("'street:' || country_code || ':' || street_token || ':city=' || city_token AS area_key");
+    expect(executedSql).not.toContain('property_location_division_memberships');
+    expect(executedSql).not.toContain('overture_division');
+    expect(executedSql).not.toContain('source =');
   });
 
-  it('routes key-based refresh through scoped dependency targets', async () => {
+  it('routes key-based refresh through property-derived affected keys', async () => {
     const { refreshLocationSearchAreasForPropertyKeys } = await import(
       './location-search-areas.js'
     );
 
     await refreshLocationSearchAreasForPropertyKeys([
       {
-        countryCode: 'NL',
+        countryCode: 'nl',
         city: 'Geldrop',
         region: 'Noord-Brabant',
         postalCode: '5661 AA',
@@ -90,128 +91,14 @@ describe('location search area city fallbacks', () => {
       },
     ]);
 
-    const broadCityInsert = findExecutedSql(
+    const cityInsert = findExecutedSql(
       txExecuteMock,
       "'city:' || p.country_code || ':' || target.city_token"
     );
-    expect(broadCityInsert).toContain('affected_location_search_area_targets');
-    expect(broadCityInsert).toContain('FROM location_search_areas existing');
-    expect(broadCityInsert).toContain("existing.area_kind = 'city'");
-    expect(broadCityInsert).toContain("existing.source = 'overture'");
-    expect(broadCityInsert).toContain('existing.country_code = p.country_code');
-    expect(broadCityInsert).toContain('existing.match_value = target.city_match');
-    expect(broadCityInsert).not.toContain("membership.area_kind = 'city'");
-
-    const streetInsert = findExecutedSql(
-      txExecuteMock,
-      "'street:' || p.country_code || ':' || target.street_token"
+    expect(cityInsert).toContain('affected_location_search_area_keys');
+    expect(cityInsert).not.toContain('source');
+    expect(renderExecutedSql(txExecuteMock).join('\n')).not.toContain(
+      'property_location_division_memberships'
     );
-    expect(streetInsert).toContain('target.scope_key');
-    expect(streetInsert).not.toContain("':region=' || region_token");
-  });
-
-  it('builds persisted Overture area subdivisions from imported division areas', async () => {
-    const { buildOvertureDivisionAreaSubdivisionsRefreshSql } = await import(
-      './location-search-areas.js'
-    );
-
-    const query = buildOvertureDivisionAreaSubdivisionsRefreshSql(['NL', 'BE']);
-
-    expect(query).toContain('DELETE FROM overture_division_area_subdivisions');
-    expect(query).toContain("country_code IN ('NL', 'BE')");
-    expect(query).toContain('INSERT INTO overture_division_area_subdivisions');
-    expect(query).toContain('ST_Subdivide(area.geometry, 256)');
-    expect(query).toContain("WHEN 'locality' THEN 0");
-    expect(query).toContain("WHEN 'localadmin' THEN 1");
-    expect(query).toContain('ST_Area(area.geometry)');
-    expect(query).toContain('ANALYZE overture_division_area_subdivisions');
-  });
-
-  it('uses subdivision-backed ranked membership selection for full rebuilds', async () => {
-    executeMock.mockResolvedValue([{ count: 0 }]);
-    txExecuteMock.mockImplementation(async (query) => {
-      const sqlText = dialect.sqlToQuery(query).sql;
-
-      if (sqlText.includes('GROUP BY area_kind')) {
-        return [{ area_kind: 'country', count: 1 }];
-      }
-
-      if (sqlText.includes('COUNT(*)::int AS count FROM location_search_areas')) {
-        return [{ count: 1 }];
-      }
-
-      return undefined;
-    });
-
-    const { rebuildLocationSearchAreas } = await import('./location-search-areas.js');
-
-    await rebuildLocationSearchAreas({
-      countries: ['BE'],
-      rebuildOvertureMemberships: true,
-    });
-
-    const cityMembershipInsert = findExecutedSql(
-      txExecuteMock,
-      "subdivision.subtype IN ('locality', 'localadmin')"
-    );
-    expect(cityMembershipInsert).toContain('overture_division_area_subdivisions subdivision');
-    expect(cityMembershipInsert).toContain("subdivision.country_code = p.country_code");
-    expect(cityMembershipInsert).toContain('subdivision.geometry && p.geometry');
-    expect(cityMembershipInsert).toContain('ST_Covers(subdivision.geometry, p.geometry)');
-    expect(cityMembershipInsert).toContain('ORDER BY p.id, subdivision.selection_rank, subdivision.area_sort, subdivision.division_area_id');
-    expect(cityMembershipInsert).toContain('ON CONFLICT (property_id, area_kind) DO UPDATE');
-  });
-
-  it('matches country memberships by country code without spatial predicates', async () => {
-    executeMock.mockResolvedValue([{ count: 0 }]);
-    txExecuteMock.mockImplementation(async (query) => {
-      const sqlText = dialect.sqlToQuery(query).sql;
-
-      if (sqlText.includes('GROUP BY area_kind')) {
-        return [{ area_kind: 'country', count: 1 }];
-      }
-
-      if (sqlText.includes('COUNT(*)::int AS count FROM location_search_areas')) {
-        return [{ count: 1 }];
-      }
-
-      return undefined;
-    });
-
-    const { rebuildLocationSearchAreas } = await import('./location-search-areas.js');
-
-    await rebuildLocationSearchAreas({
-      countries: ['NL'],
-      rebuildOvertureMemberships: true,
-    });
-
-    const countryMembershipInsert = findExecutedSql(txExecuteMock, 'WITH country_area AS');
-    expect(countryMembershipInsert).toContain('JOIN country_area ON country_area.country_code = p.country_code');
-    expect(countryMembershipInsert).not.toContain('ST_Covers');
-    expect(countryMembershipInsert).not.toContain('geometry && p.geometry');
-  });
-
-  it('uses the same ranked membership candidate path for targeted property refreshes', async () => {
-    const { refreshLocationSearchAreasForPropertyIds } = await import(
-      './location-search-areas.js'
-    );
-
-    await refreshLocationSearchAreasForPropertyIds([
-      '00000000-0000-4000-8000-000000000001',
-    ]);
-
-    const cityMembershipInsert = findExecutedSql(
-      txExecuteMock,
-      "subdivision.subtype IN ('locality', 'localadmin')"
-    );
-    expect(cityMembershipInsert).toContain('affected_property_ids affected');
-    expect(cityMembershipInsert).toContain('overture_division_area_subdivisions subdivision');
-    expect(cityMembershipInsert).toContain('ON CONFLICT (property_id, area_kind) DO UPDATE');
-
-    const finalMembershipInsert = findExecutedSql(
-      txExecuteMock,
-      'FROM affected_property_location_division_memberships'
-    );
-    expect(finalMembershipInsert).toContain('INSERT INTO property_location_division_memberships');
   });
 });

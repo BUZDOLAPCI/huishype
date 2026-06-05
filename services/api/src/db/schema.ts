@@ -126,21 +126,6 @@ const multiPolygonGeometry = customType<{
   },
 });
 
-const anyGeometry = customType<{
-  data: string;
-  driverData: string;
-}>({
-  dataType() {
-    return 'geometry(Geometry, 4326)';
-  },
-  toDriver(value) {
-    return value;
-  },
-  fromDriver(value) {
-    return typeof value === 'string' ? value : String(value);
-  },
-});
-
 const bytea = customType<{
   data: Buffer;
   driverData: Buffer;
@@ -500,7 +485,6 @@ export const locationSearchAreas = pgTable(
   'location_search_areas',
   {
     areaKey: text('area_key').primaryKey(),
-    scopeKey: text('scope_key').notNull(),
     areaKind: varchar('area_kind', { length: 32 }).notNull(),
     suggestionType: varchar('suggestion_type', { length: 16 }).notNull(),
     countryCode: varchar('country_code', { length: 2 }).notNull(),
@@ -518,10 +502,6 @@ export const locationSearchAreas = pgTable(
     maxLat: doublePrecision('max_lat'),
     propertyCount: integer('property_count').notNull(),
     geometryCount: integer('geometry_count').notNull().default(0),
-    source: varchar('source', { length: 32 }),
-    divisionId: text('division_id'),
-    parentDivisionId: text('parent_division_id'),
-    parentAreaKind: varchar('parent_area_kind', { length: 16 }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -546,15 +526,6 @@ export const locationSearchAreas = pgTable(
       table.countryCode,
       sql`${table.propertyCount} DESC`
     ),
-    index('location_search_areas_source_division_idx').on(table.source, table.divisionId),
-    index('location_search_areas_scope_key_idx').on(table.scopeKey),
-    index('location_search_areas_parent_division_idx').on(table.parentDivisionId),
-    index('location_search_areas_street_parent_rank_idx')
-      .on(table.countryCode, table.matchValue, table.parentDivisionId, sql`${table.propertyCount} DESC`)
-      .where(sql`area_kind = 'street'`),
-    index('location_search_areas_postcode_parent_rank_idx')
-      .on(table.countryCode, table.matchValue, table.parentDivisionId, sql`${table.propertyCount} DESC`)
-      .where(sql`area_kind IN ('postcode', 'postcode_prefix')`),
     check(
       'location_search_areas_area_kind_check',
       sql`${table.areaKind} IN ('city', 'street', 'postcode', 'postcode_prefix', 'region', 'country')`
@@ -574,18 +545,6 @@ export const locationSearchAreas = pgTable(
     ),
     check('location_search_areas_match_value_check', sql`${table.matchValue} <> ''`),
     check('location_search_areas_property_count_check', sql`${table.propertyCount} > 0`),
-    check(
-      'location_search_areas_source_check',
-      sql`${table.source} IS NULL OR ${table.source} IN ('properties', 'overture')`
-    ),
-    check(
-      'location_search_areas_division_source_check',
-      sql`(${table.divisionId} IS NULL) OR (${table.source} = 'overture')`
-    ),
-    check(
-      'location_search_areas_parent_area_kind_check',
-      sql`${table.parentAreaKind} IS NULL OR ${table.parentAreaKind} IN ('city', 'region', 'country')`
-    ),
     check(
       'location_search_areas_geometry_count_check',
       sql`${table.geometryCount} >= 0 AND ${table.geometryCount} <= ${table.propertyCount}`
@@ -636,159 +595,6 @@ export const locationSearchAreas = pgTable(
           AND ${table.city} IS NOT NULL
         )
       )`
-    ),
-  ]
-);
-
-export const overtureDivisions = pgTable(
-  'overture_divisions',
-  {
-    id: text('id').primaryKey(),
-    subtype: varchar('subtype', { length: 32 }).notNull(),
-    countryCode: varchar('country_code', { length: 2 }).notNull(),
-    region: varchar('region', { length: 32 }),
-    name: text('name').notNull(),
-    parentDivisionId: text('parent_division_id'),
-    adminLevel: integer('admin_level'),
-    geometry: geometry('geometry'),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index('overture_divisions_country_subtype_idx').on(table.countryCode, table.subtype),
-    index('overture_divisions_parent_idx').on(table.parentDivisionId),
-    check(
-      'overture_divisions_subtype_check',
-      sql`${table.subtype} IN ('country', 'region', 'locality', 'localadmin')`
-    ),
-    check(
-      'overture_divisions_country_code_check',
-      sql`${table.countryCode} = UPPER(${table.countryCode}) AND LENGTH(${table.countryCode}) = 2`
-    ),
-  ]
-);
-
-export const overtureDivisionAreas = pgTable(
-  'overture_division_areas',
-  {
-    id: text('id').primaryKey(),
-    divisionId: text('division_id')
-      .notNull()
-      .references(() => overtureDivisions.id, { onDelete: 'cascade' }),
-    subtype: varchar('subtype', { length: 32 }).notNull(),
-    countryCode: varchar('country_code', { length: 2 }).notNull(),
-    region: varchar('region', { length: 32 }),
-    name: text('name').notNull(),
-    adminLevel: integer('admin_level'),
-    minLon: doublePrecision('min_lon'),
-    minLat: doublePrecision('min_lat'),
-    maxLon: doublePrecision('max_lon'),
-    maxLat: doublePrecision('max_lat'),
-    geometry: anyGeometry('geometry').notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index('overture_division_areas_division_idx').on(table.divisionId),
-    index('overture_division_areas_country_subtype_idx').on(table.countryCode, table.subtype),
-    index('overture_division_areas_geometry_gist_idx').using('gist', table.geometry),
-    check(
-      'overture_division_areas_subtype_check',
-      sql`${table.subtype} IN ('country', 'region', 'locality', 'localadmin')`
-    ),
-    check(
-      'overture_division_areas_country_code_check',
-      sql`${table.countryCode} = UPPER(${table.countryCode}) AND LENGTH(${table.countryCode}) = 2`
-    ),
-    check(
-      'overture_division_areas_bbox_check',
-      sql`(
-        (${table.minLon} IS NULL AND ${table.minLat} IS NULL AND ${table.maxLon} IS NULL AND ${table.maxLat} IS NULL)
-        OR
-        (
-          ${table.minLon} IS NOT NULL
-          AND ${table.minLat} IS NOT NULL
-          AND ${table.maxLon} IS NOT NULL
-          AND ${table.maxLat} IS NOT NULL
-          AND ${table.minLon} <= ${table.maxLon}
-          AND ${table.minLat} <= ${table.maxLat}
-        )
-      )`
-    ),
-  ]
-);
-
-export const overtureDivisionAreaSubdivisions = pgTable(
-  'overture_division_area_subdivisions',
-  {
-    id: serial('id').primaryKey(),
-    divisionAreaId: text('division_area_id')
-      .notNull()
-      .references(() => overtureDivisionAreas.id, { onDelete: 'cascade' }),
-    divisionId: text('division_id')
-      .notNull()
-      .references(() => overtureDivisions.id, { onDelete: 'cascade' }),
-    countryCode: varchar('country_code', { length: 2 }).notNull(),
-    subtype: varchar('subtype', { length: 32 }).notNull(),
-    selectionRank: integer('selection_rank').notNull(),
-    areaSort: doublePrecision('area_sort').notNull(),
-    geometry: anyGeometry('geometry').notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index('overture_division_area_subdivisions_area_idx').on(table.divisionAreaId),
-    index('overture_division_area_subdivisions_division_idx').on(table.divisionId),
-    index('overture_division_area_subdivisions_country_subtype_idx').on(
-      table.countryCode,
-      table.subtype
-    ),
-    index('overture_division_area_subdivisions_geometry_gist_idx').using(
-      'gist',
-      table.geometry
-    ),
-    check(
-      'overture_division_area_subdivisions_subtype_check',
-      sql`${table.subtype} IN ('country', 'region', 'locality', 'localadmin')`
-    ),
-    check(
-      'overture_division_area_subdivisions_country_code_check',
-      sql`${table.countryCode} = UPPER(${table.countryCode}) AND LENGTH(${table.countryCode}) = 2`
-    ),
-  ]
-);
-
-export const propertyLocationDivisionMemberships = pgTable(
-  'property_location_division_memberships',
-  {
-    propertyId: uuid('property_id').notNull(),
-    areaKind: varchar('area_kind', { length: 16 }).notNull(),
-    divisionId: text('division_id').notNull(),
-    divisionAreaId: text('division_area_id').notNull(),
-    subtype: varchar('subtype', { length: 32 }).notNull(),
-    countryCode: varchar('country_code', { length: 2 }).notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.propertyId, table.areaKind] }),
-    index('property_location_division_memberships_division_idx').on(table.divisionId),
-    index('property_location_division_memberships_area_idx').on(table.divisionAreaId),
-    index('property_location_division_memberships_country_kind_idx').on(
-      table.countryCode,
-      table.areaKind
-    ),
-    index('property_location_division_memberships_kind_division_idx').on(
-      table.areaKind,
-      table.divisionId
-    ),
-    check(
-      'property_location_division_memberships_area_kind_check',
-      sql`${table.areaKind} IN ('city', 'region', 'country')`
-    ),
-    check(
-      'property_location_division_memberships_subtype_check',
-      sql`${table.subtype} IN ('country', 'region', 'locality', 'localadmin')`
-    ),
-    check(
-      'property_location_division_memberships_country_code_check',
-      sql`${table.countryCode} = UPPER(${table.countryCode}) AND LENGTH(${table.countryCode}) = 2`
     ),
   ]
 );

@@ -5088,10 +5088,6 @@ export interface paths {
                             value: string;
                             label: string;
                             parentLabel?: string | null;
-                            source?: string | null;
-                            divisionId?: string | null;
-                            parentDivisionId?: string | null;
-                            parentDivisionKind?: ("city" | "region" | "country") | null;
                             city?: string | null;
                             region?: string | null;
                             postalCode?: string | null;
@@ -5185,10 +5181,6 @@ export interface paths {
                                 value: string;
                                 label: string;
                                 parentLabel?: string | null;
-                                source?: string | null;
-                                divisionId?: string | null;
-                                parentDivisionId?: string | null;
-                                parentDivisionKind?: ("city" | "region" | "country") | null;
                                 city?: string | null;
                                 region?: string | null;
                                 postalCode?: string | null;

@@ -6,7 +6,6 @@ import type {
   MapFilters,
   MapMarketState,
   LocationFilterToken,
-  LocationFilterParentDivisionKind,
   LocationFilterTokenType,
   RentEffectivePriceInput,
   SaleEffectivePriceInput,
@@ -19,7 +18,6 @@ export type {
   MapFilters,
   MapMarketState,
   LocationFilterToken,
-  LocationFilterParentDivisionKind,
   LocationFilterTokenType,
 };
 
@@ -69,14 +67,6 @@ const LOCATION_FILTER_TOKEN_TYPES = [
   'current-location',
 ] as const satisfies readonly LocationFilterTokenType[];
 const LOCATION_FILTER_TOKEN_TYPE_SET = new Set<string>(LOCATION_FILTER_TOKEN_TYPES);
-const LOCATION_FILTER_PARENT_DIVISION_KINDS = [
-  'city',
-  'region',
-  'country',
-] as const satisfies readonly LocationFilterParentDivisionKind[];
-const LOCATION_FILTER_PARENT_DIVISION_KIND_SET = new Set<string>(
-  LOCATION_FILTER_PARENT_DIVISION_KINDS
-);
 const CURRENT_LOCATION_RADIUS_METERS = 5_000;
 export const DEFAULT_CURRENT_LOCATION_RADIUS_METERS = CURRENT_LOCATION_RADIUS_METERS;
 export const MAP_ACTIVITY_TIME_FILTERS = [
@@ -296,25 +286,9 @@ function serializeTokenMetadata(key: string, value: string | null | undefined): 
   const normalized = value
     ? key === 'postcode'
       ? normalizePostcodeTokenValue(value)
-      : key === 'division' || key === 'parentDivision'
-        ? normalizeDivisionId(value)
       : normalizeTokenValue(value)
     : '';
   return normalized ? `${key}=${normalized}` : null;
-}
-
-function normalizeDivisionId(value: string | null | undefined): string {
-  const raw = value?.trim();
-  if (!raw || raw.includes(':')) {
-    return '';
-  }
-
-  return raw
-    .normalize('NFKD')
-    .replace(/\p{Mark}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 function parseTokenMetadata(parts: string[]): Record<string, string> {
@@ -330,8 +304,6 @@ function parseTokenMetadata(parts: string[]): Record<string, string> {
     const metadataValue =
       key === 'postcode'
         ? normalizePostcodeTokenValue(part.slice(separatorIndex + 1))
-        : key === 'division' || key === 'parentDivision'
-          ? normalizeDivisionId(part.slice(separatorIndex + 1))
         : normalizeTokenValue(part.slice(separatorIndex + 1));
     if (metadataValue) {
       metadata[key] = metadataValue;
@@ -372,10 +344,6 @@ export function serializeLocationFilterToken(token: LocationFilterToken): string
     serializeTokenMetadata('region', regionMetadata),
     serializeTokenMetadata('postcode', postalCodeMetadata),
     serializeTokenMetadata('street', streetMetadata),
-    serializeTokenMetadata('division', token.divisionId),
-    serializeTokenMetadata('parentDivision', token.parentDivisionId),
-    serializeTokenMetadata('parentKind', token.parentDivisionKind),
-    serializeTokenMetadata('source', token.source),
   ].filter((part): part is string => part != null);
 
   return [token.type, countryCode, value, ...metadata].join(':');
@@ -412,21 +380,12 @@ export function parseLocationFilterToken(value: string): LocationFilterToken | n
   }
   const metadata = parseTokenMetadata(parts.slice(3));
   const postalCode = metadata.postcode ?? (type === 'postcode' ? tokenValue : null);
-  const parentDivisionKind = LOCATION_FILTER_PARENT_DIVISION_KIND_SET.has(
-    metadata.parentKind ?? ''
-  )
-    ? (metadata.parentKind as LocationFilterParentDivisionKind)
-    : null;
 
   return {
     type,
     countryCode: normalizeCountryCode(parts[1]),
     value: tokenValue,
     label: formatTokenLabel(tokenValue, type),
-    source: metadata.source ?? null,
-    divisionId: metadata.division ?? null,
-    parentDivisionId: metadata.parentDivision ?? null,
-    parentDivisionKind,
     city: metadata.city ? formatTokenLabel(metadata.city) : null,
     region: metadata.region ? formatTokenLabel(metadata.region) : null,
     postalCode: postalCode ? postalCode.toUpperCase() : null,
@@ -460,14 +419,6 @@ export function normalizeLocationFilterTokens(
       value,
       label: token.label?.trim() || value,
       parentLabel: token.parentLabel?.trim() || null,
-      source: token.source ? normalizeTokenValue(token.source) : null,
-      divisionId: normalizeDivisionId(token.divisionId) || null,
-      parentDivisionId: normalizeDivisionId(token.parentDivisionId) || null,
-      parentDivisionKind: LOCATION_FILTER_PARENT_DIVISION_KIND_SET.has(
-        token.parentDivisionKind ?? ''
-      )
-        ? token.parentDivisionKind!
-        : null,
       city: token.city?.trim() || null,
       region: token.region?.trim() || null,
       postalCode: token.postalCode

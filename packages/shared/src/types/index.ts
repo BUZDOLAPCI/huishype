@@ -53,7 +53,6 @@ export type {
   MapFilterCategory,
   MapMarketState,
   LocationFilterToken,
-  LocationFilterParentDivisionKind,
   LocationFilterTokenType,
   LocationSearchSuggestion,
   LocationSearchSuggestionType,

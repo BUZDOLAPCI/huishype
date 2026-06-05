@@ -51,10 +51,6 @@ type LocationSearchSuggestionResponse = LocationSearchSuggestion;
 type DbLocationSearchRow = {
   id: string | null;
   country_code: string | null;
-  source?: string | null;
-  division_id?: string | null;
-  parent_division_id?: string | null;
-  parent_area_kind?: 'city' | 'region' | 'country' | null;
   street: string | null;
   house_number: number | string | null;
   house_number_addition: string | null;
@@ -188,20 +184,6 @@ function normalizeSearchToken(value: string | null | undefined): string {
     .replace(/\p{Mark}/gu, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-function normalizeDivisionId(value: string | null | undefined): string {
-  const raw = value?.trim();
-  if (!raw || raw.includes(':')) {
-    return '';
-  }
-
-  return raw
-    .normalize('NFKD')
-    .replace(/\p{Mark}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
 
@@ -562,36 +544,12 @@ function buildScopedLocationSuggestionDedupeKey(
   return suggestion.filterToken ? `area-scoped:${buildTokenId(suggestion.filterToken)}` : null;
 }
 
-function getConcreteAreaScopeKey(suggestion: LocationSearchSuggestionResponse): string | null {
-  const token = suggestion.filterToken;
-  if (!token || token.source !== 'overture') {
-    return null;
-  }
-
-  if (
-    (token.type === 'city' || token.type === 'region' || token.type === 'country') &&
-    token.divisionId
-  ) {
-    const divisionId = normalizeDivisionId(token.divisionId);
-    return divisionId ? `${token.type}:${divisionId}` : null;
-  }
-
-  if ((token.type === 'street' || token.type === 'postcode') && token.parentDivisionId) {
-    const parentDivisionId = normalizeDivisionId(token.parentDivisionId);
-    return parentDivisionId
-      ? `${token.type}:${token.parentDivisionKind ?? ''}:${parentDivisionId}`
-      : null;
-  }
-
-  return null;
-}
-
 function areDistinctScopedAreaSuggestions(
   existing: LocationSearchSuggestionResponse,
   candidate: LocationSearchSuggestionResponse
 ): boolean {
-  const existingScope = getConcreteAreaScopeKey(existing);
-  const candidateScope = getConcreteAreaScopeKey(candidate);
+  const existingScope = buildScopedLocationSuggestionDedupeKey(existing);
+  const candidateScope = buildScopedLocationSuggestionDedupeKey(candidate);
   return Boolean(existingScope && candidateScope && existingScope !== candidateScope);
 }
 
@@ -740,12 +698,6 @@ function shouldReplaceLocationSuggestion(
   existing: LocationSearchSuggestionResponse,
   candidate: LocationSearchSuggestionResponse
 ): boolean {
-  const existingSource = existing.filterToken?.source ?? null;
-  const candidateSource = candidate.filterToken?.source ?? null;
-  if (candidateSource === 'overture' && existingSource !== 'overture') {
-    return true;
-  }
-
   return isDbBackedAreaSuggestion(candidate) && !isDbBackedAreaSuggestion(existing);
 }
 
@@ -1004,10 +956,6 @@ function buildDbAreaSuggestion(
     value: label,
     label,
     parentLabel,
-    source: row.source === 'overture' ? 'overture' : null,
-    divisionId: row.source === 'overture' ? (row.division_id ?? null) : null,
-    parentDivisionId: row.parent_division_id ?? null,
-    parentDivisionKind: row.parent_area_kind ?? null,
     city: type === 'city' || type === 'region' || type === 'country' ? null : row.city,
     region: type === 'region' ? label : type === 'country' ? null : row.region,
     postalCode: type === 'postcode' ? label : null,
@@ -1098,7 +1046,7 @@ async function queryDbPropertyLocationSuggestions(
       ${houseNumberAdditionPredicate}
       AND (${postalPredicate} OR ${streetPredicate})
     ORDER BY
-      CASE
+        CASE
         WHEN ${usePostal} AND ${buildStringInPredicate(sql`p.postal_code`, postalCodeCandidates)} THEN 0
         WHEN ${useStreet} AND ${buildTextCandidatePredicate(sql`p.street`, rawStreetQuery)} THEN 1
         WHEN ${usePostal} THEN 2
@@ -1196,10 +1144,6 @@ async function queryDbAreaLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1213,7 +1157,6 @@ async function queryDbAreaLocationSuggestions(
         ${countryPredicate}
         AND ${buildStringInPredicate(sql`lsa.match_value`, normalizedPostalCodeCandidates)}
       ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         lsa.property_count DESC,
         lsa.country_code,
         lsa.postal_code
@@ -1242,10 +1185,6 @@ async function queryDbAreaLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1260,7 +1199,6 @@ async function queryDbAreaLocationSuggestions(
         ${countryPredicate}
         AND ${buildTextCandidatePredicate(sql`lsa.city`, q)}
       ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
         lsa.property_count DESC,
         lsa.country_code,
@@ -1281,10 +1219,6 @@ async function queryDbAreaLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1307,7 +1241,6 @@ async function queryDbAreaLocationSuggestions(
           LIMIT 1
         )
       ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
         lsa.property_count DESC,
         lsa.country_code,
@@ -1328,10 +1261,6 @@ async function queryDbAreaLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
         lsa.street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1345,7 +1274,6 @@ async function queryDbAreaLocationSuggestions(
         ${countryPredicate}
         AND ${buildTextCandidatePredicate(sql`lsa.street`, rawStreetQuery)}
       ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
         lsa.property_count DESC,
         lsa.country_code,
@@ -1385,10 +1313,6 @@ async function queryDbCountryLocationSuggestions(
       SELECT
         NULL::uuid AS id,
         lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
         NULL::text AS street,
         NULL::integer AS house_number,
         NULL::text AS house_number_addition,
@@ -1401,7 +1325,6 @@ async function queryDbCountryLocationSuggestions(
       WHERE lsa.area_kind = 'country'
         AND ${buildStringInPredicate(sql`lsa.country_code`, countryCodes)}
       ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         lsa.property_count DESC,
         lsa.country_code
       LIMIT ${Math.max(1, Math.min(limit, countryCodes.length))}
@@ -1532,11 +1455,6 @@ async function queryAreaTokenHasBackingRows(
     token.region && token.type !== 'street' && token.type !== 'postcode'
       ? sql`AND ${buildTextCandidatePredicate(sql`lsa.region`, token.region)}`
       : sql``;
-  const parentDivisionPredicate =
-    token.parentDivisionId && (token.type === 'street' || token.type === 'postcode')
-      ? sql`AND lsa.parent_division_id = ${token.parentDivisionId}
-        ${token.parentDivisionKind ? sql`AND lsa.parent_area_kind = ${token.parentDivisionKind}` : sql``}`
-      : sql``;
   let predicate = sql`FALSE`;
 
   if (token.type === 'city') {
@@ -1561,7 +1479,6 @@ async function queryAreaTokenHasBackingRows(
       FROM location_search_areas lsa
       WHERE lsa.area_kind = ${token.type}
         ${countryPredicate}
-        ${parentDivisionPredicate}
         ${cityPredicate}
         ${regionPredicate}
         AND ${predicate}
@@ -1616,10 +1533,6 @@ async function queryCanonicalDbAreaSuggestionForToken(
     SELECT
       NULL::uuid AS id,
       lsa.country_code,
-      lsa.source,
-      lsa.division_id,
-      lsa.parent_division_id,
-      lsa.parent_area_kind,
       lsa.street,
       NULL::integer AS house_number,
       NULL::text AS house_number_addition,
@@ -1635,7 +1548,6 @@ async function queryCanonicalDbAreaSuggestionForToken(
       ${regionPredicate}
       AND ${predicate}
     ORDER BY
-      CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
       ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
       lsa.property_count DESC,
       lsa.country_code,
@@ -1878,10 +1790,6 @@ async function queryBackedStreetSuggestionForFeatureLabel(
     SELECT
       NULL::uuid AS id,
       lsa.country_code,
-      lsa.source,
-      lsa.division_id,
-      lsa.parent_division_id,
-      lsa.parent_area_kind,
       lsa.street,
       NULL::integer AS house_number,
       NULL::text AS house_number_addition,
@@ -1896,8 +1804,7 @@ async function queryBackedStreetSuggestionForFeatureLabel(
       AND ${buildTextCandidatePredicate(sql`lsa.street`, label)}
       AND ${buildTextCandidatePredicate(sql`lsa.city`, city)}
     ORDER BY
-      CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
-      CASE
+        CASE
         WHEN ${region == null} THEN 0
         WHEN ${buildTextCandidatePredicate(sql`lsa.region`, region ?? '')} THEN 0
         ELSE 1
@@ -2150,10 +2057,6 @@ async function fetchSupplementalStreetAddressFeatures(
 
 type LocationTokenHydrationRow = {
   country_code: string | null;
-  source: string | null;
-  division_id: string | null;
-  parent_division_id: string | null;
-  parent_area_kind: 'city' | 'region' | 'country' | null;
   label: string | null;
   city: string | null;
   region: string | null;
@@ -2233,18 +2136,6 @@ function buildTokenId(token: LocationFilterToken): string {
   if (token.type !== 'street' && token.postalCode) {
     parts.push(`postcode=${normalizePostalCodeForMatch(token.postalCode).toLowerCase()}`);
   }
-  if (token.divisionId) {
-    parts.push(`division=${normalizeDivisionId(token.divisionId)}`);
-  }
-  if (token.parentDivisionId) {
-    parts.push(`parentDivision=${normalizeDivisionId(token.parentDivisionId)}`);
-  }
-  if (token.parentDivisionKind) {
-    parts.push(`parentKind=${normalizeSearchToken(token.parentDivisionKind)}`);
-  }
-  if (token.source && token.source !== 'properties') {
-    parts.push(`source=${normalizeSearchToken(token.source)}`);
-  }
 
   return parts.join(':');
 }
@@ -2260,8 +2151,6 @@ function withHydratedTokenDefaults(token: LocationFilterTokenWithId): HydratedLo
         : normalizeLocationTokenValue(token.type, token.value || token.label),
     label: token.label || token.value,
     parentLabel: token.parentLabel ?? null,
-    parentDivisionId: token.parentDivisionId ?? null,
-    parentDivisionKind: token.parentDivisionKind ?? null,
     city: token.city ?? null,
     region: token.region ?? null,
     postalCode: token.postalCode ?? null,
@@ -2289,13 +2178,6 @@ function buildHydratedTokenFromRow(
     countryCode,
     label,
     value: normalizeSearchToken(label || token.value),
-    source: row.source === 'overture' ? 'overture' : (token.source ?? null),
-    divisionId:
-      row.source === 'overture'
-        ? (row.division_id ?? token.divisionId ?? null)
-        : (token.divisionId ?? null),
-    parentDivisionId: row.parent_division_id ?? token.parentDivisionId ?? null,
-    parentDivisionKind: row.parent_area_kind ?? token.parentDivisionKind ?? null,
     city: token.type === 'city' ? null : row.city,
     region: row.region,
     postalCode: row.postal_code,
@@ -2323,28 +2205,6 @@ function buildHydratedTokenFromRow(
   };
 }
 
-function getHydrationRowConcreteScopeKey(
-  token: LocationFilterTokenWithId,
-  row: LocationTokenHydrationRow
-): string | null {
-  if (row.source !== 'overture') {
-    return null;
-  }
-
-  if (
-    (token.type === 'city' || token.type === 'region' || token.type === 'country') &&
-    row.division_id
-  ) {
-    return `${token.type}:${normalizeDivisionId(row.division_id)}`;
-  }
-
-  if ((token.type === 'street' || token.type === 'postcode') && row.parent_division_id) {
-    return `${token.type}:${row.parent_area_kind ?? ''}:${normalizeDivisionId(row.parent_division_id)}`;
-  }
-
-  return null;
-}
-
 function selectHydrationRow(
   token: LocationFilterTokenWithId,
   rows: LocationTokenHydrationRow[]
@@ -2353,34 +2213,19 @@ function selectHydrationRow(
     return rows[0]!;
   }
 
-  const overtureRows = rows.filter((row) => row.source === 'overture');
-  if (overtureRows.length === 0) {
-    const semanticScopes = new Set(
-      rows.map((row) =>
-        [
-          row.source ?? 'properties',
-          token.type,
-          normalizeCountryCode(row.country_code ?? undefined) ?? '',
-          normalizeSearchToken(row.city),
-          normalizeSearchToken(row.region),
-          normalizePostalCodeForMatch(row.postal_code).toLowerCase(),
-          normalizeSearchToken(row.street),
-        ].join(':')
-      )
-    );
-    return semanticScopes.size === 1 ? rows[0]! : null;
-  }
-
-  const concreteScopes = new Set(
-    overtureRows
-      .map((row) => getHydrationRowConcreteScopeKey(token, row))
-      .filter((scope): scope is string => Boolean(scope))
+  const semanticScopes = new Set(
+    rows.map((row) =>
+      [
+        token.type,
+        normalizeCountryCode(row.country_code ?? undefined) ?? '',
+        normalizeSearchToken(row.city),
+        normalizeSearchToken(row.region),
+        normalizePostalCodeForMatch(row.postal_code).toLowerCase(),
+        normalizeSearchToken(row.street),
+      ].join(':')
+    )
   );
-  if (concreteScopes.size <= 1) {
-    return overtureRows[0]!;
-  }
-
-  return null;
+  return semanticScopes.size === 1 ? rows[0]! : null;
 }
 
 async function queryHydratedLocationToken(
@@ -2400,50 +2245,6 @@ async function queryHydratedLocationToken(
   const countryCode =
     normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode ?? null;
   const countryPredicate = countryCode ? sql`AND lsa.country_code = ${countryCode}` : sql``;
-  const divisionPredicate = token.divisionId
-    ? sql`AND lsa.source = 'overture' AND lsa.division_id = ${token.divisionId}`
-    : sql``;
-  const divisionSelectPredicate =
-    token.divisionId &&
-    (token.type === 'city' || token.type === 'region' || token.type === 'country');
-  if (divisionSelectPredicate) {
-    const rows = Array.from(
-      await db.execute<LocationTokenHydrationRow>(sql`
-      SELECT
-        lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
-        lsa.label,
-        CASE WHEN lsa.area_kind = 'city' THEN lsa.city ELSE NULL::text END AS city,
-        CASE WHEN lsa.area_kind = 'region' THEN lsa.region ELSE NULL::text END AS region,
-        NULL::text AS postal_code,
-        NULL::text AS street,
-        lsa.lon AS center_lon,
-        lsa.lat AS center_lat,
-        lsa.min_lon,
-        lsa.min_lat,
-        lsa.max_lon,
-        lsa.max_lat,
-        lsa.property_count AS row_count
-      FROM location_search_areas lsa
-      WHERE lsa.area_kind = ${token.type}
-        AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
-        ${countryPredicate}
-        ${divisionPredicate}
-      ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
-        lsa.property_count DESC
-      LIMIT 5
-    `)
-    );
-
-    const selectedRow = selectHydrationRow(token, rows);
-    if (selectedRow) {
-      return buildHydratedTokenFromRow(token, selectedRow);
-    }
-  }
 
   if (token.type === 'country') {
     const countryName = getCountryName(countryCode);
@@ -2467,11 +2268,6 @@ async function queryHydratedLocationToken(
     token.region && token.type !== 'street' && token.type !== 'postcode'
       ? sql`AND LOWER(lsa.region) = LOWER(${token.region})`
       : sql``;
-  const parentDivisionPredicate =
-    token.parentDivisionId && (token.type === 'street' || token.type === 'postcode')
-      ? sql`AND lsa.parent_division_id = ${token.parentDivisionId}
-        ${token.parentDivisionKind ? sql`AND lsa.parent_area_kind = ${token.parentDivisionKind}` : sql``}`
-      : sql``;
 
   let rows: LocationTokenHydrationRow[] = [];
 
@@ -2481,10 +2277,6 @@ async function queryHydratedLocationToken(
           await db.execute<LocationTokenHydrationRow>(sql`
           SELECT
             lsa.country_code,
-            lsa.source,
-            lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
             lsa.label,
             lsa.city,
             lsa.region,
@@ -2504,8 +2296,7 @@ async function queryHydratedLocationToken(
             AND LOWER(lsa.city) = LOWER(${cityLabel})
             ${regionPredicate}
           ORDER BY
-            CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
-            lsa.property_count DESC
+        lsa.property_count DESC
           LIMIT 5
         `)
         )
@@ -2513,10 +2304,6 @@ async function queryHydratedLocationToken(
           await db.execute<LocationTokenHydrationRow>(sql`
           SELECT
             lsa.country_code,
-            lsa.source,
-            lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
             lsa.label,
             lsa.city,
             NULL::text AS region,
@@ -2536,8 +2323,7 @@ async function queryHydratedLocationToken(
             ${countryPredicate}
             AND LOWER(lsa.city) = LOWER(${cityLabel})
           ORDER BY
-            CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
-            lsa.property_count DESC
+        lsa.property_count DESC
           LIMIT 5
         `)
         );
@@ -2546,10 +2332,6 @@ async function queryHydratedLocationToken(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
         lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
         lsa.label,
         NULL::text AS city,
         lsa.region,
@@ -2568,7 +2350,6 @@ async function queryHydratedLocationToken(
         ${countryPredicate}
         AND LOWER(lsa.region) = LOWER(${regionLabel})
       ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         lsa.property_count DESC
       LIMIT 5
     `)
@@ -2578,10 +2359,6 @@ async function queryHydratedLocationToken(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
         lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
         lsa.label,
         lsa.city,
         lsa.region,
@@ -2596,16 +2373,12 @@ async function queryHydratedLocationToken(
         lsa.property_count AS row_count
       FROM location_search_areas lsa
       WHERE lsa.area_kind = 'postcode'
-        AND lsa.scope_key NOT LIKE '%:city=%'
-        AND lsa.scope_key NOT LIKE '%:region=%'
         AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
-        ${parentDivisionPredicate}
         ${cityPredicate}
         ${regionPredicate}
         AND lsa.match_value = ${normalizePostalCodeForMatch(tokenPostalCode).toLowerCase()}
       ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         lsa.property_count DESC
       LIMIT 5
     `)
@@ -2615,10 +2388,6 @@ async function queryHydratedLocationToken(
       await db.execute<LocationTokenHydrationRow>(sql`
       SELECT
         lsa.country_code,
-        lsa.source,
-        lsa.division_id,
-        lsa.parent_division_id,
-        lsa.parent_area_kind,
         lsa.label,
         lsa.city,
         lsa.region,
@@ -2633,14 +2402,11 @@ async function queryHydratedLocationToken(
         lsa.property_count AS row_count
       FROM location_search_areas lsa
       WHERE lsa.area_kind = 'street'
-        AND lsa.scope_key NOT LIKE '%:region=%'
         AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
-        ${parentDivisionPredicate}
         ${cityPredicate}
         AND LOWER(lsa.street) = LOWER(${streetLabel})
       ORDER BY
-        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         CASE
           WHEN ${token.region == null} THEN 0
           WHEN LOWER(lsa.region) = LOWER(${token.region ?? ''}) THEN 0

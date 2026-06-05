@@ -401,65 +401,6 @@ describe('sharedMapFilters price suggestions', () => {
     );
   });
 
-  it('matches shared/backend-compatible Overture division token metadata', () => {
-    const divisionId = 'D724E74F-017A-4902-9031-BC784FFC1789';
-    const cityToken = {
-      type: 'city' as const,
-      countryCode: 'NL',
-      value: 'Eindhoven',
-      label: 'Eindhoven',
-      divisionId,
-      source: 'Overture',
-    };
-
-    expect(serializeLocationFilterToken(cityToken)).toBe(
-      'city:NL:eindhoven:division=d724e74f-017a-4902-9031-bc784ffc1789:source=overture',
-    );
-    expect(
-      parseLocationFilterToken(
-        'region:NL:noord-brabant:division=4C7E.GERS_ID-01:source=Overture',
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        type: 'region',
-        countryCode: 'NL',
-        value: 'noord-brabant',
-        divisionId: '4c7e.gers_id-01',
-        source: 'overture',
-      }),
-    );
-    expect(
-      serializeLocationFilterToken({ ...cityToken, divisionId: 'abc:def', source: null }),
-    ).toBe('city:NL:eindhoven');
-  });
-
-  it('matches shared/backend-compatible parent division token metadata', () => {
-    const token = {
-      type: 'street' as const,
-      countryCode: 'NL',
-      value: 'Beeldbuisring',
-      label: 'Beeldbuisring',
-      city: 'Eindhoven',
-      region: 'Noord-Brabant',
-      parentDivisionId: 'CITY.DIVISION-01',
-      parentDivisionKind: 'city' as const,
-    };
-
-    expect(serializeLocationFilterToken(token)).toBe(
-      'street:NL:beeldbuisring:city=eindhoven:parentDivision=city.division-01:parentKind=city',
-    );
-    expect(
-      parseLocationFilterToken(
-        'postcode:NL:5651ha:parentDivision=CITY.DIVISION-01:parentKind=city',
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        parentDivisionId: 'city.division-01',
-        parentDivisionKind: 'city',
-      }),
-    );
-  });
-
   it('keeps same street value distinct across cities in area params', () => {
     const filters = {
       ...createDefaultMapFilters(),

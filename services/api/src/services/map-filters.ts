@@ -1,10 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import type {
-  LocationFilterParentDivisionKind,
-  LocationFilterToken,
-  LocationFilterTokenType,
-} from '@huishype/shared';
+import type { LocationFilterToken, LocationFilterTokenType } from '@huishype/shared';
 import { buildPropertyListingFactsJoin } from './property-queries.js';
 
 export const MAP_MARKET_STATES = ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'] as const;
@@ -65,14 +61,6 @@ const LOCATION_FILTER_TOKEN_TYPES = [
   'current-location',
 ] as const satisfies readonly LocationFilterTokenType[];
 const LOCATION_FILTER_TOKEN_TYPE_SET = new Set<string>(LOCATION_FILTER_TOKEN_TYPES);
-const LOCATION_FILTER_PARENT_DIVISION_KINDS = [
-  'city',
-  'region',
-  'country',
-] as const satisfies readonly LocationFilterParentDivisionKind[];
-const LOCATION_FILTER_PARENT_DIVISION_KIND_SET = new Set<string>(
-  LOCATION_FILTER_PARENT_DIVISION_KINDS
-);
 const CURRENT_LOCATION_RADIUS_METERS = 5_000;
 
 export type PropertyMarketFilterQuery = {
@@ -162,25 +150,9 @@ function serializeTokenMetadata(key: string, value: string | null | undefined): 
   const normalized = value
     ? key === 'postcode'
       ? normalizePostcodeTokenValue(value)
-      : key === 'division' || key === 'parentDivision'
-        ? normalizeDivisionId(value)
       : normalizeTokenValue(value)
     : '';
   return normalized ? `${key}=${normalized}` : null;
-}
-
-function normalizeDivisionId(value: string | null | undefined): string {
-  const raw = value?.trim();
-  if (!raw || raw.includes(':')) {
-    return '';
-  }
-
-  return raw
-    .normalize('NFKD')
-    .replace(/\p{Mark}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 function parseTokenMetadata(parts: string[]): Record<string, string> {
@@ -196,8 +168,6 @@ function parseTokenMetadata(parts: string[]): Record<string, string> {
     const value =
       key === 'postcode'
         ? normalizePostcodeTokenValue(part.slice(separatorIndex + 1))
-        : key === 'division' || key === 'parentDivision'
-          ? normalizeDivisionId(part.slice(separatorIndex + 1))
         : normalizeTokenValue(part.slice(separatorIndex + 1));
     if (value) {
       metadata[key] = value;
@@ -240,21 +210,12 @@ export function parseLocationFilterToken(value: string): LocationFilterToken | n
   }
   const metadata = parseTokenMetadata(parts.slice(3));
   const postalCode = metadata.postcode ?? (type === 'postcode' ? tokenValue : null);
-  const parentDivisionKind = LOCATION_FILTER_PARENT_DIVISION_KIND_SET.has(
-    metadata.parentKind ?? ''
-  )
-    ? (metadata.parentKind as LocationFilterParentDivisionKind)
-    : null;
 
   return {
     type,
     countryCode: normalizeCountryCode(parts[1]),
     value: tokenValue,
     label: formatTokenLabel(tokenValue, type),
-    source: metadata.source ?? null,
-    divisionId: metadata.division ?? null,
-    parentDivisionId: metadata.parentDivision ?? null,
-    parentDivisionKind,
     city: metadata.city ? formatTokenLabel(metadata.city) : null,
     region: metadata.region ? formatTokenLabel(metadata.region) : null,
     postalCode: postalCode ? postalCode.toUpperCase() : null,
@@ -292,10 +253,6 @@ function serializeLocationFilterToken(token: LocationFilterToken): string | null
     serializeTokenMetadata('region', regionMetadata),
     serializeTokenMetadata('postcode', postalCodeMetadata),
     serializeTokenMetadata('street', streetMetadata),
-    serializeTokenMetadata('division', token.divisionId),
-    serializeTokenMetadata('parentDivision', token.parentDivisionId),
-    serializeTokenMetadata('parentKind', token.parentDivisionKind),
-    serializeTokenMetadata('source', token.source),
   ].filter((part): part is string => part != null);
 
   return [token.type, normalizeCountryCode(token.countryCode) ?? '', value, ...metadata].join(':');
@@ -326,14 +283,6 @@ function normalizeLocationFilterTokens(tokens: readonly LocationFilterToken[] | 
       countryCode: normalizeCountryCode(token.countryCode),
       value,
       label: token.label?.trim() || value,
-      source: token.source ? normalizeTokenValue(token.source) : null,
-      divisionId: normalizeDivisionId(token.divisionId) || null,
-      parentDivisionId: normalizeDivisionId(token.parentDivisionId) || null,
-      parentDivisionKind: LOCATION_FILTER_PARENT_DIVISION_KIND_SET.has(
-        token.parentDivisionKind ?? ''
-      )
-        ? token.parentDivisionKind!
-        : null,
       city: token.city?.trim() || null,
       region: token.region?.trim() || null,
       postalCode: token.postalCode
@@ -569,78 +518,7 @@ function getPostcodePrefixUpperBound(value: string): string | null {
   return next <= 9999 ? String(next).padStart(4, '0') : null;
 }
 
-function getLocationDivisionAreaKind(type: LocationFilterTokenType): 'city' | 'region' | 'country' | null {
-  return type === 'city' || type === 'region' || type === 'country' ? type : null;
-}
-
-function buildLocationDivisionMembershipPredicate(
-  token: LocationFilterToken,
-  propertyAlias: string
-): SQL | null {
-  const divisionId = normalizeDivisionId(token.divisionId);
-  const areaKind = getLocationDivisionAreaKind(token.type);
-  if (!divisionId || !areaKind) {
-    return null;
-  }
-
-  const membershipPredicates = [
-    sql`pldm.property_id = ${sql.raw(`${propertyAlias}.id`)}`,
-    sql`pldm.area_kind = ${areaKind}`,
-    sql`pldm.division_id = ${divisionId}`,
-  ];
-  if (token.countryCode) {
-    membershipPredicates.push(sql`pldm.country_code = ${token.countryCode}`);
-  }
-
-  return sql`EXISTS (
-    SELECT 1
-    FROM property_location_division_memberships pldm
-    WHERE ${sql.join(membershipPredicates, sql` AND `)}
-  )`;
-}
-
-function buildLocationParentDivisionMembershipPredicate(
-  token: LocationFilterToken,
-  propertyAlias: string
-): SQL | null {
-  if (token.type !== 'street' && token.type !== 'postcode') {
-    return null;
-  }
-
-  const divisionId = normalizeDivisionId(token.parentDivisionId);
-  const areaKind = LOCATION_FILTER_PARENT_DIVISION_KIND_SET.has(token.parentDivisionKind ?? '')
-    ? token.parentDivisionKind!
-    : null;
-  if (!divisionId || !areaKind) {
-    return null;
-  }
-
-  const membershipPredicates = [
-    sql`pldm.property_id = ${sql.raw(`${propertyAlias}.id`)}`,
-    sql`pldm.area_kind = ${areaKind}`,
-    sql`pldm.division_id = ${divisionId}`,
-  ];
-  if (token.countryCode) {
-    membershipPredicates.push(sql`pldm.country_code = ${token.countryCode}`);
-  }
-
-  return sql`EXISTS (
-    SELECT 1
-    FROM property_location_division_memberships pldm
-    WHERE ${sql.join(membershipPredicates, sql` AND `)}
-  )`;
-}
-
 function buildLocationTokenPredicate(token: LocationFilterToken, propertyAlias: string): SQL {
-  const membershipPredicate = buildLocationDivisionMembershipPredicate(token, propertyAlias);
-  if (membershipPredicate) {
-    return sql`(${membershipPredicate})`;
-  }
-  const parentMembershipPredicate = buildLocationParentDivisionMembershipPredicate(
-    token,
-    propertyAlias
-  );
-
   const predicates: SQL[] = [];
   const countryColumn = sql.raw(`${propertyAlias}.country_code`);
   const cityColumn = sql.raw(`${propertyAlias}.city`);
@@ -704,14 +582,8 @@ function buildLocationTokenPredicate(token: LocationFilterToken, propertyAlias: 
     addLowerPredicate(streetColumn, token.street ?? token.label ?? token.value);
   }
 
-  if (parentMembershipPredicate) {
-    predicates.push(parentMembershipPredicate);
-  }
-
   if (token.type === 'street') {
-    if (!parentMembershipPredicate) {
-      addLowerPredicate(cityColumn, token.city);
-    }
+    addLowerPredicate(cityColumn, token.city);
   } else if (token.type !== 'city' && token.type !== 'postcode') {
     addLowerPredicate(cityColumn, token.city);
   }
