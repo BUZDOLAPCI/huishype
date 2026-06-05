@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { serializeCanonicalCameraPath } from '@huishype/shared';
 import { isValidCountryCode } from '@huishype/shared/config';
 
@@ -56,6 +57,7 @@ import { useMapSearchBias } from '@/src/hooks/useMapSearchBias';
 import {
   appendSharedFeedFiltersToPath,
   buildFeedPath,
+  isFeedBrowserPathname,
   parseFeedTabFromSearchParams,
 } from '@/src/lib/feedUrlSync';
 import { replacePassiveBrowserPath } from '@/src/lib/webMapUrlSync';
@@ -127,21 +129,37 @@ export default function FeedScreen() {
 
   const t = useT();
   const { isAuthenticated } = useAuthContext();
+  const isFeedTabActive = useIsFocused();
   const { data: profile, isLoading: isProfileLoading } = useMyProfile();
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const activeFilterRef = useRef(activeFilter);
   activeFilterRef.current = activeFilter;
+  const isFeedTabActiveRef = useRef(isFeedTabActive);
+  isFeedTabActiveRef.current = isFeedTabActive;
   const feedBrowserSearchRef = useRef(
     typeof window === 'undefined' ? '' : window.location.search || ''
   );
+  const canSyncFeedBrowserPath = useCallback(() => {
+    if (!isFeedTabActiveRef.current || typeof window === 'undefined') {
+      return false;
+    }
+
+    return isFeedBrowserPathname(window.location.pathname);
+  }, []);
   const replaceFeedBrowserPath = useCallback((nextFilters: MapFilters, feedTab: FeedTab) => {
-    const nextPath = buildFeedPath(nextFilters, feedTab, feedBrowserSearchRef.current);
+    if (!canSyncFeedBrowserPath()) {
+      return false;
+    }
+
+    const currentSearch =
+      typeof window === 'undefined' ? feedBrowserSearchRef.current : window.location.search || '';
+    const nextPath = buildFeedPath(nextFilters, feedTab, currentSearch);
     const nextSearch = nextPath.includes('?') ? nextPath.slice(nextPath.indexOf('?')) : '';
     feedBrowserSearchRef.current = nextSearch;
-    replacePassiveBrowserPath(nextPath);
-  }, []);
+    return replacePassiveBrowserPath(nextPath);
+  }, [canSyncFeedBrowserPath]);
   const handleAppliedFiltersChange = useCallback(
     (nextFilters: MapFilters) => {
       replaceFeedBrowserPath(nextFilters, activeFilterRef.current);
@@ -157,6 +175,10 @@ export default function FeedScreen() {
   const appliedInitialFeedUrlRef = useRef(false);
 
   useEffect(() => {
+    if (!canSyncFeedBrowserPath()) {
+      return;
+    }
+
     if (!appliedInitialFeedUrlRef.current) {
       appliedInitialFeedUrlRef.current = true;
       if (typeof window === 'undefined') {
@@ -190,7 +212,14 @@ export default function FeedScreen() {
     }
 
     replaceFeedBrowserPath(filterController.appliedFilters, activeFilter);
-  }, [activeFilter, filterController, isAuthenticated, replaceFeedBrowserPath]);
+  }, [
+    activeFilter,
+    canSyncFeedBrowserPath,
+    filterController,
+    isAuthenticated,
+    isFeedTabActive,
+    replaceFeedBrowserPath,
+  ]);
 
   const feedCountryCode = useMemo(() => {
     const candidate = profile?.homeCountry?.toUpperCase();

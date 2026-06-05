@@ -103,16 +103,28 @@ export function useLocalMapFilterController({
     [appliedFilters, commitAppliedFilters]
   );
 
-  return {
-    appliedFilters,
-    orderedCategories,
-    commitAppliedFilters,
-    replaceAppliedFilters,
-    resetCategory,
-    toggleStatusPill,
-    toggleActivity,
-    setActivity,
-  };
+  return useMemo(
+    () => ({
+      appliedFilters,
+      orderedCategories,
+      commitAppliedFilters,
+      replaceAppliedFilters,
+      resetCategory,
+      toggleStatusPill,
+      toggleActivity,
+      setActivity,
+    }),
+    [
+      appliedFilters,
+      orderedCategories,
+      commitAppliedFilters,
+      replaceAppliedFilters,
+      resetCategory,
+      setActivity,
+      toggleActivity,
+      toggleStatusPill,
+    ]
+  );
 }
 
 export function useMapFilterController(

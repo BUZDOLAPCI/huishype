@@ -20,6 +20,7 @@ const mockUseUnreadNotificationCount = useUnreadNotificationCount as jest.Mocked
 const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthContext>;
 const mockGetCurrentLocation = getCurrentLocation as jest.MockedFunction<typeof getCurrentLocation>;
 const DEFAULT_MARKET_STATES = ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'];
+let mockIsFeedFocused = true;
 let mockSharedMapSearchBias: {
   countryCode?: string | null;
   lat?: number;
@@ -53,6 +54,10 @@ jest.mock('expo-router', () => ({
   router: {
     push: jest.fn(),
   },
+}));
+
+jest.mock('@react-navigation/native', () => ({
+  useIsFocused: jest.fn(() => mockIsFeedFocused),
 }));
 
 jest.mock('@/src/hooks', () => ({
@@ -492,6 +497,7 @@ describe('FeedScreen following surface', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     window.history.replaceState({}, '', '/feed');
+    mockIsFeedFocused = true;
     mockSharedMapSearchBias = null;
     capturedSearchBarProps = null;
     mockGetCurrentLocation.mockRejectedValue(new Error('Location unavailable'));
@@ -1020,6 +1026,54 @@ describe('FeedScreen following surface', () => {
     fireEvent.press(getByTestId('feed-clear-areas'));
     await waitFor(() => {
       expect(window.location.pathname + window.location.search).toBe('/feed');
+    });
+  });
+
+  it('does not overwrite a map-owned browser URL from the retained feed screen', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/@51.441642,5.469722,17z?marketState=for-sale'
+    );
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { rerender } = render(<FeedScreen />);
+
+    rerender(<FeedScreen />);
+
+    expect(window.location.pathname + window.location.search).toBe(
+      '/@51.441642,5.469722,17z?marketState=for-sale'
+    );
+  });
+
+  it('does not carry stale map query params when feed later owns a clean URL', async () => {
+    window.history.replaceState({}, '', '/@51.441642,5.469722,17z?debug=map');
+    mockIsFeedFocused = false;
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId, rerender } = render(<FeedScreen />);
+
+    window.history.replaceState({}, '', '/feed');
+    mockIsFeedFocused = true;
+    rerender(<FeedScreen />);
+    fireEvent.press(getByTestId('chip-latest'));
+
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=latest');
     });
   });
 

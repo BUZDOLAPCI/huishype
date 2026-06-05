@@ -2,11 +2,19 @@ import {
   appendSharedFeedFiltersToPath,
   buildFeedPath,
   getFeedSearchString,
+  isFeedBrowserPathname,
   parseFeedTabFromSearchParams,
 } from '../feedUrlSync';
 import { createDefaultMapFilters, parseMapFiltersFromSearchParams } from '../sharedMapFilters';
 
 describe('feedUrlSync', () => {
+  it('recognizes only the canonical feed browser route as feed-owned', () => {
+    expect(isFeedBrowserPathname('/feed')).toBe(true);
+    expect(isFeedBrowserPathname('/feed/')).toBe(true);
+    expect(isFeedBrowserPathname('/feedback')).toBe(false);
+    expect(isFeedBrowserPathname('/@51.441642,5.469722,17z')).toBe(false);
+  });
+
   it('parses valid feed tabs and falls back for invalid or unauthorized following tabs', () => {
     expect(
       parseFeedTabFromSearchParams(new URLSearchParams('feedTab=latest'), {

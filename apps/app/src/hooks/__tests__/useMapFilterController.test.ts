@@ -18,6 +18,15 @@ function SharedControllerProvider({ children }: { children: React.ReactNode }) {
 }
 
 describe('useMapFilterController', () => {
+  it('keeps the local controller identity stable when filters do not change', () => {
+    const { result, rerender } = renderHook(() => useLocalMapFilterController());
+    const initialController = result.current;
+
+    rerender({});
+
+    expect(result.current).toBe(initialController);
+  });
+
   it('commits normalized applied filters through the shared controller', () => {
     const onAppliedFiltersChange = jest.fn();
     const { result } = renderHook(() =>

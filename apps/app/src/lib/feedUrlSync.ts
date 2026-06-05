@@ -12,6 +12,11 @@ export const FEED_TAB_QUERY_PARAM = 'feedTab';
 const FEED_TABS = ['trending', 'latest', 'recent-activity', 'following'] as const;
 const FEED_TAB_SET = new Set<string>(FEED_TABS);
 
+export function isFeedBrowserPathname(pathname: string): boolean {
+  const normalizedPathname = pathname.trim().replace(/\/+$/u, '') || '/';
+  return normalizedPathname === '/feed';
+}
+
 export function parseFeedTabFromSearchParams(
   params: URLSearchParams,
   options: { isAuthenticated: boolean }
