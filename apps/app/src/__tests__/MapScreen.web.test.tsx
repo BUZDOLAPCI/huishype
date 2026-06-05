@@ -130,6 +130,15 @@ let capturedSearchBarProps: {
     },
   ) => void;
   onCurrentLocationSelected?: () => void | Promise<void>;
+  onAreaSelected?: (area: {
+    type: string;
+    countryCode?: string | null;
+    value: string;
+    label: string;
+    city?: string | null;
+    coordinates?: [number, number] | null;
+    bbox?: [number, number, number, number] | null;
+  }) => void;
   searchBias?: {
     lon?: number;
     lat?: number;
@@ -423,6 +432,10 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
       ?.map((area: { coordinates?: [number, number] | null }) => area.coordinates)
       .find(Boolean);
     return coordinates ? [coordinates[0], coordinates[1], coordinates[0], coordinates[1]] : null;
+  }),
+  getLocationFilterTokenCameraMaxZoom: jest.fn((areas) => {
+    const type = areas?.[0]?.type;
+    return type === 'street' ? 16 : type === 'postcode' ? 15 : 13;
   }),
   getMapFilterSearchString: jest.fn((_filters, currentSearch) => currentSearch),
   hasMapFilterQueryParams: jest.fn(() => false),
@@ -1537,6 +1550,50 @@ describe('MapScreen web grouped Following mode', () => {
     );
     expect(map.flyTo).not.toHaveBeenCalled();
     expect(map.jumpTo).not.toHaveBeenCalled();
+  });
+
+  it('allows web street area selections to zoom closer than city scale', async () => {
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.fitBounds.mockClear();
+
+    act(() => {
+      capturedSearchBarProps?.onAreaSelected?.({
+        type: 'street',
+        countryCode: 'NL',
+        value: 'beeldbuisring',
+        label: 'Beeldbuisring',
+        city: 'Eindhoven',
+        coordinates: [5.4471777, 51.4486334],
+        bbox: null,
+      });
+    });
+
+    expect(map.fitBounds).toHaveBeenCalledWith(
+      [
+        [5.4471777, 51.4486334],
+        [5.4471777, 51.4486334],
+      ],
+      {
+        padding: 96,
+        maxZoom: 16,
+        duration: 650,
+        essential: true,
+      },
+    );
   });
 
   it('does not auto-locate if the user moves the web map before idle', async () => {

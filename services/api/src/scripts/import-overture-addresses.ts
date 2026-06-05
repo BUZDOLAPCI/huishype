@@ -141,8 +141,13 @@ export async function discoverLatestRelease(): Promise<string> {
     }
 
     const catalog = (await res.json()) as {
+      latest?: string;
       links?: Array<{ rel: string; href: string; title?: string }>;
     };
+
+    if (catalog.latest && /^\d{4}-\d{2}-\d{2}\.\d+$/u.test(catalog.latest)) {
+      return catalog.latest;
+    }
 
     // STAC catalogs list releases as child links
     const childLinks = (catalog.links ?? []).filter(
@@ -157,7 +162,10 @@ export async function discoverLatestRelease(): Promise<string> {
     // Release titles are date-based: "2026-02-18.0", "2026-01-22.0", etc.
     // Sort descending to get the latest
     const releases = childLinks
-      .map((l) => l.title || l.href.split('/').filter(Boolean).pop() || '')
+      .map((l) => {
+        const value = l.title || l.href.split('/').filter(Boolean).pop() || '';
+        return value.match(/\d{4}-\d{2}-\d{2}\.\d+/u)?.[0] ?? '';
+      })
       .filter((t) => /^\d{4}-\d{2}-\d{2}\.\d+$/.test(t))
       .sort()
       .reverse();
@@ -386,7 +394,10 @@ async function phase2Copy(sql: postgres.Sql): Promise<number> {
 // Phase 3: Upsert into properties
 // ---------------------------------------------------------------------------
 
-async function phase3Upsert(sql: postgres.Sql): Promise<number> {
+async function phase3Upsert(
+  sql: postgres.Sql,
+  countries: readonly CountryCode[]
+): Promise<number> {
   console.log('\nPhase 3: Upsert into properties...');
   const start = Date.now();
 
@@ -410,18 +421,30 @@ async function phase3Upsert(sql: postgres.Sql): Promise<number> {
   );
   if (changedCount > 0) {
     await requestPropertyTilePyramidBuildAfterBulkImport('overture-address-import');
-    await rebuildLocationSearchAreasAfterBulkImport('overture-address-import');
+    await rebuildLocationSearchAreasAfterBulkImport('overture-address-import', countries);
   }
   return totalProperties;
 }
 
-async function rebuildLocationSearchAreasAfterBulkImport(reason: string): Promise<void> {
+async function rebuildLocationSearchAreasAfterBulkImport(
+  reason: string,
+  countries: readonly CountryCode[]
+): Promise<void> {
   const { rebuildLocationSearchAreas } = await import(
     '../services/location-search-areas.js'
   );
   const { closeConnection } = await import('../db/index.js');
   try {
-    const result = await rebuildLocationSearchAreas();
+    const result = await rebuildLocationSearchAreas({
+      countries,
+      profile: true,
+      rebuildOvertureMemberships: true,
+      logger: {
+        info(message, details) {
+          console.log(`  ${message}`, details ?? {});
+        },
+      },
+    });
     console.log(
       `  Rebuilt location_search_areas after ${reason}: ${fmt(result.beforeCount)} -> ${fmt(result.afterCount)} rows`,
     );
@@ -656,7 +679,7 @@ async function main() {
     await phase2Copy(sql);
 
     // Phase 3: Upsert
-    await phase3Upsert(sql);
+    await phase3Upsert(sql, countries);
 
     // Phase 4: Cleanup
     await phase4Cleanup(sql);

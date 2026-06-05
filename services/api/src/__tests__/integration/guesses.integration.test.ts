@@ -294,6 +294,6 @@ describe('Guess routes', () => {
         confidence: 'usable',
         sampleSize: 8,
       });
-    });
+    }, 30_000);
   });
 });

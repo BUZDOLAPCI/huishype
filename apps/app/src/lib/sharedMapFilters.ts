@@ -569,6 +569,25 @@ export function getLocationFilterTokenCameraBounds(
   return hasBounds ? [west, south, east, north] : null;
 }
 
+const LOCATION_FILTER_CAMERA_MAX_ZOOM: Record<LocationFilterTokenType, number> = {
+  street: 16,
+  postcode: 15,
+  city: 13,
+  region: 11,
+  country: 7,
+  'current-location': 13,
+};
+
+export function getLocationFilterTokenCameraMaxZoom(
+  tokens: readonly LocationFilterToken[] | null | undefined
+): number {
+  const zooms = (tokens ?? [])
+    .map((token) => LOCATION_FILTER_CAMERA_MAX_ZOOM[token.type])
+    .filter((zoom): zoom is number => Number.isFinite(zoom));
+
+  return zooms.length > 0 ? Math.min(...zooms) : LOCATION_FILTER_CAMERA_MAX_ZOOM.city;
+}
+
 export function createMapFilterDraftState(filters: MapFilters): MapFilterDraftState {
   return {
     salePriceFrom: formatDraftNumber(filters.salePriceFrom),

@@ -76,6 +76,15 @@ let capturedSearchBarProps: {
     countryCode?: string | null;
   };
   onCurrentLocationSelected?: () => void | Promise<void>;
+  onAreaSelected?: (area: {
+    type: string;
+    countryCode?: string | null;
+    value: string;
+    label: string;
+    city?: string | null;
+    coordinates?: [number, number] | null;
+    bbox?: [number, number, number, number] | null;
+  }) => void;
 } | null = null;
 
 const mockAmbientCommentBubbles = {
@@ -769,6 +778,33 @@ describe('MapScreen native grouped Following mode', () => {
       }
     );
     expect(mockCameraFlyTo).not.toHaveBeenCalled();
+  });
+
+  it('zooms native center-only street area selections to street scale', async () => {
+    await renderMapScreen();
+
+    mockCameraFlyTo.mockClear();
+    mockCameraFitBounds.mockClear();
+
+    act(() => {
+      capturedSearchBarProps?.onAreaSelected?.({
+        type: 'street',
+        countryCode: 'NL',
+        value: 'beeldbuisring',
+        label: 'Beeldbuisring',
+        city: 'Eindhoven',
+        coordinates: [5.4471777, 51.4486334],
+        bbox: null,
+      });
+    });
+
+    expect(mockCameraFlyTo).toHaveBeenCalledWith({
+      center: [5.4471777, 51.4486334],
+      zoom: 16,
+      pitch: expect.any(Number),
+      duration: 650,
+    });
+    expect(mockCameraFitBounds).not.toHaveBeenCalled();
   });
 
   it('does not auto-locate if the user moves the native map before full render', async () => {

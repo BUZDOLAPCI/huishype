@@ -2,7 +2,8 @@ import {
   buildDivisionCountryFilter,
   buildDivisionParquetSource,
   buildDivisionsDuckDbQuery,
-  buildOvertureDivisionsUpsertQuery,
+  buildOvertureDivisionAreasUpsertQuery,
+  buildOvertureDivisionRecordsUpsertQuery,
 } from '../../scripts/import-overture-divisions.js';
 
 describe('buildDivisionParquetSource', () => {
@@ -92,14 +93,23 @@ describe('buildDivisionsDuckDbQuery', () => {
   });
 });
 
-describe('buildOvertureDivisionsUpsertQuery', () => {
-  it('upserts divisions before areas and decodes WKB hex into PostGIS geometry', () => {
-    const query = buildOvertureDivisionsUpsertQuery();
+describe('Overture division upsert queries', () => {
+  it('upserts divisions and decodes point WKB hex into PostGIS geometry', () => {
+    const query = buildOvertureDivisionRecordsUpsertQuery();
 
     expect(query).toContain('INSERT INTO overture_divisions');
-    expect(query).toContain('INSERT INTO overture_division_areas');
     expect(query).toContain("ST_GeomFromWKB(decode(geometry_wkb, 'hex'))");
+    expect(query).toContain('SELECT COUNT(*)::int AS changed_divisions');
+    expect(query).toContain('ON CONFLICT (id) DO UPDATE SET');
+  });
+
+  it('upserts areas after divisions and decodes area WKB hex into PostGIS geometry', () => {
+    const query = buildOvertureDivisionAreasUpsertQuery();
+
+    expect(query).toContain('INSERT INTO overture_division_areas');
     expect(query).toContain('JOIN overture_divisions division ON division.id = area.division_id');
+    expect(query).toContain("ST_GeomFromWKB(decode(area.geometry_wkb, 'hex'))");
+    expect(query).toContain('SELECT COUNT(*)::int AS changed_areas');
     expect(query).toContain('ON CONFLICT (id) DO UPDATE SET');
   });
 });

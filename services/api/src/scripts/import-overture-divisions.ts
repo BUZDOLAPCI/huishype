@@ -292,7 +292,7 @@ async function phase2Copy(sql: postgres.Sql): Promise<void> {
   );
 }
 
-export function buildOvertureDivisionsUpsertQuery(): string {
+export function buildOvertureDivisionRecordsUpsertQuery(): string {
   return `
     WITH changed_divisions AS (
       INSERT INTO overture_divisions (
@@ -336,8 +336,15 @@ export function buildOvertureDivisionsUpsertQuery(): string {
         OR overture_divisions.admin_level IS DISTINCT FROM EXCLUDED.admin_level
         OR overture_divisions.geometry IS DISTINCT FROM EXCLUDED.geometry
       RETURNING id
-    ),
-    changed_areas AS (
+    )
+    SELECT COUNT(*)::int AS changed_divisions
+    FROM changed_divisions
+  `;
+}
+
+export function buildOvertureDivisionAreasUpsertQuery(): string {
+  return `
+    WITH changed_areas AS (
       INSERT INTO overture_division_areas (
         id,
         division_id,
@@ -398,9 +405,8 @@ export function buildOvertureDivisionsUpsertQuery(): string {
         OR overture_division_areas.geometry IS DISTINCT FROM EXCLUDED.geometry
       RETURNING id
     )
-    SELECT
-      (SELECT COUNT(*)::int FROM changed_divisions) AS changed_divisions,
-      (SELECT COUNT(*)::int FROM changed_areas) AS changed_areas
+    SELECT COUNT(*)::int AS changed_areas
+    FROM changed_areas
   `;
 }
 
@@ -408,26 +414,81 @@ async function phase3Upsert(sql: postgres.Sql): Promise<{ changedDivisions: numb
   console.log('\nPhase 3: Upsert into Overture division tables...');
   const start = Date.now();
   await sql`SET statement_timeout = '0'`;
-  const changed = await sql.unsafe(buildOvertureDivisionsUpsertQuery());
-  const changedDivisions = Number(changed[0]?.changed_divisions ?? 0);
-  const changedAreas = Number(changed[0]?.changed_areas ?? 0);
+  const changedDivisionRows = await sql.unsafe(buildOvertureDivisionRecordsUpsertQuery());
+  const changedAreaRows = await sql.unsafe(buildOvertureDivisionAreasUpsertQuery());
+  const changedDivisions = Number(changedDivisionRows[0]?.changed_divisions ?? 0);
+  const changedAreas = Number(changedAreaRows[0]?.changed_areas ?? 0);
+  await sql`ANALYZE overture_divisions`;
+  await sql`ANALYZE overture_division_areas`;
   console.log(
     `  Upserted ${fmt(changedDivisions)} changed divisions and ${fmt(changedAreas)} changed areas in ${formatTime(Date.now() - start)}`
   );
   return { changedDivisions, changedAreas };
 }
 
-async function rebuildLocationSearchAreasAfterDivisionImport(): Promise<void> {
+async function rebuildLocationSearchAreasAfterDivisionImport(
+  countries: readonly CountryCode[]
+): Promise<void> {
   const { rebuildLocationSearchAreas } = await import('../services/location-search-areas.js');
   const { closeConnection } = await import('../db/index.js');
   try {
-    const result = await rebuildLocationSearchAreas();
+    const result = await rebuildLocationSearchAreas({
+      countries,
+      profile: true,
+      rebuildOvertureMemberships: true,
+      logger: {
+        info(message, details) {
+          console.log(`  ${message}`, details ?? {});
+        },
+      },
+    });
     console.log(
       `  Rebuilt location_search_areas after overture-division-import: ${fmt(result.beforeCount)} -> ${fmt(result.afterCount)} rows`
     );
   } finally {
     await closeConnection();
   }
+}
+
+async function findCountriesNeedingDerivedRebuild(
+  sql: postgres.Sql,
+  countries: readonly CountryCode[]
+): Promise<CountryCode[]> {
+  if (countries.length === 0) {
+    return [];
+  }
+
+  const countryValues = countries.map((country) => `('${country}')`).join(', ');
+  const rows = (await sql.unsafe(`
+    WITH requested(country_code) AS (
+      VALUES ${countryValues}
+    )
+    SELECT requested.country_code
+    FROM requested
+    WHERE EXISTS (
+      SELECT 1
+      FROM properties p
+      WHERE p.status = 'active'
+        AND p.country_code = requested.country_code
+    )
+      AND (
+        NOT EXISTS (
+          SELECT 1
+          FROM property_location_division_memberships membership
+          WHERE membership.country_code = requested.country_code
+            AND membership.area_kind = 'country'
+        )
+        OR NOT EXISTS (
+          SELECT 1
+          FROM location_search_areas area
+          WHERE area.country_code = requested.country_code
+            AND area.source = 'overture'
+        )
+      )
+    ORDER BY requested.country_code
+  `)) as Array<{ country_code: CountryCode }>;
+
+  return rows.map((row) => row.country_code);
 }
 
 async function phase4Cleanup(sql: postgres.Sql): Promise<void> {
@@ -474,8 +535,14 @@ async function main(): Promise<void> {
   try {
     await phase2Copy(sql);
     const { changedDivisions, changedAreas } = await phase3Upsert(sql);
-    if (changedDivisions > 0 || changedAreas > 0) {
-      await rebuildLocationSearchAreasAfterDivisionImport();
+    const rebuildCountries =
+      changedDivisions > 0 || changedAreas > 0
+        ? countries
+        : await findCountriesNeedingDerivedRebuild(sql, countries);
+    if (rebuildCountries.length > 0) {
+      await rebuildLocationSearchAreasAfterDivisionImport(rebuildCountries);
+    } else {
+      console.log('  Overture memberships/search areas already populated; skipping rebuild.');
     }
     await phase4Cleanup(sql);
     console.log('\n' + '='.repeat(60));

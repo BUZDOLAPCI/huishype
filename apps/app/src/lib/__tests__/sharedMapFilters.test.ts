@@ -5,6 +5,7 @@ import {
   DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
   doesMapFilterCandidateMatch,
   getLocationFilterTokenCameraBounds,
+  getLocationFilterTokenCameraMaxZoom,
   getMapPriceSuggestions,
   getMapVisiblePriceModes,
   isMapStatusPillActive,
@@ -527,5 +528,46 @@ describe('sharedMapFilters price suggestions', () => {
     expect(currentLocationBounds?.[1]).toBeLessThan(52.0907);
     expect(currentLocationBounds?.[2]).toBeGreaterThan(5.1214);
     expect(currentLocationBounds?.[3]).toBeGreaterThan(52.0907);
+  });
+
+  it('uses tighter camera max zoom caps for smaller area types', () => {
+    expect(
+      getLocationFilterTokenCameraMaxZoom([
+        {
+          type: 'street',
+          countryCode: 'NL',
+          value: 'beeldbuisring',
+          label: 'Beeldbuisring',
+        },
+      ])
+    ).toBe(16);
+
+    expect(
+      getLocationFilterTokenCameraMaxZoom([
+        {
+          type: 'postcode',
+          countryCode: 'NL',
+          value: '5651ha',
+          label: '5651HA',
+        },
+      ])
+    ).toBe(15);
+
+    expect(
+      getLocationFilterTokenCameraMaxZoom([
+        {
+          type: 'city',
+          countryCode: 'NL',
+          value: 'eindhoven',
+          label: 'Eindhoven',
+        },
+        {
+          type: 'street',
+          countryCode: 'NL',
+          value: 'beeldbuisring',
+          label: 'Beeldbuisring',
+        },
+      ])
+    ).toBe(13);
   });
 });

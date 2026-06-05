@@ -77,6 +77,7 @@ import {
   DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
   getCanonicalMapFilterSignature,
   getLocationFilterTokenCameraBounds,
+  getLocationFilterTokenCameraMaxZoom,
   getMapFilterSearchString,
   hasMapFilterQueryParams,
   parseMapFiltersFromSearchParams,
@@ -2830,7 +2831,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     if (bounds) {
       map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], {
         padding: 96,
-        maxZoom: areas.length === 1 ? 13 : 11,
+        maxZoom: getLocationFilterTokenCameraMaxZoom(areas),
         duration: 650,
         essential: true,
       });

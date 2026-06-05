@@ -537,10 +537,62 @@ function buildLocationSuggestionDedupeKey(
   }
 
   if (suggestion.filterToken) {
-    return `area:${buildTokenId(suggestion.filterToken)}`;
+    const token = suggestion.filterToken;
+    const countryCode = normalizeCountryCode(
+      token.countryCode ?? suggestion.countryCode ?? undefined
+    );
+    const value = normalizeLocationTokenValue(token.type, token.value || token.label || suggestion.label);
+    if (!countryCode || !value) {
+      return `area:${buildTokenId(token)}`;
+    }
+    const parts = ['area', token.type, countryCode, value];
+    if (token.type === 'street') {
+      const city = normalizeSearchToken(token.city ?? suggestion.city);
+      if (city) parts.push(`city=${city}`);
+    }
+    return parts.join(':');
   }
 
   return [suggestion.type, suggestion.propertyId ?? suggestion.id].join(':');
+}
+
+function buildScopedLocationSuggestionDedupeKey(
+  suggestion: LocationSearchSuggestionResponse
+): string | null {
+  return suggestion.filterToken ? `area-scoped:${buildTokenId(suggestion.filterToken)}` : null;
+}
+
+function getConcreteAreaScopeKey(suggestion: LocationSearchSuggestionResponse): string | null {
+  const token = suggestion.filterToken;
+  if (!token || token.source !== 'overture') {
+    return null;
+  }
+
+  if (
+    (token.type === 'city' || token.type === 'region' || token.type === 'country') &&
+    token.divisionId
+  ) {
+    const divisionId = normalizeDivisionId(token.divisionId);
+    return divisionId ? `${token.type}:${divisionId}` : null;
+  }
+
+  if ((token.type === 'street' || token.type === 'postcode') && token.parentDivisionId) {
+    const parentDivisionId = normalizeDivisionId(token.parentDivisionId);
+    return parentDivisionId
+      ? `${token.type}:${token.parentDivisionKind ?? ''}:${parentDivisionId}`
+      : null;
+  }
+
+  return null;
+}
+
+function areDistinctScopedAreaSuggestions(
+  existing: LocationSearchSuggestionResponse,
+  candidate: LocationSearchSuggestionResponse
+): boolean {
+  const existingScope = getConcreteAreaScopeKey(existing);
+  const candidateScope = getConcreteAreaScopeKey(candidate);
+  return Boolean(existingScope && candidateScope && existingScope !== candidateScope);
 }
 
 function isDbBackedAreaSuggestion(suggestion: LocationSearchSuggestionResponse): boolean {
@@ -688,6 +740,12 @@ function shouldReplaceLocationSuggestion(
   existing: LocationSearchSuggestionResponse,
   candidate: LocationSearchSuggestionResponse
 ): boolean {
+  const existingSource = existing.filterToken?.source ?? null;
+  const candidateSource = candidate.filterToken?.source ?? null;
+  if (candidateSource === 'overture' && existingSource !== 'overture') {
+    return true;
+  }
+
   return isDbBackedAreaSuggestion(candidate) && !isDbBackedAreaSuggestion(existing);
 }
 
@@ -1155,6 +1213,7 @@ async function queryDbAreaLocationSuggestions(
         ${countryPredicate}
         AND ${buildStringInPredicate(sql`lsa.match_value`, normalizedPostalCodeCandidates)}
       ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         lsa.property_count DESC,
         lsa.country_code,
         lsa.postal_code
@@ -1201,6 +1260,7 @@ async function queryDbAreaLocationSuggestions(
         ${countryPredicate}
         AND ${buildTextCandidatePredicate(sql`lsa.city`, q)}
       ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
         lsa.property_count DESC,
         lsa.country_code,
@@ -1247,6 +1307,7 @@ async function queryDbAreaLocationSuggestions(
           LIMIT 1
         )
       ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
         lsa.property_count DESC,
         lsa.country_code,
@@ -1284,6 +1345,7 @@ async function queryDbAreaLocationSuggestions(
         ${countryPredicate}
         AND ${buildTextCandidatePredicate(sql`lsa.street`, rawStreetQuery)}
       ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
         lsa.property_count DESC,
         lsa.country_code,
@@ -1339,6 +1401,7 @@ async function queryDbCountryLocationSuggestions(
       WHERE lsa.area_kind = 'country'
         AND ${buildStringInPredicate(sql`lsa.country_code`, countryCodes)}
       ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         lsa.property_count DESC,
         lsa.country_code
       LIMIT ${Math.max(1, Math.min(limit, countryCodes.length))}
@@ -1508,6 +1571,81 @@ async function queryAreaTokenHasBackingRows(
   );
 
   return rows[0]?.exists === true;
+}
+
+async function queryCanonicalDbAreaSuggestionForToken(
+  token: LocationFilterToken,
+  requestedCountryCode: CountryCode | undefined,
+  proximity: SearchProximity | undefined
+): Promise<LocationSearchSuggestionResponse | null> {
+  if (token.type === 'current-location') {
+    return null;
+  }
+
+  const countryCode = normalizeCountryCode(token.countryCode ?? undefined) ?? requestedCountryCode;
+  const countryPredicate = countryCode ? sql`AND lsa.country_code = ${countryCode}` : sql``;
+  const label = token.label || token.value;
+  const cityPredicate =
+    token.city && token.type !== 'city' && token.type !== 'postcode'
+      ? sql`AND ${buildTextCandidatePredicate(sql`lsa.city`, token.city)}`
+      : sql``;
+  const regionPredicate =
+    token.region && token.type !== 'street' && token.type !== 'postcode'
+      ? sql`AND ${buildTextCandidatePredicate(sql`lsa.region`, token.region)}`
+      : sql``;
+
+  let predicate = sql`FALSE`;
+  if (token.type === 'city') {
+    predicate = buildTextCandidatePredicate(sql`lsa.city`, label);
+  } else if (token.type === 'region') {
+    predicate = buildTextCandidatePredicate(sql`lsa.region`, label);
+  } else if (token.type === 'postcode') {
+    const candidates = getPostalCodeSearchCandidates(token.postalCode ?? label, countryCode).map(
+      (candidate) => normalizePostalCodeForMatch(candidate).toLowerCase()
+    );
+    predicate = buildStringInPredicate(sql`lsa.match_value`, candidates);
+  } else if (token.type === 'street') {
+    predicate = buildTextCandidatePredicate(sql`lsa.street`, token.street ?? label);
+  } else if (token.type === 'country') {
+    const targetCountryCode = countryCode ?? normalizeCountryCode(token.value);
+    predicate = targetCountryCode ? sql`lsa.country_code = ${targetCountryCode}` : sql`FALSE`;
+  }
+
+  const rows = Array.from(
+    await db.execute<DbLocationSearchRow>(sql`
+    SELECT
+      NULL::uuid AS id,
+      lsa.country_code,
+      lsa.source,
+      lsa.division_id,
+      lsa.parent_division_id,
+      lsa.parent_area_kind,
+      lsa.street,
+      NULL::integer AS house_number,
+      NULL::text AS house_number_addition,
+      lsa.city,
+      lsa.region,
+      lsa.postal_code,
+      lsa.lon AS lon,
+      lsa.lat AS lat
+    FROM location_search_areas lsa
+    WHERE lsa.area_kind = ${token.type}
+      ${countryPredicate}
+      ${cityPredicate}
+      ${regionPredicate}
+      AND ${predicate}
+    ORDER BY
+      CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
+      ${buildCoordinateDistanceOrder(sql`lsa.lon`, sql`lsa.lat`, proximity)}
+      lsa.property_count DESC,
+      lsa.country_code,
+      lsa.label
+    LIMIT 1
+  `)
+  );
+
+  const row = rows[0];
+  return row ? buildDbAreaSuggestion(row, token.type) : null;
 }
 
 function isNeighborhoodLikeFeature(feature: PhotonFeature, label: string): boolean {
@@ -1740,6 +1878,10 @@ async function queryBackedStreetSuggestionForFeatureLabel(
     SELECT
       NULL::uuid AS id,
       lsa.country_code,
+      lsa.source,
+      lsa.division_id,
+      lsa.parent_division_id,
+      lsa.parent_area_kind,
       lsa.street,
       NULL::integer AS house_number,
       NULL::text AS house_number_addition,
@@ -1754,6 +1896,7 @@ async function queryBackedStreetSuggestionForFeatureLabel(
       AND ${buildTextCandidatePredicate(sql`lsa.street`, label)}
       AND ${buildTextCandidatePredicate(sql`lsa.city`, city)}
     ORDER BY
+      CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
       CASE
         WHEN ${region == null} THEN 0
         WHEN ${buildTextCandidatePredicate(sql`lsa.region`, region ?? '')} THEN 0
@@ -1897,6 +2040,15 @@ async function transformLocationFeature(
     label,
     requestedCountryCode
   );
+  const canonicalSuggestion = await queryCanonicalDbAreaSuggestionForToken(
+    filterToken,
+    requestedCountryCode,
+    { lon: coordinates[0], lat: coordinates[1] }
+  );
+  if (canonicalSuggestion) {
+    return canonicalSuggestion;
+  }
+
   if (type === 'street') {
     const backedStreetSuggestion = await queryBackedStreetSuggestionForFeatureLabel(
       feature,
@@ -2171,6 +2323,66 @@ function buildHydratedTokenFromRow(
   };
 }
 
+function getHydrationRowConcreteScopeKey(
+  token: LocationFilterTokenWithId,
+  row: LocationTokenHydrationRow
+): string | null {
+  if (row.source !== 'overture') {
+    return null;
+  }
+
+  if (
+    (token.type === 'city' || token.type === 'region' || token.type === 'country') &&
+    row.division_id
+  ) {
+    return `${token.type}:${normalizeDivisionId(row.division_id)}`;
+  }
+
+  if ((token.type === 'street' || token.type === 'postcode') && row.parent_division_id) {
+    return `${token.type}:${row.parent_area_kind ?? ''}:${normalizeDivisionId(row.parent_division_id)}`;
+  }
+
+  return null;
+}
+
+function selectHydrationRow(
+  token: LocationFilterTokenWithId,
+  rows: LocationTokenHydrationRow[]
+): LocationTokenHydrationRow | null {
+  if (rows.length === 1) {
+    return rows[0]!;
+  }
+
+  const overtureRows = rows.filter((row) => row.source === 'overture');
+  if (overtureRows.length === 0) {
+    const semanticScopes = new Set(
+      rows.map((row) =>
+        [
+          row.source ?? 'properties',
+          token.type,
+          normalizeCountryCode(row.country_code ?? undefined) ?? '',
+          normalizeSearchToken(row.city),
+          normalizeSearchToken(row.region),
+          normalizePostalCodeForMatch(row.postal_code).toLowerCase(),
+          normalizeSearchToken(row.street),
+        ].join(':')
+      )
+    );
+    return semanticScopes.size === 1 ? rows[0]! : null;
+  }
+
+  const concreteScopes = new Set(
+    overtureRows
+      .map((row) => getHydrationRowConcreteScopeKey(token, row))
+      .filter((scope): scope is string => Boolean(scope))
+  );
+  if (concreteScopes.size <= 1) {
+    return overtureRows[0]!;
+  }
+
+  return null;
+}
+
 async function queryHydratedLocationToken(
   token: LocationFilterTokenWithId,
   requestedCountryCode: CountryCode | undefined
@@ -2192,7 +2404,8 @@ async function queryHydratedLocationToken(
     ? sql`AND lsa.source = 'overture' AND lsa.division_id = ${token.divisionId}`
     : sql``;
   const divisionSelectPredicate =
-    token.divisionId && (token.type === 'city' || token.type === 'region' || token.type === 'country');
+    token.divisionId &&
+    (token.type === 'city' || token.type === 'region' || token.type === 'country');
   if (divisionSelectPredicate) {
     const rows = Array.from(
       await db.execute<LocationTokenHydrationRow>(sql`
@@ -2219,13 +2432,16 @@ async function queryHydratedLocationToken(
         AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
         ${divisionPredicate}
-      ORDER BY lsa.property_count DESC
-      LIMIT 2
+      ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
+        lsa.property_count DESC
+      LIMIT 5
     `)
     );
 
-    if (rows.length === 1) {
-      return buildHydratedTokenFromRow(token, rows[0]!);
+    const selectedRow = selectHydrationRow(token, rows);
+    if (selectedRow) {
+      return buildHydratedTokenFromRow(token, selectedRow);
     }
   }
 
@@ -2287,8 +2503,10 @@ async function queryHydratedLocationToken(
             ${countryPredicate}
             AND LOWER(lsa.city) = LOWER(${cityLabel})
             ${regionPredicate}
-          ORDER BY lsa.property_count DESC
-          LIMIT 2
+          ORDER BY
+            CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
+            lsa.property_count DESC
+          LIMIT 5
         `)
         )
       : Array.from(
@@ -2317,8 +2535,10 @@ async function queryHydratedLocationToken(
             AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
             ${countryPredicate}
             AND LOWER(lsa.city) = LOWER(${cityLabel})
-          ORDER BY lsa.property_count DESC
-          LIMIT 2
+          ORDER BY
+            CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
+            lsa.property_count DESC
+          LIMIT 5
         `)
         );
   } else if (token.type === 'region') {
@@ -2347,8 +2567,10 @@ async function queryHydratedLocationToken(
         AND lsa.lon IS NOT NULL AND lsa.lat IS NOT NULL
         ${countryPredicate}
         AND LOWER(lsa.region) = LOWER(${regionLabel})
-      ORDER BY lsa.property_count DESC
-      LIMIT 2
+      ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
+        lsa.property_count DESC
+      LIMIT 5
     `)
     );
   } else if (token.type === 'postcode') {
@@ -2382,8 +2604,10 @@ async function queryHydratedLocationToken(
         ${cityPredicate}
         ${regionPredicate}
         AND lsa.match_value = ${normalizePostalCodeForMatch(tokenPostalCode).toLowerCase()}
-      ORDER BY lsa.property_count DESC
-      LIMIT 2
+      ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
+        lsa.property_count DESC
+      LIMIT 5
     `)
     );
   } else if (token.type === 'street') {
@@ -2416,19 +2640,21 @@ async function queryHydratedLocationToken(
         ${cityPredicate}
         AND LOWER(lsa.street) = LOWER(${streetLabel})
       ORDER BY
+        CASE WHEN lsa.source = 'overture' THEN 0 ELSE 1 END,
         CASE
           WHEN ${token.region == null} THEN 0
           WHEN LOWER(lsa.region) = LOWER(${token.region ?? ''}) THEN 0
           ELSE 1
         END,
         lsa.property_count DESC
-      LIMIT 2
+      LIMIT 5
     `)
     );
   }
 
-  return rows.length === 1
-    ? buildHydratedTokenFromRow(token, rows[0]!)
+  const selectedRow = selectHydrationRow(token, rows);
+  return selectedRow
+    ? buildHydratedTokenFromRow(token, selectedRow)
     : withHydratedTokenDefaults({ ...token, countryCode });
 }
 
@@ -2601,6 +2827,11 @@ export async function searchLocations(input: {
       const existing = dedupedSuggestions.get(key);
       if (!existing) {
         dedupedSuggestions.set(key, suggestion);
+      } else if (areDistinctScopedAreaSuggestions(existing, suggestion)) {
+        const scopedKey = buildScopedLocationSuggestionDedupeKey(suggestion);
+        if (scopedKey && !dedupedSuggestions.has(scopedKey)) {
+          dedupedSuggestions.set(scopedKey, suggestion);
+        }
       } else if (shouldReplaceLocationSuggestion(existing, suggestion)) {
         dedupedSuggestions.set(key, mergeCanonicalAreaSuggestion(suggestion, existing));
       } else {

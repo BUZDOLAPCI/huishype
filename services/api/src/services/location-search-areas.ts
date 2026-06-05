@@ -17,6 +17,13 @@ type RebuildLogger = {
   info?: (message: string, details?: Record<string, unknown>) => void;
 };
 
+type RebuildLocationSearchAreasOptions = {
+  logger?: RebuildLogger;
+  countries?: readonly string[];
+  profile?: boolean;
+  rebuildOvertureMemberships?: boolean;
+};
+
 type CountRow = {
   count: number | string;
 };
@@ -93,6 +100,7 @@ const ACTIVE_PROPERTIES_CTE = `
      AND city_membership.area_kind = 'city'
     WHERE p.status = 'active'
       AND p.country_code IS NOT NULL
+      {active_properties_country_filter}
   )
 `;
 
@@ -347,6 +355,7 @@ const INSERT_OVERTURE_COUNTRY_AREAS = `
     JOIN properties p ON p.id = membership.property_id
     WHERE membership.area_kind = 'country'
       AND p.status = 'active'
+      {membership_country_filter}
     GROUP BY membership.division_id
   ),
   area_bounds AS (
@@ -400,6 +409,7 @@ const INSERT_OVERTURE_REGION_AREAS = `
     JOIN properties p ON p.id = membership.property_id
     WHERE membership.area_kind = 'region'
       AND p.status = 'active'
+      {membership_country_filter}
     GROUP BY membership.division_id
   ),
   area_bounds AS (
@@ -453,6 +463,7 @@ const INSERT_OVERTURE_CITY_AREAS = `
     JOIN properties p ON p.id = membership.property_id
     WHERE membership.area_kind = 'city'
       AND p.status = 'active'
+      {membership_country_filter}
     GROUP BY membership.division_id
   ),
   area_bounds AS (
@@ -495,10 +506,13 @@ const INSERT_OVERTURE_CITY_AREAS = `
   WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
 `;
 
-const FULL_INSERTS = [
+const OVERTURE_FULL_INSERTS = [
   INSERT_OVERTURE_COUNTRY_AREAS,
   INSERT_OVERTURE_REGION_AREAS,
   INSERT_OVERTURE_CITY_AREAS,
+];
+
+const PROPERTY_FULL_INSERTS = [
   INSERT_COUNTRY_AREAS,
   INSERT_BROAD_CITY_AREAS,
   INSERT_REGIONAL_CITY_AREAS,
@@ -538,6 +552,14 @@ const TARGETED_AREA_UPSERT = `
 function normalizeCountryCode(value: string | null | undefined): string | null {
   const normalized = value?.trim().toUpperCase();
   return normalized && /^[A-Z]{2}$/u.test(normalized) ? normalized : null;
+}
+
+function normalizeCountryCodes(values: readonly string[] | undefined): string[] {
+  return [...new Set((values ?? []).map(normalizeCountryCode).filter((value): value is string => value != null))];
+}
+
+function countryCodeSqlList(countryCodes: readonly string[]): string {
+  return countryCodes.map((countryCode) => `'${countryCode}'`).join(', ');
 }
 
 function normalizeTextValue(value: string | null | undefined): string | null {
@@ -582,15 +604,149 @@ function normalizePropertyKey(
   };
 }
 
-function locationSearchAreaInsertSql(template: string, destination: string): SQL {
-  return sql.raw(template.replaceAll('{destination}', destination));
+function locationSearchAreaInsertSql(
+  template: string,
+  destination: string,
+  countryCodes: readonly string[] = []
+): SQL {
+  const countryList = countryCodes.length > 0 ? countryCodeSqlList(countryCodes) : '';
+  return sql.raw(
+    template
+      .replaceAll('{destination}', destination)
+      .replaceAll(
+        '{active_properties_country_filter}',
+        countryCodes.length > 0 ? `AND p.country_code IN (${countryList})` : ''
+      )
+      .replaceAll(
+        '{membership_country_filter}',
+        countryCodes.length > 0 ? `AND membership.country_code IN (${countryList})` : ''
+      )
+  );
 }
 
-async function insertPropertyLocationDivisionMemberships(
+export function buildOvertureDivisionAreaSubdivisionsRefreshSql(
+  countryCodes: readonly string[] = []
+): string {
+  const normalizedCountryCodes = normalizeCountryCodes(countryCodes);
+  const countryPredicate =
+    normalizedCountryCodes.length > 0
+      ? `WHERE country_code IN (${countryCodeSqlList(normalizedCountryCodes)})`
+      : '';
+  const areaCountryPredicate =
+    normalizedCountryCodes.length > 0
+      ? `AND area.country_code IN (${countryCodeSqlList(normalizedCountryCodes)})`
+      : '';
+
+  return `
+    DELETE FROM overture_division_area_subdivisions
+    ${countryPredicate};
+
+    INSERT INTO overture_division_area_subdivisions (
+      division_area_id,
+      division_id,
+      country_code,
+      subtype,
+      selection_rank,
+      area_sort,
+      geometry
+    )
+    SELECT
+      area.id,
+      area.division_id,
+      area.country_code,
+      area.subtype,
+      CASE area.subtype
+        WHEN 'locality' THEN 0
+        WHEN 'localadmin' THEN 1
+        WHEN 'region' THEN 0
+        WHEN 'country' THEN 0
+        ELSE 9
+      END,
+      ST_Area(area.geometry),
+      subdivided.geometry
+    FROM overture_division_areas area
+    CROSS JOIN LATERAL (
+      SELECT (ST_Dump(ST_Subdivide(area.geometry, 256))).geom AS geometry
+    ) subdivided
+    WHERE area.subtype IN ('country', 'region', 'locality', 'localadmin')
+      AND NOT ST_IsEmpty(subdivided.geometry)
+      ${areaCountryPredicate};
+
+    ANALYZE overture_division_area_subdivisions
+  `;
+}
+
+async function refreshOvertureDivisionAreaSubdivisions(
+  executor: QueryExecutor,
+  countryCodes: readonly string[] = []
+): Promise<void> {
+  await executor.execute(sql.raw(buildOvertureDivisionAreaSubdivisionsRefreshSql(countryCodes)));
+}
+
+async function createPropertyLocationDivisionMembershipsStaging(
+  executor: QueryExecutor,
+  tableName: string,
+  persistence: 'temp' | 'unlogged'
+): Promise<void> {
+  if (persistence === 'unlogged') {
+    await executor.execute(sql.raw(`DROP TABLE IF EXISTS ${tableName}`));
+  }
+  await executor.execute(sql.raw(`
+    CREATE ${persistence === 'unlogged' ? 'UNLOGGED' : 'TEMP'} TABLE ${tableName} (
+      property_id uuid NOT NULL,
+      area_kind varchar(16) NOT NULL,
+      division_id text NOT NULL,
+      division_area_id text NOT NULL,
+      subtype varchar(32) NOT NULL,
+      country_code varchar(2) NOT NULL,
+      selection_rank integer NOT NULL,
+      area_sort double precision NOT NULL,
+      updated_at timestamp with time zone NOT NULL DEFAULT now(),
+      PRIMARY KEY (property_id, area_kind)
+    ) ${persistence === 'temp' ? 'ON COMMIT DROP' : ''}
+  `));
+  await executor.execute(sql.raw(`
+    CREATE INDEX ${tableName}_ck_idx
+      ON ${tableName} (country_code, area_kind)
+  `));
+}
+
+const MEMBERSHIP_CANDIDATE_UPSERT = `
+  ON CONFLICT (property_id, area_kind) DO UPDATE SET
+    division_id = EXCLUDED.division_id,
+    division_area_id = EXCLUDED.division_area_id,
+    subtype = EXCLUDED.subtype,
+    country_code = EXCLUDED.country_code,
+    selection_rank = EXCLUDED.selection_rank,
+    area_sort = EXCLUDED.area_sort,
+    updated_at = NOW()
+  WHERE
+    (
+      EXCLUDED.selection_rank,
+      EXCLUDED.area_sort,
+      EXCLUDED.division_area_id
+    )
+    <
+    (
+      {destination}.selection_rank,
+      {destination}.area_sort,
+      {destination}.division_area_id
+    )
+`;
+
+async function insertRankedPropertyLocationDivisionMembershipCandidates(
   executor: QueryExecutor,
   destination: string,
-  propertyJoinSql = ''
+  propertyJoinSql = '',
+  countryCodes: readonly string[] = []
 ): Promise<void> {
+  const normalizedCountryCodes = normalizeCountryCodes(countryCodes);
+  const propertyCountryFilter =
+    normalizedCountryCodes.length > 0
+      ? `AND p.country_code IN (${countryCodeSqlList(normalizedCountryCodes)})`
+      : '';
+  const candidateUpsert = MEMBERSHIP_CANDIDATE_UPSERT.replaceAll('{destination}', destination);
+
   await executor.execute(sql.raw(`
     INSERT INTO ${destination} (
       property_id,
@@ -598,29 +754,35 @@ async function insertPropertyLocationDivisionMemberships(
       division_id,
       division_area_id,
       subtype,
-      country_code
+      country_code,
+      selection_rank,
+      area_sort
     )
     SELECT DISTINCT ON (p.id)
       p.id,
       'city',
-      area.division_id,
-      area.id,
-      area.subtype,
-      p.country_code
+      subdivision.division_id,
+      subdivision.division_area_id,
+      subdivision.subtype,
+      p.country_code,
+      subdivision.selection_rank,
+      subdivision.area_sort
     FROM properties p
     ${propertyJoinSql}
-    JOIN overture_division_areas area
-      ON area.country_code = p.country_code
-     AND area.subtype IN ('locality', 'localadmin')
-     AND area.geometry && p.geometry
-     AND ST_Covers(area.geometry, p.geometry)
+    JOIN overture_division_area_subdivisions subdivision
+      ON subdivision.country_code = p.country_code
+     AND subdivision.subtype IN ('locality', 'localadmin')
+     AND subdivision.geometry && p.geometry
+     AND ST_Covers(subdivision.geometry, p.geometry)
     WHERE p.status = 'active'
       AND p.geometry IS NOT NULL
+      ${propertyCountryFilter}
     ORDER BY
       p.id,
-      CASE area.subtype WHEN 'locality' THEN 0 ELSE 1 END,
-      ST_Area(area.geometry) ASC,
-      area.id
+      subdivision.selection_rank,
+      subdivision.area_sort,
+      subdivision.division_area_id
+    ${candidateUpsert}
   `));
 
   await executor.execute(sql.raw(`
@@ -630,71 +792,85 @@ async function insertPropertyLocationDivisionMemberships(
       division_id,
       division_area_id,
       subtype,
-      country_code
+      country_code,
+      selection_rank,
+      area_sort
     )
     SELECT DISTINCT ON (p.id)
       p.id,
       'region',
-      area.division_id,
-      area.id,
-      area.subtype,
-      p.country_code
+      subdivision.division_id,
+      subdivision.division_area_id,
+      subdivision.subtype,
+      p.country_code,
+      subdivision.selection_rank,
+      subdivision.area_sort
     FROM properties p
     ${propertyJoinSql}
-    JOIN overture_division_areas area
-      ON area.country_code = p.country_code
-     AND area.subtype = 'region'
-     AND area.geometry && p.geometry
-     AND ST_Covers(area.geometry, p.geometry)
+    JOIN overture_division_area_subdivisions subdivision
+      ON subdivision.country_code = p.country_code
+     AND subdivision.subtype = 'region'
+     AND subdivision.geometry && p.geometry
+     AND ST_Covers(subdivision.geometry, p.geometry)
     WHERE p.status = 'active'
       AND p.geometry IS NOT NULL
-    ORDER BY p.id, ST_Area(area.geometry) ASC, area.id
+      ${propertyCountryFilter}
+    ORDER BY
+      p.id,
+      subdivision.selection_rank,
+      subdivision.area_sort,
+      subdivision.division_area_id
+    ${candidateUpsert}
   `));
 
   await executor.execute(sql.raw(`
+    WITH country_area AS (
+      SELECT DISTINCT ON (area.country_code)
+        area.country_code,
+        area.division_id,
+        area.id AS division_area_id,
+        area.subtype,
+        0 AS selection_rank,
+        ST_Area(area.geometry) AS area_sort
+      FROM overture_division_areas area
+      WHERE area.subtype = 'country'
+      ORDER BY area.country_code, ST_Area(area.geometry), area.id
+    )
     INSERT INTO ${destination} (
       property_id,
       area_kind,
       division_id,
       division_area_id,
       subtype,
-      country_code
+      country_code,
+      selection_rank,
+      area_sort
     )
-    SELECT DISTINCT ON (p.id)
+    SELECT
       p.id,
       'country',
-      area.division_id,
-      area.id,
-      area.subtype,
-      p.country_code
+      country_area.division_id,
+      country_area.division_area_id,
+      country_area.subtype,
+      p.country_code,
+      country_area.selection_rank,
+      country_area.area_sort
     FROM properties p
     ${propertyJoinSql}
-    JOIN overture_division_areas area
-      ON area.country_code = p.country_code
-     AND area.subtype = 'country'
-     AND area.geometry && p.geometry
-     AND ST_Covers(area.geometry, p.geometry)
+    JOIN country_area
+      ON country_area.country_code = p.country_code
     WHERE p.status = 'active'
-      AND p.geometry IS NOT NULL
-    ORDER BY p.id, ST_Area(area.geometry) ASC, area.id
+      ${propertyCountryFilter}
+    ${candidateUpsert}
   `));
+
+  await executor.execute(sql.raw(`ANALYZE ${destination}`));
 }
 
-async function rebuildPropertyLocationDivisionMemberships(
-  executor: QueryExecutor
+async function copyPropertyLocationDivisionMembershipsFromStaging(
+  executor: QueryExecutor,
+  source: string
 ): Promise<void> {
-  await executor.execute(sql`
-    CREATE TEMP TABLE property_location_division_memberships_rebuild
-    (LIKE property_location_division_memberships INCLUDING DEFAULTS)
-    ON COMMIT DROP
-  `);
-
-  await insertPropertyLocationDivisionMemberships(
-    executor,
-    'property_location_division_memberships_rebuild'
-  );
-
-  await executor.execute(sql`TRUNCATE property_location_division_memberships`);
   await executor.execute(sql.raw(`
     INSERT INTO property_location_division_memberships (
       property_id,
@@ -713,9 +889,36 @@ async function rebuildPropertyLocationDivisionMemberships(
       subtype,
       country_code,
       updated_at
-    FROM property_location_division_memberships_rebuild
+    FROM ${source}
   `));
+}
+
+async function rebuildPropertyLocationDivisionMemberships(
+  executor: QueryExecutor,
+  countryCodes: readonly string[] = []
+): Promise<void> {
+  const normalizedCountryCodes = normalizeCountryCodes(countryCodes);
+  const stagingTable = 'property_location_division_memberships_rebuild_staging';
+  await refreshOvertureDivisionAreaSubdivisions(executor, normalizedCountryCodes);
+  await createPropertyLocationDivisionMembershipsStaging(executor, stagingTable, 'unlogged');
+  await insertRankedPropertyLocationDivisionMembershipCandidates(
+    executor,
+    stagingTable,
+    '',
+    normalizedCountryCodes
+  );
+
+  if (normalizedCountryCodes.length > 0) {
+    await executor.execute(sql.raw(`
+      DELETE FROM property_location_division_memberships
+      WHERE country_code IN (${countryCodeSqlList(normalizedCountryCodes)})
+    `));
+  } else {
+    await executor.execute(sql`TRUNCATE property_location_division_memberships`);
+  }
+  await copyPropertyLocationDivisionMembershipsFromStaging(executor, stagingTable);
   await executor.execute(sql`ANALYZE property_location_division_memberships`);
+  await executor.execute(sql.raw(`DROP TABLE IF EXISTS ${stagingTable}`));
 }
 
 async function refreshOvertureLocationSearchAreasForAffectedDivisions(
@@ -727,116 +930,7 @@ async function refreshOvertureLocationSearchAreasForAffectedDivisions(
     WHERE area.source = 'overture'
       AND area.area_kind = affected.area_kind
       AND area.division_id = affected.division_id
-  `));
-
-  await executor.execute(sql.raw(`
-    WITH membership_counts AS (
-      SELECT
-        membership.division_id,
-        MIN(membership.country_code)::varchar(2) AS country_code,
-        COUNT(*)::int AS property_count,
-        COUNT(p.geometry)::int AS geometry_count
-      FROM property_location_division_memberships membership
-      JOIN affected_overture_location_search_area_keys affected
-        ON affected.area_kind = 'country'
-       AND affected.division_id = membership.division_id
-      JOIN properties p ON p.id = membership.property_id
-      WHERE membership.area_kind = 'country'
-        AND p.status = 'active'
-      GROUP BY membership.division_id
-    ),
-    area_bounds AS (
-      SELECT area.division_id, ST_Collect(area.geometry) AS geometry
-      FROM overture_division_areas area
-      JOIN membership_counts counts ON counts.division_id = area.division_id
-      WHERE area.subtype = 'country'
-      GROUP BY area.division_id
-    )
-    INSERT INTO location_search_areas (${AREA_COLUMNS})
-    SELECT
-      'country:overture:' || division.id,
-      'country:overture:' || division.id,
-      'country',
-      'country',
-      counts.country_code,
-      ${TEXT_MATCH('division.name')},
-      division.name,
-      NULL::varchar(100),
-      NULL::varchar(255),
-      NULL::varchar(32),
-      NULL::varchar(255),
-      ST_X(ST_Centroid(bounds.geometry)),
-      ST_Y(ST_Centroid(bounds.geometry)),
-      ST_XMin(Box3D(bounds.geometry)),
-      ST_YMin(Box3D(bounds.geometry)),
-      ST_XMax(Box3D(bounds.geometry)),
-      ST_YMax(Box3D(bounds.geometry)),
-      counts.property_count,
-      counts.geometry_count,
-      'overture'::varchar(32),
-      division.id,
-      NULL::text,
-      NULL::varchar(16)
-    FROM membership_counts counts
-    JOIN overture_divisions division ON division.id = counts.division_id
-    JOIN area_bounds bounds ON bounds.division_id = counts.division_id
-    WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
-    ${TARGETED_AREA_UPSERT}
-  `));
-
-  await executor.execute(sql.raw(`
-    WITH membership_counts AS (
-      SELECT
-        membership.division_id,
-        MIN(membership.country_code)::varchar(2) AS country_code,
-        COUNT(*)::int AS property_count,
-        COUNT(p.geometry)::int AS geometry_count
-      FROM property_location_division_memberships membership
-      JOIN affected_overture_location_search_area_keys affected
-        ON affected.area_kind = 'region'
-       AND affected.division_id = membership.division_id
-      JOIN properties p ON p.id = membership.property_id
-      WHERE membership.area_kind = 'region'
-        AND p.status = 'active'
-      GROUP BY membership.division_id
-    ),
-    area_bounds AS (
-      SELECT area.division_id, ST_Collect(area.geometry) AS geometry
-      FROM overture_division_areas area
-      JOIN membership_counts counts ON counts.division_id = area.division_id
-      WHERE area.subtype = 'region'
-      GROUP BY area.division_id
-    )
-    INSERT INTO location_search_areas (${AREA_COLUMNS})
-    SELECT
-      'region:overture:' || division.id,
-      'region:overture:' || division.id,
-      'region',
-      'region',
-      counts.country_code,
-      ${TEXT_MATCH('division.name')},
-      division.name,
-      NULL::varchar(100),
-      division.name::varchar(255),
-      NULL::varchar(32),
-      NULL::varchar(255),
-      ST_X(ST_Centroid(bounds.geometry)),
-      ST_Y(ST_Centroid(bounds.geometry)),
-      ST_XMin(Box3D(bounds.geometry)),
-      ST_YMin(Box3D(bounds.geometry)),
-      ST_XMax(Box3D(bounds.geometry)),
-      ST_YMax(Box3D(bounds.geometry)),
-      counts.property_count,
-      counts.geometry_count,
-      'overture'::varchar(32),
-      division.id,
-      NULL::text,
-      NULL::varchar(16)
-    FROM membership_counts counts
-    JOIN overture_divisions division ON division.id = counts.division_id
-    JOIN area_bounds bounds ON bounds.division_id = counts.division_id
-    WHERE ${TEXT_MATCH('division.name')} IS NOT NULL
-    ${TARGETED_AREA_UPSERT}
+      AND affected.area_kind = 'city'
   `));
 
   await executor.execute(sql.raw(`
@@ -1417,10 +1511,19 @@ async function refreshPropertyLocationDivisionMembershipsForPropertyIds(
       WHERE membership.property_id = affected.id
     `);
 
-    await insertPropertyLocationDivisionMemberships(
+    await createPropertyLocationDivisionMembershipsStaging(
       tx,
-      'property_location_division_memberships',
+      'affected_property_location_division_memberships',
+      'temp'
+    );
+    await insertRankedPropertyLocationDivisionMembershipCandidates(
+      tx,
+      'affected_property_location_division_memberships',
       'JOIN affected_property_ids affected ON affected.id = p.id'
+    );
+    await copyPropertyLocationDivisionMembershipsFromStaging(
+      tx,
+      'affected_property_location_division_memberships'
     );
 
     await createAffectedLocationSearchAreaTargets(tx);
@@ -1464,24 +1567,106 @@ async function countLocationSearchAreasByKind(
   return Object.fromEntries(rows.map((row) => [row.area_kind, Number(row.count)]));
 }
 
+async function countPropertyLocationDivisionMembershipsByKind(
+  executor: QueryExecutor,
+  countryCodes: readonly string[] = []
+): Promise<Record<string, number>> {
+  const normalizedCountryCodes = normalizeCountryCodes(countryCodes);
+  const rows = Array.from(
+    (await executor.execute(sql.raw(`
+      SELECT area_kind, COUNT(*)::int AS count
+      FROM property_location_division_memberships
+      ${
+        normalizedCountryCodes.length > 0
+          ? `WHERE country_code IN (${countryCodeSqlList(normalizedCountryCodes)})`
+          : ''
+      }
+      GROUP BY area_kind
+      ORDER BY area_kind
+    `))) as Iterable<AreaKindCountRow>
+  );
+
+  return Object.fromEntries(rows.map((row) => [row.area_kind, Number(row.count)]));
+}
+
+async function runProfiled<T>(
+  label: string,
+  enabled: boolean,
+  logger: RebuildLogger | undefined,
+  run: () => Promise<T>
+): Promise<T> {
+  const start = Date.now();
+  try {
+    return await run();
+  } finally {
+    if (enabled) {
+      logger?.info?.(`Location search rebuild phase: ${label}`, {
+        durationMs: Date.now() - start,
+      });
+    }
+  }
+}
+
 export async function rebuildLocationSearchAreas(
-  options: { logger?: RebuildLogger } = {}
+  options: RebuildLocationSearchAreasOptions = {}
 ): Promise<{ beforeCount: number; afterCount: number }> {
   const startedAt = Date.now();
+  const countryCodes = normalizeCountryCodes(options.countries);
   const beforeCount = await countLocationSearchAreas(db);
 
   const result = await db.transaction(async (tx) => {
-    await rebuildPropertyLocationDivisionMemberships(tx);
+    await tx.execute(sql`SET LOCAL synchronous_commit = off`);
 
-    await tx.execute(sql`
-      CREATE TEMP TABLE location_search_areas_rebuild
-      (LIKE location_search_areas INCLUDING DEFAULTS)
-      ON COMMIT DROP
-    `);
-
-    for (const insertTemplate of FULL_INSERTS) {
-      await tx.execute(locationSearchAreaInsertSql(insertTemplate, 'location_search_areas_rebuild'));
+    if (options.rebuildOvertureMemberships) {
+      await runProfiled(
+        'overture_memberships',
+        options.profile ?? false,
+        options.logger,
+        async () => {
+          await rebuildPropertyLocationDivisionMemberships(tx, countryCodes);
+        }
+      );
     }
+
+    await runProfiled('search_area_staging', options.profile ?? false, options.logger, async () => {
+      await tx.execute(sql`
+        CREATE TEMP TABLE location_search_areas_rebuild
+        (LIKE location_search_areas INCLUDING DEFAULTS)
+        ON COMMIT DROP
+      `);
+
+      for (const insertTemplate of OVERTURE_FULL_INSERTS) {
+        await tx.execute(
+          locationSearchAreaInsertSql(
+            insertTemplate,
+            'location_search_areas_rebuild',
+            countryCodes
+          )
+        );
+      }
+
+      await tx.execute(sql`
+        CREATE INDEX location_search_areas_rebuild_overture_match_idx
+          ON location_search_areas_rebuild (
+            area_kind,
+            source,
+            country_code,
+            match_value
+          )
+          WHERE source = 'overture'
+      `);
+      await tx.execute(sql`ANALYZE location_search_areas_rebuild`);
+
+      for (const insertTemplate of PROPERTY_FULL_INSERTS) {
+        await tx.execute(
+          locationSearchAreaInsertSql(
+            insertTemplate,
+            'location_search_areas_rebuild',
+            countryCodes
+          )
+        );
+      }
+    });
 
     const stagingCounts = await countLocationSearchAreasByKind(
       tx,
@@ -1491,16 +1676,38 @@ export async function rebuildLocationSearchAreas(
       throw new Error('location_search_areas rebuild produced no active country coverage');
     }
 
-    await tx.execute(sql`TRUNCATE location_search_areas`);
-    await tx.execute(sql.raw(`
-      INSERT INTO location_search_areas (${AREA_COLUMNS})
-      SELECT ${AREA_COLUMNS}
-      FROM location_search_areas_rebuild
-    `));
-    await tx.execute(sql`ANALYZE location_search_areas`);
+    await runProfiled('search_area_swap', options.profile ?? false, options.logger, async () => {
+      if (countryCodes.length > 0) {
+        await tx.execute(sql.raw(`
+          DELETE FROM location_search_areas
+          WHERE country_code IN (${countryCodeSqlList(countryCodes)})
+        `));
+      } else {
+        await tx.execute(sql`TRUNCATE location_search_areas`);
+      }
+      await tx.execute(sql.raw(`
+        INSERT INTO location_search_areas (${AREA_COLUMNS})
+        SELECT ${AREA_COLUMNS}
+        FROM (
+          SELECT DISTINCT ON (area_key)
+            ${AREA_COLUMNS}
+          FROM location_search_areas_rebuild
+          ORDER BY
+            area_key,
+            CASE WHEN source = 'overture' THEN 0 ELSE 1 END,
+            property_count DESC,
+            match_value
+        ) deduped
+      `));
+      await tx.execute(sql`ANALYZE location_search_areas`);
+    });
     return {
       afterCount: await countLocationSearchAreas(tx),
       countsByKind: await countLocationSearchAreasByKind(tx, 'location_search_areas'),
+      membershipCountsByKind: await countPropertyLocationDivisionMembershipsByKind(
+        tx,
+        countryCodes
+      ),
     };
   });
 
@@ -1508,6 +1715,9 @@ export async function rebuildLocationSearchAreas(
     beforeCount,
     afterCount: result.afterCount,
     countsByKind: result.countsByKind,
+    membershipCountsByKind: result.membershipCountsByKind,
+    countries: countryCodes.length > 0 ? countryCodes : 'all',
+    rebuiltOvertureMemberships: options.rebuildOvertureMemberships ?? false,
     durationMs: Date.now() - startedAt,
   });
 

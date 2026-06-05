@@ -716,19 +716,52 @@ export const overtureDivisionAreas = pgTable(
   ]
 );
 
-export const propertyLocationDivisionMemberships = pgTable(
-  'property_location_division_memberships',
+export const overtureDivisionAreaSubdivisions = pgTable(
+  'overture_division_area_subdivisions',
   {
-    propertyId: uuid('property_id')
-      .notNull()
-      .references(() => properties.id, { onDelete: 'cascade' }),
-    areaKind: varchar('area_kind', { length: 16 }).notNull(),
-    divisionId: text('division_id')
-      .notNull()
-      .references(() => overtureDivisions.id, { onDelete: 'cascade' }),
+    id: serial('id').primaryKey(),
     divisionAreaId: text('division_area_id')
       .notNull()
       .references(() => overtureDivisionAreas.id, { onDelete: 'cascade' }),
+    divisionId: text('division_id')
+      .notNull()
+      .references(() => overtureDivisions.id, { onDelete: 'cascade' }),
+    countryCode: varchar('country_code', { length: 2 }).notNull(),
+    subtype: varchar('subtype', { length: 32 }).notNull(),
+    selectionRank: integer('selection_rank').notNull(),
+    areaSort: doublePrecision('area_sort').notNull(),
+    geometry: anyGeometry('geometry').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('overture_division_area_subdivisions_area_idx').on(table.divisionAreaId),
+    index('overture_division_area_subdivisions_division_idx').on(table.divisionId),
+    index('overture_division_area_subdivisions_country_subtype_idx').on(
+      table.countryCode,
+      table.subtype
+    ),
+    index('overture_division_area_subdivisions_geometry_gist_idx').using(
+      'gist',
+      table.geometry
+    ),
+    check(
+      'overture_division_area_subdivisions_subtype_check',
+      sql`${table.subtype} IN ('country', 'region', 'locality', 'localadmin')`
+    ),
+    check(
+      'overture_division_area_subdivisions_country_code_check',
+      sql`${table.countryCode} = UPPER(${table.countryCode}) AND LENGTH(${table.countryCode}) = 2`
+    ),
+  ]
+);
+
+export const propertyLocationDivisionMemberships = pgTable(
+  'property_location_division_memberships',
+  {
+    propertyId: uuid('property_id').notNull(),
+    areaKind: varchar('area_kind', { length: 16 }).notNull(),
+    divisionId: text('division_id').notNull(),
+    divisionAreaId: text('division_area_id').notNull(),
     subtype: varchar('subtype', { length: 32 }).notNull(),
     countryCode: varchar('country_code', { length: 2 }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -740,6 +773,10 @@ export const propertyLocationDivisionMemberships = pgTable(
     index('property_location_division_memberships_country_kind_idx').on(
       table.countryCode,
       table.areaKind
+    ),
+    index('property_location_division_memberships_kind_division_idx').on(
+      table.areaKind,
+      table.divisionId
     ),
     check(
       'property_location_division_memberships_area_kind_check',

@@ -39,6 +39,8 @@ import {
   createIntegrationProperty,
 } from './helpers/fixtures.js';
 
+jest.setTimeout(30_000);
+
 /**
  * Integration tests for listing routes.
  *

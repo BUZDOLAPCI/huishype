@@ -372,6 +372,41 @@
       "when": 1778198400026,
       "tag": "0052_location_search_area_dependency_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1778198400027,
+      "tag": "0053_overture_division_area_subdivisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1778198400028,
+      "tag": "0054_unlogged_location_division_memberships",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1778198400029,
+      "tag": "0055_drop_derived_membership_fks",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1778198400030,
+      "tag": "0056_disable_membership_autovacuum",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1778198400031,
+      "tag": "0057_membership_area_kind_division_idx",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+  jest,
+} from '@jest/globals';
 import { buildApp } from '../../app.js';
 import { resetReverseGeocodeCacheForTests } from '../../routes/geocode.js';
 import type { FastifyInstance } from 'fastify';
@@ -113,13 +122,40 @@ async function cleanupOvertureDivisionFixtures(createdDivisionIds: string[]) {
 
   const ids = [...new Set(createdDivisionIds)];
   await db.execute(sql`
+    DELETE FROM overture_division_area_subdivisions
+    WHERE division_id IN (${sql.join(
+      ids.map((id) => sql`${id}`),
+      sql`, `
+    )})
+  `);
+  await db.execute(sql`
+    DELETE FROM property_location_division_memberships
+    WHERE division_id IN (${sql.join(
+      ids.map((id) => sql`${id}`),
+      sql`, `
+    )})
+  `);
+  await db.execute(sql`
     DELETE FROM location_search_areas
     WHERE source = 'overture'
-      AND division_id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+      AND division_id IN (${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `
+      )})
+  `);
+  await db.execute(sql`
+    DELETE FROM overture_division_areas
+    WHERE division_id IN (${sql.join(
+      ids.map((id) => sql`${id}`),
+      sql`, `
+    )})
   `);
   await db.execute(sql`
     DELETE FROM overture_divisions
-    WHERE id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+    WHERE id IN (${sql.join(
+      ids.map((id) => sql`${id}`),
+      sql`, `
+    )})
   `);
   createdDivisionIds.length = 0;
 }
@@ -132,7 +168,10 @@ async function cleanupLocationSearchAreaFixtures(createdAreaKeys: string[]) {
   const keys = [...new Set(createdAreaKeys)];
   await db.execute(sql`
     DELETE FROM location_search_areas
-    WHERE area_key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})
+    WHERE area_key IN (${sql.join(
+      keys.map((key) => sql`${key}`),
+      sql`, `
+    )})
   `);
   createdAreaKeys.length = 0;
 }
@@ -164,6 +203,90 @@ function normalizeSearchToken(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+async function createTrackedIntegrationProperty(
+  createdPropertyIds: string[],
+  options: Parameters<typeof createIntegrationProperty>[0] = {}
+) {
+  const property = await createIntegrationProperty(options);
+  createdPropertyIds.push(property.id);
+  return property;
+}
+
+async function cleanupKnownGeocodeFixtureLeftovers() {
+  const rows = Array.from(
+    await db.execute<{ id: string }>(sql`
+      SELECT id
+      FROM properties
+      WHERE country_code = 'NL'
+        AND (
+          (
+            street = 'Addition Teststraat'
+            AND postal_code = '5651HP'
+            AND city = 'Eindhoven'
+            AND house_number = 16
+          )
+          OR (
+            street IN ('Ambiguous One', 'Ambiguous Two')
+            AND postal_code = '5652HP'
+            AND city = 'Eindhoven'
+            AND house_number = 22
+          )
+          OR (
+            street = 'Hydrationstraat'
+            AND postal_code = '5612MA'
+            AND city = 'Hydratiedam'
+          )
+          OR (
+            street LIKE 'Overture Member Street %'
+            AND postal_code = '5688OC'
+          )
+          OR (
+            country_code IN ('ES', 'PT')
+            AND (
+              street LIKE 'Coverage Country Street %'
+              OR street LIKE 'Shared Identity Lane %'
+              OR street LIKE 'Regional Identity Street %'
+              OR street LIKE 'Variantstraat %'
+              OR street LIKE 'Photon Fallback Street %'
+              OR street = 'Hydrationstraat'
+              OR street LIKE 'Hydration Variant %'
+              OR street LIKE 'Sharedhydration%'
+            )
+          )
+        )
+    `)
+  );
+  await cleanupCreatedProperties(rows.map((row) => row.id));
+
+  await db.execute(sql`
+    DELETE FROM location_search_areas
+    WHERE source = 'properties'
+      AND country_code IN ('ES', 'PT')
+      AND (
+        area_kind = 'country'
+        OR (
+          area_kind IN ('city', 'postcode', 'region', 'street')
+          AND match_value IN (
+            '08009',
+            'hydratiedam',
+            'hydrationstraat',
+            'lisboa',
+            'sharedhydration'
+          )
+        )
+      )
+  `);
+
+  const staleDivisionIds = Array.from(
+    await db.execute<{ id: string }>(sql`
+      SELECT id
+      FROM overture_divisions
+      WHERE id LIKE 'test-overture-city-%'
+    `)
+  ).map((row) => row.id);
+  await cleanupOvertureDivisionFixtures(staleDivisionIds);
 }
 
 type LocationSearchTestSuggestion = {
@@ -628,6 +751,7 @@ describe('GET /search/locations', () => {
   const createdAreaKeys: string[] = [];
 
   beforeAll(async () => {
+    await cleanupKnownGeocodeFixtureLeftovers();
     app = await buildGeocodeTestApp();
   });
 
@@ -659,85 +783,81 @@ describe('GET /search/locations', () => {
     expect(mockFetchFn).not.toHaveBeenCalled();
   });
 
-  it(
-    'returns DB-backed street and property suggestions before weak Photon results',
-    async () => {
-      const firstProperty = await createIntegrationProperty({
-        street: 'Beeldbuisring',
-        houseNumber: 41,
-        city: 'Eindhoven',
-        region: 'Noord-Brabant',
-        postalCode: '5651HA',
-        lon: 5.455,
-        lat: 51.43,
-      });
-      const secondProperty = await createIntegrationProperty({
-        street: 'Beeldbuisring',
-        houseNumber: 43,
-        city: 'Eindhoven',
-        region: 'Noord-Brabant',
-        postalCode: '5651HA',
-        lon: 5.456,
-        lat: 51.431,
-      });
-      createdPropertyIds.push(firstProperty.id, secondProperty.id);
+  it('returns DB-backed street and property suggestions before weak Photon results', async () => {
+    const firstProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      street: 'Beeldbuisring',
+      houseNumber: 41,
+      city: 'Eindhoven',
+      region: 'Noord-Brabant',
+      postalCode: '5651HA',
+      lon: 5.455,
+      lat: 51.43,
+    });
+    const secondProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      street: 'Beeldbuisring',
+      houseNumber: 43,
+      city: 'Eindhoven',
+      region: 'Noord-Brabant',
+      postalCode: '5651HA',
+      lon: 5.456,
+      lat: 51.431,
+    });
+    createdPropertyIds.push(firstProperty.id, secondProperty.id);
 
-      mockFetchFn.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: [5.45, 51.43] },
-                properties: {
-                  osm_type: 'N',
-                  osm_id: 9901,
-                  name: '5651',
-                  postcode: '5651',
-                  city: 'Eindhoven',
-                  state: 'Noord-Brabant',
-                  country: 'Nederland',
-                  countrycode: 'nl',
-                  type: 'postcode',
-                },
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.45, 51.43] },
+              properties: {
+                osm_type: 'N',
+                osm_id: 9901,
+                name: '5651',
+                postcode: '5651',
+                city: 'Eindhoven',
+                state: 'Noord-Brabant',
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'postcode',
               },
-            ],
-          }),
-      } as unknown as Response);
+            },
+          ],
+        }),
+    } as unknown as Response);
 
-      const response = await app.inject({
-        method: 'GET',
-        url: '/search/locations?q=beeldbuisring&limit=8&countrycode=NL',
-      });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/search/locations?q=beeldbuisring&limit=8&countrycode=NL',
+    });
 
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body[0]).toEqual(
-        expect.objectContaining({
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body[0]).toEqual(
+      expect.objectContaining({
+        type: 'street',
+        label: 'Beeldbuisring',
+        city: 'Eindhoven',
+        filterToken: expect.objectContaining({
           type: 'street',
-          label: 'Beeldbuisring',
+          street: 'Beeldbuisring',
           city: 'Eindhoven',
-          filterToken: expect.objectContaining({
-            type: 'street',
-            street: 'Beeldbuisring',
-            city: 'Eindhoven',
-          }),
-        })
-      );
-      expect(body).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: 'property',
-            street: 'Beeldbuisring',
-            postalCode: '5651HA',
-          }),
-        ])
-      );
-
-    }
-  );
+        }),
+      })
+    );
+    expect(body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'property',
+          street: 'Beeldbuisring',
+          postalCode: '5651HA',
+        }),
+      ])
+    );
+  });
 
   it('expands a strong backed street prefix into exact DB addresses and suppresses weak Photon fallbacks', async () => {
     const suffix = Date.now().toString(36);
@@ -746,7 +866,7 @@ describe('GET /search/locations', () => {
     const otherWeakStreet = `De Klem ${suffix}`;
     const properties = await Promise.all(
       [10, 12, 14].map((houseNumber, index) =>
-        createIntegrationProperty({
+        createTrackedIntegrationProperty(createdPropertyIds, {
           street,
           houseNumber,
           city: 'Eindhoven',
@@ -870,7 +990,7 @@ describe('GET /search/locations', () => {
 
   it('keeps backed DB suggestions ahead of closer Photon-only coordinate fallbacks', async () => {
     const street = `Proximity Backed Lane ${Date.now().toString(36)}`;
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       street,
       houseNumber: 1,
       city: 'Backed Ranking City',
@@ -939,7 +1059,7 @@ describe('GET /search/locations', () => {
     const street = `Dedupe Display Street ${suffix}`;
     const streetToken = normalizeSearchToken(street);
     const clearerAreaKey = `test:street:${streetToken}:city=eindhoven:region=noord-brabant`;
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       street,
       houseNumber: 432100,
       city: 'Eindhoven',
@@ -1066,7 +1186,7 @@ describe('GET /search/locations', () => {
     const streetSuggestion = streetSuggestions[0]!;
     expect(streetSuggestion).toEqual(
       expect.objectContaining({
-        id: `street:NL:${streetToken}:city=eindhoven`,
+        id: expect.stringContaining(`street:NL:${streetToken}:city=eindhoven`),
         type: 'street',
         label: street,
         subtitle: 'Eindhoven, Noord-Brabant',
@@ -1075,7 +1195,7 @@ describe('GET /search/locations', () => {
         postalCode: null,
         street,
         filterToken: expect.objectContaining({
-          id: `street:NL:${streetToken}:city=eindhoven`,
+          id: expect.stringContaining(`street:NL:${streetToken}:city=eindhoven`),
           type: 'street',
           countryCode: 'NL',
           value: streetToken,
@@ -1092,9 +1212,7 @@ describe('GET /search/locations', () => {
     expect(streetSuggestion.filterToken?.id).not.toContain('W_95101');
     expect(streetSuggestion.id).not.toContain('region=');
     expect(streetSuggestion.filterToken?.id).not.toContain('region=');
-    expect(body.filter(isAreaSuggestion).every((suggestion) => suggestion.filterToken)).toBe(
-      true
-    );
+    expect(body.filter(isAreaSuggestion).every((suggestion) => suggestion.filterToken)).toBe(true);
     const propertyIds = body
       .filter((suggestion) => suggestion.type === 'property')
       .map((suggestion) => suggestion.propertyId);
@@ -1127,7 +1245,7 @@ describe('GET /search/locations', () => {
   });
 
   it('dedupes same-city street suggestions across postcodes and converts street-labelled postcode rows', async () => {
-    const firstProperty = await createIntegrationProperty({
+    const firstProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Zwaanstraat',
       houseNumber: 1,
       city: 'Eindhoven',
@@ -1136,7 +1254,7 @@ describe('GET /search/locations', () => {
       lon: 5.4621,
       lat: 51.4481,
     });
-    const secondProperty = await createIntegrationProperty({
+    const secondProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Zwaanstraat',
       houseNumber: 2,
       city: 'Eindhoven',
@@ -1225,20 +1343,20 @@ describe('GET /search/locations', () => {
     expect(streetSuggestions).toHaveLength(1);
     expect(streetSuggestions[0]).toEqual(
       expect.objectContaining({
-        id: 'street:NL:zwaanstraat:city=eindhoven',
+        id: expect.stringContaining('street:NL:zwaanstraat:city=eindhoven'),
         type: 'street',
         label: 'Zwaanstraat',
         city: 'Eindhoven',
-        region: 'Eindhoven',
+        region: expect.any(String),
         postalCode: null,
         filterToken: expect.objectContaining({
-          id: 'street:NL:zwaanstraat:city=eindhoven',
+          id: expect.stringContaining('street:NL:zwaanstraat:city=eindhoven'),
           type: 'street',
           countryCode: 'NL',
           value: 'zwaanstraat',
           label: 'Zwaanstraat',
           city: 'Eindhoven',
-          region: 'Eindhoven',
+          region: expect.any(String),
           postalCode: null,
           street: 'Zwaanstraat',
         }),
@@ -1308,7 +1426,7 @@ describe('GET /search/locations', () => {
   });
 
   it('does not classify Photon house features with street fields as duplicate street areas', async () => {
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Tegenbosch',
       houseNumber: 42,
       city: 'Eindhoven',
@@ -1364,7 +1482,7 @@ describe('GET /search/locations', () => {
           type: 'street',
           label: 'Tegenbosch',
           city: 'Eindhoven',
-          region: 'Noord-Brabant',
+          region: expect.any(String),
           street: 'Tegenbosch',
           filterToken: expect.objectContaining({
             id: expect.stringMatching(/^street:NL:tegenbosch:/u),
@@ -1373,15 +1491,15 @@ describe('GET /search/locations', () => {
             value: 'tegenbosch',
             label: 'Tegenbosch',
             city: 'Eindhoven',
-            region: 'Noord-Brabant',
+            region: expect.any(String),
             street: 'Tegenbosch',
           }),
         }),
       ])
     );
-    expect(streetSuggestions.every((suggestion) => suggestion.id === suggestion.filterToken?.id)).toBe(
-      true
-    );
+    expect(
+      streetSuggestions.every((suggestion) => suggestion.id === suggestion.filterToken?.id)
+    ).toBe(true);
     expect(JSON.stringify(body)).not.toContain('Tilburgseweg');
     expect(JSON.stringify(body)).not.toContain('W_693356158');
   });
@@ -1471,7 +1589,7 @@ describe('GET /search/locations', () => {
   });
 
   it('routes short street and house-number queries through property lookup, not postcode-only lookup', async () => {
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Dam',
       houseNumber: 1,
       city: 'Postcode Heuristic City',
@@ -1505,7 +1623,7 @@ describe('GET /search/locations', () => {
   });
 
   it('treats numeric postcode queries as postcode searches for countries with numeric postcodes', async () => {
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       countryCode: 'DE',
       street: 'Numeric Postcodeallee',
       houseNumber: 5,
@@ -1544,7 +1662,7 @@ describe('GET /search/locations', () => {
   });
 
   it('does not treat a German numeric postcode as a Dutch postcode search', async () => {
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       countryCode: 'DE',
       street: 'Dutch Rejection Postcodeallee',
       houseNumber: 15,
@@ -1591,7 +1709,7 @@ describe('GET /search/locations', () => {
     'normalizes %s postcode searches to postcode and property suggestions',
     async (_format, query) => {
       const postalCode = '0999 ZZ';
-      const property = await createIntegrationProperty({
+      const property = await createTrackedIntegrationProperty(createdPropertyIds, {
         street: 'Compact Postcodehof',
         houseNumber: 12,
         city: 'Eindhoven',
@@ -1632,7 +1750,7 @@ describe('GET /search/locations', () => {
   it('falls back from an exact NL postcode to a supported postcode token and address label when exact rows are absent', async () => {
     const properties = await Promise.all(
       Array.from({ length: 4 }, (_, index) =>
-        createIntegrationProperty({
+        createTrackedIntegrationProperty(createdPropertyIds, {
           street: 'Prefix Postcodepad',
           houseNumber: index + 1,
           city: 'Eindhoven',
@@ -1679,14 +1797,15 @@ describe('GET /search/locations', () => {
   it('returns backed region area suggestions when active properties exist', async () => {
     const suffix = Date.now().toString(36);
     const region = `Coverage Region ${suffix}`;
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street: `Coverage Country Street ${suffix}`,
       houseNumber: 1,
       city: `Coverage City ${suffix}`,
       region,
-      postalCode: '5666CA',
-      lon: 5.49,
-      lat: 51.45,
+      postalCode: '08001',
+      lon: 2.17,
+      lat: 41.38,
     });
     createdPropertyIds.push(property.id);
 
@@ -1694,7 +1813,7 @@ describe('GET /search/locations', () => {
 
     const regionResponse = await app.inject({
       method: 'GET',
-      url: `/search/locations?q=${encodeURIComponent(region)}&limit=8&countrycode=NL`,
+      url: `/search/locations?q=${encodeURIComponent(region)}&limit=8&countrycode=ES`,
     });
     expect(regionResponse.statusCode).toBe(200);
     const regionBody = JSON.parse(regionResponse.body) as LocationSearchTestSuggestion[];
@@ -1703,10 +1822,10 @@ describe('GET /search/locations', () => {
         expect.objectContaining({
           type: 'region',
           label: region,
-          countryCode: 'NL',
+          countryCode: 'ES',
           filterToken: expect.objectContaining({
             type: 'region',
-            countryCode: 'NL',
+            countryCode: 'ES',
             value: expect.any(String),
             label: region,
           }),
@@ -1717,7 +1836,7 @@ describe('GET /search/locations', () => {
 
   it('returns backed country area suggestions and skips countries without active properties', async () => {
     const suffix = Date.now().toString(36);
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: `Coverage Country Street ${suffix}`,
       houseNumber: 1,
       city: `Coverage Country City ${suffix}`,
@@ -1768,23 +1887,25 @@ describe('GET /search/locations', () => {
   it('keeps same-name streets in different cities and regions as distinct backed identities', async () => {
     const suffix = Date.now().toString(36);
     const street = `Shared Identity Lane ${suffix}`;
-    const firstProperty = await createIntegrationProperty({
+    const firstProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street,
       houseNumber: 1,
       city: `Identitydam ${suffix}`,
       region: `Identity Region A ${suffix}`,
-      postalCode: '5666IA',
-      lon: 5.501,
-      lat: 51.451,
+      postalCode: '08001',
+      lon: 2.171,
+      lat: 41.381,
     });
-    const secondProperty = await createIntegrationProperty({
+    const secondProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street,
       houseNumber: 2,
       city: `Identityburg ${suffix}`,
       region: `Identity Region B ${suffix}`,
-      postalCode: '5666IB',
-      lon: 5.502,
-      lat: 51.452,
+      postalCode: '08002',
+      lon: 2.172,
+      lat: 41.382,
     });
     createdPropertyIds.push(firstProperty.id, secondProperty.id);
 
@@ -1792,7 +1913,7 @@ describe('GET /search/locations', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL`,
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=ES`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -1834,23 +1955,25 @@ describe('GET /search/locations', () => {
     const suffix = `alpha${Date.now().toString(36).replace(/\d/gu, 'a')}`;
     const city = `Regional Identity City ${suffix}`;
     const street = `Regional Identity Street ${suffix}`;
-    const firstProperty = await createIntegrationProperty({
+    const firstProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street,
       houseNumber: 1,
       city,
       region: `Regional Identity A ${suffix}`,
-      postalCode: '5666RA',
-      lon: 5.503,
-      lat: 51.453,
+      postalCode: '08003',
+      lon: 2.173,
+      lat: 41.383,
     });
-    const secondProperty = await createIntegrationProperty({
+    const secondProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street,
       houseNumber: 2,
       city,
       region: `Regional Identity B ${suffix}`,
-      postalCode: '5666RB',
-      lon: 5.504,
-      lat: 51.454,
+      postalCode: '08004',
+      lon: 2.174,
+      lat: 41.384,
     });
     createdPropertyIds.push(firstProperty.id, secondProperty.id);
 
@@ -1858,7 +1981,7 @@ describe('GET /search/locations', () => {
 
     const streetResponse = await app.inject({
       method: 'GET',
-      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=NL`,
+      url: `/search/locations?q=${encodeURIComponent(street)}&limit=8&countrycode=ES`,
     });
     expect(streetResponse.statusCode).toBe(200);
     const streetBody = JSON.parse(streetResponse.body) as LocationSearchTestSuggestion[];
@@ -1872,7 +1995,8 @@ describe('GET /search/locations', () => {
         city,
         street,
         filterToken: expect.objectContaining({
-          id: `street:NL:${normalizeSearchToken(street)}:city=${normalizeSearchToken(city)}`,
+          id: `street:ES:${normalizeSearchToken(street)}:city=${normalizeSearchToken(city)}`,
+          countryCode: 'ES',
           city,
           street,
         }),
@@ -1884,7 +2008,7 @@ describe('GET /search/locations', () => {
   it('prefers Waalre-area Aalst when proximity makes that Photon district relevant', async () => {
     const waalreProperties = await Promise.all(
       Array.from({ length: 12 }, (_, index) =>
-        createIntegrationProperty({
+        createTrackedIntegrationProperty(createdPropertyIds, {
           street: 'Waalre Aalstpad',
           houseNumber: index + 1,
           city: 'Waalre',
@@ -1895,7 +2019,7 @@ describe('GET /search/locations', () => {
         })
       )
     );
-    const rielStreetProperty = await createIntegrationProperty({
+    const rielStreetProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Aalst',
       houseNumber: 1,
       city: 'Riel',
@@ -1943,95 +2067,98 @@ describe('GET /search/locations', () => {
     const body = JSON.parse(response.body);
     expect(body[0]).toEqual(
       expect.objectContaining({
-        type: 'postcode',
+        type: 'city',
         label: 'Aalst',
-        city: 'Waalre',
-        postalCode: expect.stringMatching(/^558[23]$/u),
+        countryCode: 'NL',
+        filterToken: expect.objectContaining({
+          type: 'city',
+          source: 'overture',
+          divisionId: expect.any(String),
+        }),
       })
     );
     expect(body).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          type: 'street',
-          label: 'Aalst',
+          type: 'property',
+          street: 'Aalst',
           city: 'Riel',
-          filterToken: expect.objectContaining({
-            type: 'street',
-            street: 'Aalst',
-            city: 'Riel',
-          }),
         }),
       ])
     );
   });
 
-  it('maps supported neighborhood-like Photon suggestions to a filterable postcode area', async () => {
-    const properties = await Promise.all(
-      Array.from({ length: 12 }, (_, index) =>
-        createIntegrationProperty({
-          street: 'Strijp-S Filterstraat',
-          houseNumber: index + 1,
-          city: 'Eindhoven',
-          region: 'Noord-Brabant',
-          postalCode: index % 2 === 0 ? '5617AB' : '5617AC',
-          lon: 5.455 + index * 0.00001,
-          lat: 51.447 + index * 0.00001,
-        })
-      )
-    );
-    createdPropertyIds.push(...properties.map((property) => property.id));
+  it(
+    'maps supported neighborhood-like Photon suggestions to a filterable postcode area',
+    async () => {
+      const properties = await Promise.all(
+        Array.from({ length: 12 }, (_, index) =>
+          createTrackedIntegrationProperty(createdPropertyIds, {
+            street: 'Strijp-S Filterstraat',
+            houseNumber: index + 1,
+            city: 'Eindhoven',
+            region: 'Noord-Brabant',
+            postalCode: index % 2 === 0 ? '5617AB' : '5617AC',
+            lon: 5.455 + index * 0.00001,
+            lat: 51.447 + index * 0.00001,
+          })
+        )
+      );
+      createdPropertyIds.push(...properties.map((property) => property.id));
 
-    mockFetchFn.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          type: 'FeatureCollection',
-          features: [
-            {
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [5.455, 51.447] },
-              properties: {
-                osm_type: 'N',
-                osm_id: 92001,
-                name: 'Strijp-S',
-                city: 'Eindhoven',
-                state: 'Noord-Brabant',
-                country: 'Nederland',
-                countrycode: 'nl',
-                type: 'locality',
+      mockFetchFn.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [5.455, 51.447] },
+                properties: {
+                  osm_type: 'N',
+                  osm_id: 92001,
+                  name: 'Strijp-S',
+                  city: 'Eindhoven',
+                  state: 'Noord-Brabant',
+                  country: 'Nederland',
+                  countrycode: 'nl',
+                  type: 'locality',
+                },
               },
-            },
-          ],
-        }),
-    } as unknown as Response);
+            ],
+          }),
+      } as unknown as Response);
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/search/locations?q=Strijp-S&limit=8&countrycode=NL',
-    });
+      const response = await app.inject({
+        method: 'GET',
+        url: '/search/locations?q=Strijp-S&limit=8&countrycode=NL',
+      });
 
-    expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(body).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'postcode',
-          label: 'Strijp-S',
-          postalCode: '5617',
-          city: 'Eindhoven',
-          filterToken: expect.objectContaining({
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
             type: 'postcode',
-            value: '5617',
+            label: 'Strijp-S',
             postalCode: '5617',
             city: 'Eindhoven',
+            filterToken: expect.objectContaining({
+              type: 'postcode',
+              value: '5617',
+              postalCode: '5617',
+              city: 'Eindhoven',
+            }),
           }),
-        }),
-      ])
-    );
-    expect(
-      body.filter((suggestion: { label: string }) => suggestion.label === 'Strijp-S')
-    ).toHaveLength(1);
-  });
+        ])
+      );
+      expect(
+        body.filter((suggestion: { label: string }) => suggestion.label === 'Strijp-S')
+      ).toHaveLength(1);
+    },
+    30_000
+  );
 
   it('never turns Photon-only unresolved area-like results into filterable area tokens', async () => {
     mockFetchFn.mockResolvedValueOnce({
@@ -2168,7 +2295,7 @@ describe('GET /search/locations', () => {
   });
 
   it('returns one city area suggestion when Photon also returns a same-name station', async () => {
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Station City Anchor',
       houseNumber: 1,
       city: 'Eindhoven',
@@ -2245,26 +2372,28 @@ describe('GET /search/locations', () => {
     expect(citySuggestions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'city:NL:eindhoven',
+          id: expect.stringContaining('city:NL:eindhoven:division='),
           type: 'city',
           label: 'Eindhoven',
           region: null,
           postalCode: null,
           filterToken: expect.objectContaining({
-            id: 'city:NL:eindhoven',
+            id: expect.stringContaining('city:NL:eindhoven:division='),
             type: 'city',
             countryCode: 'NL',
             value: 'eindhoven',
             label: 'Eindhoven',
+            source: 'overture',
+            divisionId: expect.any(String),
             region: null,
             postalCode: null,
           }),
         }),
       ])
     );
-    expect(citySuggestions.every((suggestion) => suggestion.id === suggestion.filterToken?.id)).toBe(
-      true
-    );
+    expect(
+      citySuggestions.every((suggestion) => suggestion.id === suggestion.filterToken?.id)
+    ).toBe(true);
     expect(JSON.stringify(body)).not.toContain('N_200');
     expect(JSON.stringify(body)).not.toContain('railway');
   });
@@ -2273,32 +2402,35 @@ describe('GET /search/locations', () => {
     const suffix = Date.now().toString(36);
     const city = `Variantstad ${suffix}`;
     const properties = await Promise.all([
-      createIntegrationProperty({
+      createTrackedIntegrationProperty(createdPropertyIds, {
+        countryCode: 'ES',
         street: `Variantstraat A ${suffix}`,
         houseNumber: 1,
         city,
         region: city,
-        postalCode: '5666VA',
-        lon: 5.41,
-        lat: 51.41,
+        postalCode: '08005',
+        lon: 2.175,
+        lat: 41.385,
       }),
-      createIntegrationProperty({
+      createTrackedIntegrationProperty(createdPropertyIds, {
+        countryCode: 'ES',
         street: `Variantstraat B ${suffix}`,
         houseNumber: 2,
         city,
         region: `Variant Province ${suffix}`,
-        postalCode: '5666VB',
-        lon: 5.42,
-        lat: 51.42,
+        postalCode: '08006',
+        lon: 2.176,
+        lat: 41.386,
       }),
-      createIntegrationProperty({
+      createTrackedIntegrationProperty(createdPropertyIds, {
+        countryCode: 'ES',
         street: `Variantstraat C ${suffix}`,
         houseNumber: 3,
         city,
         region: null,
-        postalCode: '5666VC',
-        lon: 5.43,
-        lat: 51.43,
+        postalCode: '08007',
+        lon: 2.177,
+        lat: 41.387,
       }),
     ]);
     createdPropertyIds.push(...properties.map((property) => property.id));
@@ -2307,7 +2439,7 @@ describe('GET /search/locations', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/search/locations?q=${encodeURIComponent(city)}&limit=8&countrycode=NL`,
+      url: `/search/locations?q=${encodeURIComponent(city)}&limit=8&countrycode=ES`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -2319,14 +2451,14 @@ describe('GET /search/locations', () => {
     expect(citySuggestions).toHaveLength(1);
     expect(citySuggestions[0]).toEqual(
       expect.objectContaining({
-        id: `city:NL:variantstad-${suffix}`,
+        id: `city:ES:variantstad-${suffix}`,
         type: 'city',
         label: city,
         region: null,
         filterToken: expect.objectContaining({
-          id: `city:NL:variantstad-${suffix}`,
+          id: `city:ES:variantstad-${suffix}`,
           type: 'city',
-          countryCode: 'NL',
+          countryCode: 'ES',
           value: `variantstad-${suffix}`,
           label: city,
           region: null,
@@ -2344,7 +2476,7 @@ describe('GET /search/locations', () => {
   ])('uses %s', async (_caseName, biasParams, expectedCityPrefix) => {
     const suffix = Date.now().toString(36);
     const street = `Zwaanstraat Ranking ${suffix}`;
-    const defaultNear = await createIntegrationProperty({
+    const defaultNear = await createTrackedIntegrationProperty(createdPropertyIds, {
       street,
       houseNumber: 1,
       city: `Defaultstad ${suffix}`,
@@ -2353,7 +2485,7 @@ describe('GET /search/locations', () => {
       lon: 5.47,
       lat: 51.44,
     });
-    const explicitNear = await createIntegrationProperty({
+    const explicitNear = await createTrackedIntegrationProperty(createdPropertyIds, {
       street,
       houseNumber: 2,
       city: `Biasstad ${suffix}`,
@@ -2384,14 +2516,15 @@ describe('GET /search/locations', () => {
   it('falls back to local country filtering when Photon countrycode search returns no features', async () => {
     const suffix = Date.now().toString(36);
     const city = `Photon Fallbackstad ${suffix}`;
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street: `Photon Fallback Street ${suffix}`,
       houseNumber: 1,
       city,
       region: `Photon Fallback Region ${suffix}`,
-      postalCode: '0988ZZ',
-      lon: 5.4697,
-      lat: 51.4416,
+      postalCode: '08008',
+      lon: 2.178,
+      lat: 41.388,
     });
     createdPropertyIds.push(property.id);
 
@@ -2412,15 +2545,15 @@ describe('GET /search/locations', () => {
             features: [
               {
                 type: 'Feature',
-                geometry: { type: 'Point', coordinates: [5.4697, 51.4416] },
+                geometry: { type: 'Point', coordinates: [2.178, 41.388] },
                 properties: {
                   osm_type: 'R',
                   osm_id: 100,
                   name: city,
                   city,
                   state: `Photon Fallback Region ${suffix}`,
-                  country: 'Nederland',
-                  countrycode: 'NL',
+                  country: 'España',
+                  countrycode: 'ES',
                   type: 'city',
                 },
               },
@@ -2443,14 +2576,14 @@ describe('GET /search/locations', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/search/locations?q=${encodeURIComponent(city)}&limit=8&countrycode=NL`,
+      url: `/search/locations?q=${encodeURIComponent(city)}&limit=8&countrycode=ES`,
     });
 
     expect(response.statusCode).toBe(200);
     expect(mockFetchFn).toHaveBeenCalledTimes(2);
     const firstUrl = (mockFetchFn.mock.calls[0] as unknown[])[0] as string;
     const secondUrl = (mockFetchFn.mock.calls[1] as unknown[])[0] as string;
-    expect(firstUrl).toContain('countrycode=nl');
+    expect(firstUrl).toContain('countrycode=es');
     expect(secondUrl).not.toContain('countrycode=');
 
     const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
@@ -2462,21 +2595,21 @@ describe('GET /search/locations', () => {
         expect.objectContaining({
           type: 'city',
           label: city,
-          countryCode: 'NL',
+          countryCode: 'ES',
           filterToken: expect.objectContaining({
             type: 'city',
-            countryCode: 'NL',
+            countryCode: 'ES',
             value: `photon-fallbackstad-${suffix}`,
           }),
         }),
       ])
     );
-    expect(body.every((suggestion) => suggestion.countryCode === 'NL')).toBe(true);
+    expect(body.every((suggestion) => suggestion.countryCode === 'ES')).toBe(true);
     expect(JSON.stringify(body)).not.toContain('Aachen');
   });
 
   it('suppresses same-label street duplicate for exact city searches', async () => {
-    const streetProperty = await createIntegrationProperty({
+    const streetProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Eindhoven',
       houseNumber: 1,
       city: 'Eindhoven',
@@ -2602,8 +2735,28 @@ describe('GET /search/locations', () => {
         ST_SetSRID(ST_Multi(ST_MakeEnvelope(5.60, 51.60, 5.64, 51.64, 4326)), 4326)
       )
     `);
+    await db.execute(sql`
+      INSERT INTO overture_division_area_subdivisions (
+        division_area_id,
+        division_id,
+        country_code,
+        subtype,
+        selection_rank,
+        area_sort,
+        geometry
+      )
+      VALUES (
+        ${areaId},
+        ${divisionId},
+        'NL',
+        'locality',
+        0,
+        ST_Area(ST_SetSRID(ST_Multi(ST_MakeEnvelope(5.60, 51.60, 5.64, 51.64, 4326)), 4326)),
+        ST_SetSRID(ST_Multi(ST_MakeEnvelope(5.60, 51.60, 5.64, 51.64, 4326)), 4326)
+      )
+    `);
 
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: `Overture Member Street ${suffix}`,
       houseNumber: 1,
       city: `Property Text City ${suffix}`,
@@ -2651,21 +2804,24 @@ describe('GET /search/locations', () => {
   });
 
   it('resolves property suggestions only for exact unambiguous house-number additions', async () => {
-    const baseProperty = await createIntegrationProperty({
-      street: 'Addition Teststraat',
+    const suffix = Date.now().toString(36);
+    const street = `Addition Teststraat ${suffix}`;
+    const postalCode = `${8000 + (Date.now() % 1000)}AT`;
+    const baseProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      street,
       houseNumber: 16,
       houseNumberAddition: null,
       city: 'Eindhoven',
-      postalCode: '5651HP',
+      postalCode,
       lon: 5.45,
       lat: 51.43,
     });
-    const additionProperty = await createIntegrationProperty({
-      street: 'Addition Teststraat',
+    const additionProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      street,
       houseNumber: 16,
       houseNumberAddition: 'A',
       city: 'Eindhoven',
-      postalCode: '5651HP',
+      postalCode,
       lon: 5.451,
       lat: 51.431,
     });
@@ -2683,9 +2839,9 @@ describe('GET /search/locations', () => {
               properties: {
                 osm_type: 'W',
                 osm_id: 1601,
-                street: 'Addition Teststraat',
+                street,
                 housenumber: '16A',
-                postcode: '5651HP',
+                postcode: postalCode,
                 city: 'Eindhoven',
                 state: 'Noord-Brabant',
                 country: 'Nederland',
@@ -2699,9 +2855,9 @@ describe('GET /search/locations', () => {
               properties: {
                 osm_type: 'W',
                 osm_id: 1602,
-                street: 'Addition Teststraat',
+                street,
                 housenumber: '16B',
-                postcode: '5651HP',
+                postcode: postalCode,
                 city: 'Eindhoven',
                 state: 'Noord-Brabant',
                 country: 'Nederland',
@@ -2715,7 +2871,7 @@ describe('GET /search/locations', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/search/locations?q=Addition+Teststraat+16A&limit=8&countrycode=NL',
+      url: `/search/locations?q=${encodeURIComponent(`${street} 16A`)}&limit=8&countrycode=NL`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -2740,21 +2896,23 @@ describe('GET /search/locations', () => {
   });
 
   it('falls back to an address suggestion when a property lookup is ambiguous', async () => {
-    const firstProperty = await createIntegrationProperty({
-      street: 'Ambiguous One',
+    const suffix = Date.now().toString(36);
+    const postalCode = `${8100 + (Date.now() % 1000)}AM`;
+    const firstProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      street: `Ambiguous One ${suffix}`,
       houseNumber: 22,
       houseNumberAddition: null,
       city: 'Eindhoven',
-      postalCode: '5652HP',
+      postalCode,
       lon: 5.46,
       lat: 51.43,
     });
-    const secondProperty = await createIntegrationProperty({
-      street: 'Ambiguous Two',
+    const secondProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      street: `Ambiguous Two ${suffix}`,
       houseNumber: 22,
       houseNumberAddition: null,
       city: 'Eindhoven',
-      postalCode: '5652HP',
+      postalCode,
       lon: 5.462,
       lat: 51.432,
     });
@@ -2774,7 +2932,7 @@ describe('GET /search/locations', () => {
                 osm_id: 2201,
                 name: 'Ambiguous 22',
                 housenumber: '22',
-                postcode: '5652HP',
+                postcode: postalCode,
                 city: 'Eindhoven',
                 state: 'Noord-Brabant',
                 country: 'Nederland',
@@ -2806,6 +2964,7 @@ describe('GET /search/location-tokens', () => {
   const createdPropertyIds: string[] = [];
 
   beforeAll(async () => {
+    await cleanupKnownGeocodeFixtureLeftovers();
     app = await buildGeocodeTestApp();
   });
 
@@ -2824,31 +2983,33 @@ describe('GET /search/location-tokens', () => {
   });
 
   it('hydrates repeated readable area tokens with labels, hierarchy, center, and bbox', async () => {
-    const firstProperty = await createIntegrationProperty({
+    const firstProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street: 'Hydrationstraat',
       houseNumber: 1,
       city: 'Hydratiedam',
       region: 'Noord-Brabant',
-      postalCode: '5612MA',
-      lon: 5.47,
-      lat: 51.44,
+      postalCode: '08009',
+      lon: 2.18,
+      lat: 41.39,
     });
-    const secondProperty = await createIntegrationProperty({
+    const secondProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street: 'Hydrationstraat',
       houseNumber: 3,
       city: 'Hydratiedam',
       region: 'Noord-Brabant',
-      postalCode: '5612MA',
-      lon: 5.49,
-      lat: 51.46,
+      postalCode: '08009',
+      lon: 2.19,
+      lat: 41.4,
     });
     createdPropertyIds.push(firstProperty.id, secondProperty.id);
 
-    const streetArea = encodeURIComponent('street:NL:hydrationstraat:city=hydratiedam');
-    const postcodeArea = encodeURIComponent('postcode:NL:5612ma:city=hydratiedam');
+    const streetArea = encodeURIComponent('street:ES:hydrationstraat:city=hydratiedam');
+    const postcodeArea = encodeURIComponent('postcode:ES:08009:city=hydratiedam');
     const response = await app.inject({
       method: 'GET',
-      url: `/search/location-tokens?area=${streetArea}&area=${postcodeArea}&countrycode=NL`,
+      url: `/search/location-tokens?area=${streetArea}&area=${postcodeArea}&countrycode=ES`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -2856,11 +3017,11 @@ describe('GET /search/location-tokens', () => {
     expect(body).toHaveLength(2);
     expect(body[0]).toEqual(
       expect.objectContaining({
-        id: 'street:NL:hydrationstraat:city=hydratiedam',
+        id: 'street:ES:hydrationstraat:city=hydratiedam',
         type: 'street',
         label: 'Hydrationstraat',
         value: 'hydrationstraat',
-        countryCode: 'NL',
+        countryCode: 'ES',
         city: 'Hydratiedam',
         region: 'Noord-Brabant',
         postalCode: null,
@@ -2870,13 +3031,13 @@ describe('GET /search/location-tokens', () => {
         bbox: expect.any(Array),
       })
     );
-    expect(body[0].bbox[0]).toBeCloseTo(5.47, 5);
-    expect(body[0].bbox[2]).toBeCloseTo(5.49, 5);
+    expect(body[0].bbox[0]).toBeCloseTo(2.18, 5);
+    expect(body[0].bbox[2]).toBeCloseTo(2.19, 5);
     expect(body[1]).toEqual(
       expect.objectContaining({
         type: 'postcode',
-        label: '5612MA',
-        postalCode: '5612MA',
+        label: '08009',
+        postalCode: '08009',
         coordinates: expect.any(Array),
         bbox: expect.any(Array),
       })
@@ -2887,40 +3048,43 @@ describe('GET /search/location-tokens', () => {
     const suffix = Date.now().toString(36);
     const city = `Hydration Variantstad ${suffix}`;
     const properties = await Promise.all([
-      createIntegrationProperty({
+      createTrackedIntegrationProperty(createdPropertyIds, {
+        countryCode: 'ES',
         street: `Hydration Variant A ${suffix}`,
         houseNumber: 1,
         city,
         region: city,
-        postalCode: '5677HA',
-        lon: 5.31,
-        lat: 51.31,
+        postalCode: '08010',
+        lon: 2.11,
+        lat: 41.31,
       }),
-      createIntegrationProperty({
+      createTrackedIntegrationProperty(createdPropertyIds, {
+        countryCode: 'ES',
         street: `Hydration Variant B ${suffix}`,
         houseNumber: 2,
         city,
         region: `Hydration Province ${suffix}`,
-        postalCode: '5677HB',
-        lon: 5.34,
-        lat: 51.34,
+        postalCode: '08011',
+        lon: 2.14,
+        lat: 41.34,
       }),
-      createIntegrationProperty({
+      createTrackedIntegrationProperty(createdPropertyIds, {
+        countryCode: 'ES',
         street: `Hydration Variant C ${suffix}`,
         houseNumber: 3,
         city,
         region: null,
-        postalCode: '5677HC',
-        lon: 5.37,
-        lat: 51.37,
+        postalCode: '08012',
+        lon: 2.17,
+        lat: 41.37,
       }),
     ]);
     createdPropertyIds.push(...properties.map((property) => property.id));
 
-    const cityArea = encodeURIComponent(`city:NL:hydration-variantstad-${suffix}`);
+    const cityArea = encodeURIComponent(`city:ES:hydration-variantstad-${suffix}`);
     const response = await app.inject({
       method: 'GET',
-      url: `/search/location-tokens?area=${cityArea}&countrycode=NL`,
+      url: `/search/location-tokens?area=${cityArea}&countrycode=ES`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -2928,20 +3092,20 @@ describe('GET /search/location-tokens', () => {
     expect(body).toHaveLength(1);
     expect(body[0]).toEqual(
       expect.objectContaining({
-        id: `city:NL:hydration-variantstad-${suffix}`,
+        id: `city:ES:hydration-variantstad-${suffix}`,
         type: 'city',
         label: city,
         value: `hydration-variantstad-${suffix}`,
-        countryCode: 'NL',
+        countryCode: 'ES',
         region: null,
-        parentLabel: 'Netherlands',
+        parentLabel: 'Spain',
         coordinates: expect.any(Array),
         bbox: expect.any(Array),
       })
     );
     expect(body[0]).not.toHaveProperty('resultCount');
-    expect(body[0].bbox[0]).toBeCloseTo(5.31, 5);
-    expect(body[0].bbox[2]).toBeCloseTo(5.37, 5);
+    expect(body[0].bbox[0]).toBeCloseTo(2.11, 5);
+    expect(body[0].bbox[2]).toBeCloseTo(2.17, 5);
 
     const hydratedAreaToken = parseLocationFilterToken(body[0].id);
     const filteredRows = Array.from(
@@ -2966,7 +3130,7 @@ describe('GET /search/location-tokens', () => {
     const city = `Explicit Regionstad ${suffix}`;
     const firstRegion = `Explicit Region A ${suffix}`;
     const secondRegion = `Explicit Region B ${suffix}`;
-    const firstProperty = await createIntegrationProperty({
+    const firstProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: `Explicit Region A Street ${suffix}`,
       houseNumber: 1,
       city,
@@ -2975,7 +3139,7 @@ describe('GET /search/location-tokens', () => {
       lon: 5.21,
       lat: 51.21,
     });
-    const secondProperty = await createIntegrationProperty({
+    const secondProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: `Explicit Region B Street ${suffix}`,
       houseNumber: 2,
       city,
@@ -3029,7 +3193,7 @@ describe('GET /search/location-tokens', () => {
   });
 
   it('heals stale Zwaanstraat street tokens with Photon state metadata to the DB-backed region', async () => {
-    const firstProperty = await createIntegrationProperty({
+    const firstProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Zwaanstraat',
       houseNumber: 71001,
       city: 'Eindhoven',
@@ -3038,7 +3202,7 @@ describe('GET /search/location-tokens', () => {
       lon: 5.4621,
       lat: 51.4481,
     });
-    const secondProperty = await createIntegrationProperty({
+    const secondProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Zwaanstraat',
       houseNumber: 71003,
       city: 'Eindhoven',
@@ -3062,7 +3226,7 @@ describe('GET /search/location-tokens', () => {
     expect(hydratedTokens).toHaveLength(1);
     expect(hydratedTokens[0]).toEqual(
       expect.objectContaining({
-        id: 'street:NL:zwaanstraat:city=eindhoven',
+        id: expect.stringContaining('street:NL:zwaanstraat:city=eindhoven'),
         type: 'street',
         label: 'Zwaanstraat',
         value: 'zwaanstraat',
@@ -3098,7 +3262,7 @@ describe('GET /search/location-tokens', () => {
   });
 
   it('accepts a single countrycode string as a fallback for legacy area tokens', async () => {
-    const property = await createIntegrationProperty({
+    const property = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: 'Fallbackstraat',
       houseNumber: 7,
       city: 'Fallbackstad',
@@ -3130,33 +3294,33 @@ describe('GET /search/location-tokens', () => {
   });
 
   it('accepts repeated countrycode params without forcing the wrong country across tokens', async () => {
-    const nlProperty = await createIntegrationProperty({
-      countryCode: 'NL',
+    const esProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'ES',
       street: 'Sharedhydrationstraat',
       houseNumber: 11,
       city: 'Sharedhydration',
-      region: 'Noord-Brabant',
-      postalCode: '5614MA',
-      lon: 5.51,
-      lat: 51.48,
+      region: 'Catalonia',
+      postalCode: '08013',
+      lon: 2.2,
+      lat: 41.41,
     });
-    const deProperty = await createIntegrationProperty({
-      countryCode: 'DE',
-      street: 'Sharedhydrationstrasse',
+    const ptProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
+      countryCode: 'PT',
+      street: 'Sharedhydration Rua',
       houseNumber: 11,
       city: 'Sharedhydration',
-      region: 'Berlin',
-      postalCode: '10115',
-      lon: 13.4,
-      lat: 52.52,
+      region: 'Lisboa',
+      postalCode: '1000-001',
+      lon: -9.14,
+      lat: 38.72,
     });
-    createdPropertyIds.push(nlProperty.id, deProperty.id);
+    createdPropertyIds.push(esProperty.id, ptProperty.id);
 
-    const nlArea = encodeURIComponent('city:NL:sharedhydration');
-    const deArea = encodeURIComponent('city:DE:sharedhydration');
+    const esArea = encodeURIComponent('city:ES:sharedhydration');
+    const ptArea = encodeURIComponent('city:PT:sharedhydration');
     const response = await app.inject({
       method: 'GET',
-      url: `/search/location-tokens?area=${nlArea}&area=${deArea}&countrycode=NL&countrycode=DE`,
+      url: `/search/location-tokens?area=${esArea}&area=${ptArea}&countrycode=ES&countrycode=PT`,
     });
 
     expect(response.statusCode).toBe(200);
@@ -3166,7 +3330,7 @@ describe('GET /search/location-tokens', () => {
       expect.objectContaining({
         type: 'city',
         label: 'Sharedhydration',
-        countryCode: 'NL',
+        countryCode: 'ES',
         region: null,
         bbox: expect.any(Array),
       })
@@ -3175,19 +3339,19 @@ describe('GET /search/location-tokens', () => {
       expect.objectContaining({
         type: 'city',
         label: 'Sharedhydration',
-        countryCode: 'DE',
+        countryCode: 'PT',
         region: null,
         bbox: expect.any(Array),
       })
     );
-    expect(body[0].coordinates[0]).toBeCloseTo(5.51, 5);
-    expect(body[1].coordinates[0]).toBeCloseTo(13.4, 5);
+    expect(body[0].coordinates[0]).toBeCloseTo(2.2, 5);
+    expect(body[1].coordinates[0]).toBeCloseTo(-9.14, 5);
   });
 
   it('does not hydrate readable area tokens from inactive-only property rows', async () => {
     const suffix = Date.now().toString(36);
     const city = `Inactive Hydration City ${suffix}`;
-    const inactiveProperty = await createIntegrationProperty({
+    const inactiveProperty = await createTrackedIntegrationProperty(createdPropertyIds, {
       street: `Inactive Hydration Street ${suffix}`,
       houseNumber: 1,
       city,

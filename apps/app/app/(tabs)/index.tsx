@@ -83,6 +83,7 @@ import {
   DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
   getCanonicalMapFilterSignature,
   getLocationFilterTokenCameraBounds,
+  getLocationFilterTokenCameraMaxZoom,
   type MapActivityTimeFilter,
 } from '@/src/lib/sharedMapFilters';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
@@ -1282,7 +1283,7 @@ export default function MapScreen() {
 
     const [west, south, east, north] = bounds;
     if (west === east && south === north) {
-      const zoom = Math.max(currentZoom, 13);
+      const zoom = Math.max(currentZoom, getLocationFilterTokenCameraMaxZoom(areas));
       cameraRef.current?.flyTo({
         center: [west, south],
         zoom,

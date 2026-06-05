@@ -51,6 +51,22 @@ describe('discoverLatestRelease', () => {
     expect(release).toBe('2026-02-18.0');
   });
 
+  it('should prefer the catalog latest field when present', async () => {
+    mockFetchResolve({
+      ok: true,
+      json: async () => ({
+        latest: '2026-05-20.0',
+        links: [
+          { rel: 'child', href: './2026-05-20.0/catalog.json', title: 'Latest Overture Release' },
+          { rel: 'child', href: './2026-04-15.0/catalog.json', title: '2026-04-15.0 Overture Release' },
+        ],
+      }),
+    });
+
+    const release = await discoverLatestRelease();
+    expect(release).toBe('2026-05-20.0');
+  });
+
   it('should return fallback when STAC returns non-OK status', async () => {
     mockFetchResolve({ ok: false, status: 503 });
 
