@@ -1,4 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm';
+import os from 'node:os';
 import { db } from '../db/index.js';
 
 type QueryExecutor = {
@@ -129,7 +130,7 @@ const INSERT_BROAD_CITY_AREAS = `
     'city' AS area_kind,
     'city' AS suggestion_type,
     country_code,
-    city_match AS match_value,
+    MIN(city_match)::text AS match_value,
     MIN(city)::text AS label,
     MIN(city)::varchar(100) AS city,
     NULL::varchar(255) AS region,
@@ -139,7 +140,7 @@ const INSERT_BROAD_CITY_AREAS = `
   FROM active_properties
   WHERE city_match IS NOT NULL
     AND city_token IS NOT NULL
-  GROUP BY country_code, city_match, city_token
+  GROUP BY country_code, city_token
 `;
 
 const INSERT_REGIONAL_CITY_AREAS = `
@@ -150,7 +151,7 @@ const INSERT_REGIONAL_CITY_AREAS = `
     'city' AS area_kind,
     'city' AS suggestion_type,
     country_code,
-    city_match AS match_value,
+    MIN(city_match)::text AS match_value,
     MIN(city)::text AS label,
     MIN(city)::varchar(100) AS city,
     MIN(region)::varchar(255) AS region,
@@ -162,7 +163,7 @@ const INSERT_REGIONAL_CITY_AREAS = `
     AND city_token IS NOT NULL
     AND region_match IS NOT NULL
     AND region_token IS NOT NULL
-  GROUP BY country_code, city_match, city_token, region_match, region_token
+  GROUP BY country_code, city_token, region_token
 `;
 
 const INSERT_REGION_AREAS = `
@@ -173,7 +174,7 @@ const INSERT_REGION_AREAS = `
     'region' AS area_kind,
     'region' AS suggestion_type,
     country_code,
-    region_match AS match_value,
+    MIN(region_match)::text AS match_value,
     MIN(region)::text AS label,
     NULL::varchar(100) AS city,
     MIN(region)::varchar(255) AS region,
@@ -183,7 +184,7 @@ const INSERT_REGION_AREAS = `
   FROM active_properties
   WHERE region_match IS NOT NULL
     AND region_token IS NOT NULL
-  GROUP BY country_code, region_match, region_token
+  GROUP BY country_code, region_token
 `;
 
 const INSERT_POSTCODE_AREAS = `
@@ -234,7 +235,7 @@ const INSERT_STREET_AREAS = `
     'street' AS area_kind,
     'street' AS suggestion_type,
     country_code,
-    street_match AS match_value,
+    MIN(street_match)::text AS match_value,
     MIN(street)::text AS label,
     MIN(city)::varchar(100) AS city,
     MIN(region)::varchar(255) AS region,
@@ -246,7 +247,7 @@ const INSERT_STREET_AREAS = `
     AND street_token IS NOT NULL
     AND city_match IS NOT NULL
     AND city_token IS NOT NULL
-  GROUP BY country_code, street_match, street_token, city_match, city_token
+  GROUP BY country_code, street_token, city_token
 `;
 
 const PROPERTY_FULL_INSERTS = [
@@ -258,6 +259,50 @@ const PROPERTY_FULL_INSERTS = [
   INSERT_POSTCODE_PREFIX_AREAS,
   INSERT_STREET_AREAS,
 ];
+
+function formatMemorySetting(bytes: number): string {
+  const mb = Math.max(64, Math.floor(bytes / 1024 / 1024));
+  return `${mb}MB`;
+}
+
+function normalizeMemorySetting(value: string | undefined): string | null {
+  const normalized = value?.trim().toUpperCase();
+  return normalized && /^\d+(KB|MB|GB|TB)$/u.test(normalized) ? normalized : null;
+}
+
+function getRebuildParallelWorkers(): number {
+  const configured = Number.parseInt(
+    process.env.LOCATION_SEARCH_REBUILD_PARALLEL_WORKERS ?? '',
+    10
+  );
+  if (Number.isInteger(configured) && configured >= 0) {
+    return configured;
+  }
+
+  return Math.min(8, Math.max(2, Math.floor(os.availableParallelism() / 4)));
+}
+
+function getRebuildWorkMem(): string {
+  const configured = normalizeMemorySetting(process.env.LOCATION_SEARCH_REBUILD_WORK_MEM);
+  if (configured) {
+    return configured;
+  }
+
+  const workers = Math.max(1, getRebuildParallelWorkers());
+  const conservativePerNodeBudget = Math.floor(os.freemem() / Math.max(4, workers + 2) / 8);
+  return formatMemorySetting(Math.min(1024 * 1024 * 1024, conservativePerNodeBudget));
+}
+
+function getRebuildEffectiveCacheSize(): string {
+  const configured = normalizeMemorySetting(
+    process.env.LOCATION_SEARCH_REBUILD_EFFECTIVE_CACHE_SIZE
+  );
+  if (configured) {
+    return configured;
+  }
+
+  return formatMemorySetting(Math.floor(os.totalmem() * 0.75));
+}
 
 const TARGETED_AREA_UPSERT = `
   ON CONFLICT (area_key) DO UPDATE SET
@@ -387,10 +432,33 @@ export async function rebuildLocationSearchAreas(
 ): Promise<{ beforeCount: number; afterCount: number }> {
   const startedAt = Date.now();
   const countryCodes = normalizeCountryCodes(options.countries);
+  const rebuildParallelWorkers = getRebuildParallelWorkers();
+  const rebuildWorkMem = getRebuildWorkMem();
+  const rebuildEffectiveCacheSize = getRebuildEffectiveCacheSize();
   const beforeCount = await countLocationSearchAreas(db);
 
   const result = await db.transaction(async (tx) => {
     await tx.execute(sql`SET LOCAL synchronous_commit = off`);
+    await tx.execute(sql.raw(`SET LOCAL jit = off`));
+    await tx.execute(sql.raw(`SET LOCAL max_parallel_workers_per_gather = ${rebuildParallelWorkers}`));
+    await tx.execute(sql.raw(`SET LOCAL work_mem = '${rebuildWorkMem}'`));
+    await tx.execute(sql.raw(`SET LOCAL effective_cache_size = '${rebuildEffectiveCacheSize}'`));
+    await tx.execute(sql.raw(`SET LOCAL random_page_cost = 1.1`));
+    await tx.execute(sql.raw(`SET LOCAL effective_io_concurrency = 200`));
+    if (countryCodes.length > 0) {
+      await tx.execute(sql.raw(`SET LOCAL enable_seqscan = off`));
+    }
+
+    if (options.profile) {
+      options.logger?.info?.('Location search rebuild session settings', {
+        maxParallelWorkersPerGather: rebuildParallelWorkers,
+        workMem: rebuildWorkMem,
+        effectiveCacheSize: rebuildEffectiveCacheSize,
+        randomPageCost: 1.1,
+        effectiveIoConcurrency: 200,
+        enableSeqscan: countryCodes.length > 0 ? 'off' : 'default',
+      });
+    }
 
     await runProfiled('search_area_staging', options.profile ?? false, options.logger, async () => {
       await tx.execute(sql`
@@ -633,9 +701,9 @@ export async function refreshLocationSearchAreasForPropertyKeys(
 
     await tx.execute(sql.raw(`
       WITH target AS (
-        SELECT DISTINCT country_code, city_match, city_token
+        SELECT DISTINCT country_code, city_token
         FROM affected_location_search_area_keys
-        WHERE city_match IS NOT NULL AND city_token IS NOT NULL
+        WHERE city_token IS NOT NULL
       )
       INSERT INTO location_search_areas (${AREA_COLUMNS})
       SELECT
@@ -643,7 +711,7 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         'city',
         'city',
         p.country_code,
-        target.city_match,
+        MIN(${TEXT_MATCH('p.city')})::text,
         MIN(p.city)::text,
         MIN(p.city)::varchar(100),
         NULL::varchar(255),
@@ -653,20 +721,17 @@ export async function refreshLocationSearchAreasForPropertyKeys(
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code
-       AND LOWER(p.city) = target.city_match
+       AND ${TOKEN_TEXT('p.city')} = target.city_token
       WHERE p.status = 'active'
-      GROUP BY p.country_code, target.city_match, target.city_token
+      GROUP BY p.country_code, target.city_token
       ${TARGETED_AREA_UPSERT}
     `));
 
     await tx.execute(sql.raw(`
       WITH target AS (
-        SELECT DISTINCT country_code, city_match, city_token, region_match, region_token
+        SELECT DISTINCT country_code, city_token, region_token
         FROM affected_location_search_area_keys
-        WHERE city_match IS NOT NULL
-          AND city_token IS NOT NULL
-          AND region_match IS NOT NULL
-          AND region_token IS NOT NULL
+        WHERE city_token IS NOT NULL AND region_token IS NOT NULL
       )
       INSERT INTO location_search_areas (${AREA_COLUMNS})
       SELECT
@@ -674,7 +739,7 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         'city',
         'city',
         p.country_code,
-        target.city_match,
+        MIN(${TEXT_MATCH('p.city')})::text,
         MIN(p.city)::text,
         MIN(p.city)::varchar(100),
         MIN(p.region)::varchar(255),
@@ -684,18 +749,18 @@ export async function refreshLocationSearchAreasForPropertyKeys(
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code
-       AND LOWER(p.city) = target.city_match
-       AND LOWER(p.region) = target.region_match
+       AND ${TOKEN_TEXT('p.city')} = target.city_token
+       AND ${TOKEN_TEXT('p.region')} = target.region_token
       WHERE p.status = 'active'
-      GROUP BY p.country_code, target.city_match, target.city_token, target.region_match, target.region_token
+      GROUP BY p.country_code, target.city_token, target.region_token
       ${TARGETED_AREA_UPSERT}
     `));
 
     await tx.execute(sql.raw(`
       WITH target AS (
-        SELECT DISTINCT country_code, region_match, region_token
+        SELECT DISTINCT country_code, region_token
         FROM affected_location_search_area_keys
-        WHERE region_match IS NOT NULL AND region_token IS NOT NULL
+        WHERE region_token IS NOT NULL
       )
       INSERT INTO location_search_areas (${AREA_COLUMNS})
       SELECT
@@ -703,7 +768,7 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         'region',
         'region',
         p.country_code,
-        target.region_match,
+        MIN(${TEXT_MATCH('p.region')})::text,
         MIN(p.region)::text,
         NULL::varchar(100),
         MIN(p.region)::varchar(255),
@@ -713,9 +778,9 @@ export async function refreshLocationSearchAreasForPropertyKeys(
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code
-       AND LOWER(p.region) = target.region_match
+       AND ${TOKEN_TEXT('p.region')} = target.region_token
       WHERE p.status = 'active'
-      GROUP BY p.country_code, target.region_match, target.region_token
+      GROUP BY p.country_code, target.region_token
       ${TARGETED_AREA_UPSERT}
     `));
 
@@ -799,12 +864,9 @@ export async function refreshLocationSearchAreasForPropertyKeys(
 
     await tx.execute(sql.raw(`
       WITH target AS (
-        SELECT DISTINCT country_code, street_match, street_token, city_match, city_token
+        SELECT DISTINCT country_code, street_token, city_token
         FROM affected_location_search_area_keys
-        WHERE street_match IS NOT NULL
-          AND street_token IS NOT NULL
-          AND city_match IS NOT NULL
-          AND city_token IS NOT NULL
+        WHERE street_token IS NOT NULL AND city_token IS NOT NULL
       )
       INSERT INTO location_search_areas (${AREA_COLUMNS})
       SELECT
@@ -812,7 +874,7 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         'street',
         'street',
         p.country_code,
-        target.street_match,
+        MIN(${TEXT_MATCH('p.street')})::text,
         MIN(p.street)::text,
         MIN(p.city)::varchar(100),
         MIN(p.region)::varchar(255),
@@ -822,10 +884,10 @@ export async function refreshLocationSearchAreasForPropertyKeys(
       FROM properties p
       JOIN target
         ON target.country_code = p.country_code
-       AND LOWER(p.street) = target.street_match
-       AND LOWER(p.city) = target.city_match
+       AND ${TOKEN_TEXT('p.street')} = target.street_token
+       AND ${TOKEN_TEXT('p.city')} = target.city_token
       WHERE p.status = 'active'
-      GROUP BY p.country_code, target.street_match, target.street_token, target.city_match, target.city_token
+      GROUP BY p.country_code, target.street_token, target.city_token
       ${TARGETED_AREA_UPSERT}
     `));
   });
