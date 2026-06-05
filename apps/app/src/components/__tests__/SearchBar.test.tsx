@@ -594,6 +594,47 @@ describe('SearchBar', () => {
     expect(onPropertyResolved).not.toHaveBeenCalled();
   });
 
+  it('shows typed location suggestions while legacy address search is still loading', () => {
+    mockUseAddressSearch.mockReturnValue({
+      data: [],
+      isLoading: true,
+    });
+    mockUseLocationSearch.mockReturnValue({
+      data: [
+        {
+          id: 'city:NL:eindhoven',
+          type: 'city',
+          label: 'Eindhoven',
+          subtitle: 'Noord-Brabant, Nederland',
+          countryCode: 'NL',
+          coordinates: [5.4697, 51.4416],
+          filterToken: {
+            type: 'city',
+            countryCode: 'NL',
+            value: 'eindhoven',
+            label: 'Eindhoven',
+            coordinates: [5.4697, 51.4416],
+          },
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />
+    );
+
+    const input = focusNativeSearchInput();
+    fireEvent.changeText(input, 'Eindhoven');
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(screen.getByText('Eindhoven')).toBeTruthy();
+    expect(screen.getByText('City - Noord-Brabant, Nederland')).toBeTruthy();
+    expect(screen.queryByTestId('search-results-loading')).toBeNull();
+  });
+
   it('ignores a duplicate area token returned by location search', () => {
     const onAreaSelected = jest.fn();
     const selectedArea = {

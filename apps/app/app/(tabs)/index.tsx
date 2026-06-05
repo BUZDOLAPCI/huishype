@@ -84,6 +84,7 @@ import {
   getCanonicalMapFilterSignature,
   getLocationFilterTokenCameraBounds,
   getLocationFilterTokenCameraMaxZoom,
+  serializeLocationFilterToken,
   type MapActivityTimeFilter,
 } from '@/src/lib/sharedMapFilters';
 import { MapHeaderRow } from '@/src/components/navigation/MapHeaderRow';
@@ -1283,7 +1284,7 @@ export default function MapScreen() {
 
     const [west, south, east, north] = bounds;
     if (west === east && south === north) {
-      const zoom = Math.max(currentZoom, getLocationFilterTokenCameraMaxZoom(areas));
+      const zoom = getLocationFilterTokenCameraMaxZoom(areas);
       cameraRef.current?.flyTo({
         center: [west, south],
         zoom,
@@ -1302,7 +1303,7 @@ export default function MapScreen() {
       },
       duration: 650,
     });
-  }, [currentZoom]);
+  }, []);
 
   const handleAreaSelected = useCallback(
     (area: LocationFilterToken) => {
@@ -1326,9 +1327,12 @@ export default function MapScreen() {
 
   const handleAreaRemoved = useCallback(
     (area: LocationFilterToken) => {
-      const removeKey = `${area.type}:${area.countryCode ?? ''}:${area.value}`;
+      const removeKey = serializeLocationFilterToken(area);
       const nextAreas = (filterController.appliedFilters.areas ?? []).filter(
-        (candidate) => `${candidate.type}:${candidate.countryCode ?? ''}:${candidate.value}` !== removeKey
+        (candidate) => {
+          const candidateKey = serializeLocationFilterToken(candidate);
+          return removeKey == null ? candidate !== area : candidateKey !== removeKey;
+        }
       );
       filterController.replaceAppliedFilters({
         ...filterController.appliedFilters,

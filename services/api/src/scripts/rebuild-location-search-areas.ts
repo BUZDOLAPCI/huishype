@@ -1,12 +1,19 @@
 import dotenv from 'dotenv';
-import { closeConnection } from '../src/db/index.js';
-import { rebuildLocationSearchAreas } from '../src/services/location-search-areas.js';
+import { sql } from 'drizzle-orm';
+import { closeConnection, db } from '../db/index.js';
+import { rebuildLocationSearchAreas } from '../services/location-search-areas.js';
 
 dotenv.config({ quiet: true });
 
 type CliArgs = {
   countries: string[];
+  force: boolean;
+  ifEmpty: boolean;
   profile: boolean;
+};
+
+type CountRow = {
+  count: number | string;
 };
 
 function formatTime(ms: number): string {
@@ -32,13 +39,37 @@ function parseArgs(): CliArgs {
 
   return {
     countries,
+    force:
+      args.includes('--force') ||
+      process.env.FORCE_LOCATION_SEARCH_AREA_REBUILD === 'true',
+    ifEmpty: args.includes('--if-empty'),
     profile: args.includes('--profile'),
   };
+}
+
+async function countExistingLocationSearchAreas(): Promise<number> {
+  const rows = Array.from(
+    (await db.execute(
+      sql`SELECT COUNT(*)::int AS count FROM location_search_areas`
+    )) as Iterable<CountRow>
+  );
+  return Number(rows[0]?.count ?? 0);
 }
 
 async function main() {
   const start = Date.now();
   const args = parseArgs();
+
+  if (args.ifEmpty && !args.force) {
+    const existingCount = await countExistingLocationSearchAreas();
+    if (existingCount > 0) {
+      console.log(
+        `Skipping location_search_areas rebuild: ${existingCount.toLocaleString('en-US')} rows already exist. Use --force or FORCE_LOCATION_SEARCH_AREA_REBUILD=true to rebuild anyway.`
+      );
+      return;
+    }
+  }
+
   console.log('Rebuilding location_search_areas...');
   if (args.countries.length > 0) {
     console.log(`Countries: ${args.countries.join(', ')}`);

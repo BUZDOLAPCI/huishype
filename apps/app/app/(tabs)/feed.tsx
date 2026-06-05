@@ -45,6 +45,7 @@ import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
 import {
   DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
+  serializeLocationFilterToken,
   type LocationFilterToken,
 } from '@/src/lib/sharedMapFilters';
 import { useMapFilterController } from '@/src/hooks/useMapFilterController';
@@ -123,11 +124,6 @@ export default function FeedScreen() {
   const [showAuth, setShowAuth] = useState(false);
   const filterController = useMapFilterController();
   const { mapSearchBias } = useMapSearchBias();
-  const [userLocationBiasCenter, setUserLocationBiasCenter] = useState<{
-    lat: number;
-    lon: number;
-  } | null>(null);
-  const attemptedUserLocationBiasRef = useRef(false);
   const trackedFollowingEmptyViewRef = useRef(false);
   const hasInteractedWithListRef = useRef(false);
 
@@ -167,42 +163,7 @@ export default function FeedScreen() {
       lon: feedScope.lon,
     };
   }, [feedScope]);
-  const userLocationSearchBias = useMemo<AddressSearchBias | undefined>(() => {
-    if (!userLocationBiasCenter) {
-      return undefined;
-    }
-
-    return {
-      ...userLocationBiasCenter,
-      ...(feedCountryCode ? { countryCode: feedCountryCode } : {}),
-    };
-  }, [feedCountryCode, userLocationBiasCenter]);
-  const feedSearchBias = mapSearchBias ?? userLocationSearchBias ?? countryDefaultSearchBias;
-
-  useEffect(() => {
-    if (mapSearchBias || attemptedUserLocationBiasRef.current) {
-      return;
-    }
-
-    attemptedUserLocationBiasRef.current = true;
-    let cancelled = false;
-
-    void getCurrentLocation()
-      .then(({ longitude, latitude }) => {
-        if (cancelled) {
-          return;
-        }
-
-        setUserLocationBiasCenter({ lon: longitude, lat: latitude });
-      })
-      .catch(() => {
-        // Silent fallback: country/default bias is still better than global search.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mapSearchBias]);
+  const feedSearchBias = mapSearchBias ?? countryDefaultSearchBias;
 
   const headerRightAction = useMemo(() => <FeedHeaderActions />, []);
 
@@ -335,12 +296,14 @@ export default function FeedScreen() {
   );
   const handleFeedAreaRemoved = useCallback(
     (area: LocationFilterToken) => {
-      const removeKey = `${area.type}:${area.countryCode ?? ''}:${area.value}`;
+      const removeKey = serializeLocationFilterToken(area);
       filterController.replaceAppliedFilters({
         ...filterController.appliedFilters,
         areas: (filterController.appliedFilters.areas ?? []).filter(
-          (candidate) =>
-            `${candidate.type}:${candidate.countryCode ?? ''}:${candidate.value}` !== removeKey
+          (candidate) => {
+            const candidateKey = serializeLocationFilterToken(candidate);
+            return removeKey == null ? candidate !== area : candidateKey !== removeKey;
+          }
         ),
       });
     },

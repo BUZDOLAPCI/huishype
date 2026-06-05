@@ -88,7 +88,7 @@ async function dbReset() {
     run(`npx tsx src/scripts/import-overture-addresses.ts${countryFlag}`, 'Step 6b: Import Overture addresses');
   }
 
-  run('npx tsx scripts/rebuild-location-search-areas.ts', 'Step 6c: Rebuild location search areas');
+  run('npx tsx src/scripts/rebuild-location-search-areas.ts', 'Step 6c: Rebuild location search areas');
 
   // Step 6c: Import watercover before landcover so tree_landcover can subtract water.
   run(`npx tsx src/scripts/import-watercover.ts${countryFlag}`, 'Step 6e: Import watercover');

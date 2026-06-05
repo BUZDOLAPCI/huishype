@@ -85,6 +85,15 @@ let capturedSearchBarProps: {
     coordinates?: [number, number] | null;
     bbox?: [number, number, number, number] | null;
   }) => void;
+  onAreaRemoved?: (area: {
+    type: string;
+    countryCode?: string | null;
+    value: string;
+    label: string;
+    city?: string | null;
+    coordinates?: [number, number] | null;
+    bbox?: [number, number, number, number] | null;
+  }) => void;
 } | null = null;
 
 const mockAmbientCommentBubbles = {
@@ -780,8 +789,15 @@ describe('MapScreen native grouped Following mode', () => {
     expect(mockCameraFlyTo).not.toHaveBeenCalled();
   });
 
-  it('zooms native center-only street area selections to street scale', async () => {
-    await renderMapScreen();
+  it('zooms native center-only street area selections to street scale from a close view', async () => {
+    const screen = await renderMapScreen();
+
+    fireEvent(screen.getByTestId('native-map'), 'regionDidChange', {
+      nativeEvent: {
+        center: [5.4471777, 51.4486334],
+        zoom: 19,
+      },
+    });
 
     mockCameraFlyTo.mockClear();
     mockCameraFitBounds.mockClear();
@@ -805,6 +821,42 @@ describe('MapScreen native grouped Following mode', () => {
       duration: 650,
     });
     expect(mockCameraFitBounds).not.toHaveBeenCalled();
+  });
+
+  it('removes native area chips by serialized token metadata', async () => {
+    const eindhovenStreet = {
+      type: 'street',
+      countryCode: 'NL',
+      value: 'centrum',
+      label: 'Centrum',
+      city: 'Eindhoven',
+      coordinates: [5.4697, 51.4416] as [number, number],
+    };
+    const utrechtStreet = {
+      type: 'street',
+      countryCode: 'NL',
+      value: 'centrum',
+      label: 'Centrum',
+      city: 'Utrecht',
+      coordinates: [5.1214, 52.0907] as [number, number],
+    };
+    mockAppliedFilters = {
+      ...mockAppliedFilters,
+      areas: [eindhovenStreet, utrechtStreet],
+    };
+
+    await renderMapScreen();
+    mockReplaceAppliedFilters.mockClear();
+
+    act(() => {
+      capturedSearchBarProps?.onAreaRemoved?.(eindhovenStreet);
+    });
+
+    expect(mockReplaceAppliedFilters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        areas: [utrechtStreet],
+      })
+    );
   });
 
   it('does not auto-locate if the user moves the native map before full render', async () => {

@@ -85,6 +85,7 @@ export function SearchResults({
   const t = useT();
   const typedSuggestions = locationSuggestions ?? [];
   const hasTypedSuggestions = typedSuggestions.length > 0;
+  const hasAddressResults = results.length > 0;
   const formatLocationSuggestionSubtitle = (item: LocationSearchSuggestion): string =>
     [
       t(getLocationTypeLabelKey(item.type)),
@@ -94,7 +95,7 @@ export function SearchResults({
   // Don't render anything if query is too short
   if (query.length < 2 && !showCurrentLocationAction) return null;
 
-  if (isLoading) {
+  if (isLoading && !hasTypedSuggestions && !hasAddressResults) {
     return (
       <View
         style={[
@@ -139,7 +140,7 @@ export function SearchResults({
     );
   }
 
-  if (!hasTypedSuggestions && results.length === 0) {
+  if (!hasTypedSuggestions && !hasAddressResults) {
     return (
       <View
         style={[

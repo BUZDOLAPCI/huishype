@@ -2950,9 +2950,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
   const handleAreaRemoved = useCallback(
     (area: LocationFilterToken) => {
-      const removeKey = `${area.type}:${area.countryCode ?? ''}:${area.value}`;
+      const removeKey = serializeLocationFilterToken(area);
       const nextAreas = (filterController.appliedFilters.areas ?? []).filter(
-        (candidate) => `${candidate.type}:${candidate.countryCode ?? ''}:${candidate.value}` !== removeKey,
+        (candidate) => {
+          const candidateKey = serializeLocationFilterToken(candidate);
+          return removeKey == null ? candidate !== area : candidateKey !== removeKey;
+        },
       );
       const nextFilters = {
         ...filterController.appliedFilters,

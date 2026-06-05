@@ -72,6 +72,7 @@ type MockMapInstance = {
 let mockAppliedFilters: {
   tag: string;
   salePriceFrom?: number | null;
+  areas?: unknown[];
 } = { tag: 'tile-a' };
 let mockIsAuthenticated = true;
 let mockAccessToken: string | null = 'viewer-token';
@@ -131,6 +132,15 @@ let capturedSearchBarProps: {
   ) => void;
   onCurrentLocationSelected?: () => void | Promise<void>;
   onAreaSelected?: (area: {
+    type: string;
+    countryCode?: string | null;
+    value: string;
+    label: string;
+    city?: string | null;
+    coordinates?: [number, number] | null;
+    bbox?: [number, number, number, number] | null;
+  }) => void;
+  onAreaRemoved?: (area: {
     type: string;
     countryCode?: string | null;
     value: string;
@@ -440,8 +450,13 @@ jest.mock('@/src/lib/sharedMapFilters', () => ({
   getMapFilterSearchString: jest.fn((_filters, currentSearch) => currentSearch),
   hasMapFilterQueryParams: jest.fn(() => false),
   parseMapFiltersFromSearchParams: jest.fn(() => ({ tag: 'default' })),
-  serializeLocationFilterToken: jest.fn(
-    (area) => `${area.type}:${area.countryCode ?? ''}:${area.value}`,
+  serializeLocationFilterToken: jest.fn((area) =>
+    [
+      area.type,
+      area.countryCode ?? '',
+      area.value,
+      area.city ? `city=${area.city.toLowerCase()}` : null,
+    ].filter(Boolean).join(':'),
   ),
 }));
 
@@ -1593,6 +1608,53 @@ describe('MapScreen web grouped Following mode', () => {
         duration: 650,
         essential: true,
       },
+    );
+  });
+
+  it('removes web area chips by serialized token metadata', async () => {
+    const eindhovenStreet = {
+      type: 'street',
+      countryCode: 'NL',
+      value: 'centrum',
+      label: 'Centrum',
+      city: 'Eindhoven',
+      coordinates: [5.4697, 51.4416] as [number, number],
+    };
+    const utrechtStreet = {
+      type: 'street',
+      countryCode: 'NL',
+      value: 'centrum',
+      label: 'Centrum',
+      city: 'Utrecht',
+      coordinates: [5.1214, 52.0907] as [number, number],
+    };
+    mockAppliedFilters = {
+      ...mockAppliedFilters,
+      areas: [eindhovenStreet, utrechtStreet],
+    };
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+    mockReplaceAppliedFilters.mockClear();
+
+    act(() => {
+      capturedSearchBarProps?.onAreaRemoved?.(eindhovenStreet);
+    });
+
+    expect(mockReplaceAppliedFilters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        areas: [utrechtStreet],
+      }),
     );
   });
 

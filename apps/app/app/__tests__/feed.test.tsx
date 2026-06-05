@@ -30,6 +30,20 @@ let capturedSearchBarProps: {
     lat?: number;
     lon?: number;
   };
+  onAreaSelected?: (area: {
+    type: 'city' | 'street';
+    countryCode: string;
+    value: string;
+    label: string;
+    city?: string;
+  }) => void;
+  onAreaRemoved?: (area: {
+    type: 'city' | 'street';
+    countryCode: string;
+    value: string;
+    label: string;
+    city?: string;
+  }) => void;
   onLocationResolved?: (coordinates: { lon: number; lat: number }, address: string) => void;
 } | null = null;
 
@@ -109,6 +123,7 @@ jest.mock('@/src/components', () => ({
     searchBias,
     selectedAreas,
     onAreaSelected,
+    onAreaRemoved,
     onLocationResolved,
   }: {
     searchBias?: {
@@ -116,18 +131,31 @@ jest.mock('@/src/components', () => ({
       lat?: number;
       lon?: number;
     };
-    selectedAreas: Array<{ label: string }>;
-    onAreaSelected: (area: {
-      type: 'city';
+    selectedAreas: Array<{
+      type: 'city' | 'street';
       countryCode: string;
       value: string;
       label: string;
-      city: string;
+      city?: string;
+    }>;
+    onAreaSelected: (area: {
+      type: 'city' | 'street';
+      countryCode: string;
+      value: string;
+      label: string;
+      city?: string;
+    }) => void;
+    onAreaRemoved: (area: {
+      type: 'city' | 'street';
+      countryCode: string;
+      value: string;
+      label: string;
+      city?: string;
     }) => void;
     onLocationResolved: (coordinates: { lon: number; lat: number }, address: string) => void;
   }) => {
     const ReactNative = require('react-native');
-    capturedSearchBarProps = { searchBias, onLocationResolved };
+    capturedSearchBarProps = { searchBias, onAreaSelected, onAreaRemoved, onLocationResolved };
     return (
       <ReactNative.View testID="feed-search-bar">
         <ReactNative.Text>Areas {selectedAreas.length}</ReactNative.Text>
@@ -144,6 +172,40 @@ jest.mock('@/src/components', () => ({
           }
         >
           <ReactNative.Text>Select Eindhoven</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID="feed-select-centrum-eindhoven"
+          onPress={() =>
+            onAreaSelected({
+              type: 'street',
+              countryCode: 'NL',
+              value: 'centrum',
+              label: 'Centrum',
+              city: 'Eindhoven',
+            })
+          }
+        >
+          <ReactNative.Text>Select Centrum Eindhoven</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID="feed-select-centrum-utrecht"
+          onPress={() =>
+            onAreaSelected({
+              type: 'street',
+              countryCode: 'NL',
+              value: 'centrum',
+              label: 'Centrum',
+              city: 'Utrecht',
+            })
+          }
+        >
+          <ReactNative.Text>Select Centrum Utrecht</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID="feed-remove-first-area"
+          onPress={() => selectedAreas[0] && onAreaRemoved(selectedAreas[0])}
+        >
+          <ReactNative.Text>Remove first area</ReactNative.Text>
         </ReactNative.Pressable>
       </ReactNative.View>
     );
@@ -544,7 +606,7 @@ describe('FeedScreen following surface', () => {
     expect(mockGetCurrentLocation).not.toHaveBeenCalled();
   });
 
-  it('uses current location as the feed search bias fallback before country defaults', async () => {
+  it('does not request current location for feed search bias fallback', () => {
     mockGetCurrentLocation.mockResolvedValue({
       latitude: 51.4523,
       longitude: 5.4457,
@@ -560,13 +622,12 @@ describe('FeedScreen following surface', () => {
 
     render(<FeedScreen />);
 
-    await waitFor(() => {
-      expect(capturedSearchBarProps?.searchBias).toEqual({
-        countryCode: 'NL',
-        lat: 51.4523,
-        lon: 5.4457,
-      });
+    expect(capturedSearchBarProps?.searchBias).toEqual({
+      countryCode: 'NL',
+      lat: 51.4416,
+      lon: 5.4697,
     });
+    expect(mockGetCurrentLocation).not.toHaveBeenCalled();
   });
 
   it('scopes the property feed to the signed-in user profile country when available', () => {
@@ -677,6 +738,55 @@ describe('FeedScreen following surface', () => {
               value: 'eindhoven',
             }),
           ],
+        })
+      );
+    });
+  });
+
+  it('removes feed area filters by serialized token metadata', async () => {
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId, getByText } = render(<FeedScreen />);
+
+    fireEvent.press(getByTestId('feed-select-centrum-eindhoven'));
+    await waitFor(() => {
+      expect(getByText('Areas 1')).toBeTruthy();
+    });
+    fireEvent.press(getByTestId('feed-select-centrum-utrecht'));
+    await waitFor(() => {
+      expect(getByText('Areas 2')).toBeTruthy();
+    });
+    fireEvent.press(getByTestId('feed-remove-first-area'));
+
+    await waitFor(() => {
+      const lastPropertyFeedCall = mockUseInfiniteFeed.mock.calls.at(-1);
+      expect(lastPropertyFeedCall?.[3]).toEqual(
+        expect.objectContaining({
+          areas: [
+            expect.objectContaining({
+              type: 'street',
+              value: 'centrum',
+              city: 'Utrecht',
+            }),
+          ],
+        })
+      );
+      expect(lastPropertyFeedCall?.[3]).not.toEqual(
+        expect.objectContaining({
+          areas: expect.arrayContaining([
+            expect.objectContaining({
+              type: 'street',
+              value: 'centrum',
+              city: 'Eindhoven',
+            }),
+          ]),
         })
       );
     });
