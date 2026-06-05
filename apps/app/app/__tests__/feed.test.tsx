@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import type { QueryObserverSuccessResult } from '@tanstack/react-query';
 import { router } from 'expo-router';
 
@@ -757,7 +758,12 @@ describe('FeedScreen following surface', () => {
     const { getByTestId, queryByTestId } = render(<FeedScreen />);
 
     expect(getByTestId('chip-trending')).toBeTruthy();
-    expect(getByTestId('feed-shared-filter-section')).toBeTruthy();
+    expect(StyleSheet.flatten(getByTestId('feed-shared-filter-section').props.style)).toEqual(
+      expect.objectContaining({
+        position: 'relative',
+        zIndex: 200,
+      })
+    );
     expect(getByTestId('feed-search-bar')).toBeTruthy();
     expect(getByTestId('feed-shared-map-filter-bar')).toBeTruthy();
     expect(queryByTestId('feed-map-activity-control')).toBeNull();

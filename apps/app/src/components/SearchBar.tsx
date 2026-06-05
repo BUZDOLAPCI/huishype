@@ -603,6 +603,29 @@ export function SearchBar({
     </View>
   ) : null;
 
+  const searchResults = showResults ? (
+    <SearchResults
+      results={addressResults}
+      locationSuggestions={locationSuggestions}
+      isLoading={isLoading || isLoadingLocations}
+      query={debouncedQuery}
+      showCurrentLocationAction={isFocused && inputValue.length === 0}
+      highlightedIndex={highlightedIndex}
+      onResultPress={handleResultPress}
+      onLocationSuggestionPress={handleLocationSuggestionPress}
+      onCurrentLocationPress={handleCurrentLocationPress}
+    />
+  ) : isFocused && inputValue.length === 0 ? (
+    <SearchResults
+      results={[]}
+      isLoading={false}
+      query=""
+      showCurrentLocationAction
+      onResultPress={handleResultPress}
+      onCurrentLocationPress={handleCurrentLocationPress}
+    />
+  ) : null;
+
   // Build the editable input field with focus-dependent styling.
   const inputField = (
     <View
@@ -707,6 +730,15 @@ export function SearchBar({
           accessibilityRole="button"
           style={[
             isInline ? styles.inlineBackdrop : styles.backdrop,
+            isInline && Platform.OS === 'web'
+              ? ({
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+              : null,
             reducedMotion && { opacity: 1 },
             Platform.OS === 'web'
               ? ({
@@ -726,47 +758,34 @@ export function SearchBar({
         testID="search-bar-container"
       >
         {selectedAreaChips}
-        {/* Search Input — uses blur container on native when unfocused */}
-        {!isFocused && Platform.OS !== 'web' ? (
-          <Pressable
-            testID="search-bar-focus-target"
-            accessibilityRole="button"
-            accessibilityLabel={t('search.focusLabel')}
-            accessibilityHint={t('search.focusHint')}
-            onPress={handleFocusTargetPress}
-          >
-            <BlurContainer intensity={60} tint="light" style={styles.blurInputWrapper}>
-              {unfocusedNativeField}
-            </BlurContainer>
-          </Pressable>
-        ) : (
-          inputField
-        )}
+        <View style={styles.inputStack}>
+          {/* Search Input — uses blur container on native when unfocused */}
+          {!isFocused && Platform.OS !== 'web' ? (
+            <Pressable
+              testID="search-bar-focus-target"
+              accessibilityRole="button"
+              accessibilityLabel={t('search.focusLabel')}
+              accessibilityHint={t('search.focusHint')}
+              onPress={handleFocusTargetPress}
+            >
+              <BlurContainer intensity={60} tint="light" style={styles.blurInputWrapper}>
+                {unfocusedNativeField}
+              </BlurContainer>
+            </Pressable>
+          ) : (
+            inputField
+          )}
 
-        {/* Search Results Dropdown */}
-        {showResults && (
-          <SearchResults
-            results={addressResults}
-            locationSuggestions={locationSuggestions}
-            isLoading={isLoading || isLoadingLocations}
-            query={debouncedQuery}
-            showCurrentLocationAction={isFocused && inputValue.length === 0}
-            highlightedIndex={highlightedIndex}
-            onResultPress={handleResultPress}
-            onLocationSuggestionPress={handleLocationSuggestionPress}
-            onCurrentLocationPress={handleCurrentLocationPress}
-          />
-        )}
-        {isFocused && inputValue.length === 0 && !showResults ? (
-          <SearchResults
-            results={[]}
-            isLoading={false}
-            query=""
-            showCurrentLocationAction
-            onResultPress={handleResultPress}
-            onCurrentLocationPress={handleCurrentLocationPress}
-          />
-        ) : null}
+          {searchResults ? (
+            <View
+              style={styles.resultsOverlay}
+              pointerEvents="box-none"
+              testID="search-results-overlay"
+            >
+              {searchResults}
+            </View>
+          ) : null}
+        </View>
       </View>
     </>
   );
@@ -790,12 +809,25 @@ const styles = StyleSheet.create({
   },
   inlineContainer: {
     position: 'relative',
-    zIndex: 10,
+    zIndex: 100,
+    elevation: 12,
   },
   inlineBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.dimOverlay,
-    zIndex: 9,
+    zIndex: 99,
+  },
+  inputStack: {
+    position: 'relative',
+    zIndex: 101,
+  },
+  resultsOverlay: {
+    position: 'absolute',
+    top: 52,
+    left: 0,
+    right: 0,
+    zIndex: 102,
+    elevation: 12,
   },
   blurInputWrapper: {
     borderRadius: 16,

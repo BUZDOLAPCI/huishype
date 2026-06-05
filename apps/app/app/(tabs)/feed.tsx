@@ -650,6 +650,9 @@ export default function FeedScreen() {
 
 const styles = StyleSheet.create({
   sharedFilterSection: {
+    position: 'relative',
+    zIndex: 200,
+    elevation: 20,
     gap: 10,
     paddingHorizontal: 14,
     paddingTop: 8,

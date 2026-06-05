@@ -6,7 +6,7 @@ import {
   act,
   waitFor,
 } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { SearchBar } from '../SearchBar';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { TEST_LAT, TEST_LNG } from '@/src/__tests__/fixtures/test-coordinates';
@@ -111,6 +111,20 @@ function setPlatform(os: typeof Platform.OS) {
     configurable: true,
     value: os,
   });
+}
+
+function flattenRenderedStyle(style: unknown): Record<string, unknown> {
+  if (!Array.isArray(style)) {
+    return StyleSheet.flatten(style) as Record<string, unknown>;
+  }
+
+  return Object.assign(
+    {},
+    ...style
+      .flat(Number.POSITIVE_INFINITY)
+      .filter(Boolean)
+      .map((entry) => StyleSheet.flatten(entry) as Record<string, unknown>)
+  );
 }
 
 describe('SearchBar', () => {
@@ -1195,6 +1209,51 @@ describe('SearchBar', () => {
     await waitFor(() => {
       expect(screen.getByText('Zoek huidige locatie')).toBeTruthy();
     });
+  });
+
+  it('uses a fixed inline web backdrop and overlays results without layout flow', () => {
+    setPlatform('web');
+    mockUseLocationSearch.mockReturnValue({
+      data: [createMockLocationSuggestion()],
+      isLoading: false,
+    });
+
+    render(
+      <SearchBar
+        layout="inline"
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+      />
+    );
+
+    const input = screen.getByTestId('search-bar-input');
+    fireEvent(input, 'focus');
+
+    expect(flattenRenderedStyle(screen.getByTestId('search-overlay-backdrop').props.style)).toEqual(
+      expect.objectContaining({
+        position: 'fixed',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+      })
+    );
+
+    fireEvent.changeText(input, 'Eindhoven');
+
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(screen.getByTestId('search-results-list')).toBeTruthy();
+    expect(flattenRenderedStyle(screen.getByTestId('search-results-overlay').props.style)).toEqual(
+      expect.objectContaining({
+        position: 'absolute',
+        top: 52,
+        right: 0,
+        left: 0,
+      })
+    );
   });
 
   it('closes the focused web search overlay on popstate before route navigation', async () => {
