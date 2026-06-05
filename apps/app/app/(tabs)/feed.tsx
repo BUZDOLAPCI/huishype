@@ -567,11 +567,13 @@ export default function FeedScreen() {
   // Loading state
   if ((isBootstrappingPropertyFeed || activeQuery.isLoading) && !isRefreshing) {
     return (
-      <ScreenBackground>
-        <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
-        <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
-        {sharedFilterSection}
-        <FeedLoadingState />
+      <ScreenBackground style={styles.screen}>
+        <View style={FEED_LIST_CONTAINER_STYLE}>
+          <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
+          <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
+          {sharedFilterSection}
+          <FeedLoadingState />
+        </View>
         {authModal}
       </ScreenBackground>
     );
@@ -580,14 +582,16 @@ export default function FeedScreen() {
   // Error state
   if (activeQuery.isError) {
     return (
-      <ScreenBackground>
-        <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
-        <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
-        {sharedFilterSection}
-        <FeedErrorState
-          message={activeQuery.error?.message || t('feed.error.default')}
-          onRetry={activeQuery.refetch}
-        />
+      <ScreenBackground style={styles.screen}>
+        <View style={FEED_LIST_CONTAINER_STYLE}>
+          <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
+          <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
+          {sharedFilterSection}
+          <FeedErrorState
+            message={activeQuery.error?.message || t('feed.error.default')}
+            onRetry={activeQuery.refetch}
+          />
+        </View>
         {authModal}
       </ScreenBackground>
     );
@@ -599,34 +603,36 @@ export default function FeedScreen() {
   if (isEmpty) {
     const signedInFollowing = activeFilter !== 'following' || isAuthenticated;
     return (
-      <ScreenBackground>
-        <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
-        <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
-        {sharedFilterSection}
-        <FeedEmptyState
-          filter={activeFilter}
-          signedIn={signedInFollowing}
-          onPrimaryAction={
-            activeFilter === 'following'
-              ? () => {
-                  if (signedInFollowing) {
-                    setActiveFilter('recent-activity');
-                    replaceFeedBrowserPath(filterController.appliedFilters, 'recent-activity');
-                    return;
-                  }
+      <ScreenBackground style={styles.screen}>
+        <View style={FEED_LIST_CONTAINER_STYLE}>
+          <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
+          <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
+          {sharedFilterSection}
+          <FeedEmptyState
+            filter={activeFilter}
+            signedIn={signedInFollowing}
+            onPrimaryAction={
+              activeFilter === 'following'
+                ? () => {
+                    if (signedInFollowing) {
+                      setActiveFilter('recent-activity');
+                      replaceFeedBrowserPath(filterController.appliedFilters, 'recent-activity');
+                      return;
+                    }
 
-                  setShowAuth(true);
-                }
-              : undefined
-          }
-        />
+                    setShowAuth(true);
+                  }
+                : undefined
+            }
+          />
+        </View>
         {authModal}
       </ScreenBackground>
     );
   }
 
   return (
-    <ScreenBackground style={{ alignItems: 'center' }} testID="feed-screen">
+    <ScreenBackground style={styles.screen} testID="feed-screen">
       <View style={FEED_LIST_CONTAINER_STYLE}>
         <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
         <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
@@ -678,6 +684,9 @@ export default function FeedScreen() {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    alignItems: 'center',
+  },
   sharedFilterSection: {
     position: 'relative',
     zIndex: 200,

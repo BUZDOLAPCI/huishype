@@ -466,6 +466,55 @@ test.describe('Feed Filtering', () => {
     }
   });
 
+  test('empty property feed keeps transparent background and centered feed shell', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.route(`${API_BASE_URL}/feed**`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [],
+          pagination: {
+            page: 1,
+            limit: 20,
+            hasMore: false,
+          },
+        }),
+      });
+    });
+
+    await page.goto('/feed?area=street%3ANL%3Aelburglaan%3Acity%3Deindhoven');
+    await expect(page.locator('[data-testid="feed-empty"]')).toBeVisible({ timeout: 15000 });
+
+    const metrics = await page.evaluate(() => {
+      const emptyState = document.querySelector('[data-testid="feed-empty"]');
+      const shell = emptyState?.parentElement;
+      const shellRect = shell?.getBoundingClientRect();
+      const emptyBackgroundColor = emptyState
+        ? window.getComputedStyle(emptyState).backgroundColor
+        : null;
+
+      return {
+        viewportWidth: window.innerWidth,
+        shellLeft: shellRect?.left ?? null,
+        shellWidth: shellRect?.width ?? null,
+        emptyBackgroundColor,
+      };
+    });
+
+    expect(metrics.emptyBackgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(metrics.shellWidth).not.toBeNull();
+    expect(metrics.shellLeft).not.toBeNull();
+    expect(metrics.shellWidth ?? 0).toBeLessThanOrEqual(768);
+
+    const expectedLeft = (metrics.viewportWidth - (metrics.shellWidth ?? 0)) / 2;
+    expect(Math.abs((metrics.shellLeft ?? 0) - expectedLeft)).toBeLessThanOrEqual(1);
+
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-empty-transparent-background.png` });
+  });
+
   test('clicking property card navigates to detail page', async ({ page }) => {
     // First verify API has feed items
     const apiCheck = await page.request.get(`${API_BASE_URL}/feed?limit=1`);

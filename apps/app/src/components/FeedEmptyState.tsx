@@ -45,7 +45,7 @@ export function FeedEmptyState({ filter, signedIn = true, onPrimaryAction }: Fee
 
   return (
     <View
-      className="flex-1 items-center justify-center bg-warm-50 px-6"
+      className="flex-1 items-center justify-center px-6"
       testID="feed-empty"
     >
       <View className="bg-warm-200 p-5 rounded-full mb-4">
