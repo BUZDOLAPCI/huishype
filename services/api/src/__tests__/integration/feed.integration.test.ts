@@ -620,6 +620,90 @@ describe('Feed routes', () => {
       ]);
     });
 
+    it('includes completed listing states by default and leaves market state narrowing explicit', async () => {
+      const user = await createIntegrationUser(app, { label: `feedsold${runId}` });
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Sold ${runId}`,
+        houseNumber: 41,
+        city: `Feed Sold City ${runId}`,
+        postalCode: '9811AS',
+        lon: slice.lon + 0.019,
+        lat: slice.lat + 0.019,
+        officialValuation: 505000,
+        officialValuationYear: 2024,
+      });
+
+      try {
+        const listedAt = atOffset({ days: 12 });
+        await createIntegrationListing({
+          propertyId: property.id,
+          status: 'sold',
+          askingPrice: 515000,
+          priceType: 'sale',
+          createdAt: listedAt,
+          updatedAt: listedAt,
+        });
+        const commentCreatedAt = atOffset({ minutes: 7 });
+        await insertComment(
+          property.id,
+          user.userId,
+          commentCreatedAt,
+          'Sold properties can trend'
+        );
+
+        const defaultResponse = await app.inject({
+          method: 'GET',
+          url: buildFeedUrl({
+            filter: 'trending',
+            area: `postcode:${slice.country}:9811as`,
+            limit: 10,
+          }),
+        });
+        const forSaleResponse = await app.inject({
+          method: 'GET',
+          url: buildFeedUrl({
+            filter: 'trending',
+            marketState: 'for-sale',
+            area: `postcode:${slice.country}:9811as`,
+            limit: 10,
+          }),
+        });
+        const soldResponse = await app.inject({
+          method: 'GET',
+          url: buildFeedUrl({
+            filter: 'trending',
+            marketState: 'sold',
+            area: `postcode:${slice.country}:9811as`,
+            limit: 10,
+          }),
+        });
+
+        expect(defaultResponse.statusCode).toBe(200);
+        expect(forSaleResponse.statusCode).toBe(200);
+        expect(soldResponse.statusCode).toBe(200);
+
+        const defaultItems = JSON.parse(defaultResponse.body).items;
+        expect(defaultItems.map((item: { id: string }) => item.id)).toEqual([property.id]);
+        expect(defaultItems[0]).toMatchObject({
+          id: property.id,
+          marketState: 'sold',
+          askingPrice: null,
+          hasListing: true,
+          commentCount: 1,
+          activityLevel: 'warm',
+          lastActivityAt: commentCreatedAt.toISOString(),
+        });
+        expect(JSON.parse(forSaleResponse.body).items).toEqual([]);
+        expect(JSON.parse(soldResponse.body).items.map((item: { id: string }) => item.id)).toEqual([
+          property.id,
+        ]);
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(sql`DELETE FROM users WHERE id = ${user.userId}`);
+      }
+    });
+
     it('treats an edited guess as one public guess and uses the latest edit timestamp for recency', async () => {
       const user = await createIntegrationUser(app, { label: `feedguessupdate${runId}` });
       const property = await createIntegrationProperty({

@@ -174,12 +174,16 @@ function setCachedFeedResponse(cacheKey: string, response: FeedResponse): void {
   });
 }
 
-function buildFeedScopedListingOrderExpression(scopedAlias: string) {
+function buildFeedScopedLatestListingOrderExpression(scopedAlias: string) {
   return sql`${sql.raw(
-    `${scopedAlias}.active_listing_sort_at`
+    `${scopedAlias}.listing_sort_at`
   )} DESC, ${sql.raw(`${scopedAlias}.listing_created_at`)} DESC, ${sql.raw(
     `${scopedAlias}.listing_id`
   )} DESC`;
+}
+
+function buildFeedScopedActiveListingOrderExpression(scopedAlias: string) {
+  return sql`(${sql.raw(`${scopedAlias}.status`)} = 'active') DESC, ${buildFeedScopedLatestListingOrderExpression(scopedAlias)}`;
 }
 
 function buildFeedOrderExpression(scoreAlias: string, filter: FeedRouteQuery['filter']) {
@@ -206,7 +210,7 @@ export async function feedRoutes(app: FastifyInstance) {
         tags: ['feed'],
         summary: 'Get property feed',
         description:
-          'Get a paginated feed of properties with active listings. ' +
+          'Get a paginated feed of listing-backed properties across active and completed listing states. ' +
           'Filters: trending (weighted 7-day activity) and latest (most recent activity). ' +
           'Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.',
         querystring: feedRouteQuerySchema,
@@ -245,7 +249,7 @@ export async function feedRoutes(app: FastifyInstance) {
       const feedOrderExpression = buildFeedOrderExpression('cfr', filter);
 
       const rows = await db.execute<FeedRow>(sql`
-        WITH scoped_active_listings AS MATERIALIZED (
+        WITH scoped_listing_facts AS MATERIALIZED (
           SELECT
             p.id AS property_id,
             p.country_code,
@@ -258,15 +262,16 @@ export async function feedRoutes(app: FastifyInstance) {
             p.official_valuation,
             p.official_valuation_year,
             l.listing_id,
+            l.status,
             l.asking_price,
             l.normalized_price_type,
             l.thumbnail_url,
             l.listing_created_at,
-            l.sort_at AS active_listing_sort_at
+            l.sort_at AS listing_sort_at
           FROM v_canonical_listing_facts l
           INNER JOIN properties p ON p.id = l.property_id
           ${marketFilterQuery.join}
-          WHERE l.status = 'active'
+          WHERE l.status IN ('active', 'sold', 'rented')
             AND p.status = 'active'
             AND p.geometry IS NOT NULL
             AND ${marketFilterQuery.predicate}
@@ -276,62 +281,86 @@ export async function feedRoutes(app: FastifyInstance) {
         ),
         candidate_listing_facts AS MATERIALIZED (
           SELECT
-            sal.property_id,
-            (array_agg(sal.country_code ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+            slf.property_id,
+            (array_agg(slf.country_code ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
               AS country_code,
-            (array_agg(sal.street ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+            (array_agg(slf.street ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
               AS street,
-            (array_agg(sal.house_number ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+            (array_agg(slf.house_number ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
               AS house_number,
             (
-              array_agg(sal.house_number_addition ORDER BY ${buildFeedScopedListingOrderExpression(
-                'sal'
+              array_agg(slf.house_number_addition ORDER BY ${buildFeedScopedActiveListingOrderExpression(
+                'slf'
               )})
             )[1] AS house_number_addition,
-            (array_agg(sal.city ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+            (array_agg(slf.city ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
               AS city,
-            (array_agg(sal.postal_code ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+            (array_agg(slf.postal_code ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
               AS postal_code,
-            (array_agg(sal.geometry ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
+            (array_agg(slf.geometry ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
               AS geometry,
             (
-              array_agg(sal.official_valuation ORDER BY ${buildFeedScopedListingOrderExpression(
-                'sal'
+              array_agg(slf.official_valuation ORDER BY ${buildFeedScopedActiveListingOrderExpression(
+                'slf'
               )})
             )[1] AS official_valuation,
             (
               array_agg(
-                sal.official_valuation_year
-                ORDER BY ${buildFeedScopedListingOrderExpression('sal')}
+                slf.official_valuation_year
+                ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}
               )
             )[1] AS official_valuation_year,
-            (array_agg(sal.asking_price ORDER BY ${buildFeedScopedListingOrderExpression('sal')}))[1]
-              AS asking_price,
             (
               array_agg(
-                CASE
-                  WHEN sal.normalized_price_type = 'rent' THEN 'for-rent'
-                  ELSE 'for-sale'
-                END
-                ORDER BY ${buildFeedScopedListingOrderExpression('sal')}
+                CASE WHEN slf.status = 'active' THEN slf.asking_price ELSE NULL END
+                ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}
               )
-            )[1] AS market_state,
+            )[1] AS asking_price,
+            (
+              CASE
+                WHEN BOOL_OR(slf.status = 'active')
+                  AND (
+                    array_agg(
+                      slf.normalized_price_type
+                      ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}
+                    )
+                  )[1] = 'rent'
+                  THEN 'for-rent'
+                WHEN BOOL_OR(slf.status = 'active')
+                  THEN 'for-sale'
+                WHEN (
+                  array_agg(
+                    slf.status
+                    ORDER BY ${buildFeedScopedLatestListingOrderExpression('slf')}
+                  )
+                )[1] = 'sold'
+                  THEN 'sold'
+                WHEN (
+                  array_agg(
+                    slf.status
+                    ORDER BY ${buildFeedScopedLatestListingOrderExpression('slf')}
+                  )
+                )[1] = 'rented'
+                  THEN 'rented'
+                ELSE 'not-listed'
+              END
+            ) AS market_state,
             (
               array_agg(
-                sal.active_listing_sort_at
-                ORDER BY ${buildFeedScopedListingOrderExpression('sal')}
+                slf.listing_sort_at
+                ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}
               )
-            )[1] AS active_listing_sort_at,
+            )[1] AS listing_sort_at,
             (
               SELECT l.thumbnail_url
               FROM v_canonical_listing_facts l
-              WHERE l.property_id = sal.property_id
+              WHERE l.property_id = slf.property_id
                 AND l.thumbnail_url IS NOT NULL
               ORDER BY ${listingThumbnailOrderExpression('l')}
               LIMIT 1
             ) AS thumbnail_url
-          FROM scoped_active_listings sal
-          GROUP BY sal.property_id
+          FROM scoped_listing_facts slf
+          GROUP BY slf.property_id
         ),
         candidate_ids AS MATERIALIZED (
           SELECT clf.property_id
@@ -463,7 +492,7 @@ export async function feedRoutes(app: FastifyInstance) {
                 ogf.latest_guess_at,
                 ovf.latest_view_at
               ),
-              clf.active_listing_sort_at
+              clf.listing_sort_at
             ) AS last_activity_at
           FROM candidate_listing_facts clf
           LEFT JOIN ordering_comment_facts ocf ON ocf.property_id = clf.property_id
