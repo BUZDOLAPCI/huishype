@@ -32,6 +32,13 @@ function findExecutedSql(mock: jest.Mock<ExecuteMock>, pattern: string): string 
   return statement ?? '';
 }
 
+function expectNoLegacyAreaMetadata(sqlText: string): void {
+  expect(sqlText).not.toContain('property_location_division_memberships');
+  expect(sqlText).not.toContain('overture_division');
+  expect(sqlText).not.toContain('source =');
+  expect(sqlText).not.toContain('source_name');
+}
+
 function mockSuccessfulRebuildCounts(): void {
   executeMock.mockResolvedValue([{ count: 0 }]);
   txExecuteMock.mockImplementation(async (query) => {
@@ -71,12 +78,10 @@ describe('location search areas', () => {
     expect(executedSql).toContain("'postcode:' || country_code || ':' || postcode_match AS area_key");
     expect(executedSql).toContain("'postcode-prefix:' || country_code || ':' || LEFT(postcode_match, 4) AS area_key");
     expect(executedSql).toContain("'street:' || country_code || ':' || street_token || ':city=' || city_token AS area_key");
-    expect(executedSql).not.toContain('property_location_division_memberships');
-    expect(executedSql).not.toContain('overture_division');
-    expect(executedSql).not.toContain('source =');
+    expectNoLegacyAreaMetadata(executedSql);
   });
 
-  it('routes key-based refresh through property-derived affected keys', async () => {
+  it('routes key-based refresh through property-derived affected keys and country stats', async () => {
     const { refreshLocationSearchAreasForPropertyKeys } = await import(
       './location-search-areas.js'
     );
@@ -96,9 +101,18 @@ describe('location search areas', () => {
       "'city:' || p.country_code || ':' || target.city_token"
     );
     expect(cityInsert).toContain('affected_location_search_area_keys');
-    expect(cityInsert).not.toContain('source');
-    expect(renderExecutedSql(txExecuteMock).join('\n')).not.toContain(
-      'property_location_division_memberships'
-    );
+    expectNoLegacyAreaMetadata(cityInsert);
+
+    const countryInsert = findExecutedSql(txExecuteMock, "'country:' || stats.country_code");
+    expect(countryInsert).toContain('FROM property_country_stats stats JOIN target');
+    expect(countryInsert).toContain('WHERE stats.property_count > 0');
+    expect(countryInsert).toContain('stats.sum_lon / stats.geometry_count');
+    expect(countryInsert).toContain('stats.property_count');
+    expect(countryInsert).toContain('stats.geometry_count');
+    expect(countryInsert).not.toContain('FROM properties p JOIN target');
+    expect(countryInsert).not.toContain('GROUP BY p.country_code');
+    expect(countryInsert).not.toContain('NULL::double precision');
+    expect(countryInsert).not.toContain(' 1, 0');
+    expectNoLegacyAreaMetadata(renderExecutedSql(txExecuteMock).join('\n'));
   });
 });

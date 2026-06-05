@@ -461,6 +461,32 @@ export const properties = pgTable(
       sql`LOWER(${table.city})`,
       sql`LOWER(${table.region})`
     ),
+    index('properties_active_country_city_token_idx')
+      .on(
+        table.countryCode,
+        sql`NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(${table.city}, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '')`
+      )
+      .where(sql`status = 'active'`),
+    index('properties_active_country_city_region_token_idx')
+      .on(
+        table.countryCode,
+        sql`NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(${table.city}, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '')`,
+        sql`NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(${table.region}, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '')`
+      )
+      .where(sql`status = 'active'`),
+    index('properties_active_country_region_token_idx')
+      .on(
+        table.countryCode,
+        sql`NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(${table.region}, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '')`
+      )
+      .where(sql`status = 'active'`),
+    index('properties_active_country_street_city_token_idx')
+      .on(
+        table.countryCode,
+        sql`NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(${table.street}, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '')`,
+        sql`NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(${table.city}, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '')`
+      )
+      .where(sql`status = 'active'`),
     index('properties_resolve_address_idx').on(
       table.countryCode,
       table.postalCode,
@@ -478,6 +504,51 @@ export const properties = pgTable(
       .on(table.commentsDisabledAt)
       .where(sql`comments_disabled_at IS NOT NULL`),
     index('properties_comments_disabled_by_idx').on(table.commentsDisabledBy),
+  ]
+);
+
+export const propertyCountryStats = pgTable(
+  'property_country_stats',
+  {
+    countryCode: varchar('country_code', { length: 2 }).primaryKey(),
+    propertyCount: integer('property_count').notNull(),
+    geometryCount: integer('geometry_count').notNull().default(0),
+    sumLon: doublePrecision('sum_lon').notNull().default(0),
+    sumLat: doublePrecision('sum_lat').notNull().default(0),
+    minLon: doublePrecision('min_lon'),
+    minLat: doublePrecision('min_lat'),
+    maxLon: doublePrecision('max_lon'),
+    maxLat: doublePrecision('max_lat'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'property_country_stats_country_code_check',
+      sql`${table.countryCode} = UPPER(${table.countryCode}) AND LENGTH(${table.countryCode}) = 2`
+    ),
+    check('property_country_stats_property_count_check', sql`${table.propertyCount} > 0`),
+    check(
+      'property_country_stats_geometry_count_check',
+      sql`${table.geometryCount} >= 0 AND ${table.geometryCount} <= ${table.propertyCount}`
+    ),
+    check(
+      'property_country_stats_geometry_extent_check',
+      sql`(
+        ${table.geometryCount} = 0
+        AND ${table.sumLon} = 0
+        AND ${table.sumLat} = 0
+        AND ${table.minLon} IS NULL
+        AND ${table.minLat} IS NULL
+        AND ${table.maxLon} IS NULL
+        AND ${table.maxLat} IS NULL
+      ) OR (
+        ${table.geometryCount} > 0
+        AND ${table.minLon} IS NOT NULL
+        AND ${table.minLat} IS NOT NULL
+        AND ${table.maxLon} IS NOT NULL
+        AND ${table.maxLat} IS NOT NULL
+      )`
+    ),
   ]
 );
 

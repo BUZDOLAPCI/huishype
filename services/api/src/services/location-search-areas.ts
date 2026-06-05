@@ -628,12 +628,10 @@ export async function refreshLocationSearchAreasForPropertyKeys(
         sql`, `
       )}
     `);
+    await tx.execute(sql`ANALYZE affected_location_search_area_keys`);
 
     await tx.execute(sql.raw(`
       WITH affected_area_keys AS (
-        SELECT DISTINCT 'country:' || country_code AS area_key
-        FROM affected_location_search_area_keys
-        UNION
         SELECT DISTINCT 'city:' || country_code || ':' || city_token AS area_key
         FROM affected_location_search_area_keys
         WHERE city_token IS NOT NULL
@@ -670,32 +668,34 @@ export async function refreshLocationSearchAreasForPropertyKeys(
       )
       INSERT INTO location_search_areas (${AREA_COLUMNS})
       SELECT
-        'country:' || target.country_code,
+        'country:' || stats.country_code,
         'country',
         'country',
-        target.country_code,
-        LOWER(target.country_code),
-        target.country_code,
+        stats.country_code,
+        LOWER(stats.country_code),
+        stats.country_code,
         NULL::varchar(100),
         NULL::varchar(255),
         NULL::varchar(32),
         NULL::varchar(255),
-        NULL::double precision,
-        NULL::double precision,
-        NULL::double precision,
-        NULL::double precision,
-        NULL::double precision,
-        NULL::double precision,
-        1,
-        0
-      FROM target
-      WHERE EXISTS (
-        SELECT 1
-        FROM properties p
-        WHERE p.status = 'active'
-          AND p.country_code = target.country_code
-        LIMIT 1
-      )
+        CASE
+          WHEN stats.geometry_count > 0 THEN stats.sum_lon / stats.geometry_count
+          ELSE NULL
+        END,
+        CASE
+          WHEN stats.geometry_count > 0 THEN stats.sum_lat / stats.geometry_count
+          ELSE NULL
+        END,
+        stats.min_lon,
+        stats.min_lat,
+        stats.max_lon,
+        stats.max_lat,
+        stats.property_count,
+        stats.geometry_count
+      FROM property_country_stats stats
+      JOIN target
+        ON target.country_code = stats.country_code
+      WHERE stats.property_count > 0
       ${TARGETED_AREA_UPSERT}
     `));
 
