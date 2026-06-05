@@ -548,6 +548,14 @@ function areDistinctScopedAreaSuggestions(
   existing: LocationSearchSuggestionResponse,
   candidate: LocationSearchSuggestionResponse
 ): boolean {
+  if (
+    existing.filterToken?.type === 'city' &&
+    candidate.filterToken?.type === 'city' &&
+    buildLocationSuggestionDedupeKey(existing) === buildLocationSuggestionDedupeKey(candidate)
+  ) {
+    return false;
+  }
+
   const existingScope = buildScopedLocationSuggestionDedupeKey(existing);
   const candidateScope = buildScopedLocationSuggestionDedupeKey(candidate);
   return Boolean(existingScope && candidateScope && existingScope !== candidateScope);
@@ -698,7 +706,20 @@ function shouldReplaceLocationSuggestion(
   existing: LocationSearchSuggestionResponse,
   candidate: LocationSearchSuggestionResponse
 ): boolean {
+  if (isRegionlessCitySuggestion(candidate) && !isRegionlessCitySuggestion(existing)) {
+    return true;
+  }
+
   return isDbBackedAreaSuggestion(candidate) && !isDbBackedAreaSuggestion(existing);
+}
+
+function isRegionlessCitySuggestion(suggestion: LocationSearchSuggestionResponse): boolean {
+  return (
+    suggestion.type === 'city' &&
+    suggestion.filterToken?.type === 'city' &&
+    !suggestion.region &&
+    !suggestion.filterToken.region
+  );
 }
 
 function hasClearerParentRegion(suggestion: LocationSearchSuggestionResponse): boolean {
@@ -729,6 +750,9 @@ function mergeCanonicalAreaSuggestion(
   candidate: LocationSearchSuggestionResponse
 ): LocationSearchSuggestionResponse {
   if (!preferred.filterToken || !candidate.filterToken) {
+    return preferred;
+  }
+  if (isRegionlessCitySuggestion(preferred)) {
     return preferred;
   }
 

@@ -2333,6 +2333,136 @@ describe('GET /search/locations', () => {
     expect(JSON.stringify(body)).not.toContain('railway');
   });
 
+  it('dedupes broad and region-scoped city suggestions to the broad city token', async () => {
+    const suffix = Date.now().toString(36);
+    const city = `Canonical City ${suffix}`;
+    const cityToken = normalizeSearchToken(city);
+    const broadAreaKey = `test:city:${cityToken}`;
+    const scopedAreaKey = `test:city:${cityToken}:region=${cityToken}`;
+
+    await db.execute(sql`
+      INSERT INTO location_search_areas (
+        area_key,
+        area_kind,
+        suggestion_type,
+        country_code,
+        match_value,
+        label,
+        city,
+        region,
+        postal_code,
+        street,
+        lon,
+        lat,
+        min_lon,
+        min_lat,
+        max_lon,
+        max_lat,
+        property_count,
+        geometry_count
+      )
+      VALUES
+        (
+          ${broadAreaKey},
+          'city',
+          'city',
+          'NL',
+          ${cityToken},
+          ${city},
+          ${city},
+          NULL,
+          NULL,
+          NULL,
+          4.9,
+          52.0,
+          4.9,
+          52.0,
+          4.9,
+          52.0,
+          1,
+          1
+        ),
+        (
+          ${scopedAreaKey},
+          'city',
+          'city',
+          'NL',
+          ${cityToken},
+          ${city},
+          ${city},
+          ${city},
+          NULL,
+          NULL,
+          5.1,
+          52.1,
+          5.1,
+          52.1,
+          5.1,
+          52.1,
+          10,
+          1
+        )
+      ON CONFLICT (area_key) DO NOTHING
+    `);
+    createdAreaKeys.push(broadAreaKey, scopedAreaKey);
+
+    mockFetchFn.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [5.1, 52.1] },
+              properties: {
+                osm_type: 'R',
+                osm_id: 32001,
+                name: city,
+                city,
+                state: city,
+                country: 'Nederland',
+                countrycode: 'nl',
+                type: 'city',
+              },
+            },
+          ],
+        }),
+    } as unknown as Response);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/search/locations?q=${encodeURIComponent(city)}&limit=8&countrycode=NL`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as LocationSearchTestSuggestion[];
+    const citySuggestions = body.filter(
+      (suggestion) => suggestion.type === 'city' && suggestion.label === city
+    );
+
+    expect(citySuggestions).toHaveLength(1);
+    expect(citySuggestions[0]).toEqual(
+      expect.objectContaining({
+        id: `city:NL:${cityToken}`,
+        type: 'city',
+        label: city,
+        subtitle: 'Netherlands',
+        countryCode: 'NL',
+        region: null,
+        filterToken: expect.objectContaining({
+          id: `city:NL:${cityToken}`,
+          type: 'city',
+          countryCode: 'NL',
+          value: cityToken,
+          label: city,
+          region: null,
+        }),
+      })
+    );
+    expect(JSON.stringify(citySuggestions)).not.toContain(`region=${cityToken}`);
+  });
+
   it('collapses same-city region variants into one canonical regionless city suggestion', async () => {
     const suffix = Date.now().toString(36);
     const city = `Variantstad ${suffix}`;
