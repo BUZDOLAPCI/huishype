@@ -127,7 +127,7 @@ export function Comment({
     <View testID={isReply ? 'comment-reply' : 'comment'}>
       <Pressable
         onLongPress={handleLongPress}
-        className={`py-3 ${isReply ? 'ml-10 pl-3 border-l-2 border-warm-200' : ''}`}
+        className={`px-3 py-3 ${isReply ? 'ml-10 pl-3 border-l-2 border-warm-200' : ''}`}
         testID={isReply ? 'comment-reply-long-press-target' : 'comment-long-press-target'}
       >
         {/* Header: Avatar, Username, Badge, Timestamp */}
