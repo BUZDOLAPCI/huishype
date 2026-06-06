@@ -25,6 +25,7 @@ import {
   useComments,
   useSubmitComment,
   useLikeComment,
+  type Comment,
   type CommentSortBy,
 } from '@/src/hooks/useComments';
 import { useAuthContext } from '@/src/providers/AuthProvider';
@@ -52,6 +53,21 @@ export interface CommentsRouteScreenProps {
   onNavigate?: (path: string) => void;
 }
 
+function findCommentById(comments: Comment[], commentId: string): Comment | undefined {
+  for (const comment of comments) {
+    if (comment.id === commentId) {
+      return comment;
+    }
+
+    const reply = findCommentById(comment.replies, commentId);
+    if (reply) {
+      return reply;
+    }
+  }
+
+  return undefined;
+}
+
 export function CommentsRouteScreen({
   propertyId,
   returnTo,
@@ -69,7 +85,6 @@ export function CommentsRouteScreen({
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(
     null,
   );
-  const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
@@ -106,16 +121,13 @@ export function CommentsRouteScreen({
         setShowAuthModal(true);
         return;
       }
-      const isCurrentlyLiked = likedComments.has(commentId);
-      setLikedComments((prev) => {
-        const next = new Set(prev);
-        if (isCurrentlyLiked) next.delete(commentId);
-        else next.add(commentId);
-        return next;
-      });
+
+      const targetComment = findCommentById(allComments, commentId);
+      const isCurrentlyLiked = targetComment?.isLiked ?? false;
+
       likeMutation.mutate({ commentId, isCurrentlyLiked });
     },
-    [isAuthenticated, likedComments, likeMutation],
+    [allComments, isAuthenticated, likeMutation],
   );
 
   const handleReply = useCallback(
@@ -124,7 +136,7 @@ export function CommentsRouteScreen({
         setShowAuthModal(true);
         return;
       }
-      const comment = allComments.find((candidate) => candidate.id === commentId);
+      const comment = findCommentById(allComments, commentId);
       if (comment) {
         setReplyTo({ id: commentId, username: comment.user.username });
       }

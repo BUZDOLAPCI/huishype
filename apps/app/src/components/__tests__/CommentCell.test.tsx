@@ -247,6 +247,16 @@ describe('CommentCell', () => {
     expect(likeButtons[1].props.accessibilityLabel).toBe('Unlike');
   });
 
+  it('calls onLike with the reply id when an expanded reply heart is pressed', () => {
+    const onLike = jest.fn();
+    render(<CommentCell comment={mockComment} onLike={onLike} />);
+
+    fireEvent.press(screen.getByTestId('view-replies-button'));
+    fireEvent.press(screen.getAllByTestId('comment-like-button')[1]);
+
+    expect(onLike).toHaveBeenCalledWith('reply-1');
+  });
+
   it('renders parent liked state from likedCommentIds prop', () => {
     const likedIds = new Set(['comment-1']);
     render(
