@@ -321,7 +321,24 @@ describe('PriceGuessSlider', () => {
     );
 
     expect(screen.getByText(/Comparable homes.*385/)).toBeTruthy();
-    expect(screen.getByTestId('start-anchor-marker')).toBeTruthy();
+    expect(screen.getByText(/Comparable homes.*385/).props.style).toMatchObject({
+      color: '#4A40D4',
+    });
+    const startAnchor = screen.getByTestId('start-anchor-marker');
+    const startAnchorConnector = React.Children.toArray(startAnchor.props.children).find(
+      (child) =>
+        React.isValidElement<{ style?: Record<string, unknown> }>(child) &&
+        child.props.style?.width === 1,
+    );
+    const connectorStyle =
+      React.isValidElement<{ style?: Record<string, unknown> }>(startAnchorConnector)
+        ? startAnchorConnector.props.style
+        : null;
+    expect(connectorStyle).toMatchObject({
+      height: 24,
+      backgroundColor: '#4A40D4',
+    });
+    expect(startAnchor).toBeTruthy();
     expect(screen.getByTestId('start-anchor-track-marker')).toBeTruthy();
   });
 

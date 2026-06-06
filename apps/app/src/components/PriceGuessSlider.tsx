@@ -234,6 +234,13 @@ function formatStartAnchorLabel(
   return null;
 }
 
+function isComparableStartSource(source: PriceGuessSliderStartSource): boolean {
+  return (
+    source === 'official_valuation_adjusted' ||
+    source === 'local_comparable_price_per_m2'
+  );
+}
+
 function formatDeltaPercentageLabel(price: number, startPrice: number): string {
   if (startPrice <= 0) {
     return '0%';
@@ -1142,6 +1149,14 @@ export function PriceGuessSlider({
   const startAnchorPosition = startAnchorLabel
     ? priceToPosition(sliderStartPrice, sliderRange)
     : null;
+  const startAnchorUsesAskingStyle = isComparableStartSource(startAnalytics.current.source);
+  const startAnchorReferenceColor = startAnchorUsesAskingStyle
+    ? ASKING_REFERENCE_COLOR
+    : START_ANCHOR_REFERENCE_COLOR;
+  const startAnchorConnectorColor = startAnchorUsesAskingStyle
+    ? ASKING_REFERENCE_COLOR
+    : START_ANCHOR_CONNECTOR_COLOR;
+  const startAnchorConnectorHeight = startAnchorUsesAskingStyle ? 24 : 52;
 
   if (variant === 'embedded') {
     return (
@@ -1364,9 +1379,9 @@ export function PriceGuessSlider({
               <InlineReferenceLabel
                 position={startAnchorPosition}
                 label={startAnchorLabel ?? ''}
-                color={START_ANCHOR_REFERENCE_COLOR}
-                connectorColor={START_ANCHOR_CONNECTOR_COLOR}
-                connectorHeight={52}
+                color={startAnchorReferenceColor}
+                connectorColor={startAnchorConnectorColor}
+                connectorHeight={startAnchorConnectorHeight}
                 width={START_ANCHOR_MARKER_WIDTH}
                 testID="start-anchor-marker"
               />
@@ -1509,10 +1524,10 @@ export function PriceGuessSlider({
               position={startAnchorPosition}
               label={startAnchorLabel}
               color="text-warm-600"
-              textColor={START_ANCHOR_REFERENCE_COLOR}
-              connectorColor={START_ANCHOR_CONNECTOR_COLOR}
+              textColor={startAnchorReferenceColor}
+              connectorColor={startAnchorConnectorColor}
               top={15}
-              connectorHeight={52}
+              connectorHeight={startAnchorConnectorHeight}
               width={START_ANCHOR_MARKER_WIDTH}
             />
           )}
