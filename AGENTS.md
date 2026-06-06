@@ -380,13 +380,45 @@ Launch multiple independent subagents in a single message for maximum efficiency
 
 Other agents may be editing nearby files at the same time. Do not overwrite, revert, or "clean up" unrelated work of other agents.
 
+### Concurrent Codex Sessions
+
+Multiple Codex sessions may run in this workspace, but treat the checkout as shared mutable state. Before editing, check `git status` and avoid files another agent is touching. For independent implementation work, prefer separate `git worktree` checkouts. Keep full `pnpm test`, Playwright, mobile E2E, DB reset/seed/migration, `pnpm install`, generated-client updates, native prebuilds, and shared service restarts (`huishype-expo`, `huishype-api`) single-owner/serialized unless explicitly coordinated.
+
 ## Verification
 
-Before marking ANY task complete, run tests per `agent-rules/test-requirements.md`. The canonical repo gate is `pnpm test`, which covers lint, typecheck, app/API/worker/shared/api-client/mocks unit coverage, API integration, Playwright harness self-tests, and Playwright integration. Follow "All tests green" development.
+Before marking ANY task complete, verify the touched feature and its sensible surroundings. Choose checks that directly cover the edited code, adjacent behavior that could regress, and the highest-risk integration boundary. Prefer focused package tests, typechecks, lint, API integration tests, or targeted Playwright projects over broad gates when they provide comparable signal.
 
-## Pre-Commit Quality Gate (Mandatory)
+`agent-rules/test-requirements.md` remains the long-term target. Temporarily, prioritize development momentum with the scoped gate rules below instead of treating every task as requiring the full canonical or broadest suite.
 
-Run these checks before every commit. All must pass.
+### Temporary Scoped Gate Rules
+
+Run focused verification for every code change:
+- Touched package lint/typecheck when available.
+- Focused unit tests for edited logic, components, hooks, services, or utilities.
+- Relevant neighboring tests when behavior crosses a nearby boundary.
+- API integration tests when routes, auth, database queries, migrations, feed/listing behavior, or persistence contracts changed.
+- Targeted web Playwright tests when user-visible web flows, map interactions, routing, auth screens, layout-sensitive UI, or browser-only behavior changed.
+
+Skip these slower gates by default unless your best judgment says the change's risk needs that coverage, preparing a release, or the change directly affects the covered area:
+- `pnpm test:all`.
+- `pnpm test:e2e:web` when a specific Playwright project covers the risk.
+- `pnpm test:e2e:flows` for pure API, pure unit logic, docs, copy, small component internals, or refactors already covered by focused tests.
+- `pnpm test:e2e:visual` unless the change affects visual layout, map rendering, screenshots, reference expectations, or CSS-heavy UI.
+- `pnpm test:integration` for app-only UI, docs, pure shared formatting utilities, and non-DB worker logic.
+- Full DB reset/seed workflows unless seed/import/migration logic or dataset-backed behavior changed.
+- `pnpm install` unless package manifests, lockfiles, patches, package manager config, or GitHub dependency hashes changed.
+
+When skipping a broad gate, say what was skipped and what focused checks were run instead. Do not skip verification entirely for code changes.
+
+### Temporary Native Test Override
+
+For now, prioritize development momentum by skipping native/mobile device test runs unless your best judgment says the change's native risk needs that coverage or the change is directly about native runtime behavior that cannot be validated another way.
+
+This override applies to `pnpm test:e2e:mobile`, Maestro runs, emulator/device-only checks, native prebuild verification, and physical-device smoke tests. When skipping native verification, say so in the final report and run the closest useful non-native coverage instead, such as `pnpm test`, focused unit tests, API integration tests, or web Playwright tests.
+
+## Pre-Commit Quality Gate
+
+For normal development commits, run the focused scoped gate above. Run the canonical repo gate before merges, releases, broad refactors, or when focused checks do not give enough confidence. All checks that are run must pass.
 
 ```bash
 pnpm test                         # Canonical repo gate
@@ -396,7 +428,7 @@ pnpm test                         # Canonical repo gate
 
 ESLint warnings are treated as failures. Keep package lint scripts strict with `--max-warnings=0`, and if a warning pattern is low-value for this repo, solve it by improving the code or refining config narrowly rather than tolerating warnings or adding broad suppressions.
 
-If the change touches web E2E, also run the relevant root Playwright wrappers:
+If the change touches web E2E, choose the relevant root Playwright wrapper for the affected behavior:
 
 ```bash
 pnpm test:e2e:web                # Full Playwright suite via the root wrapper
@@ -405,7 +437,7 @@ pnpm test:e2e:flows              # Flow Playwright project
 pnpm test:e2e:visual             # Visual Playwright project
 ```
 
-If the change touches mobile, also run:
+If the change touches mobile, native E2E is currently covered by the temporary override above. Run it only when your best judgment says native coverage is needed or when no non-native verification can meaningfully cover the risk:
 
 ```bash
 pnpm test:e2e:mobile             # Wrapper that bootstraps the device and runs Maestro
