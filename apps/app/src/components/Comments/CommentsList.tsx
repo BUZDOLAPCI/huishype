@@ -28,7 +28,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
   const [sortBy, setSortBy] = useState<CommentSortBy>('popular');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
 
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, user } = useAuthContext();
 
   // Data fetching hooks
   const {
@@ -290,6 +290,8 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
           replyTo={replyTo}
           onCancelReply={handleCancelReply}
           isSubmitting={submitMutation.isPending}
+          isAuthenticated={isAuthenticated}
+          currentUsername={user?.username}
           placeholder={
             isAuthenticated
               ? t('comments.placeholder.authenticated')

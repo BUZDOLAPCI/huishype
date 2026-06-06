@@ -61,7 +61,7 @@ export function CommentsSection({
   } | null>(null);
   const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, user } = useAuthContext();
   const commentsDisabled = property.commentsDisabled === true;
 
   // Fetch comments
@@ -297,12 +297,15 @@ export function CommentsSection({
       )}
 
       {/* Comment input */}
-      <View className="mt-3">
+      <View style={styles.previewComposer}>
         <CommentInput
           onSubmit={handleSubmit}
           replyTo={replyTo}
           onCancelReply={handleCancelReply}
           isSubmitting={submitMutation.isPending}
+          isAuthenticated={isAuthenticated}
+          currentUsername={user?.username}
+          variant="compact"
           placeholder={
             isAuthenticated
               ? t('comments.placeholder.authenticated')
@@ -348,6 +351,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#D98900',
+  },
+  previewComposer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F5F0E8',
   },
   disabledState: {
     borderRadius: 12,

@@ -30,6 +30,7 @@ import {
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
 import { CommentSortToggle } from '@/src/components/Comments';
+import { TAB_BAR_DOCK_HEIGHT } from '@/src/components/navigation/tabBarMetrics';
 import { ReportModal } from '@/src/components/ReportModal';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import {
@@ -43,6 +44,7 @@ import {
   toInternalAppHref,
 } from '@/src/utils/property-route';
 import { useT } from '@/src/i18n';
+import { useIsLandscape } from '@/src/hooks/useIsLandscape';
 
 export interface CommentsRouteScreenProps {
   propertyId?: string | null;
@@ -57,7 +59,8 @@ export function CommentsRouteScreen({
 }: CommentsRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, user } = useAuthContext();
+  const isLandscape = useIsLandscape();
   const hydratedNow = useHydratedNow();
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
   const lastCloseAtRef = useRef(0);
@@ -155,6 +158,9 @@ export function CommentsRouteScreen({
     : { url: null, type: 'placeholder' as const };
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
+  const composerBottomOffset = Platform.OS === 'web' && isLandscape
+    ? 0
+    : TAB_BAR_DOCK_HEIGHT;
   const navigateToTarget = useCallback(
     (targetHref: string) => {
       if (onNavigate) {
@@ -296,7 +302,7 @@ export function CommentsRouteScreen({
               )}
               contentContainerStyle={[
                 styles.listContent,
-                { paddingBottom: insets.bottom + 100 },
+                { paddingBottom: insets.bottom + composerBottomOffset + 96 },
               ]}
               onEndReached={handleLoadMore}
               onEndReachedThreshold={0.4}
@@ -309,11 +315,20 @@ export function CommentsRouteScreen({
           )}
 
           {commentsDisabled ? null : (
-            <CommentInput
-              onSubmit={handleSubmit}
-              replyTo={replyTo}
-              onCancelReply={() => setReplyTo(null)}
-            />
+            <View
+              style={[
+                styles.composerDock,
+                { bottom: insets.bottom + composerBottomOffset },
+              ]}
+            >
+              <CommentInput
+                onSubmit={handleSubmit}
+                replyTo={replyTo}
+                onCancelReply={() => setReplyTo(null)}
+                isAuthenticated={isAuthenticated}
+                currentUsername={user?.username}
+              />
+            </View>
           )}
         </KeyboardAvoidingView>
       </ResponsivePanel>
@@ -381,5 +396,10 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: '#9C958A',
     textAlign: 'center',
+  },
+  composerDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
   },
 });

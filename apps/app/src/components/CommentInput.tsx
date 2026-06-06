@@ -5,14 +5,24 @@
  *
  * Features:
  *   - Reply-to indicator with cancel
- *   - Character count
- *   - Gold send button (disabled when empty)
+ *   - Near-limit character count
+ *   - Inline send button (disabled when empty)
  *   - Auth gating (non-editable placeholder for unauthenticated users)
  *   - Supports both compact (inline) and full (sticky footer) variants
  */
 
-import React, { useCallback, useState } from 'react';
-import { Pressable, Text, View, TextInput, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Keyboard,
+  Pressable,
+  Text,
+  View,
+  TextInput,
+  StyleSheet,
+  type NativeSyntheticEvent,
+  type TextInput as TextInputType,
+  type TextInputContentSizeChangeEventData,
+} from 'react-native';
 import { Icon } from './ui/Icon';
 import { UserAvatar } from './ui/UserAvatar';
 import { useT } from '@/src/i18n';
@@ -26,7 +36,7 @@ export interface ReplyTarget {
 
 export interface CommentInputProps {
   /** Called when the user submits a comment. */
-  onSubmit?: (content: string) => void;
+  onSubmit?: (content: string) => boolean | void;
   /** Reply-to target (shows indicator when set). */
   replyTo?: ReplyTarget | null;
   /** Called when the reply indicator is dismissed. */
@@ -35,11 +45,21 @@ export interface CommentInputProps {
   isAuthenticated?: boolean;
   /** Current user's username (for avatar display). */
   currentUsername?: string;
+  /** Whether a comment submit is currently pending. */
+  isSubmitting?: boolean;
+  /** Optional placeholder override. */
+  placeholder?: string;
   /** Display variant. Default 'full'. */
   variant?: CommentInputVariant;
   /** Maximum character count. Default 500. */
   maxLength?: number;
   testID?: string;
+}
+
+export const MIN_TEXT_INPUT_HEIGHT = 34;
+
+export function getFittedTextInputHeight(contentHeight: number) {
+  return Math.max(MIN_TEXT_INPUT_HEIGHT, Math.ceil(contentHeight));
 }
 
 export function CommentInput({
@@ -48,22 +68,88 @@ export function CommentInput({
   onCancelReply,
   isAuthenticated = false,
   currentUsername,
+  isSubmitting = false,
+  placeholder,
   variant = 'full',
   maxLength = 500,
   testID,
 }: CommentInputProps) {
   const t = useT();
   const [content, setContent] = useState('');
+  const [inputHeight, setInputHeight] = useState(MIN_TEXT_INPUT_HEIGHT);
+  const inputRef = useRef<TextInputType>(null);
+
+  useEffect(() => {
+    if (!replyTo) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [replyTo]);
+
+  const handleChangeText = useCallback((nextContent: string) => {
+    setContent(nextContent);
+    if (nextContent.length === 0) {
+      setInputHeight(MIN_TEXT_INPUT_HEIGHT);
+    }
+  }, []);
+
+  const handleContentSizeChange = useCallback(
+    (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
+      const nextHeight = getFittedTextInputHeight(
+        event.nativeEvent.contentSize.height
+      );
+
+      setInputHeight((currentHeight) => (
+        currentHeight === nextHeight ? currentHeight : nextHeight
+      ));
+    },
+    []
+  );
 
   const handleSubmit = useCallback(() => {
     const trimmed = content.trim();
-    if (trimmed && onSubmit) {
-      onSubmit(trimmed);
-      setContent('');
+    if (
+      !trimmed ||
+      content.length > maxLength ||
+      !isAuthenticated ||
+      isSubmitting ||
+      !onSubmit
+    ) {
+      return;
     }
-  }, [content, onSubmit]);
 
-  const canSubmit = content.trim().length > 0 && isAuthenticated;
+    const submitted = onSubmit(trimmed);
+    if (submitted === false) {
+      return;
+    }
+
+    setContent('');
+    setInputHeight(MIN_TEXT_INPUT_HEIGHT);
+    Keyboard.dismiss();
+  }, [content, isAuthenticated, isSubmitting, maxLength, onSubmit]);
+
+  const handleCancelReply = useCallback(() => {
+    onCancelReply?.();
+    setContent('');
+    setInputHeight(MIN_TEXT_INPUT_HEIGHT);
+  }, [onCancelReply]);
+
+  const isOverLimit = content.length > maxLength;
+  const showCharacterCount = content.length > Math.min(450, maxLength * 0.9);
+  const canSubmit =
+    content.trim().length > 0 && !isOverLimit && isAuthenticated && !isSubmitting;
+  const inputPlaceholder = replyTo
+    ? t('comments.input.replyPlaceholder', { username: replyTo.username })
+    : placeholder ?? (
+        isAuthenticated
+          ? t('comments.input.addPlaceholder')
+          : t('comments.placeholder.signedOut')
+      );
 
   return (
     <View
@@ -78,7 +164,7 @@ export function CommentInput({
             {t('comments.replyingTo')} @{replyTo.username}
           </Text>
           <Pressable
-            onPress={onCancelReply}
+            onPress={handleCancelReply}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             testID="cancel-reply"
           >
@@ -90,49 +176,62 @@ export function CommentInput({
       {/* Input row */}
       <View style={styles.inputRow}>
         {/* User avatar */}
-        {currentUsername && (
-          <UserAvatar username={currentUsername} size="sm" />
-        )}
+        <UserAvatar username={currentUsername ?? 'guest'} size="sm" />
 
         {/* Text input */}
-        <View style={styles.inputWrapper}>
+        <View
+          style={[styles.inputWrapper, { minHeight: inputHeight + 8 }]}
+          testID="comment-input-wrapper"
+        >
           <TextInput
-            style={styles.textInput}
-            placeholder={
-              isAuthenticated
-                ? t('comments.input.addPlaceholder')
-                : t('comments.placeholder.signedOut')
-            }
+            ref={inputRef}
+            style={[styles.textInput, { height: inputHeight }]}
+            placeholder={inputPlaceholder}
             placeholderTextColor="#C7BFB3"
             value={content}
-            onChangeText={setContent}
-            maxLength={maxLength}
+            onChangeText={handleChangeText}
+            onContentSizeChange={handleContentSizeChange}
+            maxLength={maxLength + 50}
             multiline
-            editable={isAuthenticated}
+            scrollEnabled={false}
+            editable={isAuthenticated && !isSubmitting}
             testID="comment-text-input"
           />
-        </View>
 
-        {/* Send button */}
-        <Pressable
-          onPress={handleSubmit}
-          disabled={!canSubmit}
-          style={[
-            styles.sendButton,
-            { backgroundColor: canSubmit ? '#F5A623' : '#F5F0E8' },
-          ]}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          testID="comment-send-button"
-          accessibilityRole="button"
-          accessibilityLabel={t('comments.input.send')}
-        >
-          <Icon
-            name="PaperPlaneTilt"
-            size="sm"
-            color={canSubmit ? '#FFFFFF' : '#C7BFB3'}
-          />
-        </Pressable>
+          {/* Send button */}
+          <Pressable
+            onPress={handleSubmit}
+            disabled={!canSubmit}
+            style={[
+              styles.sendButton,
+              { backgroundColor: canSubmit ? '#F5A623' : '#F5F0E8' },
+            ]}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            testID="comment-send-button"
+            accessibilityRole="button"
+            accessibilityLabel={t('comments.input.send')}
+          >
+            <Icon
+              name="PaperPlaneTilt"
+              size={18}
+              weight="bold"
+              color={canSubmit ? '#FFFFFF' : '#C7BFB3'}
+            />
+          </Pressable>
+        </View>
       </View>
+
+      {showCharacterCount && (
+        <Text
+          style={[
+            styles.characterCount,
+            { color: isOverLimit ? '#EF4444' : '#9C958A' },
+          ]}
+          testID="character-count"
+        >
+          {content.length}/{maxLength}
+        </Text>
+      )}
     </View>
   );
 }
@@ -146,7 +245,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   compactContainer: {
-    paddingTop: 8,
+    paddingTop: 0,
   },
   replyIndicator: {
     flexDirection: 'row',
@@ -170,18 +269,24 @@ const styles = StyleSheet.create({
   },
   inputWrapper: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     backgroundColor: '#FFF8F0',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    minHeight: 40,
-    justifyContent: 'center',
+    borderRadius: 22,
+    paddingLeft: 14,
+    paddingRight: 6,
+    paddingVertical: 4,
+    minHeight: 42,
   },
   textInput: {
+    flex: 1,
     fontSize: 14,
+    lineHeight: 20,
     color: '#2D2926',
-    maxHeight: 100,
-    padding: 0,
+    paddingTop: 7,
+    paddingBottom: 7,
+    paddingHorizontal: 0,
+    textAlignVertical: 'top',
   },
   sendButton: {
     width: 34,
@@ -189,5 +294,13 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 8,
+  },
+  characterCount: {
+    alignSelf: 'flex-end',
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 4,
+    marginRight: 8,
   },
 });

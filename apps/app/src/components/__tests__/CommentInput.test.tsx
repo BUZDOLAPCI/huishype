@@ -1,6 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
-import { CommentInput } from '../CommentInput';
+import {
+  CommentInput,
+  getFittedTextInputHeight,
+  MIN_TEXT_INPUT_HEIGHT,
+} from '../CommentInput';
 
 describe('src/components/CommentInput', () => {
   it('gates comment entry for signed-out users', () => {
@@ -58,6 +62,12 @@ describe('src/components/CommentInput', () => {
     fireEvent.press(screen.getByTestId('cancel-reply'));
 
     expect(onCancelReply).toHaveBeenCalledTimes(1);
+  });
+
+  it('fits measured input height while keeping the one-line minimum', () => {
+    expect(getFittedTextInputHeight(86)).toBe(86);
+    expect(getFittedTextInputHeight(20)).toBe(MIN_TEXT_INPUT_HEIGHT);
+    expect(getFittedTextInputHeight(34.2)).toBe(35);
   });
 
   it('uses custom testID', () => {

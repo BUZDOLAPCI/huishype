@@ -141,84 +141,90 @@ export function CommentCell({
       )}
 
       {/* Content */}
-      <View style={styles.content}>
-        {/* Header: name, karma badge, timestamp */}
-        <View style={styles.header}>
-          <View style={styles.authorRow}>
-            {comment.authorId ? (
+      <View style={styles.threadColumn}>
+        <View style={styles.contentRow}>
+          <View style={styles.content}>
+            {/* Header: name and karma badge */}
+            <View style={styles.header}>
+              <View style={styles.authorRow}>
+                {comment.authorId ? (
+                  <Pressable
+                    onPress={handleAuthorPress}
+                    accessibilityRole="link"
+                    accessibilityLabel={t('comments.openProfile', { name: displayName })}
+                    testID="comment-author-button"
+                  >
+                    <Text style={styles.authorName} numberOfLines={1}>
+                      {displayName}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.authorName} numberOfLines={1}>
+                    {displayName}
+                  </Text>
+                )}
+                <KarmaBadge karma={comment.authorKarma} size="sm" />
+              </View>
+            </View>
+
+            {/* Comment text */}
+            <Text style={styles.commentText}>{comment.content}</Text>
+
+            {/* Meta row: timestamp and reply */}
+            <View style={styles.metaRow}>
+              <Text style={styles.timestamp}>{comment.createdAt}</Text>
+
+              {!isReply && variant === 'full' && (
+                <Pressable
+                  onPress={() => onReply?.(comment.id)}
+                  style={styles.replyButton}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  testID="comment-reply-button"
+                  accessibilityRole="button"
+                  accessibilityLabel={t('comments.reply')}
+                >
+                  <Text style={styles.replyText}>{t('comments.reply')}</Text>
+                </Pressable>
+              )}
+
+              <View style={styles.metaSpacer} />
+
               <Pressable
-                onPress={handleAuthorPress}
-                accessibilityRole="link"
-                accessibilityLabel={t('comments.openProfile', { name: displayName })}
-                testID="comment-author-button"
+                onPress={() => onLike?.(comment.id)}
+                style={styles.likeButton}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                testID="comment-like-button"
+                accessibilityRole="button"
+                accessibilityLabel={isLiked ? t('comments.unlikeAction') : t('comments.likeAction')}
               >
-                <Text style={styles.authorName} numberOfLines={1}>
-                  {displayName}
-                </Text>
+                <Icon
+                  name="Heart"
+                  size={22}
+                  weight={isLiked ? 'fill' : 'regular'}
+                  color={isLiked ? '#FF6B35' : '#8A8A8A'}
+                />
+                {comment.likeCount > 0 && (
+                  <Text
+                    style={[
+                      styles.actionCount,
+                      { color: isLiked ? '#FF6B35' : '#8A8A8A' },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {comment.likeCount}
+                  </Text>
+                )}
               </Pressable>
-            ) : (
-              <Text style={styles.authorName} numberOfLines={1}>
-                {displayName}
-              </Text>
-            )}
-            <KarmaBadge karma={comment.authorKarma} size="sm" />
-          </View>
-          <Text style={styles.timestamp}>{comment.createdAt}</Text>
-        </View>
+            </View>
 
-        {/* Comment text */}
-        <Text style={styles.commentText}>{comment.content}</Text>
-
-        {/* Actions: Like, Reply */}
-        <View style={styles.actions}>
-          {/* Like */}
-          <Pressable
-            onPress={() => onLike?.(comment.id)}
-            style={styles.actionButton}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            testID="comment-like-button"
-            accessibilityRole="button"
-            accessibilityLabel={isLiked ? t('comments.unlikeAction') : t('comments.likeAction')}
-          >
-            <Icon
-              name="Heart"
-              size="sm"
-              weight={isLiked ? 'fill' : 'regular'}
-              color={isLiked ? '#FF6B35' : '#9C958A'}
+            <CommentActionMenu
+              visible={showActionMenu}
+              onClose={() => setShowActionMenu(false)}
+              onReport={handleReport}
+              onCopy={handleCopy}
             />
-            {comment.likeCount > 0 && (
-              <Text
-                style={[
-                  styles.actionCount,
-                  { color: isLiked ? '#FF6B35' : '#9C958A' },
-                ]}
-              >
-                {comment.likeCount}
-              </Text>
-            )}
-          </Pressable>
-
-          {/* Reply (only on top-level comments in full variant) */}
-          {!isReply && variant === 'full' && (
-            <Pressable
-              onPress={() => onReply?.(comment.id)}
-              style={styles.actionButton}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              testID="comment-reply-button"
-              accessibilityRole="button"
-              accessibilityLabel={t('comments.reply')}
-            >
-              <Text style={styles.replyText}>{t('comments.reply')}</Text>
-            </Pressable>
-          )}
+          </View>
         </View>
-
-        <CommentActionMenu
-          visible={showActionMenu}
-          onClose={() => setShowActionMenu(false)}
-          onReport={handleReport}
-          onCopy={handleCopy}
-        />
 
         {/* Reply thread */}
         {variant === 'full' && !isReply && hasReplies && (
@@ -239,7 +245,7 @@ export function CommentCell({
                     { count: hiddenReplyCount },
                   )}
                 </Text>
-                <Icon name="CaretDown" size={12} color="#9C958A" />
+                <Icon name="CaretDown" size={12} color="#8A8A8A" />
               </Pressable>
             )}
 
@@ -275,14 +281,21 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: '#F5F0E8',
   },
+  threadColumn: {
+    flex: 1,
+  },
+  contentRow: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 10,
+  },
   content: {
     flex: 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   authorRow: {
     flexDirection: 'row',
@@ -292,39 +305,47 @@ const styles = StyleSheet.create({
   },
   authorName: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#2D2926',
+    fontWeight: '700',
+    color: '#9A9A9A',
   },
   timestamp: {
     fontSize: 12,
-    color: '#9C958A',
-    marginLeft: 8,
+    color: '#9A9A9A',
   },
   commentText: {
     fontSize: 14,
-    color: '#504A42',
+    color: '#050505',
     lineHeight: 21,
     marginBottom: 8,
   },
-  actions: {
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 24,
   },
-  actionButton: {
+  metaSpacer: {
+    flex: 1,
+  },
+  replyButton: {
+    minHeight: 24,
+    justifyContent: 'center',
+  },
+  likeButton: {
+    minWidth: 28,
+    minHeight: 28,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
-    minHeight: 28,
   },
   actionCount: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   replyText: {
     fontSize: 13,
-    color: '#9C958A',
-    fontWeight: '500',
+    color: '#8A8A8A',
+    fontWeight: '700',
   },
   // View replies
   viewRepliesButton: {
@@ -340,7 +361,7 @@ const styles = StyleSheet.create({
   },
   viewRepliesText: {
     fontSize: 12,
-    color: '#9C958A',
-    fontWeight: '500',
+    color: '#8A8A8A',
+    fontWeight: '700',
   },
 });
