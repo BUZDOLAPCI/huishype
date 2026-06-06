@@ -337,6 +337,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
+    transform: [{ translateY: -2 }],
   },
   actionCount: {
     fontSize: 13,
