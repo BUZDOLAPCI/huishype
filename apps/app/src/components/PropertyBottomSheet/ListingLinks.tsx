@@ -1,8 +1,8 @@
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatPropertyPrice } from '@huishype/shared';
-import type { ListingCandidateHandoffState, ListingVerificationState } from '@huishype/shared';
 import type { ListingData } from '../../hooks/useListings';
+import { ListingPill, type ListingMarketState } from '../PropertyStatusPills';
 import { SectionCard } from './SectionCard';
 
 interface ListingLinksProps {
@@ -43,19 +43,6 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
     return `${formatPropertyPrice(price)}${suffix}`;
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'sold':
-        return { text: 'Sold', color: '#EF4444' };
-      case 'rented':
-        return { text: 'Rented', color: '#F59E0B' };
-      case 'withdrawn':
-        return { text: 'Withdrawn', color: '#9C958A' };
-      default:
-        return null;
-    }
-  };
-
   const getLifecycleLabel = (status: string) => {
     switch (status) {
       case 'sold':
@@ -66,6 +53,19 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
         return 'Withdrawn';
       default:
         return 'Listed';
+    }
+  };
+
+  const getListingMarketState = (listing: ListingData): ListingMarketState | null => {
+    switch (listing.status) {
+      case 'active':
+        return listing.priceType === 'rent' ? 'for-rent' : 'for-sale';
+      case 'sold':
+        return 'sold';
+      case 'rented':
+        return 'rented';
+      default:
+        return null;
     }
   };
 
@@ -94,34 +94,6 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
     }).format(date);
   };
 
-  const getVerificationBadge = (
-    verificationState: ListingVerificationState | null | undefined,
-    candidateHandoffState: ListingCandidateHandoffState | null | undefined
-  ) => {
-    if (verificationState === 'validated') {
-      return { text: 'Validated', color: '#16A34A' };
-    }
-    if (verificationState === 'invalid') {
-      return { text: 'Invalid', color: '#EF4444' };
-    }
-    if (verificationState === 'validation_blocked') {
-      return { text: 'Blocked', color: '#9C958A' };
-    }
-    if (candidateHandoffState === 'retryable_error' || candidateHandoffState === 'dead_letter') {
-      return { text: 'Needs review', color: '#D97706' };
-    }
-    if (verificationState === 'validation_failed') {
-      return { text: 'Validation failed', color: '#D97706' };
-    }
-    if (candidateHandoffState === 'pending' || candidateHandoffState === 'queued') {
-      return { text: 'Live', color: '#16A34A' };
-    }
-    if (verificationState === 'provisional' || verificationState === 'validation_pending') {
-      return { text: 'Live', color: '#16A34A' };
-    }
-    return null;
-  };
-
   return (
     <SectionCard
       title={`Listings${hasListings ? ` (${listings.length})` : ''}`}
@@ -133,11 +105,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
           listings.map((listing) => {
             const sourceInfo = getSourceInfo(listing.sourceName);
             const price = formatPrice(listing.askingPrice, listing.priceType);
-            const statusBadge = getStatusBadge(listing.status);
-            const verificationBadge = getVerificationBadge(
-              listing.verificationState,
-              listing.candidateHandoffState
-            );
+            const listingMarketState = getListingMarketState(listing);
             const sourceUrl = listing.displayUrl ?? listing.canonicalUrl ?? listing.sourceUrl;
             const lifecycleDate = formatLifecycleDate(getLifecycleDate(listing));
             const lifecycleText = lifecycleDate
@@ -157,20 +125,8 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
                 <View style={styles.rowCopy}>
                   <View style={styles.rowTop}>
                     <Text style={styles.sourceName}>{sourceInfo.name}</Text>
-                    {statusBadge ? (
-                      <View style={[styles.statusBadge, { backgroundColor: statusBadge.color }]}>
-                        <Text style={styles.statusBadgeText}>{statusBadge.text}</Text>
-                      </View>
-                    ) : null}
-                    {verificationBadge ? (
-                      <View
-                        style={[styles.statusBadge, { backgroundColor: verificationBadge.color }]}
-                      >
-                        <Text style={styles.statusBadgeText}>{verificationBadge.text}</Text>
-                      </View>
-                    ) : null}
+                    <ListingPill marketState={listingMarketState} />
                   </View>
-                  <Text style={styles.rowHint}>Open listing source</Text>
                   {lifecycleText ? <Text style={styles.rowMeta}>{lifecycleText}</Text> : null}
                   {price ? <Text style={styles.rowPrice}>{price}</Text> : null}
                 </View>
@@ -235,18 +191,15 @@ const styles = StyleSheet.create({
   rowTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    flexWrap: 'wrap',
     gap: 8,
   },
   sourceName: {
     fontSize: 15,
     fontWeight: '700',
     color: '#2D2926',
-  },
-  rowHint: {
-    marginTop: 2,
-    fontSize: 12,
-    color: '#AEA699',
+    flexShrink: 1,
   },
   rowMeta: {
     marginTop: 3,
@@ -258,16 +211,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#736C62',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
   emptyState: {
     alignItems: 'center',

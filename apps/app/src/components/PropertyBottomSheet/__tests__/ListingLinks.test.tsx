@@ -42,6 +42,47 @@ const baseListing: ListingData = {
 };
 
 describe('ListingLinks', () => {
+  it('renders market-state pills from each source listing instead of validation state', () => {
+    render(
+      <ListingLinks
+        listings={[
+          {
+            ...baseListing,
+            priceType: 'sale',
+            verificationState: 'validated',
+          },
+          {
+            ...baseListing,
+            id: '550e8400-e29b-41d4-a716-446655440002',
+            sourceName: 'pararius',
+            priceType: 'rent',
+            verificationState: 'validated',
+          },
+          {
+            ...baseListing,
+            id: '550e8400-e29b-41d4-a716-446655440003',
+            status: 'sold',
+            priceType: 'rent',
+            verificationState: 'validated',
+          },
+          {
+            ...baseListing,
+            id: '550e8400-e29b-41d4-a716-446655440004',
+            status: 'rented',
+            priceType: 'sale',
+            verificationState: 'validated',
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('For sale')).toBeTruthy();
+    expect(screen.getByText('For rent')).toBeTruthy();
+    expect(screen.getByText('Sold')).toBeTruthy();
+    expect(screen.getByText('Rented')).toBeTruthy();
+    expect(screen.queryByText('Validated')).toBeNull();
+  });
+
   it('prefers source lifecycle dates over lifecycleDate and mirror timestamps', () => {
     render(
       <ListingLinks
