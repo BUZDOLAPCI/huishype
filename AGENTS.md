@@ -384,6 +384,10 @@ Other agents may be editing nearby files at the same time. Do not overwrite, rev
 
 Multiple Codex sessions may run in this workspace, but treat the checkout as shared mutable state. Before editing, check `git status` and avoid files another agent is touching. For independent implementation work, prefer separate `git worktree` checkouts. Keep full `pnpm test`, Playwright, mobile E2E, DB reset/seed/migration, `pnpm install`, generated-client updates, native prebuilds, and shared service restarts (`huishype-expo`, `huishype-api`) single-owner/serialized unless explicitly coordinated.
 
+### Push Behavior
+
+When the user asks to push changes explicitly, push directly to the current branch, even `main`/`master`.
+
 ## Verification
 
 Before marking ANY task complete, verify the touched feature and its sensible surroundings. Choose checks that directly cover the edited code, adjacent behavior that could regress, and the highest-risk integration boundary. Prefer focused package tests, typechecks, lint, API integration tests, or targeted Playwright projects over broad gates when they provide comparable signal.
