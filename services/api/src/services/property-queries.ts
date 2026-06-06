@@ -188,6 +188,7 @@ export function buildPropertyListingFactsJoin(
         latest_listing.status AS latest_listing_status,
         active_listing.asking_price AS asking_price,
         active_listing.sort_at AS active_listing_sort_at,
+        latest_listing.sort_at AS latest_listing_sort_at,
         listing_thumbnail.thumbnail_url AS thumbnail_url,
         CASE
           WHEN active_listing.id IS NOT NULL AND active_listing.normalized_price_type = 'rent'
@@ -216,7 +217,9 @@ export function buildPropertyListingFactsJoin(
         LIMIT 1
       ) active_listing ON TRUE
       LEFT JOIN LATERAL (
-        SELECT l.status
+        SELECT
+          l.status,
+          l.sort_at
         FROM v_canonical_listing_facts l
         WHERE l.property_id = ${idColumn}
         ORDER BY ${canonicalListingFactOrderExpression('l')}

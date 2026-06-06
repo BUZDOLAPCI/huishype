@@ -704,6 +704,84 @@ describe('Feed routes', () => {
       }
     });
 
+    it('includes socially active properties without any listing by default', async () => {
+      const user = await createIntegrationUser(app, { label: `feedsocialonly${runId}` });
+      const property = await createIntegrationProperty({
+        countryCode: slice.country,
+        street: `Feed Social Only ${runId}`,
+        houseNumber: 42,
+        city: `Feed Social City ${runId}`,
+        postalCode: '9811SO',
+        lon: slice.lon + 0.021,
+        lat: slice.lat + 0.021,
+        officialValuation: 375000,
+        officialValuationYear: 2024,
+      });
+
+      try {
+        const commentCreatedAt = atOffset({ minutes: 9 });
+        const likeCreatedAt = atOffset({ minutes: 8 });
+        await insertComment(
+          property.id,
+          user.userId,
+          commentCreatedAt,
+          'Social-only properties can trend'
+        );
+        await insertPropertyLike(property.id, user.userId, likeCreatedAt);
+
+        const defaultResponse = await app.inject({
+          method: 'GET',
+          url: buildFeedUrl({
+            filter: 'trending',
+            area: `postcode:${slice.country}:9811so`,
+            limit: 10,
+          }),
+        });
+        const forSaleResponse = await app.inject({
+          method: 'GET',
+          url: buildFeedUrl({
+            filter: 'trending',
+            marketState: 'for-sale',
+            area: `postcode:${slice.country}:9811so`,
+            limit: 10,
+          }),
+        });
+        const notListedResponse = await app.inject({
+          method: 'GET',
+          url: buildFeedUrl({
+            filter: 'trending',
+            marketState: 'not-listed',
+            area: `postcode:${slice.country}:9811so`,
+            limit: 10,
+          }),
+        });
+
+        expect(defaultResponse.statusCode).toBe(200);
+        expect(forSaleResponse.statusCode).toBe(200);
+        expect(notListedResponse.statusCode).toBe(200);
+
+        const defaultItems = JSON.parse(defaultResponse.body).items;
+        expect(defaultItems.map((item: { id: string }) => item.id)).toEqual([property.id]);
+        expect(defaultItems[0]).toMatchObject({
+          id: property.id,
+          marketState: 'not-listed',
+          askingPrice: null,
+          hasListing: false,
+          commentCount: 1,
+          likeCount: 1,
+          activityLevel: 'warm',
+          lastActivityAt: likeCreatedAt.toISOString(),
+        });
+        expect(JSON.parse(forSaleResponse.body).items).toEqual([]);
+        expect(
+          JSON.parse(notListedResponse.body).items.map((item: { id: string }) => item.id)
+        ).toEqual([property.id]);
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
+        await db.execute(sql`DELETE FROM users WHERE id = ${user.userId}`);
+      }
+    });
+
     it('treats an edited guess as one public guess and uses the latest edit timestamp for recency', async () => {
       const user = await createIntegrationUser(app, { label: `feedguessupdate${runId}` });
       const property = await createIntegrationProperty({
@@ -877,7 +955,7 @@ describe('Feed routes', () => {
       ]);
     });
 
-    it('applies spatial and country filtering and excludes non-listing properties', async () => {
+    it('applies spatial and country filtering and excludes inactive non-listing properties', async () => {
       const response = await app.inject({
         method: 'GET',
         url: buildFeedUrl({ filter: 'latest', limit: 10 }),

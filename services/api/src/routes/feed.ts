@@ -6,7 +6,7 @@ import { sql } from 'drizzle-orm';
 import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { feedQuerySchema, isValidCountryCode } from '@huishype/shared';
-import { listingThumbnailOrderExpression } from '../services/property-queries.js';
+import { buildPropertyListingFactsJoin } from '../services/property-queries.js';
 import { getOfficialValuationSourceFetchHint } from '../services/official-valuations/index.js';
 import {
   buildLocationAreaFilterPredicate,
@@ -174,18 +174,6 @@ function setCachedFeedResponse(cacheKey: string, response: FeedResponse): void {
   });
 }
 
-function buildFeedScopedLatestListingOrderExpression(scopedAlias: string) {
-  return sql`${sql.raw(
-    `${scopedAlias}.listing_sort_at`
-  )} DESC, ${sql.raw(`${scopedAlias}.listing_created_at`)} DESC, ${sql.raw(
-    `${scopedAlias}.listing_id`
-  )} DESC`;
-}
-
-function buildFeedScopedActiveListingOrderExpression(scopedAlias: string) {
-  return sql`(${sql.raw(`${scopedAlias}.status`)} = 'active') DESC, ${buildFeedScopedLatestListingOrderExpression(scopedAlias)}`;
-}
-
 function buildFeedOrderExpression(scoreAlias: string, filter: FeedRouteQuery['filter']) {
   switch (filter) {
     case 'latest':
@@ -210,7 +198,7 @@ export async function feedRoutes(app: FastifyInstance) {
         tags: ['feed'],
         summary: 'Get property feed',
         description:
-          'Get a paginated feed of listing-backed properties across active and completed listing states. ' +
+          'Get a paginated activity feed of listing-backed and socially active properties. ' +
           'Filters: trending (weighted 7-day activity) and latest (most recent activity). ' +
           'Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.',
         querystring: feedRouteQuerySchema,
@@ -249,8 +237,36 @@ export async function feedRoutes(app: FastifyInstance) {
       const feedOrderExpression = buildFeedOrderExpression('cfr', filter);
 
       const rows = await db.execute<FeedRow>(sql`
-        WITH scoped_listing_facts AS MATERIALIZED (
+        WITH candidate_seed_ids AS MATERIALIZED (
+          SELECT l.property_id
+          FROM v_canonical_listing_facts l
+          WHERE l.status IN ('active', 'sold', 'rented')
+          UNION
+          SELECT c.property_id
+          FROM comments c
+          WHERE c.hidden_at IS NULL
+          UNION
+          SELECT r.target_id AS property_id
+          FROM reactions r
+          WHERE r.target_type = 'property'
+            AND r.reaction_type = 'like'
+          UNION
+          SELECT c.property_id
+          FROM reactions r
+          INNER JOIN comments c ON c.id = r.target_id
+          WHERE r.target_type = 'comment'
+            AND r.reaction_type = 'like'
+            AND c.hidden_at IS NULL
+          UNION
+          SELECT pg.property_id
+          FROM price_guesses pg
+          UNION
+          SELECT pv.property_id
+          FROM property_views pv
+        ),
+        candidate_properties AS MATERIALIZED (
           SELECT
+            p.id,
             p.id AS property_id,
             p.country_code,
             p.street,
@@ -261,110 +277,17 @@ export async function feedRoutes(app: FastifyInstance) {
             p.geometry,
             p.official_valuation,
             p.official_valuation_year,
-            l.listing_id,
-            l.status,
-            l.asking_price,
-            l.normalized_price_type,
-            l.thumbnail_url,
-            l.listing_created_at,
-            l.sort_at AS listing_sort_at
-          FROM v_canonical_listing_facts l
-          INNER JOIN properties p ON p.id = l.property_id
+            p.comments_disabled_at,
+            p.updated_at
+          FROM candidate_seed_ids csi
+          INNER JOIN properties p ON p.id = csi.property_id
           ${marketFilterQuery.join}
-          WHERE l.status IN ('active', 'sold', 'rented')
-            AND p.status = 'active'
+          WHERE p.status = 'active'
             AND p.geometry IS NOT NULL
             AND ${marketFilterQuery.predicate}
             AND ${areaFilterPredicate}
             ${spatialCondition}
             ${countryCondition}
-        ),
-        candidate_listing_facts AS MATERIALIZED (
-          SELECT
-            slf.property_id,
-            (array_agg(slf.country_code ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
-              AS country_code,
-            (array_agg(slf.street ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
-              AS street,
-            (array_agg(slf.house_number ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
-              AS house_number,
-            (
-              array_agg(slf.house_number_addition ORDER BY ${buildFeedScopedActiveListingOrderExpression(
-                'slf'
-              )})
-            )[1] AS house_number_addition,
-            (array_agg(slf.city ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
-              AS city,
-            (array_agg(slf.postal_code ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
-              AS postal_code,
-            (array_agg(slf.geometry ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}))[1]
-              AS geometry,
-            (
-              array_agg(slf.official_valuation ORDER BY ${buildFeedScopedActiveListingOrderExpression(
-                'slf'
-              )})
-            )[1] AS official_valuation,
-            (
-              array_agg(
-                slf.official_valuation_year
-                ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}
-              )
-            )[1] AS official_valuation_year,
-            (
-              array_agg(
-                CASE WHEN slf.status = 'active' THEN slf.asking_price ELSE NULL END
-                ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}
-              )
-            )[1] AS asking_price,
-            (
-              CASE
-                WHEN BOOL_OR(slf.status = 'active')
-                  AND (
-                    array_agg(
-                      slf.normalized_price_type
-                      ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}
-                    )
-                  )[1] = 'rent'
-                  THEN 'for-rent'
-                WHEN BOOL_OR(slf.status = 'active')
-                  THEN 'for-sale'
-                WHEN (
-                  array_agg(
-                    slf.status
-                    ORDER BY ${buildFeedScopedLatestListingOrderExpression('slf')}
-                  )
-                )[1] = 'sold'
-                  THEN 'sold'
-                WHEN (
-                  array_agg(
-                    slf.status
-                    ORDER BY ${buildFeedScopedLatestListingOrderExpression('slf')}
-                  )
-                )[1] = 'rented'
-                  THEN 'rented'
-                ELSE 'not-listed'
-              END
-            ) AS market_state,
-            (
-              array_agg(
-                slf.listing_sort_at
-                ORDER BY ${buildFeedScopedActiveListingOrderExpression('slf')}
-              )
-            )[1] AS listing_sort_at,
-            (
-              SELECT l.thumbnail_url
-              FROM v_canonical_listing_facts l
-              WHERE l.property_id = slf.property_id
-                AND l.thumbnail_url IS NOT NULL
-              ORDER BY ${listingThumbnailOrderExpression('l')}
-              LIMIT 1
-            ) AS thumbnail_url
-          FROM scoped_listing_facts slf
-          GROUP BY slf.property_id
-        ),
-        candidate_ids AS MATERIALIZED (
-          SELECT clf.property_id
-          FROM candidate_listing_facts clf
         ),
         ordering_guess_rows AS MATERIALIZED (
           SELECT DISTINCT ON (pg.property_id, pg.user_id)
@@ -373,7 +296,7 @@ export async function feedRoutes(app: FastifyInstance) {
             pg.guessed_price,
             GREATEST(pg.created_at, pg.updated_at) AS effective_at
           FROM price_guesses pg
-          INNER JOIN candidate_ids ci ON ci.property_id = pg.property_id
+          INNER JOIN candidate_properties cp ON cp.property_id = pg.property_id
           ORDER BY
             pg.property_id,
             pg.user_id,
@@ -408,7 +331,9 @@ export async function feedRoutes(app: FastifyInstance) {
             )::int AS recent_reply_count,
             MAX(c.created_at) FILTER (WHERE c.parent_id IS NOT NULL) AS latest_reply_at
           FROM comments c
-          INNER JOIN candidate_ids ci ON ci.property_id = c.property_id
+          INNER JOIN candidate_properties cp ON cp.property_id = c.property_id
+          WHERE cp.comments_disabled_at IS NULL
+            AND c.hidden_at IS NULL
           GROUP BY c.property_id
         ),
         ordering_property_like_facts AS MATERIALIZED (
@@ -420,7 +345,7 @@ export async function feedRoutes(app: FastifyInstance) {
             )::int AS recent_property_like_count,
             MAX(r.created_at) AS latest_property_like_at
           FROM reactions r
-          INNER JOIN candidate_ids ci ON ci.property_id = r.target_id
+          INNER JOIN candidate_properties cp ON cp.property_id = r.target_id
           WHERE r.target_type = 'property'
             AND r.reaction_type = 'like'
           GROUP BY r.target_id
@@ -431,9 +356,11 @@ export async function feedRoutes(app: FastifyInstance) {
             MAX(r.created_at) AS latest_comment_like_at
           FROM reactions r
           INNER JOIN comments c ON c.id = r.target_id
-          INNER JOIN candidate_ids ci ON ci.property_id = c.property_id
+          INNER JOIN candidate_properties cp ON cp.property_id = c.property_id
           WHERE r.target_type = 'comment'
             AND r.reaction_type = 'like'
+            AND cp.comments_disabled_at IS NULL
+            AND c.hidden_at IS NULL
           GROUP BY c.property_id
         ),
         ordering_view_facts AS MATERIALIZED (
@@ -442,26 +369,26 @@ export async function feedRoutes(app: FastifyInstance) {
             COUNT(*)::int AS view_count,
             MAX(pv.viewed_at) AS latest_view_at
           FROM property_views pv
-          INNER JOIN candidate_ids ci ON ci.property_id = pv.property_id
+          INNER JOIN candidate_properties cp ON cp.property_id = pv.property_id
           GROUP BY pv.property_id
         ),
         candidate_feed_rows AS MATERIALIZED (
           SELECT
-            clf.property_id AS id,
-            clf.country_code,
-            clf.street,
-            clf.house_number,
-            clf.house_number_addition,
-            clf.city,
-            clf.postal_code AS zip_code,
-            ST_X(clf.geometry) AS lon,
-            ST_Y(clf.geometry) AS lat,
-            clf.asking_price,
-            clf.official_valuation,
-            clf.official_valuation_year,
-            clf.thumbnail_url,
-            TRUE AS has_listing,
-            clf.market_state,
+            cp.property_id AS id,
+            cp.country_code,
+            cp.street,
+            cp.house_number,
+            cp.house_number_addition,
+            cp.city,
+            cp.postal_code AS zip_code,
+            ST_X(cp.geometry) AS lon,
+            ST_Y(cp.geometry) AS lat,
+            lf.asking_price,
+            cp.official_valuation,
+            cp.official_valuation_year,
+            lf.thumbnail_url,
+            lf.has_listing,
+            lf.market_state,
             COALESCE(ocf.comment_count, 0)::int AS comment_count,
             COALESCE(ogf.guess_count, 0)::int AS guess_count,
             COALESCE(oplf.property_like_count, 0)::int AS like_count,
@@ -492,14 +419,16 @@ export async function feedRoutes(app: FastifyInstance) {
                 ogf.latest_guess_at,
                 ovf.latest_view_at
               ),
-              clf.listing_sort_at
+              lf.latest_listing_sort_at,
+              cp.updated_at
             ) AS last_activity_at
-          FROM candidate_listing_facts clf
-          LEFT JOIN ordering_comment_facts ocf ON ocf.property_id = clf.property_id
-          LEFT JOIN ordering_property_like_facts oplf ON oplf.property_id = clf.property_id
-          LEFT JOIN ordering_comment_like_facts oclf ON oclf.property_id = clf.property_id
-          LEFT JOIN ordering_guess_facts ogf ON ogf.property_id = clf.property_id
-          LEFT JOIN ordering_view_facts ovf ON ovf.property_id = clf.property_id
+          FROM candidate_properties cp
+          ${buildPropertyListingFactsJoin('cp', 'lf')}
+          LEFT JOIN ordering_comment_facts ocf ON ocf.property_id = cp.property_id
+          LEFT JOIN ordering_property_like_facts oplf ON oplf.property_id = cp.property_id
+          LEFT JOIN ordering_comment_like_facts oclf ON oclf.property_id = cp.property_id
+          LEFT JOIN ordering_guess_facts ogf ON ogf.property_id = cp.property_id
+          LEFT JOIN ordering_view_facts ovf ON ovf.property_id = cp.property_id
         )
         SELECT
           cfr.id,
