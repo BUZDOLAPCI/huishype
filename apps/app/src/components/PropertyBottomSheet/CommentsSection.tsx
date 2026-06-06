@@ -25,7 +25,7 @@ export function CommentsSection({
   onAuthRequired,
 }: CommentsSectionProps) {
   const t = useT();
-  const [sortBy, setSortBy] = useState<CommentSortBy>('recent');
+  const [sortBy, setSortBy] = useState<CommentSortBy>('popular');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
   const [showAllComments, setShowAllComments] = useState(false);
   const [pendingSubmitAfterAuth, setPendingSubmitAfterAuth] = useState<{
@@ -183,19 +183,19 @@ export function CommentsSection({
       {totalComments > 0 && (
         <View style={styles.sortWrap}>
           <Pressable
-            onPress={() => handleSortChange('recent')}
-            style={[styles.sortChip, sortBy === 'recent' && styles.sortChipActive]}
-          >
-            <Text style={[styles.sortText, sortBy === 'recent' && styles.sortTextActive]}>
-              {t('comments.sort.recent')}
-            </Text>
-          </Pressable>
-          <Pressable
             onPress={() => handleSortChange('popular')}
             style={[styles.sortChip, sortBy === 'popular' && styles.sortChipActive]}
           >
             <Text style={[styles.sortText, sortBy === 'popular' && styles.sortTextActive]}>
               {t('comments.sort.popular')}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => handleSortChange('recent')}
+            style={[styles.sortChip, sortBy === 'recent' && styles.sortChipActive]}
+          >
+            <Text style={[styles.sortText, sortBy === 'recent' && styles.sortTextActive]}>
+              {t('comments.sort.recent')}
             </Text>
           </Pressable>
         </View>

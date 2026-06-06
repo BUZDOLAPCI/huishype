@@ -2,7 +2,7 @@ import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
-import { commentKeys, useLikeComment, type Comment } from '../useComments';
+import { commentKeys, useComments, useLikeComment, type Comment } from '../useComments';
 
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
 let mockAuthUser: typeof mockUser | null = mockUser;
@@ -79,6 +79,49 @@ function getCommentFromCache(queryClient: QueryClient, commentId: string) {
   return comments.find((comment) => comment.id === commentId)
     ?? comments.flatMap((comment) => comment.replies).find((reply) => reply.id === commentId);
 }
+
+describe('useComments', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createQueryClient();
+    mockAuthUser = mockUser;
+    mockAccessToken = 'mock-token';
+    mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it('requests popular comments by default', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [],
+        meta: {
+          page: 1,
+          limit: 20,
+          total: 0,
+          totalPages: 1,
+        },
+      }),
+    });
+
+    renderHook(() => useComments('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3100/properties/property-123/comments?page=1&limit=20&sort=popular',
+        expect.objectContaining({
+          headers: { Authorization: 'Bearer mock-token' },
+        })
+      );
+    });
+  });
+});
 
 describe('useLikeComment', () => {
   let queryClient: QueryClient;

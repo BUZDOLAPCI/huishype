@@ -25,7 +25,7 @@ export interface CommentsListProps {
  */
 export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) {
   const t = useT();
-  const [sortBy, setSortBy] = useState<CommentSortBy>('recent');
+  const [sortBy, setSortBy] = useState<CommentSortBy>('popular');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
 
   const { isAuthenticated } = useAuthContext();
@@ -184,23 +184,6 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
         {/* Sort toggle */}
         <View className="flex-row bg-warm-100 rounded-lg p-0.5">
           <Pressable
-            onPress={() => handleSortChange('recent')}
-            className={`px-3 py-1.5 rounded-md ${
-              sortBy === 'recent' ? 'bg-surface-card shadow-sm' : ''
-            }`}
-            testID="sort-recent"
-          >
-            <Text
-              className={`text-sm ${
-                sortBy === 'recent'
-                  ? 'text-warm-900 font-medium'
-                  : 'text-warm-500'
-              }`}
-            >
-              {t('comments.sort.recent')}
-            </Text>
-          </Pressable>
-          <Pressable
             onPress={() => handleSortChange('popular')}
             className={`px-3 py-1.5 rounded-md ${
               sortBy === 'popular' ? 'bg-surface-card shadow-sm' : ''
@@ -215,6 +198,23 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
               }`}
             >
               {t('comments.sort.popular')}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => handleSortChange('recent')}
+            className={`px-3 py-1.5 rounded-md ${
+              sortBy === 'recent' ? 'bg-surface-card shadow-sm' : ''
+            }`}
+            testID="sort-recent"
+          >
+            <Text
+              className={`text-sm ${
+                sortBy === 'recent'
+                  ? 'text-warm-900 font-medium'
+                  : 'text-warm-500'
+              }`}
+            >
+              {t('comments.sort.recent')}
             </Text>
           </Pressable>
         </View>

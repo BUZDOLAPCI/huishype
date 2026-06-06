@@ -148,7 +148,7 @@ async function fetchComments(
   propertyId: string,
   page: number = 1,
   limit: number = 20,
-  sortBy: CommentSortBy = 'recent',
+  sortBy: CommentSortBy = 'popular',
   accessToken?: string
 ): Promise<CommentListResponse> {
   const params = new URLSearchParams({
@@ -177,7 +177,7 @@ async function fetchComments(
 /**
  * Hook to fetch comments for a property with infinite scrolling
  */
-export function useComments(propertyId: string, sortBy: CommentSortBy = 'recent') {
+export function useComments(propertyId: string, sortBy: CommentSortBy = 'popular') {
   const { accessToken, user } = useAuthContext();
   const viewerKey = user?.id ?? 'anonymous';
 
