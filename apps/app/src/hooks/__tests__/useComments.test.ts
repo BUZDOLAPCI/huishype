@@ -2,7 +2,13 @@ import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
-import { commentKeys, useComments, useLikeComment, type Comment } from '../useComments';
+import {
+  commentKeys,
+  useComments,
+  useLikeComment,
+  useSubmitComment,
+  type Comment,
+} from '../useComments';
 
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
 let mockAuthUser: typeof mockUser | null = mockUser;
@@ -120,6 +126,61 @@ describe('useComments', () => {
         })
       );
     });
+  });
+});
+
+describe('useSubmitComment', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createQueryClient();
+    mockAuthUser = mockUser;
+    mockAccessToken = 'mock-token';
+    mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it('submits reply comments with auth headers and invalidates property comment lists', async () => {
+    const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 'reply-1', content: 'A reply' }),
+    });
+
+    const { result } = renderHook(() => useSubmitComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        content: 'A reply',
+        parentId: 'comment-1',
+      });
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/properties/property-123/comments',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer mock-token',
+        },
+        body: JSON.stringify({
+          content: 'A reply',
+          parentId: 'comment-1',
+        }),
+      })
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryKey: commentKeys.lists(),
+        predicate: expect.any(Function),
+      })
+    );
   });
 });
 
@@ -267,6 +328,121 @@ describe('useLikeComment', () => {
         isLiked: true,
         likeCount: 3,
       });
+    });
+  });
+
+  it('updates nested reply cache state from the authoritative like response', async () => {
+    seedCommentsQuery(queryClient, [
+      {
+        id: 'comment-7',
+        propertyId: 'property-123',
+        userId: 'user-2',
+        parentId: null,
+        content: 'Parent with reply',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        user: {
+          id: 'user-2',
+          username: 'cacheuser',
+          displayName: 'Cache User',
+          profilePhotoUrl: null,
+          karma: 10,
+        },
+        likeCount: 0,
+        isLiked: false,
+        replies: [
+          {
+            id: 'reply-7',
+            propertyId: 'property-123',
+            userId: 'user-3',
+            parentId: 'comment-7',
+            content: 'Nested cache me',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            user: {
+              id: 'user-3',
+              username: 'replyuser',
+              displayName: 'Reply User',
+              profilePhotoUrl: null,
+              karma: 5,
+            },
+            likeCount: 1,
+            isLiked: false,
+            replies: [],
+          },
+        ],
+      },
+    ]);
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ liked: true, likeCount: 2 }),
+    });
+
+    const { result } = renderHook(() => useLikeComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        commentId: 'reply-7',
+        isCurrentlyLiked: false,
+      });
+    });
+
+    await waitFor(() => {
+      expect(getCommentFromCache(queryClient, 'reply-7')).toMatchObject({
+        isLiked: true,
+        likeCount: 2,
+      });
+    });
+  });
+
+  it('rolls back optimistic like state when the mutation fails', async () => {
+    seedCommentsQuery(queryClient, [
+      {
+        id: 'comment-8',
+        propertyId: 'property-123',
+        userId: 'user-2',
+        parentId: null,
+        content: 'Rollback me',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        user: {
+          id: 'user-2',
+          username: 'cacheuser',
+          displayName: 'Cache User',
+          profilePhotoUrl: null,
+          karma: 10,
+        },
+        likeCount: 6,
+        isLiked: true,
+        replies: [],
+      },
+    ]);
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ message: 'Failed to update like' }),
+    });
+
+    const { result } = renderHook(() => useLikeComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({
+          commentId: 'comment-8',
+          isCurrentlyLiked: true,
+        })
+      ).rejects.toThrow('Failed to update like');
+    });
+
+    expect(getCommentFromCache(queryClient, 'comment-8')).toMatchObject({
+      isLiked: true,
+      likeCount: 6,
     });
   });
 

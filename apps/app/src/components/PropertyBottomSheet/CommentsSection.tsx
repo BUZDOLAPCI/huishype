@@ -2,17 +2,43 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Pressable, Text, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SectionProps } from './types';
-import { Comment, CommentInput, CommentSortToggle } from '../Comments';
-import { useComments, useSubmitComment, useLikeComment, type CommentSortBy } from '../../hooks/useComments';
+import { CommentInput, CommentSortToggle } from '../Comments';
+import { CommentCell } from '../CommentCell';
+import { toCommentCellData } from '../comment-cell-data';
+import {
+  useComments,
+  useSubmitComment,
+  useLikeComment,
+  type Comment,
+  type CommentSortBy,
+} from '../../hooks/useComments';
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
 import { SectionCard } from './SectionCard';
 import { ReportModal } from '../ReportModal';
 import { useT } from '../../i18n';
+import { useHydratedNow } from '../../hooks/useHydratedNow';
 
 interface CommentsSectionProps extends SectionProps {
   onViewAll?: () => void;
   onAuthRequired?: (copy?: AuthModalCopyInput) => void;
+}
+
+const COMMENT_PREVIEW_LIMIT = 3;
+
+function findCommentById(comments: Comment[], commentId: string): Comment | undefined {
+  for (const comment of comments) {
+    if (comment.id === commentId) {
+      return comment;
+    }
+
+    const reply = findCommentById(comment.replies, commentId);
+    if (reply) {
+      return reply;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -25,6 +51,7 @@ export function CommentsSection({
   onAuthRequired,
 }: CommentsSectionProps) {
   const t = useT();
+  const hydratedNow = useHydratedNow();
   const [sortBy, setSortBy] = useState<CommentSortBy>('popular');
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
   const [showAllComments, setShowAllComments] = useState(false);
@@ -34,7 +61,7 @@ export function CommentsSection({
   } | null>(null);
   const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, user } = useAuthContext();
   const commentsDisabled = property.commentsDisabled === true;
 
   // Fetch comments
@@ -57,10 +84,17 @@ export function CommentsSection({
     return data.pages.flatMap((page) => page.data);
   }, [data?.pages]);
 
-  // Show limited comments initially, all when expanded
-  const displayedComments = showAllComments ? allComments : allComments.slice(0, 3);
+  // Show limited comments initially, all loaded comments when expanded.
+  const displayedComments = useMemo(
+    () => (showAllComments ? allComments : allComments.slice(0, COMMENT_PREVIEW_LIMIT)),
+    [allComments, showAllComments],
+  );
   const totalComments = data?.pages[0]?.meta.total ?? property.commentCount;
-  const hasMoreComments = allComments.length > 3 && !showAllComments;
+  const hasMoreComments = totalComments > displayedComments.length && !showAllComments;
+  const cellComments = useMemo(
+    () => displayedComments.map((comment) => toCommentCellData(comment, hydratedNow)),
+    [displayedComments, hydratedNow],
+  );
 
   // Handle like
   const handleLike = useCallback(
@@ -70,9 +104,7 @@ export function CommentsSection({
         return;
       }
 
-      const targetComment = allComments.find((comment) => comment.id === commentId)
-        ?? allComments.flatMap((comment) => comment.replies).find((reply) => reply.id === commentId);
-
+      const targetComment = findCommentById(allComments, commentId);
       const isCurrentlyLiked = targetComment?.isLiked ?? false;
 
       likeMutation.mutate({ commentId, isCurrentlyLiked });
@@ -82,14 +114,17 @@ export function CommentsSection({
 
   // Handle reply
   const handleReply = useCallback(
-    (commentId: string, username: string) => {
+    (commentId: string) => {
       if (!isAuthenticated) {
         onAuthRequired?.(t('comments.auth.post') as AuthModalCopyInput);
         return;
       }
-      setReplyTo({ id: commentId, username });
+      const targetComment = findCommentById(allComments, commentId);
+      if (targetComment) {
+        setReplyTo({ id: commentId, username: targetComment.user.username });
+      }
     },
-    [isAuthenticated, onAuthRequired, t]
+    [allComments, isAuthenticated, onAuthRequired, t]
   );
 
   // Handle cancel reply
@@ -161,6 +196,13 @@ export function CommentsSection({
         icon="chatbubbles"
         description={t('comments.description')}
       >
+        <View style={styles.previewHeader}>
+          <Text style={styles.commentCount}>
+            {t(totalComments === 1 ? 'comments.count.one' : 'comments.count.other', {
+              count: totalComments,
+            })}
+          </Text>
+        </View>
         <View style={styles.disabledState}>
           <Ionicons name="lock-closed-outline" size={32} color="#C7BFB3" />
           <Text style={styles.disabledText}>{t('comments.disabled')}</Text>
@@ -174,17 +216,19 @@ export function CommentsSection({
       title={t('comments.title')}
       icon="chatbubbles"
       description={t('comments.description')}
-      trailing={totalComments > 0 ? (
-        <View style={styles.commentBadge}>
-          <Text style={styles.commentBadgeText}>{totalComments}</Text>
-        </View>
-      ) : null}
     >
-      {totalComments > 0 && (
-        <View style={styles.sortToggleSpacing}>
-          <CommentSortToggle value={sortBy} onChange={handleSortChange} />
+      <View style={styles.previewHeader}>
+        <View style={styles.previewHeaderTopRow}>
+          <Text style={styles.commentCount}>
+            {t(totalComments === 1 ? 'comments.count.one' : 'comments.count.other', {
+              count: totalComments,
+            })}
+          </Text>
+          {totalComments > 0 && (
+            <CommentSortToggle value={sortBy} onChange={handleSortChange} />
+          )}
         </View>
-      )}
+      </View>
 
       {/* Loading state */}
       {isLoading && (
@@ -220,32 +264,29 @@ export function CommentsSection({
       )}
 
       {/* Comments list */}
-      {!isLoading && !isError && displayedComments.length > 0 && (
-        <View style={styles.commentList}>
-          {displayedComments.map((comment, index) => (
-            <View key={comment.id}>
-              {index > 0 && <View className="h-px bg-warm-100" />}
-              <Comment
-                comment={comment}
-                onLike={handleLike}
-                onReply={handleReply}
-                onReport={setReportCommentId}
-                isLiked={comment.isLiked}
-              />
-            </View>
+      {!isLoading && !isError && cellComments.length > 0 && (
+        <View style={styles.listContent}>
+          {cellComments.map((comment) => (
+            <CommentCell
+              key={comment.id}
+              comment={comment}
+              onLike={handleLike}
+              onReply={handleReply}
+              onReport={setReportCommentId}
+            />
           ))}
 
           {/* View all / Load more */}
           {(hasMoreComments || hasNextPage) && (
             <Pressable
               onPress={handleViewAll}
-              className="py-3 items-center border-t border-warm-100 mt-2"
+              style={styles.viewAllButton}
             >
               {isFetchingNextPage ? (
                 <ActivityIndicator size="small" color="#F5A623" />
               ) : (
-                <Text className="text-primary-600 text-sm font-medium">
-                  {hasMoreComments
+                <Text style={styles.viewAllText}>
+                  {hasMoreComments || onViewAll
                     ? t('comments.viewAll', { count: totalComments })
                     : t('comments.loadMore')}
                 </Text>
@@ -256,12 +297,15 @@ export function CommentsSection({
       )}
 
       {/* Comment input */}
-      <View className="mt-3">
+      <View style={styles.previewComposer}>
         <CommentInput
           onSubmit={handleSubmit}
           replyTo={replyTo}
           onCancelReply={handleCancelReply}
           isSubmitting={submitMutation.isPending}
+          isAuthenticated={isAuthenticated}
+          currentUsername={user?.username}
+          variant="compact"
           placeholder={
             isAuthenticated
               ? t('comments.placeholder.authenticated')
@@ -282,28 +326,38 @@ export function CommentsSection({
 }
 
 const styles = StyleSheet.create({
-  commentBadge: {
-    minWidth: 28,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: '#FFF3DD',
-    alignItems: 'center',
-  },
-  commentBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#C18A10',
-  },
-  sortToggleSpacing: {
+  previewHeader: {
     marginBottom: 14,
   },
-  commentList: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#F5EBDD',
-    backgroundColor: '#FFFCF7',
+  previewHeaderTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  commentCount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3D3832',
+  },
+  listContent: {
+    gap: 12,
+  },
+  viewAllButton: {
+    paddingTop: 6,
+    paddingBottom: 10,
+    alignItems: 'center',
+  },
+  viewAllText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#D98900',
+  },
+  previewComposer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F5F0E8',
   },
   disabledState: {
     borderRadius: 12,

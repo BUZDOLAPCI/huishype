@@ -15,7 +15,11 @@ describe('src/components/Comments/CommentInput', () => {
 
   it('renders custom placeholder', () => {
     const { getByPlaceholderText } = render(
-      <CommentInput onSubmit={mockOnSubmit} placeholder="Custom placeholder" />
+      <CommentInput
+        isAuthenticated
+        onSubmit={mockOnSubmit}
+        placeholder="Custom placeholder"
+      />
     );
 
     expect(getByPlaceholderText('Custom placeholder')).toBeTruthy();
@@ -23,12 +27,12 @@ describe('src/components/Comments/CommentInput', () => {
 
   it('submits a trimmed comment, clears the draft, and dismisses the keyboard', () => {
     const { getByTestId } = render(
-      <CommentInput onSubmit={mockOnSubmit} />
+      <CommentInput isAuthenticated onSubmit={mockOnSubmit} />
     );
 
-    const input = getByTestId('comment-input');
+    const input = getByTestId('comment-text-input');
     fireEvent.changeText(input, '  Test comment  ');
-    fireEvent.press(getByTestId('submit-button'));
+    fireEvent.press(getByTestId('comment-send-button'));
 
     expect(mockOnSubmit).toHaveBeenCalledWith('Test comment');
     expect(input.props.value).toBe('');
@@ -37,27 +41,27 @@ describe('src/components/Comments/CommentInput', () => {
 
   it('does not submit when content is only whitespace', () => {
     const { getByTestId } = render(
-      <CommentInput onSubmit={mockOnSubmit} />
+      <CommentInput isAuthenticated onSubmit={mockOnSubmit} />
     );
 
-    const input = getByTestId('comment-input');
+    const input = getByTestId('comment-text-input');
     fireEvent.changeText(input, '   ');
-    fireEvent.press(getByTestId('submit-button'));
+    fireEvent.press(getByTestId('comment-send-button'));
 
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
   it('tracks the character count and blocks over-limit submission', () => {
-    const { getByTestId, getByText } = render(
-      <CommentInput onSubmit={mockOnSubmit} maxLength={10} />
+    const { getByTestId, queryByText } = render(
+      <CommentInput isAuthenticated onSubmit={mockOnSubmit} maxLength={10} />
     );
 
-    const input = getByTestId('comment-input');
+    const input = getByTestId('comment-text-input');
     fireEvent.changeText(input, 'This is a very long comment');
-    fireEvent.press(getByTestId('submit-button'));
+    fireEvent.press(getByTestId('comment-send-button'));
 
     expect(getByTestId('character-count').children.join('')).toContain('27/10');
-    expect(getByText(/too long/i)).toBeTruthy();
+    expect(queryByText(/too long/i)).toBeNull();
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
@@ -65,20 +69,20 @@ describe('src/components/Comments/CommentInput', () => {
     const { getByTestId, getByText, getByPlaceholderText } = render(
       <CommentInput
         onSubmit={mockOnSubmit}
+        isAuthenticated
         replyTo={{ id: 'comment-1', username: 'testuser' }}
         onCancelReply={mockOnCancelReply}
       />
     );
 
-    const input = getByTestId('comment-input');
+    const input = getByTestId('comment-text-input');
 
     fireEvent.changeText(input, 'draft reply');
 
     expect(getByPlaceholderText('Reply to @testuser...')).toBeTruthy();
-    expect(getByTestId('reply-indicator')).toBeTruthy();
-    expect(getByText('@testuser')).toBeTruthy();
+    expect(getByText(/Replying to @testuser/)).toBeTruthy();
 
-    fireEvent.press(getByTestId('cancel-reply-button'));
+    fireEvent.press(getByTestId('cancel-reply'));
 
     expect(mockOnCancelReply).toHaveBeenCalled();
     expect(input.props.value).toBe('');
@@ -86,13 +90,13 @@ describe('src/components/Comments/CommentInput', () => {
 
   it('locks the input while a submission is pending', () => {
     const { getByTestId } = render(
-      <CommentInput onSubmit={mockOnSubmit} isSubmitting={true} />
+      <CommentInput isAuthenticated onSubmit={mockOnSubmit} isSubmitting={true} />
     );
 
-    const input = getByTestId('comment-input');
+    const input = getByTestId('comment-text-input');
     expect(input.props.editable).toBe(false);
 
-    fireEvent.press(getByTestId('submit-button'));
+    fireEvent.press(getByTestId('comment-send-button'));
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 });

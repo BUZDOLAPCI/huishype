@@ -3,7 +3,7 @@ import { getKarmaTier, type KarmaTier } from '@huishype/shared';
 
 export interface KarmaBadgeProps {
   karma: number;
-  size?: 'sm' | 'md';
+  size?: 'xs' | 'sm' | 'md';
 }
 
 /**
@@ -34,16 +34,17 @@ export function getKarmaConfig(karma: number): {
 export function KarmaBadge({ karma, size = 'sm' }: KarmaBadgeProps) {
   const config = getKarmaConfig(karma);
 
-  const paddingH = size === 'sm' ? 6 : 8;
-  const paddingV = size === 'sm' ? 2 : 4;
-  const fontSize = size === 'sm' ? 11 : 13;
-  const letterSpacing = size === 'sm' ? 0.8 : 0.5;
+  const paddingH = size === 'xs' ? 5 : size === 'sm' ? 6 : 8;
+  const paddingV = size === 'xs' ? 1 : size === 'sm' ? 2 : 4;
+  const fontSize = size === 'xs' ? 10 : size === 'sm' ? 11 : 13;
+  const letterSpacing = size === 'xs' ? 0.6 : size === 'sm' ? 0.8 : 0.5;
+  const borderRadius = size === 'xs' ? 7 : 8;
 
   return (
     <View
       style={{
         backgroundColor: config.bgColor,
-        borderRadius: 8,
+        borderRadius,
         paddingHorizontal: paddingH,
         paddingVertical: paddingV,
       }}

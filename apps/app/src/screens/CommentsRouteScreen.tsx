@@ -18,25 +18,26 @@ import {
   CommentCell,
   type CommentData as CommentCellData,
 } from '@/src/components/CommentCell';
+import { toCommentCellData } from '@/src/components/comment-cell-data';
 import { CommentInput } from '@/src/components/CommentInput';
 import { useProperty } from '@/src/hooks/useProperties';
 import {
   useComments,
   useSubmitComment,
   useLikeComment,
-  type CommentSortBy,
   type Comment,
+  type CommentSortBy,
 } from '@/src/hooks/useComments';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
 import { CommentSortToggle } from '@/src/components/Comments';
+import { TAB_BAR_DOCK_HEIGHT } from '@/src/components/navigation/tabBarMetrics';
 import { ReportModal } from '@/src/components/ReportModal';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import {
   resolvePropertyImageWithType,
   toPropertyImageSource,
 } from '@/src/utils/property-image';
-import { formatRelativeTime } from '@/src/components/Comments/Comment';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import {
   buildPropertyRoute,
@@ -44,33 +45,27 @@ import {
   toInternalAppHref,
 } from '@/src/utils/property-route';
 import { useT } from '@/src/i18n';
-
-function toCommentCellData(
-  comment: Comment,
-  hydratedNow: number | null,
-): CommentCellData {
-  return {
-    id: comment.id,
-    authorId: comment.user.id,
-    author: comment.user.username,
-    authorDisplayName: comment.user.displayName ?? undefined,
-    authorProfilePhotoUrl: comment.user.profilePhotoUrl,
-    authorKarma: comment.user.karma,
-    content: comment.content,
-    likeCount: comment.likeCount,
-    createdAt:
-      hydratedNow === null
-        ? '\u00A0'
-        : formatRelativeTime(comment.createdAt, hydratedNow),
-    replyCount: comment.replies?.length ?? 0,
-    replies: comment.replies?.map((reply) => toCommentCellData(reply, hydratedNow)),
-  };
-}
+import { useIsLandscape } from '@/src/hooks/useIsLandscape';
 
 export interface CommentsRouteScreenProps {
   propertyId?: string | null;
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
+}
+
+function findCommentById(comments: Comment[], commentId: string): Comment | undefined {
+  for (const comment of comments) {
+    if (comment.id === commentId) {
+      return comment;
+    }
+
+    const reply = findCommentById(comment.replies, commentId);
+    if (reply) {
+      return reply;
+    }
+  }
+
+  return undefined;
 }
 
 export function CommentsRouteScreen({
@@ -80,7 +75,8 @@ export function CommentsRouteScreen({
 }: CommentsRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, user } = useAuthContext();
+  const isLandscape = useIsLandscape();
   const hydratedNow = useHydratedNow();
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
   const lastCloseAtRef = useRef(0);
@@ -89,7 +85,6 @@ export function CommentsRouteScreen({
   const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(
     null,
   );
-  const [likedComments, setLikedComments] = useState<Set<string>>(new Set());
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
@@ -126,16 +121,13 @@ export function CommentsRouteScreen({
         setShowAuthModal(true);
         return;
       }
-      const isCurrentlyLiked = likedComments.has(commentId);
-      setLikedComments((prev) => {
-        const next = new Set(prev);
-        if (isCurrentlyLiked) next.delete(commentId);
-        else next.add(commentId);
-        return next;
-      });
+
+      const targetComment = findCommentById(allComments, commentId);
+      const isCurrentlyLiked = targetComment?.isLiked ?? false;
+
       likeMutation.mutate({ commentId, isCurrentlyLiked });
     },
-    [isAuthenticated, likedComments, likeMutation],
+    [allComments, isAuthenticated, likeMutation],
   );
 
   const handleReply = useCallback(
@@ -144,7 +136,7 @@ export function CommentsRouteScreen({
         setShowAuthModal(true);
         return;
       }
-      const comment = allComments.find((candidate) => candidate.id === commentId);
+      const comment = findCommentById(allComments, commentId);
       if (comment) {
         setReplyTo({ id: commentId, username: comment.user.username });
       }
@@ -178,6 +170,9 @@ export function CommentsRouteScreen({
     : { url: null, type: 'placeholder' as const };
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
+  const composerBottomOffset = Platform.OS === 'web' && isLandscape
+    ? 0
+    : TAB_BAR_DOCK_HEIGHT;
   const navigateToTarget = useCallback(
     (targetHref: string) => {
       if (onNavigate) {
@@ -319,7 +314,7 @@ export function CommentsRouteScreen({
               )}
               contentContainerStyle={[
                 styles.listContent,
-                { paddingBottom: insets.bottom + 100 },
+                { paddingBottom: insets.bottom + composerBottomOffset + 96 },
               ]}
               onEndReached={handleLoadMore}
               onEndReachedThreshold={0.4}
@@ -332,11 +327,20 @@ export function CommentsRouteScreen({
           )}
 
           {commentsDisabled ? null : (
-            <CommentInput
-              onSubmit={handleSubmit}
-              replyTo={replyTo}
-              onCancelReply={() => setReplyTo(null)}
-            />
+            <View
+              style={[
+                styles.composerDock,
+                { bottom: insets.bottom + composerBottomOffset },
+              ]}
+            >
+              <CommentInput
+                onSubmit={handleSubmit}
+                replyTo={replyTo}
+                onCancelReply={() => setReplyTo(null)}
+                isAuthenticated={isAuthenticated}
+                currentUsername={user?.username}
+              />
+            </View>
           )}
         </KeyboardAvoidingView>
       </ResponsivePanel>
@@ -404,5 +408,10 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: '#9C958A',
     textAlign: 'center',
+  },
+  composerDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
   },
 });

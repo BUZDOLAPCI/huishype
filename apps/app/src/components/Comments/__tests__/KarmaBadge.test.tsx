@@ -116,6 +116,9 @@ describe('KarmaBadge', () => {
       const { rerender, getByTestId } = render(<KarmaBadge karma={100} size="sm" />);
       expect(getByTestId('karma-badge')).toBeTruthy();
 
+      rerender(<KarmaBadge karma={100} size="xs" />);
+      expect(getByTestId('karma-badge')).toBeTruthy();
+
       rerender(<KarmaBadge karma={100} size="md" />);
       expect(getByTestId('karma-badge')).toBeTruthy();
     });

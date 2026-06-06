@@ -1,19 +1,21 @@
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { CommentsSection } from '../CommentsSection';
 import type { PropertyDetailsData } from '../types';
 
 const mockUseComments = jest.fn();
 const mockUseAuthContext = jest.fn();
+const mockSubmitMutate = jest.fn();
+const mockLikeMutate = jest.fn();
 
 jest.mock('../../../hooks/useComments', () => ({
   useComments: (...args: unknown[]) => mockUseComments(...args),
   useSubmitComment: () => ({
-    mutate: jest.fn(),
+    mutate: mockSubmitMutate,
     isPending: false,
   }),
   useLikeComment: () => ({
-    mutate: jest.fn(),
+    mutate: mockLikeMutate,
   }),
 }));
 
@@ -22,23 +24,49 @@ jest.mock('../../../providers/AuthProvider', () => ({
 }));
 
 jest.mock('../SectionCard', () => ({
-  SectionCard: ({ children }: { children: React.ReactNode }) => {
+  SectionCard: ({ children, title, description, trailing }: {
+    children: React.ReactNode;
+    title?: string;
+    description?: string;
+    trailing?: React.ReactNode;
+  }) => {
     const React = require('react');
-    const { View } = require('react-native');
-    return <View>{children}</View>;
+    const { Text, View } = require('react-native');
+    return (
+      <View>
+        {title ? <Text>{title}</Text> : null}
+        {description ? <Text>{description}</Text> : null}
+        {trailing}
+        {children}
+      </View>
+    );
   },
 }));
 
 jest.mock('../../Comments', () => ({
-  Comment: () => {
+  CommentInput: ({
+    onSubmit,
+    replyTo,
+    onCancelReply,
+  }: {
+    onSubmit: (content: string) => void;
+    replyTo?: { id: string; username: string } | null;
+    onCancelReply?: () => void;
+  }) => {
     const React = require('react');
-    const { Text } = require('react-native');
-    return <Text>Rendered comment</Text>;
-  },
-  CommentInput: () => {
-    const React = require('react');
-    const { Text } = require('react-native');
-    return <Text>Comment input</Text>;
+    const { Pressable, Text, View } = require('react-native');
+    return (
+      <View>
+        <Text>Comment input</Text>
+        {replyTo ? <Text>Replying to @{replyTo.username}</Text> : null}
+        <Pressable testID="mock-comment-input-submit" onPress={() => onSubmit('Draft comment')}>
+          <Text>Submit draft</Text>
+        </Pressable>
+        <Pressable testID="mock-comment-input-cancel" onPress={onCancelReply}>
+          <Text>Cancel reply</Text>
+        </Pressable>
+      </View>
+    );
   },
   CommentSortToggle: () => {
     const React = require('react');
@@ -47,6 +75,32 @@ jest.mock('../../Comments', () => ({
       <View>
         <Text>Popular</Text>
         <Text>Recent</Text>
+      </View>
+    );
+  },
+}));
+
+jest.mock('../../CommentCell', () => ({
+  CommentCell: ({
+    comment,
+    onLike,
+    onReply,
+  }: {
+    comment: { id: string; content: string };
+    onLike: (commentId: string) => void;
+    onReply: (commentId: string) => void;
+  }) => {
+    const React = require('react');
+    const { Pressable, Text, View } = require('react-native');
+    return (
+      <View testID="comment-cell">
+        <Text>{comment.content}</Text>
+        <Pressable testID={`comment-like-${comment.id}`} onPress={() => onLike(comment.id)}>
+          <Text>Like</Text>
+        </Pressable>
+        <Pressable testID={`comment-reply-${comment.id}`} onPress={() => onReply(comment.id)}>
+          <Text>Reply</Text>
+        </Pressable>
       </View>
     );
   },
@@ -128,4 +182,172 @@ describe('CommentsSection', () => {
     expect(texts.indexOf('Recent')).toBeGreaterThanOrEqual(0);
     expect(texts.indexOf('Popular')).toBeLessThan(texts.indexOf('Recent'));
   });
+
+  it('renders the comment count title, shared cells, and preview view-all action', () => {
+    mockUseComments.mockReturnValue({
+      data: {
+        pages: [
+          {
+            data: [
+              makeComment('comment-1', 'First comment'),
+              makeComment('comment-2', 'Second comment'),
+              makeComment('comment-3', 'Third comment'),
+              makeComment('comment-4', 'Fourth comment'),
+            ],
+            meta: { total: 4 },
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      fetchNextPage: jest.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+
+    const screen = render(<CommentsSection property={property} onViewAll={jest.fn()} />);
+
+    expect(screen.getByText('Comments')).toBeTruthy();
+    expect(screen.getByText('Read the neighborhood takes and add your own perspective on the address.')).toBeTruthy();
+    expect(screen.getByText('4 comments')).toBeTruthy();
+    expect(screen.getAllByTestId('comment-cell')).toHaveLength(3);
+    expect(screen.getByText('First comment')).toBeTruthy();
+    expect(screen.queryByText('Fourth comment')).toBeNull();
+    expect(screen.getByText('View all 4 comments')).toBeTruthy();
+  });
+
+  it('likes preview comments using the fetched liked state', () => {
+    mockUseAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: 'viewer-1', username: 'viewer' },
+    });
+    mockUseComments.mockReturnValue({
+      data: {
+        pages: [
+          {
+            data: [
+              {
+                ...makeComment('comment-1', 'Liked comment'),
+                isLiked: true,
+                likeCount: 3,
+              },
+            ],
+            meta: { total: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      fetchNextPage: jest.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+
+    const screen = render(<CommentsSection property={property} />);
+
+    fireEvent.press(screen.getByTestId('comment-like-comment-1'));
+
+    expect(mockLikeMutate).toHaveBeenCalledWith({
+      commentId: 'comment-1',
+      isCurrentlyLiked: true,
+    });
+  });
+
+  it('opens reply mode and submits preview replies with the parent id', async () => {
+    mockUseAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: 'viewer-1', username: 'viewer' },
+    });
+    mockSubmitMutate.mockImplementation((_variables, options) => {
+      options?.onSuccess?.();
+    });
+    mockUseComments.mockReturnValue({
+      data: {
+        pages: [
+          {
+            data: [makeComment('comment-1', 'Parent comment')],
+            meta: { total: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      fetchNextPage: jest.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+
+    const screen = render(<CommentsSection property={property} />);
+
+    fireEvent.press(screen.getByTestId('comment-reply-comment-1'));
+
+    expect(screen.getByText('Replying to @usercomment-1')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('mock-comment-input-submit'));
+
+    expect(mockSubmitMutate).toHaveBeenCalledWith(
+      { content: 'Draft comment', parentId: 'comment-1' },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText('Replying to @usercomment-1')).toBeNull();
+    });
+  });
+
+  it('gates preview like and reply actions for signed-out users', () => {
+    const onAuthRequired = jest.fn();
+    mockUseComments.mockReturnValue({
+      data: {
+        pages: [
+          {
+            data: [makeComment('comment-1', 'Signed out comment')],
+            meta: { total: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      fetchNextPage: jest.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+
+    const screen = render(
+      <CommentsSection property={property} onAuthRequired={onAuthRequired} />
+    );
+
+    fireEvent.press(screen.getByTestId('comment-like-comment-1'));
+    fireEvent.press(screen.getByTestId('comment-reply-comment-1'));
+
+    expect(mockLikeMutate).not.toHaveBeenCalled();
+    expect(mockSubmitMutate).not.toHaveBeenCalled();
+    expect(onAuthRequired).toHaveBeenCalledTimes(2);
+  });
 });
+
+function makeComment(id: string, content: string) {
+  return {
+    id,
+    propertyId: 'property-123',
+    userId: `user-${id}`,
+    parentId: null,
+    content,
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+    user: {
+      id: `user-${id}`,
+      username: `user${id}`,
+      displayName: `User ${id}`,
+      profilePhotoUrl: null,
+      karma: 1,
+    },
+    likeCount: 0,
+    isLiked: false,
+    replies: [],
+  };
+}
