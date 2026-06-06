@@ -152,6 +152,7 @@ export function CommentCell({
                     onPress={handleAuthorPress}
                     accessibilityRole="link"
                     accessibilityLabel={t('comments.openProfile', { name: displayName })}
+                    style={styles.authorButton}
                     testID="comment-author-button"
                   >
                     <Text style={styles.authorName} numberOfLines={1}>
@@ -163,7 +164,7 @@ export function CommentCell({
                     {displayName}
                   </Text>
                 )}
-                <KarmaBadge karma={comment.authorKarma} size="sm" />
+                <KarmaBadge karma={comment.authorKarma} size="xs" />
               </View>
             </View>
 
@@ -302,11 +303,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     flex: 1,
+    minWidth: 0,
+  },
+  authorButton: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   authorName: {
     fontSize: 13,
     fontWeight: '700',
     color: '#9A9A9A',
+    flexShrink: 1,
   },
   timestamp: {
     fontSize: 12,

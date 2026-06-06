@@ -344,7 +344,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   viewAllButton: {
-    paddingVertical: 12,
+    paddingTop: 6,
+    paddingBottom: 10,
     alignItems: 'center',
   },
   viewAllText: {
