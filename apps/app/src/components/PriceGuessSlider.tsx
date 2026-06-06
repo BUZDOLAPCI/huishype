@@ -117,6 +117,9 @@ const NEGATIVE_GUESS_THUMB_COLOR = '#FFF1F0';
 const SLIDER_TRACK_COLOR = '#D7DADA';
 const ASKING_REFERENCE_COLOR = NEUTRAL_GUESS_COLOR;
 const YOU_REFERENCE_COLOR = '#FDAE10';
+const START_ANCHOR_REFERENCE_COLOR = '#6F665D';
+const START_ANCHOR_CONNECTOR_COLOR = '#C8BFB3';
+const START_ANCHOR_MARKER_WIDTH = 160;
 const GUESS_TONE_INPUT_RANGE = [0, 0.5, 1];
 const SLIDER_TRACK_HEIGHT = 6;
 const TRACK_MARKER_HEIGHT = 18;
@@ -210,6 +213,25 @@ function formatBubblePrice(price: number, countryCode?: string): string {
 
 function formatMarkerLabel(label: string, price: number, countryCode?: string): string {
   return `${label} ${formatCompactPrice(price, countryCode)}`;
+}
+
+function formatStartAnchorLabel(
+  source: PriceGuessSliderStartSource,
+  price: number,
+  countryCode?: string,
+): string | null {
+  if (
+    source === 'official_valuation_adjusted' ||
+    source === 'local_comparable_price_per_m2'
+  ) {
+    return formatMarkerLabel('Comparable homes', price, countryCode);
+  }
+
+  if (source === 'country_default' || source === 'initial_price') {
+    return formatMarkerLabel('Starting', price, countryCode);
+  }
+
+  return null;
 }
 
 function formatDeltaPercentageLabel(price: number, startPrice: number): string {
@@ -384,6 +406,8 @@ function ReferenceMarker({
   isActive,
   top,
   connectorHeight,
+  connectorColor = '#D9D4CC',
+  width = 112,
 }: {
   position: number;
   label: string;
@@ -392,6 +416,8 @@ function ReferenceMarker({
   isActive?: boolean;
   top: number;
   connectorHeight: number;
+  connectorColor?: string;
+  width?: number;
 }) {
   const opacity = useSharedValue(0.7);
   const scale = useSharedValue(1);
@@ -411,14 +437,14 @@ function ReferenceMarker({
 
   const markerStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ translateX: -56 }, { scale: scale.value }],
+    transform: [{ translateX: -width / 2 }, { scale: scale.value }],
   }));
 
   return (
     <Animated.View
       className="absolute items-center"
       style={[
-        { left: `${position * 100}%`, top, width: 112 },
+        { left: `${position * 100}%`, top, width },
         markerStyle,
       ]}
     >
@@ -426,7 +452,7 @@ function ReferenceMarker({
         style={{
           width: 1,
           height: connectorHeight,
-          backgroundColor: '#D9D4CC',
+          backgroundColor: connectorColor,
         }}
       />
       <Text
@@ -449,6 +475,7 @@ function InlineReferenceLabel({
   connectorTopGap = 0,
   fontSize = 12,
   lineHeight = 16,
+  width = 112,
   testID,
 }: {
   position: number | null;
@@ -459,6 +486,7 @@ function InlineReferenceLabel({
   connectorTopGap?: number;
   fontSize?: number;
   lineHeight?: number;
+  width?: number;
   testID?: string;
 }) {
   if (position === null) {
@@ -474,8 +502,8 @@ function InlineReferenceLabel({
       style={{
         left: `${position * 100}%`,
         top: 0,
-        width: 112,
-        transform: [{ translateX: -56 }],
+        width,
+        transform: [{ translateX: -width / 2 }],
       }}
     >
       {connectorTopGap > 0 ? <View style={{ height: connectorTopGap }} /> : null}
@@ -1099,6 +1127,21 @@ export function PriceGuessSlider({
   const crowdMarkerLabel = currentFMV
     ? formatMarkerLabel('Crowd', currentFMV, countryCode)
     : '';
+  const candidateStartAnchorLabel = formatStartAnchorLabel(
+    startAnalytics.current.source,
+    sliderStartPrice,
+    countryCode,
+  );
+  const startAnchorLabel =
+    candidateStartAnchorLabel &&
+      !hasSamePrice(sliderStartPrice, resolvedAskingPrice) &&
+      !hasSamePrice(sliderStartPrice, officialValuation) &&
+      !hasSamePrice(sliderStartPrice, userGuess)
+      ? candidateStartAnchorLabel
+      : null;
+  const startAnchorPosition = startAnchorLabel
+    ? priceToPosition(sliderStartPrice, sliderRange)
+    : null;
 
   if (variant === 'embedded') {
     return (
@@ -1240,6 +1283,12 @@ export function PriceGuessSlider({
                   testID="crowd-track-marker"
                   top={EMBEDDED_TRACK_MARKER_TOP}
                 />
+                <TrackMarker
+                  position={startAnchorPosition}
+                  color={START_ANCHOR_REFERENCE_COLOR}
+                  testID="start-anchor-track-marker"
+                  top={EMBEDDED_TRACK_MARKER_TOP}
+                />
 
                 <Animated.View
                   className="absolute"
@@ -1311,6 +1360,15 @@ export function PriceGuessSlider({
                 label={crowdMarkerLabel}
                 color="#3D8A5A"
                 connectorHeight={40}
+              />
+              <InlineReferenceLabel
+                position={startAnchorPosition}
+                label={startAnchorLabel ?? ''}
+                color={START_ANCHOR_REFERENCE_COLOR}
+                connectorColor={START_ANCHOR_CONNECTOR_COLOR}
+                connectorHeight={52}
+                width={START_ANCHOR_MARKER_WIDTH}
+                testID="start-anchor-marker"
               />
               {hasInteracted ? (
                 <InlineReferenceLabel
@@ -1446,6 +1504,18 @@ export function PriceGuessSlider({
               connectorHeight={40}
             />
           )}
+          {startAnchorLabel !== null && startAnchorPosition !== null && (
+            <ReferenceMarker
+              position={startAnchorPosition}
+              label={startAnchorLabel}
+              color="text-warm-600"
+              textColor={START_ANCHOR_REFERENCE_COLOR}
+              connectorColor={START_ANCHOR_CONNECTOR_COLOR}
+              top={15}
+              connectorHeight={52}
+              width={START_ANCHOR_MARKER_WIDTH}
+            />
+          )}
           {hasInteracted && (
             <ReferenceMarker
               position={guessedPosition}
@@ -1484,6 +1554,11 @@ export function PriceGuessSlider({
                 testID="asking-track-marker"
               />
               <TrackMarker position={fmvPosition} color="#3D8A5A" testID="crowd-track-marker" />
+              <TrackMarker
+                position={startAnchorPosition}
+                color={START_ANCHOR_REFERENCE_COLOR}
+                testID="start-anchor-track-marker"
+              />
 
               {/* Thumb */}
               <Animated.View

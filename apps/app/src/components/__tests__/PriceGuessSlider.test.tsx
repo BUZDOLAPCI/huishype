@@ -309,6 +309,72 @@ describe('PriceGuessSlider', () => {
     });
   });
 
+  it('shows an embedded comparable homes anchor for an adjusted official valuation start', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        variant="embedded"
+        officialValuation={350000}
+        initialPrice={385000}
+        initialPriceSource="official_valuation_adjusted"
+      />
+    );
+
+    expect(screen.getByText(/Comparable homes.*385/)).toBeTruthy();
+    expect(screen.getByTestId('start-anchor-marker')).toBeTruthy();
+    expect(screen.getByTestId('start-anchor-track-marker')).toBeTruthy();
+  });
+
+  it('shows an embedded comparable homes anchor for a local comparable start', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        variant="embedded"
+        initialPrice={425000}
+        initialPriceSource="local_comparable_price_per_m2"
+      />
+    );
+
+    expect(screen.getByText(/Comparable homes.*425/)).toBeTruthy();
+    expect(screen.getByTestId('start-anchor-marker')).toBeTruthy();
+  });
+
+  it('shows an embedded starting anchor for the country default start', () => {
+    render(<PriceGuessSlider {...defaultProps} variant="embedded" />);
+
+    expect(screen.getByText(/Starting.*350/)).toBeTruthy();
+    expect(screen.getByTestId('start-anchor-marker')).toBeTruthy();
+  });
+
+  it('does not duplicate embedded start anchors for asking or official valuation starts', () => {
+    const { rerender } = render(
+      <PriceGuessSlider
+        {...defaultProps}
+        variant="embedded"
+        askingPrice={350000}
+        initialPrice={425000}
+        initialPriceSource="local_comparable_price_per_m2"
+        officialValuation={300000}
+      />
+    );
+
+    expect(screen.queryByTestId('start-anchor-marker')).toBeNull();
+    expect(screen.queryByText(/Comparable homes|Starting/)).toBeNull();
+    expect(screen.getByText(/Asking.*350/)).toBeTruthy();
+
+    rerender(
+      <PriceGuessSlider
+        {...defaultProps}
+        variant="embedded"
+        officialValuation={350000}
+      />
+    );
+
+    expect(screen.queryByTestId('start-anchor-marker')).toBeNull();
+    expect(screen.queryByText(/Comparable homes|Starting/)).toBeNull();
+    expect(screen.getByText(/WOZ.*350/)).toBeTruthy();
+  });
+
   it('shows submitting state when isSubmitting is true', () => {
     render(<PriceGuessSlider {...defaultProps} isSubmitting />);
 
@@ -365,6 +431,52 @@ describe('PriceGuessSlider', () => {
     // Check for Crowd marker label with value
     expect(screen.getByText(/Crowd.*320/)).toBeTruthy();
     expect(screen.getByTestId('crowd-track-marker')).toBeTruthy();
+  });
+
+  it('shows a full slider start anchor for comparable and initial starts', () => {
+    const comparableRender = render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={425000}
+        initialPriceSource="local_comparable_price_per_m2"
+      />
+    );
+
+    expect(screen.getByText(/Comparable homes.*425/)).toBeTruthy();
+    expect(screen.getByTestId('start-anchor-track-marker')).toBeTruthy();
+
+    comparableRender.unmount();
+
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={375000}
+        initialPriceSource="initial_price"
+      />
+    );
+
+    expect(screen.getByText(/Starting.*375/)).toBeTruthy();
+    expect(screen.getByTestId('start-anchor-track-marker')).toBeTruthy();
+  });
+
+  it('does not render a full slider start anchor for asking or official valuation starts', () => {
+    const { rerender } = render(
+      <PriceGuessSlider
+        {...defaultProps}
+        askingPrice={350000}
+        initialPrice={425000}
+        initialPriceSource="local_comparable_price_per_m2"
+        officialValuation={300000}
+      />
+    );
+
+    expect(screen.queryByText(/Comparable homes|Starting/)).toBeNull();
+    expect(screen.queryByTestId('start-anchor-track-marker')).toBeNull();
+
+    rerender(<PriceGuessSlider {...defaultProps} officialValuation={350000} />);
+
+    expect(screen.queryByText(/Comparable homes|Starting/)).toBeNull();
+    expect(screen.queryByTestId('start-anchor-track-marker')).toBeNull();
   });
 
   it('updates price when quick adjustment buttons are pressed', async () => {
