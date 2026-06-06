@@ -18,6 +18,7 @@ import {
   CommentCell,
   type CommentData as CommentCellData,
 } from '@/src/components/CommentCell';
+import { toCommentCellData } from '@/src/components/comment-cell-data';
 import { CommentInput } from '@/src/components/CommentInput';
 import { useProperty } from '@/src/hooks/useProperties';
 import {
@@ -25,7 +26,6 @@ import {
   useSubmitComment,
   useLikeComment,
   type CommentSortBy,
-  type Comment,
 } from '@/src/hooks/useComments';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
@@ -36,7 +36,6 @@ import {
   resolvePropertyImageWithType,
   toPropertyImageSource,
 } from '@/src/utils/property-image';
-import { formatRelativeTime } from '@/src/components/Comments/Comment';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import {
   buildPropertyRoute,
@@ -44,28 +43,6 @@ import {
   toInternalAppHref,
 } from '@/src/utils/property-route';
 import { useT } from '@/src/i18n';
-
-function toCommentCellData(
-  comment: Comment,
-  hydratedNow: number | null,
-): CommentCellData {
-  return {
-    id: comment.id,
-    authorId: comment.user.id,
-    author: comment.user.username,
-    authorDisplayName: comment.user.displayName ?? undefined,
-    authorProfilePhotoUrl: comment.user.profilePhotoUrl,
-    authorKarma: comment.user.karma,
-    content: comment.content,
-    likeCount: comment.likeCount,
-    createdAt:
-      hydratedNow === null
-        ? '\u00A0'
-        : formatRelativeTime(comment.createdAt, hydratedNow),
-    replyCount: comment.replies?.length ?? 0,
-    replies: comment.replies?.map((reply) => toCommentCellData(reply, hydratedNow)),
-  };
-}
 
 export interface CommentsRouteScreenProps {
   propertyId?: string | null;

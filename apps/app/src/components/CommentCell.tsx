@@ -70,7 +70,7 @@ export function CommentCell({
   const t = useT();
   const [showReplies, setShowReplies] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
-  const avatarSize: AvatarSize = isReply ? 'sm' : 'md';
+  const avatarSize: AvatarSize = isReply ? 'sm' : 'comment';
   const isLiked = likedCommentIds ? likedCommentIds.has(comment.id) : !!comment.isLiked;
   const displayName = comment.authorDisplayName || comment.author;
 

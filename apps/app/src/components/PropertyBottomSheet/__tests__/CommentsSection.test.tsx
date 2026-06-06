@@ -22,19 +22,26 @@ jest.mock('../../../providers/AuthProvider', () => ({
 }));
 
 jest.mock('../SectionCard', () => ({
-  SectionCard: ({ children }: { children: React.ReactNode }) => {
+  SectionCard: ({ children, title, description, trailing }: {
+    children: React.ReactNode;
+    title?: string;
+    description?: string;
+    trailing?: React.ReactNode;
+  }) => {
     const React = require('react');
-    const { View } = require('react-native');
-    return <View>{children}</View>;
+    const { Text, View } = require('react-native');
+    return (
+      <View>
+        {title ? <Text>{title}</Text> : null}
+        {description ? <Text>{description}</Text> : null}
+        {trailing}
+        {children}
+      </View>
+    );
   },
 }));
 
 jest.mock('../../Comments', () => ({
-  Comment: () => {
-    const React = require('react');
-    const { Text } = require('react-native');
-    return <Text>Rendered comment</Text>;
-  },
   CommentInput: () => {
     const React = require('react');
     const { Text } = require('react-native');
@@ -49,6 +56,14 @@ jest.mock('../../Comments', () => ({
         <Text>Recent</Text>
       </View>
     );
+  },
+}));
+
+jest.mock('../../CommentCell', () => ({
+  CommentCell: ({ comment }: { comment: { content: string } }) => {
+    const React = require('react');
+    const { Text } = require('react-native');
+    return <Text testID="comment-cell">{comment.content}</Text>;
   },
 }));
 
@@ -128,4 +143,60 @@ describe('CommentsSection', () => {
     expect(texts.indexOf('Recent')).toBeGreaterThanOrEqual(0);
     expect(texts.indexOf('Popular')).toBeLessThan(texts.indexOf('Recent'));
   });
+
+  it('renders the comment count title, shared cells, and preview view-all action', () => {
+    mockUseComments.mockReturnValue({
+      data: {
+        pages: [
+          {
+            data: [
+              makeComment('comment-1', 'First comment'),
+              makeComment('comment-2', 'Second comment'),
+              makeComment('comment-3', 'Third comment'),
+              makeComment('comment-4', 'Fourth comment'),
+            ],
+            meta: { total: 4 },
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      fetchNextPage: jest.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+
+    const screen = render(<CommentsSection property={property} onViewAll={jest.fn()} />);
+
+    expect(screen.getByText('Comments')).toBeTruthy();
+    expect(screen.getByText('Read the neighborhood takes and add your own perspective on the address.')).toBeTruthy();
+    expect(screen.getByText('4 comments')).toBeTruthy();
+    expect(screen.getAllByTestId('comment-cell')).toHaveLength(3);
+    expect(screen.getByText('First comment')).toBeTruthy();
+    expect(screen.queryByText('Fourth comment')).toBeNull();
+    expect(screen.getByText('View all 4 comments')).toBeTruthy();
+  });
 });
+
+function makeComment(id: string, content: string) {
+  return {
+    id,
+    propertyId: 'property-123',
+    userId: `user-${id}`,
+    parentId: null,
+    content,
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+    user: {
+      id: `user-${id}`,
+      username: `user${id}`,
+      displayName: `User ${id}`,
+      profilePhotoUrl: null,
+      karma: 1,
+    },
+    likeCount: 0,
+    isLiked: false,
+    replies: [],
+  };
+}

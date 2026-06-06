@@ -8,6 +8,7 @@
  * Size variants:
  *   xs  (28px) — nested replies
  *   sm  (32px) — inline mentions, comment lists
+ *   comment (36px) — comment cells
  *   md  (40px) — comment threads, card headers
  *   lg  (80px) — profile screens
  */
@@ -24,6 +25,7 @@ import {
 const SIZE_MAP = {
   xs: 28,
   sm: 32,
+  comment: 36,
   md: 40,
   lg: 80,
 } as const;
