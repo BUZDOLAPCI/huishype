@@ -59,7 +59,7 @@ function findCommentById(comments: Comment[], commentId: string): Comment | unde
       return comment;
     }
 
-    const reply = findCommentById(comment.replies, commentId);
+    const reply = findCommentById(comment.replies ?? [], commentId);
     if (reply) {
       return reply;
     }

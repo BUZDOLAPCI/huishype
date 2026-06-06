@@ -32,7 +32,7 @@ export interface Comment {
   user: CommentUser;
   likeCount: number;
   isLiked: boolean;
-  replies: Comment[];
+  replies?: Comment[];
 }
 
 interface CommentListResponse {
@@ -87,13 +87,14 @@ function updateCommentCollection(
       return updater(comment);
     }
 
-    if (comment.replies.length === 0) {
+    const replies = comment.replies ?? [];
+    if (replies.length === 0) {
       return comment;
     }
 
     return {
       ...comment,
-      replies: updateCommentCollection(comment.replies, commentId, updater),
+      replies: updateCommentCollection(replies, commentId, updater),
     };
   });
 }

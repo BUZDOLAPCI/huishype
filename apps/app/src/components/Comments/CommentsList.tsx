@@ -63,7 +63,9 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
       }
 
       const targetComment = comments.find((comment) => comment.id === commentId)
-        ?? comments.flatMap((comment) => comment.replies).find((reply) => reply.id === commentId);
+        ?? comments
+          .flatMap((comment) => comment.replies ?? [])
+          .find((reply) => reply.id === commentId);
 
       const isCurrentlyLiked = targetComment?.isLiked ?? false;
 

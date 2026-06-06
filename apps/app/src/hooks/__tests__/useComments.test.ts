@@ -83,7 +83,9 @@ function getCommentFromCache(queryClient: QueryClient, commentId: string) {
 
   const comments = data?.pages.flatMap((page) => page.data) ?? [];
   return comments.find((comment) => comment.id === commentId)
-    ?? comments.flatMap((comment) => comment.replies).find((reply) => reply.id === commentId);
+    ?? comments
+      .flatMap((comment) => comment.replies ?? [])
+      .find((reply) => reply.id === commentId);
 }
 
 describe('useComments', () => {
@@ -395,6 +397,74 @@ describe('useLikeComment', () => {
         isLiked: true,
         likeCount: 2,
       });
+    });
+  });
+
+  it('likes a parent comment when nested replies omit their own replies array', async () => {
+    seedCommentsQuery(queryClient, [
+      {
+        id: 'comment-9',
+        propertyId: 'property-123',
+        userId: 'user-2',
+        parentId: null,
+        content: 'Parent with API-shaped reply',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        user: {
+          id: 'user-2',
+          username: 'cacheuser',
+          displayName: 'Cache User',
+          profilePhotoUrl: null,
+          karma: 10,
+        },
+        likeCount: 0,
+        isLiked: false,
+        replies: [
+          {
+            id: 'reply-without-replies',
+            propertyId: 'property-123',
+            userId: 'user-3',
+            parentId: 'comment-9',
+            content: 'Nested API shape',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            user: {
+              id: 'user-3',
+              username: 'replyuser',
+              displayName: 'Reply User',
+              profilePhotoUrl: null,
+              karma: 5,
+            },
+            likeCount: 1,
+            isLiked: false,
+          },
+        ],
+      },
+    ]);
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ liked: true, likeCount: 1 }),
+    });
+
+    const { result } = renderHook(() => useLikeComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        commentId: 'comment-9',
+        isCurrentlyLiked: false,
+      });
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/comments/comment-9/like',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(getCommentFromCache(queryClient, 'comment-9')).toMatchObject({
+      isLiked: true,
+      likeCount: 1,
     });
   });
 
