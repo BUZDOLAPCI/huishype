@@ -7,18 +7,21 @@ import {
 } from '../CommentInput';
 
 describe('src/components/CommentInput', () => {
-  it('gates comment entry for signed-out users', () => {
-    const onSubmit = jest.fn();
+  it('lets signed-out users draft and preserves the draft when auth is required', () => {
+    const onSubmit = jest.fn(() => false);
 
     render(<CommentInput isAuthenticated={false} onSubmit={onSubmit} />);
 
     const input = screen.getByTestId('comment-text-input');
 
     expect(screen.getByPlaceholderText('Log in to comment...')).toBeTruthy();
-    expect(input.props.editable).toBe(false);
+    expect(input.props.editable).toBe(true);
 
+    fireEvent.changeText(input, '  Hello after login  ');
     fireEvent.press(screen.getByTestId('comment-send-button'));
-    expect(onSubmit).not.toHaveBeenCalled();
+
+    expect(onSubmit).toHaveBeenCalledWith('Hello after login');
+    expect(input.props.value).toBe('  Hello after login  ');
   });
 
   it('submits trimmed text for authenticated users and clears the draft', () => {

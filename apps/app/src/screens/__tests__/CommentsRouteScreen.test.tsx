@@ -236,4 +236,21 @@ describe('CommentsRouteScreen', () => {
     expect(mockLikeMutate).not.toHaveBeenCalled();
     expect(screen.getByText('Auth Modal Open')).toBeTruthy();
   });
+
+  it('lets signed-out users draft a comment before auth on submit', () => {
+    mockUseAuthContext.mockReturnValue({
+      isAuthenticated: false,
+      user: null,
+    });
+
+    const screen = render(<CommentsRouteScreen propertyId="property-123" />);
+    const input = screen.getByTestId('comment-text-input');
+
+    fireEvent.changeText(input, '  Auth gated draft  ');
+    fireEvent.press(screen.getByTestId('comment-send-button'));
+
+    expect(mockSubmitMutate).not.toHaveBeenCalled();
+    expect(screen.getByText('Auth Modal Open')).toBeTruthy();
+    expect(input.props.value).toBe('  Auth gated draft  ');
+  });
 });

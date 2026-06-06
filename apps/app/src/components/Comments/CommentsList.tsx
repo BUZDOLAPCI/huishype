@@ -97,7 +97,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
     (content: string) => {
       if (!isAuthenticated) {
         onAuthRequired?.();
-        return;
+        return false;
       }
 
       submitMutation.mutate(
@@ -108,6 +108,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
           },
         }
       );
+      return true;
     },
     [isAuthenticated, onAuthRequired, replyTo?.id, submitMutation]
   );

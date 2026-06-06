@@ -148,12 +148,13 @@ export function CommentsRouteScreen({
     (content: string) => {
       if (!isAuthenticated) {
         setShowAuthModal(true);
-        return;
+        return false;
       }
       submitMutation.mutate(
         { content, parentId: replyTo?.id },
         { onSuccess: () => setReplyTo(null) },
       );
+      return true;
     },
     [isAuthenticated, replyTo?.id, submitMutation],
   );

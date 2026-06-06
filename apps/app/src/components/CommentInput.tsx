@@ -7,7 +7,7 @@
  *   - Reply-to indicator with cancel
  *   - Near-limit character count
  *   - Inline send button (disabled when empty)
- *   - Auth gating (non-editable placeholder for unauthenticated users)
+ *   - Auth gating via onSubmit while preserving signed-out drafts
  *   - Supports both compact (inline) and full (sticky footer) variants
  */
 
@@ -116,7 +116,6 @@ export function CommentInput({
     if (
       !trimmed ||
       content.length > maxLength ||
-      !isAuthenticated ||
       isSubmitting ||
       !onSubmit
     ) {
@@ -131,7 +130,7 @@ export function CommentInput({
     setContent('');
     setInputHeight(MIN_TEXT_INPUT_HEIGHT);
     Keyboard.dismiss();
-  }, [content, isAuthenticated, isSubmitting, maxLength, onSubmit]);
+  }, [content, isSubmitting, maxLength, onSubmit]);
 
   const handleCancelReply = useCallback(() => {
     onCancelReply?.();
@@ -142,7 +141,7 @@ export function CommentInput({
   const isOverLimit = content.length > maxLength;
   const showCharacterCount = content.length > Math.min(450, maxLength * 0.9);
   const canSubmit =
-    content.trim().length > 0 && !isOverLimit && isAuthenticated && !isSubmitting;
+    content.trim().length > 0 && !isOverLimit && !isSubmitting;
   const inputPlaceholder = replyTo
     ? t('comments.input.replyPlaceholder', { username: replyTo.username })
     : placeholder ?? (
@@ -194,7 +193,7 @@ export function CommentInput({
             maxLength={maxLength + 50}
             multiline
             scrollEnabled={false}
-            editable={isAuthenticated && !isSubmitting}
+            editable={!isSubmitting}
             testID="comment-text-input"
           />
 
