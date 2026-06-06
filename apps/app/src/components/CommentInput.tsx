@@ -66,7 +66,6 @@ export function CommentInput({
   onSubmit,
   replyTo,
   onCancelReply,
-  isAuthenticated = false,
   currentUsername,
   isSubmitting = false,
   placeholder,
@@ -144,11 +143,7 @@ export function CommentInput({
     content.trim().length > 0 && !isOverLimit && !isSubmitting;
   const inputPlaceholder = replyTo
     ? t('comments.input.replyPlaceholder', { username: replyTo.username })
-    : placeholder ?? (
-        isAuthenticated
-          ? t('comments.input.addPlaceholder')
-          : t('comments.placeholder.signedOut')
-      );
+    : placeholder ?? t('comments.input.addPlaceholder');
 
   return (
     <View

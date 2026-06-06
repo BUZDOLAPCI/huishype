@@ -14,7 +14,7 @@ describe('src/components/CommentInput', () => {
 
     const input = screen.getByTestId('comment-text-input');
 
-    expect(screen.getByPlaceholderText('Log in to comment...')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Add a comment...')).toBeTruthy();
     expect(input.props.editable).toBe(true);
 
     fireEvent.changeText(input, '  Hello after login  ');

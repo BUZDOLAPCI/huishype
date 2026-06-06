@@ -306,11 +306,7 @@ export function CommentsSection({
           isAuthenticated={isAuthenticated}
           currentUsername={user?.username}
           variant="compact"
-          placeholder={
-            isAuthenticated
-              ? t('comments.placeholder.authenticated')
-              : t('comments.placeholder.signedOut')
-          }
+          placeholder={t('comments.placeholder.authenticated')}
         />
       </View>
       {reportCommentId ? (

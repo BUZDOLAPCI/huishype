@@ -295,11 +295,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
           isSubmitting={submitMutation.isPending}
           isAuthenticated={isAuthenticated}
           currentUsername={user?.username}
-          placeholder={
-            isAuthenticated
-              ? t('comments.placeholder.authenticated')
-              : t('comments.placeholder.signedOut')
-          }
+          placeholder={t('comments.placeholder.authenticated')}
         />
       </View>
     </View>
