@@ -40,6 +40,16 @@ jest.mock('../../Comments', () => ({
     const { Text } = require('react-native');
     return <Text>Comment input</Text>;
   },
+  CommentSortToggle: () => {
+    const React = require('react');
+    const { Text, View } = require('react-native');
+    return (
+      <View>
+        <Text>Popular</Text>
+        <Text>Recent</Text>
+      </View>
+    );
+  },
 }));
 
 jest.mock('../../ReportModal', () => ({

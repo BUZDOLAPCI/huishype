@@ -2,7 +2,6 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
-  Pressable,
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
@@ -30,6 +29,7 @@ import {
 } from '@/src/hooks/useComments';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { AuthModal } from '@/src/components';
+import { CommentSortToggle } from '@/src/components/Comments';
 import { ReportModal } from '@/src/components/ReportModal';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
 import {
@@ -65,39 +65,6 @@ function toCommentCellData(
     replyCount: comment.replies?.length ?? 0,
     replies: comment.replies?.map((reply) => toCommentCellData(reply, hydratedNow)),
   };
-}
-
-function SortToggle({
-  value,
-  onChange,
-}: {
-  value: CommentSortBy;
-  onChange: (sort: CommentSortBy) => void;
-}) {
-  const t = useT();
-
-  return (
-    <View style={styles.sortContainer}>
-      <Pressable
-        onPress={() => onChange('popular')}
-        style={[styles.sortPill, value === 'popular' && styles.sortPillActive]}
-      >
-        <Text
-          style={[styles.sortText, value === 'popular' && styles.sortTextActive]}
-        >
-          {t('comments.sort.popular')}
-        </Text>
-      </Pressable>
-      <Pressable
-        onPress={() => onChange('recent')}
-        style={[styles.sortPill, value === 'recent' && styles.sortPillActive]}
-      >
-        <Text style={[styles.sortText, value === 'recent' && styles.sortTextActive]}>
-          {t('comments.sort.recent')}
-        </Text>
-      </Pressable>
-    </View>
-  );
 }
 
 export interface CommentsRouteScreenProps {
@@ -324,7 +291,9 @@ export function CommentsRouteScreen({
                 count: totalComments,
               })}
             </Text>
-            {commentsDisabled ? null : <SortToggle value={sortBy} onChange={setSortBy} />}
+            {commentsDisabled ? null : (
+              <CommentSortToggle value={sortBy} onChange={setSortBy} />
+            )}
           </View>
 
           {commentsDisabled ? (
@@ -420,16 +389,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   commentCount: { fontSize: 14, fontWeight: '600', color: '#3D3832' },
-  sortContainer: { flexDirection: 'row', gap: 8 },
-  sortPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: '#F5EFE6',
-  },
-  sortPillActive: { backgroundColor: '#F5A623' },
-  sortText: { fontSize: 12, fontWeight: '600', color: '#6E675F' },
-  sortTextActive: { color: '#FFFFFF' },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: 20, gap: 12 },
   disabledState: {

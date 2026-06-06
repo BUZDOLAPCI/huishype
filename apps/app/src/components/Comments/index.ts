@@ -8,3 +8,7 @@ export {
 } from './Comment';
 export { CommentInput, type CommentInputProps } from './CommentInput';
 export { CommentsList, type CommentsListProps } from './CommentsList';
+export {
+  CommentSortToggle,
+  type CommentSortToggleProps,
+} from './CommentSortToggle';

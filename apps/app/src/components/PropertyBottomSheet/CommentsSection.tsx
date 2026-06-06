@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Pressable, Text, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SectionProps } from './types';
-import { Comment, CommentInput } from '../Comments';
+import { Comment, CommentInput, CommentSortToggle } from '../Comments';
 import { useComments, useSubmitComment, useLikeComment, type CommentSortBy } from '../../hooks/useComments';
 import { useAuthContext } from '../../providers/AuthProvider';
 import type { AuthModalCopyInput } from '../../lib/authModalCopy';
@@ -181,23 +181,8 @@ export function CommentsSection({
       ) : null}
     >
       {totalComments > 0 && (
-        <View style={styles.sortWrap}>
-          <Pressable
-            onPress={() => handleSortChange('popular')}
-            style={[styles.sortChip, sortBy === 'popular' && styles.sortChipActive]}
-          >
-            <Text style={[styles.sortText, sortBy === 'popular' && styles.sortTextActive]}>
-              {t('comments.sort.popular')}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => handleSortChange('recent')}
-            style={[styles.sortChip, sortBy === 'recent' && styles.sortChipActive]}
-          >
-            <Text style={[styles.sortText, sortBy === 'recent' && styles.sortTextActive]}>
-              {t('comments.sort.recent')}
-            </Text>
-          </Pressable>
+        <View style={styles.sortToggleSpacing}>
+          <CommentSortToggle value={sortBy} onChange={handleSortChange} />
         </View>
       )}
 
@@ -310,30 +295,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#C18A10',
   },
-  sortWrap: {
-    flexDirection: 'row',
-    alignSelf: 'flex-start',
-    backgroundColor: '#FBF4E7',
-    borderRadius: 999,
-    padding: 3,
+  sortToggleSpacing: {
     marginBottom: 14,
-    gap: 4,
-  },
-  sortChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-  },
-  sortChipActive: {
-    backgroundColor: '#FFFFFF',
-  },
-  sortText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#8C8479',
-  },
-  sortTextActive: {
-    color: '#2D2926',
   },
   commentList: {
     borderRadius: 16,
