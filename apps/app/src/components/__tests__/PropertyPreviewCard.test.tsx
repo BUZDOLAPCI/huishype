@@ -92,21 +92,24 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('For sale')).toBeTruthy();
   });
 
-  it('does not render a listing pill for sold, rented, or unlisted properties', () => {
+  it('renders listing pills for terminal listing states and hides unlisted properties', () => {
     const { rerender } = render(
       <PropertyPreviewCard property={{ ...mockProperty, marketState: 'sold' }} />
     );
 
-    expect(screen.queryByText('For sale')).toBeNull();
-    expect(screen.queryByText('For rent')).toBeNull();
+    expect(screen.getByTestId('property-preview-listing-pill')).toBeTruthy();
+    expect(screen.getByText('Sold')).toBeTruthy();
 
     rerender(<PropertyPreviewCard property={{ ...mockProperty, marketState: 'rented' }} />);
-    expect(screen.queryByText('For sale')).toBeNull();
-    expect(screen.queryByText('For rent')).toBeNull();
+    expect(screen.getByTestId('property-preview-listing-pill')).toBeTruthy();
+    expect(screen.getByText('Rented')).toBeTruthy();
 
     rerender(<PropertyPreviewCard property={{ ...mockProperty, marketState: 'not-listed' }} />);
     expect(screen.queryByText('For sale')).toBeNull();
     expect(screen.queryByText('For rent')).toBeNull();
+    expect(screen.queryByText('Sold')).toBeNull();
+    expect(screen.queryByText('Rented')).toBeNull();
+    expect(screen.queryByTestId('property-preview-listing-pill')).toBeNull();
   });
 
   it('renders quick action buttons', () => {

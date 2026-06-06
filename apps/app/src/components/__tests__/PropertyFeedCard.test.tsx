@@ -71,18 +71,23 @@ describe('PropertyFeedCard', () => {
     expect(getByText('For rent')).toBeTruthy();
   });
 
-  it('does not show a listing pill for inactive listing states', () => {
-    const { queryByText, rerender } = render(
+  it('shows listing pills for terminal listing states and hides unlisted properties', () => {
+    const { getByText, queryByText, rerender } = render(
       <PropertyFeedCard {...defaultProps} marketState="sold" />
     );
 
-    expect(queryByText('For sale')).toBeNull();
-    expect(queryByText('For rent')).toBeNull();
+    expect(getByText('Sold')).toBeTruthy();
 
     rerender(<PropertyFeedCard {...defaultProps} marketState="rented" />);
 
+    expect(getByText('Rented')).toBeTruthy();
+
+    rerender(<PropertyFeedCard {...defaultProps} marketState="not-listed" />);
+
     expect(queryByText('For sale')).toBeNull();
     expect(queryByText('For rent')).toBeNull();
+    expect(queryByText('Sold')).toBeNull();
+    expect(queryByText('Rented')).toBeNull();
   });
 
   it('renders placeholder when no image URL provided', () => {

@@ -59,6 +59,18 @@ const LISTING_CONFIG = {
     dot: '#2D7DD2',
     text: '#1F5F9F',
   },
+  sold: {
+    label: 'Sold',
+    bg: '#F6F8F6',
+    dot: '#9AA89E',
+    text: '#6B776F',
+  },
+  rented: {
+    label: 'Rented',
+    bg: '#F6F7F9',
+    dot: '#98A3B0',
+    text: '#697280',
+  },
 } as const;
 
 function getSizeStyle(size: PillSize) {
@@ -112,8 +124,7 @@ export function ListingPill({
   size = 'sm',
   testID = 'listing-pill',
 }: ListingPillProps) {
-  const config =
-    marketState === 'for-sale' || marketState === 'for-rent' ? LISTING_CONFIG[marketState] : null;
+  const config = marketState && marketState !== 'not-listed' ? LISTING_CONFIG[marketState] : null;
 
   if (!config) {
     return null;

@@ -128,18 +128,26 @@ describe('PropertyHeader', () => {
     expect(screen.getByText('For rent')).toBeTruthy();
   });
 
-  it('does not render listing pills for inactive listing states', () => {
+  it('renders listing pills for terminal listing states and hides unlisted properties', () => {
     const { rerender } = render(
       <PropertyHeader property={{ ...baseProperty, marketState: 'sold' }} />
     );
 
-    expect(screen.queryByText('For sale')).toBeNull();
-    expect(screen.queryByText('For rent')).toBeNull();
+    expect(screen.getByTestId('property-header-listing-pill')).toBeTruthy();
+    expect(screen.getByText('Sold')).toBeTruthy();
+
+    rerender(<PropertyHeader property={{ ...baseProperty, marketState: 'rented' }} />);
+
+    expect(screen.getByTestId('property-header-listing-pill')).toBeTruthy();
+    expect(screen.getByText('Rented')).toBeTruthy();
 
     rerender(<PropertyHeader property={{ ...baseProperty, marketState: 'not-listed' }} />);
 
     expect(screen.queryByText('For sale')).toBeNull();
     expect(screen.queryByText('For rent')).toBeNull();
+    expect(screen.queryByText('Sold')).toBeNull();
+    expect(screen.queryByText('Rented')).toBeNull();
+    expect(screen.queryByTestId('property-header-listing-pill')).toBeNull();
   });
 
   it('opens the property address in Google Maps from the main property card', () => {
