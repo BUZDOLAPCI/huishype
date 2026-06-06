@@ -1,8 +1,17 @@
 import React from 'react';
-import { render as rtlRender } from '@testing-library/react-native';
+import { fireEvent, render as rtlRender } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 
 import { LanguageProvider } from '@/src/i18n';
 import { CustomTabBar } from '../CustomTabBar';
+
+const mockRouterPush = jest.fn();
+
+jest.mock('expo-router', () => ({
+  useRouter: () => ({
+    push: mockRouterPush,
+  }),
+}));
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
@@ -22,6 +31,15 @@ jest.mock('@/src/components/ui/BlurContainer', () => ({
 
 function render(ui: React.ReactElement) {
   return rtlRender(ui, { wrapper: LanguageProvider });
+}
+
+const originalPlatform = Platform.OS;
+
+function setPlatform(os: typeof Platform.OS) {
+  Object.defineProperty(Platform, 'OS', {
+    configurable: true,
+    value: os,
+  });
 }
 
 describe('CustomTabBar', () => {
@@ -50,7 +68,14 @@ describe('CustomTabBar', () => {
   };
 
   beforeEach(() => {
+    setPlatform('web');
     jest.clearAllMocks();
+    window.history.replaceState({ id: 'tab-state' }, '', '/');
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    setPlatform(originalPlatform);
   });
 
   it('renders only the user-facing tabs when deep-link routes are present', () => {
@@ -139,5 +164,57 @@ describe('CustomTabBar', () => {
     );
 
     expect(getByTestId('tab-profile').props.accessibilityState).toEqual({ selected: true });
+  });
+
+  it('pushes a stable map root entry before leaving a camera URL on web', () => {
+    window.history.replaceState(
+      { id: 'camera-state' },
+      '',
+      '/@52.3626765,5.3574841,6.29z?marketState=for-sale#map',
+    );
+    const pushStateSpy = jest.spyOn(window.history, 'pushState');
+    const { getByTestId } = render(
+      <CustomTabBar
+        state={{
+          index: 4,
+          routes: [
+            ...baseRoutes,
+            { key: 'camera-key', name: '@[camera]' },
+          ],
+        }}
+        descriptors={descriptors}
+        navigation={navigation}
+      />
+    );
+
+    fireEvent.press(getByTestId('tab-profile'));
+
+    expect(pushStateSpy).toHaveBeenCalledWith(
+      { id: 'camera-state' },
+      '',
+      '/?marketState=for-sale#map',
+    );
+    expect(mockRouterPush).toHaveBeenCalledWith('/profile');
+    expect(navigation.navigate).not.toHaveBeenCalled();
+  });
+
+  it('does not push a stable map root entry when already on the map root', () => {
+    const pushStateSpy = jest.spyOn(window.history, 'pushState');
+    const { getByTestId } = render(
+      <CustomTabBar
+        state={{
+          index: 0,
+          routes: baseRoutes,
+        }}
+        descriptors={descriptors}
+        navigation={navigation}
+      />
+    );
+
+    fireEvent.press(getByTestId('tab-feed'));
+
+    expect(pushStateSpy).not.toHaveBeenCalled();
+    expect(mockRouterPush).toHaveBeenCalledWith('/feed');
+    expect(navigation.navigate).not.toHaveBeenCalled();
   });
 });

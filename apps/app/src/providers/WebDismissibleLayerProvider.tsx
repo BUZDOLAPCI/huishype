@@ -84,10 +84,6 @@ function getCurrentSamePathUrl() {
 }
 
 function isCurrentLayerHistoryEntry(layer: LayerRecord) {
-  if (getCurrentSamePathUrl() !== layer.url) {
-    return false;
-  }
-
   const state = window.history.state;
   if (!state || typeof state !== 'object' || Array.isArray(state)) {
     return false;
@@ -100,6 +96,22 @@ function isCurrentLayerHistoryEntry(layer: LayerRecord) {
     !Array.isArray(marker) &&
     (marker as { key?: unknown }).key === layer.key
   );
+}
+
+function stripLayerHistoryState(currentState: unknown): unknown {
+  if (!currentState || typeof currentState !== 'object' || Array.isArray(currentState)) {
+    return currentState;
+  }
+
+  const nextState = { ...(currentState as Record<string, unknown>) };
+  delete nextState[HUIS_HYPE_LAYER_STATE_KEY];
+
+  const keys = Object.keys(nextState);
+  if (keys.length === 1 && HUIS_HYPE_ORIGINAL_STATE_KEY in nextState) {
+    return nextState[HUIS_HYPE_ORIGINAL_STATE_KEY];
+  }
+
+  return nextState;
 }
 
 export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
@@ -156,10 +168,17 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
       }
 
       const topLayer = getTopLayer();
+      const isCurrentLayerEntry = isCurrentLayerHistoryEntry(existingLayer);
       const shouldConsumeHistory =
         topLayer?.key === key &&
         !popDismissedKeysRef.current.has(key) &&
-        isCurrentLayerHistoryEntry(existingLayer);
+        isCurrentLayerEntry &&
+        getCurrentSamePathUrl() === existingLayer.url;
+      const shouldClearStaleLayerState =
+        topLayer?.key === key &&
+        !popDismissedKeysRef.current.has(key) &&
+        isCurrentLayerEntry &&
+        getCurrentSamePathUrl() !== existingLayer.url;
 
       layersRef.current.delete(key);
 
@@ -170,6 +189,15 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
       if (shouldConsumeHistory) {
         ignorePopCountRef.current += 1;
         window.history.back();
+        return;
+      }
+
+      if (shouldClearStaleLayerState) {
+        window.history.replaceState(
+          stripLayerHistoryState(window.history.state),
+          '',
+          getCurrentSamePathUrl(),
+        );
       }
     },
     [getTopLayer],

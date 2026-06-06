@@ -71,6 +71,23 @@ const TAB_HREFS: Record<string, Href> = {
 
 const VISIBLE_TAB_NAMES = new Set(Object.keys(TAB_LABEL_KEYS));
 
+function pushStableMapEntryBeforeLeavingMap() {
+  if (
+    Platform.OS !== 'web' ||
+    typeof window === 'undefined' ||
+    typeof window.history?.pushState !== 'function'
+  ) {
+    return;
+  }
+
+  if ((window.location.pathname || '/') === '/') {
+    return;
+  }
+
+  const stableMapHref = `/${window.location.search || ''}${window.location.hash || ''}`;
+  window.history.pushState(window.history.state, '', stableMapHref);
+}
+
 const MAP_ROUTE_NAMES = new Set([
   'index',
   '@[camera]',
@@ -149,6 +166,9 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
         if (Platform.OS === 'web') {
           const href = TAB_HREFS[route.name];
           if (href) {
+            if (isMapRouteActive && route.name !== 'index') {
+              pushStableMapEntryBeforeLeavingMap();
+            }
             router.push(href);
             return;
           }

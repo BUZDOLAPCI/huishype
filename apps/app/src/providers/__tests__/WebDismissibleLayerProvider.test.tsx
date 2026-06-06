@@ -162,6 +162,44 @@ describe('WebDismissibleLayerProvider', () => {
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
+  it('clears a stale layer marker when the current entry URL was passively rewritten', () => {
+    resetHistory('/');
+    const onDismiss = jest.fn();
+    const backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {});
+
+    const { rerender } = renderHook(
+      ({ active }: { active: boolean }) =>
+        useWebDismissibleLayer({
+          id: 'welcome-modal',
+          active,
+          onDismiss,
+        }),
+      {
+        wrapper,
+        initialProps: { active: true },
+      },
+    );
+
+    act(() => {
+      window.history.replaceState(
+        window.history.state,
+        '',
+        '/@52.3626765,5.3574841,6.29z',
+      );
+    });
+
+    rerender({ active: false });
+
+    expect(backSpy).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/@52.3626765,5.3574841,6.29z');
+    expect(window.history.state).toMatchObject({
+      expo: 'router-state',
+      keep: true,
+    });
+    expect(window.history.state).not.toHaveProperty('__huishypeDismissibleLayer');
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
   it('does not call history.back again when a popstate dismissal deactivates the layer', () => {
     const onDismiss = jest.fn();
     const backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {});
