@@ -149,7 +149,7 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
         if (Platform.OS === 'web') {
           const href = TAB_HREFS[route.name];
           if (href) {
-            router.replace(href);
+            router.push(href);
             return;
           }
         }

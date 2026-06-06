@@ -955,11 +955,13 @@ describe('FeedScreen following surface', () => {
     );
 
     const { getByTestId } = render(<FeedScreen />);
+    const pushStateSpy = jest.spyOn(window.history, 'pushState');
 
     fireEvent.press(getByTestId('chip-latest'));
     await waitFor(() => {
       expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=latest');
     });
+    expect(pushStateSpy).toHaveBeenLastCalledWith({}, '', '/feed?feedTab=latest');
 
     fireEvent.press(getByTestId('feed-toggle-for-sale'));
     await waitFor(() => {
@@ -967,11 +969,19 @@ describe('FeedScreen following surface', () => {
         '/feed?feedTab=latest&marketState=for-sale'
       );
     });
+    expect(pushStateSpy).toHaveBeenLastCalledWith(
+      {},
+      '',
+      '/feed?feedTab=latest&marketState=for-sale'
+    );
 
     fireEvent.press(getByTestId('chip-trending'));
     await waitFor(() => {
       expect(window.location.pathname + window.location.search).toBe('/feed?marketState=for-sale');
     });
+    expect(pushStateSpy).toHaveBeenLastCalledWith({}, '', '/feed?marketState=for-sale');
+
+    pushStateSpy.mockRestore();
   });
 
   it('does not update the feed URL for price drafts until shared filters commit', async () => {

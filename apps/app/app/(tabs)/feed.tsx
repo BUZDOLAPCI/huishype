@@ -60,7 +60,7 @@ import {
   isFeedBrowserPathname,
   parseFeedTabFromSearchParams,
 } from '@/src/lib/feedUrlSync';
-import { replacePassiveBrowserPath } from '@/src/lib/webMapUrlSync';
+import { pushBrowserPath, replacePassiveBrowserPath } from '@/src/lib/webMapUrlSync';
 import type { AddressSearchBias } from '@/src/services/address-resolver';
 import {
   buildPropertyRoute,
@@ -160,11 +160,23 @@ export default function FeedScreen() {
     feedBrowserSearchRef.current = nextSearch;
     return replacePassiveBrowserPath(nextPath);
   }, [canSyncFeedBrowserPath]);
+  const pushFeedBrowserPath = useCallback((nextFilters: MapFilters, feedTab: FeedTab) => {
+    if (!canSyncFeedBrowserPath()) {
+      return false;
+    }
+
+    const currentSearch =
+      typeof window === 'undefined' ? feedBrowserSearchRef.current : window.location.search || '';
+    const nextPath = buildFeedPath(nextFilters, feedTab, currentSearch);
+    const nextSearch = nextPath.includes('?') ? nextPath.slice(nextPath.indexOf('?')) : '';
+    feedBrowserSearchRef.current = nextSearch;
+    return pushBrowserPath(nextPath);
+  }, [canSyncFeedBrowserPath]);
   const handleAppliedFiltersChange = useCallback(
     (nextFilters: MapFilters) => {
-      replaceFeedBrowserPath(nextFilters, activeFilterRef.current);
+      pushFeedBrowserPath(nextFilters, activeFilterRef.current);
     },
-    [replaceFeedBrowserPath]
+    [pushFeedBrowserPath]
   );
   const filterController = useMapFilterController({
     onAppliedFiltersChange: handleAppliedFiltersChange,
@@ -352,9 +364,9 @@ export default function FeedScreen() {
       }
 
       setActiveFilter(filter);
-      replaceFeedBrowserPath(filterController.appliedFilters, filter);
+      pushFeedBrowserPath(filterController.appliedFilters, filter);
     },
-    [filterController.appliedFilters, isAuthenticated, replaceFeedBrowserPath]
+    [filterController.appliedFilters, isAuthenticated, pushFeedBrowserPath]
   );
 
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
@@ -537,7 +549,7 @@ export default function FeedScreen() {
       onSuccess={() => {
         setShowAuth(false);
         setActiveFilter('following');
-        replaceFeedBrowserPath(filterController.appliedFilters, 'following');
+        pushFeedBrowserPath(filterController.appliedFilters, 'following');
       }}
     />
   );
@@ -616,7 +628,7 @@ export default function FeedScreen() {
                 ? () => {
                     if (signedInFollowing) {
                       setActiveFilter('recent-activity');
-                      replaceFeedBrowserPath(filterController.appliedFilters, 'recent-activity');
+                      pushFeedBrowserPath(filterController.appliedFilters, 'recent-activity');
                       return;
                     }
 

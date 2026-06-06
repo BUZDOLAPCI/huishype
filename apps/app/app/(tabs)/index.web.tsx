@@ -1003,13 +1003,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const isMapTabActiveRef = useRef(isMapTabActive);
   isMapTabActiveRef.current = isMapTabActive;
   const replaceMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
+  const pushMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
   const handleAppliedFiltersChange = useCallback((nextFilters: MapFilters) => {
     if (!isMapTabActiveRef.current) {
       return;
     }
 
     browserSearchRef.current = getMapFilterSearchString(nextFilters, browserSearchRef.current);
-    replaceMapBrowserPathRef.current(browserPathRef.current);
+    pushMapBrowserPathRef.current(browserPathRef.current);
   }, []);
   const filterController = useMapFilterController({
     initialAppliedFilters: hasInitialFilterSearchParams ? initialAppliedFilters : undefined,
@@ -1320,7 +1321,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   readTileSourceRef.current = readTileSource.data;
   const readTileRequestPatternRef = useRef<RegExp | null>(readTileRequestPattern);
   readTileRequestPatternRef.current = readTileRequestPattern;
-  const pushMapBrowserPathRef = useRef<(pathname: string) => boolean>(() => false);
   const bottomSheetRefBridge = useRef(bottomSheetRef);
   bottomSheetRefBridge.current = bottomSheetRef;
   const handleFeaturePressRef = useRef(handleFeaturePress);
@@ -2903,7 +2903,9 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         replaceAppliedFilters(nextFilters);
       };
 
-      commit();
+      browserSearchRef.current = getMapFilterSearchString(nextFilters, browserSearchRef.current);
+      pushMapBrowserPath(browserPathRef.current);
+      replaceAppliedFilters(nextFilters);
 
       // Camera fly/fit handlers also sync the browser path. Re-commit once on
       // the next tick so the filter query wins if both updates land together.
@@ -2911,7 +2913,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         window.setTimeout(commit, 0);
       }
     },
-    [replaceAppliedFilters, replaceMapBrowserPath],
+    [pushMapBrowserPath, replaceAppliedFilters, replaceMapBrowserPath],
   );
 
   const handleAreaSelected = useCallback(

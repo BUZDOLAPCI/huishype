@@ -448,14 +448,7 @@ export default function ProfileScreen() {
   }, []);
 
   const handleOpenSettings = useCallback(() => {
-    if (
-      Platform.OS === 'web' &&
-      typeof window !== 'undefined' &&
-      typeof window.history?.replaceState === 'function'
-    ) {
-      window.history.replaceState(window.history.state, '', '/settings');
-    }
-    router.replace('/settings');
+    router.push('/settings');
     setShowSettings(false);
   }, []);
 
