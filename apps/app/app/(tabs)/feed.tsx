@@ -6,7 +6,15 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import {
+  Alert,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  View,
+  type ViewToken,
+} from 'react-native';
 import { router } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { serializeCanonicalCameraPath } from '@huishype/shared';
@@ -185,6 +193,9 @@ export default function FeedScreen() {
   const trackedFollowingEmptyViewRef = useRef(false);
   const hasInteractedWithListRef = useRef(false);
   const appliedInitialFeedUrlRef = useRef(false);
+  const [hydrationPropertyIds, setHydrationPropertyIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
 
   useEffect(() => {
     if (!canSyncFeedBrowserPath()) {
@@ -286,11 +297,19 @@ export default function FeedScreen() {
     return feedScope;
   }, [feedScope, hasAppliedAreaFilters]);
   const isBootstrappingPropertyFeed = isPropertyFeed && !hasAppliedAreaFilters && !feedScope;
+  const hydrationPropertyIdList = useMemo(
+    () => [...hydrationPropertyIds],
+    [hydrationPropertyIds]
+  );
   const feedQuery = useInfiniteFeed(
     isPropertyFeed ? propertyFeedFilter : 'trending',
     propertyFeedScope,
     isPropertyFeed && (hasAppliedAreaFilters || !!feedScope),
-    filterController.appliedFilters
+    filterController.appliedFilters,
+    {
+      hydrationPropertyIds: hydrationPropertyIdList,
+      initialHydrationItemCount: FEED_LIST_INITIAL_NUM_TO_RENDER,
+    }
   );
 
   // Activity feed
@@ -455,6 +474,32 @@ export default function FeedScreen() {
   const handleListInteraction = useCallback(() => {
     hasInteractedWithListRef.current = true;
   }, []);
+  const handleViewablePropertyItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken<FeedProperty>[] }) => {
+      if (viewableItems.length === 0) {
+        return;
+      }
+
+      setHydrationPropertyIds((current) => {
+        let next: Set<string> | null = null;
+        for (const viewableItem of viewableItems) {
+          const propertyId = viewableItem.isViewable ? viewableItem.item?.id : null;
+          if (propertyId && !current.has(propertyId)) {
+            next ??= new Set(current);
+            next.add(propertyId);
+          }
+        }
+        return next ?? current;
+      });
+    },
+    []
+  );
+  const propertyViewabilityConfig = useMemo(
+    () => ({
+      itemVisiblePercentThreshold: 20,
+    }),
+    []
+  );
 
   // --- Property feed render ---
 
@@ -661,6 +706,8 @@ export default function FeedScreen() {
             onEndReachedThreshold={0.5}
             onScrollBeginDrag={handleListInteraction}
             onMomentumScrollBegin={handleListInteraction}
+            onViewableItemsChanged={handleViewablePropertyItemsChanged}
+            viewabilityConfig={propertyViewabilityConfig}
             ListFooterComponent={ListFooterComponent}
             showsVerticalScrollIndicator={false}
             initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}

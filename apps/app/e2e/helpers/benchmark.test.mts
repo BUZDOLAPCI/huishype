@@ -11,6 +11,7 @@ const {
   aggregateRouteBenchmark,
   getBenchmarkCacheModes,
   getBenchmarkResultDir,
+  getBenchmarkRoutes,
   summarizeCriticalRequests,
   summarizeRequests,
   summarizeTileRequests,
@@ -91,17 +92,63 @@ test('BENCHMARK_ROUTES covers low, transition, high zoom, and feed benchmark sur
     'highZoom16',
     'highZoom17',
     'feedTrending',
+    'feedLatest',
+    'feedRecentActivity',
+    'feedFilteredEindhovenSale',
   ]);
 
   for (const [routeKey, routeConfig] of Object.entries(BENCHMARK_ROUTES)) {
-    if (routeKey === 'feedTrending') {
+    if (routeKey.startsWith('feed')) {
       assert.equal(routeConfig.surface, 'feed');
-      assert.equal(routeConfig.route, '/feed?hhBenchmark=1');
+      assert.match(routeConfig.route, /^\/feed\?/);
+      assert.match(routeConfig.route, /hhBenchmark=1/);
       continue;
     }
 
     assert.equal(routeConfig.surface, 'map');
     assert.match(routeConfig.route, /^\/@[-0-9.]+,[-0-9.]+,[0-9.]+z\?hhBenchmark=1$/);
+  }
+});
+
+test('getBenchmarkRoutes filters benchmark route keys from BENCHMARK_ROUTE_KEYS', () => {
+  const previousRouteKeys = process.env.BENCHMARK_ROUTE_KEYS;
+
+  try {
+    delete process.env.BENCHMARK_ROUTE_KEYS;
+    assert.deepEqual(
+      getBenchmarkRoutes().map(([routeKey]) => routeKey),
+      Object.keys(BENCHMARK_ROUTES),
+    );
+
+    process.env.BENCHMARK_ROUTE_KEYS = 'feedTrending, feedRecentActivity';
+    assert.deepEqual(
+      getBenchmarkRoutes().map(([routeKey]) => routeKey),
+      ['feedTrending', 'feedRecentActivity'],
+    );
+  } finally {
+    if (previousRouteKeys === undefined) {
+      delete process.env.BENCHMARK_ROUTE_KEYS;
+    } else {
+      process.env.BENCHMARK_ROUTE_KEYS = previousRouteKeys;
+    }
+  }
+});
+
+test('getBenchmarkRoutes rejects unknown BENCHMARK_ROUTE_KEYS values', () => {
+  const previousRouteKeys = process.env.BENCHMARK_ROUTE_KEYS;
+
+  try {
+    process.env.BENCHMARK_ROUTE_KEYS = 'feedTrending,missingRoute';
+    assert.throws(
+      () => getBenchmarkRoutes(),
+      /Unknown BENCHMARK_ROUTE_KEYS value\(s\): missingRoute/,
+    );
+  } finally {
+    if (previousRouteKeys === undefined) {
+      delete process.env.BENCHMARK_ROUTE_KEYS;
+    } else {
+      process.env.BENCHMARK_ROUTE_KEYS = previousRouteKeys;
+    }
   }
 });
 
@@ -512,6 +559,14 @@ test('aggregateRouteBenchmark summarizes feed scroll settle before scripted scro
         worstFrameMs: 17,
         averageFrameMs: 16.7,
       },
+      paginationScroll: {
+        elapsedMs: 900,
+        beforeItemCount: 12,
+        afterItemCount: 20,
+        paginationRequestMs: 180,
+        paginationRequestObserved: true,
+        itemCountIncreased: true,
+      },
     },
   };
 
@@ -528,5 +583,8 @@ test('aggregateRouteBenchmark summarizes feed scroll settle before scripted scro
   assert.equal(result.summary.feed?.scrollSettle?.timeouts, 0);
   assert.equal(result.summary.feed?.scrollSettle?.networkIdleTimeouts, 0);
   assert.equal(result.summary.feed?.scroll?.longFrameCount.median, 0);
+  assert.equal(result.summary.feed?.paginationScroll?.paginationRequestMs.median, 180);
+  assert.equal(result.summary.feed?.paginationScroll?.requestObserved, 1);
+  assert.equal(result.summary.feed?.paginationScroll?.itemCountIncreased, 1);
   assert.equal(result.summary.renderProbes['feed-screen']?.commitCount.median, 2);
 });

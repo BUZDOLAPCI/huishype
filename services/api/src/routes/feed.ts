@@ -6,7 +6,6 @@ import { sql } from 'drizzle-orm';
 import { computeActivityLevel } from './views.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { feedQuerySchema, isValidCountryCode } from '@huishype/shared';
-import { buildPropertyListingFactsJoin } from '../services/property-queries.js';
 import { getOfficialValuationSourceFetchHint } from '../services/official-valuations/index.js';
 import {
   buildLocationAreaFilterPredicate,
@@ -107,6 +106,8 @@ const FEED_CACHE_TTL_SECONDS = 30;
 const FEED_CACHE_TTL_MS = FEED_CACHE_TTL_SECONDS * 1_000;
 const FEED_CACHE_MAX_ENTRIES = 512;
 const FEED_CACHE_CONTROL = `public, max-age=${FEED_CACHE_TTL_SECONDS}, stale-while-revalidate=120`;
+const FEED_SPATIAL_RADIUS_METERS = 25_000;
+const APPROX_METERS_PER_DEGREE = 111_320;
 
 type FeedCacheEntry = {
   expiresAt: number;
@@ -186,6 +187,114 @@ function buildFeedOrderExpression(scoreAlias: string, filter: FeedRouteQuery['fi
   }
 }
 
+function buildFeedListingSortExpression(alias: string) {
+  return sql`
+    COALESCE(
+      ${sql.raw(`${alias}.last_reconciled_at`)},
+      ${sql.raw(`${alias}.last_mirror_seen_at`)},
+      ${sql.raw(`${alias}.last_user_seen_at`)},
+      ${sql.raw(`${alias}.last_seen_at`)},
+      ${sql.raw(`${alias}.updated_at`)},
+      ${sql.raw(`${alias}.created_at`)}
+    ) DESC,
+    ${sql.raw(`${alias}.created_at`)} DESC,
+    ${sql.raw(`${alias}.id`)} DESC
+  `;
+}
+
+function buildFeedListingSortValue(alias: string) {
+  return sql`
+    COALESCE(
+      ${sql.raw(`${alias}.last_reconciled_at`)},
+      ${sql.raw(`${alias}.last_mirror_seen_at`)},
+      ${sql.raw(`${alias}.last_user_seen_at`)},
+      ${sql.raw(`${alias}.last_seen_at`)},
+      ${sql.raw(`${alias}.updated_at`)},
+      ${sql.raw(`${alias}.created_at`)}
+    )
+  `;
+}
+
+function buildFeedListingPriceTypeExpression(alias: string) {
+  return sql`
+    CASE
+      WHEN lower(${sql.raw(`${alias}.source_name`)}) = 'funda'
+        AND lower(btrim(${sql.raw(`${alias}.price_type`)})) = 'buy'
+        THEN 'sale'
+      WHEN lower(btrim(${sql.raw(`${alias}.price_type`)})) IN ('sale', 'rent')
+        THEN lower(btrim(${sql.raw(`${alias}.price_type`)}))
+      WHEN lower(${sql.raw(`${alias}.source_name`)}) = 'pararius'
+        THEN 'rent'
+      ELSE 'sale'
+    END
+  `;
+}
+
+function buildFeedListingFactsJoin(propertyAlias = 'p', alias = 'lf') {
+  const idColumn = sql.raw(`${propertyAlias}.id`);
+
+  return sql`
+    LEFT JOIN LATERAL (
+      SELECT
+        latest_listing.status IS NOT NULL AS has_listing,
+        active_listing.id IS NOT NULL AS has_active_listing,
+        latest_listing.status AS latest_listing_status,
+        active_listing.asking_price AS asking_price,
+        active_listing.sort_at AS active_listing_sort_at,
+        latest_listing.sort_at AS latest_listing_sort_at,
+        listing_thumbnail.thumbnail_url AS thumbnail_url,
+        CASE
+          WHEN active_listing.id IS NOT NULL AND active_listing.normalized_price_type = 'rent'
+            THEN 'for-rent'
+          WHEN active_listing.id IS NOT NULL
+            THEN 'for-sale'
+          WHEN latest_listing.status = 'sold'
+            THEN 'sold'
+          WHEN latest_listing.status = 'rented'
+            THEN 'rented'
+          ELSE 'not-listed'
+        END AS market_state
+      FROM (SELECT 1) AS _seed
+      LEFT JOIN LATERAL (
+        SELECT
+          cl.id,
+          cl.asking_price,
+          ${buildFeedListingPriceTypeExpression('cl')} AS normalized_price_type,
+          ${buildFeedListingSortValue('cl')} AS sort_at
+        FROM canonical_listings cl
+        WHERE cl.property_id = ${idColumn}
+          AND cl.verification_state <> 'invalid'
+          AND cl.status = 'active'
+        ORDER BY ${buildFeedListingSortExpression('cl')}
+        LIMIT 1
+      ) active_listing ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          cl.status::text AS status,
+          ${buildFeedListingSortValue('cl')} AS sort_at
+        FROM canonical_listings cl
+        WHERE cl.property_id = ${idColumn}
+          AND cl.verification_state <> 'invalid'
+        ORDER BY ${buildFeedListingSortExpression('cl')}
+        LIMIT 1
+      ) latest_listing ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          cl.thumbnail_url,
+          cl.status
+        FROM canonical_listings cl
+        WHERE cl.property_id = ${idColumn}
+          AND cl.verification_state <> 'invalid'
+          AND cl.thumbnail_url IS NOT NULL
+        ORDER BY
+          (cl.status = 'active') DESC,
+          ${buildFeedListingSortExpression('cl')}
+        LIMIT 1
+      ) listing_thumbnail ON TRUE
+    ) ${sql.raw(alias)} ON TRUE
+  `;
+}
+
 // --- Route ---
 
 export async function feedRoutes(app: FastifyInstance) {
@@ -228,7 +337,18 @@ export async function feedRoutes(app: FastifyInstance) {
       // Spatial condition (near-me filtering, 25 km radius)
       const spatialCondition =
         lat !== undefined && lon !== undefined
-          ? sql`AND ST_DWithin(p.geometry::geography, ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, 25000)`
+          ? sql`
+              AND p.geometry && ST_Expand(
+                ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
+                ${FEED_SPATIAL_RADIUS_METERS / APPROX_METERS_PER_DEGREE}
+                  / GREATEST(COS(RADIANS(${lat})), 0.01)
+              )
+              AND ST_DWithin(
+                p.geometry::geography,
+                ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography,
+                ${FEED_SPATIAL_RADIUS_METERS}
+              )
+            `
           : sql``;
 
       // Country filter condition
@@ -236,11 +356,15 @@ export async function feedRoutes(app: FastifyInstance) {
 
       const feedOrderExpression = buildFeedOrderExpression('cfr', filter);
 
-      const rows = await db.execute<FeedRow>(sql`
+      const rows = await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL jit = off`);
+
+        return tx.execute<FeedRow>(sql`
         WITH candidate_seed_ids AS MATERIALIZED (
-          SELECT l.property_id
-          FROM v_canonical_listing_facts l
-          WHERE l.status IN ('active', 'sold', 'rented')
+          SELECT cl.property_id
+          FROM canonical_listings cl
+          WHERE cl.verification_state <> 'invalid'
+            AND cl.status IN ('active', 'sold', 'rented')
           UNION
           SELECT c.property_id
           FROM comments c
@@ -423,7 +547,7 @@ export async function feedRoutes(app: FastifyInstance) {
               cp.updated_at
             ) AS last_activity_at
           FROM candidate_properties cp
-          ${buildPropertyListingFactsJoin('cp', 'lf')}
+          ${buildFeedListingFactsJoin('cp', 'lf')}
           LEFT JOIN ordering_comment_facts ocf ON ocf.property_id = cp.property_id
           LEFT JOIN ordering_property_like_facts oplf ON oplf.property_id = cp.property_id
           LEFT JOIN ordering_comment_like_facts oclf ON oclf.property_id = cp.property_id
@@ -459,6 +583,7 @@ export async function feedRoutes(app: FastifyInstance) {
         LIMIT ${limit + 1}
         OFFSET ${offset}
       `);
+      });
 
       const allRows = Array.from(rows);
       const hasMore = allRows.length > limit;
