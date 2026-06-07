@@ -124,6 +124,132 @@ function expectCompletedActiveSingleGroup(
   expect(group.marketState).toBe(marketState);
 }
 
+async function clearPropertyTileCandidateSnapshotFixtures(): Promise<void> {
+  await db.execute(sql`
+    DELETE FROM property_tile_candidate_source_current
+    WHERE coverage_id = 'public_default_low_zoom'
+      AND filter_signature = 'default'
+      AND pyramid_kind = 'public_default_low_zoom'
+      AND snapshot_id IN (
+        SELECT id
+        FROM property_tile_candidate_source_snapshots
+        WHERE source_watermark_hash LIKE 'integration-tile-%'
+      )
+  `);
+  await db.execute(sql`
+    DELETE FROM property_tile_candidate_source_snapshots
+    WHERE coverage_id = 'public_default_low_zoom'
+      AND filter_signature = 'default'
+      AND pyramid_kind = 'public_default_low_zoom'
+      AND source_watermark_hash LIKE 'integration-tile-%'
+  `);
+}
+
+async function removeDefaultCandidateSnapshotCurrentForTest(): Promise<string | null> {
+  const currentRows = await db.execute<{ snapshot_id: string }>(sql`
+    DELETE FROM property_tile_candidate_source_current
+    WHERE coverage_id = 'public_default_low_zoom'
+      AND filter_signature = 'default'
+      AND pyramid_kind = 'public_default_low_zoom'
+    RETURNING snapshot_id::text
+  `);
+  return Array.from(currentRows)[0]?.snapshot_id ?? null;
+}
+
+async function restoreDefaultCandidateSnapshotCurrentForTest(snapshotId: string | null): Promise<void> {
+  if (!snapshotId) {
+    return;
+  }
+
+  await db.execute(sql`
+    INSERT INTO property_tile_candidate_source_current (
+      coverage_id,
+      filter_signature,
+      pyramid_kind,
+      snapshot_id
+    )
+    VALUES (
+      'public_default_low_zoom',
+      'default',
+      'public_default_low_zoom',
+      ${snapshotId}::uuid
+    )
+    ON CONFLICT (coverage_id, filter_signature, pyramid_kind)
+    DO UPDATE SET
+      snapshot_id = EXCLUDED.snapshot_id,
+      updated_at = now()
+  `);
+}
+
+async function readDefaultCandidateSnapshotCurrentForTest(): Promise<string | null> {
+  const currentRows = await db.execute<{ snapshot_id: string }>(sql`
+    SELECT snapshot_id::text
+    FROM property_tile_candidate_source_current
+    WHERE coverage_id = 'public_default_low_zoom'
+      AND filter_signature = 'default'
+      AND pyramid_kind = 'public_default_low_zoom'
+    LIMIT 1
+  `);
+  return Array.from(currentRows)[0]?.snapshot_id ?? null;
+}
+
+async function createReadyPropertyTileCandidateSnapshotFixture(): Promise<string> {
+  const snapshotId = crypto.randomUUID();
+  await db.execute(sql`
+    INSERT INTO property_tile_candidate_source_snapshots (
+      id,
+      coverage_id,
+      filter_signature,
+      pyramid_kind,
+      source_watermark_hash,
+      comparable_source_watermark_hash,
+      source_watermarks_json,
+      status,
+      candidate_row_count,
+      fact_row_count,
+      social_fact_row_count,
+      grouping_fact_row_count,
+      build_finished_at
+    )
+    VALUES (
+      ${snapshotId}::uuid,
+      'public_default_low_zoom',
+      'default',
+      'public_default_low_zoom',
+      ${`integration-tile-${snapshotId}`},
+      ${`integration-tile-${snapshotId}`},
+      ${JSON.stringify({
+        sources: [{ source: 'rolling_social_window', cutoffAt: '2026-01-01T00:00:00.000Z' }],
+      })}::jsonb,
+      'ready',
+      0,
+      0,
+      0,
+      0,
+      now()
+    )
+  `);
+  await db.execute(sql`
+    INSERT INTO property_tile_candidate_source_current (
+      coverage_id,
+      filter_signature,
+      pyramid_kind,
+      snapshot_id
+    )
+    VALUES (
+      'public_default_low_zoom',
+      'default',
+      'public_default_low_zoom',
+      ${snapshotId}::uuid
+    )
+    ON CONFLICT (coverage_id, filter_signature, pyramid_kind)
+    DO UPDATE SET
+      snapshot_id = EXCLUDED.snapshot_id,
+      updated_at = now()
+  `);
+  return snapshotId;
+}
+
 /**
  * Integration tests for tile routes.
  *
@@ -142,14 +268,16 @@ describe('Tile routes', () => {
     app = await buildApp({ logger: false });
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env = { ...originalEnv };
     resetPropertyTileCacheForTests();
     resetCanonicalGroupCacheForTests();
+    await clearPropertyTileCandidateSnapshotFixtures();
   });
 
   afterEach(async () => {
     await waitForPendingDefaultPropertyTileSnapshotRefreshesForTests();
+    await clearPropertyTileCandidateSnapshotFixtures();
   });
 
   afterAll(async () => {
@@ -1424,8 +1552,39 @@ describe('Tile routes', () => {
       }
     });
 
-    it('keeps dynamic generation for non-default filters and zooms above the precompute max', async () => {
+    it('returns a controlled no-store failure for public dynamic tiles without a ready candidate snapshot', async () => {
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+      const previousSnapshotId = await removeDefaultCandidateSnapshotCurrentForTest();
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/11/0/0.pbf?marketState=for-rent',
+        });
+
+        expect(response.statusCode).toBe(503);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(response.headers['x-huishype-tile-status']).toBe(
+          'candidate-snapshot-unavailable'
+        );
+        expect(response.headers['x-tile-cache']).toBe('candidate-snapshot-unavailable');
+        expect(JSON.parse(response.body)).toEqual(
+          expect.objectContaining({
+            error: 'CANDIDATE_SNAPSHOT_UNAVAILABLE',
+            reason: 'missing-ready-current',
+          })
+        );
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
+      } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
+        runtimeRunSpy.mockRestore();
+      }
+    });
+
+    it('keeps snapshot-backed dynamic generation for non-default filters and zooms above the precompute max', async () => {
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
+      const previousSnapshotId = await readDefaultCandidateSnapshotCurrentForTest();
+      const snapshotId = await createReadyPropertyTileCandidateSnapshotFixture();
 
       try {
         const filteredResponse = await app.inject({
@@ -1439,12 +1598,15 @@ describe('Tile routes', () => {
 
         expect([200, 204]).toContain(filteredResponse.statusCode);
         expect([200, 204]).toContain(abovePrecomputeResponse.statusCode);
+        expect(filteredResponse.headers['x-huishype-candidate-snapshot']).toBe(snapshotId);
+        expect(abovePrecomputeResponse.headers['x-huishype-candidate-snapshot']).toBe(snapshotId);
         expect(runtimeRunSpy).toHaveBeenCalledTimes(2);
         expect(runtimeRunSpy.mock.calls.map(([options]) => options.key)).toEqual([
-          'public:10/0/0:marketState=for-rent',
-          'public:11/0/0:default',
+          `public:10/0/0:marketState=for-rent:candidate:${snapshotId}`,
+          `public:11/0/0:default:candidate:${snapshotId}`,
         ]);
       } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
         runtimeRunSpy.mockRestore();
       }
     });

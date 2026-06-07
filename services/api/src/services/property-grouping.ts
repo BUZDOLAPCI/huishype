@@ -17,6 +17,7 @@ import {
 } from './property-queries.js';
 import {
   areMapFiltersDefault,
+  buildGroupingFactsLocationAreaFilterPredicate,
   buildLocationAreaFilterPredicate,
   buildPropertyMarketFilterQuery,
   createDefaultMapFilters,
@@ -1507,12 +1508,9 @@ function usesSnapshotGroupingFacts(input: {
   zoom: number;
   options?: PropertyTileBuildOptions;
 }): boolean {
-  return (
-    input.options?.candidateSnapshotId != null &&
-    !hasPriceFilters(input.filters) &&
-    !hasLocationAreaFilters(input.filters) &&
-    input.zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM
-  );
+  void input.filters;
+  void input.zoom;
+  return input.options?.candidateSnapshotId != null;
 }
 
 export function buildGroupingCandidateScopeCtes(
@@ -1547,15 +1545,36 @@ export function buildGroupingCandidateScopeCtes(
   });
 
   if (useSnapshotGroupingFacts) {
+    const snapshotAreaFilter = buildGroupingFactsLocationAreaFilterPredicate(filters.areas, 'pgf');
+    const snapshotPriceFilter = buildPriceFilterPredicate(filters, 'pgf');
+    const snapshotMarketStatePredicate = buildBulkMarketStatePredicate(filters, 'pgf');
+    const snapshotActivityFilterPredicate = buildClosedActivityFilterPredicate(
+      filters.activity,
+      'pgf',
+      options
+    );
+
     return sql`
         candidate_properties AS MATERIALIZED (
           SELECT
             pgf.property_id AS id,
             pgf.geometry,
             pgf.official_valuation,
+            pgf.official_valuation_year,
+            pgf.country_code,
+            pgf.street,
+            pgf.house_number,
+            pgf.house_number_addition,
+            pgf.city,
+            pgf.region,
+            pgf.postal_code,
+            pgf.asking_price,
+            pgf.thumbnail_url,
             pgf.has_active_listing,
             pgf.has_completed_listing,
             pgf.market_state,
+            pgf.sale_effective_price,
+            pgf.rent_effective_price,
             pgf.comment_count,
             pgf.social_score,
             pgf.recent_social_score,
@@ -1563,6 +1582,10 @@ export function buildGroupingCandidateScopeCtes(
           FROM property_tile_grouping_facts pgf
           WHERE ${buildBoundsFilter(boundsList, sql.raw('pgf.geometry'))}
             AND ${candidateSnapshotFilter('pgf', options)}
+            AND ${snapshotAreaFilter}
+            AND ${snapshotMarketStatePredicate}
+            AND ${snapshotPriceFilter}
+            AND ${snapshotActivityFilterPredicate}
         )
       `;
   }
@@ -1781,11 +1804,16 @@ async function fetchGroupingCandidatesInBBoxes(
       options
     );
     const snapshotCandidateVisibilityFilter = sql`(
-          COALESCE(pgf.has_active_listing, FALSE)
-          OR COALESCE(pgf.has_completed_listing, FALSE)
-          OR COALESCE(pgf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
+          pgf.has_active_listing
+          OR pgf.has_completed_listing
+          OR pgf.social_score >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
         )`;
     const snapshotMarketStatePredicate = buildBulkMarketStatePredicate(filters, 'pgf');
+    const snapshotPriceFilterPredicate = buildPriceFilterPredicate(filters, 'pgf');
+    const snapshotAreaFilterPredicate = buildGroupingFactsLocationAreaFilterPredicate(
+      filters.areas,
+      'pgf'
+    );
 
     const rows = await executeWithTileStatementTimeout<GroupingCandidateRow>(
       sql`
@@ -1802,7 +1830,9 @@ async function fetchGroupingCandidatesInBBoxes(
         FROM property_tile_grouping_facts pgf
         WHERE (${buildBoundsFilter(boundsList, sql.raw('pgf.geometry'))})
           AND ${candidateSnapshotFilter('pgf', options)}
+          AND ${snapshotAreaFilterPredicate}
           AND ${snapshotMarketStatePredicate}
+          AND ${snapshotPriceFilterPredicate}
           AND ${snapshotActivityFilterPredicate}
           AND ${snapshotCandidateVisibilityFilter}
       `,
@@ -2396,8 +2426,27 @@ async function fetchSinglePropertyDetails(
     ids.map((id) => sql`${id}::uuid`),
     sql`, `
   );
-  const rows = await executeWithTileStatementTimeout<SinglePropertyDetailRow>(
-    sql`
+  const query = options?.candidateSnapshotId
+    ? sql`
+    SELECT
+      pgf.property_id AS id,
+      pgf.country_code,
+      pgf.street,
+      pgf.house_number,
+      pgf.house_number_addition,
+      pgf.city,
+      pgf.postal_code,
+      pgf.official_valuation,
+      pgf.official_valuation_year,
+      pgf.asking_price,
+      pgf.thumbnail_url,
+      COALESCE(pgf.has_active_listing, FALSE) AS has_active_listing,
+      COALESCE(pgf.market_state, 'not-listed') AS market_state
+    FROM property_tile_grouping_facts pgf
+    WHERE pgf.property_id IN (${idList})
+      AND ${candidateSnapshotFilter('pgf', options)}
+  `
+    : sql`
     WITH target_properties AS MATERIALIZED (
       SELECT
         p.id,
@@ -2465,7 +2514,9 @@ async function fetchSinglePropertyDetails(
     LEFT JOIN active_listing ON active_listing.property_id = tp.id
     LEFT JOIN latest_listing ON latest_listing.property_id = tp.id
     LEFT JOIN listing_thumbnail ON listing_thumbnail.property_id = tp.id
-  `,
+  `;
+  const rows = await executeWithTileStatementTimeout<SinglePropertyDetailRow>(
+    query,
     options,
     undefined,
     'single-property hydration SQL'

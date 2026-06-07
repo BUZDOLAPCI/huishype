@@ -1253,6 +1253,22 @@ export const propertyTileGroupingFacts = pgTable(
       .references(() => properties.id, { onDelete: 'cascade' }),
     geometry: geometry('geometry').notNull(),
     officialValuation: bigint('official_valuation', { mode: 'number' }),
+    countryCode: varchar('country_code', { length: 2 }),
+    city: varchar('city', { length: 100 }),
+    region: varchar('region', { length: 255 }),
+    postalCode: varchar('postal_code', { length: 10 }),
+    street: varchar('street', { length: 255 }),
+    houseNumber: integer('house_number'),
+    houseNumberAddition: varchar('house_number_addition', { length: 50 }),
+    officialValuationYear: integer('official_valuation_year'),
+    askingPrice: bigint('asking_price', { mode: 'number' }),
+    thumbnailUrl: text('thumbnail_url'),
+    cityToken: text('city_token'),
+    regionToken: text('region_token'),
+    postalCodeNorm: text('postal_code_norm'),
+    streetToken: text('street_token'),
+    saleEffectivePrice: bigint('sale_effective_price', { mode: 'number' }),
+    rentEffectivePrice: bigint('rent_effective_price', { mode: 'number' }),
     hasActiveListing: boolean('has_active_listing').notNull().default(false),
     hasCompletedListing: boolean('has_completed_listing').notNull().default(false),
     marketState: varchar('market_state', { length: 20 }).notNull().default('not-listed'),
@@ -1277,6 +1293,36 @@ export const propertyTileGroupingFacts = pgTable(
       .using('gist', table.snapshotId, table.geometry)
       .where(
         sql`${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75`,
+      ),
+    index('property_tile_grouping_facts_vis_country_city_token_idx')
+      .on(table.snapshotId, table.countryCode, table.cityToken)
+      .where(
+        sql`${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75`,
+      ),
+    index('property_tile_grouping_facts_vis_country_region_token_idx')
+      .on(table.snapshotId, table.countryCode, table.regionToken)
+      .where(
+        sql`${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75`,
+      ),
+    index('property_tile_grouping_facts_vis_country_postal_norm_idx')
+      .on(table.snapshotId, table.countryCode, table.postalCodeNorm)
+      .where(
+        sql`${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75`,
+      ),
+    index('property_tile_grouping_facts_vis_country_street_city_idx')
+      .on(table.snapshotId, table.countryCode, table.streetToken, table.cityToken)
+      .where(
+        sql`${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75`,
+      ),
+    index('property_tile_grouping_facts_vis_sale_price_idx')
+      .on(table.snapshotId, table.marketState, table.saleEffectivePrice)
+      .where(
+        sql`(${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75) AND ${table.saleEffectivePrice} IS NOT NULL`,
+      ),
+    index('property_tile_grouping_facts_vis_rent_price_idx')
+      .on(table.snapshotId, table.marketState, table.rentEffectivePrice)
+      .where(
+        sql`(${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75) AND ${table.rentEffectivePrice} IS NOT NULL`,
       ),
     index('property_tile_grouping_facts_snapshot_market_state_idx').on(
       table.snapshotId,

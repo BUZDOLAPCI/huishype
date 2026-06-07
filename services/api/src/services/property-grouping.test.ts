@@ -282,7 +282,7 @@ describe('property-grouping', () => {
     );
   });
 
-  it('uses bounded active properties directly for selected-area candidate discovery', () => {
+  it('uses grouping facts directly for selected-area snapshot candidate discovery', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
       normalizeMapFilters({
@@ -302,17 +302,18 @@ describe('property-grouping', () => {
     const text = renderSql(query).replace(/\s+/g, ' ').trim();
 
     expect(text).toContain('candidate_properties AS MATERIALIZED');
-    expect(text).toContain('FROM properties p');
-    expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
-    expect(text).toContain('p.geometry && ST_MakeEnvelope');
-    expect(text).toContain('p.country_code = $');
-    expect(text).not.toContain('UPPER(p.country_code)');
-    expect(text).toContain('p.street');
-    expect(text).toContain('p.city');
+    expect(text).toContain('FROM property_tile_grouping_facts pgf');
+    expect(text).toContain('WHERE pgf.geometry && ST_MakeEnvelope');
+    expect(text).toContain('pgf.snapshot_id = $');
+    expect(text).toContain('pgf.country_code = $');
+    expect(text).toContain('pgf.street_token = $');
+    expect(text).toContain('pgf.city_token = $');
+    expect(text).not.toContain('LOWER(pgf.street)');
+    expect(text).not.toContain('LOWER(pgf.city)');
     expect(text).not.toContain('bounded_properties AS MATERIALIZED');
     expect(text).not.toContain('listing_candidate_ids AS MATERIALIZED');
     expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
-    expect(text).not.toContain('property_tile_grouping_facts');
+    expect(text).not.toContain('FROM properties p');
     expect(text).not.toContain('property_tile_listing_candidates');
     expect(text).not.toContain('property_tile_listing_facts');
     expect(text).not.toContain('property_tile_social_facts');
@@ -377,7 +378,7 @@ describe('property-grouping', () => {
     expect(candidateQuery).toContain('OR COALESCE(sf.social_score, 0) >= $');
   });
 
-  it('keeps selected-area live grouping off snapshot facts while preserving listing and social visibility gates', async () => {
+  it('keeps selected-area snapshot grouping on facts while preserving listing and social visibility gates', async () => {
     const renderedQueries: string[] = [];
     const txExecuteMock = jest.fn(async (query: SQL) => {
       renderedQueries.push(renderSql(query).replace(/\s+/g, ' ').trim());
@@ -406,27 +407,27 @@ describe('property-grouping', () => {
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((text) =>
-      text.includes('candidate_properties AS MATERIALIZED')
+      text.includes('FROM property_tile_grouping_facts pgf')
     );
 
     expect(candidateQuery).toBeDefined();
-    expect(candidateQuery).toContain('FROM properties p');
-    expect(candidateQuery).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
-    expect(candidateQuery).toContain('FROM canonical_listings cl');
-    expect(candidateQuery).toContain('INNER JOIN candidate_properties cp ON cp.id = cl.property_id');
-    expect(candidateQuery).toContain('latest_public_guesses AS MATERIALIZED');
-    expect(candidateQuery).not.toContain('property_tile_grouping_facts');
+    expect(candidateQuery).toContain('FROM property_tile_grouping_facts pgf');
+    expect(candidateQuery).toContain('pgf.country_code = $');
+    expect(candidateQuery).toContain('pgf.street_token = $');
+    expect(candidateQuery).toContain('pgf.city_token = $');
+    expect(candidateQuery).toContain('pgf.has_completed_listing');
+    expect(candidateQuery).toContain('OR pgf.social_score >= $');
+    expect(candidateQuery).not.toContain('FROM properties p');
+    expect(candidateQuery).not.toContain('FROM canonical_listings cl');
+    expect(candidateQuery).not.toContain('latest_public_guesses AS MATERIALIZED');
     expect(candidateQuery).not.toContain('property_tile_listing_candidates');
     expect(candidateQuery).not.toContain('property_tile_listing_facts');
     expect(candidateQuery).not.toContain('property_tile_social_facts');
-    expect(candidateQuery).not.toContain('pgf.snapshot_id');
     expect(candidateQuery).not.toContain('ptlf.snapshot_id');
     expect(candidateQuery).not.toContain('ptsf.snapshot_id');
     expect(candidateQuery).not.toContain('listing_candidate_ids AS MATERIALIZED');
     expect(candidateQuery).not.toContain('social_activity_candidate_ids AS MATERIALIZED');
     expect(candidateQuery).not.toContain('candidate_property_ids AS MATERIALIZED');
-    expect(candidateQuery).toContain('OR COALESCE(lf.has_completed_listing, FALSE)');
-    expect(candidateQuery).toContain('OR COALESCE(sf.social_score, 0) >= $');
   });
 
   it('scopes price-filter listing, history, and guess work through candidate properties', async () => {
@@ -482,7 +483,7 @@ describe('property-grouping', () => {
     expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps price-filter snapshot-backed queries on effective-price inputs', async () => {
+  it('keeps price-filter snapshot-backed queries on grouping fact effective-price inputs', async () => {
     const renderedQueries: string[] = [];
     const txExecuteMock = jest.fn(async (query: SQL) => {
       renderedQueries.push(renderSql(query).replace(/\s+/g, ' ').trim());
@@ -501,22 +502,17 @@ describe('property-grouping', () => {
     ).resolves.toEqual([]);
 
     const candidateQuery = renderedQueries.find((text) =>
-      text.includes('tile_listing_facts AS MATERIALIZED')
+      text.includes('FROM property_tile_grouping_facts pgf')
     );
     expect(candidateQuery).toBeDefined();
-    expect(candidateQuery).toContain('property_tile_listing_candidates lpc');
-    expect(candidateQuery).toContain('property_tile_social_facts ptsf');
-    expect(candidateQuery).toContain(
-      'FROM canonical_listings cl INNER JOIN candidate_properties sp ON sp.id = cl.property_id'
-    );
-    expect(candidateQuery).toContain(
-      'FROM price_history ph INNER JOIN candidate_properties cp ON cp.id = ph.property_id'
-    );
-    expect(candidateQuery).toContain(
-      'FROM price_guesses pg INNER JOIN candidate_properties cp ON cp.id = pg.property_id'
-    );
-    expect(candidateQuery).not.toContain('property_tile_grouping_facts');
-    expect(candidateQuery).toContain('lf.sale_effective_price');
+    expect(candidateQuery).toContain('pgf.sale_effective_price');
+    expect(candidateQuery).not.toContain('property_tile_listing_candidates');
+    expect(candidateQuery).not.toContain('property_tile_social_facts');
+    expect(candidateQuery).not.toContain('property_tile_listing_facts');
+    expect(candidateQuery).not.toContain('FROM canonical_listings cl');
+    expect(candidateQuery).not.toContain('FROM price_history ph');
+    expect(candidateQuery).not.toContain('FROM price_guesses pg');
+    expect(candidateQuery).not.toContain('latest_public_guesses AS MATERIALIZED');
   });
 
   it('uses direct grouping facts for default unpriced snapshot candidate queries', async () => {
@@ -550,7 +546,7 @@ describe('property-grouping', () => {
     expect(candidateQuery).toContain('COALESCE(pgf.social_score, 0)');
     expect(candidateQuery).toContain('COALESCE(pgf.recent_social_score, 0)');
     expect(candidateQuery).toContain('COALESCE(pgf.comment_count, 0)');
-    expect(candidateQuery).toContain('OR COALESCE(pgf.social_score, 0) >= $');
+    expect(candidateQuery).toContain('OR pgf.social_score >= $');
     expect(candidateQuery).not.toContain('candidate_properties AS MATERIALIZED');
     expect(candidateQuery).not.toContain('listing_facts AS MATERIALIZED');
     expect(candidateQuery).not.toContain('social_facts AS MATERIALIZED');

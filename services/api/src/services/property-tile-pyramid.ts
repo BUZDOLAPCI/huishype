@@ -1177,8 +1177,21 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           SELECT
             lpc.property_id,
             lpc.geometry,
-            lpc.official_valuation
+            lpc.official_valuation,
+            p.country_code,
+            p.city,
+            p.region,
+            p.postal_code,
+            p.street,
+            p.house_number,
+            p.house_number_addition,
+            p.official_valuation_year,
+            NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(p.city, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '') AS city_token,
+            NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(p.region, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '') AS region_token,
+            NULLIF(REGEXP_REPLACE(UPPER(TRIM(COALESCE(p.postal_code, ''))), '\\s+', '', 'g'), '') AS postal_code_norm,
+            NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(p.street, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '') AS street_token
           FROM property_tile_listing_candidates lpc
+          INNER JOIN properties p ON p.id = lpc.property_id
           WHERE lpc.snapshot_id = ${snapshotId}::uuid
             AND lpc.geometry IS NOT NULL
             AND lpc.property_id > COALESCE(
@@ -1188,12 +1201,229 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           ORDER BY lpc.property_id
           LIMIT ${PROPERTY_TILE_GROUPING_FACT_INSERT_BATCH_SIZE}
         ),
+        tile_listing_facts AS MATERIALIZED (
+          SELECT
+            cl.id AS listing_id,
+            cl.property_id,
+            cl.status::text AS status,
+            CASE
+              WHEN lower(cl.source_name) = 'funda'
+                AND lower(btrim(cl.price_type)) = 'buy'
+                THEN 'sale'
+              WHEN lower(btrim(cl.price_type)) IN ('sale', 'rent')
+                THEN lower(btrim(cl.price_type))
+              WHEN lower(cl.source_name) = 'pararius'
+                THEN 'rent'
+              ELSE 'sale'
+            END AS normalized_price_type,
+            cl.asking_price,
+            cl.thumbnail_url,
+            COALESCE(
+              cl.last_reconciled_at,
+              cl.last_mirror_seen_at,
+              cl.last_user_seen_at,
+              cl.last_seen_at,
+              cl.updated_at,
+              cl.created_at
+            ) AS sort_at,
+            cl.created_at AS listing_created_at
+          FROM canonical_listings cl
+          INNER JOIN candidate_batch cb ON cb.property_id = cl.property_id
+          WHERE cl.verification_state <> 'invalid'
+        ),
+        latest_listing AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            l.status
+          FROM tile_listing_facts l
+          ORDER BY
+            l.property_id,
+            (l.status = 'active') DESC,
+            l.sort_at DESC,
+            l.listing_created_at DESC,
+            l.listing_id DESC
+        ),
+        active_listing AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            l.asking_price,
+            l.normalized_price_type AS price_type
+          FROM tile_listing_facts l
+          WHERE l.status = 'active'
+          ORDER BY
+            l.property_id,
+            (l.status = 'active') DESC,
+            l.sort_at DESC,
+            l.listing_created_at DESC,
+            l.listing_id DESC
+        ),
+        listing_thumbnail AS MATERIALIZED (
+          SELECT DISTINCT ON (l.property_id)
+            l.property_id,
+            l.thumbnail_url
+          FROM tile_listing_facts l
+          WHERE l.thumbnail_url IS NOT NULL
+          ORDER BY
+            l.property_id,
+            (l.status = 'active') DESC,
+            l.sort_at DESC,
+            l.listing_created_at DESC,
+            l.listing_id DESC
+        ),
+        sold_history AS MATERIALIZED (
+          SELECT DISTINCT ON (ph.property_id)
+            ph.property_id,
+            ph.price AS last_sold_price
+          FROM price_history ph
+          INNER JOIN candidate_batch cb ON cb.property_id = ph.property_id
+          WHERE ph.event_type = 'sold'
+          ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
+        ),
+        rented_history AS MATERIALIZED (
+          SELECT DISTINCT ON (ph.property_id)
+            ph.property_id,
+            ph.price AS last_rented_price
+          FROM price_history ph
+          INNER JOIN candidate_batch cb ON cb.property_id = ph.property_id
+          WHERE ph.event_type = 'rented'
+          ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
+        ),
+        latest_public_guesses AS MATERIALIZED (
+          SELECT DISTINCT ON (pg.property_id, pg.user_id)
+            pg.property_id,
+            pg.user_id,
+            pg.guessed_price,
+            pg.is_meme_guess,
+            GREATEST(pg.created_at, pg.updated_at) AS effective_at
+          FROM price_guesses pg
+          INNER JOIN candidate_batch cb ON cb.property_id = pg.property_id
+          WHERE GREATEST(pg.created_at, pg.updated_at) <= ${closedSocialActivityCutoffAt}::timestamptz
+          ORDER BY
+            pg.property_id,
+            pg.user_id,
+            GREATEST(pg.created_at, pg.updated_at) DESC,
+            pg.created_at DESC,
+            pg.id DESC
+        ),
+        guess_facts AS MATERIALIZED (
+          SELECT
+            lpg.property_id,
+            CASE
+              WHEN COUNT(*) = 0 THEN NULL::bigint
+              WHEN COUNT(*) <= 2 THEN ROUND(
+                CASE
+                  WHEN cb.official_valuation IS NOT NULL
+                    THEN cb.official_valuation::numeric * 0.7
+                      + (
+                        SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                        / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                      ) * 0.3
+                  ELSE (
+                    SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                    / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                  )
+                END
+              )::bigint
+              WHEN COUNT(*) <= 9 THEN ROUND(
+                CASE
+                  WHEN cb.official_valuation IS NOT NULL
+                    THEN cb.official_valuation::numeric * 0.3
+                      + (
+                        SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                        / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                      ) * 0.7
+                  ELSE (
+                    SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                    / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                  )
+                END
+              )::bigint
+              ELSE ROUND(
+                SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+              )::bigint
+            END AS canonical_fmv
+          FROM latest_public_guesses lpg
+          INNER JOIN users u ON u.id = lpg.user_id
+          INNER JOIN candidate_batch cb ON cb.property_id = lpg.property_id
+          WHERE lpg.is_meme_guess = FALSE
+          GROUP BY lpg.property_id, cb.official_valuation
+        ),
+        listing_facts AS MATERIALIZED (
+          SELECT
+            cb.property_id,
+            CASE
+              WHEN active_listing.property_id IS NOT NULL
+                THEN active_listing.asking_price
+              ELSE NULL
+            END AS asking_price,
+            listing_thumbnail.thumbnail_url,
+            active_listing.property_id IS NOT NULL AS has_active_listing,
+            (
+              active_listing.property_id IS NULL
+              AND latest_listing.status IN ('sold', 'rented')
+            ) AS has_completed_listing,
+            CASE
+              WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+                THEN 'for-rent'
+              WHEN active_listing.property_id IS NOT NULL
+                THEN 'for-sale'
+              WHEN latest_listing.status = 'sold'
+                THEN 'sold'
+              WHEN latest_listing.status = 'rented'
+                THEN 'rented'
+              ELSE 'not-listed'
+            END AS market_state,
+            COALESCE(
+              CASE
+                WHEN active_listing.property_id IS NOT NULL
+                  AND active_listing.price_type = 'sale'
+                  THEN active_listing.asking_price
+                ELSE NULL
+              END,
+              sold_history.last_sold_price,
+              guess_facts.canonical_fmv,
+              cb.official_valuation
+            ) AS sale_effective_price,
+            COALESCE(
+              CASE
+                WHEN active_listing.property_id IS NOT NULL
+                  AND active_listing.price_type = 'rent'
+                  THEN active_listing.asking_price
+                ELSE NULL
+              END,
+              rented_history.last_rented_price
+            ) AS rent_effective_price
+          FROM candidate_batch cb
+          LEFT JOIN latest_listing ON latest_listing.property_id = cb.property_id
+          LEFT JOIN active_listing ON active_listing.property_id = cb.property_id
+          LEFT JOIN listing_thumbnail ON listing_thumbnail.property_id = cb.property_id
+          LEFT JOIN sold_history ON sold_history.property_id = cb.property_id
+          LEFT JOIN rented_history ON rented_history.property_id = cb.property_id
+          LEFT JOIN guess_facts ON guess_facts.property_id = cb.property_id
+        ),
         inserted AS (
           INSERT INTO property_tile_grouping_facts (
             snapshot_id,
             property_id,
             geometry,
             official_valuation,
+            country_code,
+            city,
+            region,
+            postal_code,
+            street,
+            house_number,
+            house_number_addition,
+            official_valuation_year,
+            asking_price,
+            thumbnail_url,
+            city_token,
+            region_token,
+            postal_code_norm,
+            street_token,
+            sale_effective_price,
+            rent_effective_price,
             has_active_listing,
             has_completed_listing,
             market_state,
@@ -1208,9 +1438,25 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
             lpc.property_id,
             lpc.geometry,
             lpc.official_valuation,
-            COALESCE(ptlf.has_active_listing, FALSE),
-            COALESCE(ptlf.has_completed_listing, FALSE),
-            COALESCE(ptlf.market_state, 'not-listed'),
+            lpc.country_code,
+            lpc.city,
+            lpc.region,
+            lpc.postal_code,
+            lpc.street,
+            lpc.house_number,
+            lpc.house_number_addition,
+            lpc.official_valuation_year,
+            lf.asking_price,
+            lf.thumbnail_url,
+            lpc.city_token,
+            lpc.region_token,
+            lpc.postal_code_norm,
+            lpc.street_token,
+            lf.sale_effective_price,
+            lf.rent_effective_price,
+            COALESCE(lf.has_active_listing, FALSE),
+            COALESCE(lf.has_completed_listing, FALSE),
+            COALESCE(lf.market_state, 'not-listed'),
             (
               COALESCE(ptsf.top_level_comment_count, 0)
               + COALESCE(ptsf.reply_count, 0)
@@ -1220,9 +1466,8 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
             ptsf.last_social_at,
             now()
           FROM candidate_batch lpc
-          LEFT JOIN property_tile_listing_facts ptlf
-            ON ptlf.snapshot_id = ${snapshotId}::uuid
-           AND ptlf.property_id = lpc.property_id
+          LEFT JOIN listing_facts lf
+            ON lf.property_id = lpc.property_id
           LEFT JOIN property_tile_social_facts ptsf
             ON ptsf.snapshot_id = ${snapshotId}::uuid
            AND ptsf.property_id = lpc.property_id
@@ -1262,11 +1507,261 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
     }
 
     await tx.execute(sql`
+      WITH social_only_candidates AS MATERIALIZED (
+        SELECT
+          ptsf.property_id,
+          ptsf.geometry,
+          ptsf.official_valuation,
+          ptsf.top_level_comment_count,
+          ptsf.reply_count,
+          ptsf.social_score,
+          ptsf.recent_social_score,
+          ptsf.last_social_at,
+          p.country_code,
+          p.city,
+          p.region,
+          p.postal_code,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          p.official_valuation_year,
+          NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(p.city, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '') AS city_token,
+          NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(p.region, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '') AS region_token,
+          NULLIF(REGEXP_REPLACE(UPPER(TRIM(COALESCE(p.postal_code, ''))), '\\s+', '', 'g'), '') AS postal_code_norm,
+          NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(p.street, ''))), '[^a-z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g'), '') AS street_token
+        FROM property_tile_social_facts ptsf
+        INNER JOIN properties p ON p.id = ptsf.property_id
+        WHERE ptsf.snapshot_id = ${snapshotId}::uuid
+          AND ptsf.geometry IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM property_tile_grouping_facts pgf
+            WHERE pgf.snapshot_id = ${snapshotId}::uuid
+              AND pgf.property_id = ptsf.property_id
+          )
+      ),
+      tile_listing_facts AS MATERIALIZED (
+        SELECT
+          cl.id AS listing_id,
+          cl.property_id,
+          cl.status::text AS status,
+          CASE
+            WHEN lower(cl.source_name) = 'funda'
+              AND lower(btrim(cl.price_type)) = 'buy'
+              THEN 'sale'
+            WHEN lower(btrim(cl.price_type)) IN ('sale', 'rent')
+              THEN lower(btrim(cl.price_type))
+            WHEN lower(cl.source_name) = 'pararius'
+              THEN 'rent'
+            ELSE 'sale'
+          END AS normalized_price_type,
+          cl.asking_price,
+          cl.thumbnail_url,
+          COALESCE(
+            cl.last_reconciled_at,
+            cl.last_mirror_seen_at,
+            cl.last_user_seen_at,
+            cl.last_seen_at,
+            cl.updated_at,
+            cl.created_at
+          ) AS sort_at,
+          cl.created_at AS listing_created_at
+        FROM canonical_listings cl
+        INNER JOIN social_only_candidates soc ON soc.property_id = cl.property_id
+        WHERE cl.verification_state <> 'invalid'
+      ),
+      latest_listing AS MATERIALIZED (
+        SELECT DISTINCT ON (l.property_id)
+          l.property_id,
+          l.status
+        FROM tile_listing_facts l
+        ORDER BY
+          l.property_id,
+          (l.status = 'active') DESC,
+          l.sort_at DESC,
+          l.listing_created_at DESC,
+          l.listing_id DESC
+      ),
+      active_listing AS MATERIALIZED (
+        SELECT DISTINCT ON (l.property_id)
+          l.property_id,
+          l.asking_price,
+          l.normalized_price_type AS price_type
+        FROM tile_listing_facts l
+        WHERE l.status = 'active'
+        ORDER BY
+          l.property_id,
+          (l.status = 'active') DESC,
+          l.sort_at DESC,
+          l.listing_created_at DESC,
+          l.listing_id DESC
+      ),
+      listing_thumbnail AS MATERIALIZED (
+        SELECT DISTINCT ON (l.property_id)
+          l.property_id,
+          l.thumbnail_url
+        FROM tile_listing_facts l
+        WHERE l.thumbnail_url IS NOT NULL
+        ORDER BY
+          l.property_id,
+          (l.status = 'active') DESC,
+          l.sort_at DESC,
+          l.listing_created_at DESC,
+          l.listing_id DESC
+      ),
+      sold_history AS MATERIALIZED (
+        SELECT DISTINCT ON (ph.property_id)
+          ph.property_id,
+          ph.price AS last_sold_price
+        FROM price_history ph
+        INNER JOIN social_only_candidates soc ON soc.property_id = ph.property_id
+        WHERE ph.event_type = 'sold'
+        ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
+      ),
+      rented_history AS MATERIALIZED (
+        SELECT DISTINCT ON (ph.property_id)
+          ph.property_id,
+          ph.price AS last_rented_price
+        FROM price_history ph
+        INNER JOIN social_only_candidates soc ON soc.property_id = ph.property_id
+        WHERE ph.event_type = 'rented'
+        ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
+      ),
+      latest_public_guesses AS MATERIALIZED (
+        SELECT DISTINCT ON (pg.property_id, pg.user_id)
+          pg.property_id,
+          pg.user_id,
+          pg.guessed_price,
+          pg.is_meme_guess,
+          GREATEST(pg.created_at, pg.updated_at) AS effective_at
+        FROM price_guesses pg
+        INNER JOIN social_only_candidates soc ON soc.property_id = pg.property_id
+        WHERE GREATEST(pg.created_at, pg.updated_at) <= ${closedSocialActivityCutoffAt}::timestamptz
+        ORDER BY
+          pg.property_id,
+          pg.user_id,
+          GREATEST(pg.created_at, pg.updated_at) DESC,
+          pg.created_at DESC,
+          pg.id DESC
+      ),
+      guess_facts AS MATERIALIZED (
+        SELECT
+          lpg.property_id,
+          CASE
+            WHEN COUNT(*) = 0 THEN NULL::bigint
+            WHEN COUNT(*) <= 2 THEN ROUND(
+              CASE
+                WHEN soc.official_valuation IS NOT NULL
+                  THEN soc.official_valuation::numeric * 0.7
+                    + (
+                      SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                      / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                    ) * 0.3
+                ELSE (
+                  SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                  / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                )
+              END
+            )::bigint
+            WHEN COUNT(*) <= 9 THEN ROUND(
+              CASE
+                WHEN soc.official_valuation IS NOT NULL
+                  THEN soc.official_valuation::numeric * 0.3
+                    + (
+                      SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                      / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                    ) * 0.7
+                ELSE (
+                  SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+                  / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+                )
+              END
+            )::bigint
+            ELSE ROUND(
+              SUM(lpg.guessed_price::numeric * GREATEST(u.karma, 1)::numeric)
+              / NULLIF(SUM(GREATEST(u.karma, 1)::numeric), 0)
+            )::bigint
+          END AS canonical_fmv
+        FROM latest_public_guesses lpg
+        INNER JOIN users u ON u.id = lpg.user_id
+        INNER JOIN social_only_candidates soc ON soc.property_id = lpg.property_id
+        WHERE lpg.is_meme_guess = FALSE
+        GROUP BY lpg.property_id, soc.official_valuation
+      ),
+      listing_facts AS MATERIALIZED (
+        SELECT
+          soc.property_id,
+          CASE
+            WHEN active_listing.property_id IS NOT NULL
+              THEN active_listing.asking_price
+            ELSE NULL
+          END AS asking_price,
+          listing_thumbnail.thumbnail_url,
+          active_listing.property_id IS NOT NULL AS has_active_listing,
+          (
+            active_listing.property_id IS NULL
+            AND latest_listing.status IN ('sold', 'rented')
+          ) AS has_completed_listing,
+          CASE
+            WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+              THEN 'for-rent'
+            WHEN active_listing.property_id IS NOT NULL
+              THEN 'for-sale'
+            WHEN latest_listing.status = 'sold'
+              THEN 'sold'
+            WHEN latest_listing.status = 'rented'
+              THEN 'rented'
+            ELSE 'not-listed'
+          END AS market_state,
+          COALESCE(
+            CASE
+              WHEN active_listing.property_id IS NOT NULL
+                AND active_listing.price_type = 'sale'
+                THEN active_listing.asking_price
+              ELSE NULL
+            END,
+            sold_history.last_sold_price,
+            guess_facts.canonical_fmv,
+            soc.official_valuation
+          ) AS sale_effective_price,
+          COALESCE(
+            CASE
+              WHEN active_listing.property_id IS NOT NULL
+                AND active_listing.price_type = 'rent'
+                THEN active_listing.asking_price
+              ELSE NULL
+            END,
+            rented_history.last_rented_price
+          ) AS rent_effective_price
+        FROM social_only_candidates soc
+        LEFT JOIN latest_listing ON latest_listing.property_id = soc.property_id
+        LEFT JOIN active_listing ON active_listing.property_id = soc.property_id
+        LEFT JOIN listing_thumbnail ON listing_thumbnail.property_id = soc.property_id
+        LEFT JOIN sold_history ON sold_history.property_id = soc.property_id
+        LEFT JOIN rented_history ON rented_history.property_id = soc.property_id
+        LEFT JOIN guess_facts ON guess_facts.property_id = soc.property_id
+      )
       INSERT INTO property_tile_grouping_facts (
         snapshot_id,
         property_id,
         geometry,
         official_valuation,
+        country_code,
+        city,
+        region,
+        postal_code,
+        street,
+        house_number,
+        house_number_addition,
+        official_valuation_year,
+        asking_price,
+        thumbnail_url,
+        city_token,
+        region_token,
+        postal_code_norm,
+        street_token,
+        sale_effective_price,
+        rent_effective_price,
         has_active_listing,
         has_completed_listing,
         market_state,
@@ -1281,9 +1776,25 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         ptsf.property_id,
         ptsf.geometry,
         ptsf.official_valuation,
-        FALSE,
-        FALSE,
-        'not-listed',
+        ptsf.country_code,
+        ptsf.city,
+        ptsf.region,
+        ptsf.postal_code,
+        ptsf.street,
+        ptsf.house_number,
+        ptsf.house_number_addition,
+        ptsf.official_valuation_year,
+        lf.asking_price,
+        lf.thumbnail_url,
+        ptsf.city_token,
+        ptsf.region_token,
+        ptsf.postal_code_norm,
+        ptsf.street_token,
+        lf.sale_effective_price,
+        lf.rent_effective_price,
+        COALESCE(lf.has_active_listing, FALSE),
+        COALESCE(lf.has_completed_listing, FALSE),
+        COALESCE(lf.market_state, 'not-listed'),
         (
           COALESCE(ptsf.top_level_comment_count, 0)
           + COALESCE(ptsf.reply_count, 0)
@@ -1292,9 +1803,9 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         COALESCE(ptsf.recent_social_score, 0)::double precision,
         ptsf.last_social_at,
         now()
-      FROM property_tile_social_facts ptsf
-      WHERE ptsf.snapshot_id = ${snapshotId}::uuid
-        AND ptsf.geometry IS NOT NULL
+      FROM social_only_candidates ptsf
+      LEFT JOIN listing_facts lf
+        ON lf.property_id = ptsf.property_id
       ON CONFLICT (snapshot_id, property_id) DO NOTHING
     `);
     await heartbeat('counting', groupingBatchesCompleted);

@@ -615,6 +615,97 @@ export function buildLocationAreaFilterPredicate(
   )})`;
 }
 
+function buildFactsLocationTokenPredicate(token: LocationFilterToken, factsAlias: string): SQL {
+  const predicates: SQL[] = [];
+  const countryColumn = sql.raw(`${factsAlias}.country_code`);
+  const cityTokenColumn = sql.raw(`${factsAlias}.city_token`);
+  const regionTokenColumn = sql.raw(`${factsAlias}.region_token`);
+  const postalCodeNormColumn = sql.raw(`${factsAlias}.postal_code_norm`);
+  const streetTokenColumn = sql.raw(`${factsAlias}.street_token`);
+  const geometryColumn = sql.raw(`${factsAlias}.geometry`);
+
+  if (token.countryCode) {
+    predicates.push(sql`${countryColumn} = ${token.countryCode}`);
+  } else if (token.type === 'country') {
+    const countryCode = normalizeCountryCode(token.value || token.label || '');
+    if (countryCode) {
+      predicates.push(sql`${countryColumn} = ${countryCode}`);
+    }
+  }
+
+  const addTokenPredicate = (column: SQL, value: string | null | undefined) => {
+    const normalized = value ? normalizeTokenValue(value) : '';
+    if (normalized) {
+      predicates.push(sql`${column} = ${normalized}`);
+    }
+  };
+
+  const addPostcodePredicate = (value: string | null | undefined) => {
+    const normalized = value ? normalizePostcodeTokenValue(value).toUpperCase() : '';
+    if (!normalized) {
+      return;
+    }
+    const upperBound = getPostcodePrefixUpperBound(normalized);
+    predicates.push(
+      upperBound
+        ? sql`(${postalCodeNormColumn} >= ${normalized} AND ${postalCodeNormColumn} < ${upperBound})`
+        : sql`${postalCodeNormColumn} = ${normalized}`
+    );
+  };
+
+  if (token.type === 'current-location') {
+    const [lon, lat] = token.coordinates ?? [];
+    const radius = Math.max(1, Math.round(token.radiusMeters ?? CURRENT_LOCATION_RADIUS_METERS));
+    if (Number.isFinite(lon) && Number.isFinite(lat)) {
+      predicates.push(sql`ST_DWithin(
+        ${geometryColumn}::geography,
+        ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography,
+        ${radius}
+      )`);
+    }
+  } else if (token.type === 'city') {
+    addTokenPredicate(cityTokenColumn, token.city ?? token.label ?? token.value);
+  } else if (token.type === 'region') {
+    addTokenPredicate(regionTokenColumn, token.region ?? token.label ?? token.value);
+  } else if (token.type === 'postcode') {
+    addPostcodePredicate(token.postalCode ?? token.value);
+  } else if (token.type === 'street') {
+    addTokenPredicate(streetTokenColumn, token.street ?? token.label ?? token.value);
+  }
+
+  if (token.type === 'street') {
+    addTokenPredicate(cityTokenColumn, token.city);
+  } else if (token.type !== 'city' && token.type !== 'postcode') {
+    addTokenPredicate(cityTokenColumn, token.city);
+  }
+  if (token.type !== 'region' && token.type !== 'street' && token.type !== 'postcode') {
+    addTokenPredicate(regionTokenColumn, token.region);
+  }
+  if (token.type !== 'postcode' && token.type !== 'street') {
+    addPostcodePredicate(token.postalCode);
+  }
+  if (token.type !== 'street') {
+    addTokenPredicate(streetTokenColumn, token.street);
+  }
+
+  return predicates.length > 0 ? sql`(${sql.join(predicates, sql` AND `)})` : sql`TRUE`;
+}
+
+export function buildGroupingFactsLocationAreaFilterPredicate(
+  tokens: readonly LocationFilterToken[],
+  factsAlias = 'pgf'
+): SQL {
+  const normalized = normalizeLocationFilterTokens(tokens);
+  if (normalized.length === 0) {
+    return sql`TRUE`;
+  }
+
+  return sql`(${sql.join(
+    normalized.map((token) => buildFactsLocationTokenPredicate(token, factsAlias)),
+    sql` OR `
+  )})`;
+}
+
 export function buildPropertyMarketFilterQuery(
   filters: MapFilters,
   propertyAlias = 'p'

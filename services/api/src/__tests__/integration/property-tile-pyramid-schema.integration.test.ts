@@ -593,6 +593,12 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_grouping_facts_snapshot_market_state_idx',
         'property_tile_grouping_facts_snapshot_last_social_at_idx',
         'property_tile_grouping_facts_visible_snapshot_geometry_gist_idx',
+        'property_tile_grouping_facts_vis_country_city_token_idx',
+        'property_tile_grouping_facts_vis_country_region_token_idx',
+        'property_tile_grouping_facts_vis_country_postal_norm_idx',
+        'property_tile_grouping_facts_vis_country_street_city_idx',
+        'property_tile_grouping_facts_vis_sale_price_idx',
+        'property_tile_grouping_facts_vis_rent_price_idx',
         'property_tile_grouping_facts_property_id_idx',
       ])
     );
@@ -606,6 +612,34 @@ describe('property tile pyramid schema safeguards', () => {
     ).map((row) => row.column_name);
     expect(snapshotColumns).toContain('social_fact_row_count');
     expect(snapshotColumns).toContain('grouping_fact_row_count');
+
+    const groupingFactColumns = Array.from(
+      await db.execute<{ column_name: string }>(sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'property_tile_grouping_facts'
+    `)
+    ).map((row) => row.column_name);
+    expect(groupingFactColumns).toEqual(
+      expect.arrayContaining([
+        'country_code',
+        'city',
+        'region',
+        'postal_code',
+        'street',
+        'house_number',
+        'house_number_addition',
+        'official_valuation_year',
+        'asking_price',
+        'thumbnail_url',
+        'city_token',
+        'region_token',
+        'postal_code_norm',
+        'street_token',
+        'sale_effective_price',
+        'rent_effective_price',
+      ])
+    );
 
     const extensions = Array.from(
       await db.execute<{ extname: string }>(sql`

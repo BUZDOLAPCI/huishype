@@ -462,6 +462,33 @@ function sendPyramidUnavailableTile(
     .send();
 }
 
+function sendCandidateSnapshotUnavailableTile(
+  reply: FastifyReply,
+  input: {
+    runtime: Pick<
+      PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+      'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+    >;
+    reason: string;
+  }
+) {
+  return reply
+    .header('Cache-Control', 'no-store')
+    .header('X-HuisHype-Tile-Status', 'candidate-snapshot-unavailable')
+    .header('X-HuisHype-Candidate-Snapshot-Status', input.reason)
+    .header('X-Tile-Generation-Time', tileHeaderValue(input.runtime.generationTimeMs))
+    .header('X-Tile-Cache', 'candidate-snapshot-unavailable')
+    .header('X-Tile-Coalesced', String(input.runtime.coalesced))
+    .header('X-Tile-Queue-Time', tileHeaderValue(input.runtime.queueTimeMs))
+    .header('X-Tile-Budget-Ms', String(input.runtime.budgetMs))
+    .status(503)
+    .send({
+      error: 'CANDIDATE_SNAPSHOT_UNAVAILABLE',
+      message: 'Public property tiles require a ready current candidate snapshot.',
+      reason: input.reason,
+    });
+}
+
 function sendPyramidUncoveredTile(
   reply: FastifyReply,
   runtime: Pick<
@@ -592,6 +619,7 @@ type TileCacheState =
   | 'stale'
   | 'precomputed'
   | 'timeout-empty'
+  | 'candidate-snapshot-unavailable'
   | 'pyramid-unavailable'
   | 'pyramid-missing'
   | 'pyramid-uncovered';
@@ -605,6 +633,7 @@ type TileOutcomeResult =
   | 'detached-draining'
   | 'reattached'
   | 'error'
+  | 'candidate-snapshot-unavailable'
   | 'pyramid-unavailable'
   | 'pyramid-missing'
   | 'pyramid-uncovered';
@@ -747,6 +776,91 @@ function assertTileRouteBuildCanContinue(
         `Property tile runtime budget exceeded during ${stage}`
       );
     }
+  }
+}
+
+type PublicCandidateSnapshotForDynamicTiles = {
+  id: string;
+  sourceWatermarkHash: string | null;
+  closedSocialActivityCutoffAt: string | null;
+};
+
+function getSourceWatermarkSources(
+  sourceWatermarksJson: Record<string, unknown> | null | undefined
+): Array<Record<string, unknown>> {
+  const sources = sourceWatermarksJson?.sources;
+  return Array.isArray(sources)
+    ? sources.filter(
+        (source): source is Record<string, unknown> =>
+          Boolean(source) && typeof source === 'object' && !Array.isArray(source)
+      )
+    : [];
+}
+
+function readRollingSocialWindowCutoffAt(
+  sourceWatermarksJson: Record<string, unknown> | null | undefined
+): string | null {
+  const rollingSource = getSourceWatermarkSources(sourceWatermarksJson).find(
+    (source) => source.source === 'rolling_social_window'
+  );
+  const cutoffAt = rollingSource?.cutoffAt;
+  return typeof cutoffAt === 'string' && cutoffAt.length > 0 ? cutoffAt : null;
+}
+
+async function lookupCurrentPublicCandidateSnapshotForDynamicTiles(
+  options?: PropertyTileBuildOptions
+): Promise<PublicCandidateSnapshotForDynamicTiles | null> {
+  assertTileRouteBuildCanContinue(options, 'candidate snapshot lookup preparation');
+  const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
+  const slot = getDefaultPropertyTilePyramidSlot();
+  const query = sql`
+    SELECT
+      s.id::text,
+      s.source_watermark_hash,
+      s.source_watermarks_json,
+      COALESCE(s.build_finished_at, s.updated_at, s.created_at)::text AS snapshot_cutoff_at
+    FROM property_tile_candidate_source_current c
+    INNER JOIN property_tile_candidate_source_snapshots s
+      ON s.id = c.snapshot_id
+    WHERE c.coverage_id = ${slot.coverageId}
+      AND c.filter_signature = ${slot.filterSignature}
+      AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      AND s.status = 'ready'
+      AND s.social_fact_row_count IS NOT NULL
+      AND s.grouping_fact_row_count IS NOT NULL
+    LIMIT 1
+  `;
+
+  options?.markUncancellableStage?.(true);
+  try {
+    const rows = timeoutMs
+      ? await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
+          return tx.execute<{
+            id: string;
+            source_watermark_hash: string | null;
+            source_watermarks_json: Record<string, unknown> | null;
+            snapshot_cutoff_at: string | null;
+          }>(query);
+        })
+      : await db.execute<{
+          id: string;
+          source_watermark_hash: string | null;
+          source_watermarks_json: Record<string, unknown> | null;
+          snapshot_cutoff_at: string | null;
+        }>(query);
+    const row = Array.from(rows)[0];
+    if (!row) {
+      return null;
+    }
+    return {
+      id: row.id,
+      sourceWatermarkHash: row.source_watermark_hash,
+      closedSocialActivityCutoffAt:
+        readRollingSocialWindowCutoffAt(row.source_watermarks_json) ?? row.snapshot_cutoff_at,
+    };
+  } finally {
+    options?.markUncancellableStage?.(false);
   }
 }
 
@@ -2281,7 +2395,7 @@ export async function tileRoutes(app: FastifyInstance) {
       const { z, x, y } = request.params;
       const filters = parseMapFiltersQuery(request.query);
       const filterSignature = getMapFilterSignature(filters);
-      const cacheKey = `${z}/${x}/${y}:${filterSignature}`;
+      const baseCacheKey = `${z}/${x}/${y}:${filterSignature}`;
       const runtimeConfig = getPropertyTileRuntimeConfig();
       const pyramidRouteMaxZoom = propertyTilePyramidRouteService.getMaxZoom();
       const isPyramidCoveredPublicDefaultTile =
@@ -2572,9 +2686,75 @@ export async function tileRoutes(app: FastifyInstance) {
         });
       }
 
+      const snapshotLookupStartedAt = Date.now();
+      const snapshotLookupRuntime = {
+        coalesced: false,
+        queueTimeMs: 0,
+        generationTimeMs: 0,
+        budgetMs: runtimeConfig.publicBudgetMs,
+      };
+      let candidateSnapshot: PublicCandidateSnapshotForDynamicTiles | null;
+      try {
+        candidateSnapshot = await lookupCurrentPublicCandidateSnapshotForDynamicTiles({
+          statementTimeoutMs: runtimeConfig.publicBudgetMs,
+        });
+      } catch (error) {
+        if (!isPropertyTileRecoverableError(error)) {
+          throw error;
+        }
+        snapshotLookupRuntime.generationTimeMs = Date.now() - snapshotLookupStartedAt;
+        logTileOutcome({
+          request,
+          routeKind: 'public',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'candidate-snapshot-unavailable',
+          result: 'candidate-snapshot-unavailable',
+          runtime: snapshotLookupRuntime,
+          errorClassification: 'transient_db',
+        });
+        return sendCandidateSnapshotUnavailableTile(reply, {
+          runtime: snapshotLookupRuntime,
+          reason: 'lookup-error',
+        });
+      }
+
+      snapshotLookupRuntime.generationTimeMs = Date.now() - snapshotLookupStartedAt;
+      if (!candidateSnapshot) {
+        request.log.warn(
+          {
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+          },
+          'Public dynamic property tile requested without a ready current candidate snapshot'
+        );
+        logTileOutcome({
+          request,
+          routeKind: 'public',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'candidate-snapshot-unavailable',
+          result: 'candidate-snapshot-unavailable',
+          runtime: snapshotLookupRuntime,
+        });
+        return sendCandidateSnapshotUnavailableTile(reply, {
+          runtime: snapshotLookupRuntime,
+          reason: 'missing-ready-current',
+        });
+      }
+
+      const cacheKey = `${baseCacheKey}:candidate:${candidateSnapshot.id}`;
       const cachedTile = publicPropertyTileCache.get(cacheKey);
 
       if (cachedTile.state === 'fresh') {
+        reply.header('X-HuisHype-Candidate-Snapshot', candidateSnapshot.id);
         logTileOutcome({
           request,
           routeKind: 'public',
@@ -2612,6 +2792,8 @@ export async function tileRoutes(app: FastifyInstance) {
           buildPayloadResult(
             await buildMvtForTile({ z, x, y }, filters, {
               ...options,
+              candidateSnapshotId: candidateSnapshot.id,
+              closedSocialActivityCutoffAt: candidateSnapshot.closedSocialActivityCutoffAt,
               onStageTiming: (timing) => {
                 stageTimings.push(timing);
                 options.onStageTiming?.(timing);
@@ -2627,6 +2809,7 @@ export async function tileRoutes(app: FastifyInstance) {
         ) {
           const staleEntry = publicPropertyTileCache.getStale(cacheKey);
           if (staleEntry) {
+            reply.header('X-HuisHype-Candidate-Snapshot', candidateSnapshot.id);
             logTileOutcome({
               request,
               routeKind: 'public',
@@ -2683,6 +2866,10 @@ export async function tileRoutes(app: FastifyInstance) {
         ...runtimeResult.result,
         etag: buildPropertyTileEtag(cacheKey, runtimeResult.result.payload),
       });
+      reply.header('X-HuisHype-Candidate-Snapshot', candidateSnapshot.id);
+      if (candidateSnapshot.sourceWatermarkHash) {
+        reply.header('X-HuisHype-Candidate-Source-Watermark', candidateSnapshot.sourceWatermarkHash);
+      }
       const queryTime = runtimeResult.generationTimeMs;
 
       // Log slow queries for monitoring
