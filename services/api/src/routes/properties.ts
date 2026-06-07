@@ -1290,7 +1290,7 @@ function buildPropertyWhereConditions(params: {
   lon?: number;
   radius: number;
 }) {
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [sql`p.status = 'active'`];
 
   if (params.city) {
     conditions.push(sql`p.city = ${params.city}`);

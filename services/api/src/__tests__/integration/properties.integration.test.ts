@@ -21,6 +21,7 @@ describe('Property routes', () => {
   jest.setTimeout(60000);
   let app: FastifyInstance;
   const seededPropertyIds: string[] = [];
+  let inactiveFixturePropertyId: string | null = null;
   const hermeticRemoteCountryCode = 'ZZ';
   const fixtureCity = 'Fixtureville';
   const nearbyFixture = { lon: 5.4697, lat: 51.4416 };
@@ -98,11 +99,24 @@ describe('Property routes', () => {
         lon: 4.9061,
         lat: 52.3686,
       },
+      {
+        street: 'Inactive Fixture Street',
+        houseNumber: 1,
+        city: fixtureCity,
+        postalCode: '9200ZZ',
+        status: 'inactive' as const,
+        lon: 5.472,
+        lat: 51.443,
+      },
     ];
 
     for (const property of fixtureProperties) {
       const created = await createIntegrationProperty(property);
       seededPropertyIds.push(created.id);
+
+      if (property.status === 'inactive') {
+        inactiveFixturePropertyId = created.id;
+      }
 
       if (property.street === 'Fixture Street' && property.houseNumber === 1) {
         await createIntegrationListing({
@@ -183,6 +197,25 @@ describe('Property routes', () => {
 
       for (const prop of body.data) {
         expect(prop.city).toBe(fixtureCity);
+      }
+    });
+
+    it('should exclude inactive properties from the public list', async () => {
+      expect(inactiveFixturePropertyId).toBeTruthy();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties?city=${encodeURIComponent(fixtureCity)}&limit=20`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.data.length).toBeGreaterThan(0);
+      expect(body.data.map((prop: { id: string }) => prop.id)).not.toContain(
+        inactiveFixturePropertyId
+      );
+      for (const prop of body.data) {
+        expect(prop.status).toBe('active');
       }
     });
 
