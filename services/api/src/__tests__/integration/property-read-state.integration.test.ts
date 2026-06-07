@@ -27,11 +27,14 @@ describe('Property read-state change advancement', () => {
   const cleanupPropertyIds: string[] = [];
   const cleanupUserIds: string[] = [];
   const cleanupSources = ['idealista'];
+  const readStateFundaUrlPattern = '%huis-read-state%';
+  const readStateFundaTitle = 'Read state listing submit';
   const originalFetch = global.fetch;
   const sourceServicesConfig = config.sourceServices as MutableSourceServices;
   const originalFundaApiKey = config.sourceServices.fundaApiKey;
 
   beforeAll(async () => {
+    await cleanupReadStateFundaListingRows();
     await db.execute(sql`DELETE FROM price_history WHERE source IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
     await db.execute(sql`DELETE FROM listings WHERE source_name IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
     await db.execute(sql`DELETE FROM ingest_sources WHERE source_name IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
@@ -46,6 +49,7 @@ describe('Property read-state change advancement', () => {
   });
 
   afterAll(async () => {
+    await cleanupReadStateFundaListingRows();
     await db.execute(sql`DELETE FROM price_history WHERE source IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
     await db.execute(sql`DELETE FROM listings WHERE source_name IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
     await db.execute(sql`DELETE FROM ingest_sources WHERE source_name IN (${sql.join(cleanupSources.map((source) => sql`${source}`), sql`, `)})`);
@@ -61,6 +65,35 @@ describe('Property read-state change advancement', () => {
 
     await app.close();
   });
+
+  async function cleanupReadStateFundaListingRows() {
+    await db.execute(sql`
+      DELETE FROM listing_preview_results
+      WHERE source_name = 'funda'
+        AND (
+          source_url_raw LIKE ${readStateFundaUrlPattern}
+          OR title = ${readStateFundaTitle}
+        )
+    `);
+    await db.execute(sql`
+      DELETE FROM canonical_listings
+      WHERE source_name = 'funda'
+        AND (
+          display_url LIKE ${readStateFundaUrlPattern}
+          OR title = ${readStateFundaTitle}
+        )
+    `);
+    await db.execute(sql`
+      DELETE FROM listing_observations
+      WHERE source_name = 'funda'
+        AND source_url_raw LIKE ${readStateFundaUrlPattern}
+    `);
+    await db.execute(sql`
+      DELETE FROM listing_candidate_handoffs
+      WHERE source_name = 'funda'
+        AND source_url_raw LIKE ${readStateFundaUrlPattern}
+    `);
+  }
 
   function jsonResponse(body: unknown, status = 200): Response {
     return {
@@ -162,7 +195,9 @@ describe('Property read-state change advancement', () => {
     const user = await createUser('read-state-listing-submitter');
     const property = await createProperty('Read State Listing Street', 6.103, 52.103);
     const initial = await changeVersion(property.id);
-    const submittedId = `${Date.now()}`.slice(-8);
+    const submittedId = `99${Date.now()}${Math.floor(Math.random() * 1_000_000)
+      .toString()
+      .padStart(6, '0')}`;
     const submittedUrl = `https://www.funda.nl/detail/koop/eindhoven/huis-read-state/${submittedId}/`;
     const canonicalUrl = `https://www.funda.nl/detail/${submittedId}/`;
     const mockFetchFn = jest.fn<typeof global.fetch>()

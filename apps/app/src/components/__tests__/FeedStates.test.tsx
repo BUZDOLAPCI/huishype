@@ -32,9 +32,17 @@ describe('FeedLoadingState', () => {
 
   it('renders loading indicator', () => {
     const { getByTestId, getByText } = render(<FeedLoadingState />);
+    const loadingState = getByTestId('feed-loading');
 
-    expect(getByTestId('feed-loading')).toBeTruthy();
+    expect(loadingState).toBeTruthy();
     expect(getByText('Loading properties...')).toBeTruthy();
+  });
+
+  it('keeps the loading surface transparent so the screen background remains visible', () => {
+    const { getByTestId } = render(<FeedLoadingState />);
+    const loadingState = getByTestId('feed-loading');
+
+    expect(loadingState.props.style).toEqual({ backgroundColor: 'transparent' });
   });
 
   it('renders Dutch loading copy when the app language is Dutch', async () => {

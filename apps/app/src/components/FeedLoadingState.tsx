@@ -9,7 +9,8 @@ export function FeedLoadingState() {
 
   return (
     <View
-      className="flex-1 items-center justify-center bg-warm-50"
+      className="flex-1 items-center justify-center"
+      style={{ backgroundColor: 'transparent' }}
       testID="feed-loading"
     >
       <ActivityIndicator size="large" color="#DE911D" />
