@@ -138,6 +138,35 @@ describe('PriceGuessSlider', () => {
     });
   });
 
+  it('resets local slider state when the property changes', async () => {
+    const { rerender } = render(
+      <PriceGuessSlider {...defaultProps} propertyId="prop-1" initialPrice={550000} />
+    );
+
+    fireEvent.press(screen.getByTestId('adjust-plus-10k'));
+    await waitFor(() => {
+      expect(screen.getByTestId('price-display').props.children).toEqual(
+        expect.stringMatching(/560/)
+      );
+    });
+
+    rerender(
+      <PriceGuessSlider
+        {...defaultProps}
+        propertyId="prop-2"
+        initialPrice={635000}
+        initialPriceSource="local_comparable_price_per_m2"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('price-display').props.children).toEqual(
+        expect.stringMatching(/635/)
+      );
+    });
+    expect(screen.getByText(/Comparable homes.*635/)).toBeTruthy();
+  });
+
   it('syncs an asynchronously loaded initialPrice before interaction', async () => {
     const { rerender } = render(
       <PriceGuessSlider {...defaultProps} officialValuation={300000} />

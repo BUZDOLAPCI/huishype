@@ -558,8 +558,15 @@ export function useMapInteraction(): UseMapInteractionReturn {
   // ── Selection state ─────────────────────────────────────────
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [highlightedCoordinate, setHighlightedCoordinate] = useState<[number, number] | null>(null);
-  const { data: selectedProperty, isLoading: selectedPropertyLoading } =
+  const { data: selectedPropertyQueryData, isLoading: selectedPropertyLoading } =
     useProperty(selectedPropertyId);
+  const selectedProperty = useMemo(() => {
+    if (!selectedPropertyId || selectedPropertyQueryData?.id !== selectedPropertyId) {
+      return null;
+    }
+
+    return selectedPropertyQueryData;
+  }, [selectedPropertyId, selectedPropertyQueryData]);
 
   // ── Preview group state ─────────────────────────────────────
   const [previewGroup, setPreviewGroup] = useState<PreviewGroup | null>(null);

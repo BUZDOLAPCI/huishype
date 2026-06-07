@@ -342,6 +342,41 @@ describe('useMapInteraction', () => {
       expect(result.current.selectedPropertyForSheet?.id).toBe('prop-1');
     });
 
+    it('does not expose stale property detail for a different selected property id', () => {
+      mockUseProperty.mockReturnValue({
+        data: {
+          id: 'prop-1',
+          address: 'Teststraat 1',
+          city: 'Eindhoven',
+          postalCode: '5611AA',
+          countryCode: 'NL',
+          geometry: { type: 'Point', coordinates: [5.47, 51.44] },
+          officialValuation: 350000,
+          askingPrice: 375000,
+          fmv: null,
+          aerialImageUrl: null,
+          thumbnailUrl: null,
+          yearBuilt: 1998,
+          floorAreaM2: 120,
+          likeCount: 0,
+          commentCount: 0,
+          guessCount: 0,
+        },
+        isLoading: false,
+      });
+
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setSelectedPropertyId('prop-2');
+      });
+
+      expect(result.current.selectedProperty).toBeNull();
+      expect(result.current.selectedPropertyForSheet).toBeNull();
+    });
+
     it('resetTransientUI clears modal, preview selection, and sheet index', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),

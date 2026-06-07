@@ -653,6 +653,44 @@ export function PriceGuessSlider({
   const lastHapticPrice = useRef(resolvedInitialPrice);
   const lastWOZCrossing = useRef<number | null>(null);
   const lastSyncedUserGuess = useRef<number | undefined>(userGuess);
+  const lastPropertyId = useRef(_propertyId);
+
+  useEffect(() => {
+    if (lastPropertyId.current === _propertyId) {
+      return;
+    }
+
+    lastPropertyId.current = _propertyId;
+    hasUserInteracted.current = false;
+    initialPriceSyncDone.current = initialPrice !== undefined || resolvedAskingPrice !== undefined;
+    hasLoggedShown.current = false;
+    lastHapticPrice.current = resolvedInitialPrice;
+    lastWOZCrossing.current = null;
+    lastSyncedUserGuess.current = userGuess;
+    setSliderStartPrice(resolvedInitialPrice);
+    setGuessedPrice(resolvedInitialPrice);
+    setIsNearWOZ(false);
+    setHasInteracted(false);
+    const nextRange = resolveSliderRange({ officialValuation, startPrice: resolvedInitialPrice });
+    thumbPosition.value = priceToPosition(resolvedInitialPrice, nextRange);
+    startAnalytics.current = buildStartAnalytics({
+      price: resolvedInitialPrice,
+      source: resolvedStartSource,
+      confidence: resolvedStartConfidence,
+      sampleSize: initialPriceSampleSize,
+    });
+  }, [
+    _propertyId,
+    initialPrice,
+    initialPriceSampleSize,
+    officialValuation,
+    resolvedAskingPrice,
+    resolvedInitialPrice,
+    resolvedStartConfidence,
+    resolvedStartSource,
+    thumbPosition,
+    userGuess,
+  ]);
 
   useEffect(() => {
     if (hasLoggedShown.current) {
