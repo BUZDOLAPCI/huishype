@@ -25,7 +25,7 @@ import { useT } from '@/src/i18n';
 const CARD_WIDTH = 280;
 const COMPACT_CLUSTER_CARD_WIDTH = Math.round(CARD_WIDTH * 0.85);
 const PREVIEW_ARROW_SIZE = 10;
-const PAGE_PROGRESS_DOT_COUNT = 4;
+const PAGE_PROGRESS_DOT_COUNT = 18;
 const SWIPE_ACTIVATION_DISTANCE = 18;
 const SWIPE_FLICK_DISTANCE = 12;
 const SWIPE_FLICK_VELOCITY = 0.35;
@@ -45,10 +45,66 @@ const COLORS = {
   gold600: '#DE911D',
 } as const;
 
-function getProgressDotIndex(currentIndex: number, total: number): number {
-  if (total <= 1) return 0;
-  const maxIndex = PAGE_PROGRESS_DOT_COUNT - 1;
-  return Math.round((currentIndex / (total - 1)) * maxIndex);
+type PageDotSegment = {
+  startIndex: number;
+  endIndex: number;
+};
+
+function getPageDotSegments(
+  total: number,
+  currentIndex: number,
+  maxDots = PAGE_PROGRESS_DOT_COUNT
+): PageDotSegment[] {
+  if (total <= 0) {
+    return [];
+  }
+
+  if (total <= maxDots) {
+    return Array.from({ length: total }, (_, index) => ({
+      startIndex: index,
+      endIndex: index,
+    }));
+  }
+
+  const centeredSingleCount = maxDots - 2;
+  const edgeSingleCount = maxDots - 1;
+  const centeredStartIndex = currentIndex - Math.floor(centeredSingleCount / 2);
+
+  let singleStartIndex = centeredStartIndex;
+  let singleEndIndex = singleStartIndex + centeredSingleCount - 1;
+
+  if (singleStartIndex <= 0) {
+    singleStartIndex = 0;
+    singleEndIndex = edgeSingleCount - 1;
+  } else if (singleEndIndex >= total - 1) {
+    singleEndIndex = total - 1;
+    singleStartIndex = total - edgeSingleCount;
+  }
+
+  const segments: PageDotSegment[] = [];
+
+  if (singleStartIndex > 0) {
+    segments.push({
+      startIndex: 0,
+      endIndex: singleStartIndex - 1,
+    });
+  }
+
+  for (let index = singleStartIndex; index <= singleEndIndex; index += 1) {
+    segments.push({
+      startIndex: index,
+      endIndex: index,
+    });
+  }
+
+  if (singleEndIndex < total - 1) {
+    segments.push({
+      startIndex: singleEndIndex + 1,
+      endIndex: total - 1,
+    });
+  }
+
+  return segments;
 }
 
 const SWIPE_COMMIT_DISTANCE = 40;
@@ -448,6 +504,9 @@ export function GroupPreviewCard({
   const visibleEndIndex = isCluster ? Math.min(properties.length - 1, carouselIndex + 1) : carouselIndex;
   const currentCarouselOffset = (carouselIndex - visibleStartIndex) * cardWidth;
   const visibleProperties = properties.slice(visibleStartIndex, visibleEndIndex + 1);
+  const visiblePageDotSegments = isCluster
+    ? getPageDotSegments(properties.length, currentIndex)
+    : [];
 
   const cardBody = (
     <View
@@ -531,18 +590,24 @@ export function GroupPreviewCard({
           </View>
 
           <View style={styles.pageDotsRow} testID="group-preview-page-dots">
-            {Array.from({ length: PAGE_PROGRESS_DOT_COUNT }, (_, index) => (
-              <View
-                key={`page-dot-${index}`}
-                testID="group-preview-page-dot"
-                style={[
-                  styles.pageDot,
-                  index === getProgressDotIndex(currentIndex, properties.length)
-                    ? styles.pageDotActive
-                    : styles.pageDotInactive,
-                ]}
-              />
-            ))}
+            {visiblePageDotSegments.map(({ startIndex, endIndex }) => {
+              const isGrouped = endIndex > startIndex;
+              const isActive = currentIndex >= startIndex && currentIndex <= endIndex;
+
+              return (
+                <View
+                  key={`page-dot-${startIndex}-${endIndex}`}
+                  testID="group-preview-page-dot"
+                  style={[
+                    styles.pageDot,
+                    isGrouped && styles.pageDotGrouped,
+                    isActive
+                      ? styles.pageDotActive
+                      : styles.pageDotInactive,
+                  ]}
+                />
+              );
+            })}
           </View>
         </View>
       )}
@@ -735,6 +800,9 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 3.5,
+  },
+  pageDotGrouped: {
+    width: 20,
   },
   pageDotActive: {
     backgroundColor: COLORS.gold500,

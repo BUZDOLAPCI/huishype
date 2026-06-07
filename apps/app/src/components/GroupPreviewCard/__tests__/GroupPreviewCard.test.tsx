@@ -123,6 +123,20 @@ function flattenNodeStyle(testID: string) {
   return flattenStyle(screen.getByTestId(testID).props.style);
 }
 
+function getPageDots() {
+  return screen.queryAllByTestId('group-preview-page-dot');
+}
+
+function getActivePageDotPosition(): number {
+  return getPageDots().findIndex((dot) => (
+    flattenStyle(dot.props.style).backgroundColor === '#F5A623'
+  ));
+}
+
+function getPageDotWidths(): unknown[] {
+  return getPageDots().map((dot) => flattenStyle(dot.props.style).width);
+}
+
 function flattenStyle(style: unknown): Record<string, unknown> {
   if (Array.isArray(style)) {
     return style.reduce<Record<string, unknown>>(
@@ -630,6 +644,74 @@ describe('GroupPreviewCard', () => {
       expect(screen.getByTestId('group-preview-nav-left')).toBeTruthy();
       expect(screen.getByTestId('group-preview-nav-right')).toBeTruthy();
       expect(screen.getByTestId('group-preview-page-indicator')).toBeTruthy();
+    });
+
+    it.each([
+      { propertyCount: 5, expectedDotCount: 5 },
+      { propertyCount: 18, expectedDotCount: 18 },
+      { propertyCount: 30, expectedDotCount: 18 },
+    ])('renders $expectedDotCount pagination dots for $propertyCount properties', ({ propertyCount, expectedDotCount }) => {
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(propertyCount)}
+          currentIndex={0}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(getPageDots()).toHaveLength(expectedDotCount);
+    });
+
+    it.each([
+      { label: 'beginning', currentIndex: 0, expectedActiveDotPosition: 0 },
+      { label: 'middle', currentIndex: 16, expectedActiveDotPosition: 9 },
+      { label: 'end', currentIndex: 29, expectedActiveDotPosition: 17 },
+    ])('keeps the active pagination dot on the current property near the $label', ({ currentIndex, expectedActiveDotPosition }) => {
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(30)}
+          currentIndex={currentIndex}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(getPageDots()).toHaveLength(18);
+      expect(getActivePageDotPosition()).toBe(expectedActiveDotPosition);
+    });
+
+    it('renders only far-end overflow as longer markers when capped', () => {
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(30)}
+          currentIndex={16}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      const pageDotWidths = getPageDotWidths();
+      const activeDotPosition = getActivePageDotPosition();
+
+      expect(pageDotWidths[0]).toBe(20);
+      expect(pageDotWidths[pageDotWidths.length - 1]).toBe(20);
+      expect(pageDotWidths[activeDotPosition - 1]).toBe(7);
+      expect(pageDotWidths[activeDotPosition]).toBe(7);
+      expect(pageDotWidths[activeDotPosition + 1]).toBe(7);
+    });
+
+    it('keeps one-property pagination dots compact before the cap', () => {
+      render(
+        <GroupPreviewCard
+          properties={makeProperties(18)}
+          currentIndex={9}
+          onIndexChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      );
+
+      expect(getPageDotWidths()).toEqual(Array.from({ length: 18 }, () => 7));
     });
 
     it('shows correct page text', () => {

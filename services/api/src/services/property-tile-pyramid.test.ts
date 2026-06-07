@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
+import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import {
   buildPropertyTilePyramidBuildIdentitySnapshots,
   buildPropertyTilePyramidBuildInputsHash,
@@ -165,7 +166,7 @@ describe('property tile pyramid service helpers', () => {
         cluster: {
           membershipComplete: false,
           readStateCoverage: 'partial',
-          previewPropertyIdsLimit: 30,
+          previewPropertyIdsLimit: PROPERTY_PREVIEW_MEMBER_LIMIT,
           tapRadiusPx: 36,
         },
       },
