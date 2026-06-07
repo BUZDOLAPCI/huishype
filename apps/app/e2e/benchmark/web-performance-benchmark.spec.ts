@@ -10,16 +10,17 @@ import {
 } from '@playwright/test';
 import path from 'node:path';
 import {
-  BENCHMARK_ROUTES,
   aggregateRouteBenchmark,
   type BenchmarkCacheMode,
   type BenchmarkRouteConfig,
   captureGitMetadata,
+  type FeedPaginationScrollSummary,
   type FeedScrollSummary,
   type FeedScrollSettleSummary,
   getBenchmarkCacheModes,
   getBenchmarkMeasuredRuns,
   getBenchmarkResultDir,
+  getBenchmarkRoutes,
   getBenchmarkWarmupRuns,
   type MainThreadLongTaskSummary,
   normalizeEndpointUrl,
@@ -36,6 +37,15 @@ import {
 } from '../helpers/benchmark';
 import { attachConsoleErrorCollector, NETWORK_ALLOWED_CONSOLE_PATTERNS } from '../helpers/console';
 
+const FEED_LIST_SELECTOR = '[data-testid="feed-list"], [data-testid="activity-feed-list"]';
+const FEED_ITEM_SELECTOR = '[data-testid="property-feed-card"], [data-testid="property-activity-card"]';
+const FEED_READY_SELECTOR = [
+  '[data-testid="property-feed-card"]',
+  '[data-testid="property-activity-card"]',
+  '[data-testid="feed-empty"]',
+  '[data-testid="feed-error"]',
+].join(', ');
+
 type NavigationMetric = RouteBenchmarkSample['navigation'];
 type NavigationAction = 'goto' | 'reload';
 type CdpRequestWillBeSentEvent = { requestId: string; request: { url: string } };
@@ -51,7 +61,7 @@ test.describe('Web performance benchmark harness', () => {
   test('captures route benchmark metrics and writes durable artifacts', async ({ browser }) => {
     const warmupRuns = getBenchmarkWarmupRuns();
     const measuredRuns = getBenchmarkMeasuredRuns();
-    const routeEntries = Object.entries(BENCHMARK_ROUTES);
+    const routeEntries = getBenchmarkRoutes();
     const cacheModes = getBenchmarkCacheModes();
 
     test.setTimeout(
@@ -296,6 +306,7 @@ async function benchmarkFeedRoute(
 
   const navigation = await readNavigationMetric(page, startedAt);
   const feed = await waitForFeedReady(page, startedAt);
+  const paginationScroll = feed.state === 'cards' ? await measureFeedPaginationScroll(page) : undefined;
   const scrollSettle = feed.state === 'cards' ? await waitForFeedScrollSettle(page) : undefined;
   const scroll = feed.state === 'cards' ? await measureFeedScroll(page) : undefined;
   await page.waitForTimeout(1000);
@@ -319,6 +330,7 @@ async function benchmarkFeedRoute(
     renderProbes,
     feed: {
       ...feed,
+      paginationScroll,
       scrollSettle,
       scroll,
     },
@@ -611,20 +623,14 @@ async function waitForFeedReady(
   page: Page,
   startedAt: number,
 ): Promise<NonNullable<RouteBenchmarkSample['feed']>> {
-  await page.waitForSelector(
-    [
-      '[data-testid="feed-screen"]',
-      '[data-testid="feed-empty"]',
-      '[data-testid="feed-error"]',
-      '[data-testid="property-feed-card"]',
-    ].join(', '),
-    { timeout: 45_000 },
-  );
+  await page.waitForSelector(FEED_READY_SELECTOR, { timeout: 45_000 });
 
   const renderMs = performance.now() - startedAt;
   const state = await page.evaluate((): Pick<NonNullable<RouteBenchmarkSample['feed']>, 'itemCount' | 'state'> => {
-    const count = document.querySelectorAll('[data-testid="property-feed-card"]').length;
-    const hasCards = count > 0 || Boolean(document.querySelector('[data-testid="feed-screen"]'));
+    const count = document.querySelectorAll(
+      '[data-testid="property-feed-card"], [data-testid="property-activity-card"]'
+    ).length;
+    const hasCards = count > 0;
     const state = hasCards
       ? 'cards'
       : document.querySelector('[data-testid="feed-empty"]')
@@ -645,10 +651,115 @@ async function waitForFeedReady(
   };
 }
 
+async function measureFeedPaginationScroll(page: Page): Promise<FeedPaginationScrollSummary> {
+  const startedAt = performance.now();
+  const beforeItemCount = await readFeedItemCount(page);
+  let paginationRequestMs: number | null = null;
+  let resolvePaginationRequestSeen: (() => void) | null = null;
+  const paginationRequestSeen = new Promise<void>((resolve) => {
+    resolvePaginationRequestSeen = resolve;
+  });
+  const onRequest = (request: Request) => {
+    if (!isFeedPaginationRequest(request)) {
+      return;
+    }
+
+    paginationRequestMs = performance.now() - startedAt;
+    resolvePaginationRequestSeen?.();
+  };
+
+  page.on('request', onRequest);
+
+  await scrollFeedListWithWheel(page);
+
+  try {
+    await Promise.race([
+      paginationRequestSeen,
+      page.waitForFunction(
+        (selectorAndCount) => {
+          const { selector, beforeCount } = selectorAndCount as {
+            selector: string;
+            beforeCount: number;
+          };
+          return document.querySelectorAll(selector).length > beforeCount;
+        },
+        { selector: FEED_ITEM_SELECTOR, beforeCount: beforeItemCount },
+        { timeout: 3000, polling: 100 },
+      ).catch((error: unknown) => {
+        if (!isPlaywrightTimeoutError(error)) {
+          throw error;
+        }
+      }),
+      page.waitForTimeout(3000),
+    ]);
+  } finally {
+    page.off('request', onRequest);
+  }
+
+  await page.waitForTimeout(250);
+
+  const afterItemCount = await readFeedItemCount(page);
+  return {
+    elapsedMs: performance.now() - startedAt,
+    beforeItemCount,
+    afterItemCount,
+    paginationRequestMs,
+    paginationRequestObserved: paginationRequestMs !== null,
+    itemCountIncreased: afterItemCount > beforeItemCount,
+  };
+}
+
+async function scrollFeedListWithWheel(page: Page): Promise<void> {
+  const listLocator = page.locator(FEED_LIST_SELECTOR).first();
+  const listBox = await listLocator.boundingBox().catch(() => null);
+  const fallbackBox = await page.locator('[data-testid="feed-screen"]').boundingBox().catch(() => null);
+  const box = listBox ?? fallbackBox;
+
+  if (box) {
+    await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height - 8, box.height / 2));
+  }
+
+  for (let index = 0; index < 4; index += 1) {
+    await page.mouse.wheel(0, 900);
+    await page.waitForTimeout(100);
+  }
+}
+
+async function readFeedItemCount(page: Page): Promise<number> {
+  return await page.evaluate(
+    (selector) => document.querySelectorAll(selector).length,
+    FEED_ITEM_SELECTOR,
+  );
+}
+
+function isFeedPaginationRequest(request: Request): boolean {
+  if (request.resourceType() !== 'fetch' && request.resourceType() !== 'xhr') {
+    return false;
+  }
+
+  try {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/feed')) {
+      const pageParam = Number.parseInt(url.searchParams.get('page') || '1', 10);
+      return Number.isFinite(pageParam) && pageParam > 1;
+    }
+
+    if (url.pathname.endsWith('/activity/properties')) {
+      const offsetParam = Number.parseInt(url.searchParams.get('offset') || '0', 10);
+      return Number.isFinite(offsetParam) && offsetParam > 0;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 async function measureFeedScroll(page: Page): Promise<FeedScrollSummary> {
   return await page.evaluate(async () => {
     const candidates = [
       document.querySelector('[data-testid="feed-list"]'),
+      document.querySelector('[data-testid="activity-feed-list"]'),
       document.querySelector('[data-testid="feed-screen"]'),
       document.scrollingElement,
       document.documentElement,
@@ -729,9 +840,12 @@ async function waitForFeedScrollSettle(page: Page): Promise<FeedScrollSettleSumm
       });
 
       const readSignature = () => {
-        const cards = document.querySelectorAll('[data-testid="property-feed-card"]').length;
+        const cards = document.querySelectorAll(
+          '[data-testid="property-feed-card"], [data-testid="property-activity-card"]'
+        ).length;
         const element = (
           document.querySelector('[data-testid="feed-list"]') ||
+          document.querySelector('[data-testid="activity-feed-list"]') ||
           document.querySelector('[data-testid="feed-screen"]') ||
           document.scrollingElement ||
           document.documentElement

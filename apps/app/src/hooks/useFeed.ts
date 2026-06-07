@@ -205,6 +205,40 @@ function hideOfficialValuationForFeedProperty(
     : property;
 }
 
+function applyOfficialValuationPatchToFeedProperties(
+  properties: FeedProperty[],
+  patch: OfficialValuationPatch
+): FeedProperty[] {
+  let changed = false;
+  const nextProperties = properties.map((property) => {
+    if (property.id !== patch.propertyId) {
+      return property;
+    }
+
+    changed = true;
+    return applyOfficialValuationPatchToFeedProperty(property, patch);
+  });
+
+  return changed ? nextProperties : properties;
+}
+
+function hideOfficialValuationForFeedProperties(
+  properties: FeedProperty[],
+  propertyId: string
+): FeedProperty[] {
+  let changed = false;
+  const nextProperties = properties.map((property) => {
+    if (property.id !== propertyId) {
+      return property;
+    }
+
+    changed = true;
+    return hideOfficialValuationForFeedProperty(property, propertyId);
+  });
+
+  return changed ? nextProperties : properties;
+}
+
 // Fetch from dedicated /feed endpoint
 async function fetchFeed(
   page: number = 1,
@@ -278,12 +312,13 @@ export function useFeed(
         meta: { page: number; limit: number; hasMore: boolean };
       }>({ queryKey: feedKeys.lists() }, (current) =>
         current
-          ? {
-              ...current,
-              properties: current.properties.map((property) =>
-                applyOfficialValuationPatchToFeedProperty(property, patch)
-              ),
-            }
+          ? (() => {
+              const properties = applyOfficialValuationPatchToFeedProperties(
+                current.properties,
+                patch
+              );
+              return properties === current.properties ? current : { ...current, properties };
+            })()
           : current
       );
     },
@@ -296,12 +331,13 @@ export function useFeed(
         meta: { page: number; limit: number; hasMore: boolean };
       }>({ queryKey: feedKeys.lists() }, (current) =>
         current
-          ? {
-              ...current,
-              properties: current.properties.map((property) =>
-                hideOfficialValuationForFeedProperty(property, propertyId)
-              ),
-            }
+          ? (() => {
+              const properties = hideOfficialValuationForFeedProperties(
+                current.properties,
+                propertyId
+              );
+              return properties === current.properties ? current : { ...current, properties };
+            })()
           : current
       );
     },
@@ -324,7 +360,11 @@ export function useInfiniteFeed(
   filter: PropertyFeedFilter = 'trending',
   scope?: FeedScope,
   enabled = true,
-  sharedFilters?: MapFilters
+  sharedFilters?: MapFilters,
+  options?: {
+    hydrationPropertyIds?: readonly string[];
+    initialHydrationItemCount?: number;
+  }
 ) {
   const queryClient = useQueryClient();
   const query = useInfiniteQuery({
@@ -343,6 +383,25 @@ export function useInfiniteFeed(
     () => query.data?.pages.flatMap((page) => page.properties) ?? [],
     [query.data?.pages]
   );
+  const hydrationPropertyIdSet = useMemo(() => {
+    const ids = options?.hydrationPropertyIds;
+    return ids ? new Set(ids) : null;
+  }, [options?.hydrationPropertyIds]);
+  const hydrationProperties = useMemo(() => {
+    const initialHydrationItemCount = Math.max(options?.initialHydrationItemCount ?? 0, 0);
+    if (!hydrationPropertyIdSet && initialHydrationItemCount === 0) {
+      return visibleProperties;
+    }
+
+    if (hydrationPropertyIdSet?.size === 0 && initialHydrationItemCount === 0) {
+      return [];
+    }
+
+    return visibleProperties.filter(
+      (property, index) =>
+        index < initialHydrationItemCount || hydrationPropertyIdSet?.has(property.id)
+    );
+  }, [hydrationPropertyIdSet, options?.initialHydrationItemCount, visibleProperties]);
   const patchFeedProperty = useCallback(
     (patch: OfficialValuationPatch) => {
       queryClient.setQueriesData<{
@@ -353,15 +412,20 @@ export function useInfiniteFeed(
         pageParams: unknown[];
       }>({ queryKey: [...feedKeys.all, 'infinite'] }, (current) =>
         current
-          ? {
-              ...current,
-              pages: current.pages.map((page) => ({
-                ...page,
-                properties: page.properties.map((property) =>
-                  applyOfficialValuationPatchToFeedProperty(property, patch)
-                ),
-              })),
-            }
+          ? (() => {
+              let changed = false;
+              const pages = current.pages.map((page) => {
+                const properties = applyOfficialValuationPatchToFeedProperties(
+                  page.properties,
+                  patch
+                );
+                if (properties !== page.properties) {
+                  changed = true;
+                }
+                return properties === page.properties ? page : { ...page, properties };
+              });
+              return changed ? { ...current, pages } : current;
+            })()
           : current
       );
     },
@@ -377,22 +441,27 @@ export function useInfiniteFeed(
         pageParams: unknown[];
       }>({ queryKey: [...feedKeys.all, 'infinite'] }, (current) =>
         current
-          ? {
-              ...current,
-              pages: current.pages.map((page) => ({
-                ...page,
-                properties: page.properties.map((property) =>
-                  hideOfficialValuationForFeedProperty(property, propertyId)
-                ),
-              })),
-            }
+          ? (() => {
+              let changed = false;
+              const pages = current.pages.map((page) => {
+                const properties = hideOfficialValuationForFeedProperties(
+                  page.properties,
+                  propertyId
+                );
+                if (properties !== page.properties) {
+                  changed = true;
+                }
+                return properties === page.properties ? page : { ...page, properties };
+              });
+              return changed ? { ...current, pages } : current;
+            })()
           : current
       );
     },
     [queryClient]
   );
   useVisibleOfficialValuationHydration({
-    properties: visibleProperties,
+    properties: hydrationProperties,
     enabled,
     onValue: patchFeedProperty,
     onHidden: hideFeedProperty,

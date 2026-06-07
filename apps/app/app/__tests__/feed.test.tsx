@@ -569,7 +569,8 @@ describe('FeedScreen following surface', () => {
         lon: 5.4697,
       },
       true,
-      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES }),
+      expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 })
     );
     expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
       'public',
@@ -588,7 +589,8 @@ describe('FeedScreen following surface', () => {
           lon: 5.4697,
         },
         false,
-        expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+        expect.objectContaining({ marketState: DEFAULT_MARKET_STATES }),
+        expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 })
       );
       expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
         'following',
@@ -633,7 +635,8 @@ describe('FeedScreen following surface', () => {
         lon: 5.4697,
       },
       true,
-      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES }),
+      expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 })
     );
   });
 
@@ -726,7 +729,8 @@ describe('FeedScreen following surface', () => {
         lon: 13.405,
       },
       true,
-      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES }),
+      expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 })
     );
   });
 
@@ -747,7 +751,8 @@ describe('FeedScreen following surface', () => {
       'trending',
       undefined,
       false,
-      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+      expect.objectContaining({ marketState: DEFAULT_MARKET_STATES }),
+      expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 })
     );
   });
 
@@ -806,6 +811,7 @@ describe('FeedScreen following surface', () => {
             }),
           ],
         }),
+        expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 }),
       ]);
       expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
         'public',
@@ -873,6 +879,9 @@ describe('FeedScreen following surface', () => {
           ]),
         })
       );
+      expect(lastPropertyFeedCall?.[4]).toEqual(
+        expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 })
+      );
     });
     expect(window.location.pathname + window.location.search).toBe(
       '/feed?area=street%3ANL%3Acentrum%3Acity%3Dutrecht'
@@ -911,7 +920,8 @@ describe('FeedScreen following surface', () => {
               city: 'Eindhoven',
             }),
           ],
-        })
+        }),
+        expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 })
       );
     });
     expect(window.location.pathname + window.location.search).toBe(

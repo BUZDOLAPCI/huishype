@@ -20,6 +20,12 @@ export const BENCHMARK_ROUTES = {
   highZoom16: { route: '/@51.4416000,5.4697000,16z?hhBenchmark=1', surface: 'map' },
   highZoom17: { route: '/@51.4416000,5.4697000,17z?hhBenchmark=1', surface: 'map' },
   feedTrending: { route: '/feed?hhBenchmark=1', surface: 'feed' },
+  feedLatest: { route: '/feed?feedTab=latest&hhBenchmark=1', surface: 'feed' },
+  feedRecentActivity: { route: '/feed?feedTab=recent-activity&hhBenchmark=1', surface: 'feed' },
+  feedFilteredEindhovenSale: {
+    route: '/feed?feedTab=latest&marketState=for-sale&area=city%3ANL%3Aeindhoven&hhBenchmark=1',
+    surface: 'feed',
+  },
 } as const;
 
 const VOLATILE_QUERY_KEYS = new Set(['access_token', 'token', 'ts', 'timestamp']);
@@ -126,6 +132,15 @@ export type FeedScrollSettleSummary = {
   networkIdleTimedOut: boolean;
 };
 
+export type FeedPaginationScrollSummary = {
+  elapsedMs: number;
+  beforeItemCount: number;
+  afterItemCount: number;
+  paginationRequestMs: number | null;
+  paginationRequestObserved: boolean;
+  itemCountIncreased: boolean;
+};
+
 export type MainThreadLongTaskSummary = {
   supported: boolean;
   count: number;
@@ -185,6 +200,7 @@ export type RouteBenchmarkSample = {
     state: 'cards' | 'empty' | 'error' | 'unknown';
     scrollSettle?: FeedScrollSettleSummary;
     scroll?: FeedScrollSummary;
+    paginationScroll?: FeedPaginationScrollSummary;
   };
 };
 
@@ -280,6 +296,16 @@ export type RouteBenchmarkResult = {
         worstFrameMs: NumberSummary;
         averageFrameMs: NumberSummary;
       };
+      paginationScroll?: {
+        elapsedMs: NumberSummary;
+        beforeItemCount: NumberSummary;
+        afterItemCount: NumberSummary;
+        paginationRequestMs: NumberSummary;
+        requestObserved: number;
+        requestObservedRate: number;
+        itemCountIncreased: number;
+        itemCountIncreasedRate: number;
+      };
     };
     mainThread: {
       longTaskCount: NumberSummary;
@@ -326,6 +352,33 @@ export function getBenchmarkCacheModes(): BenchmarkCacheMode[] {
     modes.push('backend-cold');
   }
   return modes;
+}
+
+export function getBenchmarkRoutes(): Array<[RouteKey, BenchmarkRouteConfig]> {
+  const routeEntries = Object.entries(BENCHMARK_ROUTES) as Array<[RouteKey, BenchmarkRouteConfig]>;
+  const rawRouteKeys = process.env.BENCHMARK_ROUTE_KEYS;
+  if (!rawRouteKeys) {
+    return routeEntries;
+  }
+
+  const requestedKeys = rawRouteKeys
+    .split(',')
+    .map((key: string) => key.trim())
+    .filter(Boolean);
+  if (requestedKeys.length === 0) {
+    return routeEntries;
+  }
+
+  const availableKeys = new Set(routeEntries.map(([key]) => key));
+  const unknownKeys = requestedKeys.filter((key: string) => !availableKeys.has(key as RouteKey));
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `Unknown BENCHMARK_ROUTE_KEYS value(s): ${unknownKeys.join(', ')}. Available route keys: ${[...availableKeys].join(', ')}`
+    );
+  }
+
+  const requestedKeySet = new Set(requestedKeys);
+  return routeEntries.filter(([key]) => requestedKeySet.has(key));
 }
 
 export function getBenchmarkResultDir(): string {
@@ -847,6 +900,15 @@ export function aggregateRouteBenchmark(
         feed: RouteBenchmarkSample['feed'] & { scrollSettle: FeedScrollSettleSummary };
       } => Boolean(sample.feed.scrollSettle)
     );
+    const paginationScrollSamples = feedSamples.filter(
+      (
+        sample
+      ): sample is RouteBenchmarkSample & {
+        feed: RouteBenchmarkSample['feed'] & {
+          paginationScroll: FeedPaginationScrollSummary;
+        };
+      } => Boolean(sample.feed.paginationScroll)
+    );
     if (scrollSettleSamples.length > 0) {
       const timeouts = scrollSettleSamples.filter(
         (sample) => sample.feed.scrollSettle.timedOut
@@ -879,6 +941,32 @@ export function aggregateRouteBenchmark(
         averageFrameMs: summarizeNumbers(
           scrollSamples.map((sample) => sample.feed.scroll.averageFrameMs)
         ),
+      };
+    }
+    if (paginationScrollSamples.length > 0) {
+      const requestObserved = paginationScrollSamples.filter(
+        (sample) => sample.feed.paginationScroll.paginationRequestObserved
+      ).length;
+      const itemCountIncreased = paginationScrollSamples.filter(
+        (sample) => sample.feed.paginationScroll.itemCountIncreased
+      ).length;
+      summary.feed.paginationScroll = {
+        elapsedMs: summarizeNumbers(
+          paginationScrollSamples.map((sample) => sample.feed.paginationScroll.elapsedMs)
+        ),
+        beforeItemCount: summarizeNumbers(
+          paginationScrollSamples.map((sample) => sample.feed.paginationScroll.beforeItemCount)
+        ),
+        afterItemCount: summarizeNumbers(
+          paginationScrollSamples.map((sample) => sample.feed.paginationScroll.afterItemCount)
+        ),
+        paginationRequestMs: summarizeNumbers(
+          paginationScrollSamples.map((sample) => sample.feed.paginationScroll.paginationRequestMs)
+        ),
+        requestObserved,
+        requestObservedRate: requestObserved / paginationScrollSamples.length,
+        itemCountIncreased,
+        itemCountIncreasedRate: itemCountIncreased / paginationScrollSamples.length,
       };
     }
   }
@@ -1071,6 +1159,20 @@ function renderBenchmarkMarkdown(benchmarkRun: BenchmarkRun): string {
         );
         lines.push(
           `- feed worst frame median: ${formatSummaryMs(route.summary.feed.scroll.worstFrameMs)}`
+        );
+      }
+      if (route.summary.feed.paginationScroll) {
+        lines.push(
+          `- feed pagination scroll median: ${formatSummaryMs(route.summary.feed.paginationScroll.elapsedMs)}`
+        );
+        lines.push(
+          `- feed pagination request median: ${formatSummaryMs(route.summary.feed.paginationScroll.paginationRequestMs)}`
+        );
+        lines.push(
+          `- feed pagination requests observed: ${route.summary.feed.paginationScroll.requestObserved} (${formatPercent(route.summary.feed.paginationScroll.requestObservedRate)})`
+        );
+        lines.push(
+          `- feed pagination item increases: ${route.summary.feed.paginationScroll.itemCountIncreased} (${formatPercent(route.summary.feed.paginationScroll.itemCountIncreasedRate)})`
         );
       }
     }

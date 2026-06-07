@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchCurrentOfficialValuationStatus,
   submitOfficialValuationHydration,
@@ -103,6 +103,19 @@ export function useVisibleOfficialValuationHydration({
   onHidden,
 }: UseVisibleOfficialValuationHydrationOptions): Set<string> {
   const [hiddenPropertyIds, setHiddenPropertyIds] = useState<Set<string>>(() => new Set());
+  const activePropertyIdsRef = useRef<Set<string>>(new Set());
+  const completedPropertyIdsRef = useRef<Set<string>>(new Set());
+  const runGenerationRef = useRef(0);
+  const getAccessTokenRef = useRef(getAccessToken);
+  const onValueRef = useRef(onValue);
+  const onHiddenRef = useRef(onHidden);
+
+  useEffect(() => {
+    getAccessTokenRef.current = getAccessToken;
+    onValueRef.current = onValue;
+    onHiddenRef.current = onHidden;
+  }, [getAccessToken, onHidden, onValue]);
+
   const visibleProperties = useMemo(() => {
     const byId = new Map<string, VisibleOfficialValuationProperty>();
     for (const property of properties) {
@@ -117,16 +130,27 @@ export function useVisibleOfficialValuationHydration({
   }, [properties]);
 
   useEffect(() => {
-    if (!enabled || visibleProperties.length === 0) {
+    if (!enabled) {
+      runGenerationRef.current += 1;
+      activePropertyIdsRef.current.clear();
       return undefined;
     }
 
-    let cancelled = false;
+    if (visibleProperties.length === 0) {
+      return undefined;
+    }
+
+    const generation = runGenerationRef.current;
+    const isCancelled = () => generation !== runGenerationRef.current;
+    const completeProperty = (propertyId: string) => {
+      completedPropertyIdsRef.current.add(propertyId);
+    };
 
     const hideProperty = (propertyId: string) => {
-      if (cancelled) {
+      if (isCancelled()) {
         return;
       }
+      completeProperty(propertyId);
       setHiddenPropertyIds((current) => {
         if (current.has(propertyId)) {
           return current;
@@ -135,13 +159,14 @@ export function useVisibleOfficialValuationHydration({
         next.add(propertyId);
         return next;
       });
-      onHidden?.(propertyId);
+      onHiddenRef.current?.(propertyId);
     };
 
     const applyPatch = (patch: OfficialValuationPatch) => {
-      if (cancelled) {
+      if (isCancelled()) {
         return;
       }
+      completeProperty(patch.propertyId);
       setHiddenPropertyIds((current) => {
         if (!current.has(patch.propertyId)) {
           return current;
@@ -150,15 +175,23 @@ export function useVisibleOfficialValuationHydration({
         next.delete(patch.propertyId);
         return next;
       });
-      onValue?.(patch);
+      onValueRef.current?.(patch);
     };
 
     for (const property of visibleProperties) {
+      if (
+        activePropertyIdsRef.current.has(property.id) ||
+        completedPropertyIdsRef.current.has(property.id)
+      ) {
+        continue;
+      }
+
+      activePropertyIdsRef.current.add(property.id);
       void (async () => {
         const startedAt = Date.now();
         try {
-          const accessToken = await getAccessToken?.();
-          if (cancelled) {
+          const accessToken = await getAccessTokenRef.current?.();
+          if (isCancelled()) {
             return;
           }
 
@@ -181,14 +214,14 @@ export function useVisibleOfficialValuationHydration({
 
           let pollCount = 0;
           while (
-            !cancelled &&
+            !isCancelled() &&
             Date.now() - startedAt < OFFICIAL_VALUATION_HYDRATION_TIMEOUT_MS &&
             pollCount < OFFICIAL_VALUATION_MAX_POLLS
           ) {
             pollCount += 1;
             const remaining = OFFICIAL_VALUATION_HYDRATION_TIMEOUT_MS - (Date.now() - startedAt);
             await delay(Math.min(OFFICIAL_VALUATION_POLL_INTERVAL_MS, Math.max(remaining, 0)));
-            if (cancelled) {
+            if (isCancelled()) {
               return;
             }
 
@@ -211,14 +244,22 @@ export function useVisibleOfficialValuationHydration({
         } catch (error) {
           console.warn('[HuisHype] official valuation hydration failed:', error);
           hideProperty(property.id);
+        } finally {
+          activePropertyIdsRef.current.delete(property.id);
         }
       })();
     }
 
+    return undefined;
+  }, [enabled, visibleProperties]);
+
+  useEffect(() => {
+    const activePropertyIds = activePropertyIdsRef.current;
     return () => {
-      cancelled = true;
+      runGenerationRef.current += 1;
+      activePropertyIds.clear();
     };
-  }, [enabled, getAccessToken, onHidden, onValue, visibleProperties]);
+  }, []);
 
   return hiddenPropertyIds;
 }
