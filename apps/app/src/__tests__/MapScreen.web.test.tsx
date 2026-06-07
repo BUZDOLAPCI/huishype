@@ -1,7 +1,7 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared/config';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR, viewportAnchorToOffset } from '@/src/lib/mapCameraAnchor';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import { PROPERTY_TILE_TIMEOUT_EMPTY_EXHAUSTED_EVENT } from '@/src/lib/propertyTileRetryProtocol';
@@ -1180,7 +1180,7 @@ describe('MapScreen web grouped Following mode', () => {
   it('seeds direct preview loads so Back dismisses the card in place', async () => {
     mockPreviewRouteInputs();
     const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
-    const fallbackCameraPath = `/@51.44,5.47,${PROPERTY_GHOST_REVEAL_ZOOM + 1}z`;
+    const fallbackCameraPath = `/@51.44,5.47,${PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM + 1}z`;
     const routeNavigation = jest.fn();
     const previewProperty = {
       id: 'property-a',
@@ -1268,7 +1268,7 @@ describe('MapScreen web grouped Following mode', () => {
 
   it('anchors direct preview route camera movement to the preview card viewport position', async () => {
     const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
-    const fallbackCameraPath = `/@51.44,5.47,${PROPERTY_GHOST_REVEAL_ZOOM + 1}z`;
+    const fallbackCameraPath = `/@51.44,5.47,${PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM + 1}z`;
     const previewProperty = {
       id: 'property-a',
       address: 'Beeldbuisring 41',
@@ -1349,7 +1349,7 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockPushBrowserPath).toHaveBeenCalledWith(previewPath);
     expect(map.flyTo).toHaveBeenCalledWith({
       center: [5.47, 51.44],
-      zoom: PROPERTY_GHOST_REVEAL_ZOOM + 1,
+      zoom: PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM + 1,
       duration: 1000,
       essential: true,
       offset: [
@@ -1401,7 +1401,7 @@ describe('MapScreen web grouped Following mode', () => {
 
     expect(map.flyTo).toHaveBeenCalledWith({
       center: [5.47, 51.44],
-      zoom: PROPERTY_GHOST_REVEAL_ZOOM + 1,
+      zoom: PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM + 1,
       duration: 1000,
       essential: true,
       offset: [
@@ -1933,7 +1933,6 @@ describe('MapScreen web grouped Following mode', () => {
     expect(JSON.stringify(activeNodeFillLayer?.paint?.['circle-opacity'])).toContain('feature-state');
     expect(readActiveNodeFillLayer?.paint?.['circle-opacity']).toBe(0);
     expect(readLayerIds).not.toContain('read-cluster-count');
-    expect(readLayerIds).not.toContain('read-ghost-cluster-count');
     expect(map.options.transformRequest?.('https://tiles.test/properties/read/12/2048/1363.pbf')).toEqual(
       {
         url: 'https://tiles.test/properties/read/12/2048/1363.pbf',
@@ -2044,13 +2043,13 @@ describe('MapScreen web grouped Following mode', () => {
     ]);
   });
 
-  it('does not record ghost preview properties as read', async () => {
+  it('records active preview properties as read', async () => {
     Object.assign(mockInteraction, {
       previewGroup: {
         properties: [{
-          id: 'ghost-property',
-          nodeClass: 'ghost',
-          address: 'Ghost Street 1',
+          id: 'active-property',
+          nodeClass: 'active',
+          address: 'Active Street 1',
           city: 'Eindhoven',
         }],
         coordinate: [5.47, 51.44],
@@ -2063,7 +2062,7 @@ describe('MapScreen web grouped Following mode', () => {
     });
     await flushMicrotasks();
 
-    expect(mockRecordPropertyView).not.toHaveBeenCalled();
+    expect(mockRecordPropertyView).toHaveBeenCalledWith('active-property');
   });
 
   it('pushes preview routes for first open and switched previews without duplicating same preview', async () => {
@@ -2554,40 +2553,6 @@ describe('MapScreen web grouped Following mode', () => {
     );
   });
 
-  it('does not bind ghost property layers for map hit testing', async () => {
-    expect(PROPERTY_QUERY_LAYER_IDS).not.toEqual(
-      expect.arrayContaining(['ghost-clusters', 'ghost-nodes']),
-    );
-
-    await act(async () => {
-      root.render(<MapScreen />);
-    });
-    await flushMicrotasks();
-
-    const map = mockMapInstances[0] as MockMapInstance;
-    map.getLayer.mockReturnValue(true);
-
-    act(() => {
-      map.trigger('load');
-    });
-    await flushMicrotasks();
-
-    act(() => {
-      map.trigger('sourcedata', { sourceId: 'properties-source', isSourceLoaded: true });
-    });
-
-    const boundLayerIds = map.on.mock.calls
-      .filter(([eventName, layerId]) =>
-        ['click', 'mouseenter', 'mouseleave'].includes(String(eventName)) &&
-        typeof layerId === 'string',
-      )
-      .map(([, layerId]) => layerId);
-
-    expect(boundLayerIds).not.toEqual(
-      expect.arrayContaining(['ghost-clusters', 'ghost-nodes']),
-    );
-  });
-
   it('resolves desktop contextmenu taps through the physical tap resolver', async () => {
     const resolved = {
       groupKind: 'single',
@@ -2602,7 +2567,7 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     const map = mockMapInstances[0] as MockMapInstance;
-    map.getZoom.mockReturnValue(PROPERTY_GHOST_REVEAL_ZOOM);
+    map.getZoom.mockReturnValue(PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM);
 
     act(() => {
       map.trigger('load');
@@ -2625,11 +2590,11 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockFetchPhysicalTapResolve).toHaveBeenCalledWith(
       4.9,
       52.37,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       resolved,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
       expect.any(Object),
     );
   });
@@ -2648,7 +2613,7 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     const map = mockMapInstances[0] as MockMapInstance;
-    map.getZoom.mockReturnValue(PROPERTY_GHOST_REVEAL_ZOOM);
+    map.getZoom.mockReturnValue(PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM);
     map.getLayer.mockImplementation((layerId: string) => layerId === 'housenumber');
 
     act(() => {
@@ -2688,12 +2653,12 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockFetchHouseNumberTapResolve).toHaveBeenCalledWith(
       4.921,
       52.361,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
       '12A',
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       resolved,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
       expect.any(Object),
     );
   });
@@ -2714,7 +2679,7 @@ describe('MapScreen web grouped Following mode', () => {
     await flushMicrotasks();
 
     const map = mockMapInstances[0] as MockMapInstance;
-    map.getZoom.mockReturnValue(PROPERTY_GHOST_REVEAL_ZOOM);
+    map.getZoom.mockReturnValue(PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM);
 
     act(() => {
       map.trigger('load');
@@ -2738,11 +2703,11 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockFetchPhysicalTapResolve).toHaveBeenCalledWith(
       4.91,
       52.38,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       resolved,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
       expect.any(Object),
     );
   });

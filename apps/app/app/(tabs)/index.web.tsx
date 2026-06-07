@@ -110,7 +110,7 @@ import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import {
   MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
-  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
   resolveActiveClusterNodeVisual,
   resolveActiveSingleNodeVisual,
   withAlpha,
@@ -140,7 +140,7 @@ const STATIC_ACTIVITY_PULSE_LAYER_IDS = [
 const PREVIEW_ARROW_MARKER_GAP_PX = 6;
 const PREVIEW_CARD_MARKER_OFFSET_PX =
   SELECTED_MARKER_CONTAINER_SIZE_PX / 2 + PREVIEW_ARROW_MARKER_GAP_PX;
-const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
+const SEARCH_TARGET_ZOOM = PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM + 1;
 const FOLLOWING_RENDERED_FEATURE_SETTLE_MS = 1500;
 const NON_MAP_TAB_PATHNAMES = new Set(['/feed', '/saved', '/profile']);
 const AMBIENT_COMMENT_BUBBLE_MIN_ZOOM = 10;
@@ -1483,7 +1483,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [interaction.currentPreviewIndex, interaction.previewGroup]);
   const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
   useEffect(() => {
-    if (currentPreviewProperty?.id && currentPreviewProperty.nodeClass !== 'ghost') {
+    if (currentPreviewProperty?.id) {
       recordPreviewPropertyView(currentPreviewProperty.id);
     }
   }, [currentPreviewProperty?.id, currentPreviewProperty?.nodeClass, recordPreviewPropertyView]);
@@ -2464,7 +2464,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           originalEvent?: { preventDefault?: () => void };
         },
       ): Promise<boolean> => {
-        if (currentZoom < PROPERTY_GHOST_REVEAL_ZOOM) {
+        if (currentZoom < PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM) {
           return false;
         }
 
@@ -2539,7 +2539,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       ) => {
         cancelRootAutoLocationAfterUserInteraction();
         clearTouchLongPressTimer();
-        if (map.getZoom() < PROPERTY_GHOST_REVEAL_ZOOM || (event.points?.length ?? 1) > 1) {
+        if (map.getZoom() < PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM || (event.points?.length ?? 1) > 1) {
           return;
         }
 

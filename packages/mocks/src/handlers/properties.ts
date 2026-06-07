@@ -35,7 +35,6 @@ const MOCK_NEARBY_CLUSTER_IDS = [
 ];
 
 const MOCK_NEARBY_ACTIVE_SINGLE_ID = 'a0000000-0000-4000-a000-000000000007';
-const MOCK_NEARBY_GHOST_SINGLE_ID = 'a0000000-0000-4000-a000-000000000008';
 const MOCK_FOLLOWING_ACTIVITY_NOW_MS = Date.parse('2026-04-21T12:00:00.000Z');
 const MOCK_OFFICIAL_VALUATION_EXPECTED_YEAR = 2025;
 const MOCK_WOZ_SOURCE_FETCH = {
@@ -447,7 +446,7 @@ function buildNearbySingleResponse({
   distanceMeters,
   isRead = false,
 }: {
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   id: string;
   property: (typeof mockPropertyDetails)[number];
   hasActiveListing: boolean;
@@ -657,27 +656,6 @@ export const propertyHandlers = [
         distanceMeters: 12,
         isRead: false,
       });
-    }
-
-    if (zoom >= 17 && lon > 5.3) {
-      const property = mockPropertyDetails[3] ?? mockPropertyDetails[0];
-      return HttpResponse.json(
-        buildNearbySingleResponse({
-          nodeClass: 'ghost',
-          id: MOCK_NEARBY_GHOST_SINGLE_ID,
-          property,
-          hasActiveListing: false,
-          marketState: 'not-listed',
-          socialCount: 0,
-          recentSocialCount: 0,
-          socialScoreTotal: 0,
-          socialScoreMax: 0,
-          recentSocialScoreTotal: 0,
-          commentCount: 0,
-          distanceMeters: 9,
-          isRead: areAllMockPropertiesRead([MOCK_NEARBY_GHOST_SINGLE_ID], viewerKey),
-        })
-      );
     }
 
     const property = mockPropertyDetails[0];

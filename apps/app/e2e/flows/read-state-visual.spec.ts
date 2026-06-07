@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared';
 import { waitForMapIdle, waitForMapStyleLoaded } from '../visual/helpers/visual-test-helpers';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
 import { type WindowWithMapInstance } from '../helpers/map-instance';
@@ -8,16 +8,13 @@ const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 const READ_LAYER_IDS = [
   'read-active-nodes',
   'read-active-node-fill',
-  'read-ghost-nodes',
   'read-property-clusters',
   'read-property-cluster-fill',
-  'read-ghost-clusters',
 ] as const;
-const PUBLIC_SINGLE_LAYER_IDS = ['active-nodes', 'ghost-nodes'] as const;
+const PUBLIC_SINGLE_LAYER_IDS = ['active-nodes'] as const;
 const PUBLIC_READ_STATE_LAYER_IDS = [
   'active-nodes',
   'active-node-fill',
-  'ghost-nodes',
 ] as const;
 
 test.use({ trace: 'off' });
@@ -30,7 +27,7 @@ async function focusReadableSingleNodeArea(page: Page) {
   await page.evaluate(({ center, zoom }) => {
     const map = (window as WindowWithMapInstance).__mapInstance;
     map?.jumpTo({ center, zoom, pitch: 0, bearing: 0 });
-  }, { center: EINDHOVEN_CENTER, zoom: PROPERTY_GHOST_REVEAL_ZOOM + 1 });
+  }, { center: EINDHOVEN_CENTER, zoom: PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM + 1 });
 
   await waitForMapIdle(page, 10_000);
   await page.waitForTimeout(2_000);
@@ -302,7 +299,7 @@ test.describe('Viewed property read-state visuals', () => {
       state: Record<string, unknown>;
     };
 
-    expect(publicFeature.layerId).toMatch(/^(active|ghost)-/);
+    expect(publicFeature.layerId).toMatch(/^active-/);
     expect(publicFeature.state.read).toBe(true);
     expect(JSON.stringify(publicFeature.opacity)).toContain('feature-state');
     expect(JSON.stringify(publicFeature.opacity)).toContain('0.6');

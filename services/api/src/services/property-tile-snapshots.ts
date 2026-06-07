@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   COUNTRY_CONFIGS,
-  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
   PROPERTY_MAP_FOOTPRINTS,
   PROPERTY_PREVIEW_MEMBER_LIMIT,
   getAllCountryCodes,
@@ -429,7 +429,7 @@ export function computePropertyTileSnapshotConfigHash(input: {
     activeSocialScoreThreshold: ACTIVE_SOCIAL_SCORE_THRESHOLD,
     socialScoringConfig,
     propertyMapFootprints: PROPERTY_MAP_FOOTPRINTS,
-    propertyGhostRevealZoom: PROPERTY_GHOST_REVEAL_ZOOM,
+    propertyAddressInteractionMinZoom: PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
     propertyPreviewMemberLimit: PROPERTY_PREVIEW_MEMBER_LIMIT,
   };
 

@@ -146,7 +146,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
           // Query for property markers in the current view
           const features = mapInstance.queryRenderedFeatures(undefined, {
-            layers: ['ghost-nodes', 'active-nodes'],
+            layers: ['active-nodes'],
           }) || [];
 
           console.log(`Found ${features.length} property markers`);
@@ -218,7 +218,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             if (!mapInstance) return null;
 
             const features = mapInstance.queryRenderedFeatures(undefined, {
-              layers: ['ghost-nodes', 'active-nodes'],
+              layers: ['active-nodes'],
             });
 
             if (features && features.length > 0) {
@@ -366,7 +366,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!mapInstance) return false;
 
         const features = mapInstance.queryRenderedFeatures(undefined, {
-          layers: ['ghost-nodes', 'active-nodes'],
+          layers: ['active-nodes'],
         }) || [];
 
         if (features.length > 0) {

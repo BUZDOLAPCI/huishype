@@ -628,7 +628,6 @@ export const mockComments: CommentWithReplies[] = [
 export const mockMapProperties: MapProperty[] = mockProperties.map((prop, index) => ({
   id: prop.id,
   coordinates: prop.coordinates,
-  isGhost: index >= 3, // Last two are ghost nodes
   activityLevel: (['hot', 'warm', 'cold', 'cold', 'cold'] as const)[index],
   showPhotoPreview: index < 2, // Only first two show photos
   photoUrl:

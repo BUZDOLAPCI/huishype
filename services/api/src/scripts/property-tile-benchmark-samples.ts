@@ -1,6 +1,6 @@
 export type PropertyTileSample = {
   city: string;
-  semanticGroup: 'low-zoom' | 'pyramid-edge' | 'transition' | 'detail' | 'ghost-reveal';
+  semanticGroup: 'low-zoom' | 'pyramid-edge' | 'transition' | 'detail' | 'z17-detail';
   z: number;
   x: number;
   y: number;
@@ -21,9 +21,9 @@ export const REPRESENTATIVE_HEAVY_PUBLIC_TILES: readonly PropertyTileSample[] = 
   { city: 'Eindhoven detail z14', semanticGroup: 'detail', z: 14, x: 8418, y: 5428 },
   { city: 'Eindhoven detail z15', semanticGroup: 'detail', z: 15, x: 16853, y: 10874 },
   { city: 'Eindhoven detail z16', semanticGroup: 'detail', z: 16, x: 33723, y: 21760 },
-  { city: 'Amsterdam ghost reveal z17', semanticGroup: 'ghost-reveal', z: 17, x: 67321, y: 43076 },
-  { city: 'Utrecht ghost reveal z17', semanticGroup: 'ghost-reveal', z: 17, x: 67400, y: 43241 },
-  { city: 'Rotterdam ghost reveal z17', semanticGroup: 'ghost-reveal', z: 17, x: 67166, y: 43339 },
+  { city: 'Amsterdam detail z17', semanticGroup: 'z17-detail', z: 17, x: 67321, y: 43076 },
+  { city: 'Utrecht detail z17', semanticGroup: 'z17-detail', z: 17, x: 67400, y: 43241 },
+  { city: 'Rotterdam detail z17', semanticGroup: 'z17-detail', z: 17, x: 67166, y: 43339 },
 ];
 
 export function buildRepresentativePropertyTileSamples(): PropertyTileSample[] {

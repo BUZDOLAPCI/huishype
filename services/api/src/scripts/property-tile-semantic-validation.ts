@@ -34,7 +34,6 @@ export type TileSemanticSummary = {
   singleCount: number;
   clusterCount: number;
   activeCount: number;
-  ghostCount: number;
   pointCountTotal: number;
   tileCache: string;
   tileStatus: string;
@@ -66,7 +65,6 @@ type FeatureContribution = {
   singleCount: number;
   clusterCount: number;
   activeCount: number;
-  ghostCount: number;
   pointCount: number;
 };
 
@@ -130,7 +128,6 @@ export function validatePropertyTileResponse(input: TileValidationInput): TileVa
     singleCount: 0,
     clusterCount: 0,
     activeCount: 0,
-    ghostCount: 0,
     pointCountTotal: 0,
     tileCache,
     tileStatus,
@@ -166,7 +163,6 @@ export function validatePropertyTileResponse(input: TileValidationInput): TileVa
     summary.singleCount += contribution.contribution.singleCount;
     summary.clusterCount += contribution.contribution.clusterCount;
     summary.activeCount += contribution.contribution.activeCount;
-    summary.ghostCount += contribution.contribution.ghostCount;
     summary.pointCountTotal += contribution.contribution.pointCount;
     for (const message of contribution.failures) {
       fail(`feature ${feature.index}: ${message}`);
@@ -178,7 +174,7 @@ export function validatePropertyTileResponse(input: TileValidationInput): TileVa
 
 export function validateDecodedPropertyFeature(
   feature: DecodedPropertyFeature,
-  z: number
+  _z: number
 ): { contribution: FeatureContribution; failures: string[] } {
   const failures: string[] = [];
   const props = feature.properties;
@@ -197,8 +193,8 @@ export function validateDecodedPropertyFeature(
   if (feature.pointGeometryCount !== 1) {
     failures.push(`expected exactly one point geometry, got ${feature.pointGeometryCount}`);
   }
-  if (nodeClass !== 'active' && nodeClass !== 'ghost') {
-    failures.push(`node_class must be active or ghost, got ${formatValue(nodeClass)}`);
+  if (nodeClass !== 'active') {
+    failures.push(`node_class must be active, got ${formatValue(nodeClass)}`);
   }
   if (groupKind !== 'single' && groupKind !== 'cluster') {
     failures.push(`group_kind must be single or cluster, got ${formatValue(groupKind)}`);
@@ -226,19 +222,6 @@ export function validateDecodedPropertyFeature(
     const value = numericProperty(props, field);
     if (!Number.isFinite(value) || value < 0) {
       failures.push(`${field} must be a non-negative number, got ${formatValue(props[field])}`);
-    }
-  }
-
-  if (nodeClass === 'ghost') {
-    if (z < 17) {
-      failures.push(`ghost node emitted below reveal zoom z17 on z${z}`);
-    }
-    if (props.hasActiveListing === true) {
-      failures.push('ghost node must not have hasActiveListing=true');
-    }
-    const activeListingCount = numericProperty(props, 'activeListingCount');
-    if (Number.isFinite(activeListingCount) && activeListingCount !== 0) {
-      failures.push(`ghost node activeListingCount must be 0, got ${activeListingCount}`);
     }
   }
 
@@ -289,7 +272,6 @@ export function validateDecodedPropertyFeature(
       singleCount: groupKind === 'single' ? 1 : 0,
       clusterCount: groupKind === 'cluster' ? 1 : 0,
       activeCount: nodeClass === 'active' ? 1 : 0,
-      ghostCount: nodeClass === 'ghost' ? 1 : 0,
       pointCount: Number.isInteger(pointCount) && pointCount > 0 ? pointCount : 0,
     },
     failures,
@@ -318,7 +300,7 @@ export function assertEndpointSemanticCoverage(
     { label: 'pyramid-edge', groups: ['pyramid-edge'] },
     { label: 'transition', groups: ['transition'] },
     { label: 'detail', groups: ['detail'] },
-    { label: 'ghost-reveal', groups: ['ghost-reveal'] },
+    { label: 'z17-detail', groups: ['z17-detail'] },
   ];
 
   for (const [endpoint, entries] of byEndpoint) {

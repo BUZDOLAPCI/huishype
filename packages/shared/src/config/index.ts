@@ -22,7 +22,7 @@ export type {
 
 export {
   PROPERTY_MAP_FOOTPRINTS,
-  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
   PROPERTY_PREVIEW_MEMBER_LIMIT,
   PROPERTY_MAP_LAYERS,
   QUERYABLE_PROPERTY_LAYER_IDS,
@@ -58,16 +58,12 @@ export {
   MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
   MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
   MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
-  MAP_NODE_GHOST_CLUSTER_VISUAL,
-  MAP_NODE_GHOST_SINGLE_VISUAL,
   clamp,
   interpolateNumericStops,
   interpolateColorStops,
   withAlpha,
   resolveActiveSingleNodeVisual,
   resolveActiveClusterNodeVisual,
-  resolveGhostSingleNodeVisual,
-  resolveGhostClusterNodeVisual,
 } from './map-node-visuals.js';
 
 export type {
@@ -76,5 +72,4 @@ export type {
   MapNodeVisual,
   ActiveSingleNodeVisualInput,
   ActiveClusterNodeVisualInput,
-  GhostClusterNodeVisualInput,
 } from './map-node-visuals.js';

@@ -2,7 +2,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import {
   isValidCountryCode,
   PROPERTY_MAP_FOOTPRINTS,
-  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
   PROPERTY_PREVIEW_MEMBER_LIMIT,
 } from '@huishype/shared/config';
 import { db, type DbTransaction } from '../db/index.js';
@@ -37,21 +37,18 @@ import { getOfficialValuationSourceFetchHint } from './official-valuations/index
 export const PROPERTY_TILE_EXTENT = 4096;
 const TILE_SIZE_PX = 512;
 const TILE_UNITS_PER_PX = PROPERTY_TILE_EXTENT / TILE_SIZE_PX;
-export const GHOST_NODE_REVEAL_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM;
+export const ADDRESS_INTERACTION_MIN_ZOOM = PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM;
 const SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM = 14;
 const DEFAULT_PROPERTY_TILE_PYRAMID_MAX_ZOOM = 10;
 
 const ACTIVE_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.active;
-const GHOST_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost;
 const ACTIVE_GROUPING_GAP_PX = ACTIVE_FOOTPRINT.groupingGapPx;
-const GHOST_GROUPING_GAP_PX = GHOST_FOOTPRINT.groupingGapPx;
-const GHOST_SUPPRESSION_PADDING_PX = GHOST_FOOTPRINT.suppressionPaddingPx;
 const NEARBY_TAP_TOLERANCE_PX = PROPERTY_MAP_FOOTPRINTS.nearbyTapTolerancePx;
 const DEFAULT_SHARED_CANONICAL_BUDGET_MS = 3_000;
 const MVT_CLUSTER_PROPERTY_IDS_COMPLETE_MAX = PROPERTY_PREVIEW_MEMBER_LIMIT;
 const MVT_CLUSTER_PROPERTY_IDS_LOW_ZOOM_MAX = 14;
 
-type NodeClass = 'active' | 'ghost';
+type NodeClass = 'active';
 type GroupKind = 'single' | 'cluster';
 
 type TileId = {
@@ -197,8 +194,6 @@ type GroupingCandidateFetcher = (
   options?: PropertyTileBuildOptions
 ) => Promise<GroupingCandidate[]>;
 
-type RadiusStop = readonly [threshold: number, radiusPx: number];
-
 type CanonicalGroupCacheEntry = {
   expiresAt: number;
   groups: CanonicalPropertyGroup[];
@@ -276,16 +271,6 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(Math.max(n, min), max);
 }
 
-function getStepRadius(pointCount: number, stops: readonly RadiusStop[]): number {
-  let radius = stops[0][1];
-  for (const [threshold, stopRadius] of stops) {
-    if (pointCount >= threshold) {
-      radius = stopRadius;
-    }
-  }
-  return radius;
-}
-
 export function getActiveSingleRadiusPx(activityScore: number): number {
   void activityScore;
   return ACTIVE_FOOTPRINT.singleRadiusPx;
@@ -295,20 +280,8 @@ export function getActiveClusterRadiusPx(_pointCount: number): number {
   return ACTIVE_FOOTPRINT.clusterRadiusPx;
 }
 
-export function getGhostSingleRadiusPx(): number {
-  return GHOST_FOOTPRINT.singleRadiusPx;
-}
-
-export function getGhostClusterRadiusPx(pointCount: number): number {
-  return getStepRadius(pointCount, GHOST_FOOTPRINT.clusterRadiusStopsPx);
-}
-
 function getActiveGroupingRadiusPx(activityScore: number): number {
   return Math.max(getActiveSingleRadiusPx(activityScore), getActiveClusterRadiusPx(2));
-}
-
-function getGhostGroupingRadiusPx(): number {
-  return Math.max(getGhostSingleRadiusPx(), getGhostClusterRadiusPx(2));
 }
 
 function pxToTileUnits(px: number): number {
@@ -674,28 +647,12 @@ function getBufferedTileBBox(tile: TileId, bufferUnits: number): TileBBox {
 }
 
 export function getGroupingBufferUnits(): number {
-  const maxActiveRadius = getActiveGroupingRadiusPx(100);
-  const maxGhostRadius = getGhostGroupingRadiusPx();
   const maxActiveSeedOwnedClusterSpanPx =
     2 * (getActiveClusterRadiusPx(2) + ACTIVE_GROUPING_GAP_PX + getActiveClusterRadiusPx(2));
-  const maxActiveSuppressionRadius =
-    maxActiveRadius + GHOST_SUPPRESSION_PADDING_PX + maxGhostRadius;
-  const maxGhostSeedAndNeighborRadius = maxGhostRadius + maxGhostRadius + GHOST_GROUPING_GAP_PX;
 
   // A seed-owned active cluster can span two active pair thresholds from a tile edge:
   // one pair to reach the seed, another to reach the furthest owned member.
-  return pxToTileUnits(
-    Math.max(
-      maxActiveSeedOwnedClusterSpanPx,
-      maxActiveSuppressionRadius,
-      maxGhostSeedAndNeighborRadius
-    ) + 16
-  );
-}
-
-export function shouldFetchGhostCandidates(zoom: number): boolean {
-  void zoom;
-  return false;
+  return pxToTileUnits(maxActiveSeedOwnedClusterSpanPx + 16);
 }
 
 function compareCandidatePriority(a: GroupingCandidate, b: GroupingCandidate): number {
@@ -708,11 +665,11 @@ function compareCandidatePriority(a: GroupingCandidate, b: GroupingCandidate): n
   );
 }
 
-function isGhostCandidate(candidate: GroupingCandidate): boolean {
+function isVisibleMapCandidate(candidate: GroupingCandidate): boolean {
   return (
-    !candidate.hasActiveListing &&
-    !candidate.hasCompletedListing &&
-    candidate.socialScore < ACTIVE_SOCIAL_SCORE_THRESHOLD
+    candidate.hasActiveListing ||
+    candidate.hasCompletedListing ||
+    candidate.socialScore >= ACTIVE_SOCIAL_SCORE_THRESHOLD
   );
 }
 
@@ -1333,13 +1290,9 @@ function buildCanonicalGroup(
 
 function getNearbyHitRadiusUnits(group: CanonicalPropertyGroup): number {
   const pxRadius =
-    group.nodeClass === 'ghost'
-      ? group.groupKind === 'cluster'
-        ? getGhostClusterRadiusPx(group.pointCount)
-        : getGhostSingleRadiusPx()
-      : group.groupKind === 'cluster'
-        ? getActiveClusterRadiusPx(group.pointCount)
-        : getActiveSingleRadiusPx(group.socialScoreMax);
+    group.groupKind === 'cluster'
+      ? getActiveClusterRadiusPx(group.pointCount)
+      : getActiveSingleRadiusPx(group.socialScoreMax);
 
   return pxToTileUnits(pxRadius + NEARBY_TAP_TOLERANCE_PX);
 }
@@ -1550,14 +1503,12 @@ function buildTileListingFactsProjectionCte(
 }
 
 function usesSnapshotGroupingFacts(input: {
-  includeGhostCandidates: boolean;
   filters: MapFilters;
   zoom: number;
   options?: PropertyTileBuildOptions;
 }): boolean {
   return (
     input.options?.candidateSnapshotId != null &&
-    !input.includeGhostCandidates &&
     !hasPriceFilters(input.filters) &&
     !hasLocationAreaFilters(input.filters) &&
     input.zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM
@@ -1566,7 +1517,6 @@ function usesSnapshotGroupingFacts(input: {
 
 export function buildGroupingCandidateScopeCtes(
   boundsList: TileBBox[],
-  includeGhostCandidates: boolean,
   filters: MapFilters,
   zoom: number,
   options?: PropertyTileBuildOptions
@@ -1588,31 +1538,13 @@ export function buildGroupingCandidateScopeCtes(
   const hasAreaFilters = hasLocationAreaFilters(filters);
   const useSourceFirstCandidateScope =
     options?.candidateSnapshotId != null &&
-    !includeGhostCandidates &&
     !hasAreaFilters &&
     zoom <= SOURCE_FIRST_CANDIDATE_SCOPE_MAX_ZOOM;
   const useSnapshotGroupingFacts = usesSnapshotGroupingFacts({
-    includeGhostCandidates,
     filters,
     zoom,
     options,
   });
-
-  if (includeGhostCandidates) {
-    return sql`
-        candidate_properties AS MATERIALIZED (
-          SELECT
-            p.id,
-            p.geometry,
-            p.official_valuation
-          FROM properties p
-          WHERE p.geometry IS NOT NULL
-            AND p.status = 'active'
-            AND (${bboxFilter})
-            AND ${areaFilter}
-        )
-      `;
-  }
 
   if (useSnapshotGroupingFacts) {
     return sql`
@@ -1822,24 +1754,21 @@ export function buildGroupingCandidateScopeCtes(
 async function fetchGroupingCandidatesInBBox(
   bounds: TileBBox,
   zoom: number,
-  includeGhostCandidates: boolean,
   filters: MapFilters,
   options?: PropertyTileBuildOptions
 ): Promise<GroupingCandidate[]> {
-  return fetchGroupingCandidatesInBBoxes([bounds], zoom, includeGhostCandidates, filters, options);
+  return fetchGroupingCandidatesInBBoxes([bounds], zoom, filters, options);
 }
 
 async function fetchGroupingCandidatesInBBoxes(
   boundsList: TileBBox[],
   zoom: number,
-  includeGhostCandidates: boolean,
   filters: MapFilters,
   options?: PropertyTileBuildOptions
 ): Promise<GroupingCandidate[]> {
   const startedAt = Date.now();
   assertTileBuildCanContinue(options, startedAt, 'candidate fetch preparation');
   const useSnapshotGroupingFactProjection = usesSnapshotGroupingFacts({
-    includeGhostCandidates,
     filters,
     zoom,
     options,
@@ -1851,9 +1780,7 @@ async function fetchGroupingCandidatesInBBoxes(
       'pgf',
       options
     );
-    const snapshotCandidateVisibilityFilter = includeGhostCandidates
-      ? sql`TRUE`
-      : sql`(
+    const snapshotCandidateVisibilityFilter = sql`(
           COALESCE(pgf.has_active_listing, FALSE)
           OR COALESCE(pgf.has_completed_listing, FALSE)
           OR COALESCE(pgf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
@@ -1900,9 +1827,7 @@ async function fetchGroupingCandidatesInBBoxes(
     options
   );
   const hasAreaFilters = hasLocationAreaFilters(filters);
-  const candidateVisibilityFilter = includeGhostCandidates
-    ? sql`TRUE`
-    : sql`(
+  const candidateVisibilityFilter = sql`(
         COALESCE(lf.has_active_listing, FALSE)
         OR COALESCE(lf.has_completed_listing, FALSE)
         OR COALESCE(sf.social_score, 0) >= ${ACTIVE_SOCIAL_SCORE_THRESHOLD}
@@ -1914,7 +1839,6 @@ async function fetchGroupingCandidatesInBBoxes(
     : sql`TRUE`;
   const candidateScopeCtes = buildGroupingCandidateScopeCtes(
     boundsList,
-    includeGhostCandidates,
     filters,
     zoom,
     options
@@ -2393,7 +2317,6 @@ async function fetchGroupingCandidates(
   return fetchGroupingCandidatesInBBox(
     bufferedBounds,
     tile.z,
-    shouldFetchGhostCandidates(tile.z),
     filters,
     options
   );
@@ -2666,7 +2589,7 @@ function buildCanonicalGroupsFromCandidates(
     if (index % 128 === 0) {
       assertTileBuildCanContinue(options, startedAt, 'candidate partitioning');
     }
-    if (!isGhostCandidate(candidate)) {
+    if (isVisibleMapCandidate(candidate)) {
       activeCandidates.push(candidate);
     }
   });
@@ -2906,7 +2829,6 @@ export async function resolveNearbyGroupedFeature(
       fetchGroupingCandidatesInBBoxes(
         boundsList,
         candidateZoom,
-        shouldFetchGhostCandidates(candidateZoom),
         candidateFilters,
         options
       ),

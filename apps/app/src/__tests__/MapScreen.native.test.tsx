@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared/config';
 import {
   DEFAULT_CURRENT_LOCATION_RADIUS_METERS,
   getLocationFilterTokenCameraBounds,
@@ -895,13 +895,13 @@ describe('MapScreen native grouped Following mode', () => {
     expect(mockCameraFlyTo).toHaveBeenCalledTimes(1);
   });
 
-  it('does not record ghost preview properties as read', async () => {
+  it('records active preview properties as read', async () => {
     Object.assign(mockInteraction, {
       previewGroup: {
         properties: [{
-          id: 'ghost-property',
-          nodeClass: 'ghost',
-          address: 'Ghost Street 1',
+          id: 'active-property',
+          nodeClass: 'active',
+          address: 'Active Street 1',
           city: 'Eindhoven',
         }],
         coordinate: [5.47, 51.44],
@@ -911,7 +911,7 @@ describe('MapScreen native grouped Following mode', () => {
 
     await renderMapScreen();
 
-    expect(mockRecordPropertyView).not.toHaveBeenCalled();
+    expect(mockRecordPropertyView).toHaveBeenCalledWith('active-property');
   });
 
   it('shows the empty Following state after rendered grouped feature refresh settles', async () => {
@@ -993,7 +993,7 @@ describe('MapScreen native grouped Following mode', () => {
 
     fireEvent(screen.getByTestId('native-map'), 'regionDidChange', {
       nativeEvent: {
-        zoom: PROPERTY_GHOST_REVEAL_ZOOM,
+        zoom: PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
         center: [5.47, 51.44],
       },
     });
@@ -1014,11 +1014,11 @@ describe('MapScreen native grouped Following mode', () => {
     expect(mockFetchPhysicalTapResolve).toHaveBeenCalledWith(
       5.47,
       51.44,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       resolved,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
       expect.any(Object),
     );
   });
@@ -1044,7 +1044,7 @@ describe('MapScreen native grouped Following mode', () => {
 
     fireEvent(screen.getByTestId('native-map'), 'regionDidChange', {
       nativeEvent: {
-        zoom: PROPERTY_GHOST_REVEAL_ZOOM,
+        zoom: PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
         center: [5.47, 51.44],
       },
     });
@@ -1066,12 +1066,12 @@ describe('MapScreen native grouped Following mode', () => {
     expect(mockFetchHouseNumberTapResolve).toHaveBeenCalledWith(
       5.471,
       51.441,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
       '12A',
     );
     expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
       resolved,
-      PROPERTY_GHOST_REVEAL_ZOOM,
+      PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
       expect.any(Object),
     );
   });

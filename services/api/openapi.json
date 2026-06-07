@@ -2917,8 +2917,7 @@
                                 "nodeClass": {
                                   "type": "string",
                                   "enum": [
-                                    "active",
-                                    "ghost"
+                                    "active"
                                   ]
                                 },
                                 "primaryPropertyId": {
@@ -3817,8 +3816,7 @@
                                 "nodeClass": {
                                   "type": "string",
                                   "enum": [
-                                    "active",
-                                    "ghost"
+                                    "active"
                                   ]
                                 },
                                 "primaryPropertyId": {
@@ -4469,8 +4467,7 @@
                             "nodeClass": {
                               "type": "string",
                               "enum": [
-                                "active",
-                                "ghost"
+                                "active"
                               ]
                             },
                             "primaryPropertyId": {
@@ -4751,8 +4748,7 @@
                             "nodeClass": {
                               "type": "string",
                               "enum": [
-                                "active",
-                                "ghost"
+                                "active"
                               ]
                             },
                             "primaryPropertyId": {
@@ -5519,8 +5515,7 @@
                             "nodeClass": {
                               "type": "string",
                               "enum": [
-                                "active",
-                                "ghost"
+                                "active"
                               ]
                             },
                             "primaryPropertyId": {
@@ -5801,8 +5796,7 @@
                             "nodeClass": {
                               "type": "string",
                               "enum": [
-                                "active",
-                                "ghost"
+                                "active"
                               ]
                             },
                             "primaryPropertyId": {
@@ -9995,7 +9989,7 @@
         "tags": [
           "tiles"
         ],
-        "description": "Returns MVT/PBF vector tile with density-aware grouped property data. Active/listing-backed/social nodes may group at any zoom; ghost nodes are not emitted.",
+        "description": "Returns MVT/PBF vector tile with density-aware grouped property data. Listing-backed/social nodes may group at any zoom.",
         "parameters": [
           {
             "schema": {
@@ -14048,7 +14042,7 @@
         "tags": [
           "feed"
         ],
-        "description": "Get a paginated feed of properties with active listings. Filters: trending (weighted 7-day activity) and latest (most recent activity). Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.",
+        "description": "Get a paginated activity feed of listing-backed and socially active properties. Filters: trending (weighted 7-day activity) and latest (most recent activity). Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.",
         "parameters": [
           {
             "schema": {

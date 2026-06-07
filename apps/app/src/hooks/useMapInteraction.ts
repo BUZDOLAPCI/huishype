@@ -37,7 +37,7 @@ import {
   type PhysicalTapPreviewProperty,
   type OfficialValuationSourceFetch,
 } from '@/src/utils/api';
-import { PROPERTY_GHOST_REVEAL_ZOOM, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared/config';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM, PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared/config';
 import {
   buildPropertyCommentsRoute,
   buildPropertyGuessesRoute,
@@ -153,7 +153,7 @@ export interface UseMapInteractionReturn {
   openClusterPreviewAtCoord: (
     propertyIds: string[],
     coordinate: [number, number],
-    nodeClass?: 'active' | 'ghost'
+    nodeClass?: 'active'
   ) => Promise<void>;
 
   // ── Conversion helpers ──────────────────────────────────────
@@ -163,7 +163,7 @@ export interface UseMapInteractionReturn {
 /** Minimal shape accepted by the toGroupProperty converter. */
 export interface ToGroupPropertyInput {
   id: string;
-  nodeClass?: 'active' | 'ghost';
+  nodeClass?: 'active';
   address: string;
   streetName?: string | null;
   houseNumber?: string | number | null;
@@ -294,7 +294,7 @@ export function estimateZoomForBbox(
 
 const PREVIEW_FLY_DURATION_MS = 500;
 const SEARCH_PREVIEW_FLY_DURATION_MS = 1000;
-const SEARCH_TARGET_ZOOM = PROPERTY_GHOST_REVEAL_ZOOM + 1;
+const SEARCH_TARGET_ZOOM = PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM + 1;
 const MAX_GROUP_DRILL_IN_ZOOM = 18;
 const PREVIEW_ZOOM_EPSILON = 0.5;
 
@@ -512,7 +512,7 @@ function convertToGroupProperty(
 function physicalTapPreviewToGroupPropertyInput(
   property: PhysicalTapPreviewProperty,
   fallbackCoordinate: [number, number],
-  nodeClass?: 'active' | 'ghost'
+  nodeClass?: 'active'
 ): ToGroupPropertyInput {
   const coordinate = property.geometry?.coordinates ?? fallbackCoordinate;
 
@@ -931,7 +931,7 @@ export function useMapInteraction(): UseMapInteractionReturn {
 
   // ── Cluster preview ─────────────────────────────────────────
   const openClusterPreviewAtCoord = useCallback(
-    async (propertyIds: string[], coordinate: [number, number], nodeClass?: 'active' | 'ghost') => {
+    async (propertyIds: string[], coordinate: [number, number], nodeClass?: 'active') => {
       try {
         const batch = await fetchBatchProperties(
           propertyIds.slice(0, PROPERTY_PREVIEW_MEMBER_LIMIT)

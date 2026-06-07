@@ -932,7 +932,7 @@ export interface paths {
                             source: "physical-tap" | "house-number-tap";
                             group: {
                                 /** @enum {string} */
-                                nodeClass: "active" | "ghost";
+                                nodeClass: "active";
                                 /** Format: uuid */
                                 primaryPropertyId: string;
                                 pointCount: number;
@@ -1124,7 +1124,7 @@ export interface paths {
                             source: "physical-tap" | "house-number-tap";
                             group: {
                                 /** @enum {string} */
-                                nodeClass: "active" | "ghost";
+                                nodeClass: "active";
                                 /** Format: uuid */
                                 primaryPropertyId: string;
                                 pointCount: number;
@@ -1267,7 +1267,7 @@ export interface paths {
                     content: {
                         "application/json": ({
                             /** @enum {string} */
-                            nodeClass: "active" | "ghost";
+                            nodeClass: "active";
                             /** Format: uuid */
                             primaryPropertyId: string;
                             pointCount: number;
@@ -1322,7 +1322,7 @@ export interface paths {
                             marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
                         } | {
                             /** @enum {string} */
-                            nodeClass: "active" | "ghost";
+                            nodeClass: "active";
                             /** Format: uuid */
                             primaryPropertyId: string;
                             pointCount: number;
@@ -1522,7 +1522,7 @@ export interface paths {
                     content: {
                         "application/json": ({
                             /** @enum {string} */
-                            nodeClass: "active" | "ghost";
+                            nodeClass: "active";
                             /** Format: uuid */
                             primaryPropertyId: string;
                             pointCount: number;
@@ -1577,7 +1577,7 @@ export interface paths {
                             marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
                         } | {
                             /** @enum {string} */
-                            nodeClass: "active" | "ghost";
+                            nodeClass: "active";
                             /** Format: uuid */
                             primaryPropertyId: string;
                             pointCount: number;
@@ -3272,7 +3272,7 @@ export interface paths {
         };
         /**
          * Get property vector tile
-         * @description Returns MVT/PBF vector tile with density-aware grouped property data. Active/listing-backed/social nodes may group at any zoom; ghost nodes are not emitted.
+         * @description Returns MVT/PBF vector tile with density-aware grouped property data. Listing-backed/social nodes may group at any zoom.
          */
         get: {
             parameters: {
@@ -4961,7 +4961,7 @@ export interface paths {
         };
         /**
          * Get property feed
-         * @description Get a paginated feed of properties with active listings. Filters: trending (weighted 7-day activity) and latest (most recent activity). Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.
+         * @description Get a paginated activity feed of listing-backed and socially active properties. Filters: trending (weighted 7-day activity) and latest (most recent activity). Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.
          */
         get: {
             parameters: {

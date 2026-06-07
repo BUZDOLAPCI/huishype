@@ -80,7 +80,7 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 // Eindhoven properties are concentrated around [5.47-5.50, 51.40-51.44] area
 // Using a coordinate closer to actual seeded data
 const CENTER_COORDINATES: [number, number] = [5.746, 51.400]; // Asten area where seeded data exists
-const ZOOM_LEVEL = 17; // Zoom level 17+ shows all nodes including ghosts (no listing/activity filter)
+const ZOOM_LEVEL = 17;
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
@@ -143,7 +143,7 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
       if (!m || !m.isStyleLoaded()) return false;
       const canvas = m.getCanvas();
       if (!canvas) return false;
-      const layerIds = ['ghost-nodes', 'active-nodes', 'property-clusters', 'ghost-clusters']
+      const layerIds = ['active-nodes', 'property-clusters']
         .filter((l: string) => m.getLayer(l));
       if (layerIds.length === 0) return false;
       try {
@@ -242,7 +242,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'active-nodes'].filter(l => mapInstance.getLayer(l));
         let features: VisualMapFeatureLike[] = [];
         try {
           features = mapInstance.queryRenderedFeatures(
@@ -284,7 +284,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         if (!mapInstance) return [];
 
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'active-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
 
         try {
@@ -413,7 +413,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'active-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(
@@ -659,7 +659,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return [];
         const canvas = mapInstance.getCanvas();
-        const layers = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'].filter(l => mapInstance.getLayer(l));
+        const layers = ['property-clusters', 'active-nodes'].filter(l => mapInstance.getLayer(l));
         let allFeatures: VisualMapFeatureLike[] = [];
         try {
           allFeatures = mapInstance.queryRenderedFeatures(

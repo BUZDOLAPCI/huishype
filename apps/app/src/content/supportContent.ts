@@ -244,7 +244,7 @@ export const supportArticles: SupportArticle[] = [
         title: 'What a page can show',
         paragraphs: [
           'A HuisHype property page is the app page for an address or listing-backed home. It can show address details, property characteristics, listing-source links, photos or status signals, price history, official values where available, comments, saves, reactions, and price guesses.',
-          'The page may look different from home to home because source data, public records, listing availability, photos, sale-price history, and community activity are not equally available for every address.',
+          'The page may look different from home to home because source data, public records, listing availability, photos, sale-price history, and community activity vary by address.',
         ],
       },
       {

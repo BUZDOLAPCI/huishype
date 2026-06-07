@@ -332,7 +332,7 @@ export function PropertyContent({
 
   const { recordPropertyView } = usePropertyView();
   useEffect(() => {
-    if (resolvedProperty?.id && isVisible && resolvedProperty.nodeClass !== 'ghost') {
+    if (resolvedProperty?.id && isVisible) {
       recordPropertyView(resolvedProperty.id);
     }
   }, [resolvedProperty?.id, resolvedProperty?.nodeClass, isVisible, recordPropertyView]);

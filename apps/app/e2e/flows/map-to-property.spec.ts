@@ -6,7 +6,6 @@
  * - Click on map at property location to trigger preview card
  * - Preview card shows real address data (not placeholders)
  * - Active property layers exist at correct zoom levels
- * - Removed ghost property layers are not used for app-side feature queries
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -37,12 +36,6 @@ const ACTIVE_PROPERTY_STYLE_LAYERS = [
   'active-nodes',
   'active-node-fill',
 ] as const;
-const REMOVED_GHOST_PROPERTY_LAYERS = [
-  'ghost-clusters',
-  'ghost-cluster-count',
-  'ghost-nodes',
-] as const;
-
 // Known acceptable console errors
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
 
@@ -274,12 +267,7 @@ test.describe('Map to Property Flow', () => {
         'active-nodes',
         'active-node-fill',
       ];
-      const removedGhostPropertyLayers = [
-        'ghost-clusters',
-        'ghost-cluster-count',
-        'ghost-nodes',
-      ];
-      const trackedLayers = [...activePropertyLayers, ...removedGhostPropertyLayers];
+      const trackedLayers = activePropertyLayers;
       const propertyLayers = layers.filter((l: { id?: string }) =>
         trackedLayers.includes(l.id ?? '')
       );
@@ -301,10 +289,6 @@ test.describe('Map to Property Flow', () => {
     expect(layerInfo!.propertyLayerIds).toEqual(
       expect.arrayContaining([...ACTIVE_PROPERTY_STYLE_LAYERS])
     );
-    for (const layerId of REMOVED_GHOST_PROPERTY_LAYERS) {
-      expect(layerInfo!.propertyLayerIds).not.toContain(layerId);
-      expect(layerInfo!.queryLayerIds).not.toContain(layerId);
-    }
     expect(layerInfo!.sources).toContain('properties-source');
   });
 

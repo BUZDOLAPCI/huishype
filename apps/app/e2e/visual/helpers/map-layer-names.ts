@@ -10,8 +10,6 @@ import { QUERYABLE_PROPERTY_LAYER_IDS } from '@huishype/shared/config';
  * - active-nodes: active singles at any zoom
  * - active-node-fill: active single core fill
  *
- * Ghost property layers are no longer part of the app-side query/expectation
- * contract. Their names remain available only for negative assertions.
  */
 
 /**
@@ -33,18 +31,10 @@ export const MAP_LAYER_NAMES = {
   /** Active single fill */
   ACTIVE_NODE_FILL: 'active-node-fill',
 
-  /** Removed public ghost cluster layer name, for negative assertions only */
-  GHOST_CLUSTERS: 'ghost-clusters',
-
-  /** Removed public ghost cluster count layer name, for negative assertions only */
-  GHOST_CLUSTER_COUNT: 'ghost-cluster-count',
-
-  /** Removed public ghost single layer name, for negative assertions only */
-  GHOST_NODES: 'ghost-nodes',
 } as const;
 
 /**
- * Array of all property layer names for querying features
+ * Property layer names for querying features.
  */
 export const ALL_PROPERTY_LAYERS = [
   MAP_LAYER_NAMES.CLUSTERS,
@@ -57,15 +47,6 @@ export const ALL_PROPERTY_LAYERS = [
  * Layers that should be safe for app-side feature queries.
  */
 export const QUERYABLE_PROPERTY_LAYERS = QUERYABLE_PROPERTY_LAYER_IDS;
-
-/**
- * Removed public ghost property layers. Use for absence checks only.
- */
-export const REMOVED_GHOST_PROPERTY_LAYERS = [
-  MAP_LAYER_NAMES.GHOST_CLUSTERS,
-  MAP_LAYER_NAMES.GHOST_CLUSTER_COUNT,
-  MAP_LAYER_NAMES.GHOST_NODES,
-] as const;
 
 /**
  * Layers visible at low zoom.

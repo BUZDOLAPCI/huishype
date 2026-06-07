@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared';
 import { buildApp } from '../../app.js';
 import { db } from '../../db/index.js';
 import { sql } from 'drizzle-orm';
@@ -350,9 +350,6 @@ describe('Tile routes', () => {
       expect(layerIds).toContain('active-nodes');
       expect(layerIds).toContain('active-node-fill');
       expect(layerIds).toContain('active-node-pulse');
-      expect(layerIds).not.toContain('ghost-clusters');
-      expect(layerIds).not.toContain('ghost-cluster-count');
-      expect(layerIds).not.toContain('ghost-nodes');
     });
 
     it('uses additive ring, fill, and pulse semantics driven by composition fields', async () => {
@@ -528,20 +525,6 @@ describe('Tile routes', () => {
       expect(clusterCountPaint).toHaveProperty('text-color', '#FFFFFF');
       expect(clusterCountPaint).toHaveProperty('text-halo-color', 'rgba(15, 23, 42, 0.72)');
       expect(clusterCountPaint).toHaveProperty('text-halo-width', 1);
-    });
-
-    it('does not expose ghost property layers in generated style.json', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/tiles/style.json',
-      });
-
-      const style = JSON.parse(response.body) as StyleJson;
-      const layerIds = style.layers.map((layer) => layer.id);
-
-      expect(layerIds).not.toEqual(
-        expect.arrayContaining(['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes'])
-      );
     });
 
     it('should set Cache-Control header', async () => {
@@ -1661,7 +1644,7 @@ describe('Tile routes', () => {
       }
     });
 
-    it('should return density-aware grouped features at zoom 17+ (ghost node threshold)', async () => {
+    it('should return density-aware grouped features at zoom 17+', async () => {
       // At zoom 17, Eindhoven center tile
       // x = 67478, y = 43551 (approx)
       const response = await app.inject({
@@ -1675,20 +1658,19 @@ describe('Tile routes', () => {
       }
     });
 
-    it('does not emit ghost groups from the public dynamic tile grouping path at z17+', async () => {
+    it('does not emit quiet unlisted groups from the public dynamic tile grouping path at z17+', async () => {
       const property = await createIntegrationProperty({
-        street: 'Ghost Disabled Tile Street',
+        street: 'Quiet Disabled Tile Street',
         houseNumber: 1,
-        city: 'NoGhostTile',
+        city: 'NoQuietTile',
         postalCode: '9400GD',
         lon: -42.1234,
         lat: -34.1234,
       });
-      const tile = tileCoordinatesForPoint(property.lon, property.lat, PROPERTY_GHOST_REVEAL_ZOOM);
+      const tile = tileCoordinatesForPoint(property.lon, property.lat, PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM);
 
       try {
         const groups = await buildCanonicalGroupsForTile(tile);
-        expect(groups.every((group) => group.nodeClass !== 'ghost')).toBe(true);
         expect(findGroupForProperty(groups, property.id)).toBeUndefined();
 
         const response = await app.inject({
@@ -1879,8 +1861,8 @@ describe('Tile routes', () => {
     });
 
     it('emits sold and rented listing-only properties through the public active tile path', async () => {
-      const belowActiveNodeZoom = PROPERTY_GHOST_REVEAL_ZOOM - 1;
-      const activeNodeZoom = PROPERTY_GHOST_REVEAL_ZOOM;
+      const belowActiveNodeZoom = PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM - 1;
+      const activeNodeZoom = PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM;
       const soldProperty = await createIntegrationProperty({
         street: 'Sold Tile Listing Only Street',
         houseNumber: 1,

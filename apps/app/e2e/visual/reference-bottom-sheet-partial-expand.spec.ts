@@ -140,7 +140,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return false;
         const layers = mapInstance.getStyle()?.layers?.map((l) => l.id) || [];
-        return layers.includes('ghost-nodes') || layers.includes('active-nodes');
+        return layers.includes('active-nodes');
       });
       if (layersReady) {
         console.log(`Property layers ready after ${i + 1} checks`);
@@ -166,7 +166,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     if (viewportSize && layersReady) {
       // Try to find and click on a property marker layer feature
-      // The map has 'ghost-nodes', 'active-nodes', and 'property-clusters' layers
+      // The map has active node and property cluster layers
       const featureInfo = await page.evaluate(async () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return { found: false, reason: 'No map instance' };
@@ -183,14 +183,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
             { layers: ['property-clusters'] }
           ) || [];
           clustersFound = clusterFeatures.length;
-        } catch { /* ignore */ }
-
-        try {
-          const ghostFeatures = mapInstance.queryRenderedFeatures(
-            [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['ghost-nodes'] }
-          ) || [];
-          allFeatures = allFeatures.concat(ghostFeatures);
         } catch { /* ignore */ }
 
         try {
@@ -250,10 +242,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         const mapInstance = window.__mapInstance;
         if (!mapInstance) return null;
 
-        // Query all property markers
-        const ghostFeatures = mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || [];
+        // Query property markers
         const activeFeatures = mapInstance.queryRenderedFeatures({ layers: ['active-nodes'] }) || [];
-        const allFeatures = [...ghostFeatures, ...activeFeatures];
+        const allFeatures = [...activeFeatures];
 
         if (allFeatures.length === 0) return null;
 
@@ -458,13 +449,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Check that layers exist before querying to avoid MapLibre console errors
       const style = mapInstance.getStyle();
       const layerIds = (style?.layers || []).map((l) => l.id);
-      const ghostFeatures = layerIds.includes('ghost-nodes')
-        ? mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || []
-        : [];
       const activeFeatures = layerIds.includes('active-nodes')
         ? mapInstance.queryRenderedFeatures({ layers: ['active-nodes'] }) || []
         : [];
-      const allFeatures = [...ghostFeatures, ...activeFeatures];
+      const allFeatures = [...activeFeatures];
 
       if (allFeatures.length === 0) return null;
 
@@ -579,13 +567,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Check that layers exist before querying to avoid MapLibre console errors
       const style = mapInstance.getStyle();
       const layerIds = (style?.layers || []).map((l) => l.id);
-      const ghostFeatures = layerIds.includes('ghost-nodes')
-        ? mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || []
-        : [];
       const activeFeatures = layerIds.includes('active-nodes')
         ? mapInstance.queryRenderedFeatures({ layers: ['active-nodes'] }) || []
         : [];
-      const allFeatures = [...ghostFeatures, ...activeFeatures];
+      const allFeatures = [...activeFeatures];
 
       if (allFeatures.length === 0) return null;
 
@@ -705,13 +690,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Check that layers exist before querying to avoid MapLibre console errors
       const style = mapInstance.getStyle();
       const layerIds = (style?.layers || []).map((l) => l.id);
-      const ghostFeatures = layerIds.includes('ghost-nodes')
-        ? mapInstance.queryRenderedFeatures({ layers: ['ghost-nodes'] }) || []
-        : [];
       const activeFeatures = layerIds.includes('active-nodes')
         ? mapInstance.queryRenderedFeatures({ layers: ['active-nodes'] }) || []
         : [];
-      const allFeatures = [...ghostFeatures, ...activeFeatures];
+      const allFeatures = [...activeFeatures];
 
       if (allFeatures.length === 0) return null;
 

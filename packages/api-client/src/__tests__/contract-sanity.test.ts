@@ -323,7 +323,7 @@ type FollowingNearbySharedCluster = Extract<
   { groupKind: 'cluster' }
 >;
 type CanonicalNearbySingle = {
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   groupKind: 'single';
   primaryPropertyId: string;
   pointCount: number;
@@ -363,7 +363,7 @@ type CanonicalNearbySingle = {
   marketState: 'for-sale' | 'for-rent' | 'sold' | 'rented' | 'not-listed';
 };
 type CanonicalNearbyCluster = {
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   groupKind: 'cluster';
   primaryPropertyId: string;
   pointCount: number;

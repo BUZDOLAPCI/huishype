@@ -39,10 +39,10 @@ const REPRESENTATIVE_HEAVY_PUBLIC_LOW_ZOOM_TILES = [
   { label: 'rotterdam-low-z9', z: 9, x: 262, y: 169 },
 ];
 
-const REPRESENTATIVE_HEAVY_PUBLIC_GHOST_REVEAL_TILES = [
-  { label: 'amsterdam-ghost-reveal-z17', z: 17, x: 67321, y: 43076 },
-  { label: 'utrecht-ghost-reveal-z17', z: 17, x: 67400, y: 43241 },
-  { label: 'rotterdam-ghost-reveal-z17', z: 17, x: 67166, y: 43339 },
+const REPRESENTATIVE_HEAVY_PUBLIC_DETAIL_Z17_TILES = [
+  { label: 'amsterdam-detail-z17', z: 17, x: 67321, y: 43076 },
+  { label: 'utrecht-detail-z17', z: 17, x: 67400, y: 43241 },
+  { label: 'rotterdam-detail-z17', z: 17, x: 67166, y: 43339 },
 ];
 
 const TILE_SETS = {
@@ -66,7 +66,7 @@ function buildRepresentativeHeavyPublicTileSet() {
   return buildFixedTileSet([
     ...DENSE_DYNAMIC_Z13_TILES,
     ...REPRESENTATIVE_HEAVY_PUBLIC_LOW_ZOOM_TILES,
-    ...REPRESENTATIVE_HEAVY_PUBLIC_GHOST_REVEAL_TILES,
+    ...REPRESENTATIVE_HEAVY_PUBLIC_DETAIL_Z17_TILES,
   ]);
 }
 
@@ -275,7 +275,7 @@ Options:
   --tile-set representative-heavy-public
                              Representative heavy public regression set:
                              dense z13 city tiles, low-zoom Randstad/city tiles,
-                             and z17 ghost-reveal city tiles.
+                             and z17 detail city tiles.
                              Defaults to dense-dynamic-z13 when no --path is provided.
   --include-read-tiles       Also benchmark /tiles/properties/read/... for each fixed tile.
   --cold-runs N              First-request phase count per target. Default: 1.

@@ -56,8 +56,8 @@ Options:
 Checks:
   - Decodes the properties MVT layer with @mapbox/vector-tile + pbf.
   - Validates point feature shape, required properties, cluster point counts,
-    bbox fields, representative UUIDs, membership coverage, and ghost reveal
-    rules.
+    bbox fields, representative UUIDs, membership coverage, and active-only
+    node classes.
   - Validates first-response promoted pyramid headers when seen:
     x-tile-cache=precomputed, x-huishype-tile-status=pyramid-promoted|pyramid-empty,
     and x-huishype-pyramid-version.
@@ -227,7 +227,7 @@ function printSummary(summaries: TileSemanticSummary[], warnings: ValidationWarn
   console.error('Semantic validation summary');
   for (const summary of summaries) {
     console.error(
-      `${summary.endpoint} ${summary.city} ${summary.tile}: status=${summary.status}, features=${summary.featureCount}, singles=${summary.singleCount}, clusters=${summary.clusterCount}, active=${summary.activeCount}, ghost=${summary.ghostCount}, points=${summary.pointCountTotal}, cache=${summary.tileCache || '-'}, tile_status=${summary.tileStatus || '-'}`
+      `${summary.endpoint} ${summary.city} ${summary.tile}: status=${summary.status}, features=${summary.featureCount}, singles=${summary.singleCount}, clusters=${summary.clusterCount}, active=${summary.activeCount}, points=${summary.pointCountTotal}, cache=${summary.tileCache || '-'}, tile_status=${summary.tileStatus || '-'}`
     );
   }
 

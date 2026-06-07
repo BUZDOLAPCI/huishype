@@ -5,21 +5,18 @@ import { sql, type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import crypto from 'node:crypto';
 import {
-  GHOST_NODE_REVEAL_ZOOM,
+  ADDRESS_INTERACTION_MIN_ZOOM,
   PROPERTY_TILE_EXTENT,
   buildGroupingCandidateScopeCtes,
   buildMvtForGroups,
   getActiveClusterRadiusPx,
   getActiveSingleRadiusPx,
   getGroupingBufferUnits,
-  getGhostClusterRadiusPx,
-  getGhostSingleRadiusPx,
   buildCanonicalGroupsForTile,
   buildCanonicalGroupsForTileUncached,
   groupCandidatesForTile,
   lngLatToWorldUnits,
   serializeGroupForTile,
-  shouldFetchGhostCandidates,
   type GroupingCandidate,
   resetCanonicalGroupCacheForTests,
   resolveNearbyGroupedFeature,
@@ -162,15 +159,9 @@ describe('property-grouping', () => {
     jest.restoreAllMocks();
   });
 
-  it('keeps ghost candidate fetching disabled at and below the legacy reveal zoom', () => {
-    expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM - 1)).toBe(false);
-    expect(shouldFetchGhostCandidates(GHOST_NODE_REVEAL_ZOOM)).toBe(false);
-  });
-
-  it('discovers z13 non-ghost listing candidates from the maintained tile projection', () => {
+  it('discovers z13 listing candidates from the maintained tile projection', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
-      false,
       createDefaultMapFilters(),
       13,
       { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
@@ -201,10 +192,9 @@ describe('property-grouping', () => {
     expect(text).not.toContain('social_only_candidate_properties AS MATERIALIZED');
   });
 
-  it('discovers z14 non-ghost listing candidates from the maintained tile projection', () => {
+  it('discovers z14 listing candidates from the maintained tile projection', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
-      false,
       createDefaultMapFilters(),
       14,
       { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
@@ -231,10 +221,9 @@ describe('property-grouping', () => {
     expect(text).not.toContain('FROM property_views pv');
   });
 
-  it('scopes z15 non-ghost tile candidate discovery to bounded active properties before source scans', () => {
+  it('scopes z15 tile candidate discovery to bounded active properties before source scans', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
-      false,
       createDefaultMapFilters(),
       15
     );
@@ -296,7 +285,6 @@ describe('property-grouping', () => {
   it('uses bounded active properties directly for selected-area candidate discovery', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
-      false,
       normalizeMapFilters({
         areas: [
           {
@@ -338,7 +326,6 @@ describe('property-grouping', () => {
   it('skips low-zoom social-only candidate discovery when market filters can only return listed states', () => {
     const query = buildGroupingCandidateScopeCtes(
       [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
-      false,
       normalizeMapFilters({ marketState: ['for-sale', 'for-rent', 'sold', 'rented'] }),
       10,
       { candidateSnapshotId: TEST_CANDIDATE_SNAPSHOT_ID }
@@ -714,23 +701,6 @@ describe('property-grouping', () => {
     expect(hydrationQuery).not.toContain('v_canonical_listing_facts');
     expect(hydrationQuery).not.toContain('LEFT JOIN LATERAL');
     expect(transactionSpy).toHaveBeenCalledTimes(2);
-  });
-
-  it('keeps ghost candidate scope as all active bbox properties', () => {
-    const query = buildGroupingCandidateScopeCtes(
-      [{ minLon: 4, minLat: 51, maxLon: 5, maxLat: 52 }],
-      true,
-      createDefaultMapFilters(),
-      13
-    );
-    const text = renderSql(query).replace(/\s+/g, ' ').trim();
-
-    expect(text).toContain('candidate_properties AS MATERIALIZED');
-    expect(text).toContain('FROM properties p');
-    expect(text).toContain("WHERE p.geometry IS NOT NULL AND p.status = 'active'");
-    expect(text).toContain('p.geometry && ST_MakeEnvelope');
-    expect(text).not.toContain('listing_candidate_ids AS MATERIALIZED');
-    expect(text).not.toContain('candidate_property_ids AS MATERIALIZED');
   });
 
   it('classifies only statement-timeout 57014 errors as tile statement timeouts', () => {
@@ -1197,11 +1167,9 @@ describe('property-grouping', () => {
     ]);
   });
 
-  it('keeps the grouping buffer large enough for ghost suppression by large active clusters', () => {
+  it('keeps the grouping buffer large enough for large active clusters', () => {
     const requiredPx =
-      getActiveClusterRadiusPx(100) +
-      PROPERTY_MAP_FOOTPRINTS.ghost.suppressionPaddingPx +
-      Math.max(getGhostSingleRadiusPx(), getGhostClusterRadiusPx(2));
+      2 * (getActiveClusterRadiusPx(2) + PROPERTY_MAP_FOOTPRINTS.active.groupingGapPx + getActiveClusterRadiusPx(2));
 
     expect(getGroupingBufferUnits() / TILE_UNITS_PER_PX).toBeGreaterThanOrEqual(requiredPx);
   });
@@ -1248,12 +1216,13 @@ describe('property-grouping', () => {
     expect(groups[1].propertyIds).toEqual([gamma.id]);
   });
 
-  it('drops ghost candidates while keeping active candidates once legacy ghosts would reveal', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM;
+  it('drops quiet candidates while keeping active candidates at address interaction zoom', () => {
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM;
     const tile = { z: zoom, x: 100000, y: 70000 };
     const originX = tile.x * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
     const originY = tile.y * PROPERTY_TILE_EXTENT + PROPERTY_TILE_EXTENT / 2;
     const [activeLon, activeLat] = worldUnitsToLngLat(originX, originY, zoom);
+    const [quietLon, quietLat] = worldUnitsToLngLat(originX + TILE_UNITS_PER_PX, originY, zoom);
     const active = makeCandidate(
       '00000000-0000-0000-0000-000000000011',
       activeLon,
@@ -1265,53 +1234,29 @@ describe('property-grouping', () => {
         worldY: originY,
       }
     );
-    const activeOccupancyRadiusUnits =
-      (getActiveSingleRadiusPx(active.socialScore) +
-        PROPERTY_MAP_FOOTPRINTS.ghost.suppressionPaddingPx) *
-      TILE_UNITS_PER_PX;
-    const ghostRadiusUnits =
-      Math.max(getGhostSingleRadiusPx(), getGhostClusterRadiusPx(2)) * TILE_UNITS_PER_PX;
-    const suppressionThresholdUnits = activeOccupancyRadiusUnits + ghostRadiusUnits;
-    const [suppressedLon, suppressedLat] = worldUnitsToLngLat(
-      originX + suppressionThresholdUnits,
-      originY,
-      zoom
-    );
-    const suppressedGhost = makeCandidate(
+    const quiet = makeCandidate(
       '00000000-0000-0000-0000-000000000012',
-      suppressedLon,
-      suppressedLat,
+      quietLon,
+      quietLat,
       zoom,
       {
         hasActiveListing: false,
         socialScore: 0,
-        worldX: originX + suppressionThresholdUnits,
+        worldX: originX + TILE_UNITS_PER_PX,
         worldY: originY,
       }
     );
-    const [farLon, farLat] = worldUnitsToLngLat(
-      originX + suppressionThresholdUnits + TILE_UNITS_PER_PX,
-      originY,
-      zoom
-    );
-    const farGhost = makeCandidate('00000000-0000-0000-0000-000000000013', farLon, farLat, zoom, {
-      hasActiveListing: false,
-      socialScore: 0,
-      worldX: originX + suppressionThresholdUnits + TILE_UNITS_PER_PX,
-      worldY: originY,
-    });
 
-    const groups = groupCandidatesForTile(tile, [active, suppressedGhost, farGhost]);
+    const groups = groupCandidatesForTile(tile, [active, quiet]);
     const activeGroup = groups.find((group) => group.nodeClass === 'active');
 
     expect(groups).toHaveLength(1);
     expect(activeGroup?.primaryPropertyId).toBe(active.id);
-    expect(groups.find((group) => group.primaryPropertyId === suppressedGhost.id)).toBeUndefined();
-    expect(groups.find((group) => group.primaryPropertyId === farGhost.id)).toBeUndefined();
+    expect(groups.find((group) => group.primaryPropertyId === quiet.id)).toBeUndefined();
   });
 
-  it('keeps listing-backed zero-social candidates active below ghost reveal zoom while hiding true ghosts', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+  it('keeps listing-backed zero-social candidates active while hiding quiet candidates', () => {
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM - 1;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
@@ -1321,7 +1266,7 @@ describe('property-grouping', () => {
       recentSocialScore: 0,
       marketState: 'for-sale',
     });
-    const hiddenGhost = makeCandidate(
+    const hiddenQuiet = makeCandidate(
       '00000000-0000-0000-0000-000000000014',
       baseLon + 0.001,
       baseLat + 0.001,
@@ -1334,7 +1279,7 @@ describe('property-grouping', () => {
       }
     );
 
-    const groups = groupCandidatesForTile(tile, [listed, hiddenGhost]);
+    const groups = groupCandidatesForTile(tile, [listed, hiddenQuiet]);
 
     expect(groups).toHaveLength(1);
     expect(groups[0].nodeClass).toBe('active');
@@ -1347,8 +1292,8 @@ describe('property-grouping', () => {
     expect(groups[0].socialScoreTotal).toBe(0);
   });
 
-  it('keeps completed listing-backed zero-social candidates active below ghost reveal zoom', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+  it('keeps completed listing-backed zero-social candidates active', () => {
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM - 1;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
@@ -1373,7 +1318,7 @@ describe('property-grouping', () => {
   });
 
   it('keeps completed listing-only groups active and counts them separately from active listings', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM;
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM;
     const tile = { z: zoom, x: 100000, y: 70000 };
     const originX = tile.x * PROPERTY_TILE_EXTENT + 1600;
     const originY = tile.y * PROPERTY_TILE_EXTENT + 1600;
@@ -1469,14 +1414,14 @@ describe('property-grouping', () => {
     expect(groups[0].recentSocialCount).toBe(1);
   });
 
-  it('preserves listing-only and social-only semantics while dropping ghost candidates after scoping', () => {
-    const hiddenZoom = GHOST_NODE_REVEAL_ZOOM - 1;
-    const revealedZoom = GHOST_NODE_REVEAL_ZOOM;
+  it('preserves listing-only and social-only semantics while dropping quiet candidates after scoping', () => {
+    const hiddenZoom = ADDRESS_INTERACTION_MIN_ZOOM - 1;
+    const revealedZoom = ADDRESS_INTERACTION_MIN_ZOOM;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
-    const ghostLon = baseLon + 0.002;
+    const quietLon = baseLon + 0.002;
     const hiddenTile = tileForCoordinate(baseLon, baseLat, hiddenZoom);
-    const revealedTile = tileForCoordinate(ghostLon, baseLat, revealedZoom);
+    const revealedTile = tileForCoordinate(quietLon, baseLat, revealedZoom);
     const listingOnly = makeCandidate(
       '00000000-0000-0000-0000-000000000071',
       baseLon,
@@ -1503,9 +1448,9 @@ describe('property-grouping', () => {
         marketState: 'not-listed',
       }
     );
-    const hiddenGhost = makeCandidate(
+    const hiddenQuiet = makeCandidate(
       '00000000-0000-0000-0000-000000000073',
-      ghostLon,
+      quietLon,
       baseLat,
       hiddenZoom,
       {
@@ -1516,7 +1461,7 @@ describe('property-grouping', () => {
         marketState: 'not-listed',
       }
     );
-    const revealedGhost = makeCandidate(hiddenGhost.id, ghostLon, baseLat, revealedZoom, {
+    const revealedQuiet = makeCandidate(hiddenQuiet.id, quietLon, baseLat, revealedZoom, {
       hasActiveListing: false,
       hasCompletedListing: false,
       socialScore: 0.1,
@@ -1524,8 +1469,8 @@ describe('property-grouping', () => {
       marketState: 'not-listed',
     });
 
-    const hiddenGroups = groupCandidatesForTile(hiddenTile, [listingOnly, socialOnly, hiddenGhost]);
-    const revealedGroups = groupCandidatesForTile(revealedTile, [revealedGhost]);
+    const hiddenGroups = groupCandidatesForTile(hiddenTile, [listingOnly, socialOnly, hiddenQuiet]);
+    const revealedGroups = groupCandidatesForTile(revealedTile, [revealedQuiet]);
 
     expect(hiddenGroups).toHaveLength(2);
     expect(hiddenGroups.find((group) => group.primaryPropertyId === listingOnly.id)).toMatchObject({
@@ -1544,13 +1489,13 @@ describe('property-grouping', () => {
       marketState: 'not-listed',
     });
     expect(
-      hiddenGroups.find((group) => group.primaryPropertyId === hiddenGhost.id)
+      hiddenGroups.find((group) => group.primaryPropertyId === hiddenQuiet.id)
     ).toBeUndefined();
     expect(revealedGroups).toHaveLength(0);
   });
 
   it('keeps a single unique view below active-node semantics', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM - 1;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
@@ -1567,7 +1512,7 @@ describe('property-grouping', () => {
   });
 
   it('allows enough unique-view interest to promote a non-listing node', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM - 1;
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM - 1;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
@@ -1591,8 +1536,8 @@ describe('property-grouping', () => {
     expect(groups[0].recentSocialScoreTotal).toBe(0.8);
   });
 
-  it('drops revealed one-view non-listing nodes instead of emitting ghost nodes', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM;
+  it('drops one-view non-listing nodes', () => {
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
@@ -1609,7 +1554,7 @@ describe('property-grouping', () => {
   });
 
   it('drops selected-area not-listed candidates with zero listing and social counts', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM;
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM;
     const baseLon = 5.4697;
     const baseLat = 51.4416;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
@@ -1633,26 +1578,26 @@ describe('property-grouping', () => {
     expect(groups).toHaveLength(0);
   });
 
-  it('does not build ghost clusters once legacy ghosts would reveal', () => {
-    const zoom = GHOST_NODE_REVEAL_ZOOM;
+  it('does not build clusters from quiet candidates', () => {
+    const zoom = ADDRESS_INTERACTION_MIN_ZOOM;
     const tile = { z: zoom, x: 100000, y: 70000 };
     const originX = tile.x * PROPERTY_TILE_EXTENT + 1500;
     const originY = tile.y * PROPERTY_TILE_EXTENT + 1700;
-    const [ghostLonA, ghostLatA] = worldUnitsToLngLat(originX, originY, zoom);
-    const [ghostLonB, ghostLatB] = worldUnitsToLngLat(originX + 40, originY + 30, zoom);
+    const [quietLonA, quietLatA] = worldUnitsToLngLat(originX, originY, zoom);
+    const [quietLonB, quietLatB] = worldUnitsToLngLat(originX + 40, originY + 30, zoom);
     const [activeLon, activeLat] = worldUnitsToLngLat(originX + 1200, originY, zoom);
 
-    const ghostA = makeCandidate(
+    const quietA = makeCandidate(
       '00000000-0000-0000-0000-000000000041',
-      ghostLonA,
-      ghostLatA,
+      quietLonA,
+      quietLatA,
       zoom,
       { hasActiveListing: false, socialScore: 0 }
     );
-    const ghostB = makeCandidate(
+    const quietB = makeCandidate(
       '00000000-0000-0000-0000-000000000042',
-      ghostLonB,
-      ghostLatB,
+      quietLonB,
+      quietLatB,
       zoom,
       { hasActiveListing: false, socialScore: 0 }
     );
@@ -1664,13 +1609,11 @@ describe('property-grouping', () => {
       { hasActiveListing: true, socialScore: 18, commentCount: 4 }
     );
 
-    const groups = groupCandidatesForTile(tile, [ghostA, ghostB, active]);
-    const ghostGroup = groups.find((group) => group.nodeClass === 'ghost');
+    const groups = groupCandidatesForTile(tile, [quietA, quietB, active]);
     const activeGroup = groups.find((group) => group.nodeClass === 'active');
 
     expect(groups).toHaveLength(1);
     expect(activeGroup?.groupKind).toBe('single');
-    expect(ghostGroup).toBeUndefined();
   });
 
   it('orders preview members by grouping priority and caps them to the preview member limit', () => {

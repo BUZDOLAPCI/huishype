@@ -132,7 +132,7 @@ These are resolved defaults for execution unless explicitly overridden.
    - country-specific official or aerial fallback
    - branded warm placeholder
 
-7. **Catch-all address route**
+7. **Fallback address route**
    - `app/[...address].tsx` must stop being a second unfinished experience.
    - It becomes a resolver or redirect, or it is removed.
 

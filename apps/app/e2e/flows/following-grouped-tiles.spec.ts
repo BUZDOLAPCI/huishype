@@ -30,7 +30,7 @@ type FollowingNearbyResult = {
   primaryPropertyId: string;
   coordinate: [number, number];
   groupKind: 'single' | 'cluster';
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
 };
 
 type SeedProperty = {
@@ -172,7 +172,7 @@ async function clickRenderedFollowingNodeNearCoordinate(
           return null;
         }
 
-        const layers = ['active-nodes', 'property-clusters', 'ghost-nodes', 'ghost-clusters'].filter(
+        const layers = ['active-nodes', 'property-clusters'].filter(
           (layer) => map.getLayer?.(layer)
         );
         if (layers.length === 0) {
@@ -574,7 +574,7 @@ test.describe('Following grouped tiles', () => {
       const renderedFeatures = map && canvas
         ? map.queryRenderedFeatures(
             [[0, 0], [canvas.width, canvas.height]],
-            { layers: ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes'] }
+            { layers: ['property-clusters', 'active-nodes'] }
           )
         : [];
       const sourceFeatures = map?.querySourceFeatures?.('properties-source', {

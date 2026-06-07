@@ -3,7 +3,6 @@
  *
  * This test verifies the map view displays property markers with:
  * - Active Nodes (colored markers for active properties)
- * - Removed public ghost layers stay absent from the app-side style
  * - Visual activity indicators (pulses for recent activity)
  * - Clear visual hierarchy between marker types
  *
@@ -13,7 +12,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import type { VisualMapContainerElement } from './helpers/visual-map-types';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
@@ -23,7 +22,7 @@ const EXPECTATION_NAME = 'map-view-property-markers';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
 
 // Zoom level for viewing active map nodes under the canonical contract.
-const MARKER_VIEW_ZOOM_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM;
+const MARKER_VIEW_ZOOM_LEVEL = PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM;
 const PITCH_3D = 45; // Slight 3D perspective
 
 // Center on Eindhoven area where properties and some listings exist
@@ -226,7 +225,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
         // Query rendered features using all available property layers
         const canvas = mapInstance.getCanvas();
         let activeNodes = 0, clusters = 0;
-        const removedGhostLayers = ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes']
+        const removedGhostLayers = []
           .filter((layerId) => mapInstance.getLayer(layerId));
 
         try {
@@ -263,13 +262,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     console.log('Marker layer info:', markerInfo);
 
-    // Verify map is at or beyond the ghost reveal threshold.
+    // Verify map is at or beyond the address interaction zoom.
     if (markerInfo) {
-      expect(markerInfo.zoom).toBeGreaterThanOrEqual(PROPERTY_GHOST_REVEAL_ZOOM);
+      expect(markerInfo.zoom).toBeGreaterThanOrEqual(PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM);
 
-      // Verify expected public layers exist and removed ghost layers stay absent.
+      // Verify expected public layers exist.
       expect(markerInfo.markerLayerIds).toContain('active-nodes');
-      expect(markerInfo.removedGhostLayers).toEqual([]);
 
       const totalFeatures = markerInfo.renderedMarkers.activeNodes;
       expect(totalFeatures, 'Should have rendered active property features on map').toBeGreaterThan(0);

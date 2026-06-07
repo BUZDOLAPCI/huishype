@@ -77,7 +77,7 @@ Three action buttons displayed prominently on the preview card:
 ## Interaction Behavior
 
 ### Trigger
-- Tap/click on any property marker (ghost node or active node)
+- Tap/click on any property marker
 - Preview card appears immediately (within 100-200ms)
 
 ### Dismissal

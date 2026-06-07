@@ -6,7 +6,6 @@
  * - Zoom in/out programmatically, verify zoom level changes
  * - Verify density-aware clusters at low zoom and node rendering at higher zoom
  * - Pan to Eindhoven area, verify property data loads
- * - Test ghost vs active nodes once ghost reveal is active
  * - Verify vector tiles load at different zoom levels
  */
 
@@ -169,7 +168,7 @@ async function waitForPointFeatures(
       const canvas = map.getCanvas();
       if (!canvas) return false;
 
-      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+      const layers = ['property-clusters', 'active-nodes']
         .filter((layer) => map.getLayer(layer));
       if (layers.length === 0) return false;
 
@@ -652,7 +651,7 @@ test.describe('Map Interactions', () => {
       if (!map) return { count: 0, hasCluster: false };
       const canvas = map.getCanvas();
       if (!canvas) return { count: 0, hasCluster: false };
-      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+      const layers = ['property-clusters', 'active-nodes']
         .filter((layer) => map.getLayer(layer));
       const features = layers.length > 0
         ? map.queryRenderedFeatures([[0, 0], [canvas.width, canvas.height]], { layers })
@@ -673,61 +672,23 @@ test.describe('Map Interactions', () => {
 
     const highZoomFeatures = await page.evaluate(() => {
       const map = (window as WindowWithMapInstance).__mapInstance;
-      if (!map) return { count: 0, hasGhost: false };
+      if (!map) return { count: 0 };
       const canvas = map.getCanvas();
-      if (!canvas) return { count: 0, hasGhost: false };
-      const layers = ['property-clusters', 'active-nodes', 'ghost-clusters', 'ghost-nodes']
+      if (!canvas) return { count: 0 };
+      const layers = ['property-clusters', 'active-nodes']
         .filter((layer) => map.getLayer(layer));
       const features = layers.length > 0
         ? map.queryRenderedFeatures([[0, 0], [canvas.width, canvas.height]], { layers })
         : [];
       return {
         count: features.length,
-        hasGhost: features.some(
-          (feature: MapFeature) => feature.properties?.node_class === 'ghost'
-        ),
       };
     });
 
-    console.log(`High zoom (18): ${highZoomFeatures.count} features, hasGhost: ${highZoomFeatures.hasGhost}`);
+    console.log(`High zoom (18): ${highZoomFeatures.count} features`);
 
     expect(lowZoomFeatures.count).toBeGreaterThan(0);
     expect(highZoomFeatures.count).toBeGreaterThan(0);
-  });
-
-  test('ghost vs active nodes at the ghost reveal threshold', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await waitForMapReady(page, 60000);
-
-    // Ghost groups reveal at z17+ and carry node_class metadata.
-    await setMapView(page, EINDHOVEN_CENTER, 17.5);
-    await page.waitForTimeout(5000);
-
-    const nodeInfo = await page.evaluate(() => {
-      const map = (window as WindowWithMapInstance).__mapInstance;
-      if (!map) return { total: 0, ghost: 0, active: 0 };
-
-      const features = map.queryRenderedFeatures();
-      let ghost = 0;
-      let active = 0;
-
-      for (const f of features) {
-        if (f.properties?.node_class === 'ghost') {
-          ghost++;
-        } else if (f.properties?.node_class === 'active') {
-          active++;
-        }
-      }
-
-      return { total: features.length, ghost, active };
-    });
-
-    console.log(
-      `At z17.5: total=${nodeInfo.total}, ghost=${nodeInfo.ghost}, active=${nodeInfo.active}`
-    );
-
-    // Map should be loaded and functional
-    await expect(page.locator('canvas').first()).toBeVisible();
   });
 
   test('pan to Eindhoven loads property tiles', async ({ page }) => {

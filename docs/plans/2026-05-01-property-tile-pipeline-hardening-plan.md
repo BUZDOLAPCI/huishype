@@ -204,7 +204,7 @@ Postgres statement budgets do not cover JS grouping, GeoJSON/MVT object preparat
 
 CPU-stage budget requirements:
 
-- Add explicit checkpoints before and after candidate clustering, ghost suppression, detail hydration mapping, read/following filtering, GeoJSON feature construction, `JSON.stringify`, MVT serialization, route-cache writes, and snapshot writes.
+- Add explicit checkpoints before and after candidate clustering, detail hydration mapping, read/following filtering, GeoJSON feature construction, `JSON.stringify`, MVT serialization, route-cache writes, and snapshot writes.
 - Any loop over candidates, groups, features, or snapshot tile coordinates that can exceed a few hundred items must check elapsed time and abort state periodically, not just before and after the whole loop.
 - If a CPU-stage budget miss occurs after SQL has completed, classify it as a normal tile budget miss for stale/timeout-empty behavior, but do not write partial payloads to route cache or snapshot tables.
 

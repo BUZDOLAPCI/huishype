@@ -421,7 +421,7 @@ If filtering happens after grouping, the map will show incorrect:
 
 - cluster sizes
 - preview membership
-- active vs ghost distribution
+- active distribution
 - tap targets
 
 ### `/tiles/style.json`

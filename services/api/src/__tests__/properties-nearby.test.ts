@@ -6,7 +6,7 @@ import { db } from '../db/index.js';
 import type { FastifyInstance } from 'fastify';
 import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import {
-  GHOST_NODE_REVEAL_ZOOM,
+  ADDRESS_INTERACTION_MIN_ZOOM,
   PROPERTY_TILE_EXTENT,
   buildCanonicalGroupsForTile,
   lngLatToWorldUnits,
@@ -53,11 +53,6 @@ async function withTemporaryEnv(
   }
 }
 
-const SEEDED_GHOST_CLUSTER_FIXTURE = {
-  lon: 5.47123505671892,
-  lat: 51.4434318245281,
-  zoom: 17,
-};
 const HERMETIC_NEARBY_COUNTRY_CODE = 'ZZ';
 
 async function withHermeticNearbyActiveCluster(
@@ -567,7 +562,7 @@ async function withHermeticCurrentPyramidNode(
       ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326),
       0,
       0,
-      'ghost',
+      'active',
       'cluster',
       ${propertyIds.length},
       ${propertyIds[0]}::uuid,
@@ -1468,27 +1463,6 @@ describe('GET /properties/nearby', () => {
       }
     });
 
-    it('does not resolve legacy ghost clusters through nearby fallback', async () => {
-      const direct = await resolveNearbyGroupedFeature(
-        SEEDED_GHOST_CLUSTER_FIXTURE.lon,
-        SEEDED_GHOST_CLUSTER_FIXTURE.lat,
-        SEEDED_GHOST_CLUSTER_FIXTURE.zoom
-      );
-
-      const response = await app.inject({
-        method: 'GET',
-        url:
-          `/properties/nearby?lon=${SEEDED_GHOST_CLUSTER_FIXTURE.lon}` +
-          `&lat=${SEEDED_GHOST_CLUSTER_FIXTURE.lat}` +
-          `&zoom=${SEEDED_GHOST_CLUSTER_FIXTURE.zoom}`,
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(direct).toBeNull();
-      expect(body).toBeNull();
-    });
-
     it('keeps nearby resolution aligned with the canonical tile group and preview cap rules', async () => {
       await withHermeticNearbyActiveCluster(async ({ lon, lat }) => {
         const zoom = 20;
@@ -1515,7 +1489,7 @@ describe('GET /properties/nearby', () => {
       });
     });
 
-    it('does not resolve unlisted inactive singles as ghost nearby results', async () => {
+    it('does not resolve unlisted inactive singles as nearby results', async () => {
       const propertyId = crypto.randomUUID();
       const lon = 3.15;
       const lat = 55.05;
@@ -1537,7 +1511,7 @@ describe('GET /properties/nearby', () => {
         VALUES (
           ${propertyId},
           ${HERMETIC_NEARBY_COUNTRY_CODE},
-          'Remote Ghost Lane',
+          'Remote Quiet Lane',
           17,
           'Remote City',
           '9999 ZZ',
@@ -1552,7 +1526,7 @@ describe('GET /properties/nearby', () => {
       try {
         const response = await app.inject({
           method: 'GET',
-          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM}`,
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${ADDRESS_INTERACTION_MIN_ZOOM}`,
         });
 
         expect(response.statusCode).toBe(200);
@@ -1604,11 +1578,11 @@ describe('GET /properties/nearby', () => {
       try {
         const defaultResponse = await app.inject({
           method: 'GET',
-          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM}`,
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${ADDRESS_INTERACTION_MIN_ZOOM}`,
         });
         const areaResponse = await app.inject({
           method: 'GET',
-          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM}&area=${area}`,
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${ADDRESS_INTERACTION_MIN_ZOOM}&area=${area}`,
         });
 
         expect(defaultResponse.statusCode).toBe(200);
@@ -1625,7 +1599,7 @@ describe('GET /properties/nearby', () => {
       await withHermeticNearbyListingOnlyProperty(async ({ lon, lat, propertyId }) => {
         const response = await app.inject({
           method: 'GET',
-          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${GHOST_NODE_REVEAL_ZOOM - 1}&marketState=for-sale`,
+          url: `/properties/nearby?lon=${lon}&lat=${lat}&zoom=${ADDRESS_INTERACTION_MIN_ZOOM - 1}&marketState=for-sale`,
         });
 
         expect(response.statusCode).toBe(200);

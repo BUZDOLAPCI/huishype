@@ -119,7 +119,7 @@ Options:
 Notes:
   The benchmark uses representative heavy public tiles: dense z13
   Amsterdam/Utrecht/Rotterdam, low-zoom Randstad/city tiles, z10 pyramid edge,
-  z11-z13 transition tiles, z14-z16 detail tiles, and z17 ghost-reveal city
+  z11-z13 transition tiles, z14-z17 detail tiles, and z17 city
   tiles.
 
   The benchmark uses /tiles/properties/:z/:x/:y.pbf with no cache-busting query

@@ -125,12 +125,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         const canvas = map.getCanvas();
         // Actual layer names from the map implementation
-        const layerNames = [
-          'ghost-nodes',
-          'active-nodes',
-          'ghost-clusters',
-          'property-clusters',
-        ];
+        const layerNames = ['active-nodes', 'property-clusters'];
 
         for (const layer of layerNames) {
           // Check if layer exists before querying to avoid console errors

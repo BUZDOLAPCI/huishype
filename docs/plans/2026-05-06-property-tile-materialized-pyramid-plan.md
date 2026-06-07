@@ -265,7 +265,7 @@ Builder inputs and semantics:
   Extract a pure grouping/build path or disable those caches for pyramid builds.
 - Preserve the current visual semantics by materializing per-zoom, per-tile
   rendered nodes using the existing zoom-local grouping rules, radius
-  calculations, node class behavior, active/ghost grouping, source priority,
+  calculations, node class behavior, source priority,
   preview ordering, and owner-tile filtering.
 - For each tile, collect candidates from the same buffered query extent used by
   the current encoder so edge rendering remains stable. Store and serve only
@@ -298,8 +298,8 @@ z7=408, z8=1,584, z9=6,144, and z10=24,192. Preflight must estimate candidate
 rows with `EXPLAIN (ANALYZE, BUFFERS)` for z0, z6, dense z9, and dense z10
 using the same candidate CTEs as `buildGroupingCandidateScopeCtes()`. Estimate
 members as `SUM(point_count)` and reject a plan where z<=10 accidentally
-includes all active/ghost properties; ghost reveal is z17, so public max z10
-remains source-first listing/social scoped.
+includes raw address properties; public max z10 remains source-first
+listing/social scoped.
 
 The builder records estimated and observed tile count, non-empty tile count,
 node count, member row count when retained, encoded payload bytes, heap bytes,

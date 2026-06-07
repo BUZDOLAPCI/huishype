@@ -97,7 +97,7 @@ import type { MapSocialScope } from '@/src/lib/mapRoute';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared/config';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared/config';
 import type { LocationFilterToken } from '@huishype/shared';
 
 // Semantic color constants for inline styles (warm palette)
@@ -587,7 +587,7 @@ export default function MapScreen() {
   );
   const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
   useEffect(() => {
-    if (currentPreviewProperty?.id && currentPreviewProperty.nodeClass !== 'ghost') {
+    if (currentPreviewProperty?.id) {
       recordPreviewPropertyView(currentPreviewProperty.id);
     }
   }, [currentPreviewProperty?.id, currentPreviewProperty?.nodeClass, recordPreviewPropertyView]);
@@ -1217,7 +1217,7 @@ export default function MapScreen() {
     async (event: NativeSyntheticEvent<PressEvent>) => {
       cancelRootAutoLocationAfterUserInteraction();
 
-      if (currentZoom < PROPERTY_GHOST_REVEAL_ZOOM) {
+      if (currentZoom < PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM) {
         return;
       }
 

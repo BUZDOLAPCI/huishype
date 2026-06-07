@@ -16,10 +16,7 @@ export interface Coordinates {
  */
 export type ActivityLevel = 'cold' | 'warm' | 'hot';
 
-/**
- * Canonical map-node class used by both tiles and nearby fallback.
- */
-export type PropertyNodeClass = 'active' | 'ghost';
+export type PropertyNodeClass = 'active';
 
 /**
  * Canonical map-node grouping kind used by both tiles and nearby fallback.
@@ -216,8 +213,6 @@ export interface PropertyPhoto {
 export interface MapProperty {
   id: string;
   coordinates: Coordinates;
-  /** Whether this is a ghost node (no listing and activity score is zero) */
-  isGhost: boolean;
   /** Activity level for styling */
   activityLevel: ActivityLevel;
   /** Whether to show photo preview */

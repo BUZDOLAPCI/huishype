@@ -10,8 +10,6 @@ import {
   MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
   MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH,
   MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
-  MAP_NODE_GHOST_CLUSTER_VISUAL,
-  MAP_NODE_GHOST_SINGLE_VISUAL,
   MAP_NODE_LISTING_RING_CLUSTER_COLOR_STOPS,
   MAP_NODE_LISTING_RING_CLUSTER_OPACITY_STOPS,
   MAP_NODE_LISTING_RING_CLUSTER_WIDTH_STOPS,
@@ -23,7 +21,6 @@ import {
   MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR,
   MAP_NODE_SOCIAL_IDLE_CORE_COLOR,
   PROPERTY_MAP_FOOTPRINTS,
-  type NumericStop,
 } from '@huishype/shared/config';
 
 export const PROPERTY_VECTOR_SOURCE_ID = 'properties-source';
@@ -39,9 +36,6 @@ export const READ_OVERLAY_LAYER_IDS = [
   'read-cluster-count',
   'read-active-nodes',
   'read-active-node-fill',
-  'read-ghost-clusters',
-  'read-ghost-cluster-count',
-  'read-ghost-nodes',
 ] as const;
 
 const READ_NODE_OPACITY = 0.6;
@@ -103,14 +97,6 @@ type SymbolLayerLike = Record<string, unknown> & {
 
 interface ReadPropertyOverlayLayerOptions {
   mode?: 'visible' | 'probe';
-}
-
-function buildStepExpression(
-  input: unknown,
-  stops: readonly NumericStop[]
-): [string, unknown, number, ...(number | string)[]] {
-  const [firstStop, ...restStops] = stops;
-  return ['step', input, firstStop[1], ...restStops.flatMap(([threshold, value]) => [threshold, value])];
 }
 
 function buildInterpolateExpression<TValue extends number | string>(
@@ -510,72 +496,6 @@ export function getReadPropertyOverlayLayers(
         'circle-stroke-width': ['case', ['>', activeListingCount, 0], 0, MAP_NODE_NON_LISTING_OUTLINE_WIDTH],
         'circle-stroke-color': MAP_NODE_NON_LISTING_OUTLINE_COLOR,
         'circle-stroke-opacity': ['case', ['>', activeListingCount, 0], 0, READ_NODE_OPACITY],
-      },
-    },
-    {
-      id: READ_OVERLAY_LAYER_IDS[5],
-      type: 'circle',
-      source: READ_PROPERTY_VECTOR_SOURCE_ID,
-      'source-layer': 'properties',
-      minzoom: 17,
-      filter: [
-        'all',
-        ['==', ['get', 'node_class'], 'ghost'],
-        ['==', ['get', 'group_kind'], 'cluster'],
-      ],
-      paint: {
-        'circle-radius': buildStepExpression(
-          ['coalesce', ['get', 'point_count'], 2],
-          PROPERTY_MAP_FOOTPRINTS.ghost.clusterRadiusStopsPx
-        ),
-        'circle-color': MAP_NODE_GHOST_CLUSTER_VISUAL.fill,
-        'circle-opacity': READ_NODE_OPACITY,
-        'circle-stroke-width': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeWidth,
-        'circle-stroke-color': MAP_NODE_GHOST_CLUSTER_VISUAL.strokeColor,
-        'circle-stroke-opacity': READ_NODE_OPACITY,
-      },
-    },
-    {
-      id: READ_OVERLAY_LAYER_IDS[6],
-      type: 'symbol',
-      source: READ_PROPERTY_VECTOR_SOURCE_ID,
-      'source-layer': 'properties',
-      minzoom: 17,
-      filter: [
-        'all',
-        ['==', ['get', 'node_class'], 'ghost'],
-        ['==', ['get', 'group_kind'], 'cluster'],
-      ],
-      layout: {
-        'text-field': ['case', ['has', 'point_count'], ['to-string', ['get', 'point_count']], ''],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': 9,
-      },
-      paint: {
-        'text-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelColor,
-        'text-halo-color': MAP_NODE_GHOST_CLUSTER_VISUAL.labelHaloColor,
-        'text-halo-width': 1,
-        'text-opacity': READ_LABEL_OPACITY,
-      },
-    },
-    {
-      id: READ_OVERLAY_LAYER_IDS[7],
-      type: 'circle',
-      source: READ_PROPERTY_VECTOR_SOURCE_ID,
-      'source-layer': 'properties',
-      minzoom: 17,
-      filter: [
-        'all',
-        ['==', ['get', 'node_class'], 'ghost'],
-        ['==', ['get', 'group_kind'], 'single'],
-      ],
-      paint: {
-        'circle-radius': PROPERTY_MAP_FOOTPRINTS.ghost.singleRadiusPx,
-        'circle-color': MAP_NODE_GHOST_SINGLE_VISUAL.fill,
-        'circle-opacity': READ_NODE_OPACITY,
-        'circle-stroke-width': MAP_NODE_GHOST_SINGLE_VISUAL.strokeWidth,
-        'circle-stroke-color': MAP_NODE_GHOST_SINGLE_VISUAL.strokeColor,
-        'circle-stroke-opacity': READ_NODE_OPACITY,
       },
     },
   ];

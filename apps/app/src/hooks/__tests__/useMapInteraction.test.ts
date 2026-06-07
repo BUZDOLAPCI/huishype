@@ -1306,10 +1306,10 @@ describe('useMapInteraction', () => {
       });
     });
 
-    it('preserves ghost class for grouped previews opened from ghost clusters', async () => {
+    it('preserves active class for grouped previews opened from clusters', async () => {
       mockFetchBatchProperties.mockResolvedValue([
         {
-          id: 'ghost-1',
+          id: 'active-1',
           nationalId: null,
           countryCode: 'NL',
           address: 'Quiet Lane 1',
@@ -1335,12 +1335,12 @@ describe('useMapInteraction', () => {
       });
 
       await act(async () => {
-        await result.current.openClusterPreviewAtCoord(['ghost-1'], [4.9, 52.37], 'ghost');
+        await result.current.openClusterPreviewAtCoord(['active-1'], [4.9, 52.37], 'active');
       });
 
       expect(result.current.previewGroup?.properties[0]).toMatchObject({
-        id: 'ghost-1',
-        nodeClass: 'ghost',
+        id: 'active-1',
+        nodeClass: 'active',
       });
     });
   });

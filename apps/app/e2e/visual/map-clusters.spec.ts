@@ -4,7 +4,7 @@
  * Captures screenshots of the map at different zoom levels to verify:
  * - Z12: Cluster circles with counts visible
  * - Z15: Single active points visible (transition zone)
- * - Z18: Individual active nodes visible, with public ghost layers absent
+ * - Z18: Individual active nodes visible
  *
  * Screenshots saved to: test-results/visual/map-clusters/
  */
@@ -103,20 +103,20 @@ test.describe('Map Clusters Visual Tests', () => {
         return {
           hasClusters: !!map.getLayer(clusterLayer),
           hasClusterCount: !!map.getLayer(countLayer),
-          hasGhostClusters: !!map.getLayer(singleActiveLayer),
+          hasActiveNodes: !!map.getLayer(singleActiveLayer),
           zoom: map.getZoom(),
         };
       },
       {
         clusterLayer: MAP_LAYER_NAMES.CLUSTERS,
         countLayer: MAP_LAYER_NAMES.CLUSTER_COUNT,
-        singleActiveLayer: MAP_LAYER_NAMES.GHOST_CLUSTERS,
+        singleActiveLayer: MAP_LAYER_NAMES.ACTIVE_NODES,
       }
     );
 
     expect(layerInfo).not.toBeNull();
     console.log(
-      `Z12 layers: clusters=${layerInfo?.hasClusters}, counts=${layerInfo?.hasClusterCount}, ghostClusters=${layerInfo?.hasGhostClusters}`
+      `Z12 layers: clusters=${layerInfo?.hasClusters}, counts=${layerInfo?.hasClusterCount}, activeNodes=${layerInfo?.hasActiveNodes}`
     );
 
     // Query rendered cluster features
@@ -270,46 +270,37 @@ test.describe('Map Clusters Visual Tests', () => {
 
     await waitForMapIdle(page);
 
-    // Check active node layer and verify public ghost layers remain absent.
+    // Check active node layer.
     const nodeInfo = await page.evaluate(
-      ({ activeLayer, ghostLayer }) => {
+      ({ activeLayer }) => {
         const map = window.__mapInstance;
         if (!map) return null;
 
         const hasActive = !!map.getLayer(activeLayer);
-        const hasGhost = !!map.getLayer(ghostLayer);
 
         let activeCount = 0;
-        let ghostCount = 0;
 
         if (hasActive) {
           activeCount = map.queryRenderedFeatures(undefined, { layers: [activeLayer] }).length;
         }
-        if (hasGhost) {
-          ghostCount = map.queryRenderedFeatures(undefined, { layers: [ghostLayer] }).length;
-        }
 
         return {
           hasActive,
-          hasGhost,
           activeCount,
-          ghostCount,
           zoom: map.getZoom(),
         };
       },
       {
         activeLayer: MAP_LAYER_NAMES.ACTIVE_NODES,
-        ghostLayer: MAP_LAYER_NAMES.GHOST_NODES,
       }
     );
 
     expect(nodeInfo).not.toBeNull();
-    console.log(`Z18: activeNodes=${nodeInfo?.activeCount}, ghostNodes=${nodeInfo?.ghostCount}`);
+    console.log(`Z18: activeNodes=${nodeInfo?.activeCount}`);
 
     // At z18, the high-zoom layers should exist
     if (nodeInfo) {
       expect(nodeInfo.hasActive).toBe(true);
-      expect(nodeInfo.hasGhost).toBe(false);
     }
 
     await page.screenshot({

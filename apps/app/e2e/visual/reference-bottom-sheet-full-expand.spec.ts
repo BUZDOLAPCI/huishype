@@ -20,12 +20,7 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307];
 const ZOOM_LEVEL = 17;
 const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
-const PREVIEWABLE_PROPERTY_LAYERS = [
-  'active-nodes',
-  'ghost-nodes',
-  'property-clusters',
-  'ghost-clusters',
-] as const;
+const PREVIEWABLE_PROPERTY_LAYERS = ['active-nodes', 'property-clusters'] as const;
 const PROPERTY_DETAIL_ROUTE =
   /\/properties\/(?!batch(?:$|[/?#])|nearby(?:$|[/?#])|resolve(?:$|[/?#]))[^/?#]+(?:\?.*)?$/;
 

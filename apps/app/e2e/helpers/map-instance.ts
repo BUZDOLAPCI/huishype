@@ -12,7 +12,6 @@ export type MapFeatureProperties = Record<string, unknown> & {
   preview_property_ids?: string | string[];
   point_count?: number | string;
   cluster_id?: number | string;
-  ghost_count?: number | string;
   active_count?: number | string;
   group_kind?: string;
   node_class?: string;
@@ -120,7 +119,7 @@ export async function clickRenderedPropertyMarkerById(
           return null;
         }
 
-        const layerNames = ['property-clusters', 'ghost-clusters', 'active-nodes', 'ghost-nodes'];
+        const layerNames = ['property-clusters', 'active-nodes'];
         const rect = canvas.getBoundingClientRect();
 
         for (const layerName of layerNames) {

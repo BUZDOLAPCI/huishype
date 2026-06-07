@@ -112,8 +112,7 @@ import {
  * Business Logic:
  * - Active nodes may group at any zoom when density requires it
  * - Sparse active areas naturally resolve to singles
- * - Ghost node classes are retained only for legacy transport compatibility
- * - Public tiles emit active/listing-backed/social nodes only
+ * - Public tiles emit listing-backed/social nodes only
  *
  * Performance:
  * - Uses one canonical tile-local grouping engine shared with nearby fallback
@@ -2262,7 +2261,7 @@ export async function tileRoutes(app: FastifyInstance) {
    *
    * Returns a Mapbox Vector Tile (MVT) containing property data
    * - Active nodes may group at any zoom based on density
-   * - Ghost nodes are not emitted from public tiles
+   * - Public tiles emit listing-backed/social nodes only
    */
   typedApp.get(
     '/tiles/properties/:z/:x/:y.pbf',
@@ -2271,7 +2270,7 @@ export async function tileRoutes(app: FastifyInstance) {
         tags: ['tiles'],
         summary: 'Get property vector tile',
         description:
-          'Returns MVT/PBF vector tile with density-aware grouped property data. Active/listing-backed/social nodes may group at any zoom; ghost nodes are not emitted.',
+          'Returns MVT/PBF vector tile with density-aware grouped property data. Listing-backed/social nodes may group at any zoom.',
         params: tileParamsSchema,
         querystring: mapFiltersQuerySchema,
         // Response schema is omitted for binary data

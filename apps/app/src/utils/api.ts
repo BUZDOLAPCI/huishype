@@ -378,7 +378,7 @@ export async function resolveProperty(
 
 /** Density-aware grouped result from GET /properties/nearby */
 export interface NearbyGroupedResult {
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   groupKind: 'single' | 'cluster';
   primaryPropertyId: string;
   pointCount: number;
@@ -423,7 +423,7 @@ export interface NearbyGroupedResult {
 }
 
 export interface NormalizedPropertyNodeGroup {
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   groupKind: 'single' | 'cluster';
   primaryPropertyId: string;
   pointCount: number;
@@ -1176,7 +1176,7 @@ export function normalizeRenderedPropertyGroup(
     null;
 
   if (
-    (nodeClass !== 'active' && nodeClass !== 'ghost') ||
+    nodeClass !== 'active' ||
     (groupKind !== 'single' && groupKind !== 'cluster') ||
     !primaryPropertyId
   ) {

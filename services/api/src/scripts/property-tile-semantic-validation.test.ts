@@ -44,7 +44,6 @@ describe('property tile semantic validation', () => {
       singleCount: 1,
       clusterCount: 0,
       activeCount: 1,
-      ghostCount: 0,
       pointCount: 1,
     });
   });
@@ -76,25 +75,19 @@ describe('property tile semantic validation', () => {
     });
   });
 
-  it('rejects ghost features below reveal zoom and active-listing ghost leakage', () => {
+  it('rejects non-active node classes', () => {
     const result = validateDecodedPropertyFeature({
       index: 0,
       type: 1,
       pointGeometryCount: 1,
       properties: baseProperties({
-        node_class: 'ghost',
+        node_class: 'inactive',
         activeListingCount: 1,
         hasActiveListing: true,
       }),
     }, 13);
 
-    expect(result.failures).toEqual(
-      expect.arrayContaining([
-        'ghost node emitted below reveal zoom z17 on z13',
-        'ghost node must not have hasActiveListing=true',
-        'ghost node activeListingCount must be 0, got 1',
-      ])
-    );
+    expect(result.failures).toContain('node_class must be active, got "inactive"');
   });
 
   it('enforces candidate/current pyramid serving for z10 and dynamic serving for z11+', () => {
@@ -155,7 +148,7 @@ describe('property tile semantic validation', () => {
     expect(mainResult.failures).toEqual([]);
   });
 
-  it('requires non-empty semantic coverage for low, pyramid edge, transition, detail, and ghost samples', () => {
+  it('requires non-empty semantic coverage for low, pyramid edge, transition, detail, and z17 samples', () => {
     const baseSummary: Omit<TileSemanticSummary, 'semanticGroup' | 'tile' | 'featureCount'> = {
       endpoint: 'candidate',
       city: 'sample',
@@ -164,7 +157,6 @@ describe('property tile semantic validation', () => {
       singleCount: 0,
       clusterCount: 0,
       activeCount: 0,
-      ghostCount: 0,
       pointCountTotal: 0,
       tileCache: 'miss',
       tileStatus: '',
@@ -175,7 +167,7 @@ describe('property tile semantic validation', () => {
       { ...baseSummary, semanticGroup: 'pyramid-edge', tile: '10/527/340', featureCount: 0 },
       { ...baseSummary, semanticGroup: 'transition', tile: '11/1054/680', featureCount: 0 },
       { ...baseSummary, semanticGroup: 'detail', tile: '14/8434/5443', featureCount: 0 },
-      { ...baseSummary, semanticGroup: 'ghost-reveal', tile: '17/67321/43076', featureCount: 0 },
+      { ...baseSummary, semanticGroup: 'z17-detail', tile: '17/67321/43076', featureCount: 0 },
     ];
 
     expect(assertEndpointSemanticCoverage(summaries).map((failure) => failure.message)).toEqual(
@@ -183,7 +175,7 @@ describe('property tile semantic validation', () => {
         'pyramid-edge sample set did not return any properties-layer features',
         'transition sample set did not return any properties-layer features',
         'detail sample set did not return any properties-layer features',
-        'ghost-reveal sample set did not return any properties-layer features',
+        'z17-detail sample set did not return any properties-layer features',
       ])
     );
   });

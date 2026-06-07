@@ -7,7 +7,7 @@ import { formatDisplayAddress } from '../utils/address.js';
 import {
   getCountryConfig,
   isValidCountryCode,
-  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
   PROPERTY_PREVIEW_MEMBER_LIMIT,
   type CountryCode,
 } from '@huishype/shared';
@@ -380,7 +380,7 @@ const resolveTapPropertyPreviewSchema = z.object({
 });
 
 const nearbyGroupedBaseSchema = z.object({
-  nodeClass: z.enum(['active', 'ghost']),
+  nodeClass: z.literal('active'),
   primaryPropertyId: z.string().uuid(),
   pointCount: z.number(),
   propertyIds: z.array(z.string().uuid()),
@@ -466,7 +466,7 @@ type NearbyGroupedContractResult = Awaited<ReturnType<typeof resolveNearbyGroupe
 type PyramidNearbyNodeRow = {
   node_id: string;
   primary_property_id: string | null;
-  node_class: 'active' | 'ghost';
+  node_class: 'active';
   group_kind: 'single' | 'cluster';
   point_count: number | string;
   preview_property_ids: string[] | null;
@@ -1951,7 +1951,7 @@ async function resolveHouseNumberTap(input: {
   houseNumber: string;
   viewer: PropertyReadViewer | null;
 }): Promise<ResolveTapResponse> {
-  if (input.zoom < PROPERTY_GHOST_REVEAL_ZOOM) {
+  if (input.zoom < PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM) {
     return null;
   }
 
@@ -1986,7 +1986,7 @@ async function resolvePhysicalTap(input: {
   zoom: number;
   viewer: PropertyReadViewer | null;
 }): Promise<ResolveTapResponse> {
-  if (input.zoom < PROPERTY_GHOST_REVEAL_ZOOM) {
+  if (input.zoom < PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM) {
     return null;
   }
 

@@ -57,7 +57,7 @@ export interface AmbientBubbleVisibleNode {
   likeCount: number;
   activityScore: number;
   hasListing: boolean;
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   candidatePropertyIds: string[];
 }
 

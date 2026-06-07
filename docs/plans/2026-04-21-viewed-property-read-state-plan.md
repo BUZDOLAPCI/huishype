@@ -23,7 +23,7 @@ happens.
   its latest meaningful change.
 - A property becomes unread again when its canonical change version advances.
 - Cluster state is intentionally binary:
-  - if every property in the cluster is read, render the cluster as read
+  - if the full cluster membership is read, render the cluster as read
   - if at least one property in the cluster is unread, render the cluster as unread
 - There is no mixed visual state for clusters.
 

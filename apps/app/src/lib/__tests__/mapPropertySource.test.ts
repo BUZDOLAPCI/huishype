@@ -202,9 +202,7 @@ describe('Read tile source helpers', () => {
     const paintValues = readLayers.map((layer) => layer.paint);
 
     expect(readLayers.every((layer) => layer.type === 'circle')).toBe(true);
-    expect(readLayers.map((layer) => layer.id)).not.toEqual(
-      expect.arrayContaining(['read-cluster-count', 'read-ghost-cluster-count']),
-    );
+    expect(readLayers.map((layer) => layer.id)).not.toContain('read-cluster-count');
     expect(JSON.stringify(paintValues)).not.toContain('#8A8F98');
     expect(JSON.stringify(paintValues)).toContain('"circle-opacity":0');
     expect(JSON.stringify(paintValues)).not.toContain('"text-opacity"');

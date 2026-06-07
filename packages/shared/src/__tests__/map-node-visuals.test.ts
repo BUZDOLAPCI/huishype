@@ -7,8 +7,6 @@ import {
   MAP_NODE_COMPLETED_LISTING_CORE_COLOR,
   resolveActiveClusterNodeVisual,
   resolveActiveSingleNodeVisual,
-  resolveGhostClusterNodeVisual,
-  resolveGhostSingleNodeVisual,
   withAlpha,
 } from '../config/map-node-visuals.js';
 
@@ -182,12 +180,4 @@ describe('map-node-visuals', () => {
     expect(mixed.coreColor).toBe(MAP_NODE_SOCIAL_ACTIVE_CORE_COLOR);
   });
 
-  it('resolves ghost visuals as low-emphasis dots and clusters', () => {
-    const single = resolveGhostSingleNodeVisual();
-    const cluster = resolveGhostClusterNodeVisual({ pointCount: 16 });
-
-    expect(single.backgroundOpacity).toBeLessThan(0.5);
-    expect(cluster.backgroundOpacity).toBeGreaterThan(single.backgroundOpacity);
-    expect(cluster.labelColor).toBe('#475569');
-  });
 });

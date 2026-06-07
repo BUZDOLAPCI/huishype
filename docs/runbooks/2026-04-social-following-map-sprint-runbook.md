@@ -104,7 +104,7 @@ Both source plans call out existing contract drift. If backend, app, and mocks m
 - Finalize the public property/map transport contract:
   - grouped tile/nearby payloads keep exactly: `nodeClass`, `groupKind`, `primaryPropertyId`, `pointCount`, `propertyIds`, `previewPropertyIds`, `coordinate`, `bbox`, `activeListingCount`, `socialCount`, `recentSocialCount`, `socialScoreTotal`, `socialScoreMax`, `recentSocialScoreTotal`, `commentCount`
   - grouped tile/nearby payloads explicitly do not ship: `listingShare`, `activeListingShare`, `socialShare`, legacy `hasListing`, legacy `activityScore`, or legacy `activityScoreTotal`
-  - `nodeClass` stays temporarily, but only as reveal-tier compatibility: `active` means the node has active listing state and/or social activity and should render as a normal visible map node; `ghost` means low-emphasis/no-listing/no-social reveal. Listing-backed nodes must not be demoted to `ghost` solely because social counts are zero.
+  - `nodeClass` stays temporarily as a transport compatibility field and should be `active` for emitted grouped map nodes.
   - grouped single payloads stay thin and seed-only: identity/location, address/title snippet, price snippet, thumbnail, `hasActiveListing`, `marketState`, and lightweight badges only: `nodeClass`, `commentCount`, `socialCount`, `recentSocialCount`
   - property fields for `hasListing`, `hasActiveListing`, `marketState`, `latestListingStatus`, `socialScore`, `recentSocialScore`, `lastSocialAt` only if its public value is not save-derived, plus the exact public engagement breakdowns:
     `topLevelCommentCount`, `replyCount`, `propertyLikeCount`, `commentLikeCount`, `guessCount`, `viewCount`, `uniqueViewerCount`, `recentTopLevelCommentCount`, `recentReplyCount`, `recentPropertyLikeCount`, `recentCommentLikeCount`, `recentGuessCount`, `recentViewCount`, `recentUniqueViewerCount`
@@ -233,7 +233,7 @@ The public map is the base layer under both the new public activity facet and th
   - keep raw `viewCount` for detail analytics, but use unique-viewer counts for map scoring
   - remove or reseed weak historical rows rather than preserving anonymous overcount
 - Rebuild grouping candidates so social activity includes comments, replies, property likes, comment likes, price guesses, and unique viewers.
-- Compute `socialScore`, `recentSocialScore`, `hasSocialActivity`, and `hasRecentSocialActivity` with the locked weights and the strict 7-day recent window, then delete the old comments/guesses-only visibility and ghost logic.
+- Compute `socialScore`, `recentSocialScore`, `hasSocialActivity`, and `hasRecentSocialActivity` with the locked weights and the strict 7-day recent window, then delete the old comments/guesses-only visibility logic.
 - Preserve the single-unique-view exception explicitly: one unique view is enough to make a node socially active, but `recentSocialScore` and pulse rules must still be tuned so a view-only node does not pulse by itself.
 - Apply recency consistently across all activity sources, with guesses using `GREATEST(created_at, updated_at)`, guess counts deduped to one guess per user/property rather than edit history, and no 30-day fallback path anywhere in map semantics or tile payload preparation.
 - Recompute grouped outputs for tiles and `/properties/nearby` from the final composition fields using one shared canonical grouped builder/model rather than parallel shaping logic.

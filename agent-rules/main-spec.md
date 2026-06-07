@@ -149,7 +149,6 @@ Main view. A social Snap-style map focused on housing activity:
 - it defaults to *interesting content*, not raw density. think map + feed hybrid in feel
 
 
-- **Ghost Nodes:** Show all for-sale listings (via BAG data + "For Sale" indicator) as small, low-opacity dots. This proves the platform has data.
 - **Active Nodes:** Show "Socially Active" properties (recent comments, guesses, high interest) as slightly larger, pulsing, colored. This guides attention to engaging content.
 
 Public map filtering rule:
@@ -157,8 +156,6 @@ Public map filtering rule:
 - Public activity filtering is orthogonal to listing lifecycle filtering.
 - If public `activity` is omitted, the default behavior is equivalent to `all`.
 - When public `marketState` is `for-sale` or `for-rent` and public `activity` is omitted or `all`, listing-backed properties remain visible on the low-zoom public map even if they have no social activity yet.
-
-The contrast between ghost and active nodes creates visual proof of coverage while highlighting where the fun is.
 
 **Visual activity indicators:**
 - Pulses indicating recent activity (comments, guesses, upvotes)
@@ -342,7 +339,7 @@ New designs can be added over time as rewards, seasonal drops, or premium add-on
 **Base Layer (Safe - BAG Data):**
 - Seed the database with **BAG (Basisregistratie Adressen en Gebouwen)** - official Dutch government open data
 - Every building in the Netherlands exists here legally
-- This provides a valid node for every address immediately, regardless of whether it is for sale
+- This provides address detail records immediately, regardless of whether a property is for sale
 - No legal risk - this is public government data
 
 **WOZ Value Integration:**
@@ -382,15 +379,15 @@ Key principles:
 
 ### Visual Fallback Strategy for Property Photos
 
-Every property node should display a photo. The fallback hierarchy is:
+Property detail views should display a photo. The fallback hierarchy is:
 
 1. **Listing Photos** — If a listing exists and has photos, use listing thumbnail (via Open Graph)
 2. **User-Submitted Photos** — Community-contributed property images
-3. **Street View API** — For any house without photos, fetch Google Street View image as worst-case fallback
-   - This ensures every address can show a visual representation
+3. **Street View API** — For homes without photos, fetch Google Street View image as worst-case fallback
+   - This ensures property detail views can show a visual representation
    - Street View coverage in Netherlands is comprehensive
 
-This guarantees visual content for all properties, whether listings or just "interesting" nodes.
+This guarantees visual content for property pages and visible map nodes.
 
 The product positions itself as a **discussion and analytics layer**, not a broker or marketplace.
 

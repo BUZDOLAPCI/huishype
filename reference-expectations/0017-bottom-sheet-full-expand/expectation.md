@@ -4,7 +4,7 @@ This reference expectation defines the visual and functional requirements for th
 
 ## Overview
 
-When a user swipes up on a partially expanded bottom sheet, it transitions to the **full expand state**. This state reveals the complete detail view with all property information, photos, links, valuations, and activity data.
+When a user swipes up on a partially expanded bottom sheet, it transitions to the **full expand state**. This state reveals the complete detail view with property information, photos, links, valuations, and activity data.
 
 This is the comprehensive property detail experience that provides:
 - Full property photos gallery

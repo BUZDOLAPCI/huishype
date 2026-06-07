@@ -631,7 +631,7 @@ export interface GetFollowingNearbyPropertyRequest extends FollowingPropertyTile
 export type NearbyReadStateCoverage = 'complete' | 'partial';
 
 export type FollowingNearbyPropertyGroupBase = {
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   primaryPropertyId: string;
   pointCount: number;
   propertyIds: string[];
@@ -654,7 +654,7 @@ export type FollowingNearbyPropertyGroupBase = {
 };
 
 export type FollowingNearbySinglePropertyResponse = {
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   primaryPropertyId: string;
   pointCount: number;
   propertyIds: string[];
@@ -688,7 +688,7 @@ export type FollowingNearbySinglePropertyResponse = {
 };
 
 export type FollowingNearbyClusterPropertyResponse = {
-  nodeClass: 'active' | 'ghost';
+  nodeClass: 'active';
   primaryPropertyId: string;
   pointCount: number;
   propertyIds: string[];

@@ -24,9 +24,6 @@ nearby, batch, detail, and app parsing in one coordinated cutover.
 The following decisions are locked for implementation:
 
 - Listing lifecycle and social/platform activity are separate axes.
-- The old `active|ghost` model may stay temporarily as a compatibility field,
-  but it is no longer the semantic source of truth and must not demote
-  active-listing properties into a ghost state.
 - Likes, comment likes, replies, guesses, and views all count as social
   activity for map semantics.
 - Saves remain user-private state and do not count toward public map semantics,
@@ -78,14 +75,6 @@ Current grouping logic treats a property as map-active if it has:
 - comments, or
 - guesses
 
-Ghost classification is still:
-
-- `!hasListing && activityScore === 0`
-
-Relevant code:
-
-- [services/api/src/services/property-grouping.ts](/home/caslan/dev/git_repos/hh/huishype/services/api/src/services/property-grouping.ts:359)
-- [services/api/src/services/property-grouping.ts](/home/caslan/dev/git_repos/hh/huishype/services/api/src/services/property-grouping.ts:637)
 - [services/api/src/services/property-grouping.ts](/home/caslan/dev/git_repos/hh/huishype/services/api/src/services/property-grouping.ts:716)
 - [services/api/src/routes/properties.ts](/home/caslan/dev/git_repos/hh/huishype/services/api/src/routes/properties.ts:622)
 - [services/api/src/routes/properties.ts](/home/caslan/dev/git_repos/hh/huishype/services/api/src/routes/properties.ts:922)
@@ -229,24 +218,14 @@ for low-emphasis quiet nodes versus normally visible nodes:
 
 - `active`: node has an active listing and/or social/platform activity and
   should render as a normal visible node
-- `ghost`: node has no active listing and no social/platform activity and stays
-  low-emphasis
-
 This means:
 
 - listing-only => `active`
 - social-only => `active`
 - listing + social => `active`
-- quiet sold/rented/not-listed => `ghost` if shown by filters
 - low-zoom public `for-sale` / `for-rent` coverage must keep listing-backed
   properties visible when `activity` is omitted or `all`, even with zero social
   activity
-
-The old rule:
-
-- `ghost = !hasListing && activityScore === 0`
-
-must be deleted as the semantic definition.
 
 ## Social Event Contract
 
@@ -631,7 +610,7 @@ Actions:
 - centralize listing facts once and retire duplicated listing semantics from
   routes, filters, feed, and listings-view composition
 
-### 2. Replace candidate visibility and ghost logic
+### 2. Replace candidate visibility logic
 
 Actions:
 

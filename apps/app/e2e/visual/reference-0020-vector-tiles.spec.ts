@@ -4,11 +4,10 @@
  * This test verifies the backend vector tile clustering implementation:
  *
  * 1. Backend serves MVT/PBF tiles at /tiles/properties/{z}/{x}/{y}.pbf
- * 2. Active nodes and active clusters render without public ghost layers
- * 3. Removed public ghost layers remain absent from the app-side style
- * 4. Grouping remains density-aware instead of a hard high-zoom de-cluster split
- * 5. Final layer contract stays atomic across tiles and app interaction
- * 6. Performance: Tiles generate in <100ms
+ * 2. Active nodes and active clusters render
+ * 3. Grouping remains density-aware instead of a hard high-zoom de-cluster split
+ * 4. Final layer contract stays atomic across tiles and app interaction
+ * 5. Performance: Tiles generate in <100ms
  *
  * Screenshot saved to: test-results/reference-expectations/0020-backend-vector-tile-clustering/
  */
@@ -16,7 +15,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import { getPlaywrightApiUrl } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
@@ -30,7 +29,7 @@ const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
 
 // Zoom levels for testing
 const ZOOMED_OUT_LEVEL = 10; // City view - active clusters dominate
-const ZOOMED_IN_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM; // Reveal threshold for ghost-specific layers
+const ZOOMED_IN_LEVEL = PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM;
 
 // API base URL (assume running locally for tests)
 const API_URL = getPlaywrightApiUrl();
@@ -200,11 +199,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     if (currentZoom !== null) {
       console.log(`Current zoom level: ${currentZoom}`);
-      expect(currentZoom).toBeLessThan(PROPERTY_GHOST_REVEAL_ZOOM);
+      expect(currentZoom).toBeLessThan(PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM);
     }
   });
 
-  test('capture zoomed-in map state at the ghost reveal threshold', async ({
+  test('capture zoomed-in map state at address interaction zoom', async ({
     page,
   }) => {
     await page.goto('/');
@@ -248,7 +247,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     if (currentZoom !== null) {
       console.log(`Current zoom level: ${currentZoom}`);
-      expect(currentZoom).toBeGreaterThanOrEqual(PROPERTY_GHOST_REVEAL_ZOOM);
+      expect(currentZoom).toBeGreaterThanOrEqual(PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM);
     }
   });
 
@@ -320,46 +319,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     expect(layerCheckResult!.hasLayers, `All property layers should be configured. Missing: ${layerCheckResult!.missingLayers.join(', ')}`).toBe(
       true
     );
-  });
-
-  test('verify removed public ghost layers stay absent', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    await page.waitForSelector('[data-testid="map-view"]', { timeout: 30000 });
-    await waitForMapStyleLoaded(page);
-
-    const removedGhostLayers = await page.evaluate(
-      ({ center, zoom }) => {
-        const mapInstance = window.__mapInstance;
-        if (!mapInstance) return null;
-
-        mapInstance.setZoom(zoom);
-        mapInstance.setCenter(center);
-
-        const layerIds = ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes'];
-        return layerIds.filter((layerId) => mapInstance.getLayer(layerId));
-      },
-      { center: EINDHOVEN_CENTER, zoom: ZOOMED_OUT_LEVEL }
-    );
-
-    expect(removedGhostLayers).toEqual([]);
-
-    const removedGhostLayersAtHighZoom = await page.evaluate(
-      ({ center, zoom }) => {
-        const mapInstance = window.__mapInstance;
-        if (!mapInstance) return null;
-
-        mapInstance.setZoom(zoom);
-        mapInstance.setCenter(center);
-
-        const layerIds = ['ghost-clusters', 'ghost-cluster-count', 'ghost-nodes'];
-        return layerIds.filter((layerId) => mapInstance.getLayer(layerId));
-      },
-      { center: EINDHOVEN_CENTER, zoom: ZOOMED_IN_LEVEL }
-    );
-
-    expect(removedGhostLayersAtHighZoom).toEqual([]);
   });
 
   test('take main screenshot for visual comparison', async ({ page }) => {

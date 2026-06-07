@@ -13,7 +13,7 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
-import { PROPERTY_GHOST_REVEAL_ZOOM } from '@huishype/shared';
+import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import type { VisualMapFeatureLike } from './helpers/visual-map-types';
 import { clickOnPropertyMarker, clickPreviewAction } from './helpers/screenshot-harness';
@@ -28,14 +28,9 @@ const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`
 
 // Center on Eindhoven area where properties and listings exist.
 const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
-const ZOOM_LEVEL = PROPERTY_GHOST_REVEAL_ZOOM;
+const ZOOM_LEVEL = PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM;
 const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
-const PREVIEWABLE_PROPERTY_LAYERS = [
-  'ghost-nodes',
-  'active-nodes',
-  'property-clusters',
-  'ghost-clusters',
-] as const;
+const PREVIEWABLE_PROPERTY_LAYERS = ['active-nodes', 'property-clusters'] as const;
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
@@ -105,12 +100,7 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
       const canvas = mapInstance.getCanvas();
       if (!canvas) return false;
 
-      const layerIds = [
-        'ghost-nodes',
-        'active-nodes',
-        'property-clusters',
-        'ghost-clusters',
-      ].filter((l) => mapInstance.getLayer(l));
+      const layerIds = ['active-nodes', 'property-clusters'].filter((l) => mapInstance.getLayer(l));
       if (layerIds.length === 0) return false;
 
       try {
@@ -233,13 +223,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const features = mapInstance.queryRenderedFeatures(undefined, {
-          layers: ['ghost-nodes', 'active-nodes', 'property-clusters'],
+          layers: ['active-nodes', 'property-clusters'],
         });
         return {
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
           markerCount: features?.length ?? 0,
-          hasGhostLayer: !!mapInstance.getLayer('ghost-nodes'),
           hasActiveLayer: !!mapInstance.getLayer('active-nodes'),
         };
       }
@@ -270,21 +259,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         const canvas = mapInstance.getCanvas();
         let allFeatures: VisualMapFeatureLike[] = [];
-
-        try {
-          const ghostFeatures =
-            mapInstance.queryRenderedFeatures(
-              [
-                [0, 0],
-                [canvas.width, canvas.height],
-              ],
-              { layers: ['ghost-nodes'] }
-            ) || [];
-          allFeatures = allFeatures.concat(ghostFeatures);
-        } catch {
-          /* ignore */
-        }
-
         try {
           const activeFeatures =
             mapInstance.queryRenderedFeatures(
@@ -386,13 +360,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const mapInstance = window.__mapInstance;
       if (mapInstance) {
         const features = mapInstance.queryRenderedFeatures(undefined, {
-          layers: ['ghost-nodes', 'active-nodes', 'property-clusters'],
+          layers: ['active-nodes', 'property-clusters'],
         });
         return {
           zoom: mapInstance.getZoom?.() ?? 0,
           center: mapInstance.getCenter?.() ?? null,
           markerCount: features?.length ?? 0,
-          hasGhostLayer: !!mapInstance.getLayer('ghost-nodes'),
           hasActiveLayer: !!mapInstance.getLayer('active-nodes'),
         };
       }
@@ -448,21 +421,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
         const canvas = mapInstance.getCanvas();
         let allFeatures: VisualMapFeatureLike[] = [];
-
-        try {
-          const ghostFeatures =
-            mapInstance.queryRenderedFeatures(
-              [
-                [0, 0],
-                [canvas.width, canvas.height],
-              ],
-              { layers: ['ghost-nodes'] }
-            ) || [];
-          allFeatures = allFeatures.concat(ghostFeatures);
-        } catch {
-          /* ignore */
-        }
-
         try {
           const activeFeatures =
             mapInstance.queryRenderedFeatures(

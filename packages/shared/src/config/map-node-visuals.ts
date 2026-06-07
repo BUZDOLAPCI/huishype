@@ -21,10 +21,6 @@ export interface ActiveClusterNodeVisualInput {
   recentSocialScoreTotal?: number;
 }
 
-export interface GhostClusterNodeVisualInput {
-  pointCount: number;
-}
-
 export interface MapNodeVisual {
   diameter: number;
   backgroundColor: string;
@@ -45,7 +41,6 @@ export interface MapNodeVisual {
 
 const ACTIVE_SINGLE_RADIUS = PROPERTY_MAP_FOOTPRINTS.active.singleRadiusPx;
 const ACTIVE_CLUSTER_RADIUS = PROPERTY_MAP_FOOTPRINTS.active.clusterRadiusPx;
-const GHOST_CLUSTER_FOOTPRINT = PROPERTY_MAP_FOOTPRINTS.ghost.clusterRadiusStopsPx;
 const MAP_NODE_LISTING_RING_ON_WIDTH = 1.8;
 const MAP_NODE_LISTING_RING_ON_COLOR = '#2563EB';
 const MAP_NODE_LISTING_RING_ON_OPACITY = 0.96;
@@ -133,25 +128,6 @@ export const MAP_NODE_ACTIVE_CLUSTER_LABEL_FONT_STACK = ['Noto Sans Bold'] as co
 export const MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR = 'rgba(15, 23, 42, 0.72)';
 export const MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_WIDTH = 1;
 export const MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE = 14;
-
-export const MAP_NODE_GHOST_CLUSTER_VISUAL = {
-  fill: '#D3DAE6',
-  opacity: 0.54,
-  strokeWidth: 1,
-  strokeColor: '#FFFFFF',
-  strokeOpacity: 0.72,
-  labelColor: '#475569',
-  labelHaloColor: 'rgba(255, 255, 255, 0.85)',
-  labelSize: 11,
-} as const;
-
-export const MAP_NODE_GHOST_SINGLE_VISUAL = {
-  fill: '#AEBBCC',
-  opacity: 0.38,
-  strokeWidth: 1,
-  strokeColor: '#FFFFFF',
-  strokeOpacity: 0.54,
-} as const;
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -435,36 +411,5 @@ export function resolveActiveClusterNodeVisual(
     labelColor: MAP_NODE_ACTIVE_CLUSTER_LABEL_COLOR,
     labelHaloColor: MAP_NODE_ACTIVE_CLUSTER_LABEL_HALO_COLOR,
     labelSize: MAP_NODE_ACTIVE_CLUSTER_LABEL_SIZE,
-  };
-}
-
-export function resolveGhostSingleNodeVisual(): MapNodeVisual {
-  const radius = PROPERTY_MAP_FOOTPRINTS.ghost.singleRadiusPx;
-
-  return {
-    diameter: radius * 2,
-    backgroundColor: MAP_NODE_GHOST_SINGLE_VISUAL.fill,
-    backgroundOpacity: MAP_NODE_GHOST_SINGLE_VISUAL.opacity,
-    borderWidth: MAP_NODE_GHOST_SINGLE_VISUAL.strokeWidth,
-    borderColor: MAP_NODE_GHOST_SINGLE_VISUAL.strokeColor,
-    borderOpacity: MAP_NODE_GHOST_SINGLE_VISUAL.strokeOpacity,
-  };
-}
-
-export function resolveGhostClusterNodeVisual(
-  input: GhostClusterNodeVisualInput,
-): MapNodeVisual {
-  const radius = interpolateNumericStops(GHOST_CLUSTER_FOOTPRINT, input.pointCount);
-
-  return {
-    diameter: radius * 2,
-    backgroundColor: MAP_NODE_GHOST_CLUSTER_VISUAL.fill,
-    backgroundOpacity: MAP_NODE_GHOST_CLUSTER_VISUAL.opacity,
-    borderWidth: MAP_NODE_GHOST_CLUSTER_VISUAL.strokeWidth,
-    borderColor: MAP_NODE_GHOST_CLUSTER_VISUAL.strokeColor,
-    borderOpacity: MAP_NODE_GHOST_CLUSTER_VISUAL.strokeOpacity,
-    labelColor: MAP_NODE_GHOST_CLUSTER_VISUAL.labelColor,
-    labelHaloColor: MAP_NODE_GHOST_CLUSTER_VISUAL.labelHaloColor,
-    labelSize: MAP_NODE_GHOST_CLUSTER_VISUAL.labelSize,
   };
 }

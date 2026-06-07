@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  PROPERTY_GHOST_REVEAL_ZOOM,
+  PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
   PROPERTY_MAP_FOOTPRINTS,
   PROPERTY_PREVIEW_MEMBER_LIMIT,
 } from '@huishype/shared/config';
@@ -1465,7 +1465,7 @@ export function buildPropertyTilePyramidBuildIdentitySnapshots(
       buffer: PROPERTY_TILE_PYRAMID_MVT_BUFFER,
     },
     mapFootprints: PROPERTY_MAP_FOOTPRINTS,
-    ghostRevealZoom: PROPERTY_GHOST_REVEAL_ZOOM,
+    addressInteractionMinZoom: PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM,
     previewMemberLimit: PROPERTY_PREVIEW_MEMBER_LIMIT,
     activeSocialScoreThreshold: ACTIVE_SOCIAL_SCORE_THRESHOLD,
     nodeExposure: {

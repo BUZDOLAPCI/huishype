@@ -129,7 +129,7 @@ describe('property tile snapshots', () => {
     };
 
     expect(computePropertyTileSnapshotConfigHash(base)).toBe(
-      '6a5cb3d98414cf91afb708335c611892e1f71bfe28be43fdf94d7fe3edc686eb',
+      '45ad926d46a18f405ca0647aec572adca37955d2992340980acbae3e9cebdfec',
     );
   });
 

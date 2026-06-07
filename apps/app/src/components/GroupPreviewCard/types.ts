@@ -2,7 +2,7 @@ import type { OfficialValuationSourceFetchHint } from '@/src/lib/officialValuati
 
 export interface GroupPreviewProperty {
   id: string;
-  nodeClass?: 'active' | 'ghost';
+  nodeClass?: 'active';
   address: string;
   coordinate?: [number, number];
   streetName?: string | null;

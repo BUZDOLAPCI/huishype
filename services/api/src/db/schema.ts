@@ -301,7 +301,6 @@ export const propertyTilePyramidTileValidationStatusEnum = pgEnum(
 );
 export const propertyTilePyramidNodeClassEnum = pgEnum('property_tile_pyramid_node_class', [
   'active',
-  'ghost',
 ]);
 export const propertyTilePyramidGroupKindEnum = pgEnum('property_tile_pyramid_group_kind', [
   'single',

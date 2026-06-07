@@ -4,7 +4,6 @@ export interface VisualMapFeatureProperties extends Record<string, unknown> {
   property_ids?: string;
   preview_property_ids?: string;
   cluster_id?: number | string;
-  ghost_count?: number | string;
   active_count?: number | string;
 }
 
