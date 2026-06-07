@@ -35,6 +35,7 @@ import {
 
 const dialect = new PgDialect();
 const TEST_CANDIDATE_SNAPSHOT_ID = '00000000-0000-0000-0000-00000000c001';
+const HERMETIC_GROUPING_COUNTRY_CODE = 'ZZ';
 
 function renderSql(query: SQL) {
   return dialect.sqlToQuery(query).sql;
@@ -2074,8 +2075,8 @@ describe('property-grouping', () => {
     const listingIds = [crypto.randomUUID(), crypto.randomUUID()];
     // Keep this fixture outside the seeded European dataset so the cluster only
     // contains the rows created by this test.
-    const baseLon = -40.25;
-    const baseLat = -32.5;
+    const baseLon = -63.875;
+    const baseLat = -21.625;
     const zoom = 20;
     const tile = tileForCoordinate(baseLon, baseLat, zoom);
 
@@ -2093,7 +2094,7 @@ describe('property-grouping', () => {
       VALUES
         (
           ${propertyIds[0]},
-          'NL',
+          ${HERMETIC_GROUPING_COUNTRY_CODE},
           'Filter Cluster Street',
           1,
           'Filterstad',
@@ -2103,7 +2104,7 @@ describe('property-grouping', () => {
         ),
         (
           ${propertyIds[1]},
-          'NL',
+          ${HERMETIC_GROUPING_COUNTRY_CODE},
           'Filter Cluster Street',
           2,
           'Filterstad',
@@ -2202,8 +2203,8 @@ describe('property-grouping', () => {
   it('preserves tile-local listing market state, price, invalid exclusion, and thumbnail ordering', async () => {
     const propertyId = crypto.randomUUID();
     const listingIds = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
-    const baseLon = -41.25;
-    const baseLat = -33.5;
+    const baseLon = -64.875;
+    const baseLat = -22.625;
     const tile = tileForCoordinate(baseLon, baseLat, 20);
 
     await db.execute(sql`
@@ -2219,7 +2220,7 @@ describe('property-grouping', () => {
       )
       VALUES (
         ${propertyId},
-        'NL',
+        ${HERMETIC_GROUPING_COUNTRY_CODE},
         'Tile Facts Street',
         7,
         'Factstad',

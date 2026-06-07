@@ -21,6 +21,7 @@ describe('Property routes', () => {
   jest.setTimeout(60000);
   let app: FastifyInstance;
   const seededPropertyIds: string[] = [];
+  const hermeticRemoteCountryCode = 'ZZ';
   const fixtureCity = 'Fixtureville';
   const nearbyFixture = { lon: 5.4697, lat: 51.4416 };
   const cityAreaToken = (city: string) =>
@@ -1025,7 +1026,12 @@ describe('Property routes', () => {
     it('should expose thumbnailUrl and prefer an active thumbnail when the newest active listing has none', async () => {
       const propertyId = crypto.randomUUID();
       const thumbnailUrl = 'https://cdn.example.com/nearby-fallback-thumb.jpg';
-      const isolatedNearbyFixture = { lon: 0.123456, lat: 0.123456 };
+      const isolatedNearbyFixture = {
+        lon: -70 - Number.parseInt(propertyId.slice(0, 4), 16) / 1_000_000,
+        lat: -20 - Number.parseInt(propertyId.slice(4, 8), 16) / 1_000_000,
+      };
+      const olderListingUrl = `https://example.com/nearby-fallback-older-${propertyId}`;
+      const latestListingUrl = `https://example.com/nearby-fallback-latest-${propertyId}`;
 
       await db.execute(sql`
         INSERT INTO properties (
@@ -1040,7 +1046,7 @@ describe('Property routes', () => {
         )
         VALUES (
           ${propertyId},
-          'NL',
+          ${hermeticRemoteCountryCode},
           'Nearby Thumbnail Street',
           5,
           'RemoteCity',
@@ -1075,8 +1081,8 @@ describe('Property routes', () => {
             ${crypto.randomUUID()},
             ${propertyId},
             'funda',
-            'https://example.com/nearby-fallback-older',
-            'https://example.com/nearby-fallback-older',
+            ${olderListingUrl},
+            ${olderListingUrl},
             'active',
             'mirror',
             'validated',
@@ -1094,8 +1100,8 @@ describe('Property routes', () => {
             ${crypto.randomUUID()},
             ${propertyId},
             'funda',
-            'https://example.com/nearby-fallback-latest',
-            'https://example.com/nearby-fallback-latest',
+            ${latestListingUrl},
+            ${latestListingUrl},
             'active',
             'mirror',
             'validated',
@@ -1131,12 +1137,15 @@ describe('Property routes', () => {
 
   describe('GET /properties/resolve-tap', () => {
     const runOffset = (Date.now() % 100000) / 10_000_000;
+    const runSuffix = crypto.randomUUID().slice(0, 8);
 
     it('returns a single property when the tap is inside a building with one address', async () => {
       const lon = -31.0 - runOffset;
       const lat = 2.0 + runOffset;
+      const street = `Resolve Tap Single ${runSuffix}`;
       const property = await createIntegrationProperty({
-        street: 'Resolve Tap Single',
+        countryCode: hermeticRemoteCountryCode,
+        street,
         houseNumber: 1,
         city: 'Tapstad',
         postalCode: '9400AA',
@@ -1169,7 +1178,7 @@ describe('Property routes', () => {
         });
         expect(body.property).toMatchObject({
           id: property.id,
-          street: 'Resolve Tap Single',
+          street,
           city: 'Tapstad',
           postalCode: '9400AA',
           marketState: 'not-listed',
@@ -1188,8 +1197,10 @@ describe('Property routes', () => {
     it('returns a grouped preview when the containing building has multiple addresses', async () => {
       const lon = -31.01 - runOffset;
       const lat = 2.01 + runOffset;
+      const street = `Resolve Tap Group ${runSuffix}`;
       const listed = await createIntegrationProperty({
-        street: 'Resolve Tap Group',
+        countryCode: hermeticRemoteCountryCode,
+        street,
         houseNumber: 2,
         city: 'Tapstad',
         postalCode: '9400AB',
@@ -1197,7 +1208,8 @@ describe('Property routes', () => {
         lat: lat + 0.00002,
       });
       const unlisted = await createIntegrationProperty({
-        street: 'Resolve Tap Group',
+        countryCode: hermeticRemoteCountryCode,
+        street,
         houseNumber: 1,
         city: 'Tapstad',
         postalCode: '9400AB',
@@ -1253,7 +1265,8 @@ describe('Property routes', () => {
       const lon = -31.02 - runOffset;
       const lat = 2.02 + runOffset;
       const property = await createIntegrationProperty({
-        street: 'Resolve Tap Point',
+        countryCode: hermeticRemoteCountryCode,
+        street: `Resolve Tap Point ${runSuffix}`,
         houseNumber: 1,
         city: 'Tapstad',
         postalCode: '9400AC',
@@ -1294,7 +1307,8 @@ describe('Property routes', () => {
       const lon = -31.03 - runOffset;
       const lat = 2.03 + runOffset;
       const property = await createIntegrationProperty({
-        street: 'Resolve Tap Filter',
+        countryCode: hermeticRemoteCountryCode,
+        street: `Resolve Tap Filter ${runSuffix}`,
         houseNumber: 1,
         city: 'Tapstad',
         postalCode: '9400AD',
@@ -1336,8 +1350,10 @@ describe('Property routes', () => {
     it('resolves clicked house-number labels by the clicked number instead of generic nearby logic', async () => {
       const lon = -31.04 - runOffset;
       const lat = 2.04 + runOffset;
+      const street = `Resolve House Number Tap ${runSuffix}`;
       const target = await createIntegrationProperty({
-        street: 'Resolve House Number Tap',
+        countryCode: hermeticRemoteCountryCode,
+        street,
         houseNumber: 12,
         houseNumberAddition: 'A',
         city: 'Tapstad',
@@ -1346,7 +1362,8 @@ describe('Property routes', () => {
         lat,
       });
       const nearerDifferentAddress = await createIntegrationProperty({
-        street: 'Resolve House Number Tap',
+        countryCode: hermeticRemoteCountryCode,
+        street,
         houseNumber: 13,
         city: 'Tapstad',
         postalCode: '9400AF',
@@ -1512,9 +1529,12 @@ describe('Property routes', () => {
     let userId: string;
     let accessToken: string;
     const thumbnailUrl = 'https://cdn.example.com/property-endpoint-thumb.jpg';
+    const endpointFixture = { lon: -65.25, lat: -23.75 };
 
     beforeAll(async () => {
       propertyId = crypto.randomUUID();
+      const olderListingUrl = `https://example.com/property-endpoint-older-${propertyId}`;
+      const latestListingUrl = `https://example.com/property-endpoint-latest-${propertyId}`;
 
       await db.execute(sql`
         INSERT INTO properties (
@@ -1529,13 +1549,13 @@ describe('Property routes', () => {
         )
         VALUES (
           ${propertyId},
-          'NL',
+          ${hermeticRemoteCountryCode},
           'Property Endpoint Street',
           8,
           'SavedCity',
           '8888ZZ',
           'active',
-          ST_SetSRID(ST_MakePoint(7.25, 53.45), 4326)
+          ST_SetSRID(ST_MakePoint(${endpointFixture.lon}, ${endpointFixture.lat}), 4326)
         )
       `);
 
@@ -1564,8 +1584,8 @@ describe('Property routes', () => {
             ${crypto.randomUUID()},
             ${propertyId},
             'funda',
-            'https://example.com/property-endpoint-older',
-            'https://example.com/property-endpoint-older',
+            ${olderListingUrl},
+            ${olderListingUrl},
             'active',
             'mirror',
             'validated',
@@ -1583,8 +1603,8 @@ describe('Property routes', () => {
             ${crypto.randomUUID()},
             ${propertyId},
             'funda',
-            'https://example.com/property-endpoint-latest',
-            'https://example.com/property-endpoint-latest',
+            ${latestListingUrl},
+            ${latestListingUrl},
             'active',
             'mirror',
             'validated',
@@ -1628,7 +1648,9 @@ describe('Property routes', () => {
     it('includes thumbnailUrl on GET /properties with the listing thumbnail fallback', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/properties?bbox=7.249,53.449,7.251,53.451&limit=10',
+        url:
+          `/properties?bbox=${endpointFixture.lon - 0.001},${endpointFixture.lat - 0.001},` +
+          `${endpointFixture.lon + 0.001},${endpointFixture.lat + 0.001}&limit=10`,
       });
 
       expect(response.statusCode).toBe(200);

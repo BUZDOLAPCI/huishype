@@ -58,6 +58,7 @@ const SEEDED_GHOST_CLUSTER_FIXTURE = {
   lat: 51.4434318245281,
   zoom: 17,
 };
+const HERMETIC_NEARBY_COUNTRY_CODE = 'ZZ';
 
 async function withHermeticNearbyActiveCluster(
   run: (fixture: { lon: number; lat: number; propertyIds: string[] }) => Promise<void>,
@@ -82,7 +83,7 @@ async function withHermeticNearbyActiveCluster(
     VALUES
       (
         ${propertyIds[0]},
-        'NL',
+        ${HERMETIC_NEARBY_COUNTRY_CODE},
         'Nearby Fixture Street',
         1,
         'Fixture City',
@@ -92,7 +93,7 @@ async function withHermeticNearbyActiveCluster(
       ),
       (
         ${propertyIds[1]},
-        'NL',
+        ${HERMETIC_NEARBY_COUNTRY_CODE},
         'Nearby Fixture Street',
         2,
         'Fixture City',
@@ -198,7 +199,7 @@ async function withHermeticNearbyListingOnlyProperty(
     )
     VALUES (
       ${propertyId},
-      'NL',
+      ${HERMETIC_NEARBY_COUNTRY_CODE},
       'Listing Visibility Street',
       1,
       'Fixture City',
@@ -1535,7 +1536,7 @@ describe('GET /properties/nearby', () => {
         )
         VALUES (
           ${propertyId},
-          'NL',
+          ${HERMETIC_NEARBY_COUNTRY_CODE},
           'Remote Ghost Lane',
           17,
           'Remote City',
@@ -1568,7 +1569,7 @@ describe('GET /properties/nearby', () => {
       const lon = 3.1525;
       const lat = 55.0525;
       const area = encodeURIComponent(
-        'street:NL:area-nearby-visibility-street:city=area-nearby-city'
+        `street:${HERMETIC_NEARBY_COUNTRY_CODE}:area-nearby-visibility-street:city=area-nearby-city`
       );
 
       await db.execute(sql`
@@ -1587,7 +1588,7 @@ describe('GET /properties/nearby', () => {
         )
         VALUES (
           ${propertyId},
-          'NL',
+          ${HERMETIC_NEARBY_COUNTRY_CODE},
           'Area Nearby Visibility Street',
           17,
           'Area Nearby City',
