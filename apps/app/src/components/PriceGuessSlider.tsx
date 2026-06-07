@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, LayoutChangeEvent } from 'react-native';
 import { Icon } from './ui/Icon';
 import { SkeletonText } from './ui/Skeleton';
@@ -6,6 +6,7 @@ import Animated, {
   Easing,
   interpolateColor,
   type WithSpringConfig,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -655,7 +656,7 @@ export function PriceGuessSlider({
   const lastSyncedUserGuess = useRef<number | undefined>(userGuess);
   const lastPropertyId = useRef(_propertyId);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (lastPropertyId.current === _propertyId) {
       return;
     }
@@ -672,6 +673,24 @@ export function PriceGuessSlider({
     setIsNearWOZ(false);
     setHasInteracted(false);
     const nextRange = resolveSliderRange({ officialValuation, startPrice: resolvedInitialPrice });
+    cancelAnimation(thumbPosition);
+    cancelAnimation(thumbScale);
+    cancelAnimation(thumbPulse);
+    cancelAnimation(thumbHoverProgress);
+    cancelAnimation(thumbPressProgress);
+    cancelAnimation(floatingLabelProgress);
+    cancelAnimation(guessToneProgress);
+    cancelAnimation(priceDisplayScale);
+    cancelAnimation(submitButtonScale);
+    thumbScale.value = 1;
+    thumbPulse.value = 1;
+    thumbHoverProgress.value = 0;
+    thumbPressProgress.value = 0;
+    floatingLabelProgress.value = 0;
+    guessToneProgress.value = 0.5;
+    priceDisplayScale.value = 1;
+    submitButtonScale.value = 1;
+    isDragging.value = false;
     thumbPosition.value = priceToPosition(resolvedInitialPrice, nextRange);
     startAnalytics.current = buildStartAnalytics({
       price: resolvedInitialPrice,
@@ -688,7 +707,16 @@ export function PriceGuessSlider({
     resolvedInitialPrice,
     resolvedStartConfidence,
     resolvedStartSource,
+    floatingLabelProgress,
+    guessToneProgress,
+    isDragging,
+    priceDisplayScale,
+    submitButtonScale,
+    thumbHoverProgress,
     thumbPosition,
+    thumbPressProgress,
+    thumbPulse,
+    thumbScale,
     userGuess,
   ]);
 
@@ -1075,6 +1103,7 @@ export function PriceGuessSlider({
     setGuessedPrice(userGuess);
     setHasInteracted(false);
     const nextRange = resolveSliderRange({ officialValuation, startPrice: userGuess });
+    cancelAnimation(thumbPosition);
     thumbPosition.value = withSpring(priceToPosition(userGuess, nextRange), SLIDER_SPRING_CONFIG);
     startAnalytics.current = buildStartAnalytics({
       price: userGuess,
@@ -1109,6 +1138,7 @@ export function PriceGuessSlider({
     setSliderStartPrice(initialPrice);
     setGuessedPrice(initialPrice);
     const nextRange = resolveSliderRange({ officialValuation, startPrice: initialPrice });
+    cancelAnimation(thumbPosition);
     thumbPosition.value = withSpring(priceToPosition(initialPrice, nextRange), SLIDER_SPRING_CONFIG);
     startAnalytics.current = buildStartAnalytics({
       price: initialPrice,
@@ -1142,6 +1172,7 @@ export function PriceGuessSlider({
     setSliderStartPrice(officialValuation);
     setGuessedPrice(officialValuation);
     const nextRange = resolveSliderRange({ officialValuation, startPrice: officialValuation });
+    cancelAnimation(thumbPosition);
     thumbPosition.value = withSpring(
       priceToPosition(officialValuation, nextRange),
       SLIDER_SPRING_CONFIG,
@@ -1198,7 +1229,7 @@ export function PriceGuessSlider({
 
   if (variant === 'embedded') {
     return (
-      <GestureHandlerRootView>
+      <GestureHandlerRootView key={_propertyId}>
         <View testID={testID}>
           <View className="mb-4" onLayout={handleSliderLayout}>
             <View className="relative mb-3.5 h-14">
@@ -1471,7 +1502,7 @@ export function PriceGuessSlider({
   }
 
   return (
-    <GestureHandlerRootView>
+    <GestureHandlerRootView key={_propertyId}>
       <View className="p-4 bg-surface-card rounded-xl" testID={testID}>
         {/* Header */}
         <Text
