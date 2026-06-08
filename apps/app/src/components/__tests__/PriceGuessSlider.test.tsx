@@ -476,6 +476,22 @@ describe('PriceGuessSlider', () => {
     expect(screen.getByTestId('start-anchor-marker')).toBeTruthy();
   });
 
+  it('keeps embedded edge badges and anchor labels inside the card bleed area', () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        variant="embedded"
+        initialPrice={50000}
+        initialPriceSource="local_comparable_price_per_m2"
+      />
+    );
+
+    expect(getStyleValue(screen.getByTestId('price-percentage-bubble').props.style, 'left')).toBe(
+      -18,
+    );
+    expect(getStyleValue(screen.getByText(/Comparable homes.*50/).props.style, 'left')).toBe(-18);
+  });
+
   it('shows an embedded starting anchor for the country default start', () => {
     render(<PriceGuessSlider {...defaultProps} variant="embedded" />);
 

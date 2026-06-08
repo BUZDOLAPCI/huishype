@@ -315,9 +315,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F1ECE4',
     backgroundColor: '#FFFFFF',
+    overflow: 'visible',
   },
   sectionContent: {
     position: 'relative',
+    overflow: 'visible',
   },
   successToast: {
     position: 'absolute',

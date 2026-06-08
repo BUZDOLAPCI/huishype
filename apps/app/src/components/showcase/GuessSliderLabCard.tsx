@@ -73,6 +73,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F1ECE4',
     backgroundColor: '#FFFFFF',
+    overflow: 'visible',
   },
   headerRow: {
     flexDirection: 'row',
@@ -116,5 +117,6 @@ const styles = StyleSheet.create({
   },
   sliderWrap: {
     marginTop: 20,
+    overflow: 'visible',
   },
 });

@@ -121,6 +121,8 @@ const YOU_REFERENCE_COLOR = '#FDAE10';
 const START_ANCHOR_REFERENCE_COLOR = '#6F665D';
 const START_ANCHOR_CONNECTOR_COLOR = '#C8BFB3';
 const START_ANCHOR_MARKER_WIDTH = 160;
+const EMBEDDED_REFERENCE_MARKER_WIDTH = 96;
+const EMBEDDED_USER_REFERENCE_MARKER_WIDTH = 76;
 const GUESS_TONE_INPUT_RANGE = [0, 0.5, 1];
 const SLIDER_TRACK_HEIGHT = 6;
 const TRACK_MARKER_HEIGHT = 18;
@@ -133,6 +135,9 @@ const EMBEDDED_TRACK_MARKER_TOP = EMBEDDED_TRACK_CENTER_Y - TRACK_MARKER_HEIGHT 
 const EMBEDDED_THUMB_TOP = EMBEDDED_TRACK_CENTER_Y;
 const EMBEDDED_THUMB_TRANSLATE_Y = -SLIDER_THUMB_RADIUS;
 const EMBEDDED_REFERENCE_LABELS_HEIGHT = 76;
+const EMBEDDED_EDGE_BLEED = 18;
+const EMBEDDED_PERCENTAGE_BUBBLE_WIDTH = 116;
+const EMBEDDED_PERCENTAGE_BUBBLE_CARET_WIDTH = 12;
 
 interface PriceGuessSliderRange {
   min: number;
@@ -411,6 +416,27 @@ function isNear(pos1: number, pos2: number, threshold = 0.03): boolean {
   return Math.abs(pos1 - pos2) <= threshold;
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  'worklet';
+  return Math.max(min, Math.min(max, value));
+}
+
+function getAnchoredBoxLeft({
+  markerX,
+  boxWidth,
+  trackWidth,
+  edgeBleed = 0,
+}: {
+  markerX: number;
+  boxWidth: number;
+  trackWidth: number;
+  edgeBleed?: number;
+}): number {
+  'worklet';
+  const maxLeft = trackWidth - boxWidth + edgeBleed;
+  return clampNumber(markerX - boxWidth / 2, -edgeBleed, Math.max(-edgeBleed, maxLeft));
+}
+
 // Throttle function for haptic feedback
 function throttle<T extends (...args: unknown[]) => void>(
   func: T,
@@ -504,7 +530,9 @@ function InlineReferenceLabel({
   connectorTopGap = 0,
   fontSize = 12,
   lineHeight = 16,
-  width = 112,
+  width = EMBEDDED_REFERENCE_MARKER_WIDTH,
+  trackWidth = 300,
+  edgeBleed = 0,
   testID,
 }: {
   position: number | null;
@@ -516,6 +544,8 @@ function InlineReferenceLabel({
   fontSize?: number;
   lineHeight?: number;
   width?: number;
+  trackWidth?: number;
+  edgeBleed?: number;
   testID?: string;
 }) {
   if (position === null) {
@@ -523,30 +553,43 @@ function InlineReferenceLabel({
   }
 
   const visibleConnectorHeight = Math.max(0, connectorHeight - connectorTopGap);
+  const markerX = position * trackWidth;
+  const labelLeft = getAnchoredBoxLeft({
+    markerX,
+    boxWidth: width,
+    trackWidth,
+    edgeBleed,
+  });
 
   return (
     <View
-      className="absolute items-center"
+      className="absolute"
       testID={testID}
       style={{
-        left: `${position * 100}%`,
+        left: 0,
         top: 0,
-        width,
-        transform: [{ translateX: -width / 2 }],
+        width: trackWidth,
+        height: connectorHeight + lineHeight,
+        overflow: 'visible',
       }}
     >
-      {connectorTopGap > 0 ? <View style={{ height: connectorTopGap }} /> : null}
       <View
         style={{
+          position: 'absolute',
+          left: markerX,
+          top: connectorTopGap,
           width: 1,
           height: visibleConnectorHeight,
           backgroundColor: connectorColor,
         }}
       />
       <Text
-        className="font-display"
+        className="absolute font-display"
         numberOfLines={1}
         style={{
+          left: labelLeft,
+          top: connectorHeight,
+          width,
           color,
           fontSize,
           lineHeight,
@@ -1085,14 +1128,37 @@ export function PriceGuessSlider({
   });
 
   const percentageBubblePositionAnimatedStyle = useAnimatedStyle(() => ({
-    left: thumbPosition.value * sliderWidthShared.value,
+    left: getAnchoredBoxLeft({
+      markerX: thumbPosition.value * sliderWidthShared.value,
+      boxWidth: EMBEDDED_PERCENTAGE_BUBBLE_WIDTH,
+      trackWidth: sliderWidthShared.value,
+      edgeBleed: EMBEDDED_EDGE_BLEED,
+    }),
     opacity: 1,
     transform: [
-      { translateX: -58 },
       { translateY: -8 + floatingLabelProgress.value * 8 },
       { scale: priceDisplayScale.value },
     ],
   }));
+
+  const percentageBubbleCaretPositionAnimatedStyle = useAnimatedStyle(() => {
+    const markerX = thumbPosition.value * sliderWidthShared.value;
+    const bubbleLeft = getAnchoredBoxLeft({
+      markerX,
+      boxWidth: EMBEDDED_PERCENTAGE_BUBBLE_WIDTH,
+      trackWidth: sliderWidthShared.value,
+      edgeBleed: EMBEDDED_EDGE_BLEED,
+    });
+    const caretCenterX = clampNumber(
+      markerX - bubbleLeft,
+      12,
+      EMBEDDED_PERCENTAGE_BUBBLE_WIDTH - 12,
+    );
+
+    return {
+      left: caretCenterX - EMBEDDED_PERCENTAGE_BUBBLE_CARET_WIDTH / 2,
+    };
+  });
 
   // Price display animated style
   const priceAnimatedStyle = useAnimatedStyle(() => ({
@@ -1311,10 +1377,10 @@ export function PriceGuessSlider({
 
   if (variant === 'embedded') {
     return (
-      <GestureHandlerRootView key={_propertyId}>
-        <View testID={testID}>
-          <View className="mb-4" onLayout={handleSliderLayout}>
-            <View className="relative mb-3.5 h-14">
+      <GestureHandlerRootView key={_propertyId} style={{ overflow: 'visible' }}>
+        <View testID={testID} style={{ overflow: 'visible' }}>
+          <View className="mb-4" onLayout={handleSliderLayout} style={{ overflow: 'visible' }}>
+            <View className="relative mb-3.5 h-14" style={{ overflow: 'visible' }}>
               {showPreviousGuessReference && userGuess !== undefined ? (
                 <View
                   className="absolute top-0 items-center"
@@ -1348,7 +1414,7 @@ export function PriceGuessSlider({
                     alignItems: 'center',
                     bottom: 0,
                     position: 'absolute',
-                    width: 116,
+                    width: EMBEDDED_PERCENTAGE_BUBBLE_WIDTH,
                   },
                   percentageBubblePositionAnimatedStyle,
                 ]}
@@ -1386,7 +1452,8 @@ export function PriceGuessSlider({
                 <Animated.View
                   style={[
                     {
-                      alignSelf: 'center',
+                      position: 'absolute',
+                      top: 29,
                       width: 0,
                       height: 0,
                       borderLeftWidth: 6,
@@ -1394,8 +1461,8 @@ export function PriceGuessSlider({
                       borderTopWidth: 7,
                       borderLeftColor: 'transparent',
                       borderRightColor: 'transparent',
-                      marginTop: -1,
                     },
+                    percentageBubbleCaretPositionAnimatedStyle,
                     percentageBubbleCaretAnimatedStyle,
                   ]}
                 />
@@ -1513,6 +1580,8 @@ export function PriceGuessSlider({
                 label={wozMarkerLabel}
                 color="#9C9B99"
                 connectorHeight={8}
+                trackWidth={sliderWidth}
+                edgeBleed={EMBEDDED_EDGE_BLEED}
               />
               <InlineReferenceLabel
                 position={askingPosition}
@@ -1520,12 +1589,16 @@ export function PriceGuessSlider({
                 color={ASKING_REFERENCE_COLOR}
                 connectorColor={ASKING_REFERENCE_COLOR}
                 connectorHeight={24}
+                trackWidth={sliderWidth}
+                edgeBleed={EMBEDDED_EDGE_BLEED}
               />
               <InlineReferenceLabel
                 position={fmvPosition}
                 label={crowdMarkerLabel}
                 color="#3D8A5A"
                 connectorHeight={40}
+                trackWidth={sliderWidth}
+                edgeBleed={EMBEDDED_EDGE_BLEED}
               />
               <InlineReferenceLabel
                 position={startAnchorPosition}
@@ -1534,6 +1607,8 @@ export function PriceGuessSlider({
                 connectorColor={startAnchorConnectorColor}
                 connectorHeight={startAnchorConnectorHeight}
                 width={START_ANCHOR_MARKER_WIDTH}
+                trackWidth={sliderWidth}
+                edgeBleed={EMBEDDED_EDGE_BLEED}
                 testID="start-anchor-marker"
               />
               {hasInteracted ? (
@@ -1546,6 +1621,9 @@ export function PriceGuessSlider({
                   connectorTopGap={4}
                   fontSize={13}
                   lineHeight={17}
+                  width={EMBEDDED_USER_REFERENCE_MARKER_WIDTH}
+                  trackWidth={sliderWidth}
+                  edgeBleed={EMBEDDED_EDGE_BLEED}
                   testID="user-guess-marker"
                 />
               ) : null}
