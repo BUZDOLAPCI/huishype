@@ -13,9 +13,13 @@ const Image = ({ style, ...props }) =>
 const ScrollView = ({ children, ...props }) =>
   React.createElement('Animated.ScrollView', props, children);
 
-const useSharedValue = (initialValue) => ({
-  value: initialValue,
-});
+const useSharedValue = (initialValue) => {
+  const ref = React.useRef();
+  if (!ref.current) {
+    ref.current = { value: initialValue };
+  }
+  return ref.current;
+};
 
 const useAnimatedStyle = (styleFactory) => styleFactory();
 

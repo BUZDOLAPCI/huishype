@@ -8,6 +8,28 @@ interface TestAnalyticsEvent {
   properties: Record<string, unknown>;
 }
 
+function getStyleValue(style: unknown, key: string): unknown {
+  if (Array.isArray(style)) {
+    for (let index = style.length - 1; index >= 0; index -= 1) {
+      const value = getStyleValue(style[index], key);
+      if (value !== undefined) {
+        return value;
+      }
+    }
+    return undefined;
+  }
+
+  if (style && typeof style === 'object' && key in style) {
+    return (style as Record<string, unknown>)[key];
+  }
+
+  return undefined;
+}
+
+function getSliderThumbLeft(): number {
+  return Number(getStyleValue(screen.getByTestId('slider-thumb').props.style, 'left'));
+}
+
 describe('PriceGuessSlider', () => {
   const defaultProps = {
     propertyId: 'test-property-123',
@@ -189,6 +211,47 @@ describe('PriceGuessSlider', () => {
         expect.stringMatching(/450/)
       );
     });
+  });
+
+  it('recomputes the thumb position when valuation hydration changes the slider range', async () => {
+    const { rerender } = render(
+      <PriceGuessSlider
+        {...defaultProps}
+        variant="embedded"
+        countryCode="NL"
+        initialPrice={365000}
+        initialPriceSource="local_comparable_price_per_m2"
+      />
+    );
+    const initialThumbLeft = getSliderThumbLeft();
+
+    rerender(
+      <PriceGuessSlider
+        {...defaultProps}
+        variant="embedded"
+        countryCode="NL"
+        initialPrice={365000}
+        initialPriceSource="local_comparable_price_per_m2"
+        officialValuation={370000}
+        officialValuationYear={2025}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getSliderThumbLeft()).not.toBeCloseTo(initialThumbLeft, 5);
+    });
+
+    const thumbPercent = (getSliderThumbLeft() / 300) * 100;
+    const startAnchorPercent = parseFloat(
+      String(getStyleValue(screen.getByTestId('start-anchor-track-marker').props.style, 'left')),
+    );
+    const wozMarkerPercent = parseFloat(
+      String(getStyleValue(screen.getByTestId('woz-track-marker').props.style, 'left')),
+    );
+    expect(thumbPercent).toBeCloseTo(startAnchorPercent, 5);
+    expect(thumbPercent).not.toBeCloseTo(wozMarkerPercent, 5);
+    expect(screen.getByText(/Comparable homes.*365/)).toBeTruthy();
+    expect(screen.getByText(/WOZ.*370/)).toBeTruthy();
   });
 
   it('syncs an asynchronously replaced initialPrice before interaction', async () => {

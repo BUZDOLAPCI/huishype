@@ -167,6 +167,13 @@ function resolveSliderRange({
   };
 }
 
+function buildThumbSyncSignature(
+  range: PriceGuessSliderRange,
+  officialValuation?: number,
+): string {
+  return `${range.min}:${range.max}:${officialValuation ?? ''}`;
+}
+
 function clampPriceToRange(price: number, range: PriceGuessSliderRange): number {
   return Math.max(range.min, Math.min(range.max, price));
 }
@@ -676,6 +683,34 @@ export function PriceGuessSlider({
   const lastWOZCrossing = useRef<number | null>(null);
   const lastSyncedUserGuess = useRef<number | undefined>(userGuess);
   const lastPropertyId = useRef(_propertyId);
+  const lastThumbSyncSignature = useRef(
+    buildThumbSyncSignature(sliderRange, officialValuation),
+  );
+
+  const syncThumbPositionToGuessedPrice = useCallback(() => {
+    const nextPosition = priceToPosition(guessedPrice, sliderRange);
+    cancelAnimation(thumbPosition);
+    thumbPosition.value = nextPosition;
+
+    const nextIsNearWOZ = officialValuation
+      ? isNear(nextPosition, priceToPosition(officialValuation, sliderRange))
+      : false;
+    setIsNearWOZ((current) => (current === nextIsNearWOZ ? current : nextIsNearWOZ));
+  }, [guessedPrice, officialValuation, sliderRange, thumbPosition]);
+
+  useLayoutEffect(() => {
+    const nextSignature = buildThumbSyncSignature(sliderRange, officialValuation);
+    if (lastThumbSyncSignature.current === nextSignature) {
+      return;
+    }
+
+    lastThumbSyncSignature.current = nextSignature;
+    if (isDragging.value) {
+      return;
+    }
+
+    syncThumbPositionToGuessedPrice();
+  }, [isDragging, officialValuation, sliderRange, syncThumbPositionToGuessedPrice]);
 
   useLayoutEffect(() => {
     if (lastPropertyId.current === _propertyId) {
@@ -721,6 +756,7 @@ export function PriceGuessSlider({
     submitButtonScale.value = 1;
     isDragging.value = false;
     thumbPosition.value = priceToPosition(resolvedInitialPrice, nextRange);
+    lastThumbSyncSignature.current = buildThumbSyncSignature(nextRange, officialValuation);
     startAnalytics.current = buildStartAnalytics({
       price: resolvedInitialPrice,
       source: resolvedStartSource,
@@ -882,6 +918,7 @@ export function PriceGuessSlider({
         floatingLabelProgress.value = withTiming(0, FLOAT_REVEAL_TIMING);
       }
       thumbScale.value = withSpring(1, THUMB_PRESS_SPRING_CONFIG);
+      runOnJS(syncThumbPositionToGuessedPrice)();
     });
 
   // Tap gesture for track
@@ -1136,6 +1173,7 @@ export function PriceGuessSlider({
     const nextRange = resolveSliderRange({ officialValuation, startPrice: userGuess });
     cancelAnimation(thumbPosition);
     thumbPosition.value = withSpring(priceToPosition(userGuess, nextRange), SLIDER_SPRING_CONFIG);
+    lastThumbSyncSignature.current = buildThumbSyncSignature(nextRange, officialValuation);
     startAnalytics.current = buildStartAnalytics({
       price: userGuess,
       source: 'user_guess',
@@ -1183,6 +1221,7 @@ export function PriceGuessSlider({
     const nextRange = resolveSliderRange({ officialValuation, startPrice: initialPrice });
     cancelAnimation(thumbPosition);
     thumbPosition.value = priceToPosition(initialPrice, nextRange);
+    lastThumbSyncSignature.current = buildThumbSyncSignature(nextRange, officialValuation);
     startAnalytics.current = buildStartAnalytics({
       price: initialPrice,
       source,
@@ -1219,6 +1258,7 @@ export function PriceGuessSlider({
     const nextRange = resolveSliderRange({ officialValuation, startPrice: officialValuation });
     cancelAnimation(thumbPosition);
     thumbPosition.value = priceToPosition(officialValuation, nextRange);
+    lastThumbSyncSignature.current = buildThumbSyncSignature(nextRange, officialValuation);
     startAnalytics.current = buildStartAnalytics({
       price: officialValuation,
       source: 'official_valuation',
