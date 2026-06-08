@@ -515,6 +515,7 @@ async function main() {
     PLAYWRIGHT_WEB_URL: webUrl,
     PLAYWRIGHT_DISABLE_WEBSERVER: '1',
     PLAYWRIGHT_REPO_ROOT: repoRoot,
+    PLAYWRIGHT_DISABLE_OFFICIAL_VALUATION_HYDRATION_QUEUE: '1',
     ...(apiRestartUrl ? { BENCHMARK_API_RESTART_URL: apiRestartUrl } : {}),
   });
 

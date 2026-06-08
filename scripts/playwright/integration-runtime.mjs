@@ -239,6 +239,7 @@ async function main() {
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
     NODE_ENV: runtimeNodeEnv,
+    PLAYWRIGHT_DISABLE_OFFICIAL_VALUATION_HYDRATION_QUEUE: '1',
   };
   const fixtureTarget = assertPlaywrightPropertyTilePyramidFixtureTargetIsSafe(childEnv, {
     requireExplicitAllow: false,

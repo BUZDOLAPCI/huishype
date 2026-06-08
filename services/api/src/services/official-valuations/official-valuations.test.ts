@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { hydrateOfficialValuationRequestSchema } from './contracts.js';
 import {
   getOfficialValuationSourceConfig,
@@ -510,6 +510,76 @@ describe('WOZ source client', () => {
 
     expect(result).toMatchObject({ valuation: 410_000 });
     expect(runtimeCalls).toEqual([1, 2, 3]);
+  });
+});
+
+describe('official valuation hydration service', () => {
+  const originalDisableQueueEnv =
+    process.env.PLAYWRIGHT_DISABLE_OFFICIAL_VALUATION_HYDRATION_QUEUE;
+
+  afterEach(() => {
+    if (originalDisableQueueEnv === undefined) {
+      delete process.env.PLAYWRIGHT_DISABLE_OFFICIAL_VALUATION_HYDRATION_QUEUE;
+    } else {
+      process.env.PLAYWRIGHT_DISABLE_OFFICIAL_VALUATION_HYDRATION_QUEUE =
+        originalDisableQueueEnv;
+    }
+    jest.resetModules();
+  });
+
+  it('does not create or enqueue WOZ hydration jobs in the Playwright API runtime', async () => {
+    jest.resetModules();
+    process.env.PLAYWRIGHT_DISABLE_OFFICIAL_VALUATION_HYDRATION_QUEUE = '1';
+
+    const acceptMock = jest.fn();
+    const getCurrentStatusMock = jest.fn(async () => ({
+      propertyId: '00000000-0000-4000-8000-000000000001',
+      source: 'woz',
+      expectedValuationYear: 2025,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationVerified: false,
+      job: null,
+      sourceState: null,
+    }));
+    const enqueueMock = jest.fn();
+
+    jest.unstable_mockModule('./store.js', () => ({
+      acceptOfficialValuationHydrationRequest: acceptMock,
+      getCurrentOfficialValuationStatus: getCurrentStatusMock,
+    }));
+    jest.unstable_mockModule('./queue.js', () => ({
+      enqueueOfficialValuationHydration: enqueueMock,
+    }));
+    jest.unstable_mockModule('../ingest/queue.js', () => ({
+      requestLatestListingsRefresh: jest.fn(),
+    }));
+    jest.unstable_mockModule('../property-tile-pyramid.js', () => ({
+      safeRequestPropertyTilePyramidBuild: jest.fn(),
+    }));
+
+    const { requestOfficialValuationHydration } = await import('./service.js');
+
+    await expect(
+      requestOfficialValuationHydration({
+        propertyId: '00000000-0000-4000-8000-000000000001',
+        request: { source: 'woz' },
+        submittedByUserId: null,
+      }),
+    ).resolves.toMatchObject({
+      status: 'pending',
+      propertyId: '00000000-0000-4000-8000-000000000001',
+      source: 'woz',
+      valuationYear: 2025,
+      dispatchJob: null,
+    });
+
+    expect(getCurrentStatusMock).toHaveBeenCalledWith({
+      propertyId: '00000000-0000-4000-8000-000000000001',
+      source: 'woz',
+    });
+    expect(acceptMock).not.toHaveBeenCalled();
+    expect(enqueueMock).not.toHaveBeenCalled();
   });
 });
 
