@@ -8,7 +8,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 
 const PRICE_GUESS_MIN = 50_000;
-const PRICE_GUESS_MAX = 2_000_000;
+const MARKET_SUMMARY_ASKING_PRICE_MAX = 2_000_000;
 const OFFICIAL_RATIO_MIN = 0.5;
 const OFFICIAL_RATIO_MAX = 2;
 const ADJUSTED_RATIO_MIN = 0.8;
@@ -134,7 +134,7 @@ export function isSaleMarketSummaryListingFact(input: {
     normalizeListingPriceTypeForGuessStart(input.sourceName, input.priceType) === 'sale' &&
     askingPrice != null &&
     askingPrice >= PRICE_GUESS_MIN &&
-    askingPrice <= PRICE_GUESS_MAX
+    askingPrice <= MARKET_SUMMARY_ASKING_PRICE_MAX
   );
 }
 
@@ -198,7 +198,7 @@ export function choosePriceGuessStart(input: {
       );
 
       return {
-        price: roundToFriendlyPrice(clamp(guarded, PRICE_GUESS_MIN, PRICE_GUESS_MAX)),
+        price: roundToFriendlyPrice(Math.max(PRICE_GUESS_MIN, guarded)),
         source: 'official_valuation_adjusted',
         confidence: 'usable',
         sampleSize: summary.ratioSampleSize,
@@ -212,9 +212,7 @@ export function choosePriceGuessStart(input: {
 
     if (medianAskingPerM2 != null && summary.perM2SampleSize >= minSampleSize) {
       return {
-        price: roundToFriendlyPrice(
-          clamp(medianAskingPerM2 * floorAreaM2, PRICE_GUESS_MIN, PRICE_GUESS_MAX),
-        ),
+        price: roundToFriendlyPrice(Math.max(PRICE_GUESS_MIN, medianAskingPerM2 * floorAreaM2)),
         source: 'local_comparable_price_per_m2',
         confidence: 'usable',
         sampleSize: summary.perM2SampleSize,
@@ -224,7 +222,7 @@ export function choosePriceGuessStart(input: {
 
   if (officialValuation != null) {
     return {
-      price: roundToFriendlyPrice(clamp(officialValuation, PRICE_GUESS_MIN, PRICE_GUESS_MAX)),
+      price: roundToFriendlyPrice(Math.max(PRICE_GUESS_MIN, officialValuation)),
       source: 'official_valuation',
       confidence: 'weak',
       sampleSize: 0,

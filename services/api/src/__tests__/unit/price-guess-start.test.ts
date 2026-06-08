@@ -113,14 +113,34 @@ describe('price guess start chooser', () => {
     });
   });
 
-  it('clamps extreme outputs to the slider range', () => {
+  it('does not cap high adjusted official valuation starts', () => {
     const start = choosePriceGuessStart({
       property: { ...baseProperty, officialValuation: 1_900_000 },
       activeListingAskingPrice: null,
       summary: summary({ medianAskingToOfficialRatio: 1.9, ratioSampleSize: 100 }),
     });
 
-    expect(start?.price).toBe(2_000_000);
+    expect(start?.price).toBe(2_565_000);
+  });
+
+  it('does not cap high official valuation fallback starts', () => {
+    const start = choosePriceGuessStart({
+      property: { ...baseProperty, officialValuation: 12_952_000 },
+      activeListingAskingPrice: null,
+      summary: null,
+    });
+
+    expect(start?.price).toBe(12_950_000);
+  });
+
+  it('does not cap high comparable EUR/m2 starts', () => {
+    const start = choosePriceGuessStart({
+      property: { ...baseProperty, officialValuation: null, floorAreaM2: 400 },
+      activeListingAskingPrice: null,
+      summary: summary({ medianAskingPerM2: 8_000, perM2SampleSize: 12 }),
+    });
+
+    expect(start?.price).toBe(3_200_000);
   });
 });
 
@@ -145,7 +165,7 @@ describe('price guess listing compatibility helpers', () => {
     ).toBe(false);
   });
 
-  it('accepts active Funda sale-compatible rows in the slider range', () => {
+  it('accepts active Funda sale-compatible rows in the market-summary range', () => {
     expect(
       isSaleMarketSummaryListingFact({
         sourceName: 'funda',
@@ -154,6 +174,17 @@ describe('price guess listing compatibility helpers', () => {
         askingPrice: 400_000,
       }),
     ).toBe(true);
+  });
+
+  it('excludes active Funda sale rows above the market-summary ceiling', () => {
+    expect(
+      isSaleMarketSummaryListingFact({
+        sourceName: 'funda',
+        status: 'active',
+        priceType: 'buy',
+        askingPrice: 2_500_000,
+      }),
+    ).toBe(false);
   });
 });
 
