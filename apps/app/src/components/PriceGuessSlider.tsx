@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, Text, View, LayoutChangeEvent } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+  LayoutChangeEvent,
+  type TextInput as TextInputType,
+} from 'react-native';
 import { Icon } from './ui/Icon';
 import { SkeletonText } from './ui/Skeleton';
 import Animated, {
@@ -218,6 +226,17 @@ function formatBubblePrice(price: number, countryCode?: string): string {
   return formatPropertyPrice(price, countryCode as CountryCode, { compact: true })
     .replace(/[\s\u00A0\u202F]+/g, '\u00A0')
     .trim();
+}
+
+function parseExactPriceInput(input: string): number | null {
+  const normalized = input.trim().replace(/[€\s.,']/g, '');
+
+  if (!/^\d+$/.test(normalized)) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatMarkerLabel(label: string, price: number, countryCode?: string): string {
@@ -664,6 +683,8 @@ export function PriceGuessSlider({
   const [guessedPrice, setGuessedPrice] = useState(resolvedInitialPrice);
   const [isNearWOZ, setIsNearWOZ] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [isEditingExactPrice, setIsEditingExactPrice] = useState(false);
+  const [exactPriceDraft, setExactPriceDraft] = useState(String(resolvedInitialPrice));
 
   // Animation values - use shared value for slider width for proper animated style updates
   const sliderWidthShared = useSharedValue(300);
@@ -707,6 +728,7 @@ export function PriceGuessSlider({
   const lastThumbSyncSignature = useRef(
     buildThumbSyncSignature(sliderRange, officialValuation),
   );
+  const exactPriceInputRef = useRef<TextInputType>(null);
 
   const syncThumbPositionToGuessedPrice = useCallback(() => {
     const nextPosition = priceToPosition(guessedPrice, sliderRange);
@@ -757,6 +779,8 @@ export function PriceGuessSlider({
     setGuessedPrice(resolvedInitialPrice);
     setIsNearWOZ(false);
     setHasInteracted(false);
+    setIsEditingExactPrice(false);
+    setExactPriceDraft(String(resolvedInitialPrice));
     const nextRange = resolveSliderRange({
       officialValuation,
       startPrice: resolvedInitialPrice,
@@ -833,6 +857,26 @@ export function PriceGuessSlider({
     setHasInteracted(true);
   }, []);
 
+  useEffect(() => {
+    if (!isEditingExactPrice) {
+      setExactPriceDraft(String(guessedPrice));
+    }
+  }, [guessedPrice, isEditingExactPrice]);
+
+  useEffect(() => {
+    if (!isEditingExactPrice) {
+      return undefined;
+    }
+
+    const focusTimeout = setTimeout(() => {
+      exactPriceInputRef.current?.focus();
+    }, 0);
+
+    return () => {
+      clearTimeout(focusTimeout);
+    };
+  }, [isEditingExactPrice]);
+
   // Throttled haptic feedback
   const triggerSelectionHaptic = useMemo(
     () => throttle(() => {
@@ -859,14 +903,22 @@ export function PriceGuessSlider({
 
   // Update price and trigger callbacks
   const updatePrice = useCallback(
-    (position: number) => {
-      const newPrice = positionToPrice(position, sliderRange);
+    (position: number, exactPrice?: number) => {
+      const clampedPosition = Math.max(0, Math.min(1, position));
+      const newPrice =
+        exactPrice !== undefined
+          ? clampPriceToRange(exactPrice, sliderRange)
+          : positionToPrice(clampedPosition, sliderRange);
+      const resolvedPosition =
+        exactPrice !== undefined
+          ? priceToPosition(newPrice, sliderRange)
+          : clampedPosition;
 
       // Check if we crossed the WOZ value
       if (officialValuation) {
         const wozPosition = priceToPosition(officialValuation, sliderRange);
         const wasAboveWOZ = priceToPosition(guessedPrice, sliderRange) > wozPosition;
-        const isAboveWOZ = position > wozPosition;
+        const isAboveWOZ = resolvedPosition > wozPosition;
 
         if (wasAboveWOZ !== isAboveWOZ && lastWOZCrossing.current !== newPrice) {
           lastWOZCrossing.current = newPrice;
@@ -874,7 +926,7 @@ export function PriceGuessSlider({
         }
 
         // Check if near WOZ for pulse effect
-        const nearWOZ = isNear(position, wozPosition);
+        const nearWOZ = isNear(resolvedPosition, wozPosition);
         if (nearWOZ !== isNearWOZ) {
           setIsNearWOZ(nearWOZ);
           if (nearWOZ) {
@@ -913,6 +965,59 @@ export function PriceGuessSlider({
       triggerWOZHaptic,
     ]
   );
+
+  const commitExactPrice = useCallback(
+    (price: number) => {
+      if (disabled) return;
+
+      markUserInteracted();
+      const clampedPrice = clampPriceToRange(price, sliderRange);
+      const newPosition = priceToPosition(clampedPrice, sliderRange);
+
+      thumbPosition.value = withSpring(newPosition, SLIDER_SPRING_CONFIG);
+      updatePrice(newPosition, clampedPrice);
+      triggerSelectionHaptic();
+    },
+    [
+      disabled,
+      markUserInteracted,
+      sliderRange,
+      thumbPosition,
+      updatePrice,
+      triggerSelectionHaptic,
+    ]
+  );
+
+  const handleStartExactPriceEdit = useCallback(() => {
+    if (disabled) return;
+
+    setExactPriceDraft(String(guessedPrice));
+    setIsEditingExactPrice(true);
+  }, [disabled, guessedPrice]);
+
+  const handleCommitExactPriceEdit = useCallback(() => {
+    if (!isEditingExactPrice) {
+      return;
+    }
+
+    const parsedPrice = parseExactPriceInput(exactPriceDraft);
+    setIsEditingExactPrice(false);
+
+    if (parsedPrice === null) {
+      setExactPriceDraft(String(guessedPrice));
+      return;
+    }
+
+    const clampedPrice = clampPriceToRange(parsedPrice, sliderRange);
+    setExactPriceDraft(String(clampedPrice));
+    commitExactPrice(clampedPrice);
+  }, [
+    commitExactPrice,
+    exactPriceDraft,
+    guessedPrice,
+    isEditingExactPrice,
+    sliderRange,
+  ]);
 
   // Handle slider layout to get width
   const handleSliderLayout = (event: LayoutChangeEvent) => {
@@ -1142,8 +1247,14 @@ export function PriceGuessSlider({
     };
   });
 
-  // Price display animated style
-  const priceAnimatedStyle = useAnimatedStyle(() => ({
+  const exactPricePillAnimatedStyle = useAnimatedStyle(() => ({
+    backgroundColor: disabled
+      ? '#7B807C'
+      : interpolateColor(
+        guessToneProgress.value,
+        GUESS_TONE_INPUT_RANGE,
+        [NEGATIVE_GUESS_COLOR, NEUTRAL_GUESS_COLOR, POSITIVE_GUESS_COLOR],
+      ),
     transform: [{ scale: priceDisplayScale.value }],
   }));
 
@@ -1193,7 +1304,7 @@ export function PriceGuessSlider({
       const newPosition = priceToPosition(newPrice, sliderRange);
 
       thumbPosition.value = withSpring(newPosition, SLIDER_SPRING_CONFIG);
-      updatePrice(newPosition);
+      updatePrice(newPosition, newPrice);
       triggerSelectionHaptic();
     },
     [
@@ -1218,6 +1329,8 @@ export function PriceGuessSlider({
     setSliderStartPrice(userGuess);
     setGuessedPrice(userGuess);
     setHasInteracted(false);
+    setIsEditingExactPrice(false);
+    setExactPriceDraft(String(userGuess));
     const nextRange = resolveSliderRange({
       officialValuation,
       startPrice: userGuess,
@@ -1270,6 +1383,8 @@ export function PriceGuessSlider({
     lastHapticPrice.current = initialPrice;
     setSliderStartPrice(initialPrice);
     setGuessedPrice(initialPrice);
+    setIsEditingExactPrice(false);
+    setExactPriceDraft(String(initialPrice));
     const nextRange = resolveSliderRange({
       officialValuation,
       startPrice: initialPrice,
@@ -1311,6 +1426,8 @@ export function PriceGuessSlider({
     lastHapticPrice.current = officialValuation;
     setSliderStartPrice(officialValuation);
     setGuessedPrice(officialValuation);
+    setIsEditingExactPrice(false);
+    setExactPriceDraft(String(officialValuation));
     const nextRange = resolveSliderRange({
       officialValuation,
       startPrice: officialValuation,
@@ -1368,12 +1485,74 @@ export function PriceGuessSlider({
     ? ASKING_REFERENCE_COLOR
     : START_ANCHOR_CONNECTOR_COLOR;
   const startAnchorConnectorHeight = startAnchorUsesAskingStyle ? 24 : 52;
+  const exactPriceControl = (
+    <Animated.View
+      className="min-h-[40px] flex-row items-center rounded-full px-3 py-2"
+      style={[
+        {
+          alignSelf: 'flex-start',
+          shadowColor: '#2F2A24',
+          shadowOpacity: 0.12,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 3,
+        },
+        exactPricePillAnimatedStyle,
+      ]}
+    >
+      {isEditingExactPrice ? (
+        <TextInput
+          ref={exactPriceInputRef}
+          testID="exact-price-input"
+          value={exactPriceDraft}
+          onChangeText={setExactPriceDraft}
+          onBlur={handleCommitExactPriceEdit}
+          onSubmitEditing={handleCommitExactPriceEdit}
+          keyboardType="number-pad"
+          returnKeyType="done"
+          autoFocus
+          selectTextOnFocus
+          className="min-w-[104px] p-0 text-right font-display-semibold text-base text-white"
+          style={{
+            lineHeight: 20,
+          }}
+        />
+      ) : (
+        <>
+          <Text
+            testID="exact-price-display"
+            className="font-display-semibold text-base text-white"
+            numberOfLines={1}
+          >
+            {formatPrice(guessedPrice, countryCode)}
+          </Text>
+          <Pressable
+            accessibilityLabel="Edit exact guess price"
+            accessibilityRole="button"
+            disabled={disabled}
+            hitSlop={8}
+            onPress={handleStartExactPriceEdit}
+            testID="exact-price-edit-button"
+            className="ml-2 rounded-full p-1"
+            style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.18)',
+            }}
+          >
+            <Icon name="PencilSimple" size={14} weight="bold" color="#FFFFFF" />
+          </Pressable>
+        </>
+      )}
+    </Animated.View>
+  );
 
   if (variant === 'embedded') {
     return (
       <GestureHandlerRootView key={_propertyId} style={{ overflow: 'visible' }}>
         <View testID={testID} style={{ overflow: 'visible' }}>
           <View className="mb-4" onLayout={handleSliderLayout} style={{ overflow: 'visible' }}>
+            <View className="mb-2 flex-row justify-end">
+              {exactPriceControl}
+            </View>
             <View className="relative mb-3.5 h-14" style={{ overflow: 'visible' }}>
               {showPreviousGuessReference && userGuess !== undefined ? (
                 <View
@@ -1659,12 +1838,15 @@ export function PriceGuessSlider({
     <GestureHandlerRootView key={_propertyId}>
       <View className="p-4 bg-surface-card rounded-xl" testID={testID}>
         {/* Header */}
-        <Text
-          className="text-lg font-semibold text-warm-900 mb-1"
-          testID="price-guess-header"
-        >
-          What do you think this property is worth?
-        </Text>
+        <View className="mb-3 flex-row items-start justify-between gap-3">
+          <Text
+            className="flex-1 text-lg font-semibold text-warm-900"
+            testID="price-guess-header"
+          >
+            What do you think this property is worth?
+          </Text>
+          {exactPriceControl}
+        </View>
 
         {/* Reference values */}
         {(officialValuation || officialValuationLoading) && (
@@ -1686,29 +1868,20 @@ export function PriceGuessSlider({
           </View>
         )}
 
-        {/* Price Display */}
-        <Animated.View style={priceAnimatedStyle} className="items-center mb-6">
-          <Text
-            className={`text-4xl font-bold ${disabled ? 'text-warm-400' : 'text-primary-600'}`}
-            testID="price-display"
+        {showPreviousGuessReference && userGuess !== undefined ? (
+          <View
+            className="mb-6 self-center rounded-full border px-3 py-1"
+            style={{
+              backgroundColor: '#F7F2EA',
+              borderColor: '#E1D8CC',
+            }}
+            testID="previous-guess-bubble"
           >
-            {formatPrice(guessedPrice, countryCode)}
-          </Text>
-          {showPreviousGuessReference && userGuess !== undefined ? (
-            <View
-              className="mt-3 rounded-full border px-3 py-1"
-              style={{
-                backgroundColor: '#F7F2EA',
-                borderColor: '#E1D8CC',
-              }}
-              testID="previous-guess-bubble"
-            >
-              <Text className="text-xs font-medium" style={{ color: '#7B7469' }}>
-                Previous guess {formatBubblePrice(userGuess, countryCode)}
-              </Text>
-            </View>
-          ) : null}
-        </Animated.View>
+            <Text className="text-xs font-medium" style={{ color: '#7B7469' }}>
+              Previous guess {formatBubblePrice(userGuess, countryCode)}
+            </Text>
+          </View>
+        ) : null}
 
         {/* Slider */}
         <View className="mb-8 relative" style={{ paddingBottom: 74 }} onLayout={handleSliderLayout}>

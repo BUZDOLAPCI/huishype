@@ -30,6 +30,10 @@ function getSliderThumbLeft(): number {
   return Number(getStyleValue(screen.getByTestId('slider-thumb').props.style, 'left'));
 }
 
+function getExactPriceDisplayText(): string {
+  return String(screen.getByTestId('exact-price-display').props.children);
+}
+
 describe('PriceGuessSlider', () => {
   const defaultProps = {
     propertyId: 'test-property-123',
@@ -82,7 +86,7 @@ describe('PriceGuessSlider', () => {
   it('initializes with user guess when provided', () => {
     render(<PriceGuessSlider {...defaultProps} userGuess={400000} />);
 
-    expect(screen.getByTestId('price-display').props.children).toEqual(
+    expect(getExactPriceDisplayText()).toEqual(
       expect.stringMatching(/400/)
     );
   });
@@ -96,7 +100,7 @@ describe('PriceGuessSlider', () => {
       />
     );
 
-    expect(screen.getByTestId('price-display').props.children).toEqual(
+    expect(getExactPriceDisplayText()).toEqual(
       expect.stringMatching(/425/)
     );
   });
@@ -111,7 +115,7 @@ describe('PriceGuessSlider', () => {
       />
     );
 
-    expect(screen.getByTestId('price-display').props.children).toEqual(
+    expect(getExactPriceDisplayText()).toEqual(
       expect.stringMatching(/475/)
     );
   });
@@ -126,9 +130,122 @@ describe('PriceGuessSlider', () => {
       />
     );
 
-    expect(screen.getByTestId('price-display').props.children).toEqual(
+    expect(getExactPriceDisplayText()).toEqual(
       expect.stringMatching(/400/)
     );
+  });
+
+  it('shows the exact price display for the default starting guess', () => {
+    render(<PriceGuessSlider {...defaultProps} />);
+
+    expect(getExactPriceDisplayText()).toEqual(expect.stringMatching(/350/));
+    expect(screen.getByTestId('exact-price-edit-button')).toBeTruthy();
+  });
+
+  it('swaps the exact price display to an input when editing', () => {
+    render(<PriceGuessSlider {...defaultProps} initialPrice={425000} />);
+
+    fireEvent.press(screen.getByTestId('exact-price-edit-button'));
+
+    expect(screen.queryByTestId('exact-price-display')).toBeNull();
+    expect(screen.getByTestId('exact-price-input').props.value).toBe('425000');
+    expect(screen.getByTestId('exact-price-input').props.autoFocus).toBe(true);
+  });
+
+  it('submits a typed exact price through the shared guess state', async () => {
+    const onGuessChange = jest.fn();
+    const onGuessSubmit = jest.fn();
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={350000}
+        onGuessChange={onGuessChange}
+        onGuessSubmit={onGuessSubmit}
+      />
+    );
+    const initialThumbLeft = getSliderThumbLeft();
+
+    fireEvent.press(screen.getByTestId('submit-guess-button'));
+    expect(onGuessSubmit).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('exact-price-edit-button'));
+    fireEvent.changeText(screen.getByTestId('exact-price-input'), '456789');
+    fireEvent(screen.getByTestId('exact-price-input'), 'submitEditing');
+
+    await waitFor(() => {
+      expect(getExactPriceDisplayText()).toEqual(expect.stringMatching(/456/));
+    });
+    expect(getSliderThumbLeft()).not.toBeCloseTo(initialThumbLeft, 5);
+    expect(onGuessChange).toHaveBeenLastCalledWith(456789);
+
+    fireEvent.press(screen.getByTestId('submit-guess-button'));
+    await waitFor(() => {
+      expect(onGuessSubmit).toHaveBeenCalledWith(456789);
+    });
+  });
+
+  it('syncs quick adjustments into the exact price display', async () => {
+    render(<PriceGuessSlider {...defaultProps} />);
+
+    fireEvent.press(screen.getByTestId('adjust-plus-10k'));
+
+    await waitFor(() => {
+      expect(getExactPriceDisplayText()).toEqual(expect.stringMatching(/360/));
+    });
+  });
+
+  it('clamps out-of-range exact price input to the slider range', async () => {
+    const onGuessSubmit = jest.fn();
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={350000}
+        onGuessSubmit={onGuessSubmit}
+      />
+    );
+
+    fireEvent.press(screen.getByTestId('exact-price-edit-button'));
+    fireEvent.changeText(screen.getByTestId('exact-price-input'), '9999999');
+    fireEvent(screen.getByTestId('exact-price-input'), 'submitEditing');
+
+    await waitFor(() => {
+      expect(getExactPriceDisplayText()).toEqual(expect.stringMatching(/787/));
+    });
+
+    fireEvent.press(screen.getByTestId('submit-guess-button'));
+    await waitFor(() => {
+      expect(onGuessSubmit).toHaveBeenCalledWith(787500);
+    });
+  });
+
+  it('reverts empty or invalid exact price input without changing the guess', async () => {
+    const onGuessSubmit = jest.fn();
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={350000}
+        onGuessSubmit={onGuessSubmit}
+      />
+    );
+
+    fireEvent.press(screen.getByTestId('exact-price-edit-button'));
+    fireEvent.changeText(screen.getByTestId('exact-price-input'), 'abc');
+    fireEvent(screen.getByTestId('exact-price-input'), 'submitEditing');
+
+    await waitFor(() => {
+      expect(getExactPriceDisplayText()).toEqual(expect.stringMatching(/350/));
+    });
+
+    fireEvent.press(screen.getByTestId('exact-price-edit-button'));
+    fireEvent.changeText(screen.getByTestId('exact-price-input'), '');
+    fireEvent(screen.getByTestId('exact-price-input'), 'submitEditing');
+
+    await waitFor(() => {
+      expect(getExactPriceDisplayText()).toEqual(expect.stringMatching(/350/));
+    });
+
+    fireEvent.press(screen.getByTestId('submit-guess-button'));
+    expect(onGuessSubmit).not.toHaveBeenCalled();
   });
 
   it('uses the submitted guess as a starting point without locking the slider to it', async () => {
@@ -167,7 +284,7 @@ describe('PriceGuessSlider', () => {
 
     fireEvent.press(screen.getByTestId('adjust-plus-10k'));
     await waitFor(() => {
-      expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect(getExactPriceDisplayText()).toEqual(
         expect.stringMatching(/560/)
       );
     });
@@ -182,7 +299,7 @@ describe('PriceGuessSlider', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect(getExactPriceDisplayText()).toEqual(
         expect.stringMatching(/635/)
       );
     });
@@ -194,7 +311,7 @@ describe('PriceGuessSlider', () => {
       <PriceGuessSlider {...defaultProps} officialValuation={300000} />
     );
 
-    expect(screen.getByTestId('price-display').props.children).toEqual(
+    expect(getExactPriceDisplayText()).toEqual(
       expect.stringMatching(/300/)
     );
 
@@ -207,7 +324,7 @@ describe('PriceGuessSlider', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect(getExactPriceDisplayText()).toEqual(
         expect.stringMatching(/450/)
       );
     });
@@ -275,7 +392,7 @@ describe('PriceGuessSlider', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect(getExactPriceDisplayText()).toEqual(
         expect.stringMatching(/545/)
       );
     });
@@ -289,7 +406,7 @@ describe('PriceGuessSlider', () => {
 
     fireEvent.press(screen.getByTestId('adjust-plus-10k'));
     await waitFor(() => {
-      expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect(getExactPriceDisplayText()).toEqual(
         expect.stringMatching(/310/)
       );
     });
@@ -303,7 +420,7 @@ describe('PriceGuessSlider', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect(getExactPriceDisplayText()).toEqual(
         expect.stringMatching(/310/)
       );
     });
@@ -422,6 +539,7 @@ describe('PriceGuessSlider', () => {
     );
 
     expect(screen.getByTestId('price-display').props.children).toBe('0%');
+    expect(getExactPriceDisplayText()).toEqual(expect.stringMatching(/400/));
     expect(screen.queryByTestId('user-guess-marker')).toBeNull();
     expect(screen.getByText('Drag Slider to Adjust Guess')).toBeTruthy();
     expect(screen.getByTestId('guess-reference-labels').props.style).toMatchObject({
@@ -550,7 +668,7 @@ describe('PriceGuessSlider', () => {
       />
     );
 
-    expect(screen.getByTestId('price-display').props.children).toEqual(
+    expect(getExactPriceDisplayText()).toEqual(
       expect.stringMatching(/425/)
     );
     expect(screen.queryByText(/825.000/)).toBeNull();
@@ -570,7 +688,7 @@ describe('PriceGuessSlider', () => {
     }
 
     await waitFor(() => {
-      expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect(getExactPriceDisplayText()).toEqual(
         expect.stringMatching(/2\.400\.000/)
       );
     });
@@ -584,7 +702,7 @@ describe('PriceGuessSlider', () => {
     }
 
     await waitFor(() => {
-      expect(screen.getByTestId('price-display').props.children).toEqual(
+      expect(getExactPriceDisplayText()).toEqual(
         expect.stringMatching(/1\.500\.000/)
       );
     });
@@ -674,7 +792,7 @@ describe('PriceGuessSlider', () => {
 
     // The component should update internally
     await waitFor(() => {
-      expect(screen.getByTestId('price-display')).toBeTruthy();
+      expect(screen.getByTestId('exact-price-display')).toBeTruthy();
     });
   });
 
