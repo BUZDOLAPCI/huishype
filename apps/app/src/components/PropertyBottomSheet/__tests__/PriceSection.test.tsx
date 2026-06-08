@@ -88,6 +88,39 @@ describe('PriceSection', () => {
     });
   });
 
+  it('does not show a WOZ-only FMV fallback as a crowd estimate', () => {
+    render(
+      <PriceSection
+        property={{
+          ...property,
+          askingPrice: undefined,
+          officialValuation: 12952000,
+          officialValuationYear: 2025,
+          fmv: {
+            fmv: 12952000,
+            confidence: 'none',
+            guessCount: 0,
+            distribution: null,
+            officialValuation: 12952000,
+            askingPrice: null,
+            divergence: null,
+          },
+          guessCount: 0,
+        }}
+      />
+    );
+
+    const crowdCard = screen.getByTestId('price-snapshot-crowd-card');
+    const valuationCard = screen.getByTestId('price-snapshot-valuation-card');
+
+    expect(within(crowdCard).getByText('Crowd Estimate')).toBeTruthy();
+    expect(within(crowdCard).getByText('Not enough signal yet')).toBeTruthy();
+    expect(within(crowdCard).getByText('More guesses will tighten the estimate.')).toBeTruthy();
+    expect(within(crowdCard).queryByText(/€\s*12\.952\.000/)).toBeNull();
+    expect(within(valuationCard).getByText('WOZ Value (2025)')).toBeTruthy();
+    expect(within(valuationCard).getByText(/€\s*12\.952\.000/)).toBeTruthy();
+  });
+
   it('shows the WOZ card with a skeleton while an expected value hydrates', () => {
     render(
       <PriceSection
