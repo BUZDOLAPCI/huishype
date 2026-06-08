@@ -313,7 +313,7 @@ describe('PropertyBottomSheet', () => {
     expect(screen.getAllByText('1985').length).toBeGreaterThan(0);
   });
 
-  it('renders surface area badge', () => {
+  it('renders floor area badge', () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     // Multiple instances may appear (in header and details), use getAllByText

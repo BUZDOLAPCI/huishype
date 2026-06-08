@@ -529,7 +529,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(panel.getByText('Crowd FMV', { exact: true })).toHaveCount(0);
     await panel.getByText('Year Built', { exact: true }).scrollIntoViewIfNeeded();
     await expect(panel.getByText('Year Built', { exact: true })).toBeVisible();
-    await expect(panel.getByText('Surface Area', { exact: true })).toBeVisible();
+    await expect(panel.getByText('Floor Area', { exact: true })).toBeVisible();
   });
 
   test('verify map interaction', async ({ page }) => {
