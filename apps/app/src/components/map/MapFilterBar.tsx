@@ -866,6 +866,7 @@ export function MapFilterBar({
       ) : null}
 
       <View
+        testID="map-filter-container"
         pointerEvents={isAnyPanelOpen ? 'auto' : 'box-none'}
         style={[
           isInline ? styles.inlineContainer : styles.container,
@@ -874,7 +875,10 @@ export function MapFilterBar({
       >
         <ScrollView
           horizontal
-          contentContainerStyle={styles.railContent}
+          contentContainerStyle={[
+            styles.railContent,
+            isInline ? null : styles.overlayRailContent,
+          ]}
           showsHorizontalScrollIndicator={false}
           style={styles.rail}
           testID="map-filter-rail"
@@ -944,7 +948,10 @@ export function MapFilterBar({
         </ScrollView>
 
         {isPricePanelOpen ? (
-          <View style={styles.panel} testID="map-filter-panel-price">
+          <View
+            style={[styles.panel, isInline ? null : styles.overlayPanel]}
+            testID="map-filter-panel-price"
+          >
             <View style={styles.panelHeader}>
               <Text style={styles.panelTitle}>{panelTitle}</Text>
               <Pressable
@@ -1167,7 +1174,10 @@ export function MapFilterBar({
         ) : null}
 
         {isActivityPanelOpen ? (
-          <View style={styles.panel} testID="map-filter-panel-activity">
+          <View
+            style={[styles.panel, isInline ? null : styles.overlayPanel]}
+            testID="map-filter-panel-activity"
+          >
             <View style={styles.panelHeader}>
               <Text style={styles.panelTitle}>{t('filter.activity')}</Text>
               <Pressable
@@ -1209,7 +1219,10 @@ export function MapFilterBar({
         ) : null}
 
         {isFollowingPanelOpen ? (
-          <View style={styles.panel} testID="map-filter-panel-following">
+          <View
+            style={[styles.panel, isInline ? null : styles.overlayPanel]}
+            testID="map-filter-panel-following"
+          >
             <View style={styles.panelHeader}>
               <Text style={styles.panelTitle}>{t('filter.following')}</Text>
               <Pressable
@@ -1265,8 +1278,8 @@ const styles = StyleSheet.create({
   },
   container: {
     position: 'absolute',
-    left: 14,
-    right: 14,
+    left: 0,
+    right: 0,
     zIndex: 95,
   },
   inlineContainer: {
@@ -1280,6 +1293,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     paddingRight: 8,
+  },
+  overlayRailContent: {
+    paddingLeft: 14,
+    paddingRight: 14,
   },
   pillShell: {
     position: 'relative',
@@ -1394,6 +1411,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 28,
     elevation: 12,
+  },
+  overlayPanel: {
+    marginHorizontal: 14,
   },
   panelHeader: {
     flexDirection: 'row',

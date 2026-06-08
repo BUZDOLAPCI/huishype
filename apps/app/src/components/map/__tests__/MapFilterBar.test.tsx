@@ -112,6 +112,27 @@ describe('MapFilterBar', () => {
     expect(getByTestId('map-filter-input-price-sale-from').props.value).toBe('500000');
   });
 
+  it('keeps the overlay rail edge-to-edge while padding the pill content', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
+
+    expect(getByTestId('map-filter-container').props.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          left: 0,
+          right: 0,
+        }),
+      ])
+    );
+    expect(getByTestId('map-filter-rail').props.contentContainerStyle).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          paddingLeft: 14,
+          paddingRight: 14,
+        }),
+      ])
+    );
+  });
+
   it('fills a price input from the suggestion list without applying until Apply is pressed', () => {
     const { getByTestId } = render(<MapFilterBarHarness />);
 
