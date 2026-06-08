@@ -32,7 +32,10 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild native dependencies
+        run: pnpm rebuild sharp better-sqlite3 esbuild
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
