@@ -2327,6 +2327,130 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockReplacePassiveBrowserPath).toHaveBeenLastCalledWith('/@51.44,5.47,14z');
   });
 
+  it('resumes coordinate URL updates after closing a tap-opened property preview', async () => {
+    const nowSpy = jest.spyOn(Date, 'now');
+    nowSpy.mockReturnValue(1_000);
+    mockPreviewRouteInputs();
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: '/',
+      resolvedRoute: {
+        kind: 'root',
+        canonicalPath: '/',
+      },
+    };
+    const previewProperty = {
+      id: 'property-nearby',
+      address: 'Routelaan 12',
+      city: 'Eindhoven',
+      postalCode: '5600AA',
+      streetName: 'Routelaan',
+      houseNumber: '12',
+      countryCode: 'NL',
+    };
+    mockInteraction.handleFeaturePress.mockResolvedValue(false);
+    mockFetchNearbyGroup.mockResolvedValue({
+      groupKind: 'single',
+      primaryPropertyId: previewProperty.id,
+      properties: [previewProperty],
+      coordinate: [5.47, 51.44],
+      city: previewProperty.city,
+      postalCode: previewProperty.postalCode,
+      streetName: previewProperty.streetName,
+      houseNumber: previewProperty.houseNumber,
+      countryCode: previewProperty.countryCode,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    const map = mockMapInstances[0] as MockMapInstance;
+    map.getCenter.mockReturnValue({ lng: 5.47, lat: 51.44 });
+    map.getZoom.mockReturnValue(14);
+
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    map.getLayer.mockReturnValue(true);
+    act(() => {
+      map.trigger('load');
+    });
+    await flushMicrotasks();
+    act(() => {
+      map.trigger('sourcedata');
+    });
+
+    const groupedFeature = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [5.47, 51.44] },
+      properties: {
+        node_class: 'active',
+        group_kind: 'single',
+        primary_property_id: previewProperty.id,
+        point_count: 1,
+        property_ids: previewProperty.id,
+        preview_property_ids: previewProperty.id,
+      },
+    };
+
+    act(() => {
+      map.trigger(
+        'click',
+        {
+          features: [groupedFeature],
+          lngLat: { lng: 5.47, lat: 51.44 },
+        },
+        PROPERTY_QUERY_LAYER_IDS[0],
+      );
+    });
+    await flushMicrotasks();
+
+    expect(mockInteraction.handleNearbyResult).toHaveBeenCalledWith(
+      expect.objectContaining({ primaryPropertyId: previewProperty.id }),
+      14,
+      expect.any(Object),
+    );
+
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [previewProperty],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    Object.assign(mockInteraction, {
+      previewGroup: null,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    mockReplacePassiveBrowserPath.mockClear();
+    map.getCenter.mockReturnValue({ lng: 5.48, lat: 51.45 });
+    map.getZoom.mockReturnValue(15);
+    nowSpy.mockReturnValue(2_000);
+
+    act(() => {
+      map.trigger('moveend');
+    });
+    await flushMicrotasks();
+
+    expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith('/@51.45,5.48,15z');
+    nowSpy.mockRestore();
+  });
+
   it('auth-gates signed-out Following toggles without switching state', async () => {
     mockIsAuthenticated = false;
 

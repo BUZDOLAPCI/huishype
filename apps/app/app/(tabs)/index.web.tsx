@@ -35,7 +35,6 @@ import {
   fetchNearbyGroup,
   fetchPhysicalTapResolve,
   normalizeRenderedPropertyGroup,
-  type NearbyPropertyGroup,
   type PropertyResolveResult,
 } from '@/src/utils/api';
 import { getCurrentLocation } from '@/src/lib/currentLocation';
@@ -1545,34 +1544,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [pathnameOverride],
   );
   pushMapBrowserPathRef.current = pushMapBrowserPath;
-  const pushResolvedPreviewBrowserPath = useCallback(
-    (property: NearbyPropertyGroup) => {
-      const routeInput = extractCanonicalRouteInput(property);
-      if (!routeInput) {
-        return false;
-      }
-
-      const previewPath = buildCanonicalMapPreviewPath(routeInput);
-      previousPreviewPathRef.current = previewPath;
-      if (pushMapBrowserPath(previewPath)) {
-        directPreviewHistoryPathRef.current = null;
-        browserPathRef.current = previewPath;
-        setRoutePathname((currentPathname) =>
-          currentPathname === previewPath ? currentPathname : previewPath,
-        );
-        return true;
-      }
-
-      if (getCurrentBrowserPathname('/') === previewPath) {
-        browserPathRef.current = previewPath;
-        setRoutePathname((currentPathname) =>
-          currentPathname === previewPath ? currentPathname : previewPath,
-        );
-      }
-      return false;
-    },
-    [pushMapBrowserPath],
-  );
   const seedDirectPreviewHistory = useCallback(
     (
       previewPath: string,
@@ -2652,7 +2623,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
                 );
 
           if (nearby) {
-            pushResolvedPreviewBrowserPath(nearby);
             handleNearbyResultRef.current(nearby, currentZoom, cameraCommandsRef.current);
             return;
           }
@@ -2689,7 +2659,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         void fetchHouseNumberTapResolve(coordinate[0], coordinate[1], currentZoom, houseNumber)
           .then((resolved) => {
             if (resolved) {
-              pushResolvedPreviewBrowserPath(resolved);
               handleNearbyResultRef.current(
                 resolved,
                 currentZoom,
@@ -2792,7 +2761,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     initialMapCamera.cameraPath,
     initialMapCamera.center,
     initialMapCamera.zoom,
-    pushResolvedPreviewBrowserPath,
     t,
   ]);
 
