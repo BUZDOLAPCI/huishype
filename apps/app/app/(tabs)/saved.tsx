@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { PropertyFeedCard, FeedLoadingMore, AuthModal } from '@/src/components';
@@ -105,28 +105,34 @@ export default function SavedScreen() {
   // --- Not logged in state ---
   if (!user) {
     return (
-      <ScreenBackground testID="saved-auth-required" pointerEvents="box-none">
-        <ScreenHeader title={t('saved.header')} />
-        <View className="flex-1 items-center justify-center px-6">
-          <View className="bg-primary-100 p-5 rounded-full mb-4">
-            <Icon name="BookmarkSimple" size="2xl" color="#DE911D" />
+      <ScreenBackground
+        style={styles.screen}
+        testID="saved-auth-required"
+        pointerEvents="box-none"
+      >
+        <View style={styles.contentFrame}>
+          <ScreenHeader title={t('saved.header')} />
+          <View className="flex-1 items-center justify-center px-6">
+            <View className="bg-primary-100 p-5 rounded-full mb-4">
+              <Icon name="BookmarkSimple" size="2xl" color="#DE911D" />
+            </View>
+            <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
+              {t('saved.auth.title')}
+            </Text>
+            <Text className="text-warm-600 text-center mb-6">{t('saved.auth.body')}</Text>
+            <Button
+              label={t('common.signIn')}
+              onPress={() => setShowAuth(true)}
+              style={{ alignSelf: 'stretch', marginHorizontal: 24 }}
+              testID="saved-sign-in-button"
+            />
+            <AuthModal
+              visible={showAuth}
+              onClose={() => setShowAuth(false)}
+              message={t('saved.auth.modal')}
+              onSuccess={() => setShowAuth(false)}
+            />
           </View>
-          <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-            {t('saved.auth.title')}
-          </Text>
-          <Text className="text-warm-600 text-center mb-6">{t('saved.auth.body')}</Text>
-          <Button
-            label={t('common.signIn')}
-            onPress={() => setShowAuth(true)}
-            style={{ alignSelf: 'stretch', marginHorizontal: 24 }}
-            testID="saved-sign-in-button"
-          />
-          <AuthModal
-            visible={showAuth}
-            onClose={() => setShowAuth(false)}
-            message={t('saved.auth.modal')}
-            onSuccess={() => setShowAuth(false)}
-          />
         </View>
       </ScreenBackground>
     );
@@ -135,12 +141,14 @@ export default function SavedScreen() {
   // --- Loading state ---
   if (isLoading && !isRefreshing) {
     return (
-      <ScreenBackground testID="saved-loading">
-        <ScreenHeader title={t('saved.header')} />
-        <View className="flex-1 items-center justify-center">
-          <View className="items-center">
-            <Icon name="BookmarkSimple" size="xl" color="#DE911D" />
-            <Text className="text-warm-600 mt-4">{t('saved.loading')}</Text>
+      <ScreenBackground style={styles.screen} testID="saved-loading">
+        <View style={styles.contentFrame}>
+          <ScreenHeader title={t('saved.header')} />
+          <View className="flex-1 items-center justify-center">
+            <View className="items-center">
+              <Icon name="BookmarkSimple" size="xl" color="#DE911D" />
+              <Text className="text-warm-600 mt-4">{t('saved.loading')}</Text>
+            </View>
           </View>
         </View>
       </ScreenBackground>
@@ -150,24 +158,26 @@ export default function SavedScreen() {
   // --- Error state ---
   if (isError) {
     return (
-      <ScreenBackground testID="saved-error">
-        <ScreenHeader title={t('saved.header')} />
-        <View className="flex-1 items-center justify-center px-6">
-          <View className="bg-error-red-50 p-4 rounded-full mb-4">
-            <Icon name="WarningCircle" size="2xl" color="#E53935" />
+      <ScreenBackground style={styles.screen} testID="saved-error">
+        <View style={styles.contentFrame}>
+          <ScreenHeader title={t('saved.header')} />
+          <View className="flex-1 items-center justify-center px-6">
+            <View className="bg-error-red-50 p-4 rounded-full mb-4">
+              <Icon name="WarningCircle" size="2xl" color="#E53935" />
+            </View>
+            <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
+              {t('feed.error.title')}
+            </Text>
+            <Text className="text-warm-600 text-center mb-6">
+              {error?.message || t('saved.error.fallback')}
+            </Text>
+            <Button
+              label={t('common.tryAgain')}
+              onPress={() => refetch()}
+              style={{ paddingHorizontal: 24 }}
+              testID="saved-retry-button"
+            />
           </View>
-          <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-            {t('feed.error.title')}
-          </Text>
-          <Text className="text-warm-600 text-center mb-6">
-            {error?.message || t('saved.error.fallback')}
-          </Text>
-          <Button
-            label={t('common.tryAgain')}
-            onPress={() => refetch()}
-            style={{ paddingHorizontal: 24 }}
-            testID="saved-retry-button"
-          />
         </View>
       </ScreenBackground>
     );
@@ -176,16 +186,18 @@ export default function SavedScreen() {
   // --- Empty state ---
   if (properties.length === 0) {
     return (
-      <ScreenBackground testID="saved-empty">
-        <ScreenHeader title={t('saved.header')} />
-        <View className="flex-1 items-center justify-center px-6">
-          <View className="bg-warm-200 p-5 rounded-full mb-4">
-            <Icon name="BookmarkSimple" size="2xl" color="#C7BFB3" />
+      <ScreenBackground style={styles.screen} testID="saved-empty">
+        <View style={styles.contentFrame}>
+          <ScreenHeader title={t('saved.header')} />
+          <View className="flex-1 items-center justify-center px-6">
+            <View className="bg-warm-200 p-5 rounded-full mb-4">
+              <Icon name="BookmarkSimple" size="2xl" color="#C7BFB3" />
+            </View>
+            <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
+              {t('saved.empty.title')}
+            </Text>
+            <Text className="text-warm-600 text-center">{t('saved.empty.body')}</Text>
           </View>
-          <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-            {t('saved.empty.title')}
-          </Text>
-          <Text className="text-warm-600 text-center">{t('saved.empty.body')}</Text>
         </View>
       </ScreenBackground>
     );
@@ -193,8 +205,8 @@ export default function SavedScreen() {
 
   // --- Main list ---
   return (
-    <ScreenBackground style={{ alignItems: 'center' }} testID="saved-screen">
-      <View style={{ width: '100%', maxWidth: 768, flex: 1 }}>
+    <ScreenBackground style={styles.screen} testID="saved-screen">
+      <View style={styles.contentFrame}>
         <ScreenHeader title={t('saved.header')} />
 
         {/* Header count */}
@@ -225,3 +237,14 @@ export default function SavedScreen() {
     </ScreenBackground>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    alignItems: 'center',
+  },
+  contentFrame: {
+    width: '100%',
+    maxWidth: 768,
+    flex: 1,
+  },
+});

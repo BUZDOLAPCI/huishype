@@ -458,40 +458,43 @@ export default function ProfileScreen() {
   if (!user) {
     return (
       <ScreenBackground
+        style={styles.screen}
         testID="profile-auth-required"
         pointerEvents="box-none"
       >
-        <ProfileActionsHeader
-          topInset={profileHeaderTopInset}
-          showTitle
-          isSignedIn={false}
-          showSettings={showSettings}
-          onToggleSettings={toggleSettings}
-          onOpenSettings={handleOpenSettings}
-          onDismissSettings={dismissSettings}
-        />
-        <View className="flex-1 items-center justify-center px-6">
-          <View className="bg-primary-100 p-5 rounded-full mb-4">
-            <Icon name="User" size="2xl" color="#DE911D" />
+        <View style={styles.contentFrame}>
+          <ProfileActionsHeader
+            topInset={profileHeaderTopInset}
+            showTitle
+            isSignedIn={false}
+            showSettings={showSettings}
+            onToggleSettings={toggleSettings}
+            onOpenSettings={handleOpenSettings}
+            onDismissSettings={dismissSettings}
+          />
+          <View className="flex-1 items-center justify-center px-6">
+            <View className="bg-primary-100 p-5 rounded-full mb-4">
+              <Icon name="User" size="2xl" color="#DE911D" />
+            </View>
+            <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
+              {t('profile.auth.title')}
+            </Text>
+            <Text className="text-warm-600 text-center mb-6">
+              {t('profile.auth.body')}
+            </Text>
+            <Button
+              label={t('common.signIn')}
+              onPress={() => setShowAuth(true)}
+              style={{ alignSelf: 'stretch', marginHorizontal: 24 }}
+              testID="profile-sign-in-button"
+            />
+            <AuthModal
+              visible={showAuth}
+              onClose={() => setShowAuth(false)}
+              message={t('profile.auth.modal')}
+              onSuccess={() => setShowAuth(false)}
+            />
           </View>
-          <Text className="text-lg font-semibold text-warm-900 text-center mb-2">
-            {t('profile.auth.title')}
-          </Text>
-          <Text className="text-warm-600 text-center mb-6">
-            {t('profile.auth.body')}
-          </Text>
-          <Button
-            label={t('common.signIn')}
-            onPress={() => setShowAuth(true)}
-            style={{ alignSelf: 'stretch', marginHorizontal: 24 }}
-            testID="profile-sign-in-button"
-          />
-          <AuthModal
-            visible={showAuth}
-            onClose={() => setShowAuth(false)}
-            message={t('profile.auth.modal')}
-            onSuccess={() => setShowAuth(false)}
-          />
         </View>
       </ScreenBackground>
     );
@@ -500,20 +503,22 @@ export default function ProfileScreen() {
   // --- Loading ---
   if (isLoading && !profile) {
     return (
-      <ScreenBackground testID="profile-loading">
-        <ProfileActionsHeader
-          topInset={profileHeaderTopInset}
-          showTitle
-          isSignedIn
-          showSettings={showSettings}
-          onToggleSettings={toggleSettings}
-          onOpenSettings={handleOpenSettings}
-          onSignOut={handleLogout}
-          onDismissSettings={dismissSettings}
-        />
-        <View className="flex-1 items-center justify-center">
-          <Icon name="User" size="xl" color="#DE911D" />
-          <Text className="text-warm-600 mt-4">{t('profile.loading')}</Text>
+      <ScreenBackground style={styles.screen} testID="profile-loading">
+        <View style={styles.contentFrame}>
+          <ProfileActionsHeader
+            topInset={profileHeaderTopInset}
+            showTitle
+            isSignedIn
+            showSettings={showSettings}
+            onToggleSettings={toggleSettings}
+            onOpenSettings={handleOpenSettings}
+            onSignOut={handleLogout}
+            onDismissSettings={dismissSettings}
+          />
+          <View className="flex-1 items-center justify-center">
+            <Icon name="User" size="xl" color="#DE911D" />
+            <Text className="text-warm-600 mt-4">{t('profile.loading')}</Text>
+          </View>
         </View>
       </ScreenBackground>
     );
@@ -522,9 +527,9 @@ export default function ProfileScreen() {
   if (!profile) return null;
 
   return (
-    <ScreenBackground style={{ alignItems: 'center' }} testID="profile-screen">
+    <ScreenBackground style={styles.screen} testID="profile-screen">
       <ScrollView
-        style={{ width: '100%', maxWidth: 768 }}
+        style={styles.contentFrame}
         className="flex-1"
         refreshControl={
           <RefreshControl
@@ -804,6 +809,14 @@ export default function ProfileScreen() {
 // --- Styles ---
 
 const styles = StyleSheet.create({
+  screen: {
+    alignItems: 'center',
+  },
+  contentFrame: {
+    width: '100%',
+    maxWidth: 768,
+    flex: 1,
+  },
   profileHeader: {
     marginTop: 0,
     paddingBottom: 20,
