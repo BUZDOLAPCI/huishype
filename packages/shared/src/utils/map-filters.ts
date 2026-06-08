@@ -524,7 +524,10 @@ function formatCompactPrice(value: number | null): string | null {
     return null;
   }
 
-  return formatPropertyPrice(value, 'NL', { compact: true }).replace(/\s+/g, ' ').trim();
+  return formatPropertyPrice(value, 'NL', { compact: true })
+    .replace(/\s+/g, ' ')
+    .replace(/([,.])0(?=\D*$)/, '')
+    .trim();
 }
 
 function summarizePriceBounds(from: number | null, to: number | null): string | null {
