@@ -1,5 +1,5 @@
 import React from 'react';
-import { Defs, Ellipse, LinearGradient, Path, Rect, Stop, Svg, Text as SvgText } from 'react-native-svg';
+import { Circle, Defs, Ellipse, LinearGradient, Path, Rect, Stop, Svg, Text as SvgText } from 'react-native-svg';
 
 const AVATAR_VIEWBOX = 100;
 const AVATAR_MONOGRAM_CENTER = {
@@ -362,5 +362,53 @@ export function DefaultAvatarArt({ seed, initials, size, testID }: DefaultAvatar
       size={size}
       testID={testID}
     />
+  );
+}
+
+export function AnonymousAvatarArt({
+  size,
+  testID,
+}: Pick<DefaultAvatarArtProps, 'size' | 'testID'>) {
+  const headTestID = testID ? `${testID}-head` : undefined;
+  const shouldersTestID = testID ? `${testID}-shoulders` : undefined;
+
+  return (
+    <Svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${AVATAR_VIEWBOX} ${AVATAR_VIEWBOX}`}
+      testID={testID}
+    >
+      <Rect width={AVATAR_VIEWBOX} height={AVATAR_VIEWBOX} fill="#F7F2EA" />
+      <Circle
+        cx={AVATAR_VIEWBOX / 2}
+        cy={AVATAR_VIEWBOX / 2}
+        r={AVATAR_OUTER_RING.radius}
+        fill="none"
+        stroke="#B9AEA1"
+        strokeOpacity={0.34}
+        strokeWidth={AVATAR_OUTER_RING.strokeWidth}
+      />
+      <Circle
+        cx={50}
+        cy={39}
+        r={16}
+        fill="none"
+        stroke="#B9AEA1"
+        strokeWidth={5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        testID={headTestID}
+      />
+      <Path
+        d="M 24 79 C 29 65 39 58 50 58 C 61 58 71 65 76 79"
+        fill="none"
+        stroke="#B9AEA1"
+        strokeWidth={5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        testID={shouldersTestID}
+      />
+    </Svg>
   );
 }

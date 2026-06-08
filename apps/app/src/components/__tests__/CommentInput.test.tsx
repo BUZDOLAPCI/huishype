@@ -16,6 +16,8 @@ describe('src/components/CommentInput', () => {
 
     expect(screen.getByPlaceholderText('Add a comment...')).toBeTruthy();
     expect(input.props.editable).toBe(true);
+    expect(screen.getByTestId('user-avatar-anonymous-art')).toBeTruthy();
+    expect(screen.queryByTestId('user-avatar-art-initials')).toBeNull();
 
     fireEvent.changeText(input, '  Hello after login  ');
     fireEvent.press(screen.getByTestId('comment-send-button'));
@@ -26,17 +28,38 @@ describe('src/components/CommentInput', () => {
 
   it('submits trimmed text for authenticated users and clears the draft', () => {
     const onSubmit = jest.fn();
-    render(<CommentInput isAuthenticated currentUsername="caslan" onSubmit={onSubmit} />);
+    render(
+      <CommentInput
+        isAuthenticated
+        currentUsername="caslan"
+        currentUserProfilePhotoUrl="https://example.test/avatar.jpg"
+        onSubmit={onSubmit}
+      />
+    );
 
     const input = screen.getByTestId('comment-text-input');
 
-    expect(screen.getByTestId('user-avatar')).toBeTruthy();
+    expect(screen.getByTestId('user-avatar').props.source).toEqual({
+      uri: 'https://example.test/avatar.jpg',
+    });
 
     fireEvent.changeText(input, '  Hello world  ');
     fireEvent.press(screen.getByTestId('comment-send-button'));
 
     expect(onSubmit).toHaveBeenCalledWith('Hello world');
     expect(input.props.value).toBe('');
+  });
+
+  it('uses the signed-in display name for fallback avatar initials', () => {
+    render(
+      <CommentInput
+        isAuthenticated
+        currentUsername="clevergracht252"
+        currentUserDisplayName="maestrotest"
+      />
+    );
+
+    expect(screen.getByTestId('user-avatar-art-initials').props.children).toBe('MA');
   });
 
   it('ignores blank drafts even when authenticated', () => {

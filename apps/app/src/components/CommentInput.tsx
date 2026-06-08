@@ -45,6 +45,10 @@ export interface CommentInputProps {
   isAuthenticated?: boolean;
   /** Current user's username (for avatar display). */
   currentUsername?: string;
+  /** Current user's display name (preferred for fallback initials). */
+  currentUserDisplayName?: string;
+  /** Current user's profile photo URL. */
+  currentUserProfilePhotoUrl?: string | null;
   /** Whether a comment submit is currently pending. */
   isSubmitting?: boolean;
   /** Optional placeholder override. */
@@ -66,7 +70,10 @@ export function CommentInput({
   onSubmit,
   replyTo,
   onCancelReply,
+  isAuthenticated = false,
   currentUsername,
+  currentUserDisplayName,
+  currentUserProfilePhotoUrl,
   isSubmitting = false,
   placeholder,
   variant = 'full',
@@ -170,7 +177,13 @@ export function CommentInput({
       {/* Input row */}
       <View style={styles.inputRow}>
         {/* User avatar */}
-        <UserAvatar username={currentUsername ?? 'guest'} size="sm" />
+        <UserAvatar
+          username={currentUsername ?? 'guest'}
+          displayName={currentUserDisplayName}
+          profilePhotoUrl={currentUserProfilePhotoUrl}
+          anonymous={!isAuthenticated}
+          size="sm"
+        />
 
         {/* Text input */}
         <View

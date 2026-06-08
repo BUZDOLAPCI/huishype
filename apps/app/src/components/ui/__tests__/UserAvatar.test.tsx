@@ -110,6 +110,25 @@ describe('UserAvatar', () => {
         />
       );
       expect(getByTestId('user-avatar')).toBeTruthy();
+      expect(getByTestId('user-avatar').props.source).toEqual({
+        uri: 'https://example.com/photo.jpg',
+      });
+    });
+
+    it('renders a neutral anonymous silhouette without initials', () => {
+      const { getByTestId, queryByTestId } = render(
+        <UserAvatar username="guest" anonymous />
+      );
+      const head = getByTestId('user-avatar-anonymous-art-head');
+      const shoulders = getByTestId('user-avatar-anonymous-art-shoulders');
+
+      expect(getByTestId('user-avatar')).toBeTruthy();
+      expect(getByTestId('user-avatar-anonymous-art')).toBeTruthy();
+      expect(head.props.fill).toBe('none');
+      expect(head.props.stroke).toBe('#B9AEA1');
+      expect(shoulders.props.fill).toBe('none');
+      expect(shoulders.props.stroke).toBe('#B9AEA1');
+      expect(queryByTestId('user-avatar-art-initials')).toBeNull();
     });
 
     it('supports custom testID', () => {

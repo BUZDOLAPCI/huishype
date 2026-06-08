@@ -294,7 +294,9 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
           onCancelReply={handleCancelReply}
           isSubmitting={submitMutation.isPending}
           isAuthenticated={isAuthenticated}
-          currentUsername={user?.username}
+          currentUsername={user?.username ?? user?.handle}
+          currentUserDisplayName={user?.displayName}
+          currentUserProfilePhotoUrl={user?.profilePhotoUrl ?? null}
           placeholder={t('comments.placeholder.authenticated')}
         />
       </View>

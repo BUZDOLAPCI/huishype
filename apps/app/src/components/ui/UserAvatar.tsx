@@ -17,6 +17,7 @@ import React from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 
 import {
+  AnonymousAvatarArt,
   DefaultAvatarArt,
   getAvatarColor,
   getAvatarVariantIndex,
@@ -39,6 +40,8 @@ export interface UserAvatarProps {
   displayName?: string;
   /** Profile photo URL. When provided and valid, the image is shown. */
   profilePhotoUrl?: string | null;
+  /** Render a neutral silhouette instead of a generated profile fallback. */
+  anonymous?: boolean;
   /** Size variant. Default 'md'. */
   size?: AvatarSize;
   testID?: string;
@@ -63,6 +66,7 @@ export function UserAvatar({
   username,
   displayName,
   profilePhotoUrl,
+  anonymous = false,
   size = 'md',
   testID,
 }: UserAvatarProps) {
@@ -73,7 +77,7 @@ export function UserAvatar({
   const initials = getAvatarInitials(displayName || username || '?');
   const resolvedTestID = testID ?? 'user-avatar';
 
-  if (profilePhotoUrl) {
+  if (profilePhotoUrl && !anonymous) {
     return (
       <Image
         source={{ uri: profilePhotoUrl }}
@@ -89,6 +93,29 @@ export function UserAvatar({
         testID={resolvedTestID}
         accessibilityLabel={`Avatar for ${displayName || username}`}
       />
+    );
+  }
+
+  if (anonymous) {
+    return (
+      <View
+        style={[
+          styles.fallback,
+          {
+            width: dimension,
+            height: dimension,
+            borderRadius,
+            backgroundColor: '#F7F2EA',
+          },
+        ]}
+        testID={resolvedTestID}
+        accessibilityLabel="Anonymous avatar"
+      >
+        <AnonymousAvatarArt
+          size={dimension}
+          testID={`${resolvedTestID}-anonymous-art`}
+        />
+      </View>
     );
   }
 

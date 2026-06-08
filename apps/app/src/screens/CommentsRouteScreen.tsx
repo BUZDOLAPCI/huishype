@@ -339,7 +339,9 @@ export function CommentsRouteScreen({
                 replyTo={replyTo}
                 onCancelReply={() => setReplyTo(null)}
                 isAuthenticated={isAuthenticated}
-                currentUsername={user?.username}
+                currentUsername={user?.username ?? user?.handle}
+                currentUserDisplayName={user?.displayName}
+                currentUserProfilePhotoUrl={user?.profilePhotoUrl ?? null}
               />
             </View>
           )}

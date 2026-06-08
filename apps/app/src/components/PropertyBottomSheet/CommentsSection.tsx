@@ -304,7 +304,9 @@ export function CommentsSection({
           onCancelReply={handleCancelReply}
           isSubmitting={submitMutation.isPending}
           isAuthenticated={isAuthenticated}
-          currentUsername={user?.username}
+          currentUsername={user?.username ?? user?.handle}
+          currentUserDisplayName={user?.displayName}
+          currentUserProfilePhotoUrl={user?.profilePhotoUrl ?? null}
           variant="compact"
           placeholder={t('comments.placeholder.authenticated')}
         />
