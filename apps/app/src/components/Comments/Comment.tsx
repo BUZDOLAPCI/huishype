@@ -19,11 +19,13 @@ export interface CommentUser {
 
 export interface CommentData {
   id: string;
+  userId?: string | null;
   content: string;
-  user: CommentUser;
+  user: CommentUser | null;
   likeCount: number;
   isLiked?: boolean;
   createdAt: string;
+  isDeleted?: boolean;
   replies?: CommentData[];
 }
 
@@ -32,6 +34,8 @@ export interface CommentProps {
   onLike: (commentId: string) => void;
   onReply: (commentId: string, username: string) => void;
   onReport?: (commentId: string) => void;
+  onDelete?: (commentId: string) => void;
+  currentUserId?: string | null;
   isReply?: boolean;
   isLiked?: boolean;
 }
@@ -68,6 +72,8 @@ export function Comment({
   onLike,
   onReply,
   onReport,
+  onDelete,
+  currentUserId,
   isReply = false,
   isLiked = false,
 }: CommentProps) {
@@ -77,6 +83,9 @@ export function Comment({
   const reducedMotion = useReducedMotion();
   const hydratedNow = useHydratedNow();
   const resolvedIsLiked = isLiked || !!comment.isLiked;
+  const user = comment.user;
+  const isDeleted = comment.isDeleted === true || !user;
+  const canDelete = !!onDelete && !isDeleted && !!currentUserId && currentUserId === comment.userId;
 
   const handleLike = useCallback(() => {
     // Animate the heart (skip when reduced motion is preferred)
@@ -99,18 +108,22 @@ export function Comment({
   }, [comment.id, onLike, scaleAnim, reducedMotion]);
 
   const handleReply = useCallback(() => {
-    onReply(comment.id, comment.user.username);
-  }, [comment.id, comment.user.username, onReply]);
+    if (user) {
+      onReply(comment.id, user.username);
+    }
+  }, [comment.id, onReply, user]);
 
   const handleAuthorPress = useCallback(() => {
-    router.push(`/user/${comment.user.id}`);
-  }, [comment.user.id]);
+    if (user) {
+      router.push(`/user/${user.id}`);
+    }
+  }, [user]);
 
   const handleLongPress = useCallback(() => {
-    if (onReport) {
+    if (!isDeleted && (onReport || canDelete)) {
       setShowActionMenu(true);
     }
-  }, [onReport]);
+  }, [canDelete, isDeleted, onReport]);
 
   const handleReport = useCallback(() => {
     onReport?.(comment.id);
@@ -121,7 +134,41 @@ export function Comment({
     await Clipboard.setStringAsync(comment.content);
   }, [comment.content]);
 
-  const displayName = comment.user.displayName || comment.user.username;
+  const handleDelete = useCallback(() => {
+    onDelete?.(comment.id);
+  }, [comment.id, onDelete]);
+
+  if (isDeleted || !user) {
+    return (
+      <View testID={isReply ? 'comment-reply' : 'comment'}>
+        <View className={`px-3 py-3 ${isReply ? 'ml-10 pl-3 border-l-2 border-warm-200' : ''}`}>
+          <Text className="text-warm-500 italic" testID="deleted-comment-placeholder">
+            {t('comments.deleted')}
+          </Text>
+        </View>
+
+        {!isReply && comment.replies && comment.replies.length > 0 && (
+          <View>
+            {comment.replies.map((reply) => (
+              <Comment
+                key={reply.id}
+                comment={reply}
+                onLike={onLike}
+                onReply={onReply}
+                onReport={onReport}
+                onDelete={onDelete}
+                currentUserId={currentUserId}
+                isReply
+                isLiked={reply.isLiked}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  const displayName = user.displayName || user.username;
 
   return (
     <View testID={isReply ? 'comment-reply' : 'comment'}>
@@ -139,9 +186,9 @@ export function Comment({
             accessibilityLabel={t('comments.openProfile', { name: displayName })}
           >
             <UserAvatar
-              username={comment.user.username}
-              displayName={comment.user.displayName ?? undefined}
-              profilePhotoUrl={comment.user.profilePhotoUrl}
+              username={user.username}
+              displayName={user.displayName ?? undefined}
+              profilePhotoUrl={user.profilePhotoUrl}
               size={isReply ? 'xs' : 'sm'}
             />
           </Pressable>
@@ -156,10 +203,10 @@ export function Comment({
                 <Text className="font-semibold text-warm-900 mr-1.5">
                   {displayName}
                 </Text>
-                <KarmaBadge karma={comment.user.karma} size="sm" />
+                <KarmaBadge karma={user.karma} size="sm" />
               </View>
               <Text className="text-xs text-warm-400 mt-0.5">
-                @{comment.user.username}
+                @{user.username}
               </Text>
             </Pressable>
           </View>
@@ -219,6 +266,7 @@ export function Comment({
           onClose={() => setShowActionMenu(false)}
           onReport={handleReport}
           onCopy={handleCopy}
+          onDelete={canDelete ? handleDelete : undefined}
         />
       </Pressable>
 
@@ -232,6 +280,8 @@ export function Comment({
               onLike={onLike}
               onReply={onReply}
               onReport={onReport}
+              onDelete={onDelete}
+              currentUserId={currentUserId}
               isReply
               isLiked={reply.isLiked}
             />

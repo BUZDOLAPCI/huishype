@@ -24,6 +24,7 @@ export type CommentCellVariant = 'compact' | 'full';
 
 export interface CommentData {
   id: string;
+  userId?: string | null;
   authorId?: string;
   author: string;
   authorDisplayName?: string;
@@ -33,6 +34,7 @@ export interface CommentData {
   likeCount: number;
   isLiked?: boolean;
   createdAt: string;
+  isDeleted?: boolean;
   replies?: CommentData[];
   replyCount?: number;
 }
@@ -51,6 +53,10 @@ export interface CommentCellProps {
   onExpandReplies?: (commentId: string) => void;
   /** Called from the long-press action menu. */
   onReport?: (commentId: string) => void;
+  /** Called from the long-press action menu after delete confirmation. */
+  onDelete?: (commentId: string) => void;
+  /** Current authenticated user id, used for owner-only actions. */
+  currentUserId?: string | null;
   /** Set of comment IDs the current user has liked. Overrides comment.isLiked when provided. */
   likedCommentIds?: Set<string>;
   testID?: string;
@@ -64,6 +70,8 @@ export function CommentCell({
   onReply,
   onExpandReplies,
   onReport,
+  onDelete,
+  currentUserId,
   likedCommentIds,
   testID,
 }: CommentCellProps) {
@@ -73,6 +81,8 @@ export function CommentCell({
   const avatarSize: AvatarSize = isReply ? 'sm' : 'comment';
   const isLiked = likedCommentIds ? likedCommentIds.has(comment.id) : !!comment.isLiked;
   const displayName = comment.authorDisplayName || comment.author;
+  const isDeleted = comment.isDeleted === true;
+  const canDelete = !!onDelete && !isDeleted && !!currentUserId && currentUserId === comment.userId;
 
   const handleToggleReplies = () => {
     if (onExpandReplies) {
@@ -90,7 +100,7 @@ export function CommentCell({
   };
 
   const handleLongPress = () => {
-    if (onReport) {
+    if (!isDeleted && (onReport || canDelete)) {
       setShowActionMenu(true);
     }
   };
@@ -104,8 +114,49 @@ export function CommentCell({
     await Clipboard.setStringAsync(comment.content);
   };
 
+  const handleDelete = () => {
+    onDelete?.(comment.id);
+  };
+
   const hasReplies = comment.replies && comment.replies.length > 0;
   const hiddenReplyCount = comment.replyCount ?? (comment.replies?.length ?? 0);
+
+  if (isDeleted) {
+    return (
+      <View
+        style={[
+          styles.container,
+          styles.deletedContainer,
+          isReply && styles.replyContainer,
+        ]}
+        testID={testID ?? (isReply ? 'comment-reply' : 'comment-cell')}
+      >
+        <View style={styles.threadColumn}>
+          <Text style={styles.deletedText} testID="deleted-comment-placeholder">
+            {t('comments.deleted')}
+          </Text>
+          {variant === 'full' && !isReply && hasReplies && (
+            <View style={styles.deletedReplies}>
+              {comment.replies?.map((reply) => (
+                <CommentCell
+                  key={reply.id}
+                  comment={reply}
+                  variant={variant}
+                  isReply
+                  onLike={onLike}
+                  onReply={onReply}
+                  onReport={onReport}
+                  onDelete={onDelete}
+                  currentUserId={currentUserId}
+                  likedCommentIds={likedCommentIds}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <Pressable
@@ -223,6 +274,7 @@ export function CommentCell({
               onClose={() => setShowActionMenu(false)}
               onReport={handleReport}
               onCopy={handleCopy}
+              onDelete={canDelete ? handleDelete : undefined}
             />
           </View>
         </View>
@@ -260,6 +312,8 @@ export function CommentCell({
                 onLike={onLike}
                 onReply={onReply}
                 onReport={onReport}
+                onDelete={onDelete}
+                currentUserId={currentUserId}
                 likedCommentIds={likedCommentIds}
               />
             ))}
@@ -284,6 +338,18 @@ const styles = StyleSheet.create({
   },
   threadColumn: {
     flex: 1,
+  },
+  deletedContainer: {
+    paddingVertical: 10,
+  },
+  deletedText: {
+    fontSize: 14,
+    color: '#9C958A',
+    fontStyle: 'italic',
+    lineHeight: 20,
+  },
+  deletedReplies: {
+    marginTop: 8,
   },
   contentRow: {
     flex: 1,

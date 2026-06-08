@@ -7,6 +7,7 @@ const mockUseProperty = jest.fn();
 const mockUseComments = jest.fn();
 const mockSubmitMutate = jest.fn();
 const mockLikeMutate = jest.fn();
+const mockDeleteMutate = jest.fn();
 const mockUseAuthContext = jest.fn();
 
 jest.mock('expo-router', () => ({
@@ -48,6 +49,9 @@ jest.mock('@/src/hooks/useComments', () => ({
   }),
   useLikeComment: () => ({
     mutate: mockLikeMutate,
+  }),
+  useDeleteComment: () => ({
+    mutate: mockDeleteMutate,
   }),
 }));
 

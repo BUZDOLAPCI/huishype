@@ -13,11 +13,13 @@ const iconNames = [
   'ArrowLeft', 'ArrowRight', 'ArrowSquareOut', 'Bell', 'BookmarkSimple',
   'Buildings', 'Calendar', 'Camera', 'CaretDown', 'CaretLeft', 'CaretRight',
   'ChartLineUp', 'ChatCircle', 'Check', 'CheckCircle', 'Crown', 'Crosshair',
-  'CurrencyEur', 'DotsThreeVertical', 'Envelope', 'Eye', 'Flame', 'GearSix',
+  'CurrencyEur', 'Copy', 'CopySimple', 'DotsThreeVertical', 'Envelope', 'Eye',
+  'Flag', 'Flame', 'GearSix',
   'Globe', 'Heart', 'HouseLine', 'Info', 'Link', 'List', 'ListBullets',
   'MagnifyingGlass', 'MapPin', 'MapTrifold', 'Medal', 'PaperPlaneTilt',
-  'Plus', 'Ruler', 'ShareNetwork', 'ShieldCheck', 'SignOut', 'Star', 'Tag',
-  'Thermometer', 'TrendDown', 'Trophy', 'User', 'Users', 'WarningCircle', 'X',
+  'PencilSimple', 'Plus', 'Ruler', 'ShareNetwork', 'ShieldCheck', 'SignOut',
+  'Star', 'Tag', 'Thermometer', 'Trash', 'TrendDown', 'TrendUp', 'Trophy',
+  'User', 'UserPlus', 'Users', 'WarningCircle', 'X',
 ];
 
 const mocks = { __esModule: true };

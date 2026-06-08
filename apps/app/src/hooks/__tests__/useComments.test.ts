@@ -5,6 +5,7 @@ import type { PropsWithChildren } from 'react';
 import {
   commentKeys,
   useComments,
+  useDeleteComment,
   useLikeComment,
   useSubmitComment,
   type Comment,
@@ -183,6 +184,94 @@ describe('useSubmitComment', () => {
         predicate: expect.any(Function),
       })
     );
+  });
+});
+
+describe('useDeleteComment', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createQueryClient();
+    mockAuthUser = mockUser;
+    mockAccessToken = 'mock-token';
+    mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it('deletes a comment with auth headers and invalidates all property comment lists', async () => {
+    const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ message: 'Comment deleted' }),
+    });
+
+    const { result } = renderHook(() => useDeleteComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync('comment-1');
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/comments/comment-1',
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer mock-token' },
+      })
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryKey: commentKeys.lists(),
+        predicate: expect.any(Function),
+      })
+    );
+  });
+
+  it('omits auth headers when no access token is available', async () => {
+    mockAccessToken = null;
+    mockAuthUser = null;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ message: 'Comment deleted' }),
+    });
+
+    const { result } = renderHook(() => useDeleteComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync('comment-2');
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/comments/comment-2',
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: {},
+      })
+    );
+  });
+
+  it('throws the API error message when delete fails', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ message: 'You can only delete your own comments.' }),
+    });
+
+    const { result } = renderHook(() => useDeleteComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await expect(result.current.mutateAsync('comment-3')).rejects.toThrow(
+        'You can only delete your own comments.',
+      );
+    });
   });
 });
 

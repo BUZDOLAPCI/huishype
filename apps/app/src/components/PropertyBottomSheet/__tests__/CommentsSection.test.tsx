@@ -7,6 +7,7 @@ const mockUseComments = jest.fn();
 const mockUseAuthContext = jest.fn();
 const mockSubmitMutate = jest.fn();
 const mockLikeMutate = jest.fn();
+const mockDeleteMutate = jest.fn();
 
 jest.mock('../../../hooks/useComments', () => ({
   useComments: (...args: unknown[]) => mockUseComments(...args),
@@ -16,6 +17,9 @@ jest.mock('../../../hooks/useComments', () => ({
   }),
   useLikeComment: () => ({
     mutate: mockLikeMutate,
+  }),
+  useDeleteComment: () => ({
+    mutate: mockDeleteMutate,
   }),
 }));
 
@@ -85,10 +89,14 @@ jest.mock('../../CommentCell', () => ({
     comment,
     onLike,
     onReply,
+    onDelete,
+    currentUserId,
   }: {
     comment: { id: string; content: string };
     onLike: (commentId: string) => void;
     onReply: (commentId: string) => void;
+    onDelete?: (commentId: string) => void;
+    currentUserId?: string | null;
   }) => {
     const React = require('react');
     const { Pressable, Text, View } = require('react-native');
@@ -100,6 +108,10 @@ jest.mock('../../CommentCell', () => ({
         </Pressable>
         <Pressable testID={`comment-reply-${comment.id}`} onPress={() => onReply(comment.id)}>
           <Text>Reply</Text>
+        </Pressable>
+        <Text testID={`comment-current-user-${comment.id}`}>{currentUserId ?? ''}</Text>
+        <Pressable testID={`comment-delete-${comment.id}`} onPress={() => onDelete?.(comment.id)}>
+          <Text>Delete</Text>
         </Pressable>
       </View>
     );
@@ -253,6 +265,42 @@ describe('CommentsSection', () => {
       commentId: 'comment-1',
       isCurrentlyLiked: true,
     });
+  });
+
+  it('passes current user and deletes preview comments through the delete hook', () => {
+    mockUseAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: 'user-comment-1', username: 'viewer' },
+    });
+    mockUseComments.mockReturnValue({
+      data: {
+        pages: [
+          {
+            data: [makeComment('comment-1', 'Owned comment')],
+            meta: { total: 1 },
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      fetchNextPage: jest.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+
+    const screen = render(<CommentsSection property={property} />);
+
+    expect(screen.getByTestId('comment-current-user-comment-1').props.children).toBe(
+      'user-comment-1',
+    );
+
+    fireEvent.press(screen.getByTestId('comment-delete-comment-1'));
+
+    expect(mockDeleteMutate).toHaveBeenCalledWith(
+      'comment-1',
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
   });
 
   it('opens reply mode and submits preview replies with the parent id', async () => {

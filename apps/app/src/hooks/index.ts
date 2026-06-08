@@ -37,6 +37,7 @@ export {
 export {
   useComments,
   useSubmitComment,
+  useDeleteComment,
   useLikeComment,
   checkCommentLiked,
   commentKeys,

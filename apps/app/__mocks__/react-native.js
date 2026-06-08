@@ -116,6 +116,10 @@ const Keyboard = {
   dismiss: jest.fn(),
 };
 
+const Alert = {
+  alert: jest.fn(),
+};
+
 const Platform = {
   OS: 'ios',
   select: (obj) => obj.ios || obj.default,
@@ -177,5 +181,6 @@ module.exports = {
   BackHandler,
   AccessibilityInfo,
   Keyboard,
+  Alert,
   Linking,
 };

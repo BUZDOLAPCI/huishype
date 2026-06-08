@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { Comment, formatRelativeTime } from '../Comment';
@@ -69,6 +70,7 @@ describe('formatRelativeTime', () => {
 describe('Comment', () => {
   const mockComment = {
     id: 'comment-1',
+    userId: 'user-1',
     content: 'This is a test comment',
     user: {
       id: 'user-1',
@@ -242,6 +244,48 @@ describe('Comment', () => {
     expect(queryByText('Translate')).toBeNull();
   });
 
+  it('shows and confirms delete for the current user comment', () => {
+    const onDelete = jest.fn();
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    const { getByTestId } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+        onReport={jest.fn()}
+        onDelete={onDelete}
+        currentUserId="user-1"
+      />
+    );
+
+    fireEvent(getByTestId('comment-long-press-target'), 'longPress');
+    expect(getByTestId('comment-delete-menu-item')).toBeTruthy();
+    fireEvent.press(getByTestId('comment-delete-menu-item'));
+
+    const buttons = alertSpy.mock.calls[0][2] as Array<{ text: string; onPress?: () => void }>;
+    buttons.find((button) => button.text === 'Delete')?.onPress?.();
+
+    expect(onDelete).toHaveBeenCalledWith('comment-1');
+    alertSpy.mockRestore();
+  });
+
+  it('does not show delete for another user comment', () => {
+    const { getByTestId, queryByTestId } = render(
+      <Comment
+        comment={mockComment}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+        onReport={jest.fn()}
+        onDelete={jest.fn()}
+        currentUserId="user-2"
+      />
+    );
+
+    fireEvent(getByTestId('comment-long-press-target'), 'longPress');
+
+    expect(queryByTestId('comment-delete-menu-item')).toBeNull();
+  });
+
   it('reports from the long-press menu and closes the menu', () => {
     const onReport = jest.fn();
     const { getByTestId, queryByTestId } = render(
@@ -308,6 +352,49 @@ describe('Comment', () => {
     );
 
     expect(queryByText('Report')).toBeNull();
+  });
+
+  it('renders deleted comments as tombstones with visible replies and no parent actions', () => {
+    const { getByText, queryByText, queryByTestId, getAllByTestId } = render(
+      <Comment
+        comment={{
+          ...mockComment,
+          userId: null,
+          user: null,
+          isDeleted: true,
+          content: '',
+          likeCount: 0,
+          replies: [
+            {
+              id: 'reply-1',
+              userId: 'user-2',
+              content: 'This is a reply',
+              user: {
+                id: 'user-2',
+                username: 'replyuser',
+                displayName: 'Reply User',
+                profilePhotoUrl: null,
+                karma: 25,
+              },
+              likeCount: 5,
+              createdAt: new Date().toISOString(),
+              replies: [],
+            },
+          ],
+        }}
+        onLike={mockOnLike}
+        onReply={mockOnReply}
+        onReport={jest.fn()}
+        onDelete={jest.fn()}
+        currentUserId="user-1"
+      />
+    );
+
+    expect(getByText('Deleted comment')).toBeTruthy();
+    expect(queryByText('Test User')).toBeNull();
+    expect(getByText('This is a reply')).toBeTruthy();
+    expect(getAllByTestId('like-button')).toHaveLength(1);
+    expect(queryByTestId('comment-action-menu')).toBeNull();
   });
 
   it('navigates to the author profile when the avatar is pressed', () => {

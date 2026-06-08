@@ -10,7 +10,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Comment, type CommentData } from './Comment';
 import { CommentInput } from './CommentInput';
-import { useComments, useSubmitComment, useLikeComment, type CommentSortBy } from '../../hooks/useComments';
+import {
+  useComments,
+  useSubmitComment,
+  useLikeComment,
+  useDeleteComment,
+  type CommentSortBy,
+} from '../../hooks/useComments';
 import { useAuthContext } from '../../providers/AuthProvider';
 import { useT } from '../../i18n';
 
@@ -45,6 +51,7 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
 
   const submitMutation = useSubmitComment(propertyId);
   const likeMutation = useLikeComment(propertyId);
+  const deleteMutation = useDeleteComment(propertyId);
 
   // Flatten all pages of comments
   const comments = useMemo(() => {
@@ -85,6 +92,13 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
       setReplyTo({ id: commentId, username });
     },
     [isAuthenticated, onAuthRequired]
+  );
+
+  const handleDelete = useCallback(
+    (commentId: string) => {
+      deleteMutation.mutate(commentId);
+    },
+    [deleteMutation],
   );
 
   // Handle cancel reply
@@ -132,10 +146,12 @@ export function CommentsList({ propertyId, onAuthRequired }: CommentsListProps) 
         comment={item}
         onLike={handleLike}
         onReply={handleReply}
+        onDelete={handleDelete}
+        currentUserId={user?.id ?? null}
         isLiked={item.isLiked}
       />
     ),
-    [handleLike, handleReply]
+    [handleDelete, handleLike, handleReply, user?.id]
   );
 
   // Render separator

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
-import { propertyTilePyramidSourceWatermarks } from '../../db/schema.js';
+import { comments, propertyTilePyramidSourceWatermarks } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { createIntegrationProperty, createIntegrationUser } from './helpers/fixtures.js';
 
@@ -17,6 +17,7 @@ describe('Comment routes', () => {
   let userId: string;
   let accessToken: string;
   let likerAccessToken: string;
+  let nonOwnerAccessToken: string;
   let propertyId: string;
   const createdCommentIds: string[] = [];
   const testUserIds: string[] = [];
@@ -32,6 +33,19 @@ describe('Comment routes', () => {
     };
   }
 
+  async function createComment(content: string, token = accessToken, parentId?: string) {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/properties/${propertyId}/comments`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: parentId ? { content, parentId } : { content },
+    });
+    expect(response.statusCode).toBe(201);
+    const body = JSON.parse(response.body);
+    createdCommentIds.push(body.id);
+    return body as { id: string; content: string; parentId: string | null };
+  }
+
   beforeAll(async () => {
     app = await buildApp({ logger: false });
 
@@ -43,6 +57,10 @@ describe('Comment routes', () => {
     const liker = await createIntegrationUser(app, { label: 'comments-liker' });
     likerAccessToken = liker.accessToken;
     testUserIds.push(liker.userId);
+
+    const nonOwner = await createIntegrationUser(app, { label: 'comments-non-owner' });
+    nonOwnerAccessToken = nonOwner.accessToken;
+    testUserIds.push(nonOwner.userId);
 
     const property = await createIntegrationProperty({
       street: 'Comments Fixture Street',
@@ -68,7 +86,10 @@ describe('Comment routes', () => {
     if (testUserIds.length > 0) {
       await db.execute(sql`
         DELETE FROM users
-        WHERE id IN (${sql.join(testUserIds.map((id) => sql`${id}`), sql`, `)})
+        WHERE id IN (${sql.join(
+          testUserIds.map((id) => sql`${id}`),
+          sql`, `
+        )})
       `);
     }
     await app.close();
@@ -420,6 +441,206 @@ describe('Comment routes', () => {
       expect(viewerParent.isLiked).toBe(true);
       const viewerReply = viewerParent.replies.find((r: { id: string }) => r.id === replyBody.id);
       expect(viewerReply.isLiked).toBe(true);
+    });
+
+    it('returns user-deleted top-level comments with visible replies as tombstone parents', async () => {
+      const parent = await createComment('Parent content must remain stored');
+      const reply = await createComment(
+        'Visible reply under deleted parent',
+        accessToken,
+        parent.id
+      );
+
+      const likeResp = await app.inject({
+        method: 'POST',
+        url: `/comments/${parent.id}/like`,
+        headers: { authorization: `Bearer ${likerAccessToken}` },
+      });
+      expect(likeResp.statusCode).toBe(201);
+
+      const deleteResp = await app.inject({
+        method: 'DELETE',
+        url: `/comments/${parent.id}`,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(deleteResp.statusCode).toBe(200);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}/comments?limit=50`,
+        headers: { authorization: `Bearer ${likerAccessToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const tombstone = body.data.find((c: { id: string }) => c.id === parent.id);
+      expect(tombstone).toBeDefined();
+      expect(tombstone.content).toBe('');
+      expect(tombstone.userId).toBeNull();
+      expect(tombstone.user).toBeNull();
+      expect(tombstone.isDeleted).toBe(true);
+      expect(tombstone.likeCount).toBe(0);
+      expect(tombstone.isLiked).toBe(false);
+      expect(tombstone.replies).toHaveLength(1);
+      expect(tombstone.replies[0].id).toBe(reply.id);
+      expect(tombstone.replies[0].content).toBe('Visible reply under deleted parent');
+      expect(tombstone.replies[0].isDeleted).toBe(false);
+
+      const [stored] = await db
+        .select({
+          content: comments.content,
+          hiddenAt: comments.hiddenAt,
+          hiddenBy: comments.hiddenBy,
+          moderationReason: comments.moderationReason,
+        })
+        .from(comments)
+        .where(eq(comments.id, parent.id))
+        .limit(1);
+
+      expect(stored.content).toBe('Parent content must remain stored');
+      expect(stored.hiddenAt).toBeInstanceOf(Date);
+      expect(stored.hiddenBy).toBe(userId);
+      expect(stored.moderationReason).toBe('user_deleted');
+    });
+
+    it('omits user-deleted top-level comments without visible replies', async () => {
+      const parent = await createComment('Deleted top-level with no visible replies');
+
+      const deleteResp = await app.inject({
+        method: 'DELETE',
+        url: `/comments/${parent.id}`,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(deleteResp.statusCode).toBe(200);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}/comments?limit=50`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.data.find((c: { id: string }) => c.id === parent.id)).toBeUndefined();
+    });
+
+    it('omits deleted replies instead of returning reply tombstones', async () => {
+      const parent = await createComment('Parent for deleted reply');
+      const reply = await createComment('Reply that will be deleted', accessToken, parent.id);
+
+      const deleteResp = await app.inject({
+        method: 'DELETE',
+        url: `/comments/${reply.id}`,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(deleteResp.statusCode).toBe(200);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}/comments?limit=50`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      const visibleParent = body.data.find((c: { id: string }) => c.id === parent.id);
+      expect(visibleParent).toBeDefined();
+      expect(visibleParent.replies.find((r: { id: string }) => r.id === reply.id)).toBeUndefined();
+    });
+
+    it('does not return admin-hidden top-level comments as tombstones', async () => {
+      const parent = await createComment('Admin-hidden parent');
+      await createComment('Visible reply under admin-hidden parent', accessToken, parent.id);
+
+      await db
+        .update(comments)
+        .set({
+          hiddenAt: new Date(),
+          hiddenBy: userId,
+          moderationReason: 'admin_hidden',
+          updatedAt: new Date(),
+        })
+        .where(eq(comments.id, parent.id));
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/properties/${propertyId}/comments?limit=50`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.data.find((c: { id: string }) => c.id === parent.id)).toBeUndefined();
+    });
+  });
+
+  describe('DELETE /comments/:id', () => {
+    it('should return 401 without auth', async () => {
+      const comment = await createComment('Delete requires auth');
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/comments/${comment.id}`,
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('should return 404 for a missing comment', async () => {
+      const response = await app.inject({
+        method: 'DELETE',
+        url: '/comments/00000000-0000-0000-0000-000000000000',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+
+      expect(response.statusCode).toBe(404);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('NOT_FOUND');
+    });
+
+    it('should return 403 for a non-owner', async () => {
+      const comment = await createComment('Only the owner can delete this');
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/comments/${comment.id}`,
+        headers: { authorization: `Bearer ${nonOwnerAccessToken}` },
+      });
+
+      expect(response.statusCode).toBe(403);
+      const body = JSON.parse(response.body);
+      expect(body.error).toBe('FORBIDDEN');
+    });
+
+    it('should mark an owned comment hidden and advance social state', async () => {
+      const comment = await createComment('Owned comment content survives self-delete');
+      const before = await readPyramidMutationState();
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/comments/${comment.id}`,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.message).toBe('Comment deleted successfully');
+
+      const [stored] = await db
+        .select({
+          content: comments.content,
+          hiddenAt: comments.hiddenAt,
+          hiddenBy: comments.hiddenBy,
+          moderationReason: comments.moderationReason,
+        })
+        .from(comments)
+        .where(eq(comments.id, comment.id))
+        .limit(1);
+
+      expect(stored.content).toBe('Owned comment content survives self-delete');
+      expect(stored.hiddenAt).toBeInstanceOf(Date);
+      expect(stored.hiddenBy).toBe(userId);
+      expect(stored.moderationReason).toBe('user_deleted');
+
+      const after = await readPyramidMutationState();
+      expect(after.socialInputsWatermark > before.socialInputsWatermark).toBe(true);
     });
   });
 });

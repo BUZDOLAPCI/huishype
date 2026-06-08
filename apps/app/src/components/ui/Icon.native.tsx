@@ -54,6 +54,7 @@ import {
   Star,
   Tag,
   Thermometer,
+  Trash,
   TrendDown,
   TrendUp,
   Trophy,
@@ -133,6 +134,7 @@ export type IconName =
   | 'Star'
   | 'Tag'
   | 'Thermometer'
+  | 'Trash'
   | 'TrendDown'
   | 'TrendUp'
   | 'Trophy'
@@ -191,6 +193,7 @@ const ICON_MAP: Record<IconName, ComponentType<any>> = {
   Star,
   Tag,
   Thermometer,
+  Trash,
   TrendDown,
   TrendUp,
   Trophy,

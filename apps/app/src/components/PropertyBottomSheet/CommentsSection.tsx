@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Pressable, Text, View, ActivityIndicator, StyleSheet } from 'react-native';
+import { Alert, Pressable, Text, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SectionProps } from './types';
 import { CommentInput, CommentSortToggle } from '../Comments';
@@ -9,6 +9,7 @@ import {
   useComments,
   useSubmitComment,
   useLikeComment,
+  useDeleteComment,
   type Comment,
   type CommentSortBy,
 } from '../../hooks/useComments';
@@ -77,6 +78,7 @@ export function CommentsSection({
 
   const submitMutation = useSubmitComment(property.id);
   const likeMutation = useLikeComment(property.id);
+  const deleteMutation = useDeleteComment(property.id);
 
   // Flatten pages of comments
   const allComments = useMemo(() => {
@@ -120,7 +122,7 @@ export function CommentsSection({
         return;
       }
       const targetComment = findCommentById(allComments, commentId);
-      if (targetComment) {
+      if (targetComment?.user) {
         setReplyTo({ id: commentId, username: targetComment.user.username });
       }
     },
@@ -175,6 +177,17 @@ export function CommentsSection({
   const handleSortChange = useCallback((newSort: CommentSortBy) => {
     setSortBy(newSort);
   }, []);
+
+  const handleDelete = useCallback(
+    (commentId: string) => {
+      deleteMutation.mutate(commentId, {
+        onError: () => {
+          Alert.alert(t('comments.delete.error'));
+        },
+      });
+    },
+    [deleteMutation, t],
+  );
 
   // Handle view all
   const handleViewAll = useCallback(() => {
@@ -273,6 +286,8 @@ export function CommentsSection({
               onLike={handleLike}
               onReply={handleReply}
               onReport={setReportCommentId}
+              onDelete={handleDelete}
+              currentUserId={user?.id ?? null}
             />
           ))}
 

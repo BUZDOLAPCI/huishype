@@ -171,6 +171,9 @@ jest.mock('../../../hooks/useComments', () => ({
   useLikeComment: () => ({
     mutate: jest.fn(),
   }),
+  useDeleteComment: () => ({
+    mutate: jest.fn(),
+  }),
 }));
 
 // Mock the property like/save hooks (used internally by PropertyContent)

@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { Alert, Text } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { CommentCell, type CommentData } from '../CommentCell';
@@ -7,6 +8,16 @@ import { CommentCell, type CommentData } from '../CommentCell';
 jest.mock('expo-clipboard', () => ({
   setStringAsync: jest.fn(() => Promise.resolve()),
 }));
+
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native');
+  return {
+    ...actual,
+    Alert: {
+      alert: jest.fn(),
+    },
+  };
+});
 
 jest.mock('expo-router', () => ({
   router: {
@@ -16,6 +27,7 @@ jest.mock('expo-router', () => ({
 
 const mockComment: CommentData = {
   id: 'comment-1',
+  userId: 'user-1',
   authorId: 'user-1',
   author: 'MarcoV',
   authorDisplayName: 'Marco V.',
@@ -28,6 +40,7 @@ const mockComment: CommentData = {
   replies: [
     {
       id: 'reply-1',
+      userId: 'user-2',
       authorId: 'user-2',
       author: 'SophieK',
       authorDisplayName: 'Sophie K.',
@@ -111,7 +124,73 @@ describe('CommentCell', () => {
     expect(screen.getByTestId('comment-action-menu')).toBeTruthy();
     expect(screen.getByTestId('comment-report-menu-item')).toBeTruthy();
     expect(screen.getByTestId('comment-copy-menu-item')).toBeTruthy();
+    expect(screen.queryByTestId('comment-delete-menu-item')).toBeNull();
     expect(screen.queryByText('Translate')).toBeNull();
+  });
+
+  it('shows delete between report and copy for the current user comment', () => {
+    render(
+      <CommentCell
+        comment={mockComment}
+        currentUserId="user-1"
+        onReport={jest.fn()}
+        onDelete={jest.fn()}
+      />,
+    );
+
+    fireEvent(screen.getByTestId('comment-cell'), 'longPress');
+
+    const menu = screen.getByTestId('comment-action-menu');
+    expect(screen.getByTestId('comment-report-menu-item')).toBeTruthy();
+    expect(screen.getByTestId('comment-delete-menu-item')).toBeTruthy();
+    expect(screen.getByTestId('comment-copy-menu-item')).toBeTruthy();
+    expect(
+      menu.findAllByType(Text)
+        .map((item: { props: { children: unknown } }) => item.props.children)
+        .filter((label: unknown): label is string =>
+          typeof label === 'string' && ['Report', 'Delete', 'Copy'].includes(label)
+        ),
+    ).toEqual(['Report', 'Delete', 'Copy']);
+  });
+
+  it('does not show delete for another user comment', () => {
+    render(
+      <CommentCell
+        comment={mockComment}
+        currentUserId="user-2"
+        onReport={jest.fn()}
+        onDelete={jest.fn()}
+      />,
+    );
+
+    fireEvent(screen.getByTestId('comment-cell'), 'longPress');
+
+    expect(screen.getByTestId('comment-action-menu')).toBeTruthy();
+    expect(screen.queryByTestId('comment-delete-menu-item')).toBeNull();
+  });
+
+  it('confirms before deleting the current user comment', () => {
+    const onDelete = jest.fn();
+    render(
+      <CommentCell
+        comment={mockComment}
+        currentUserId="user-1"
+        onReport={jest.fn()}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent(screen.getByTestId('comment-cell'), 'longPress');
+    fireEvent.press(screen.getByTestId('comment-delete-menu-item'));
+
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Delete comment?',
+      expect.any(String),
+      expect.any(Array),
+    );
+    const buttons = (Alert.alert as jest.Mock).mock.calls[0][2];
+    buttons[1].onPress();
+    expect(onDelete).toHaveBeenCalledWith('comment-1');
   });
 
   it('reports from the long-press menu and closes the menu', () => {
@@ -154,6 +233,35 @@ describe('CommentCell', () => {
     render(<CommentCell comment={mockComment} onReport={jest.fn()} />);
 
     expect(screen.queryByText('Report')).toBeNull();
+  });
+
+  it('renders a deleted parent as a placeholder without actions and keeps replies visible', () => {
+    render(
+      <CommentCell
+        comment={{
+          ...mockComment,
+          userId: null,
+          authorId: undefined,
+          isDeleted: true,
+          content: '',
+          likeCount: 0,
+        }}
+        currentUserId="user-1"
+        onLike={jest.fn()}
+        onReply={jest.fn()}
+        onDelete={jest.fn()}
+        onReport={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('deleted-comment-placeholder')).toBeTruthy();
+    expect(screen.getByText('Deleted comment')).toBeTruthy();
+    expect(screen.queryByText('Marco V.')).toBeNull();
+    expect(screen.getByText('Sophie K.')).toBeTruthy();
+    expect(screen.queryByTestId('comment-reply-button')).toBeNull();
+    expect(screen.queryByTestId('comment-action-menu')).toBeNull();
+    expect(screen.getByText('Agreed! The garden is a huge plus.')).toBeTruthy();
+    expect(screen.getAllByTestId('comment-like-button')).toHaveLength(1);
   });
 
   it('navigates to the author profile when avatar is pressed', () => {

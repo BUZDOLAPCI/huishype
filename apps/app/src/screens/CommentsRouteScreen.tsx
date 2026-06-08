@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
+  Alert,
   Platform,
   KeyboardAvoidingView,
   StyleSheet,
@@ -25,6 +26,7 @@ import {
   useComments,
   useSubmitComment,
   useLikeComment,
+  useDeleteComment,
   type Comment,
   type CommentSortBy,
 } from '@/src/hooks/useComments';
@@ -99,6 +101,7 @@ export function CommentsRouteScreen({
 
   const submitMutation = useSubmitComment(propertyId ?? '');
   const likeMutation = useLikeComment(propertyId ?? '');
+  const deleteMutation = useDeleteComment(propertyId ?? '');
 
   const allComments = useMemo(() => {
     if (!commentsData?.pages) return [];
@@ -137,7 +140,7 @@ export function CommentsRouteScreen({
         return;
       }
       const comment = findCommentById(allComments, commentId);
-      if (comment) {
+      if (comment?.user) {
         setReplyTo({ id: commentId, username: comment.user.username });
       }
     },
@@ -164,6 +167,17 @@ export function CommentsRouteScreen({
       fetchNextPage();
     }
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+
+  const handleDelete = useCallback(
+    (commentId: string) => {
+      deleteMutation.mutate(commentId, {
+        onError: () => {
+          Alert.alert(t('comments.delete.error'));
+        },
+      });
+    },
+    [deleteMutation, t],
+  );
 
   const propertyImageSource = property ? toPropertyImageSource(property) : null;
   const propertyImage = propertyImageSource
@@ -311,6 +325,8 @@ export function CommentsRouteScreen({
                   onLike={handleLike}
                   onReply={handleReply}
                   onReport={setReportCommentId}
+                  onDelete={handleDelete}
+                  currentUserId={user?.id ?? null}
                 />
               )}
               contentContainerStyle={[

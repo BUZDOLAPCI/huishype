@@ -24,14 +24,15 @@ export interface CommentUser {
 export interface Comment {
   id: string;
   propertyId: string;
-  userId: string;
+  userId: string | null;
   parentId: string | null;
   content: string;
   createdAt: string;
   updatedAt: string;
-  user: CommentUser;
+  user: CommentUser | null;
   likeCount: number;
   isLiked: boolean;
+  isDeleted?: boolean;
   replies?: Comment[];
 }
 
@@ -234,6 +235,39 @@ export function useSubmitComment(propertyId: string) {
     },
     onSuccess: () => {
       // Invalidate all comment queries for this property to refetch
+      queryClient.invalidateQueries(getCommentQueryFilter(propertyId));
+    },
+  });
+}
+
+/**
+ * Hook to delete the current user's own comment.
+ */
+export function useDeleteComment(propertyId: string) {
+  const queryClient = useQueryClient();
+  const { accessToken } = useAuthContext();
+
+  return useMutation({
+    mutationFn: async (commentId: string) => {
+      const headers: Record<string, string> = {};
+
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
+      const response = await fetch(`${API_URL}/comments/${commentId}`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Failed to delete comment' }));
+        throw new Error(error.message || `HTTP error! status: ${response.status}`);
+      }
+
+      return response.json().catch(() => ({}));
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries(getCommentQueryFilter(propertyId));
     },
   });
