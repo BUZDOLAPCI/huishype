@@ -734,10 +734,11 @@ describe('MapScreen native grouped Following mode', () => {
       pitch: expect.any(Number),
       duration: 800,
     });
+    expect(screen.getByTestId('current-location-dot')).toBeTruthy();
   });
 
   it('fits native search current location to the token radius bounds', async () => {
-    await renderMapScreen();
+    const screen = await renderMapScreen();
 
     mockGetCurrentLocation.mockResolvedValue({
       longitude: 5.1214,
@@ -787,6 +788,7 @@ describe('MapScreen native grouped Following mode', () => {
       }
     );
     expect(mockCameraFlyTo).not.toHaveBeenCalled();
+    expect(screen.getByTestId('current-location-dot')).toBeTruthy();
   });
 
   it('zooms native center-only street area selections to street scale from a close view', async () => {

@@ -133,6 +133,9 @@ const HOUSE_NUMBER_LAYER_ID = 'housenumber';
 const SELECTED_MARKER_CONTAINER_SIZE_PX = 24;
 const SELECTED_MARKER_PULSE_SIZE_PX = 32;
 const SELECTED_MARKER_DOT_SIZE_PX = 18;
+const CURRENT_LOCATION_MARKER_SIZE_PX = 34;
+const CURRENT_LOCATION_RING_SIZE_PX = 18;
+const CURRENT_LOCATION_DOT_SIZE_PX = 12;
 const STATIC_ACTIVITY_PULSE_LAYER_IDS = [
   'property-cluster-pulse',
   'active-node-pulse',
@@ -672,6 +675,37 @@ if (typeof document !== 'undefined') {
       border: 3px solid #FFFFFF;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
     }
+    .current-location-dot-container {
+      position: absolute;
+      width: ${CURRENT_LOCATION_MARKER_SIZE_PX}px;
+      height: ${CURRENT_LOCATION_MARKER_SIZE_PX}px;
+      pointer-events: none;
+    }
+    .current-location-dot-halo,
+    .current-location-dot-ring,
+    .current-location-dot-core {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+    }
+    .current-location-dot-halo {
+      width: ${CURRENT_LOCATION_MARKER_SIZE_PX}px;
+      height: ${CURRENT_LOCATION_MARKER_SIZE_PX}px;
+      background-color: rgba(66, 133, 244, 0.2);
+    }
+    .current-location-dot-ring {
+      width: ${CURRENT_LOCATION_RING_SIZE_PX}px;
+      height: ${CURRENT_LOCATION_RING_SIZE_PX}px;
+      background-color: #FFFFFF;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.22);
+    }
+    .current-location-dot-core {
+      width: ${CURRENT_LOCATION_DOT_SIZE_PX}px;
+      height: ${CURRENT_LOCATION_DOT_SIZE_PX}px;
+      background-color: #1A73E8;
+    }
     .map-node-activity-pulse-overlay {
       position: absolute;
       inset: 0;
@@ -870,6 +904,27 @@ function createSelectedMarkerElement(): HTMLDivElement {
   dot.className = 'selected-marker-dot';
 
   container.appendChild(pulse);
+  container.appendChild(dot);
+
+  return container;
+}
+
+function createCurrentLocationMarkerElement(): HTMLDivElement {
+  const container = document.createElement('div');
+  container.className = 'current-location-dot-container';
+  container.setAttribute('data-testid', 'current-location-dot');
+
+  const halo = document.createElement('div');
+  halo.className = 'current-location-dot-halo';
+
+  const ring = document.createElement('div');
+  ring.className = 'current-location-dot-ring';
+
+  const dot = document.createElement('div');
+  dot.className = 'current-location-dot-core';
+
+  container.appendChild(halo);
+  container.appendChild(ring);
   container.appendChild(dot);
 
   return container;
@@ -1088,8 +1143,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const currentLocationMarkerRef = useRef<maplibregl.Marker | null>(null);
   const lastSettledAmbientBubbleZoomRef = useRef<number | null>(null);
   const [visibleZoom, setVisibleZoom] = useState(initialMapCamera.zoom);
+  const [currentLocationCoordinate, setCurrentLocationCoordinate] = useState<[number, number] | null>(
+    null
+  );
   const [searchResetToken, setSearchResetToken] = useState(0);
   const [routePathname, setRoutePathname] = useState(initialRoutePathname);
   const routeState = useResolvedMapRoute(routePathname);
@@ -1703,6 +1762,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const flyToCurrentLocation = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
+      setCurrentLocationCoordinate([longitude, latitude]);
       const targetZoom = Math.max(currentZoomRef.current, 16);
       mapRef.current?.flyTo({
         center: [longitude, latitude],
@@ -2984,6 +3044,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const handleSearchCurrentLocation = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
+      setCurrentLocationCoordinate([longitude, latitude]);
       const currentAreas = filterController.appliedFilters.areas ?? [];
       const existingCurrentLocation = (filterController.appliedFilters.areas ?? []).find(
         (area) => area.type === 'current-location',
@@ -3707,6 +3768,35 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       map.off('idle', syncReadFeatureStates);
     };
   }, [activeReadPropertyTiles, appliedFilterSignature, mapLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (currentLocationMarkerRef.current) {
+      currentLocationMarkerRef.current.remove();
+      currentLocationMarkerRef.current = null;
+    }
+
+    if (currentLocationCoordinate) {
+      const markerElement = createCurrentLocationMarkerElement();
+      const marker = new maplibregl.Marker({
+        element: markerElement,
+        anchor: 'center',
+      })
+        .setLngLat(currentLocationCoordinate)
+        .addTo(map);
+
+      currentLocationMarkerRef.current = marker;
+    }
+
+    return () => {
+      if (currentLocationMarkerRef.current) {
+        currentLocationMarkerRef.current.remove();
+        currentLocationMarkerRef.current = null;
+      }
+    };
+  }, [currentLocationCoordinate, mapLoaded]);
 
   // Manage selected marker with pulsing animation
   useEffect(() => {

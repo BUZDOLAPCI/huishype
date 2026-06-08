@@ -13,7 +13,6 @@ import {
   Map,
   Camera,
   Marker,
-  UserLocation,
   LogManager,
   NetworkManager,
   type CameraRef,
@@ -331,7 +330,9 @@ export default function MapScreen() {
   const mapRef = useRef<MapRef>(null);
   const cameraRef = useRef<CameraRef>(null);
   const [currentZoom, setCurrentZoom] = useState(DEFAULT_ZOOM);
-  const [showUserLocation, setShowUserLocation] = useState(false);
+  const [currentLocationCoordinate, setCurrentLocationCoordinate] = useState<[number, number] | null>(
+    null
+  );
   const [followingTileAuthToken, setFollowingTileAuthToken] = useState<string | null>(null);
   const [followingRenderedFeatureCount, setFollowingRenderedFeatureCount] = useState<number | null>(
     null
@@ -1353,7 +1354,7 @@ export default function MapScreen() {
   const handleSearchCurrentLocation = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
-      setShowUserLocation(true);
+      setCurrentLocationCoordinate([longitude, latitude]);
       const currentAreas = filterController.appliedFilters.areas ?? [];
       const existingCurrentLocation = (filterController.appliedFilters.areas ?? []).find(
         (area) => area.type === 'current-location'
@@ -1415,7 +1416,7 @@ export default function MapScreen() {
   const flyToCurrentLocation = useCallback(async () => {
     try {
       const { longitude, latitude } = await getCurrentLocation();
-      setShowUserLocation(true);
+      setCurrentLocationCoordinate([longitude, latitude]);
 
       cameraRef.current?.flyTo({
         center: [longitude, latitude],
@@ -1512,7 +1513,20 @@ export default function MapScreen() {
               }}
             />
 
-            {showUserLocation && <UserLocation heading />}
+            {currentLocationCoordinate && (
+              <Marker lngLat={currentLocationCoordinate} anchor="center">
+                <View
+                  pointerEvents="none"
+                  testID="current-location-dot"
+                  style={styles.currentLocationDotContainer}
+                >
+                  <View style={styles.currentLocationHalo} />
+                  <View style={styles.currentLocationRing}>
+                    <View style={styles.currentLocationCore} />
+                  </View>
+                </View>
+              </Marker>
+            )}
 
             {/* Paper Mario trees come from the server-side style.json as the shared
               paper-trees symbol layer. Both web and native render the tree sprites
@@ -1879,6 +1893,38 @@ const styles = StyleSheet.create({
   nativeAmbientBubbleOverlay: {
     position: 'absolute',
     zIndex: 7,
+  },
+  currentLocationDotContainer: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currentLocationHalo: {
+    position: 'absolute',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(66, 133, 244, 0.2)',
+  },
+  currentLocationRing: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.white,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.18,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  currentLocationCore: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#1A73E8',
   },
   roundControl: {
     width: 44,

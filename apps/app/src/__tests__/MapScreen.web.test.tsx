@@ -69,6 +69,12 @@ type MockMapInstance = {
   trigger: (event: string, payload?: unknown, layerId?: string) => void;
 };
 
+type MockMarkerInstance = {
+  setLngLat: jest.Mock;
+  addTo: jest.Mock;
+  remove: jest.Mock;
+};
+
 let mockAppliedFilters: {
   tag: string;
   salePriceFrom?: number | null;
@@ -622,11 +628,23 @@ jest.mock('maplibre-gl', () => {
 
   const AttributionControl = jest.fn();
   const NavigationControl = jest.fn();
-  const Marker = jest.fn().mockImplementation(() => ({
-    setLngLat: jest.fn().mockReturnThis(),
-    addTo: jest.fn().mockReturnThis(),
-    remove: jest.fn(),
-  }));
+  const Marker = jest.fn().mockImplementation((options?: { element?: HTMLElement }) => {
+    const markerElement = options?.element ?? null;
+    let marker: MockMarkerInstance;
+    marker = {
+      setLngLat: jest.fn(() => marker),
+      addTo: jest.fn((map: MockMapInstance): MockMarkerInstance => {
+        if (markerElement) {
+          map.options.container.appendChild(markerElement);
+        }
+        return marker;
+      }),
+      remove: jest.fn((): void => {
+        markerElement?.remove();
+      }),
+    };
+    return marker;
+  });
 
   return {
     Map,
@@ -638,8 +656,9 @@ jest.mock('maplibre-gl', () => {
 
 import MapScreen from '@/app/(tabs)/index.web';
 
-const { Map: mockMapConstructor } = jest.requireMock('maplibre-gl') as {
+const { Map: mockMapConstructor, Marker: mockMarkerConstructor } = jest.requireMock('maplibre-gl') as {
   Map: jest.Mock;
+  Marker: jest.Mock;
 };
 const { getCurrentLocation: mockGetCurrentLocation } = jest.requireMock('@/src/lib/currentLocation') as {
   getCurrentLocation: jest.Mock;
@@ -1499,6 +1518,13 @@ describe('MapScreen web grouped Following mode', () => {
       duration: 800,
       essential: true,
     });
+    expect(mockMarkerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anchor: 'center',
+        element: expect.any(HTMLElement),
+      }),
+    );
+    expect(container.querySelector('[data-testid="current-location-dot"]')).not.toBeNull();
   });
 
   it('fits web search current location to the token radius bounds', async () => {
@@ -1565,6 +1591,13 @@ describe('MapScreen web grouped Following mode', () => {
     );
     expect(map.flyTo).not.toHaveBeenCalled();
     expect(map.jumpTo).not.toHaveBeenCalled();
+    expect(mockMarkerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anchor: 'center',
+        element: expect.any(HTMLElement),
+      }),
+    );
+    expect(container.querySelector('[data-testid="current-location-dot"]')).not.toBeNull();
   });
 
   it('allows web street area selections to zoom closer than city scale', async () => {
