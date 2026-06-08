@@ -328,7 +328,7 @@ describe('PropertyBottomSheet', () => {
           callback();
         }
         return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout);
+      }) as unknown as typeof setTimeout);
     const ref = React.createRef<PropertyBottomSheetRef>();
 
     renderWithProviders(
