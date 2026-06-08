@@ -71,6 +71,7 @@ const FALLBACK_MIN_PRICE = 50000;
 const ABSOLUTE_MIN_PRICE = 10000;
 const RANGE_BELOW_OFFICIAL_VALUATION = 50000;
 const RANGE_ABOVE_START_PRICE = 400000;
+const ROUGH_START_MAX_MULTIPLIER = 2.25;
 const MINIMUM_RANGE_WIDTH = 50000;
 const DEFAULT_GUESS_START = 350000;
 const PRICE_BUCKET_SIZE = 50000;
@@ -141,9 +142,11 @@ function getCountryDefaultGuessStart(_countryCode?: string): number {
 function resolveSliderRange({
   officialValuation,
   startPrice,
+  startSource,
 }: {
   officialValuation?: number;
   startPrice: number;
+  startSource: PriceGuessSliderStartSource;
 }): PriceGuessSliderRange {
   const validOfficialValuation =
     typeof officialValuation === 'number' &&
@@ -154,7 +157,10 @@ function resolveSliderRange({
   const min = validOfficialValuation
     ? Math.max(ABSOLUTE_MIN_PRICE, validOfficialValuation - RANGE_BELOW_OFFICIAL_VALUATION)
     : FALLBACK_MIN_PRICE;
-  const requestedMax = startPrice + RANGE_ABOVE_START_PRICE;
+  const requestedMax =
+    startSource === 'active_listing_asking_price'
+      ? startPrice + RANGE_ABOVE_START_PRICE
+      : Math.max(startPrice + RANGE_ABOVE_START_PRICE, startPrice * ROUGH_START_MAX_MULTIPLIER);
 
   return {
     min,
@@ -635,10 +641,6 @@ export function PriceGuessSlider({
     officialValuation ??
     countryDefaultGuessStart;
   const [sliderStartPrice, setSliderStartPrice] = useState(resolvedInitialPrice);
-  const sliderRange = useMemo(
-    () => resolveSliderRange({ officialValuation, startPrice: sliderStartPrice }),
-    [officialValuation, sliderStartPrice],
-  );
   const resolvedStartSource = resolveStartSource({
     userGuess,
     initialPrice,
@@ -646,6 +648,15 @@ export function PriceGuessSlider({
     officialValuation,
     askingPrice: resolvedAskingPrice,
   });
+  const sliderRange = useMemo(
+    () =>
+      resolveSliderRange({
+        officialValuation,
+        startPrice: sliderStartPrice,
+        startSource: resolvedStartSource,
+      }),
+    [officialValuation, resolvedStartSource, sliderStartPrice],
+  );
   const resolvedStartConfidence = resolveStartConfidence({
     source: resolvedStartSource,
     initialPriceConfidence,
@@ -746,7 +757,11 @@ export function PriceGuessSlider({
     setGuessedPrice(resolvedInitialPrice);
     setIsNearWOZ(false);
     setHasInteracted(false);
-    const nextRange = resolveSliderRange({ officialValuation, startPrice: resolvedInitialPrice });
+    const nextRange = resolveSliderRange({
+      officialValuation,
+      startPrice: resolvedInitialPrice,
+      startSource: resolvedStartSource,
+    });
     cancelAnimation(thumbPosition);
     cancelAnimation(thumbScale);
     cancelAnimation(thumbPulse);
@@ -1203,7 +1218,11 @@ export function PriceGuessSlider({
     setSliderStartPrice(userGuess);
     setGuessedPrice(userGuess);
     setHasInteracted(false);
-    const nextRange = resolveSliderRange({ officialValuation, startPrice: userGuess });
+    const nextRange = resolveSliderRange({
+      officialValuation,
+      startPrice: userGuess,
+      startSource: 'user_guess',
+    });
     cancelAnimation(thumbPosition);
     thumbPosition.value = withSpring(priceToPosition(userGuess, nextRange), SLIDER_SPRING_CONFIG);
     lastThumbSyncSignature.current = buildThumbSyncSignature(nextRange, officialValuation);
@@ -1251,7 +1270,11 @@ export function PriceGuessSlider({
     lastHapticPrice.current = initialPrice;
     setSliderStartPrice(initialPrice);
     setGuessedPrice(initialPrice);
-    const nextRange = resolveSliderRange({ officialValuation, startPrice: initialPrice });
+    const nextRange = resolveSliderRange({
+      officialValuation,
+      startPrice: initialPrice,
+      startSource: source,
+    });
     cancelAnimation(thumbPosition);
     thumbPosition.value = priceToPosition(initialPrice, nextRange);
     lastThumbSyncSignature.current = buildThumbSyncSignature(nextRange, officialValuation);
@@ -1288,7 +1311,11 @@ export function PriceGuessSlider({
     lastHapticPrice.current = officialValuation;
     setSliderStartPrice(officialValuation);
     setGuessedPrice(officialValuation);
-    const nextRange = resolveSliderRange({ officialValuation, startPrice: officialValuation });
+    const nextRange = resolveSliderRange({
+      officialValuation,
+      startPrice: officialValuation,
+      startSource: 'official_valuation',
+    });
     cancelAnimation(thumbPosition);
     thumbPosition.value = priceToPosition(officialValuation, nextRange);
     lastThumbSyncSignature.current = buildThumbSyncSignature(nextRange, officialValuation);

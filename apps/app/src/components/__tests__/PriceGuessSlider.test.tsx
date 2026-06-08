@@ -556,6 +556,40 @@ describe('PriceGuessSlider', () => {
     expect(screen.queryByText(/825.000/)).toBeNull();
   });
 
+  it('allows rough non-listing luxury starts to reach materially higher guesses', async () => {
+    render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={1100000}
+        initialPriceSource="official_valuation_adjusted"
+      />
+    );
+
+    for (let index = 0; index < 26; index += 1) {
+      fireEvent.press(screen.getByTestId('adjust-plus-50k'));
+    }
+
+    await waitFor(() => {
+      expect(screen.getByTestId('price-display').props.children).toEqual(
+        expect.stringMatching(/2\.400\.000/)
+      );
+    });
+  });
+
+  it('keeps active sale asking-price starts on the tighter listing range', async () => {
+    render(<PriceGuessSlider {...defaultProps} askingPrice={1100000} />);
+
+    for (let index = 0; index < 10; index += 1) {
+      fireEvent.press(screen.getByTestId('adjust-plus-50k'));
+    }
+
+    await waitFor(() => {
+      expect(screen.getByTestId('price-display').props.children).toEqual(
+        expect.stringMatching(/1\.500\.000/)
+      );
+    });
+  });
+
   it('renders slider thumb', () => {
     render(<PriceGuessSlider {...defaultProps} />);
 
