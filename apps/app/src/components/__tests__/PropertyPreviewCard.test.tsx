@@ -118,6 +118,7 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('Like')).toBeTruthy();
     expect(screen.getByText('Comment')).toBeTruthy();
     expect(screen.getByText('Guess')).toBeTruthy();
+    expect(screen.getByTestId('phosphor-ChatCircle')).toBeTruthy();
   });
 
   it('calls onLike when Like button is pressed', () => {

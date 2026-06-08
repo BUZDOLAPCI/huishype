@@ -63,6 +63,7 @@ const CARD_RADIUS = 20;
 const ADDRESS_BASE_FONT_SIZE = 16;
 const ADDRESS_BASE_LINE_HEIGHT = 20;
 const ADDRESS_MIN_FONT_SIZE = 11.5;
+const ACTION_ICON_SIZE = 18;
 const WEB_ARROW_STYLE: WebViewStyle = {
   filter: 'drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.09))',
 };
@@ -369,18 +370,20 @@ export function PropertyPreviewCard({
               e?.stopPropagation?.();
               onLike?.();
             }}
-            style={styles.actionButton}
+            style={[styles.actionButton, styles.likeActionButton]}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-like-button"
             accessibilityRole="button"
             accessibilityLabel={isLiked ? t('property.preview.liked') : t('property.preview.like')}
           >
-            <Icon
-              name="Heart"
-              size={18}
-              weight={isLiked ? 'fill' : 'regular'}
-              color={isLiked ? COLORS.hotRed500 : COLORS.heartPink}
-            />
+            <View style={styles.actionIcon}>
+              <Icon
+                name="Heart"
+                size={ACTION_ICON_SIZE}
+                weight={isLiked ? 'fill' : 'regular'}
+                color={isLiked ? COLORS.hotRed500 : COLORS.heartPink}
+              />
+            </View>
             <Text
               style={[styles.actionLabel, { color: isLiked ? COLORS.hotRed500 : COLORS.heartPink }]}
             >
@@ -393,13 +396,15 @@ export function PropertyPreviewCard({
               e?.stopPropagation?.();
               onComment?.();
             }}
-            style={styles.actionButton}
+            style={[styles.actionButton, styles.commentActionButton]}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-comment-button"
             accessibilityRole="button"
             accessibilityLabel={t('property.preview.comment')}
           >
-            <Icon name="ChatCircle" size={18} color={COLORS.commentGreen} />
+            <View style={styles.actionIcon}>
+              <Icon name="ChatCircle" size={ACTION_ICON_SIZE} color={COLORS.commentGreen} />
+            </View>
             <Text style={[styles.actionLabel, { color: COLORS.commentGreen }]}>
               {t('property.preview.comment')}
             </Text>
@@ -410,13 +415,15 @@ export function PropertyPreviewCard({
               e?.stopPropagation?.();
               onGuess?.();
             }}
-            style={styles.actionButton}
+            style={[styles.actionButton, styles.guessActionButton]}
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             testID="group-preview-guess-button"
             accessibilityRole="button"
             accessibilityLabel={t('property.preview.guess')}
           >
-            <Icon name="Tag" size={18} color={COLORS.guessOlive} />
+            <View style={styles.actionIcon}>
+              <Icon name="Tag" size={ACTION_ICON_SIZE} color={COLORS.guessOlive} />
+            </View>
             <Text style={[styles.actionLabel, { color: COLORS.guessOlive }]}>
               {t('property.preview.guess')}
             </Text>
@@ -657,15 +664,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
     minHeight: 44,
     minWidth: 44,
-    paddingHorizontal: 6,
-    gap: 5,
+    paddingHorizontal: 0,
+    gap: 4,
+    flexShrink: 0,
+  },
+  likeActionButton: {
+    width: 58,
+  },
+  commentActionButton: {
+    width: 88,
+  },
+  guessActionButton: {
+    width: 72,
+  },
+  actionIcon: {
+    width: ACTION_ICON_SIZE,
+    height: ACTION_ICON_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   actionLabel: {
     fontSize: 13,
     fontWeight: '600',
+    flexShrink: 0,
   },
 
   // Arrow
