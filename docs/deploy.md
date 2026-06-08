@@ -137,7 +137,7 @@ ssh root@94.130.105.129 journalctl -u traefik-watchdog.service -n 20 --no-pager
 ssh root@94.130.105.129 systemctl enable --now traefik-watchdog.timer
 ```
 
-**EXPO_PUBLIC_API_URL is build-time**: Baked into the JS bundle during `docker build`. Changing it requires a full redeploy, not just container restart. Coolify may show duplicate env vars (one with a value, one empty) — ensure the empty one doesn't override.
+**EXPO_PUBLIC_API_URL and EXPO_PUBLIC_GA4_MEASUREMENT_ID are build-time**: Baked into the JS bundle during `docker build`. Changing either requires a full redeploy, not just container restart. Coolify may show duplicate env vars (one with a value, one empty) — ensure the empty one doesn't override.
 
 **Hetzner server resize**: Must power off first. Disk upgrades are irreversible.
 ```bash
@@ -163,6 +163,9 @@ Auth:
 - `MAGIC_LINK_BASE_URL` — `https://huishype.nl/auth/callback`
 
 Optional: `CORS_ORIGINS`
+
+Web analytics:
+- `EXPO_PUBLIC_GA4_MEASUREMENT_ID` — optional GA4 web stream ID. If unset, analytics stays disabled and no Google Analytics script is loaded.
 
 Property tile pyramid:
 - `PROPERTY_TILE_PYRAMID_LEASE_SECONDS` — production default `3600`. Full

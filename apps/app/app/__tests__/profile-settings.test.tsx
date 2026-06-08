@@ -4,6 +4,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import ProfileSettingsScreen from '../(tabs)/settings';
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from '@/src/i18n';
+import { ANALYTICS_CONSENT_STORAGE_KEY } from '@/src/lib/analytics';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
 jest.mock('expo-router', () => ({
@@ -137,7 +138,7 @@ describe('ProfileSettingsScreen', () => {
     });
   });
 
-  it('opens the legal submenu, navigates legal rows, and backs to main settings', () => {
+  it('opens the legal submenu, navigates legal rows, and backs to main settings', async () => {
     mockAuthContext(null);
 
     const { getByTestId, getByText, queryByTestId } = renderSettings();
@@ -149,6 +150,8 @@ describe('ProfileSettingsScreen', () => {
     expect(getByText('Privacy Policy')).toBeTruthy();
     expect(getByText('Cookies')).toBeTruthy();
     expect(getByText('Data & privacy choices')).toBeTruthy();
+    expect(getByText('Analytics preferences')).toBeTruthy();
+    expect(getByTestId('settings-analytics-status').props.children).toBe('No choice saved');
     expect(getByText('Sharing permissions')).toBeTruthy();
     expect(getByText('Open source licenses')).toBeTruthy();
     expect(queryByTestId('settings-auth-row')).toBeNull();
@@ -165,11 +168,42 @@ describe('ProfileSettingsScreen', () => {
     fireEvent.press(getByTestId('settings-data-privacy-row'));
     expect(getRouterPush()).toHaveBeenCalledWith('/data-privacy');
 
+    fireEvent.press(getByTestId('settings-analytics-accept'));
+    await waitFor(() => {
+      expect(localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY)).toBe('granted');
+    });
+
     fireEvent.press(getByTestId('settings-sharing-permissions-row'));
     expect(getRouterPush()).toHaveBeenCalledWith('/sharing-permissions');
 
     fireEvent.press(getByTestId('profile-settings-back'));
     expect(getByTestId('settings-auth-row')).toBeTruthy();
+  });
+
+  it('changes analytics preferences from the legal submenu', async () => {
+    mockAuthContext(null);
+
+    const { getByTestId } = renderSettings();
+
+    fireEvent.press(getByTestId('settings-legal-row'));
+
+    await waitFor(() => {
+      expect(getByTestId('settings-analytics-status').props.children).toBe('No choice saved');
+    });
+
+    fireEvent.press(getByTestId('settings-analytics-accept'));
+
+    await waitFor(() => {
+      expect(localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY)).toBe('granted');
+      expect(getByTestId('settings-analytics-status').props.children).toBe('Analytics on');
+    });
+
+    fireEvent.press(getByTestId('settings-analytics-decline'));
+
+    await waitFor(() => {
+      expect(localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY)).toBe('denied');
+      expect(getByTestId('settings-analytics-status').props.children).toBe('Analytics off');
+    });
   });
 
   it('opens open source licenses from legal and backs to the legal submenu', () => {

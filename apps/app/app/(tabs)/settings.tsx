@@ -21,6 +21,11 @@ import {
   openSourceLicenseCredits,
 } from '@/src/content/openSourceLicenses';
 import { useLanguage, useT, type LanguageCode, type TranslationKey } from '@/src/i18n';
+import {
+  getAnalyticsConsent,
+  setAnalyticsConsent,
+  type AnalyticsConsent,
+} from '@/src/lib/analytics';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
 type SettingsView = 'main' | 'legal' | 'open-source-licenses' | 'language';
@@ -37,9 +42,17 @@ export default function ProfileSettingsScreen() {
   const t = useT();
   const [showAuth, setShowAuth] = useState(false);
   const [settingsView, setSettingsView] = useState<SettingsView>('main');
+  const [analyticsConsent, setAnalyticsConsentState] = useState<AnalyticsConsent>('unknown');
   const accountEmail = user?.email?.trim() || null;
   const selectedLanguageLabel = t(
     language === 'nl' ? 'profileSettings.language.dutch' : 'profileSettings.language.english'
+  );
+  const analyticsStatusLabel = t(
+    analyticsConsent === 'granted'
+      ? 'profileSettings.analytics.statusEnabled'
+      : analyticsConsent === 'denied'
+        ? 'profileSettings.analytics.statusDisabled'
+        : 'profileSettings.analytics.statusNotSet'
   );
 
   const versionLabel = useMemo(() => {
@@ -77,6 +90,23 @@ export default function ProfileSettingsScreen() {
     };
   }, [dismissToProfile]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAnalyticsConsent() {
+      const storedConsent = await getAnalyticsConsent();
+      if (!cancelled && storedConsent !== 'unknown') {
+        setAnalyticsConsentState(storedConsent);
+      }
+    }
+
+    void loadAnalyticsConsent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleLogout = useCallback(() => {
     if (Platform.OS === 'web') {
       const shouldSignOut =
@@ -109,6 +139,11 @@ export default function ProfileSettingsScreen() {
 
     setShowAuth(true);
   }, [handleLogout, user]);
+
+  const handleAnalyticsConsentChange = useCallback(async (granted: boolean) => {
+    const nextConsent = await setAnalyticsConsent(granted);
+    setAnalyticsConsentState(nextConsent);
+  }, []);
 
   const navigateToHelp = useCallback(() => {
     router.push('/help');
@@ -267,6 +302,67 @@ export default function ProfileSettingsScreen() {
               <Text style={styles.rowText}>{t('profileSettings.legal.dataPrivacy')}</Text>
               <Icon name="ArrowRight" size={30} color="#6E6A65" />
             </Pressable>
+            <View
+              style={styles.analyticsRow}
+              accessibilityRole="text"
+              accessibilityLabel={`${t('profileSettings.analytics.title')}: ${analyticsStatusLabel}`}
+              testID="settings-analytics-preferences-row"
+            >
+              <View style={styles.analyticsCopy}>
+                <Text style={styles.rowText}>{t('profileSettings.analytics.title')}</Text>
+                <Text style={styles.analyticsStatus} testID="settings-analytics-status">
+                  {analyticsStatusLabel}
+                </Text>
+              </View>
+              <View style={styles.analyticsControls}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: analyticsConsent === 'granted' }}
+                  onPress={() => {
+                    void handleAnalyticsConsentChange(true);
+                  }}
+                  style={[
+                    styles.analyticsControl,
+                    analyticsConsent === 'granted' ? styles.analyticsControlSelected : null,
+                  ]}
+                  testID="settings-analytics-accept"
+                >
+                  <Text
+                    style={[
+                      styles.analyticsControlText,
+                      analyticsConsent === 'granted'
+                        ? styles.analyticsControlTextSelected
+                        : null,
+                    ]}
+                  >
+                    {t('profileSettings.analytics.allow')}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: analyticsConsent === 'denied' }}
+                  onPress={() => {
+                    void handleAnalyticsConsentChange(false);
+                  }}
+                  style={[
+                    styles.analyticsControl,
+                    analyticsConsent === 'denied' ? styles.analyticsControlSelected : null,
+                  ]}
+                  testID="settings-analytics-decline"
+                >
+                  <Text
+                    style={[
+                      styles.analyticsControlText,
+                      analyticsConsent === 'denied'
+                        ? styles.analyticsControlTextSelected
+                        : null,
+                    ]}
+                  >
+                    {t('profileSettings.analytics.decline')}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
             <Pressable
               style={styles.row}
               onPress={() => router.push('/sharing-permissions')}
@@ -472,6 +568,55 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '600',
     color: '#6E6A65',
+  },
+  analyticsRow: {
+    minHeight: 104,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECECEC',
+    paddingHorizontal: 26,
+    paddingVertical: 14,
+    gap: 16,
+  },
+  analyticsCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  analyticsStatus: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '600',
+    color: '#6E6A65',
+  },
+  analyticsControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 8,
+  },
+  analyticsControl: {
+    minHeight: 40,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D9D4CC',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  analyticsControlSelected: {
+    borderColor: '#005E4F',
+    backgroundColor: '#005E4F',
+  },
+  analyticsControlText: {
+    color: '#003C32',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  analyticsControlTextSelected: {
+    color: '#FFFFFF',
   },
   accountRow: {
     minHeight: 96,

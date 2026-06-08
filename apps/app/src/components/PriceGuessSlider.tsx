@@ -21,6 +21,7 @@ import {
 } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
+import { trackAnalyticsEvent } from '@/src/lib/analytics';
 
 export type PriceGuessSliderVariant = 'compact' | 'full' | 'embedded';
 export type PriceGuessSliderStartSource =
@@ -42,17 +43,6 @@ export type PriceGuessSliderStartConfidence =
 type PriceGuessSliderAnalyticsEventName =
   | 'price_guess_slider_shown'
   | 'price_guess_slider_submitted';
-
-interface PriceGuessSliderAnalyticsEvent {
-  name: PriceGuessSliderAnalyticsEventName;
-  properties: Record<string, unknown>;
-  timestamp: string;
-}
-
-interface AnalyticsGlobal {
-  __HUISHYPE_ANALYTICS_EVENTS__?: PriceGuessSliderAnalyticsEvent[];
-  __HUISHYPE_ANALYTICS_LISTENER__?: (event: PriceGuessSliderAnalyticsEvent) => void;
-}
 
 export interface PriceGuessSliderProps {
   propertyId: string;
@@ -312,30 +302,7 @@ function emitPriceGuessSliderAnalyticsEvent(
   name: PriceGuessSliderAnalyticsEventName,
   properties: Record<string, unknown>,
 ): void {
-  const event: PriceGuessSliderAnalyticsEvent = {
-    name,
-    properties,
-    timestamp: new Date().toISOString(),
-  };
-  const analyticsGlobal = globalThis as typeof globalThis &
-    AnalyticsGlobal & {
-      dispatchEvent?: (event: Event) => boolean;
-      CustomEvent?: typeof CustomEvent;
-    };
-
-  analyticsGlobal.__HUISHYPE_ANALYTICS_LISTENER__?.(event);
-  analyticsGlobal.__HUISHYPE_ANALYTICS_EVENTS__?.push(event);
-
-  if (
-    typeof analyticsGlobal.dispatchEvent === 'function' &&
-    typeof analyticsGlobal.CustomEvent === 'function'
-  ) {
-    analyticsGlobal.dispatchEvent(
-      new analyticsGlobal.CustomEvent('huishype:analytics', {
-        detail: event,
-      }),
-    );
-  }
+  trackAnalyticsEvent(name, properties);
 }
 
 function resolveStartSource({

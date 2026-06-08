@@ -14,6 +14,17 @@ pnpm -C apps/app ios
 - `pnpm -C apps/app android` builds and runs the generated Android app.
 - `pnpm -C apps/app ios` builds and runs the generated iOS app.
 
+## Local Environment
+
+Expo public env vars are read at bundle time. Put local web/app values in `apps/app/.env`
+and restart Expo after changing them:
+
+```bash
+EXPO_PUBLIC_API_URL=http://localhost:3100
+EXPO_PUBLIC_GOOGLE_CLIENT_ID=91432986388-5qlnvk7ab5kncff4j9prms4qnec10tiq.apps.googleusercontent.com
+EXPO_PUBLIC_GA4_MEASUREMENT_ID= # optional GA4 web stream ID; unset disables Google Analytics
+```
+
 ## When To Regenerate Native Projects
 
 Run a clean prebuild when:

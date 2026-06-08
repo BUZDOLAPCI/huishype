@@ -17,6 +17,7 @@ import { feedKeys } from './useFeed';
 import { leaderboardKeys } from './useLeaderboard';
 import { getViewerCacheKey, propertyKeys } from './useProperties';
 import { userActivityKeys } from './useUserActivity';
+import { trackAnalyticsEvent } from '../lib/analytics';
 import type {
   PublicUserProfile as PublicProfile,
   MyUserProfile as MyProfile,
@@ -101,39 +102,11 @@ export interface SocialFollowAnalyticsEvent {
   timestamp: string;
 }
 
-interface AnalyticsGlobal {
-  __HUISHYPE_ANALYTICS_EVENTS__?: SocialFollowAnalyticsEvent[];
-  __HUISHYPE_ANALYTICS_LISTENER__?: (event: SocialFollowAnalyticsEvent) => void;
-}
-
 export function emitSocialFollowAnalyticsEvent(
   name: SocialFollowAnalyticsEventName,
   properties: Record<string, unknown> = {}
 ) {
-  const event: SocialFollowAnalyticsEvent = {
-    name,
-    properties,
-    timestamp: new Date().toISOString(),
-  };
-  const analyticsGlobal = globalThis as typeof globalThis &
-    AnalyticsGlobal & {
-      dispatchEvent?: (event: Event) => boolean;
-      CustomEvent?: typeof CustomEvent;
-    };
-
-  analyticsGlobal.__HUISHYPE_ANALYTICS_LISTENER__?.(event);
-  analyticsGlobal.__HUISHYPE_ANALYTICS_EVENTS__?.push(event);
-
-  if (
-    typeof analyticsGlobal.dispatchEvent === 'function' &&
-    typeof analyticsGlobal.CustomEvent === 'function'
-  ) {
-    analyticsGlobal.dispatchEvent(
-      new analyticsGlobal.CustomEvent('huishype:analytics', {
-        detail: event,
-      })
-    );
-  }
+  trackAnalyticsEvent(name, properties);
 }
 
 const FOLLOW_LIST_PAGE_SIZE = 20;

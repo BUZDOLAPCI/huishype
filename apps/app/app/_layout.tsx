@@ -30,6 +30,8 @@ import { AuthProvider } from '@/src/providers/AuthProvider';
 import { DeepLinkRouteSync } from '@/src/providers/DeepLinkRouteSync';
 import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
 import { LanguageProvider } from '@/src/i18n';
+import { AnalyticsRouteTracker } from '@/src/components/AnalyticsRouteTracker';
+import { WebAnalyticsConsentPrompt } from '@/src/components/WebAnalyticsConsentPrompt';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -86,6 +88,7 @@ function RootLayoutNav() {
             <WebDismissibleLayerProvider>
               <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
                 <DeepLinkRouteSync />
+                <AnalyticsRouteTracker />
                 <Stack>
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                   <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
@@ -93,6 +96,7 @@ function RootLayoutNav() {
                   <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
                   <Stack.Screen name="notifications" options={{ headerShown: false }} />
                 </Stack>
+                <WebAnalyticsConsentPrompt />
               </ThemeProvider>
             </WebDismissibleLayerProvider>
           </LanguageProvider>
