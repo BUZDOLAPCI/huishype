@@ -29,6 +29,10 @@ import {
   getOfficialValuationDisplayState,
   type OfficialValuationSourceFetchHint,
 } from '@/src/lib/officialValuationDisplay';
+import {
+  getCrowdEstimateValue,
+  type CrowdEstimateInput,
+} from '@/src/lib/crowdEstimateDisplay';
 
 // ─── Warm palette constants ──────────────────────────────────────────────
 
@@ -79,7 +83,7 @@ export interface PropertyPreviewData {
   officialValuationSourceFetch?: OfficialValuationSourceFetchHint | null;
   officialValuationHydrationHidden?: boolean | null;
   askingPrice?: number | null;
-  fmv?: number | null;
+  fmv?: CrowdEstimateInput;
   activityLevel?: 'hot' | 'warm' | 'cold';
   marketState?: ListingMarketState | null;
   activityScore?: number;
@@ -215,8 +219,9 @@ type PreviewDisplayPrice =
   | { state: 'loading'; label: string };
 
 function getDisplayPrice(property: PropertyPreviewData): PreviewDisplayPrice | null {
-  if (property.fmv != null) {
-    return { state: 'ready', price: property.fmv, label: 'Crowd FMV' };
+  const crowdEstimate = getCrowdEstimateValue(property.fmv, property.guessCount);
+  if (crowdEstimate != null) {
+    return { state: 'ready', price: crowdEstimate, label: 'Crowd FMV' };
   }
 
   if (property.askingPrice != null) {

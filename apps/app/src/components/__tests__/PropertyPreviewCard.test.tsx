@@ -224,6 +224,21 @@ describe('PropertyPreviewCard', () => {
     expect(screen.getByText('Crowd FMV')).toBeTruthy();
   });
 
+  it('does not display WOZ-only FMV fallback as crowd FMV', () => {
+    const propertyWithWozFallbackFmv: PropertyPreviewData = {
+      ...mockProperty,
+      officialValuation: 12952000,
+      officialValuationYear: 2025,
+      fmv: 12952000,
+      guessCount: 0,
+    };
+    render(<PropertyPreviewCard property={propertyWithWozFallbackFmv} />);
+
+    expect(screen.queryByText('Crowd FMV')).toBeNull();
+    expect(screen.getByText('WOZ Value')).toBeTruthy();
+    expect(screen.getByText(/12\.952\.000/)).toBeTruthy();
+  });
+
   it('prefers FMV over asking price over official valuation', () => {
     const propertyWithAllPrices: PropertyPreviewData = {
       ...mockProperty,

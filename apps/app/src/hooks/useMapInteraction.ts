@@ -29,6 +29,7 @@ import { LARGE_CLUSTER_THRESHOLD } from '@/src/hooks/useClusterPreview';
 import { PREVIEW_CARD_VIEWPORT_ANCHOR, type ViewportAnchor } from '@/src/lib/mapCameraAnchor';
 import type { ResolvedAddress } from '@/src/services/address-resolver';
 import { derivePropertyAerialImageUrl } from '@/src/utils/property-image';
+import { getCrowdEstimateValue } from '@/src/lib/crowdEstimateDisplay';
 import {
   fetchBatchProperties,
   normalizeRenderedPropertyGroup,
@@ -398,10 +399,9 @@ function mergeHydratedPreviewProperty(
     selectedProperty.officialValuationYear ?? currentProperty.officialValuationYear ?? null;
   const mergedAskingPrice = currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
   const mergedFmv =
-    currentProperty.fmv ??
-    (typeof selectedProperty.fmv === 'number'
-      ? selectedProperty.fmv
-      : (selectedProperty.fmv?.fmv ?? null));
+    getCrowdEstimateValue(currentProperty.fmv, currentProperty.guessCount) ??
+    getCrowdEstimateValue(selectedProperty.fmv, selectedProperty.guessCount) ??
+    null;
   const mergedAerialImageUrl =
     currentProperty.aerialImageUrl ?? selectedProperty.aerialImageUrl ?? nextAerialImageUrl;
   const mergedThumbnailUrl = currentProperty.thumbnailUrl ?? selectedProperty.thumbnailUrl ?? null;
@@ -491,7 +491,7 @@ function convertToGroupProperty(
     officialValuationSourceFetch: p.officialValuationSourceFetch ?? null,
     officialValuationHydrationHidden: p.officialValuationHydrationHidden ?? false,
     askingPrice: p.askingPrice ?? null,
-    fmv: typeof p.fmv === 'number' ? p.fmv : (p.fmv?.fmv ?? null),
+    fmv: getCrowdEstimateValue(p.fmv, p.guessCount) ?? null,
     hasActiveListing: p.hasActiveListing ?? null,
     marketState: p.marketState ?? null,
     socialScore: derivedActivity.socialScore,

@@ -1,11 +1,13 @@
 import { Image, Text, View } from 'react-native';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
+import { getCrowdEstimateValue } from '@/src/lib/crowdEstimateDisplay';
 
 interface PropertyCardProps {
   address: string;
   city: string;
   imageUrl?: string;
   fmv?: number;
+  guessCount?: number;
   askingPrice?: number;
   activityLevel?: 'hot' | 'warm' | 'cold';
   countryCode?: CountryCode;
@@ -16,10 +18,12 @@ export function PropertyCard({
   city,
   imageUrl,
   fmv,
+  guessCount,
   askingPrice,
   activityLevel = 'cold',
   countryCode,
 }: PropertyCardProps) {
+  const crowdEstimate = getCrowdEstimateValue(fmv, guessCount);
   const activityColors = {
     hot: 'bg-red-500',
     warm: 'bg-orange-400',
@@ -50,11 +54,11 @@ export function PropertyCard({
         </View>
         <Text className="text-sm text-warm-500 mb-3">{city}</Text>
         <View className="flex-row justify-between">
-          {fmv !== undefined && (
+          {crowdEstimate !== undefined && (
             <View>
               <Text className="text-xs text-warm-400">Crowd FMV</Text>
               <Text className="text-base font-bold text-primary-600">
-                {formatPropertyPrice(fmv, countryCode)}
+                {formatPropertyPrice(crowdEstimate, countryCode)}
               </Text>
             </View>
           )}

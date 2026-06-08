@@ -20,6 +20,7 @@ import {
   serializeLocationFilterToken,
   type MapFilters,
 } from '../lib/sharedMapFilters';
+import { getCrowdEstimateValue } from '../lib/crowdEstimateDisplay';
 
 export type { FeedTab, PropertyFeedFilter } from '@huishype/shared';
 
@@ -166,7 +167,7 @@ function transformFeedItem(item: FeedApiResponse['items'][0]): FeedProperty {
     coordinates: item.geometry
       ? { lon: item.geometry.coordinates[0], lat: item.geometry.coordinates[1] }
       : null,
-    fmvValue: item.fmv ?? undefined,
+    fmvValue: getCrowdEstimateValue(item.fmv, item.guessCount),
     hasActiveListing: item.hasListing,
     yearBuilt: null, // not returned by feed endpoint
     floorAreaM2: null, // not returned by feed endpoint

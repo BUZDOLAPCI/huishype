@@ -462,7 +462,7 @@ export function GuessesRouteScreen({
             initialPriceSource={initialPriceSource}
             initialPriceConfidence={initialPriceConfidence}
             initialPriceSampleSize={guessData?.priceGuessStart?.sampleSize}
-            currentFMV={guessData?.fmv?.fmv ?? undefined}
+            currentFMV={fmvData?.value ?? undefined}
             userGuess={guessData?.userGuess?.guessedPrice}
             onGuessSubmit={handleGuessSubmit}
             disabled={false}

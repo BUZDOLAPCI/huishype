@@ -99,6 +99,25 @@ describe('PropertyMediaCard', () => {
     expect(screen.getByText('Crowd Estimate')).toBeTruthy();
   });
 
+  it('does not display WOZ-only FMV fallback as a crowd estimate', () => {
+    render(
+      <PropertyMediaCard
+        property={{
+          ...baseProperty,
+          officialValuation: 12952000,
+          officialValuationYear: 2025,
+          askingPrice: null,
+          fmv: 12952000,
+          guessCount: 0,
+        }}
+      />
+    );
+
+    expect(screen.queryByText('Crowd Estimate')).toBeNull();
+    expect(screen.getByText('WOZ Value (2025)')).toBeTruthy();
+    expect(screen.getByTestId('display-price').props.children).toContain('12.952.000');
+  });
+
   it('falls back to asking price when no FMV', () => {
     const noFmv: PropertyMediaData = {
       ...baseProperty,

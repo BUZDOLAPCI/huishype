@@ -7,6 +7,7 @@ import type { SectionProps } from './types';
 import { SectionCard } from './SectionCard';
 import { useT, type TranslationKey } from '../../i18n';
 import { getOfficialValuationDisplayState } from '@/src/lib/officialValuationDisplay';
+import { getCrowdEstimateValue } from '@/src/lib/crowdEstimateDisplay';
 import { SkeletonText } from '../ui/Skeleton';
 
 function formatPrice(price: number, countryCode?: string): string {
@@ -111,9 +112,7 @@ export function PriceSection({ property }: SectionProps) {
     guessCount,
     countryCode,
   } = property;
-  const hasCrowdEstimate =
-    (fmvData?.guessCount ?? 0) > 0 && fmvData?.confidence !== 'none' && !!fmvData?.fmv;
-  const fmv = hasCrowdEstimate ? (fmvData?.fmv ?? undefined) : undefined;
+  const fmv = getCrowdEstimateValue(fmvData);
   const crowdGuessCount = fmvData?.guessCount ?? guessCount;
   const confidenceBadge = getConfidenceBadgeInfo(fmvData?.confidence, crowdGuessCount, t);
   const valuationDisplay = getOfficialValuationDisplayState(property);

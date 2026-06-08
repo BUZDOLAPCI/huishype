@@ -1611,6 +1611,32 @@ describe('useMapInteraction', () => {
       expect(gpp.aerialImageUrl).toBe('https://mock-aerial.com/img.jpg');
     });
 
+    it('does not convert a WOZ-only FMV fallback into preview crowd FMV', () => {
+      const { result } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const gpp = result.current.toGroupProperty({
+        id: 'prop-woz-fallback',
+        address: 'Oirschotsedijk 3',
+        city: 'Eindhoven',
+        officialValuation: 12952000,
+        fmv: {
+          fmv: 12952000,
+          confidence: 'none',
+          guessCount: 0,
+          distribution: null,
+          officialValuation: 12952000,
+          askingPrice: null,
+          divergence: null,
+        },
+        guessCount: 0,
+      });
+
+      expect(gpp.fmv).toBeNull();
+      expect(gpp.guessCount).toBe(0);
+    });
+
     it('prefers imageryGeometry when building a thumbnail', () => {
       const { result } = renderHook(() => useMapInteraction(), {
         wrapper: createWrapper(queryClient),

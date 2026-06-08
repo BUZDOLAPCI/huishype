@@ -33,6 +33,10 @@ import {
   getOfficialValuationDisplayState,
   type OfficialValuationSourceFetchHint,
 } from '@/src/lib/officialValuationDisplay';
+import {
+  getCrowdEstimateValue,
+  type CrowdEstimateInput,
+} from '@/src/lib/crowdEstimateDisplay';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -59,7 +63,9 @@ export interface PropertyMediaData {
   /** Listing asking price. */
   askingPrice?: number | null;
   /** Crowd FMV estimate. */
-  fmv?: number | null;
+  fmv?: CrowdEstimateInput;
+  /** Number of crowd guesses behind the FMV estimate. */
+  guessCount?: number | null;
   /** Activity level badge. */
   activityLevel?: ActivityLevel;
   /** Year the property was built. */
@@ -111,8 +117,9 @@ type MediaDisplayPrice =
   | { state: 'loading'; label: string };
 
 function getDisplayPrice(property: PropertyMediaData): MediaDisplayPrice | null {
-  if (property.fmv) {
-    return { state: 'ready', price: property.fmv, label: 'Crowd Estimate' };
+  const crowdEstimate = getCrowdEstimateValue(property.fmv, property.guessCount);
+  if (crowdEstimate != null) {
+    return { state: 'ready', price: crowdEstimate, label: 'Crowd Estimate' };
   }
   if (property.askingPrice) {
     return { state: 'ready', price: property.askingPrice, label: 'Asking Price' };
@@ -247,6 +254,7 @@ export function PropertyMediaCard({
   const imageHeight = IMAGE_HEIGHTS[variant];
   const activityLevel = property.activityLevel ?? 'cold';
   const displayPrice = getDisplayPrice(property);
+  const crowdEstimate = getCrowdEstimateValue(property.fmv, property.guessCount);
   const valuationDisplay = getOfficialValuationDisplayState(property);
   const valuationLabelYear =
     valuationDisplay.state === 'ready'
@@ -307,7 +315,7 @@ export function PropertyMediaCard({
         {displayPrice && (
           <View style={styles.priceRow}>
             {/* Official valuation on left (full/hero only) */}
-            {variant !== 'compact' && valuationDisplay.state !== 'hidden' && property.fmv && (
+            {variant !== 'compact' && valuationDisplay.state !== 'hidden' && crowdEstimate != null && (
               <View>
                 <Text style={styles.priceLabel}>
                   {formatValuationLabel(
