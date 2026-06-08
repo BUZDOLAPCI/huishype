@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { SectionProps } from './types';
 import { SectionCard } from './SectionCard';
 import { useT, type TranslationKey } from '../../i18n';
+import type { PropertyDetailsData } from './types';
 
 interface DetailRowProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -61,13 +62,25 @@ interface PropertyDetailsProps extends SectionProps {
   onReport?: () => void;
 }
 
+const marketStatusLabelKeys: Record<
+  NonNullable<PropertyDetailsData['marketState']>,
+  TranslationKey
+> = {
+  'for-sale': 'property.marketStatus.forSale',
+  'for-rent': 'property.marketStatus.forRent',
+  sold: 'property.marketStatus.sold',
+  rented: 'property.marketStatus.rented',
+  'not-listed': 'property.marketStatus.notListed',
+};
+
+function getMarketStatusLabelKey(
+  marketState: PropertyDetailsData['marketState']
+): TranslationKey {
+  return marketStatusLabelKeys[marketState ?? 'not-listed'];
+}
+
 export function PropertyDetails({ property, onReport }: PropertyDetailsProps) {
   const t = useT();
-  const statusLabelKeys: Record<string, TranslationKey> = {
-    active: 'property.status.active',
-    inactive: 'property.status.inactive',
-    demolished: 'property.status.demolished',
-  };
 
   return (
     <View style={styles.stack}>
@@ -95,11 +108,7 @@ export function PropertyDetails({ property, onReport }: PropertyDetailsProps) {
           <DetailRow
             icon="checkmark-circle-outline"
             label={t('property.details.status')}
-            value={
-              property.status && statusLabelKeys[property.status]
-                ? t(statusLabelKeys[property.status])
-                : null
-            }
+            value={t(getMarketStatusLabelKey(property.marketState))}
           />
         </View>
       </SectionCard>

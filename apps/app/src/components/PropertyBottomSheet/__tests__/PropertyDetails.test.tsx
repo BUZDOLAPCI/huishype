@@ -18,6 +18,7 @@ const property: PropertyDetailsData = {
   yearBuilt: 1980,
   floorAreaM2: 92,
   status: 'active',
+  marketState: 'for-sale',
   officialValuation: 350000,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
@@ -30,6 +31,25 @@ const property: PropertyDetailsData = {
 };
 
 describe('PropertyDetails reporting affordance', () => {
+  it('shows market status in the Status detail row', () => {
+    const { rerender } = render(<PropertyDetails property={property} />);
+
+    expect(screen.getByText('Status')).toBeTruthy();
+    expect(screen.getByText('For sale')).toBeTruthy();
+    expect(screen.queryByText('Active')).toBeNull();
+
+    rerender(<PropertyDetails property={{ ...property, marketState: 'not-listed' }} />);
+
+    expect(screen.getByText('Not listed')).toBeTruthy();
+  });
+
+  it('falls back to not listed when market status is missing', () => {
+    render(<PropertyDetails property={{ ...property, marketState: null }} />);
+
+    expect(screen.getByText('Status')).toBeTruthy();
+    expect(screen.getByText('Not listed')).toBeTruthy();
+  });
+
   it('places the report button in the Activity area and calls onReport', () => {
     const onReport = jest.fn();
     render(<PropertyDetails property={property} onReport={onReport} />);
