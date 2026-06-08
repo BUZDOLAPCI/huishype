@@ -233,6 +233,25 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const hasInitialUserMarker = await initialUserMarker.first().isVisible().catch(() => false);
     console.log(`User marker hidden before interaction: ${!hasInitialUserMarker}`);
 
+    const exactPriceControl = page.locator('[data-testid="exact-price-control"]').first();
+    await expect(page.locator('[data-testid="exact-price-label"]').first()).toHaveText(
+      'Your guess:'
+    );
+    const exactPriceEditButton = page.locator('[data-testid="exact-price-edit-button"]').first();
+    const exactPriceNormalBox = await exactPriceControl.boundingBox();
+    await exactPriceEditButton.click();
+    await expect(page.locator('[data-testid="exact-price-accept-button"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="exact-price-input"]').first()).toHaveValue(
+      /€\s?\d{1,3}(\.\d{3})+/
+    );
+    const exactPriceEditBox = await exactPriceControl.boundingBox();
+    expect(exactPriceNormalBox).not.toBeNull();
+    expect(exactPriceEditBox).not.toBeNull();
+    expect(
+      Math.abs((exactPriceEditBox?.width ?? 0) - (exactPriceNormalBox?.width ?? 0))
+    ).toBeLessThanOrEqual(2);
+    await page.locator('[data-testid="exact-price-accept-button"]').first().click();
+
     // Check for WOZ/Asking markers in the embedded slider
     if (selection.property.officialValuation) {
       const wozMarker = page.locator('text=WOZ').first();

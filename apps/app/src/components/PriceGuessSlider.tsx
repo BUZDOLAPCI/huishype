@@ -7,6 +7,7 @@ import {
   View,
   LayoutChangeEvent,
   type TextInput as TextInputType,
+  type TextStyle,
 } from 'react-native';
 import { Icon } from './ui/Icon';
 import { SkeletonText } from './ui/Skeleton';
@@ -137,6 +138,14 @@ const EMBEDDED_REFERENCE_LABELS_HEIGHT = 76;
 const EMBEDDED_EDGE_BLEED = 18;
 const EMBEDDED_PERCENTAGE_BUBBLE_WIDTH = 116;
 const EMBEDDED_PERCENTAGE_BUBBLE_CARET_WIDTH = 12;
+const EXACT_PRICE_HORIZONTAL_PADDING = 12;
+const EXACT_PRICE_ICON_SIZE = 24;
+const EXACT_PRICE_ICON_GAP = 8;
+const EXACT_PRICE_VALUE_MIN_WIDTH = 76;
+const EXACT_PRICE_VALUE_MAX_WIDTH = 138;
+const EXACT_PRICE_VALUE_AVERAGE_CHAR_WIDTH = 8.7;
+const WEB_INPUT_OUTLINE_RESET =
+  Platform.OS === 'web' ? ({ outlineStyle: 'none' } as unknown as TextStyle) : null;
 
 interface PriceGuessSliderRange {
   min: number;
@@ -411,6 +420,14 @@ function isNear(pos1: number, pos2: number, threshold = 0.03): boolean {
 function clampNumber(value: number, min: number, max: number): number {
   'worklet';
   return Math.max(min, Math.min(max, value));
+}
+
+function getExactPriceValueWidth(label: string): number {
+  return clampNumber(
+    Math.ceil(label.length * EXACT_PRICE_VALUE_AVERAGE_CHAR_WIDTH),
+    EXACT_PRICE_VALUE_MIN_WIDTH,
+    EXACT_PRICE_VALUE_MAX_WIDTH
+  );
 }
 
 function getAnchoredBoxLeft({
@@ -991,9 +1008,9 @@ export function PriceGuessSlider({
   const handleStartExactPriceEdit = useCallback(() => {
     if (disabled) return;
 
-    setExactPriceDraft(String(guessedPrice));
+    setExactPriceDraft(formatPrice(guessedPrice, countryCode));
     setIsEditingExactPrice(true);
-  }, [disabled, guessedPrice]);
+  }, [countryCode, disabled, guessedPrice]);
 
   const handleCommitExactPriceEdit = useCallback(() => {
     if (!isEditingExactPrice) {
@@ -1004,7 +1021,7 @@ export function PriceGuessSlider({
     setIsEditingExactPrice(false);
 
     if (parsedPrice === null) {
-      setExactPriceDraft(String(guessedPrice));
+      setExactPriceDraft(formatPrice(guessedPrice, countryCode));
       return;
     }
 
@@ -1013,6 +1030,7 @@ export function PriceGuessSlider({
     commitExactPrice(clampedPrice);
   }, [
     commitExactPrice,
+    countryCode,
     exactPriceDraft,
     guessedPrice,
     isEditingExactPrice,
@@ -1485,12 +1503,27 @@ export function PriceGuessSlider({
     ? ASKING_REFERENCE_COLOR
     : START_ANCHOR_CONNECTOR_COLOR;
   const startAnchorConnectorHeight = startAnchorUsesAskingStyle ? 24 : 52;
+  const exactPriceLabel = formatPrice(guessedPrice, countryCode);
+  const exactPriceValueWidth = getExactPriceValueWidth(
+    isEditingExactPrice ? exactPriceDraft : exactPriceLabel
+  );
+  const exactPricePillWidth =
+    EXACT_PRICE_HORIZONTAL_PADDING * 2 +
+    exactPriceValueWidth +
+    EXACT_PRICE_ICON_GAP +
+    EXACT_PRICE_ICON_SIZE;
   const exactPriceControl = (
     <Animated.View
-      className="min-h-[40px] flex-row items-center rounded-full px-3 py-2"
+      testID="exact-price-control"
       style={[
         {
           alignSelf: 'flex-start',
+          minHeight: 40,
+          width: exactPricePillWidth,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderRadius: 999,
           shadowColor: '#2F2A24',
           shadowOpacity: 0.12,
           shadowRadius: 10,
@@ -1501,46 +1534,107 @@ export function PriceGuessSlider({
       ]}
     >
       {isEditingExactPrice ? (
-        <TextInput
-          ref={exactPriceInputRef}
-          testID="exact-price-input"
-          value={exactPriceDraft}
-          onChangeText={setExactPriceDraft}
-          onBlur={handleCommitExactPriceEdit}
-          onSubmitEditing={handleCommitExactPriceEdit}
-          keyboardType="number-pad"
-          returnKeyType="done"
-          autoFocus
-          selectTextOnFocus
-          className="min-w-[104px] p-0 text-right font-display-semibold text-base text-white"
+        <View
           style={{
-            lineHeight: 20,
+            minHeight: 40,
+            width: '100%',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderRadius: 999,
+            paddingHorizontal: EXACT_PRICE_HORIZONTAL_PADDING,
+            paddingVertical: 8,
           }}
-        />
+        >
+          <TextInput
+            ref={exactPriceInputRef}
+            testID="exact-price-input"
+            value={exactPriceDraft}
+            onChangeText={setExactPriceDraft}
+            onBlur={handleCommitExactPriceEdit}
+            onSubmitEditing={handleCommitExactPriceEdit}
+            keyboardType="number-pad"
+            returnKeyType="done"
+            autoFocus
+            selectTextOnFocus
+            className="p-0 font-display-semibold text-base text-white"
+            style={[
+              {
+                width: exactPriceValueWidth,
+                flexShrink: 1,
+                lineHeight: 20,
+                textAlign: 'right',
+                fontVariant: ['tabular-nums'],
+              },
+              WEB_INPUT_OUTLINE_RESET,
+            ]}
+          />
+          <Pressable
+            accessibilityLabel="Accept exact guess price"
+            accessibilityRole="button"
+            disabled={disabled}
+            hitSlop={8}
+            onPress={handleCommitExactPriceEdit}
+            testID="exact-price-accept-button"
+            style={{
+              width: EXACT_PRICE_ICON_SIZE,
+              height: EXACT_PRICE_ICON_SIZE,
+              marginLeft: EXACT_PRICE_ICON_GAP,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 999,
+              backgroundColor: 'rgba(255, 255, 255, 0.18)',
+            }}
+          >
+            <Icon name="Check" size={14} weight="bold" color="#FFFFFF" />
+          </Pressable>
+        </View>
       ) : (
-        <>
+        <Pressable
+          accessibilityLabel="Edit exact guess price"
+          accessibilityRole="button"
+          disabled={disabled}
+          hitSlop={8}
+          onPress={handleStartExactPriceEdit}
+          testID="exact-price-edit-button"
+          style={{
+            minHeight: 40,
+            width: '100%',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderRadius: 999,
+            paddingHorizontal: EXACT_PRICE_HORIZONTAL_PADDING,
+            paddingVertical: 8,
+          }}
+        >
           <Text
             testID="exact-price-display"
             className="font-display-semibold text-base text-white"
             numberOfLines={1}
-          >
-            {formatPrice(guessedPrice, countryCode)}
-          </Text>
-          <Pressable
-            accessibilityLabel="Edit exact guess price"
-            accessibilityRole="button"
-            disabled={disabled}
-            hitSlop={8}
-            onPress={handleStartExactPriceEdit}
-            testID="exact-price-edit-button"
-            className="ml-2 rounded-full p-1"
             style={{
+              width: exactPriceValueWidth,
+              flexShrink: 1,
+              lineHeight: 20,
+              fontVariant: ['tabular-nums'],
+            }}
+          >
+            {exactPriceLabel}
+          </Text>
+          <View
+            style={{
+              width: EXACT_PRICE_ICON_SIZE,
+              height: EXACT_PRICE_ICON_SIZE,
+              marginLeft: EXACT_PRICE_ICON_GAP,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 999,
               backgroundColor: 'rgba(255, 255, 255, 0.18)',
             }}
           >
             <Icon name="PencilSimple" size={14} weight="bold" color="#FFFFFF" />
-          </Pressable>
-        </>
+          </View>
+        </Pressable>
       )}
     </Animated.View>
   );
@@ -1550,7 +1644,28 @@ export function PriceGuessSlider({
       <GestureHandlerRootView key={_propertyId} style={{ overflow: 'visible' }}>
         <View testID={testID} style={{ overflow: 'visible' }}>
           <View className="mb-4" onLayout={handleSliderLayout} style={{ overflow: 'visible' }}>
-            <View className="mb-2 flex-row justify-end">
+            <View
+              testID="exact-price-row"
+              className="mb-2"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <Text
+                testID="exact-price-label"
+                className="flex-shrink font-display-semibold"
+                numberOfLines={1}
+                style={{
+                  fontSize: 18,
+                  lineHeight: 22,
+                  color: '#3D3832',
+                }}
+              >
+                Your guess:
+              </Text>
               {exactPriceControl}
             </View>
             <View className="relative mb-3.5 h-14" style={{ overflow: 'visible' }}>

@@ -142,14 +142,72 @@ describe('PriceGuessSlider', () => {
     expect(screen.getByTestId('exact-price-edit-button')).toBeTruthy();
   });
 
+  it('keeps the editable exact price value inline with a compact dynamic pill width', () => {
+    const { rerender } = render(
+      <PriceGuessSlider {...defaultProps} initialPrice={872000} variant="embedded" />
+    );
+
+    expect(screen.getByTestId('exact-price-display').props.children).toEqual(
+      expect.stringMatching(/872/)
+    );
+    const exactPriceLabel = screen.getByTestId('exact-price-label');
+    expect(exactPriceLabel.props.children).toBe('Your guess:');
+    expect(getStyleValue(exactPriceLabel.props.style, 'fontSize')).toBe(18);
+    expect(getStyleValue(exactPriceLabel.props.style, 'lineHeight')).toBe(22);
+    expect(getStyleValue(exactPriceLabel.props.style, 'color')).toBe('#3D3832');
+    expect(screen.getByTestId('exact-price-row').props.style).toMatchObject({
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 12,
+    });
+    expect(screen.getByTestId('exact-price-edit-button')).toBeTruthy();
+    const compactWidth = Number(getStyleValue(screen.getByTestId('exact-price-control').props.style, 'width'));
+    expect(compactWidth).toBeGreaterThanOrEqual(130);
+    expect(compactWidth).toBeLessThanOrEqual(145);
+    expect(screen.getByTestId('exact-price-edit-button').props.style).toMatchObject({
+      flexDirection: 'row',
+      minHeight: 40,
+      width: '100%',
+      paddingHorizontal: 12,
+    });
+
+    rerender(
+      <PriceGuessSlider
+        {...defaultProps}
+        propertyId="test-property-long-price"
+        initialPrice={1234000}
+        variant="embedded"
+      />
+    );
+
+    const widerWidth = Number(getStyleValue(screen.getByTestId('exact-price-control').props.style, 'width'));
+    expect(widerWidth).toBeGreaterThan(compactWidth);
+    expect(widerWidth).toBeLessThanOrEqual(170);
+  });
+
   it('swaps the exact price display to an input when editing', () => {
     render(<PriceGuessSlider {...defaultProps} initialPrice={425000} />);
 
     fireEvent.press(screen.getByTestId('exact-price-edit-button'));
 
     expect(screen.queryByTestId('exact-price-display')).toBeNull();
-    expect(screen.getByTestId('exact-price-input').props.value).toBe('425000');
+    expect(screen.getByTestId('exact-price-input').props.value).toEqual(
+      expect.stringMatching(/€\s?425\.000/)
+    );
     expect(screen.getByTestId('exact-price-input').props.autoFocus).toBe(true);
+    expect(screen.getByTestId('exact-price-accept-button')).toBeTruthy();
+    const editWidth = Number(getStyleValue(screen.getByTestId('exact-price-control').props.style, 'width'));
+    expect(editWidth).toBeGreaterThanOrEqual(130);
+    expect(editWidth).toBeLessThanOrEqual(145);
+    expect(screen.getByTestId('exact-price-input').props.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          textAlign: 'right',
+          width: expect.any(Number),
+        }),
+      ])
+    );
   });
 
   it('submits a typed exact price through the shared guess state', async () => {
@@ -170,7 +228,7 @@ describe('PriceGuessSlider', () => {
 
     fireEvent.press(screen.getByTestId('exact-price-edit-button'));
     fireEvent.changeText(screen.getByTestId('exact-price-input'), '456789');
-    fireEvent(screen.getByTestId('exact-price-input'), 'submitEditing');
+    fireEvent.press(screen.getByTestId('exact-price-accept-button'));
 
     await waitFor(() => {
       expect(getExactPriceDisplayText()).toEqual(expect.stringMatching(/456/));
