@@ -264,6 +264,20 @@ function hasSamePrice(left?: number, right?: number): boolean {
   return left !== undefined && right !== undefined && left === right;
 }
 
+function buildInitialPriceSignature({
+  price,
+  source,
+  confidence,
+  sampleSize,
+}: {
+  price: number;
+  source?: PriceGuessSliderStartSource;
+  confidence?: PriceGuessSliderStartConfidence;
+  sampleSize?: number;
+}): string {
+  return `${price}:${source ?? 'initial_price'}:${confidence ?? ''}:${sampleSize ?? ''}`;
+}
+
 function bucketPrice(price: number): string {
   const lower = Math.floor(price / PRICE_BUCKET_SIZE) * PRICE_BUCKET_SIZE;
   const upper = lower + PRICE_BUCKET_SIZE - 1;
@@ -639,8 +653,15 @@ export function PriceGuessSlider({
 
   // Refs
   const hasUserInteracted = useRef(false);
-  const initialPriceSyncDone = useRef(
-    initialPrice !== undefined || resolvedAskingPrice !== undefined
+  const lastInitialPriceSignature = useRef(
+    initialPrice !== undefined
+      ? buildInitialPriceSignature({
+          price: initialPrice,
+          source: initialPriceSource,
+          confidence: initialPriceConfidence,
+          sampleSize: initialPriceSampleSize,
+        })
+      : null
   );
   const hasLoggedShown = useRef(false);
   const startAnalytics = useRef(
@@ -663,7 +684,15 @@ export function PriceGuessSlider({
 
     lastPropertyId.current = _propertyId;
     hasUserInteracted.current = false;
-    initialPriceSyncDone.current = initialPrice !== undefined || resolvedAskingPrice !== undefined;
+    lastInitialPriceSignature.current =
+      initialPrice !== undefined
+        ? buildInitialPriceSignature({
+            price: initialPrice,
+            source: initialPriceSource,
+            confidence: initialPriceConfidence,
+            sampleSize: initialPriceSampleSize,
+          })
+        : null;
     hasLoggedShown.current = false;
     lastHapticPrice.current = resolvedInitialPrice;
     lastWOZCrossing.current = null;
@@ -701,7 +730,9 @@ export function PriceGuessSlider({
   }, [
     _propertyId,
     initialPrice,
+    initialPriceConfidence,
     initialPriceSampleSize,
+    initialPriceSource,
     officialValuation,
     resolvedAskingPrice,
     resolvedInitialPrice,
@@ -1112,19 +1143,13 @@ export function PriceGuessSlider({
     });
   }, [officialValuation, userGuess, thumbPosition]);
 
-  // Sync an asynchronously loaded initializer exactly once if the user has not interacted.
-  useEffect(() => {
+  // Keep async baseline changes coupled to the selected thumb until the user makes a guess.
+  useLayoutEffect(() => {
     if (
       initialPrice === undefined ||
-      initialPriceSyncDone.current ||
       userGuess !== undefined ||
       resolvedAskingPrice !== undefined
     ) {
-      return;
-    }
-
-    initialPriceSyncDone.current = true;
-    if (hasUserInteracted.current) {
       return;
     }
 
@@ -1133,13 +1158,31 @@ export function PriceGuessSlider({
       source,
       initialPriceConfidence,
     });
+    const signature = buildInitialPriceSignature({
+      price: initialPrice,
+      source,
+      confidence: initialPriceConfidence,
+      sampleSize: initialPriceSampleSize,
+    });
+    if (
+      lastInitialPriceSignature.current === signature &&
+      hasSamePrice(sliderStartPrice, initialPrice) &&
+      hasSamePrice(guessedPrice, initialPrice)
+    ) {
+      return;
+    }
+
+    lastInitialPriceSignature.current = signature;
+    if (hasUserInteracted.current) {
+      return;
+    }
 
     lastHapticPrice.current = initialPrice;
     setSliderStartPrice(initialPrice);
     setGuessedPrice(initialPrice);
     const nextRange = resolveSliderRange({ officialValuation, startPrice: initialPrice });
     cancelAnimation(thumbPosition);
-    thumbPosition.value = withSpring(priceToPosition(initialPrice, nextRange), SLIDER_SPRING_CONFIG);
+    thumbPosition.value = priceToPosition(initialPrice, nextRange);
     startAnalytics.current = buildStartAnalytics({
       price: initialPrice,
       source,
@@ -1153,11 +1196,13 @@ export function PriceGuessSlider({
     initialPriceSource,
     officialValuation,
     resolvedAskingPrice,
+    guessedPrice,
+    sliderStartPrice,
     thumbPosition,
     userGuess,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       officialValuation === undefined ||
       initialPrice !== undefined ||
@@ -1173,10 +1218,7 @@ export function PriceGuessSlider({
     setGuessedPrice(officialValuation);
     const nextRange = resolveSliderRange({ officialValuation, startPrice: officialValuation });
     cancelAnimation(thumbPosition);
-    thumbPosition.value = withSpring(
-      priceToPosition(officialValuation, nextRange),
-      SLIDER_SPRING_CONFIG,
-    );
+    thumbPosition.value = priceToPosition(officialValuation, nextRange);
     startAnalytics.current = buildStartAnalytics({
       price: officialValuation,
       source: 'official_valuation',

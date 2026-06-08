@@ -191,6 +191,34 @@ describe('PriceGuessSlider', () => {
     });
   });
 
+  it('syncs an asynchronously replaced initialPrice before interaction', async () => {
+    const { rerender } = render(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={516000}
+        initialPriceSource="official_valuation"
+        officialValuation={516000}
+      />
+    );
+
+    rerender(
+      <PriceGuessSlider
+        {...defaultProps}
+        initialPrice={545000}
+        initialPriceSource="official_valuation_adjusted"
+        initialPriceSampleSize={73}
+        officialValuation={516000}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('price-display').props.children).toEqual(
+        expect.stringMatching(/545/)
+      );
+    });
+    expect(screen.getByText(/Comparable homes.*545/)).toBeTruthy();
+  });
+
   it('does not sync an asynchronously loaded initialPrice after quick adjustment', async () => {
     const { rerender } = render(
       <PriceGuessSlider {...defaultProps} officialValuation={300000} />
