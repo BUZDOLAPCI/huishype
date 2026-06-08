@@ -237,6 +237,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(page.locator('[data-testid="exact-price-label"]').first()).toHaveText(
       'Your guess:'
     );
+    await expect(page.locator('[data-testid="exact-price-empty-input"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="exact-price-display"]').first()).toHaveCount(0);
     const exactPriceEditButton = page.locator('[data-testid="exact-price-edit-button"]').first();
     const exactPriceNormalBox = await exactPriceControl.boundingBox();
     await exactPriceEditButton.click();
@@ -251,6 +253,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       Math.abs((exactPriceEditBox?.width ?? 0) - (exactPriceNormalBox?.width ?? 0))
     ).toBeLessThanOrEqual(2);
     await page.locator('[data-testid="exact-price-accept-button"]').first().click();
+    await expect(page.locator('[data-testid="exact-price-display"]').first()).toBeVisible();
 
     // Check for WOZ/Asking markers in the embedded slider
     if (selection.property.officialValuation) {

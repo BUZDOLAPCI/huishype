@@ -144,6 +144,7 @@ const EXACT_PRICE_ICON_GAP = 8;
 const EXACT_PRICE_VALUE_MIN_WIDTH = 76;
 const EXACT_PRICE_VALUE_MAX_WIDTH = 138;
 const EXACT_PRICE_VALUE_AVERAGE_CHAR_WIDTH = 8.7;
+const EXACT_PRICE_INACTIVE_COLOR = '#9BA29D';
 const WEB_INPUT_OUTLINE_RESET =
   Platform.OS === 'web' ? ({ outlineStyle: 'none' } as unknown as TextStyle) : null;
 
@@ -1265,16 +1266,22 @@ export function PriceGuessSlider({
     };
   });
 
-  const exactPricePillAnimatedStyle = useAnimatedStyle(() => ({
-    backgroundColor: disabled
-      ? '#7B807C'
-      : interpolateColor(
-        guessToneProgress.value,
-        GUESS_TONE_INPUT_RANGE,
-        [NEGATIVE_GUESS_COLOR, NEUTRAL_GUESS_COLOR, POSITIVE_GUESS_COLOR],
-      ),
-    transform: [{ scale: priceDisplayScale.value }],
-  }));
+  const exactPricePillAnimatedStyle = useAnimatedStyle(() => {
+    const isInactive = !hasInteracted && !isEditingExactPrice && userGuess === undefined;
+
+    return {
+      backgroundColor: disabled || isInactive
+        ? disabled
+          ? '#7B807C'
+          : EXACT_PRICE_INACTIVE_COLOR
+        : interpolateColor(
+          guessToneProgress.value,
+          GUESS_TONE_INPUT_RANGE,
+          [NEGATIVE_GUESS_COLOR, NEUTRAL_GUESS_COLOR, POSITIVE_GUESS_COLOR],
+        ),
+      transform: [{ scale: priceDisplayScale.value }],
+    };
+  });
 
   // Submit button animated style
   const submitAnimatedStyle = useAnimatedStyle(() => ({
@@ -1504,6 +1511,8 @@ export function PriceGuessSlider({
     : START_ANCHOR_CONNECTOR_COLOR;
   const startAnchorConnectorHeight = startAnchorUsesAskingStyle ? 24 : 52;
   const exactPriceLabel = formatPrice(guessedPrice, countryCode);
+  const shouldShowExactPriceValue =
+    hasInteracted || isEditingExactPrice || userGuess !== undefined;
   const exactPriceValueWidth = getExactPriceValueWidth(
     isEditingExactPrice ? exactPriceDraft : exactPriceLabel
   );
@@ -1525,10 +1534,10 @@ export function PriceGuessSlider({
           justifyContent: 'space-between',
           borderRadius: 999,
           shadowColor: '#2F2A24',
-          shadowOpacity: 0.12,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 3,
+          shadowOpacity: shouldShowExactPriceValue ? 0.12 : 0.06,
+          shadowRadius: shouldShowExactPriceValue ? 10 : 6,
+          shadowOffset: { width: 0, height: shouldShowExactPriceValue ? 4 : 2 },
+          elevation: shouldShowExactPriceValue ? 3 : 1,
         },
         exactPricePillAnimatedStyle,
       ]}
@@ -1608,19 +1617,40 @@ export function PriceGuessSlider({
             paddingVertical: 8,
           }}
         >
-          <Text
-            testID="exact-price-display"
-            className="font-display-semibold text-base text-white"
-            numberOfLines={1}
-            style={{
-              width: exactPriceValueWidth,
-              flexShrink: 1,
-              lineHeight: 20,
-              fontVariant: ['tabular-nums'],
-            }}
-          >
-            {exactPriceLabel}
-          </Text>
+          {shouldShowExactPriceValue ? (
+            <Text
+              testID="exact-price-display"
+              className="font-display-semibold text-base text-white"
+              numberOfLines={1}
+              style={{
+                width: exactPriceValueWidth,
+                flexShrink: 1,
+                lineHeight: 20,
+                fontVariant: ['tabular-nums'],
+              }}
+            >
+              {exactPriceLabel}
+            </Text>
+          ) : (
+            <View
+              testID="exact-price-empty-input"
+              style={{
+                width: exactPriceValueWidth,
+                height: 20,
+                flexShrink: 1,
+                justifyContent: 'flex-end',
+                paddingBottom: 2,
+              }}
+            >
+              <View
+                style={{
+                  height: 2,
+                  borderRadius: 999,
+                  backgroundColor: 'rgba(255, 255, 255, 0.68)',
+                }}
+              />
+            </View>
+          )}
           <View
             style={{
               width: EXACT_PRICE_ICON_SIZE,
