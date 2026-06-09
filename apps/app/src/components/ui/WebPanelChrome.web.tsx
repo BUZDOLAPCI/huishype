@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import { TAB_BAR_DOCK_HEIGHT } from '../navigation/tabBarMetrics';
 import { useIsLandscape } from '../../hooks/useIsLandscape';
@@ -93,8 +94,8 @@ if (typeof document !== 'undefined') {
       position: fixed;
       left: 0;
       right: 0;
-      bottom: ${TAB_BAR_DOCK_HEIGHT}px;
-      height: calc(92vh - ${TAB_BAR_DOCK_HEIGHT}px);
+      bottom: var(--web-panel-portrait-bottom-offset, ${TAB_BAR_DOCK_HEIGHT}px);
+      height: calc(92vh - var(--web-panel-portrait-bottom-offset, ${TAB_BAR_DOCK_HEIGHT}px));
       background: var(--web-panel-surface, white);
       z-index: var(--web-panel-z-index, 2001);
       border-radius: 16px 16px 0 0;
@@ -200,6 +201,8 @@ interface WebPanelChromeProps {
   panelZIndex?: number;
   backdropZIndex?: number;
   landscapeRightOffset?: number;
+  portraitBottomOffset?: number;
+  portalToBody?: boolean;
   enableContentDrag?: boolean;
   enableBodyPressExpand?: boolean;
   interactiveBodyPressSelector?: string;
@@ -217,6 +220,8 @@ export function WebPanelChrome({
   panelZIndex,
   backdropZIndex,
   landscapeRightOffset,
+  portraitBottomOffset,
+  portalToBody = false,
   enableContentDrag = false,
   enableBodyPressExpand = false,
   interactiveBodyPressSelector = DEFAULT_WEB_PANEL_INTERACTIVE_SELECTOR,
@@ -454,6 +459,8 @@ export function WebPanelChrome({
     '--web-panel-backdrop-z-index': backdropZIndex,
     '--web-panel-landscape-right-offset':
       landscapeRightOffset === undefined ? undefined : `${landscapeRightOffset}px`,
+    '--web-panel-portrait-bottom-offset':
+      portraitBottomOffset === undefined ? undefined : `${portraitBottomOffset}px`,
   } as CSSProperties;
   const renderedChildren =
     typeof children === 'function'
@@ -466,7 +473,7 @@ export function WebPanelChrome({
         })
       : children;
 
-  return (
+  const chrome = (
     <>
       <div
         className={`web-property-panel-backdrop ${shouldShowBackdrop ? 'open' : ''}`}
@@ -504,4 +511,10 @@ export function WebPanelChrome({
       </div>
     </>
   );
+
+  if (portalToBody && typeof document !== 'undefined') {
+    return createPortal(chrome, document.body);
+  }
+
+  return chrome;
 }

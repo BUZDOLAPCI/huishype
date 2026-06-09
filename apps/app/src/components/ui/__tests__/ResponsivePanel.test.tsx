@@ -41,7 +41,7 @@ function setWindowSize(width: number, height: number) {
 }
 
 function queryDom(testId: string): HTMLElement | null {
-  return container.querySelector(`[data-testid="${testId}"]`);
+  return document.querySelector(`[data-testid="${testId}"]`);
 }
 
 function renderToDOM(element: React.ReactElement) {
@@ -229,13 +229,18 @@ describe('ResponsivePanel.web', () => {
 
     expect(panel).not.toBeNull();
     expect(panel?.className).toContain('web-property-panel--portrait');
+    expect(panel?.parentElement).toBe(document.body);
+    expect(panel?.style.getPropertyValue('--web-panel-portrait-bottom-offset')).toBe('0px');
     expect(panel?.className).not.toContain('partial');
     expect(panel?.className).not.toContain('full');
     expect(queryDom('web-panel-handle')).not.toBeNull();
     expect(backdrop).not.toBeNull();
     expect(backdrop?.className).not.toContain('open');
-    expect(container.textContent).toContain('Map sheet content');
+    expect(panel?.textContent).toContain('Map sheet content');
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(document.getElementById('web-panel-chrome-css')?.textContent).toContain(
+      'bottom: var(--web-panel-portrait-bottom-offset, 82px);'
+    );
 
     flushAnimationFrame();
 
@@ -262,7 +267,7 @@ describe('ResponsivePanel.web', () => {
     const panel = queryDom('web-property-panel');
     const backdrop = queryDom('web-panel-backdrop');
     expect(panel).not.toBeNull();
-    expect(container.textContent).toContain('Preloaded map sheet content');
+    expect(panel?.textContent).toContain('Preloaded map sheet content');
     expect(panel?.className).not.toContain('partial');
     expect(panel?.className).not.toContain('full');
     expect(backdrop?.className).not.toContain('open');

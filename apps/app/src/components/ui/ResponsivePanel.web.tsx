@@ -323,6 +323,8 @@ export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelPro
           panelZIndex={2003}
           backdropZIndex={2002}
           landscapeRightOffset={landscapeRightOffset}
+          portraitBottomOffset={0}
+          portalToBody
         >
           <div className="responsive-panel-content">{children}</div>
         </WebPanelChrome>

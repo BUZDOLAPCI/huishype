@@ -189,7 +189,10 @@ export function CommentsRouteScreen({
     : { url: null, type: 'placeholder' as const };
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
-  const composerBottomOffset = Platform.OS === 'web' && isLandscape ? 0 : TAB_BAR_DOCK_HEIGHT;
+  const composerBottomOffset =
+    Platform.OS === 'web' && (isLandscape || panelPresentation === 'map-sheet')
+      ? 0
+      : TAB_BAR_DOCK_HEIGHT;
   const navigateToTarget = useCallback(
     (targetHref: string) => {
       if (onNavigate) {
