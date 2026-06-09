@@ -14,6 +14,7 @@ import { Icon } from './Icon';
 import { useT } from '@/src/i18n';
 
 export type WebPanelState = 'closed' | 'peek' | 'partial' | 'full';
+export const WEB_PANEL_TRANSITION_MS = 300;
 
 /** Portrait snap points as translateY percentages. */
 export const WEB_PANEL_SNAP_POINTS: Record<Exclude<WebPanelState, 'closed'>, number> = {
@@ -73,7 +74,9 @@ if (typeof document !== 'undefined') {
       z-index: var(--web-panel-z-index, 2001);
       box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
       transform: translateX(100%);
-      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      transition:
+        right 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       display: flex;
       flex-direction: column;
     }
@@ -228,7 +231,8 @@ export function WebPanelChrome({
   stateRef.current = state;
 
   const isOpen = state !== 'closed';
-  const shouldShowBackdrop = showBackdrop ?? (isLandscape ? isOpen : state === 'partial' || state === 'full');
+  const shouldShowBackdrop =
+    showBackdrop ?? (isLandscape ? isOpen : state === 'partial' || state === 'full');
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -236,9 +240,7 @@ export function WebPanelChrome({
 
     const updatePanelWidth = () => {
       const nextWidth = panel.getBoundingClientRect().width;
-      setPanelWidth((currentWidth) =>
-        currentWidth === nextWidth ? currentWidth : nextWidth,
-      );
+      setPanelWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth));
     };
 
     updatePanelWidth();
@@ -289,54 +291,61 @@ export function WebPanelChrome({
     const panelHeight = panel.offsetHeight;
     if (panelHeight === 0) return;
 
-    const startPercent = dragStartState.current === 'closed'
-      ? 100
-      : WEB_PANEL_SNAP_POINTS[dragStartState.current as Exclude<WebPanelState, 'closed'>];
+    const startPercent =
+      dragStartState.current === 'closed'
+        ? 100
+        : WEB_PANEL_SNAP_POINTS[dragStartState.current as Exclude<WebPanelState, 'closed'>];
     const deltaPercent = (deltaY / panelHeight) * 100;
     const nextPercent = Math.max(
       WEB_PANEL_SNAP_POINTS.full,
-      Math.min(WEB_PANEL_SNAP_POINTS.peek, startPercent + deltaPercent),
+      Math.min(WEB_PANEL_SNAP_POINTS.peek, startPercent + deltaPercent)
     );
 
     panel.style.transform = `translateY(${nextPercent}%)`;
   }, []);
 
-  const snapFromDrag = useCallback((deltaY: number, elapsed: number, fromState: WebPanelState, isTap: boolean) => {
-    const panel = panelRef.current;
-    if (panel) {
-      panel.style.transition = '';
-      panel.style.transform = '';
-    }
+  const snapFromDrag = useCallback(
+    (deltaY: number, elapsed: number, fromState: WebPanelState, isTap: boolean) => {
+      const panel = panelRef.current;
+      if (panel) {
+        panel.style.transition = '';
+        panel.style.transform = '';
+      }
 
-    if (isTap) {
-      if (fromState === 'peek') onStateChange('partial');
-      else if (fromState === 'partial') onStateChange('full');
-      else if (fromState === 'full') onStateChange('partial');
-      return;
-    }
+      if (isTap) {
+        if (fromState === 'peek') onStateChange('partial');
+        else if (fromState === 'partial') onStateChange('full');
+        else if (fromState === 'full') onStateChange('partial');
+        return;
+      }
 
-    const velocity = elapsed > 0 ? deltaY / elapsed : 0;
-    const isDraggingDown = deltaY > 0;
-    const isFlick = Math.abs(velocity) > FLICK_VELOCITY;
-    const significantDrag = Math.abs(deltaY) > 50;
+      const velocity = elapsed > 0 ? deltaY / elapsed : 0;
+      const isDraggingDown = deltaY > 0;
+      const isFlick = Math.abs(velocity) > FLICK_VELOCITY;
+      const significantDrag = Math.abs(deltaY) > 50;
 
-    if (isDraggingDown && (isFlick || significantDrag)) {
-      if (fromState === 'full') onStateChange('partial');
-      else if (fromState === 'partial') onStateChange('peek');
-    } else if (!isDraggingDown && (isFlick || significantDrag)) {
-      if (fromState === 'peek') onStateChange('partial');
-      else if (fromState === 'partial') onStateChange('full');
-    }
-  }, [onStateChange]);
+      if (isDraggingDown && (isFlick || significantDrag)) {
+        if (fromState === 'full') onStateChange('partial');
+        else if (fromState === 'partial') onStateChange('peek');
+      } else if (!isDraggingDown && (isFlick || significantDrag)) {
+        if (fromState === 'peek') onStateChange('partial');
+        else if (fromState === 'partial') onStateChange('full');
+      }
+    },
+    [onStateChange]
+  );
 
-  const onHandlePointerUp = useCallback((event: React.PointerEvent) => {
-    if (dragStartY.current === null) return;
-    const deltaY = event.clientY - dragStartY.current;
-    const elapsed = Date.now() - dragStartTime.current;
-    const fromState = dragStartState.current;
-    dragStartY.current = null;
-    snapFromDrag(deltaY, elapsed, fromState, Math.abs(deltaY) < TAP_THRESHOLD);
-  }, [snapFromDrag]);
+  const onHandlePointerUp = useCallback(
+    (event: React.PointerEvent) => {
+      if (dragStartY.current === null) return;
+      const deltaY = event.clientY - dragStartY.current;
+      const elapsed = Date.now() - dragStartTime.current;
+      const fromState = dragStartState.current;
+      dragStartY.current = null;
+      snapFromDrag(deltaY, elapsed, fromState, Math.abs(deltaY) < TAP_THRESHOLD);
+    },
+    [snapFromDrag]
+  );
 
   useEffect(() => {
     if (isLandscape || !enableContentDrag) return;
@@ -379,13 +388,14 @@ export function WebPanelChrome({
 
       const panelHeight = panel.offsetHeight;
       if (panelHeight === 0) return;
-      const startPercent = dragStartState.current === 'closed'
-        ? 100
-        : WEB_PANEL_SNAP_POINTS[dragStartState.current as Exclude<WebPanelState, 'closed'>];
+      const startPercent =
+        dragStartState.current === 'closed'
+          ? 100
+          : WEB_PANEL_SNAP_POINTS[dragStartState.current as Exclude<WebPanelState, 'closed'>];
       const deltaPercent = (deltaY / panelHeight) * 100;
       const nextPercent = Math.max(
         WEB_PANEL_SNAP_POINTS.full,
-        Math.min(WEB_PANEL_SNAP_POINTS.peek, startPercent + deltaPercent),
+        Math.min(WEB_PANEL_SNAP_POINTS.peek, startPercent + deltaPercent)
       );
       panel.style.transform = `translateY(${nextPercent}%)`;
     };
@@ -442,19 +452,19 @@ export function WebPanelChrome({
     '--web-panel-surface': surfaceColor,
     '--web-panel-z-index': panelZIndex,
     '--web-panel-backdrop-z-index': backdropZIndex,
-    '--web-panel-landscape-right-offset': landscapeRightOffset === undefined
-      ? undefined
-      : `${landscapeRightOffset}px`,
+    '--web-panel-landscape-right-offset':
+      landscapeRightOffset === undefined ? undefined : `${landscapeRightOffset}px`,
   } as CSSProperties;
-  const renderedChildren = typeof children === 'function'
-    ? children({
-      contentWidth: panelWidth ?? undefined,
-      isLandscape,
-      isOpen,
-      scrollTopRef,
-      state,
-    })
-    : children;
+  const renderedChildren =
+    typeof children === 'function'
+      ? children({
+          contentWidth: panelWidth ?? undefined,
+          isLandscape,
+          isOpen,
+          scrollTopRef,
+          state,
+        })
+      : children;
 
   return (
     <>
@@ -465,12 +475,7 @@ export function WebPanelChrome({
         style={cssVars}
       />
 
-      <div
-        ref={panelRef}
-        className={panelClassName}
-        data-testid={panelTestID}
-        style={cssVars}
-      >
+      <div ref={panelRef} className={panelClassName} data-testid={panelTestID} style={cssVars}>
         {!isLandscape ? (
           <div
             className="web-property-panel-handle"

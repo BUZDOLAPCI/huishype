@@ -93,6 +93,7 @@ describe('ResponsivePanel.web', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     act(() => {
       root.unmount();
     });
@@ -240,31 +241,52 @@ describe('ResponsivePanel.web', () => {
     expect(backdrop?.className).toContain('open');
   });
 
-  it('closes map-sheet presentation from close button, backdrop, and Escape', () => {
+  it('animates map-sheet presentation closed before calling close handlers', () => {
+    jest.useFakeTimers();
     setWindowSize(390, 844);
     const onClose = jest.fn();
 
-    renderToDOM(
-      <ResponsivePanel title="Comments" presentation="map-sheet" onClose={onClose}>
-        <span>Map sheet content</span>
-      </ResponsivePanel>
-    );
-    flushAnimationFrame();
+    const renderMapSheet = () => {
+      renderToDOM(
+        <ResponsivePanel title="Comments" presentation="map-sheet" onClose={onClose}>
+          <span>Map sheet content</span>
+        </ResponsivePanel>
+      );
+      flushAnimationFrame();
+    };
+
+    const remountMapSheet = () => {
+      act(() => {
+        root.unmount();
+      });
+      root = createRoot(container);
+      renderMapSheet();
+    };
+
+    renderMapSheet();
 
     act(() => {
       queryDom('web-panel-close')?.click();
     });
+    expect(queryDom('web-property-panel')?.className).not.toContain('partial');
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
     expect(onClose).toHaveBeenCalledTimes(1);
+
+    remountMapSheet();
 
     act(() => {
       queryDom('web-panel-backdrop')?.click();
     });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
     expect(onClose).toHaveBeenCalledTimes(2);
 
-    act(() => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    });
-    expect(onClose).toHaveBeenCalledTimes(3);
     expect(router.back).not.toHaveBeenCalled();
   });
 
@@ -314,9 +336,12 @@ describe('ResponsivePanel.web', () => {
     );
 
     const panel = queryDom('web-property-panel');
+    const chromeCss = document.getElementById('web-panel-chrome-css')?.textContent;
     expect(panel).not.toBeNull();
     expect(panel?.className).toContain('web-property-panel--landscape');
     expect(panel?.style.getPropertyValue('--web-panel-landscape-right-offset')).toBe('420px');
+    expect(chromeCss).toContain('right 0.3s cubic-bezier(0.4, 0, 0.2, 1)');
+    expect(chromeCss).toContain('transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)');
     expect(panel?.className).not.toContain('open');
     expect(queryDom('web-panel-handle')).toBeNull();
     expect(queryDom('web-panel-backdrop')?.className).not.toContain('open');
@@ -325,9 +350,15 @@ describe('ResponsivePanel.web', () => {
 
     expect(panel?.className).toContain('open');
     expect(queryDom('web-panel-backdrop')?.className).toContain('open');
+    jest.useFakeTimers();
 
     act(() => {
       queryDom('web-panel-backdrop')?.click();
+    });
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      jest.advanceTimersByTime(300);
     });
 
     expect(onClose).toHaveBeenCalledTimes(1);

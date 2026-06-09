@@ -8,12 +8,20 @@
  * Portrait (mobile/narrow): Full-screen passthrough — children render
  * without any panel chrome since the route already handles safe areas.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { router } from 'expo-router';
 
 import { useIsLandscape } from '../../hooks/useIsLandscape';
 import { Icon } from './Icon';
-import { WebPanelChrome, type WebPanelState } from './WebPanelChrome.web';
+import { WebPanelChrome, WEB_PANEL_TRANSITION_MS, type WebPanelState } from './WebPanelChrome.web';
 import { useT } from '@/src/i18n';
 
 export interface ResponsivePanelProps {
@@ -26,6 +34,10 @@ export interface ResponsivePanelProps {
   presentation?: 'route' | 'map-sheet';
   /** Right offset for landscape map sheets when another panel owns the edge. */
   landscapeRightOffset?: number;
+}
+
+export interface ResponsivePanelRef {
+  close: () => void;
 }
 
 // Inject CSS for the responsive panel — same injection pattern as PropertyBottomSheet.web.tsx
@@ -118,116 +130,167 @@ if (typeof document !== 'undefined') {
   `;
 }
 
-export function ResponsivePanel({
-  children,
-  title,
-  onClose,
-  presentation = 'route',
-  landscapeRightOffset,
-}: ResponsivePanelProps) {
-  const t = useT();
-  const isLandscape = useIsLandscape();
-  const mapSheetRestingState: WebPanelState = isLandscape ? 'full' : 'partial';
-  const hasOpenedMapSheetRef = useRef(false);
-  const [mapSheetState, setMapSheetState] = useState<WebPanelState>('closed');
+export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelProps>(
+  function ResponsivePanel(
+    { children, title, onClose, presentation = 'route', landscapeRightOffset },
+    ref
+  ) {
+    const t = useT();
+    const isLandscape = useIsLandscape();
+    const mapSheetRestingState: WebPanelState = isLandscape ? 'full' : 'partial';
+    const hasOpenedMapSheetRef = useRef(false);
+    const isClosingMapSheetRef = useRef(false);
+    const mapSheetCloseTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+    const [mapSheetState, setMapSheetState] = useState<WebPanelState>('closed');
 
-  const handleClose = useCallback(() => {
-    if (onClose) {
-      onClose();
-    } else {
-      router.back();
-    }
-  }, [onClose]);
+    const handleClose = useCallback(() => {
+      if (onClose) {
+        onClose();
+      } else {
+        router.back();
+      }
+    }, [onClose]);
 
-  // Dismiss on Escape key (landscape panel only)
-  useEffect(() => {
-    if (!isLandscape || presentation !== 'route') return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [isLandscape, handleClose, presentation]);
+    const clearMapSheetCloseTimer = useCallback(() => {
+      if (mapSheetCloseTimerRef.current === null) {
+        return;
+      }
 
-  useEffect(() => {
-    if (presentation !== 'map-sheet') {
+      globalThis.clearTimeout(mapSheetCloseTimerRef.current);
+      mapSheetCloseTimerRef.current = null;
+    }, []);
+
+    const handleMapSheetClose = useCallback(() => {
+      if (isClosingMapSheetRef.current) {
+        return;
+      }
+
+      isClosingMapSheetRef.current = true;
       hasOpenedMapSheetRef.current = false;
-      return;
-    }
+      setMapSheetState('closed');
+      clearMapSheetCloseTimer();
+      mapSheetCloseTimerRef.current = globalThis.setTimeout(() => {
+        mapSheetCloseTimerRef.current = null;
+        isClosingMapSheetRef.current = false;
+        handleClose();
+      }, WEB_PANEL_TRANSITION_MS);
+    }, [clearMapSheetCloseTimer, handleClose]);
 
-    if (hasOpenedMapSheetRef.current) {
-      setMapSheetState((currentState) =>
-        currentState === 'closed' ? currentState : mapSheetRestingState,
+    useImperativeHandle(
+      ref,
+      () => ({
+        close: () => {
+          if (presentation === 'map-sheet') {
+            handleMapSheetClose();
+            return;
+          }
+
+          handleClose();
+        },
+      }),
+      [handleClose, handleMapSheetClose, presentation]
+    );
+
+    useEffect(
+      () => () => {
+        clearMapSheetCloseTimer();
+      },
+      [clearMapSheetCloseTimer]
+    );
+
+    // Dismiss on Escape key (landscape panel only)
+    useEffect(() => {
+      if (!isLandscape || presentation !== 'route') return;
+      const handler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') handleClose();
+      };
+      document.addEventListener('keydown', handler);
+      return () => document.removeEventListener('keydown', handler);
+    }, [isLandscape, handleClose, presentation]);
+
+    useEffect(() => {
+      if (presentation !== 'map-sheet') {
+        hasOpenedMapSheetRef.current = false;
+        isClosingMapSheetRef.current = false;
+        clearMapSheetCloseTimer();
+        return;
+      }
+
+      if (isClosingMapSheetRef.current) {
+        return;
+      }
+
+      if (hasOpenedMapSheetRef.current) {
+        setMapSheetState((currentState) =>
+          currentState === 'closed' ? currentState : mapSheetRestingState
+        );
+        return;
+      }
+
+      setMapSheetState('closed');
+
+      const openPanel = () => {
+        hasOpenedMapSheetRef.current = true;
+        setMapSheetState(mapSheetRestingState);
+      };
+
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        const frame = window.requestAnimationFrame(openPanel);
+        return () => window.cancelAnimationFrame(frame);
+      }
+
+      const timeout = globalThis.setTimeout(openPanel, 16);
+      return () => globalThis.clearTimeout(timeout);
+    }, [clearMapSheetCloseTimer, mapSheetRestingState, presentation]);
+
+    if (presentation === 'map-sheet') {
+      return (
+        <WebPanelChrome
+          state={mapSheetState}
+          title={title}
+          onStateChange={setMapSheetState}
+          onClose={handleMapSheetClose}
+          surfaceColor="#FFFBF5"
+          panelZIndex={2003}
+          backdropZIndex={2002}
+          landscapeRightOffset={landscapeRightOffset}
+        >
+          <div className="responsive-panel-content">{children}</div>
+        </WebPanelChrome>
       );
-      return;
     }
 
-    setMapSheetState('closed');
-
-    const openPanel = () => {
-      hasOpenedMapSheetRef.current = true;
-      setMapSheetState(mapSheetRestingState);
-    };
-
-    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-      const frame = window.requestAnimationFrame(openPanel);
-      return () => window.cancelAnimationFrame(frame);
+    // Portrait: full-screen passthrough — no panel chrome needed
+    if (!isLandscape) {
+      return <>{children}</>;
     }
 
-    const timeout = globalThis.setTimeout(openPanel, 16);
-    return () => globalThis.clearTimeout(timeout);
-  }, [mapSheetRestingState, presentation]);
-
-  if (presentation === 'map-sheet') {
+    // Landscape: side panel with backdrop
     return (
-      <WebPanelChrome
-        state={mapSheetState}
-        title={title}
-        onStateChange={setMapSheetState}
-        onClose={handleClose}
-        surfaceColor="#FFFBF5"
-        panelZIndex={2003}
-        backdropZIndex={2002}
-        landscapeRightOffset={landscapeRightOffset}
-      >
-        <div className="responsive-panel-content">{children}</div>
-      </WebPanelChrome>
+      <>
+        <div
+          className="responsive-panel-backdrop open"
+          onClick={handleClose}
+          data-testid="responsive-panel-backdrop"
+        />
+        <div className="responsive-panel--landscape open" data-testid="responsive-panel">
+          {/* Header */}
+          <div className="responsive-panel-header">
+            <span className="responsive-panel-title">{title ?? ''}</span>
+            <button
+              className="responsive-panel-close"
+              onClick={handleClose}
+              data-testid="responsive-panel-close"
+              aria-label={t('common.closePanel')}
+            >
+              <Icon name="X" size="md" color="#9C958A" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="responsive-panel-content">{children}</div>
+        </div>
+      </>
     );
   }
-
-  // Portrait: full-screen passthrough — no panel chrome needed
-  if (!isLandscape) {
-    return <>{children}</>;
-  }
-
-  // Landscape: side panel with backdrop
-  return (
-    <>
-      <div
-        className="responsive-panel-backdrop open"
-        onClick={handleClose}
-        data-testid="responsive-panel-backdrop"
-      />
-      <div
-        className="responsive-panel--landscape open"
-        data-testid="responsive-panel"
-      >
-        {/* Header */}
-        <div className="responsive-panel-header">
-          <span className="responsive-panel-title">{title ?? ''}</span>
-          <button
-            className="responsive-panel-close"
-            onClick={handleClose}
-            data-testid="responsive-panel-close"
-            aria-label={t('common.closePanel')}
-          >
-            <Icon name="X" size="md" color="#9C958A" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="responsive-panel-content">{children}</div>
-      </div>
-    </>
-  );
-}
+);
