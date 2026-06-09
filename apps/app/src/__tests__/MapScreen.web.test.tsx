@@ -161,6 +161,7 @@ let capturedSearchBarProps: {
     countryCode?: string | null;
   };
 } | null = null;
+let capturedPropertyBottomSheetProps: { landscapeRightOffset?: number } | null = null;
 
 const mockAmbientCommentBubbles = {
   bubbles: [] as unknown[],
@@ -263,7 +264,13 @@ jest.mock('@/src/components', () => {
       capturedSearchBarProps = props;
       return null;
     },
-    PropertyBottomSheet: ReactModule.forwardRef(() => null),
+    PropertyBottomSheet: ReactModule.forwardRef((
+      props: { landscapeRightOffset?: number },
+      _ref: unknown,
+    ) => {
+      capturedPropertyBottomSheetProps = props;
+      return null;
+    }),
   };
 });
 
@@ -660,11 +667,13 @@ jest.mock('@/src/screens/CommentsRouteScreen', () => ({
     returnTo,
     onNavigate,
     panelPresentation,
+    landscapeRightOffset,
   }: {
     propertyId?: string | null;
     returnTo?: string | null;
     onNavigate?: (path: string) => void;
     panelPresentation?: string;
+    landscapeRightOffset?: number;
   }) => {
     const ReactModule = require('react');
     return ReactModule.createElement(
@@ -673,6 +682,7 @@ jest.mock('@/src/screens/CommentsRouteScreen', () => ({
         'data-testid': 'mock-comments-route-screen',
         'data-property-id': propertyId ?? '',
         'data-panel-presentation': panelPresentation ?? '',
+        'data-landscape-right-offset': `${landscapeRightOffset ?? ''}`,
         onClick: () => onNavigate?.(returnTo ?? '/'),
       },
       'comments',
@@ -686,11 +696,13 @@ jest.mock('@/src/screens/GuessesRouteScreen', () => ({
     returnTo,
     onNavigate,
     panelPresentation,
+    landscapeRightOffset,
   }: {
     propertyId?: string | null;
     returnTo?: string | null;
     onNavigate?: (path: string) => void;
     panelPresentation?: string;
+    landscapeRightOffset?: number;
   }) => {
     const ReactModule = require('react');
     return ReactModule.createElement(
@@ -699,6 +711,7 @@ jest.mock('@/src/screens/GuessesRouteScreen', () => ({
         'data-testid': 'mock-guesses-route-screen',
         'data-property-id': propertyId ?? '',
         'data-panel-presentation': panelPresentation ?? '',
+        'data-landscape-right-offset': `${landscapeRightOffset ?? ''}`,
         onClick: () => onNavigate?.(returnTo ?? '/'),
       },
       'guesses',
@@ -834,6 +847,7 @@ describe('MapScreen web grouped Following mode', () => {
     mockRecordPropertyView.mockReset();
     capturedMapFilterBarProps = null;
     capturedSearchBarProps = null;
+    capturedPropertyBottomSheetProps = null;
     mockAmbientCommentBubbles.bubbles = [];
     Object.assign(mockInteraction, {
       previewGroup: null,
@@ -1410,6 +1424,11 @@ describe('MapScreen web grouped Following mode', () => {
       container.querySelector('[data-testid="mock-comments-route-screen"]')
         ?.getAttribute('data-panel-presentation'),
     ).toBe('map-sheet');
+    expect(
+      container.querySelector('[data-testid="mock-comments-route-screen"]')
+        ?.getAttribute('data-landscape-right-offset'),
+    ).toBe('0');
+    expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(420);
     expect(mockPushBrowserPath).not.toHaveBeenCalledWith(previewPath);
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
 
@@ -1500,6 +1519,11 @@ describe('MapScreen web grouped Following mode', () => {
       container.querySelector('[data-testid="mock-guesses-route-screen"]')
         ?.getAttribute('data-panel-presentation'),
     ).toBe('map-sheet');
+    expect(
+      container.querySelector('[data-testid="mock-guesses-route-screen"]')
+        ?.getAttribute('data-landscape-right-offset'),
+    ).toBe('0');
+    expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(420);
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
   });
 

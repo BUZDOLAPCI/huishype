@@ -217,6 +217,7 @@ export interface GuessesRouteScreenProps {
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
   panelPresentation?: ResponsivePanelProps['presentation'];
+  landscapeRightOffset?: ResponsivePanelProps['landscapeRightOffset'];
 }
 
 export function GuessesRouteScreen({
@@ -224,6 +225,7 @@ export function GuessesRouteScreen({
   returnTo,
   onNavigate,
   panelPresentation = 'route',
+  landscapeRightOffset,
 }: GuessesRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -390,6 +392,7 @@ export function GuessesRouteScreen({
         title={t('common.guesses')}
         onClose={triggerClose}
         presentation={panelPresentation}
+        landscapeRightOffset={landscapeRightOffset}
       >
         <ScrollView
           style={styles.container}

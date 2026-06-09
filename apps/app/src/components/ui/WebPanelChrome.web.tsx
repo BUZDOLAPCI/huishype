@@ -65,7 +65,7 @@ if (typeof document !== 'undefined') {
     .web-property-panel--landscape {
       position: fixed;
       top: 0;
-      right: 0;
+      right: var(--web-panel-landscape-right-offset, 0px);
       bottom: 0;
       width: 420px;
       max-width: 100vw;
@@ -196,6 +196,7 @@ interface WebPanelChromeProps {
   surfaceColor?: string;
   panelZIndex?: number;
   backdropZIndex?: number;
+  landscapeRightOffset?: number;
   enableContentDrag?: boolean;
   enableBodyPressExpand?: boolean;
   interactiveBodyPressSelector?: string;
@@ -212,6 +213,7 @@ export function WebPanelChrome({
   surfaceColor,
   panelZIndex,
   backdropZIndex,
+  landscapeRightOffset,
   enableContentDrag = false,
   enableBodyPressExpand = false,
   interactiveBodyPressSelector = DEFAULT_WEB_PANEL_INTERACTIVE_SELECTOR,
@@ -440,6 +442,9 @@ export function WebPanelChrome({
     '--web-panel-surface': surfaceColor,
     '--web-panel-z-index': panelZIndex,
     '--web-panel-backdrop-z-index': backdropZIndex,
+    '--web-panel-landscape-right-offset': landscapeRightOffset === undefined
+      ? undefined
+      : `${landscapeRightOffset}px`,
   } as CSSProperties;
   const renderedChildren = typeof children === 'function'
     ? children({

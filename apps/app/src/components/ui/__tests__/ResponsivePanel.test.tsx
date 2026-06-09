@@ -303,7 +303,12 @@ describe('ResponsivePanel.web', () => {
     const onClose = jest.fn();
 
     renderToDOM(
-      <ResponsivePanel title="Guesses" presentation="map-sheet" onClose={onClose}>
+      <ResponsivePanel
+        title="Guesses"
+        presentation="map-sheet"
+        landscapeRightOffset={420}
+        onClose={onClose}
+      >
         <span>Landscape map sheet content</span>
       </ResponsivePanel>
     );
@@ -311,6 +316,7 @@ describe('ResponsivePanel.web', () => {
     const panel = queryDom('web-property-panel');
     expect(panel).not.toBeNull();
     expect(panel?.className).toContain('web-property-panel--landscape');
+    expect(panel?.style.getPropertyValue('--web-panel-landscape-right-offset')).toBe('420px');
     expect(panel?.className).not.toContain('open');
     expect(queryDom('web-panel-handle')).toBeNull();
     expect(queryDom('web-panel-backdrop')?.className).not.toContain('open');

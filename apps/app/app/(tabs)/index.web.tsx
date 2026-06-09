@@ -864,6 +864,7 @@ if (typeof document !== 'undefined' && !document.getElementById(FLOATING_ZOOM_CO
 }
 
 const MAP_SOCIAL_OVERLAY_CSS_ID = 'map-social-overlay-css';
+const MAP_SOCIAL_PANEL_WIDTH = 420;
 if (typeof document !== 'undefined') {
   let style = document.getElementById(MAP_SOCIAL_OVERLAY_CSS_ID) as HTMLStyleElement | null;
   if (!style) {
@@ -986,6 +987,7 @@ function MapSocialOverlay({
           returnTo={returnTo}
           onNavigate={onNavigate}
           panelPresentation="map-sheet"
+          landscapeRightOffset={0}
         />
       ) : (
         <GuessesRouteScreen
@@ -993,6 +995,7 @@ function MapSocialOverlay({
           returnTo={returnTo}
           onNavigate={onNavigate}
           panelPresentation="map-sheet"
+          landscapeRightOffset={0}
         />
       )}
     </div>
@@ -4243,6 +4246,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         onGuessPress={handleMapGuessPress}
         onCommentPress={handleMapCommentPress}
         onAuthRequired={interaction.handleAuthRequired}
+        landscapeRightOffset={activeMapSocialRoute ? MAP_SOCIAL_PANEL_WIDTH : 0}
       />
 
       {activeMapSocialRoute && activeMapSocialPreviewPath ? (

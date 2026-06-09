@@ -54,6 +54,7 @@ export interface CommentsRouteScreenProps {
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
   panelPresentation?: ResponsivePanelProps['presentation'];
+  landscapeRightOffset?: ResponsivePanelProps['landscapeRightOffset'];
 }
 
 function findCommentById(comments: Comment[], commentId: string): Comment | undefined {
@@ -76,6 +77,7 @@ export function CommentsRouteScreen({
   returnTo,
   onNavigate,
   panelPresentation = 'route',
+  landscapeRightOffset,
 }: CommentsRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -259,6 +261,7 @@ export function CommentsRouteScreen({
         title={t('comments.title')}
         onClose={triggerClose}
         presentation={panelPresentation}
+        landscapeRightOffset={landscapeRightOffset}
       >
         <KeyboardAvoidingView
           style={styles.container}

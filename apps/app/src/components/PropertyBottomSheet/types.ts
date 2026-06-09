@@ -57,6 +57,7 @@ export interface PropertyBottomSheetProps {
   onGuessPress?: (propertyId: string) => void;
   onCommentPress?: (propertyId: string) => void;
   onAuthRequired?: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
+  landscapeRightOffset?: number;
 }
 
 export interface PropertyBottomSheetRef {

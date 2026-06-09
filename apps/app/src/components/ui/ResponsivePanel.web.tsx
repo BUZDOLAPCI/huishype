@@ -24,6 +24,8 @@ export interface ResponsivePanelProps {
   onClose?: () => void;
   /** Route pages pass through in portrait; map overlays use bottom-sheet chrome. */
   presentation?: 'route' | 'map-sheet';
+  /** Right offset for landscape map sheets when another panel owns the edge. */
+  landscapeRightOffset?: number;
 }
 
 // Inject CSS for the responsive panel — same injection pattern as PropertyBottomSheet.web.tsx
@@ -121,6 +123,7 @@ export function ResponsivePanel({
   title,
   onClose,
   presentation = 'route',
+  landscapeRightOffset,
 }: ResponsivePanelProps) {
   const t = useT();
   const isLandscape = useIsLandscape();
@@ -185,6 +188,7 @@ export function ResponsivePanel({
         surfaceColor="#FFFBF5"
         panelZIndex={2003}
         backdropZIndex={2002}
+        landscapeRightOffset={landscapeRightOffset}
       >
         <div className="responsive-panel-content">{children}</div>
       </WebPanelChrome>

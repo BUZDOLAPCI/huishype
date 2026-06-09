@@ -57,6 +57,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onGuessPress,
       onCommentPress,
       onAuthRequired,
+      landscapeRightOffset,
     },
     ref
   ) {
@@ -198,6 +199,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         onStateChange={updateState}
         onClose={handleDismiss}
         showBackdrop={showBackdrop}
+        landscapeRightOffset={landscapeRightOffset}
         enableContentDrag
         enableBodyPressExpand
       >
