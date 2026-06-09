@@ -668,14 +668,20 @@ jest.mock('@/src/screens/CommentsRouteScreen', () => ({
     onNavigate,
     panelPresentation,
     landscapeRightOffset,
+    onPanelOpenChange,
   }: {
     propertyId?: string | null;
     returnTo?: string | null;
     onNavigate?: (path: string) => void;
     panelPresentation?: string;
     landscapeRightOffset?: number;
+    onPanelOpenChange?: (isOpen: boolean) => void;
   }) => {
     const ReactModule = require('react');
+    ReactModule.useEffect(() => {
+      onPanelOpenChange?.(true);
+      return () => onPanelOpenChange?.(false);
+    }, [onPanelOpenChange]);
     return ReactModule.createElement(
       'button',
       {
@@ -697,14 +703,20 @@ jest.mock('@/src/screens/GuessesRouteScreen', () => ({
     onNavigate,
     panelPresentation,
     landscapeRightOffset,
+    onPanelOpenChange,
   }: {
     propertyId?: string | null;
     returnTo?: string | null;
     onNavigate?: (path: string) => void;
     panelPresentation?: string;
     landscapeRightOffset?: number;
+    onPanelOpenChange?: (isOpen: boolean) => void;
   }) => {
     const ReactModule = require('react');
+    ReactModule.useEffect(() => {
+      onPanelOpenChange?.(true);
+      return () => onPanelOpenChange?.(false);
+    }, [onPanelOpenChange]);
     return ReactModule.createElement(
       'button',
       {

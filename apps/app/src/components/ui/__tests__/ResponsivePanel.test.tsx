@@ -216,9 +216,10 @@ describe('ResponsivePanel.web', () => {
 
   it('renders map-sheet presentation as a portrait bottom sheet that mounts closed before opening', () => {
     setWindowSize(390, 844);
+    const onOpenChange = jest.fn();
 
     renderToDOM(
-      <ResponsivePanel title="Comments" presentation="map-sheet">
+      <ResponsivePanel title="Comments" presentation="map-sheet" onOpenChange={onOpenChange}>
         <span>Map sheet content</span>
       </ResponsivePanel>
     );
@@ -234,11 +235,13 @@ describe('ResponsivePanel.web', () => {
     expect(backdrop).not.toBeNull();
     expect(backdrop?.className).not.toContain('open');
     expect(container.textContent).toContain('Map sheet content');
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
 
     flushAnimationFrame();
 
     expect(panel?.className).toContain('partial');
     expect(backdrop?.className).toContain('open');
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
   });
 
   it('animates map-sheet presentation closed before calling close handlers', () => {
@@ -323,6 +326,7 @@ describe('ResponsivePanel.web', () => {
   it('renders map-sheet presentation as a landscape side panel with backdrop close', () => {
     setWindowSize(1280, 720);
     const onClose = jest.fn();
+    const onOpenChange = jest.fn();
 
     renderToDOM(
       <ResponsivePanel
@@ -330,6 +334,7 @@ describe('ResponsivePanel.web', () => {
         presentation="map-sheet"
         landscapeRightOffset={420}
         onClose={onClose}
+        onOpenChange={onOpenChange}
       >
         <span>Landscape map sheet content</span>
       </ResponsivePanel>
@@ -345,16 +350,19 @@ describe('ResponsivePanel.web', () => {
     expect(panel?.className).not.toContain('open');
     expect(queryDom('web-panel-handle')).toBeNull();
     expect(queryDom('web-panel-backdrop')?.className).not.toContain('open');
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
 
     flushAnimationFrame();
 
     expect(panel?.className).toContain('open');
     expect(queryDom('web-panel-backdrop')?.className).toContain('open');
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
     jest.useFakeTimers();
 
     act(() => {
       queryDom('web-panel-backdrop')?.click();
     });
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
     expect(onClose).not.toHaveBeenCalled();
 
     act(() => {

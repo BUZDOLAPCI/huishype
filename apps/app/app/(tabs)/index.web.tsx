@@ -969,10 +969,12 @@ function MapSocialOverlay({
   route,
   returnTo,
   onNavigate,
+  onPanelOpenChange,
 }: {
   route: MapSocialRoute;
   returnTo: string;
   onNavigate: (path: string) => void;
+  onPanelOpenChange: (isOpen: boolean) => void;
 }) {
   const testID =
     route.kind === 'map-comments'
@@ -988,6 +990,7 @@ function MapSocialOverlay({
           onNavigate={onNavigate}
           panelPresentation="map-sheet"
           landscapeRightOffset={0}
+          onPanelOpenChange={onPanelOpenChange}
         />
       ) : (
         <GuessesRouteScreen
@@ -996,6 +999,7 @@ function MapSocialOverlay({
           onNavigate={onNavigate}
           panelPresentation="map-sheet"
           landscapeRightOffset={0}
+          onPanelOpenChange={onPanelOpenChange}
         />
       )}
     </div>
@@ -1230,6 +1234,15 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const activeMapSocialPreviewPath = activeMapSocialRoute
     ? buildCanonicalMapPreviewPath(activeMapSocialRoute.routeInput)
     : null;
+  const [isMapSocialPanelOpen, setIsMapSocialPanelOpen] = useState(false);
+  const handleMapSocialPanelOpenChange = useCallback((isOpen: boolean) => {
+    setIsMapSocialPanelOpen((current) => (current === isOpen ? current : isOpen));
+  }, []);
+  useEffect(() => {
+    if (!activeMapSocialRoute) {
+      setIsMapSocialPanelOpen(false);
+    }
+  }, [activeMapSocialRoute]);
   const appliedRoutePathRef = useRef<string | null>(null);
   const skipNextPassiveUrlSyncRef = useRef(true);
   const lastCameraPathRef = useRef<string>('/');
@@ -4246,7 +4259,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         onGuessPress={handleMapGuessPress}
         onCommentPress={handleMapCommentPress}
         onAuthRequired={interaction.handleAuthRequired}
-        landscapeRightOffset={activeMapSocialRoute ? MAP_SOCIAL_PANEL_WIDTH : 0}
+        landscapeRightOffset={isMapSocialPanelOpen ? MAP_SOCIAL_PANEL_WIDTH : 0}
       />
 
       {activeMapSocialRoute && activeMapSocialPreviewPath ? (
@@ -4254,6 +4267,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
           route={activeMapSocialRoute}
           returnTo={activeMapSocialPreviewPath}
           onNavigate={handleMapSocialNavigate}
+          onPanelOpenChange={handleMapSocialPanelOpenChange}
         />
       ) : null}
 

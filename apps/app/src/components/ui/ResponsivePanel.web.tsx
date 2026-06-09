@@ -30,6 +30,8 @@ export interface ResponsivePanelProps {
   title?: string;
   /** Called when the panel is dismissed. Defaults to `router.back()`. */
   onClose?: () => void;
+  /** Reports the chrome-open state for map-sheet choreography. */
+  onOpenChange?: (isOpen: boolean) => void;
   /** Route pages pass through in portrait; map overlays use bottom-sheet chrome. */
   presentation?: 'route' | 'map-sheet';
   /** Right offset for landscape map sheets when another panel owns the edge. */
@@ -132,7 +134,7 @@ if (typeof document !== 'undefined') {
 
 export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelProps>(
   function ResponsivePanel(
-    { children, title, onClose, presentation = 'route', landscapeRightOffset },
+    { children, title, onClose, onOpenChange, presentation = 'route', landscapeRightOffset },
     ref
   ) {
     const t = useT();
@@ -197,6 +199,15 @@ export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelPro
       },
       [clearMapSheetCloseTimer]
     );
+
+    useEffect(() => {
+      if (presentation !== 'map-sheet') {
+        onOpenChange?.(isLandscape && presentation === 'route');
+        return;
+      }
+
+      onOpenChange?.(mapSheetState !== 'closed');
+    }, [isLandscape, mapSheetState, onOpenChange, presentation]);
 
     // Dismiss on Escape key (landscape panel only)
     useEffect(() => {
