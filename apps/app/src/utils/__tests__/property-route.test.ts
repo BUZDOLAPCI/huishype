@@ -2,6 +2,8 @@ import {
   buildCanonicalRouteHref,
   buildPropertyCommentsRoute,
   buildPropertyGuessesRoute,
+  buildPropertyMapCommentsRoute,
+  buildPropertyMapGuessesRoute,
   buildPropertyMapRoute,
   buildPropertyRoute,
   isStaticAppRoutePath,
@@ -37,6 +39,12 @@ describe('property-route', () => {
     );
     expect(buildPropertyMapRoute(canonicalProperty)).toBe(
       '/map/eindhoven/5600aa/nieuwe-emmasingel/12-b',
+    );
+    expect(buildPropertyMapCommentsRoute(canonicalProperty)).toBe(
+      '/map/eindhoven/5600aa/nieuwe-emmasingel/12-b/comments',
+    );
+    expect(buildPropertyMapGuessesRoute(canonicalProperty)).toBe(
+      '/map/eindhoven/5600aa/nieuwe-emmasingel/12-b/guesses',
     );
     expect(buildPropertyCommentsRoute(canonicalProperty)).toBe(
       '/eindhoven/5600aa/nieuwe-emmasingel/12-b/comments',

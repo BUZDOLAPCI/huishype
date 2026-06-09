@@ -654,6 +654,52 @@ jest.mock('maplibre-gl', () => {
   };
 });
 
+jest.mock('@/src/screens/CommentsRouteScreen', () => ({
+  CommentsRouteScreen: ({
+    propertyId,
+    returnTo,
+    onNavigate,
+  }: {
+    propertyId?: string | null;
+    returnTo?: string | null;
+    onNavigate?: (path: string) => void;
+  }) => {
+    const ReactModule = require('react');
+    return ReactModule.createElement(
+      'button',
+      {
+        'data-testid': 'mock-comments-route-screen',
+        'data-property-id': propertyId ?? '',
+        onClick: () => onNavigate?.(returnTo ?? '/'),
+      },
+      'comments',
+    );
+  },
+}));
+
+jest.mock('@/src/screens/GuessesRouteScreen', () => ({
+  GuessesRouteScreen: ({
+    propertyId,
+    returnTo,
+    onNavigate,
+  }: {
+    propertyId?: string | null;
+    returnTo?: string | null;
+    onNavigate?: (path: string) => void;
+  }) => {
+    const ReactModule = require('react');
+    return ReactModule.createElement(
+      'button',
+      {
+        'data-testid': 'mock-guesses-route-screen',
+        'data-property-id': propertyId ?? '',
+        onClick: () => onNavigate?.(returnTo ?? '/'),
+      },
+      'guesses',
+    );
+  },
+}));
+
 import MapScreen from '@/app/(tabs)/index.web';
 
 const { Map: mockMapConstructor, Marker: mockMarkerConstructor } = jest.requireMock('maplibre-gl') as {
@@ -1283,6 +1329,92 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
 
     window.removeEventListener('popstate', routeNavigation);
+  });
+
+  it('keeps the map mounted for direct map comments overlays and closes to preview', async () => {
+    mockPreviewRouteInputs();
+    const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
+    const commentsPath = `${previewPath}/comments`;
+    const previewProperty = {
+      id: 'property-a',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      streetName: 'Beeldbuisring',
+      houseNumber: '41',
+      countryCode: 'NL' as const,
+      coordinates: { lon: 5.47, lat: 51.44 },
+      hasActiveListing: false,
+      marketState: 'not-listed' as const,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationSourceFetch: null,
+    };
+    const resolvedAddress = {
+      bagId: 'property-a',
+      formattedAddress: 'Beeldbuisring 41, Eindhoven',
+      lat: 51.44,
+      lon: 5.47,
+      details: {
+        city: 'Eindhoven',
+        zip: '5651HA',
+        street: 'Beeldbuisring',
+        number: '41',
+        houseNumber: '41',
+        houseNumberAddition: null,
+        countryCode: 'NL',
+      },
+    };
+    mockBrowserPathname = commentsPath;
+    window.history.replaceState({}, '', commentsPath);
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: commentsPath,
+      resolvedRoute: {
+        kind: 'map-comments',
+        canonicalPath: commentsPath,
+        property: previewProperty,
+        resolvedAddress,
+        routeInput: {
+          city: 'Eindhoven',
+          postalCode: '5651HA',
+          streetName: 'Beeldbuisring',
+          houseNumber: '41',
+          houseNumberAddition: null,
+          countryCode: 'NL',
+        },
+      },
+    };
+    Object.assign(mockInteraction, {
+      previewGroup: {
+        properties: [previewProperty],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(container.querySelector('[data-testid="map-comments-overlay"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="mock-comments-route-screen"]')).not.toBeNull();
+    expect(mockPushBrowserPath).not.toHaveBeenCalledWith(previewPath);
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
+
+    const closeButton = container.querySelector('[data-testid="mock-comments-route-screen"]');
+    expect(closeButton).not.toBeNull();
+
+    await act(async () => {
+      closeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushMicrotasks();
+
+    expect(mockReplacePassiveBrowserPath).toHaveBeenCalledWith(previewPath);
+    expect(mockBrowserPathname).toBe(previewPath);
+    expect(jest.requireMock('expo-router').router.navigate).not.toHaveBeenCalled();
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
   });
 
   it('anchors direct preview route camera movement to the preview card viewport position', async () => {

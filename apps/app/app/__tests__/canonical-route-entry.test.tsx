@@ -9,6 +9,7 @@ const mockReplacePassiveBrowserPath = jest.fn();
 const mockPropertyScreen = jest.fn();
 const mockCommentsScreen = jest.fn();
 const mockGuessesScreen = jest.fn();
+const mockWebMapScreen = jest.fn();
 let mockPathname = '/eindhoven/5600aa/routelaan/12';
 let mockParams: { returnTo?: string | string[] } = {};
 const mockUseResolvedMapRoute = jest.fn();
@@ -57,6 +58,16 @@ jest.mock('@/src/screens/GuessesRouteScreen', () => ({
     const { Text } = require('react-native');
     mockGuessesScreen(props);
     return <Text testID="guesses-screen">guesses</Text>;
+  },
+}));
+
+jest.mock('@/app/(tabs)/index.web', () => ({
+  __esModule: true,
+  default: (props: unknown) => {
+    const React = require('react');
+    const { Text } = require('react-native');
+    mockWebMapScreen(props);
+    return <Text testID="web-map-screen">map</Text>;
   },
 }));
 
@@ -142,6 +153,37 @@ describe('canonical route entry', () => {
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/');
     });
+  });
+
+  it('renders web map routes for map-scoped comments overlays', async () => {
+    Platform.OS = 'web';
+    mockPathname = '/map/eindhoven/5600aa/routelaan/12/comments';
+    mockUseResolvedMapRoute.mockReturnValue({
+      pathname: mockPathname,
+      isLoading: false,
+      resolvedRoute: {
+        kind: 'map-comments',
+        canonicalPath: mockPathname,
+        property: { id: 'property-3' },
+        routeInput: {
+          city: 'Eindhoven',
+          postalCode: '5600 AA',
+          streetName: 'Routelaan',
+          houseNumber: '12',
+          countryCode: 'NL',
+        },
+      },
+    });
+
+    const screen = render(<CanonicalAddressRouteScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('web-map-screen')).toBeTruthy();
+    });
+    expect(mockWebMapScreen).toHaveBeenCalledWith({
+      pathnameOverride: mockPathname,
+    });
+    expect(mockCommentsScreen).not.toHaveBeenCalled();
   });
 
   it('collapses invalid web direct-entry routes through browser history without router replace', async () => {

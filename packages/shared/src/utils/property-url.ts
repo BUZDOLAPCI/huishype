@@ -177,7 +177,20 @@ export function isCanonicalMapRoutePath(pathname: string): boolean {
 
   if (firstSegment === 'map') {
     const resolution = resolveCanonicalCountryPrefix(segments.slice(1));
-    return resolution.isCanonical && resolution.remainingSegments.length === 4;
+    if (!resolution.isCanonical) {
+      return false;
+    }
+
+    if (resolution.remainingSegments.length === 4) {
+      return true;
+    }
+
+    if (resolution.remainingSegments.length === 5) {
+      const leaf = resolution.remainingSegments[4]?.toLowerCase();
+      return leaf === 'comments' || leaf === 'guesses';
+    }
+
+    return false;
   }
 
   const resolution = resolveCanonicalCountryPrefix(segments);
@@ -534,6 +547,18 @@ export function buildCanonicalMapPreviewPath(
   input: CanonicalPropertyRouteInput,
 ): string {
   return joinPathSegments('map', ...buildCanonicalAddressSegments(input));
+}
+
+export function buildCanonicalMapCommentsPath(
+  input: CanonicalPropertyRouteInput,
+): string {
+  return joinPathSegments('map', ...buildCanonicalAddressSegments(input), 'comments');
+}
+
+export function buildCanonicalMapGuessesPath(
+  input: CanonicalPropertyRouteInput,
+): string {
+  return joinPathSegments('map', ...buildCanonicalAddressSegments(input), 'guesses');
 }
 
 export function buildCanonicalCommentsPath(

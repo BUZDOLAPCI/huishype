@@ -9,6 +9,8 @@ import {
   SearchBar,
   PropertyBottomSheet,
 } from '@/src/components';
+import { CommentsRouteScreen } from '@/src/screens/CommentsRouteScreen';
+import { GuessesRouteScreen } from '@/src/screens/GuessesRouteScreen';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
 import { FollowingMapStateCard } from '@/src/components/map/FollowingMapStateCard';
 import { emitMapFollowingAnalyticsEvent } from '@/src/components/map/followingMapAnalytics';
@@ -106,7 +108,12 @@ import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useT } from '@/src/i18n';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { hydrateLocationFilterTokens } from '@/src/services/location-search';
-import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
+import {
+  buildCanonicalRouteHref,
+  buildPropertyMapCommentsRoute,
+  buildPropertyMapGuessesRoute,
+  toInternalAppHref,
+} from '@/src/utils/property-route';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import {
   MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
@@ -155,6 +162,7 @@ const CAMERA_HISTORY_CHECKPOINT_INTERVAL_MS = 8_000;
 const CAMERA_HISTORY_CHECKPOINT_ZOOM_DELTA = 0.75;
 const CAMERA_HISTORY_CHECKPOINT_CENTER_DELTA_METERS = 750;
 const PROPERTY_TILE_RECOVERY_RELOAD_DELAY_MS = 2_500;
+const MAP_SOCIAL_PANEL_WIDTH = 420;
 
 type WebViewStyle = ViewStyle & {
   animation?: string;
@@ -433,6 +441,17 @@ interface CameraHistoryCheckpoint {
   lng: number;
   zoom: number;
   pushedAtMs: number;
+}
+
+type ResolvedPropertyRoute = Extract<ResolvedMapRoute, { property: unknown }>;
+type MapSocialRoute = Omit<ResolvedPropertyRoute, 'kind'> & {
+  kind: 'map-comments' | 'map-guesses';
+};
+
+function isMapSocialRoute(
+  route: ResolvedMapRoute | null | undefined,
+): route is MapSocialRoute {
+  return route?.kind === 'map-comments' || route?.kind === 'map-guesses';
 }
 
 function getInitialWebMapCamera(pathname: string): InitialWebMapCamera {
@@ -845,6 +864,56 @@ if (typeof document !== 'undefined' && !document.getElementById(FLOATING_ZOOM_CO
   document.head.appendChild(style);
 }
 
+const MAP_SOCIAL_OVERLAY_CSS_ID = 'map-social-overlay-css';
+if (typeof document !== 'undefined') {
+  let style = document.getElementById(MAP_SOCIAL_OVERLAY_CSS_ID) as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement('style');
+    style.id = MAP_SOCIAL_OVERLAY_CSS_ID;
+    document.head.appendChild(style);
+  }
+
+  style.textContent = `
+    .map-social-overlay {
+      display: contents;
+    }
+
+    @media (orientation: portrait) {
+      .map-social-overlay {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: ${TAB_BAR_DOCK_HEIGHT}px;
+        height: min(68vh, calc(100vh - ${TAB_BAR_DOCK_HEIGHT + 24}px));
+        z-index: 2003;
+        overflow: hidden;
+        border-radius: 16px 16px 0 0;
+        background: #FFFBF5;
+        box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.16);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .map-social-overlay > * {
+        min-height: 0;
+        flex: 1 1 auto;
+      }
+    }
+
+    @media (orientation: landscape) and (min-width: ${MAP_SOCIAL_PANEL_WIDTH * 2}px) {
+      body.map-social-overlay-open .web-property-panel--landscape.open {
+        right: ${MAP_SOCIAL_PANEL_WIDTH}px;
+      }
+    }
+
+    @media (orientation: landscape) and (max-width: ${MAP_SOCIAL_PANEL_WIDTH * 2 - 1}px) {
+      body.map-social-overlay-open .responsive-panel--landscape.open {
+        z-index: 2003;
+      }
+    }
+  `;
+}
+
 const MAP_ATTRIBUTION_CSS_ID = 'map-attribution-css';
 if (typeof document !== 'undefined' && !document.getElementById(MAP_ATTRIBUTION_CSS_ID)) {
   const style = document.createElement('style');
@@ -928,6 +997,39 @@ function createCurrentLocationMarkerElement(): HTMLDivElement {
   container.appendChild(dot);
 
   return container;
+}
+
+function MapSocialOverlay({
+  route,
+  returnTo,
+  onNavigate,
+}: {
+  route: MapSocialRoute;
+  returnTo: string;
+  onNavigate: (path: string) => void;
+}) {
+  const testID =
+    route.kind === 'map-comments'
+      ? 'map-comments-overlay'
+      : 'map-guesses-overlay';
+
+  return (
+    <div className="map-social-overlay" data-testid={testID}>
+      {route.kind === 'map-comments' ? (
+        <CommentsRouteScreen
+          propertyId={route.property.id}
+          returnTo={returnTo}
+          onNavigate={onNavigate}
+        />
+      ) : (
+        <GuessesRouteScreen
+          propertyId={route.property.id}
+          returnTo={returnTo}
+          onNavigate={onNavigate}
+        />
+      )}
+    </div>
+  );
 }
 
 type RenderedPropertyGroup = NonNullable<ReturnType<typeof normalizeRenderedPropertyGroup>>;
@@ -1152,6 +1254,12 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const [searchResetToken, setSearchResetToken] = useState(0);
   const [routePathname, setRoutePathname] = useState(initialRoutePathname);
   const routeState = useResolvedMapRoute(routePathname);
+  const activeMapSocialRoute = isMapSocialRoute(routeState.resolvedRoute)
+    ? routeState.resolvedRoute
+    : null;
+  const activeMapSocialPreviewPath = activeMapSocialRoute
+    ? buildCanonicalMapPreviewPath(activeMapSocialRoute.routeInput)
+    : null;
   const appliedRoutePathRef = useRef<string | null>(null);
   const skipNextPassiveUrlSyncRef = useRef(true);
   const lastCameraPathRef = useRef<string>('/');
@@ -1189,6 +1297,17 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   useEffect(() => {
     registerPropertyTileRetryProtocol(maplibregl, API_URL);
   }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined;
+    }
+
+    document.body.classList.toggle('map-social-overlay-open', activeMapSocialRoute !== null);
+    return () => {
+      document.body.classList.remove('map-social-overlay-open');
+    };
+  }, [activeMapSocialRoute]);
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);
@@ -1564,11 +1683,16 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [previewRouteInput],
   );
   const previewOpenRef = useRef(false);
+  const parsedRouteForPreviewState = parseMapRoutePath(routePathname);
   previewOpenRef.current =
     !!interaction.previewGroup ||
     !!interaction.highlightedCoordinate ||
-    parseMapRoutePath(routePathname).kind === 'preview' ||
-    routeState.resolvedRoute?.kind === 'preview';
+    parsedRouteForPreviewState.kind === 'preview' ||
+    parsedRouteForPreviewState.kind === 'map-comments' ||
+    parsedRouteForPreviewState.kind === 'map-guesses' ||
+    routeState.resolvedRoute?.kind === 'preview' ||
+    routeState.resolvedRoute?.kind === 'map-comments' ||
+    routeState.resolvedRoute?.kind === 'map-guesses';
   const replaceMapBrowserPath = useCallback(
     (pathname: string) => {
       if (!isMapTabActiveRef.current) {
@@ -1603,6 +1727,70 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [pathnameOverride],
   );
   pushMapBrowserPathRef.current = pushMapBrowserPath;
+  const openMapSocialPath = useCallback(
+    (pathname: string) => {
+      if (!pushMapBrowserPath(pathname)) {
+        return;
+      }
+
+      browserPathRef.current = pathname;
+      setRoutePathname((currentPathname) =>
+        currentPathname === pathname ? currentPathname : pathname,
+      );
+    },
+    [pushMapBrowserPath],
+  );
+  const handleMapSocialNavigate = useCallback(
+    (target: string) => {
+      const [targetPathname = '/'] = target.split('?');
+      if (targetPathname.startsWith('/map/')) {
+        if (replaceMapBrowserPath(targetPathname)) {
+          browserPathRef.current = targetPathname;
+        }
+        setRoutePathname((currentPathname) =>
+          currentPathname === targetPathname ? currentPathname : targetPathname,
+        );
+        return;
+      }
+
+      router.navigate(toInternalAppHref(target));
+    },
+    [replaceMapBrowserPath],
+  );
+  const handleMapCommentPress = useCallback(
+    (_propertyId: string) => {
+      const routeProperty =
+        interaction.selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+      if (!routeProperty) {
+        return;
+      }
+
+      openMapSocialPath(buildPropertyMapCommentsRoute(routeProperty));
+    },
+    [
+      currentPreviewProperty,
+      interaction.selectedPropertyForSheet,
+      openMapSocialPath,
+      selectedProperty,
+    ],
+  );
+  const handleMapGuessPress = useCallback(
+    (_propertyId: string) => {
+      const routeProperty =
+        interaction.selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+      if (!routeProperty) {
+        return;
+      }
+
+      openMapSocialPath(buildPropertyMapGuessesRoute(routeProperty));
+    },
+    [
+      currentPreviewProperty,
+      interaction.selectedPropertyForSheet,
+      openMapSocialPath,
+      selectedProperty,
+    ],
+  );
   const seedDirectPreviewHistory = useCallback(
     (
       previewPath: string,
@@ -3438,6 +3626,50 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
+    if (
+      resolvedRoute.kind === 'map-comments' ||
+      resolvedRoute.kind === 'map-guesses'
+    ) {
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+
+      const resolvedCoordinates = resolvedRoute.property.coordinates;
+      const socialPreviewPath = buildCanonicalMapPreviewPath(resolvedRoute.routeInput);
+      if (previewCanonicalPath === socialPreviewPath && interaction.previewGroup) {
+        appliedRoutePathRef.current = routeState.pathname;
+        return;
+      }
+
+      if (!resolvedCoordinates) {
+        appliedRoutePathRef.current = routeState.pathname;
+        return;
+      }
+
+      skipNextPassiveUrlSyncRef.current = true;
+      if (!hasNavigableCameraPathRef.current) {
+        const fallbackCameraPath = serializeCanonicalCameraPath({
+          lat: resolvedCoordinates.lat,
+          lng: resolvedCoordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+        lastCameraPathRef.current = fallbackCameraPath;
+        hasNavigableCameraPathRef.current = true;
+        resetCameraHistoryCheckpointBaseline({
+          lat: resolvedCoordinates.lat,
+          lng: resolvedCoordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+      }
+
+      handlePropertyResolved(resolvedRoute.property, resolvedRoute.resolvedAddress);
+      setSearchCity(resolvedRoute.property.city, [
+        resolvedCoordinates.lon,
+        resolvedCoordinates.lat,
+      ]);
+      appliedRoutePathRef.current = routeState.pathname;
+      return;
+    }
+
     if (resolvedRoute.kind === 'preview') {
       lockedAreaPathRef.current = null;
       canReplaceLockedAreaPathRef.current = true;
@@ -3498,6 +3730,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     if (interaction.previewGroup && previewCanonicalPath) {
       previousPreviewPathRef.current = previewCanonicalPath;
+      if (
+        activeMapSocialRoute &&
+        activeMapSocialPreviewPath === previewCanonicalPath
+      ) {
+        browserPathRef.current = activeMapSocialRoute.canonicalPath;
+        return;
+      }
+
       if (pushMapBrowserPath(previewCanonicalPath)) {
         directPreviewHistoryPathRef.current = null;
         browserPathRef.current = previewCanonicalPath;
@@ -3559,6 +3799,8 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [
     isMapTabActive,
     interaction.previewGroup,
+    activeMapSocialPreviewPath,
+    activeMapSocialRoute,
     previewCanonicalPath,
     pushMapBrowserPath,
     replaceMapBrowserPath,
@@ -4042,10 +4284,18 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         onSave={interaction.handleSave}
         onShare={interaction.handleShare}
         onLike={interaction.handleLike}
-        onGuessPress={interaction.handleGuessPress}
-        onCommentPress={interaction.handleCommentPress}
+        onGuessPress={handleMapGuessPress}
+        onCommentPress={handleMapCommentPress}
         onAuthRequired={interaction.handleAuthRequired}
       />
+
+      {activeMapSocialRoute && activeMapSocialPreviewPath ? (
+        <MapSocialOverlay
+          route={activeMapSocialRoute}
+          returnTo={activeMapSocialPreviewPath}
+          onNavigate={handleMapSocialNavigate}
+        />
+      ) : null}
 
       {/* Auth Modal */}
       <AuthModal

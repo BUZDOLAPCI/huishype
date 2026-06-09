@@ -3,6 +3,8 @@ import {
   buildCanonicalCitySlug,
   buildCanonicalCommentsPath,
   buildCanonicalGuessesPath,
+  buildCanonicalMapCommentsPath,
+  buildCanonicalMapGuessesPath,
   buildCanonicalMapPreviewPath,
   buildCanonicalPostcodeMapPath,
   buildCanonicalPostcodeSlug,
@@ -41,7 +43,13 @@ export type ParsedMapRoute =
       postcodeSlug: string;
     }
   | {
-      kind: 'preview' | 'property' | 'comments' | 'guesses';
+      kind:
+        | 'preview'
+        | 'property'
+        | 'comments'
+        | 'guesses'
+        | 'map-comments'
+        | 'map-guesses';
       pathname: string;
       countryCode: CountryCode;
       citySlug: string;
@@ -53,7 +61,15 @@ export type ParsedMapRoute =
 
 type AddressLeafRoute = Extract<
   ParsedMapRoute,
-  { kind: 'preview' | 'property' | 'comments' | 'guesses' }
+  {
+    kind:
+      | 'preview'
+      | 'property'
+      | 'comments'
+      | 'guesses'
+      | 'map-comments'
+      | 'map-guesses';
+  }
 >;
 
 export type ResolvedMapRoute =
@@ -68,7 +84,13 @@ export type ResolvedMapRoute =
       countryCode: CountryCode;
     }
   | {
-      kind: 'preview' | 'property' | 'comments' | 'guesses';
+      kind:
+        | 'preview'
+        | 'property'
+        | 'comments'
+        | 'guesses'
+        | 'map-comments'
+        | 'map-guesses';
       canonicalPath: string;
       property: PropertyResolveResult;
       resolvedAddress: ResolvedAddress;
@@ -242,12 +264,22 @@ function buildPropertyResolveRequest(
 }
 
 function buildCanonicalPathForKind(
-  kind: 'preview' | 'property' | 'comments' | 'guesses',
+  kind:
+    | 'preview'
+    | 'property'
+    | 'comments'
+    | 'guesses'
+    | 'map-comments'
+    | 'map-guesses',
   input: CanonicalPropertyRouteInput,
 ): string {
   switch (kind) {
     case 'preview':
       return buildCanonicalMapPreviewPath(input);
+    case 'map-comments':
+      return buildCanonicalMapCommentsPath(input);
+    case 'map-guesses':
+      return buildCanonicalMapGuessesPath(input);
     case 'comments':
       return buildCanonicalCommentsPath(input);
     case 'guesses':
@@ -366,13 +398,25 @@ export function parseMapRoutePath(pathname: string): ParsedMapRoute {
       return { kind: 'invalid', pathname: normalizedPath, reason: 'map-root-redirect' };
     }
 
-    if (resolution.remainingSegments.length !== 4) {
+    if (
+      resolution.remainingSegments.length !== 4 &&
+      resolution.remainingSegments.length !== 5
+    ) {
       return { kind: 'invalid', pathname: normalizedPath, reason: 'invalid-map-route-shape' };
     }
 
-    const [citySlug, postcodeSlug, streetSlug, houseSegment] = resolution.remainingSegments;
+    const [citySlug, postcodeSlug, streetSlug, houseSegment, leaf] =
+      resolution.remainingSegments;
+    if (leaf != null && leaf !== 'comments' && leaf !== 'guesses') {
+      return { kind: 'invalid', pathname: normalizedPath, reason: 'invalid-map-route-leaf' };
+    }
+
     return {
-      kind: 'preview',
+      kind: leaf === 'comments'
+        ? 'map-comments'
+        : leaf === 'guesses'
+          ? 'map-guesses'
+          : 'preview',
       pathname: normalizedPath,
       countryCode: resolution.countryCode,
       citySlug,
