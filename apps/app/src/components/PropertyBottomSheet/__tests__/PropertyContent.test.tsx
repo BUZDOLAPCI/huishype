@@ -302,6 +302,93 @@ describe('PropertyContent', () => {
     expect(onScrollToGuess).toHaveBeenCalledTimes(1);
   });
 
+  it('preloads social sections below the fold when the caller row enters the viewport', async () => {
+    const onSocialSectionsMountChange = jest.fn();
+    const { rerender } = renderWithProviders(
+      <PropertyContent
+        property={detailedProperty}
+        scrollViewport={{ offsetY: 0, height: 240 }}
+        deferSocialSectionsUntilActionsVisible
+        onSocialSectionsMountChange={onSocialSectionsMountChange}
+      />
+    );
+
+    expect(screen.queryByText('Price guess section')).toBeNull();
+    expect(screen.queryByText('Comments section')).toBeNull();
+    expect(screen.getByTestId('property-content-guess-section-deferred')).toBeTruthy();
+    expect(screen.getByTestId('property-content-comments-section-deferred')).toBeTruthy();
+    expect(onSocialSectionsMountChange).toHaveBeenLastCalledWith(detailedProperty.id, false);
+
+    fireEvent(screen.getByTestId('property-content-section-stack'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 640, width: 320, height: 960 } },
+    });
+    fireEvent(screen.getByTestId('property-content-quick-actions-section'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 120, width: 320, height: 96 } },
+    });
+
+    expect(screen.queryByText('Price guess section')).toBeNull();
+    expect(screen.queryByText('Comments section')).toBeNull();
+
+    rerender(
+      <PropertyContent
+        property={detailedProperty}
+        scrollViewport={{ offsetY: 620, height: 240 }}
+        deferSocialSectionsUntilActionsVisible
+        onSocialSectionsMountChange={onSocialSectionsMountChange}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Price guess section')).toBeTruthy();
+      expect(screen.getByText('Comments section')).toBeTruthy();
+    });
+    expect(onSocialSectionsMountChange).toHaveBeenLastCalledWith(detailedProperty.id, true);
+  });
+
+  it('clears viewport-preloaded social sections when the property changes', async () => {
+    const firstProperty = {
+      ...detailedProperty,
+      id: 'property-preloaded',
+    };
+    const secondProperty = {
+      ...detailedProperty,
+      id: 'property-cleared',
+    };
+
+    const { rerender } = renderWithProviders(
+      <PropertyContent
+        property={firstProperty}
+        scrollViewport={{ offsetY: 620, height: 240 }}
+        deferSocialSectionsUntilActionsVisible
+      />
+    );
+
+    fireEvent(screen.getByTestId('property-content-section-stack'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 640, width: 320, height: 960 } },
+    });
+    fireEvent(screen.getByTestId('property-content-quick-actions-section'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 120, width: 320, height: 96 } },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Price guess section')).toBeTruthy();
+      expect(screen.getByText('Comments section')).toBeTruthy();
+    });
+
+    rerender(
+      <PropertyContent
+        property={secondProperty}
+        scrollViewport={{ offsetY: 620, height: 240 }}
+        deferSocialSectionsUntilActionsVisible
+      />
+    );
+
+    expect(screen.queryByText('Price guess section')).toBeNull();
+    expect(screen.queryByText('Comments section')).toBeNull();
+    expect(screen.getByTestId('property-content-guess-section-deferred')).toBeTruthy();
+    expect(screen.getByTestId('property-content-comments-section-deferred')).toBeTruthy();
+  });
+
   it('reports section anchors relative to the full scroll content, not just the inner stack', async () => {
     const onGuessSectionLayout = jest.fn();
     const onCommentsSectionLayout = jest.fn();

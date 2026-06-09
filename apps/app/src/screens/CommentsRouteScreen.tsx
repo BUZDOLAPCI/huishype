@@ -14,11 +14,12 @@ import { Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
-import { ResponsivePanel } from '@/src/components/ui/ResponsivePanel';
 import {
-  CommentCell,
-  type CommentData as CommentCellData,
-} from '@/src/components/CommentCell';
+  ResponsivePanel,
+  type ResponsivePanelProps,
+  type ResponsivePanelRef,
+} from '@/src/components/ui/ResponsivePanel';
+import { CommentCell, type CommentData as CommentCellData } from '@/src/components/CommentCell';
 import { toCommentCellData } from '@/src/components/comment-cell-data';
 import { CommentInput } from '@/src/components/CommentInput';
 import { useProperty } from '@/src/hooks/useProperties';
@@ -36,10 +37,7 @@ import { CommentSortToggle } from '@/src/components/Comments';
 import { TAB_BAR_DOCK_HEIGHT } from '@/src/components/navigation/tabBarMetrics';
 import { ReportModal } from '@/src/components/ReportModal';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
-import {
-  resolvePropertyImageWithType,
-  toPropertyImageSource,
-} from '@/src/utils/property-image';
+import { resolvePropertyImageWithType, toPropertyImageSource } from '@/src/utils/property-image';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import {
   buildPropertyRoute,
@@ -53,6 +51,10 @@ export interface CommentsRouteScreenProps {
   propertyId?: string | null;
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
+  panelPresentation?: ResponsivePanelProps['presentation'];
+  panelOpen?: ResponsivePanelProps['open'];
+  landscapeRightOffset?: ResponsivePanelProps['landscapeRightOffset'];
+  onPanelOpenChange?: ResponsivePanelProps['onOpenChange'];
 }
 
 function findCommentById(comments: Comment[], commentId: string): Comment | undefined {
@@ -74,6 +76,10 @@ export function CommentsRouteScreen({
   propertyId,
   returnTo,
   onNavigate,
+  panelPresentation = 'route',
+  panelOpen,
+  landscapeRightOffset,
+  onPanelOpenChange,
 }: CommentsRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -81,12 +87,11 @@ export function CommentsRouteScreen({
   const isLandscape = useIsLandscape();
   const hydratedNow = useHydratedNow();
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
+  const panelRef = useRef<ResponsivePanelRef>(null);
   const lastCloseAtRef = useRef(0);
 
   const [sortBy, setSortBy] = useState<CommentSortBy>('popular');
-  const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(
-    null,
-  );
+  const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
@@ -109,13 +114,12 @@ export function CommentsRouteScreen({
   }, [commentsData?.pages]);
 
   const commentsDisabled =
-    property?.commentsDisabled === true ||
-    commentsData?.pages[0]?.commentsDisabled === true;
+    property?.commentsDisabled === true || commentsData?.pages[0]?.commentsDisabled === true;
   const totalComments = commentsData?.pages[0]?.meta.total ?? 0;
 
   const cellComments: CommentCellData[] = useMemo(
     () => allComments.map((comment) => toCommentCellData(comment, hydratedNow)),
-    [allComments, hydratedNow],
+    [allComments, hydratedNow]
   );
 
   const handleLike = useCallback(
@@ -130,7 +134,7 @@ export function CommentsRouteScreen({
 
       likeMutation.mutate({ commentId, isCurrentlyLiked });
     },
-    [allComments, isAuthenticated, likeMutation],
+    [allComments, isAuthenticated, likeMutation]
   );
 
   const handleReply = useCallback(
@@ -144,7 +148,7 @@ export function CommentsRouteScreen({
         setReplyTo({ id: commentId, username: comment.user.username });
       }
     },
-    [isAuthenticated, allComments],
+    [isAuthenticated, allComments]
   );
 
   const handleSubmit = useCallback(
@@ -155,11 +159,11 @@ export function CommentsRouteScreen({
       }
       submitMutation.mutate(
         { content, parentId: replyTo?.id },
-        { onSuccess: () => setReplyTo(null) },
+        { onSuccess: () => setReplyTo(null) }
       );
       return true;
     },
-    [isAuthenticated, replyTo?.id, submitMutation],
+    [isAuthenticated, replyTo?.id, submitMutation]
   );
 
   const handleLoadMore = useCallback(() => {
@@ -176,7 +180,7 @@ export function CommentsRouteScreen({
         },
       });
     },
-    [deleteMutation, t],
+    [deleteMutation, t]
   );
 
   const propertyImageSource = property ? toPropertyImageSource(property) : null;
@@ -185,9 +189,10 @@ export function CommentsRouteScreen({
     : { url: null, type: 'placeholder' as const };
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
-  const composerBottomOffset = Platform.OS === 'web' && isLandscape
-    ? 0
-    : TAB_BAR_DOCK_HEIGHT;
+  const composerBottomOffset =
+    Platform.OS === 'web' && (isLandscape || panelPresentation === 'map-sheet')
+      ? 0
+      : TAB_BAR_DOCK_HEIGHT;
   const navigateToTarget = useCallback(
     (targetHref: string) => {
       if (onNavigate) {
@@ -203,7 +208,7 @@ export function CommentsRouteScreen({
 
       router.replace(href);
     },
-    [onNavigate],
+    [onNavigate]
   );
 
   const navigateBackOrFallback = useCallback((fallbackHref: Href) => {
@@ -249,11 +254,28 @@ export function CommentsRouteScreen({
     handleClose();
   }, [handleClose]);
 
+  const requestClose = useCallback(() => {
+    if (panelPresentation === 'map-sheet') {
+      panelRef.current?.close();
+      return;
+    }
+
+    triggerClose();
+  }, [panelPresentation, triggerClose]);
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <ResponsivePanel title={t('comments.title')} onClose={triggerClose}>
+      <ResponsivePanel
+        ref={panelRef}
+        title={t('comments.title')}
+        onClose={triggerClose}
+        onOpenChange={onPanelOpenChange}
+        presentation={panelPresentation}
+        open={panelOpen}
+        landscapeRightOffset={landscapeRightOffset}
+      >
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -261,7 +283,7 @@ export function CommentsRouteScreen({
         >
           <View style={[styles.header, { paddingTop: topInset + 8 }]}>
             <TouchableOpacity
-              onPress={triggerClose}
+              onPress={requestClose}
               style={styles.headerBackButton}
               testID="comments-back-button"
               accessibilityRole="button"
@@ -301,9 +323,7 @@ export function CommentsRouteScreen({
                 count: totalComments,
               })}
             </Text>
-            {commentsDisabled ? null : (
-              <CommentSortToggle value={sortBy} onChange={setSortBy} />
-            )}
+            {commentsDisabled ? null : <CommentSortToggle value={sortBy} onChange={setSortBy} />}
           </View>
 
           {commentsDisabled ? (
@@ -336,20 +356,13 @@ export function CommentsRouteScreen({
               onEndReached={handleLoadMore}
               onEndReachedThreshold={0.4}
               ListFooterComponent={
-                isFetchingNextPage ? (
-                  <ActivityIndicator size="small" color="#F5A623" />
-                ) : null
+                isFetchingNextPage ? <ActivityIndicator size="small" color="#F5A623" /> : null
               }
             />
           )}
 
           {commentsDisabled ? null : (
-            <View
-              style={[
-                styles.composerDock,
-                { bottom: insets.bottom + composerBottomOffset },
-              ]}
-            >
+            <View style={[styles.composerDock, { bottom: insets.bottom + composerBottomOffset }]}>
               <CommentInput
                 onSubmit={handleSubmit}
                 replyTo={replyTo}
@@ -364,10 +377,7 @@ export function CommentsRouteScreen({
         </KeyboardAvoidingView>
       </ResponsivePanel>
 
-      <AuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-      />
+      <AuthModal visible={showAuthModal} onClose={() => setShowAuthModal(false)} />
       {reportCommentId ? (
         <ReportModal
           visible

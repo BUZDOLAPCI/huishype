@@ -7,6 +7,9 @@ import {
   Platform,
   StyleSheet,
   BackHandler,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -32,6 +35,7 @@ import {
   toInternalAppHref,
 } from '@/src/utils/property-route';
 import { useT } from '@/src/i18n';
+import { getSectionScrollTarget } from '@/src/components/PropertyBottomSheet/sectionScroll';
 
 function PropertyDetailSkeleton() {
   const t = useT();
@@ -77,7 +81,11 @@ export function PropertyDetailRouteScreen({
   const { data: property, isLoading, isSuccess } = useProperty(propertyId ?? null);
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
   const lastBackAtRef = useRef(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const guessSectionY = useRef(0);
+  const commentsSectionY = useRef(0);
   const [isHydrated, setIsHydrated] = useState(Platform.OS !== 'web');
+  const [scrollViewport, setScrollViewport] = useState({ offsetY: 0, height: 0 });
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authCopy, setAuthCopy] = useState(DEFAULT_AUTH_MODAL_COPY);
@@ -138,6 +146,49 @@ export function PropertyDetailRouteScreen({
     },
     [normalizedReturnTarget, property],
   );
+
+  const scrollToSection = useCallback((sectionY: number) => {
+    scrollRef.current?.scrollTo({
+      y: getSectionScrollTarget(sectionY),
+      animated: true,
+    });
+  }, []);
+
+  const handleScrollToComments = useCallback(() => {
+    scrollToSection(commentsSectionY.current);
+  }, [scrollToSection]);
+
+  const handleScrollToGuess = useCallback(() => {
+    scrollToSection(guessSectionY.current);
+  }, [scrollToSection]);
+
+  const handleScrollViewLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = event.nativeEvent.layout.height;
+    setScrollViewport((current) => {
+      if (Math.abs(current.height - nextHeight) < 1) {
+        return current;
+      }
+
+      return {
+        ...current,
+        height: nextHeight,
+      };
+    });
+  }, []);
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const nextOffsetY = event.nativeEvent.contentOffset.y;
+    setScrollViewport((current) => {
+      if (Math.abs(current.offsetY - nextOffsetY) < 48) {
+        return current;
+      }
+
+      return {
+        ...current,
+        offsetY: nextOffsetY,
+      };
+    });
+  }, []);
 
   const handleBack = useCallback(() => {
     if (normalizedReturnTarget) {
@@ -267,16 +318,26 @@ export function PropertyDetailRouteScreen({
 
       <View style={styles.container}>
         <ScrollView
+          ref={scrollRef}
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          onLayout={handleScrollViewLayout}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <PropertyContent
             property={property}
             manageInteractionsInternally
             onAuthRequired={handleAuthRequired}
+            onScrollToComments={handleScrollToComments}
+            onScrollToGuess={handleScrollToGuess}
             onGuessPress={handleViewAllGuesses}
             onViewAllComments={handleViewAllComments}
+            onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
+            onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
+            scrollViewport={scrollViewport}
+            deferSocialSectionsUntilActionsVisible
           />
         </ScrollView>
 

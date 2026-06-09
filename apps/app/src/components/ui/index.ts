@@ -7,5 +7,9 @@ export { NotificationBell, type NotificationBellProps } from './NotificationBell
 export { Chip, type ChipProps } from './Chip';
 export { Card, type CardProps } from './Card';
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './Button';
-export { ResponsivePanel, type ResponsivePanelProps } from './ResponsivePanel';
+export {
+  ResponsivePanel,
+  type ResponsivePanelProps,
+  type ResponsivePanelRef,
+} from './ResponsivePanel';
 export { SkeletonBlock, SkeletonText, type SkeletonProps } from './Skeleton';

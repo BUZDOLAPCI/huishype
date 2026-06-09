@@ -1,4 +1,9 @@
-import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle } from 'react';
+import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle, useState } from 'react';
+import {
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
 import BottomSheetLib, {
   BottomSheetBackdrop,
   BottomSheetScrollView,
@@ -34,6 +39,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onLike,
       onGuessPress,
       onCommentPress,
+      onSocialSectionsMountChange,
       onAuthRequired,
     },
     ref
@@ -41,6 +47,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const bottomSheetRef = useRef<BottomSheetLib>(null);
     const scrollViewRef = useRef<BottomSheetScrollViewMethods | null>(null);
     const animatedIndex = useSharedValue(-1);
+    const [scrollViewport, setScrollViewport] = useState({ offsetY: 0, height: 0 });
 
     // Section layout positions for scroll-to
     const sectionPositions = useRef<{ guess: number; comments: number }>({
@@ -118,6 +125,34 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       bottomSheetRef.current?.snapToIndex(2);
     }, [animatedIndex]);
 
+    const handleScrollViewLayout = useCallback((event: LayoutChangeEvent) => {
+      const nextHeight = event.nativeEvent.layout.height;
+      setScrollViewport((current) => {
+        if (Math.abs(current.height - nextHeight) < 1) {
+          return current;
+        }
+
+        return {
+          ...current,
+          height: nextHeight,
+        };
+      });
+    }, []);
+
+    const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const nextOffsetY = event.nativeEvent.contentOffset.y;
+      setScrollViewport((current) => {
+        if (Math.abs(current.offsetY - nextOffsetY) < 48) {
+          return current;
+        }
+
+        return {
+          ...current,
+          offsetY: nextOffsetY,
+        };
+      });
+    }, []);
+
     const contentAnimatedStyle = useAnimatedStyle(() => {
       const opacity = interpolate(
         animatedIndex.value,
@@ -149,6 +184,9 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           ref={scrollViewRef}
           contentContainerStyle={{ paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
+          onLayout={handleScrollViewLayout}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           <Animated.View style={contentAnimatedStyle}>
             <PropertyContent
@@ -163,10 +201,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onScrollToGuess={() => scrollToSection(sectionPositions.current.guess)}
               onGuessPress={onGuessPress}
               onViewAllComments={onCommentPress}
+              onSocialSectionsMountChange={onSocialSectionsMountChange}
               onAuthRequired={onAuthRequired}
               onGuessSectionLayout={handleGuessSectionLayout}
               onCommentsSectionLayout={handleCommentsSectionLayout}
               onHalfExpandedBodyPress={handleHalfExpandedBodyPress}
+              scrollViewport={scrollViewport}
+              deferSocialSectionsUntilActionsVisible
             />
           </Animated.View>
         </BottomSheetScrollView>

@@ -3,6 +3,8 @@ import {
   buildCanonicalCitySlug,
   buildCanonicalCommentsPath,
   buildCanonicalGuessesPath,
+  buildCanonicalMapCommentsPath,
+  buildCanonicalMapGuessesPath,
   buildCanonicalMapPreviewPath,
   buildCanonicalPostcodeMapPath,
   buildCanonicalPostcodeSlug,
@@ -41,7 +43,13 @@ export type ParsedMapRoute =
       postcodeSlug: string;
     }
   | {
-      kind: 'preview' | 'property' | 'comments' | 'guesses';
+      kind:
+        | 'preview'
+        | 'property'
+        | 'comments'
+        | 'guesses'
+        | 'map-comments'
+        | 'map-guesses';
       pathname: string;
       countryCode: CountryCode;
       citySlug: string;
@@ -53,7 +61,15 @@ export type ParsedMapRoute =
 
 type AddressLeafRoute = Extract<
   ParsedMapRoute,
-  { kind: 'preview' | 'property' | 'comments' | 'guesses' }
+  {
+    kind:
+      | 'preview'
+      | 'property'
+      | 'comments'
+      | 'guesses'
+      | 'map-comments'
+      | 'map-guesses';
+  }
 >;
 
 export type ResolvedMapRoute =
@@ -68,7 +84,13 @@ export type ResolvedMapRoute =
       countryCode: CountryCode;
     }
   | {
-      kind: 'preview' | 'property' | 'comments' | 'guesses';
+      kind:
+        | 'preview'
+        | 'property'
+        | 'comments'
+        | 'guesses'
+        | 'map-comments'
+        | 'map-guesses';
       canonicalPath: string;
       property: PropertyResolveResult;
       resolvedAddress: ResolvedAddress;
@@ -77,7 +99,7 @@ export type ResolvedMapRoute =
   | { kind: 'invalid'; canonicalPath: '/'; reason: string };
 
 type LocalPreviewResolvedMapRoute = {
-  kind: 'preview';
+  kind: 'preview' | 'map-comments' | 'map-guesses';
   canonicalPath: string;
   property: PropertyResolveResult;
   resolvedAddress: ResolvedAddress;
@@ -242,12 +264,22 @@ function buildPropertyResolveRequest(
 }
 
 function buildCanonicalPathForKind(
-  kind: 'preview' | 'property' | 'comments' | 'guesses',
+  kind:
+    | 'preview'
+    | 'property'
+    | 'comments'
+    | 'guesses'
+    | 'map-comments'
+    | 'map-guesses',
   input: CanonicalPropertyRouteInput,
 ): string {
   switch (kind) {
     case 'preview':
       return buildCanonicalMapPreviewPath(input);
+    case 'map-comments':
+      return buildCanonicalMapCommentsPath(input);
+    case 'map-guesses':
+      return buildCanonicalMapGuessesPath(input);
     case 'comments':
       return buildCanonicalCommentsPath(input);
     case 'guesses':
@@ -327,11 +359,37 @@ export function registerLocalPreviewRoute(
   }
 
   const canonicalPath = normalizePathname(pathname);
+  const resolvedAddress = buildSyntheticResolvedAddress(property, routeInput);
+  const previewPath = buildCanonicalMapPreviewPath(routeInput);
+  const commentsPath = buildCanonicalMapCommentsPath(routeInput);
+  const guessesPath = buildCanonicalMapGuessesPath(routeInput);
+
   localPreviewRouteCache.set(canonicalPath, {
     kind: 'preview',
     canonicalPath,
     property,
-    resolvedAddress: buildSyntheticResolvedAddress(property, routeInput),
+    resolvedAddress,
+    routeInput,
+  });
+  localPreviewRouteCache.set(previewPath, {
+    kind: 'preview',
+    canonicalPath: previewPath,
+    property,
+    resolvedAddress,
+    routeInput,
+  });
+  localPreviewRouteCache.set(commentsPath, {
+    kind: 'map-comments',
+    canonicalPath: commentsPath,
+    property,
+    resolvedAddress,
+    routeInput,
+  });
+  localPreviewRouteCache.set(guessesPath, {
+    kind: 'map-guesses',
+    canonicalPath: guessesPath,
+    property,
+    resolvedAddress,
     routeInput,
   });
 }
@@ -366,13 +424,25 @@ export function parseMapRoutePath(pathname: string): ParsedMapRoute {
       return { kind: 'invalid', pathname: normalizedPath, reason: 'map-root-redirect' };
     }
 
-    if (resolution.remainingSegments.length !== 4) {
+    if (
+      resolution.remainingSegments.length !== 4 &&
+      resolution.remainingSegments.length !== 5
+    ) {
       return { kind: 'invalid', pathname: normalizedPath, reason: 'invalid-map-route-shape' };
     }
 
-    const [citySlug, postcodeSlug, streetSlug, houseSegment] = resolution.remainingSegments;
+    const [citySlug, postcodeSlug, streetSlug, houseSegment, leaf] =
+      resolution.remainingSegments;
+    if (leaf != null && leaf !== 'comments' && leaf !== 'guesses') {
+      return { kind: 'invalid', pathname: normalizedPath, reason: 'invalid-map-route-leaf' };
+    }
+
     return {
-      kind: 'preview',
+      kind: leaf === 'comments'
+        ? 'map-comments'
+        : leaf === 'guesses'
+          ? 'map-guesses'
+          : 'preview',
       pathname: normalizedPath,
       countryCode: resolution.countryCode,
       citySlug,
@@ -519,7 +589,11 @@ export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRout
     return { kind: 'invalid', canonicalPath: '/', reason: 'invalid-house-segment' };
   }
 
-  if (parsed.kind === 'preview') {
+  if (
+    parsed.kind === 'preview' ||
+    parsed.kind === 'map-comments' ||
+    parsed.kind === 'map-guesses'
+  ) {
     const cachedPreviewRoute = localPreviewRouteCache.get(normalizePathname(pathname));
     if (cachedPreviewRoute) {
       return cachedPreviewRoute;

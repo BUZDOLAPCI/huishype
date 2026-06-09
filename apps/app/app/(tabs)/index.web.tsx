@@ -9,6 +9,8 @@ import {
   SearchBar,
   PropertyBottomSheet,
 } from '@/src/components';
+import { CommentsRouteScreen } from '@/src/screens/CommentsRouteScreen';
+import { GuessesRouteScreen } from '@/src/screens/GuessesRouteScreen';
 import { MapFilterBar } from '@/src/components/map/MapFilterBar';
 import { FollowingMapStateCard } from '@/src/components/map/FollowingMapStateCard';
 import { emitMapFollowingAnalyticsEvent } from '@/src/components/map/followingMapAnalytics';
@@ -106,7 +108,12 @@ import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useT } from '@/src/i18n';
 import type { AddressSearchBias, ResolvedAddress } from '@/src/services/address-resolver';
 import { hydrateLocationFilterTokens } from '@/src/services/location-search';
-import { buildCanonicalRouteHref, toInternalAppHref } from '@/src/utils/property-route';
+import {
+  buildCanonicalRouteHref,
+  buildPropertyMapCommentsRoute,
+  buildPropertyMapGuessesRoute,
+  toInternalAppHref,
+} from '@/src/utils/property-route';
 import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import {
   MAP_NODE_RECENT_PULSE_SCORE_THRESHOLD,
@@ -116,6 +123,8 @@ import {
   withAlpha,
 } from '@huishype/shared/config';
 import {
+  buildCanonicalMapCommentsPath,
+  buildCanonicalMapGuessesPath,
   buildCanonicalMapPreviewPath,
   serializeCanonicalCameraPath,
 } from '@huishype/shared';
@@ -433,6 +442,72 @@ interface CameraHistoryCheckpoint {
   lng: number;
   zoom: number;
   pushedAtMs: number;
+}
+
+type ResolvedPropertyRoute = Extract<ResolvedMapRoute, { property: unknown }>;
+type MapSocialRoute = Omit<ResolvedPropertyRoute, 'kind'> & {
+  kind: 'map-comments' | 'map-guesses';
+};
+type MapSocialOverlayDescriptor = {
+  kind: 'map-comments' | 'map-guesses';
+  canonicalPath: string;
+  returnTo: string;
+  propertyId: string;
+};
+type MapSocialOverlayMounts = {
+  comments: MapSocialOverlayDescriptor | null;
+  guesses: MapSocialOverlayDescriptor | null;
+};
+
+function isMapSocialRoute(
+  route: ResolvedMapRoute | null | undefined,
+): route is MapSocialRoute {
+  return route?.kind === 'map-comments' || route?.kind === 'map-guesses';
+}
+
+function getMapSocialDescriptorFromRoute(
+  route: MapSocialRoute,
+): MapSocialOverlayDescriptor {
+  return {
+    kind: route.kind,
+    canonicalPath: route.canonicalPath,
+    returnTo: buildCanonicalMapPreviewPath(route.routeInput),
+    propertyId: route.property.id,
+  };
+}
+
+function getPendingMapSocialDescriptor(
+  kind: MapSocialOverlayDescriptor['kind'],
+  property: {
+    id?: string | null;
+    address?: string | null;
+    city?: string | null;
+    postalCode?: string | null;
+    countryCode?: string | null;
+    street?: string | null;
+    streetName?: string | null;
+    houseNumber?: string | number | null;
+    houseNumberAddition?: string | null;
+  },
+): MapSocialOverlayDescriptor | null {
+  if (!property.id) {
+    return null;
+  }
+
+  const routeInput = extractCanonicalRouteInput(property);
+  if (!routeInput) {
+    return null;
+  }
+
+  return {
+    kind,
+    canonicalPath:
+      kind === 'map-comments'
+        ? buildCanonicalMapCommentsPath(routeInput)
+        : buildCanonicalMapGuessesPath(routeInput),
+    returnTo: buildCanonicalMapPreviewPath(routeInput),
+    propertyId: property.id,
+  };
 }
 
 function getInitialWebMapCamera(pathname: string): InitialWebMapCamera {
@@ -845,6 +920,23 @@ if (typeof document !== 'undefined' && !document.getElementById(FLOATING_ZOOM_CO
   document.head.appendChild(style);
 }
 
+const MAP_SOCIAL_OVERLAY_CSS_ID = 'map-social-overlay-css';
+const MAP_SOCIAL_PANEL_WIDTH = 420;
+if (typeof document !== 'undefined') {
+  let style = document.getElementById(MAP_SOCIAL_OVERLAY_CSS_ID) as HTMLStyleElement | null;
+  if (!style) {
+    style = document.createElement('style');
+    style.id = MAP_SOCIAL_OVERLAY_CSS_ID;
+    document.head.appendChild(style);
+  }
+
+  style.textContent = `
+    .map-social-overlay {
+      display: contents;
+    }
+  `;
+}
+
 const MAP_ATTRIBUTION_CSS_ID = 'map-attribution-css';
 if (typeof document !== 'undefined' && !document.getElementById(MAP_ATTRIBUTION_CSS_ID)) {
   const style = document.createElement('style');
@@ -928,6 +1020,49 @@ function createCurrentLocationMarkerElement(): HTMLDivElement {
   container.appendChild(dot);
 
   return container;
+}
+
+function MapSocialOverlay({
+  descriptor,
+  open,
+  onNavigate,
+  onPanelOpenChange,
+}: {
+  descriptor: MapSocialOverlayDescriptor;
+  open: boolean;
+  onNavigate: (path: string) => void;
+  onPanelOpenChange?: (isOpen: boolean) => void;
+}) {
+  const testID =
+    descriptor.kind === 'map-comments'
+      ? 'map-comments-overlay'
+      : 'map-guesses-overlay';
+
+  return (
+    <div className="map-social-overlay" data-testid={testID}>
+      {descriptor.kind === 'map-comments' ? (
+        <CommentsRouteScreen
+          propertyId={descriptor.propertyId}
+          returnTo={descriptor.returnTo}
+          onNavigate={onNavigate}
+          panelPresentation="map-sheet"
+          panelOpen={open}
+          landscapeRightOffset={0}
+          onPanelOpenChange={onPanelOpenChange}
+        />
+      ) : (
+        <GuessesRouteScreen
+          propertyId={descriptor.propertyId}
+          returnTo={descriptor.returnTo}
+          onNavigate={onNavigate}
+          panelPresentation="map-sheet"
+          panelOpen={open}
+          landscapeRightOffset={0}
+          onPanelOpenChange={onPanelOpenChange}
+        />
+      )}
+    </div>
+  );
 }
 
 type RenderedPropertyGroup = NonNullable<ReturnType<typeof normalizeRenderedPropertyGroup>>;
@@ -1152,6 +1287,63 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const [searchResetToken, setSearchResetToken] = useState(0);
   const [routePathname, setRoutePathname] = useState(initialRoutePathname);
   const routeState = useResolvedMapRoute(routePathname);
+  const activeMapSocialRoute = isMapSocialRoute(routeState.resolvedRoute)
+    ? routeState.resolvedRoute
+    : null;
+  const activeMapSocialDescriptor = activeMapSocialRoute
+    ? getMapSocialDescriptorFromRoute(activeMapSocialRoute)
+    : null;
+  const [pendingMapSocialOverlay, setPendingMapSocialOverlay] =
+    useState<MapSocialOverlayDescriptor | null>(null);
+  const pendingMapSocialDescriptor =
+    pendingMapSocialOverlay &&
+    (
+      pendingMapSocialOverlay.canonicalPath === routePathname ||
+      pendingMapSocialOverlay.canonicalPath === browserPathRef.current
+    )
+      ? pendingMapSocialOverlay
+      : null;
+  const displayedMapSocialDescriptor =
+    activeMapSocialDescriptor ?? pendingMapSocialDescriptor;
+  const [isMapSocialPanelOpen, setIsMapSocialPanelOpen] = useState(false);
+  const handleMapSocialPanelOpenChange = useCallback((isOpen: boolean) => {
+    setIsMapSocialPanelOpen((current) => (current === isOpen ? current : isOpen));
+  }, []);
+  useEffect(() => {
+    if (!displayedMapSocialDescriptor) {
+      setIsMapSocialPanelOpen(false);
+    }
+  }, [displayedMapSocialDescriptor]);
+  useEffect(() => {
+    if (!pendingMapSocialOverlay) {
+      return;
+    }
+
+    if (
+      pendingMapSocialOverlay.canonicalPath !== routePathname &&
+      pendingMapSocialOverlay.canonicalPath !== browserPathRef.current
+    ) {
+      setPendingMapSocialOverlay(null);
+      return;
+    }
+
+    if (!routeState.isLoading) {
+      if (
+        routeState.resolvedRoute?.kind === 'invalid' ||
+        (
+          isMapSocialRoute(routeState.resolvedRoute) &&
+          routeState.resolvedRoute.canonicalPath === pendingMapSocialOverlay.canonicalPath
+        )
+      ) {
+        setPendingMapSocialOverlay(null);
+      }
+    }
+  }, [
+    pendingMapSocialOverlay,
+    routePathname,
+    routeState.isLoading,
+    routeState.resolvedRoute,
+  ]);
   const appliedRoutePathRef = useRef<string | null>(null);
   const skipNextPassiveUrlSyncRef = useRef(true);
   const lastCameraPathRef = useRef<string>('/');
@@ -1540,6 +1732,53 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     return interaction.previewGroup.properties[interaction.currentPreviewIndex] ?? null;
   }, [interaction.currentPreviewIndex, interaction.previewGroup]);
+  const [preloadedMapSocialPropertyId, setPreloadedMapSocialPropertyId] = useState<string | null>(
+    null,
+  );
+  const handleMapSocialSectionsMountChange = useCallback(
+    (propertyId: string, mounted: boolean) => {
+      setPreloadedMapSocialPropertyId((currentPropertyId) => {
+        if (mounted) {
+          return propertyId;
+        }
+
+        return currentPropertyId === propertyId ? null : currentPropertyId;
+      });
+    },
+    [],
+  );
+  const preloadedMapSocialDescriptors = useMemo<MapSocialOverlayMounts>(() => {
+    const routeProperty =
+      interaction.selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+
+    if (!routeProperty || routeProperty.id !== preloadedMapSocialPropertyId) {
+      return { comments: null, guesses: null };
+    }
+
+    return {
+      comments: getPendingMapSocialDescriptor('map-comments', routeProperty),
+      guesses: getPendingMapSocialDescriptor('map-guesses', routeProperty),
+    };
+  }, [
+    currentPreviewProperty,
+    interaction.selectedPropertyForSheet,
+    preloadedMapSocialPropertyId,
+    selectedProperty,
+  ]);
+  const mountedMapSocialDescriptors = useMemo<MapSocialOverlayMounts>(() => ({
+    comments:
+      displayedMapSocialDescriptor?.kind === 'map-comments'
+        ? displayedMapSocialDescriptor
+        : preloadedMapSocialDescriptors.comments,
+    guesses:
+      displayedMapSocialDescriptor?.kind === 'map-guesses'
+        ? displayedMapSocialDescriptor
+        : preloadedMapSocialDescriptors.guesses,
+  }), [
+    displayedMapSocialDescriptor,
+    preloadedMapSocialDescriptors.comments,
+    preloadedMapSocialDescriptors.guesses,
+  ]);
   const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
   useEffect(() => {
     if (currentPreviewProperty?.id) {
@@ -1564,11 +1803,16 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [previewRouteInput],
   );
   const previewOpenRef = useRef(false);
+  const parsedRouteForPreviewState = parseMapRoutePath(routePathname);
   previewOpenRef.current =
     !!interaction.previewGroup ||
     !!interaction.highlightedCoordinate ||
-    parseMapRoutePath(routePathname).kind === 'preview' ||
-    routeState.resolvedRoute?.kind === 'preview';
+    parsedRouteForPreviewState.kind === 'preview' ||
+    parsedRouteForPreviewState.kind === 'map-comments' ||
+    parsedRouteForPreviewState.kind === 'map-guesses' ||
+    routeState.resolvedRoute?.kind === 'preview' ||
+    routeState.resolvedRoute?.kind === 'map-comments' ||
+    routeState.resolvedRoute?.kind === 'map-guesses';
   const replaceMapBrowserPath = useCallback(
     (pathname: string) => {
       if (!isMapTabActiveRef.current) {
@@ -1603,6 +1847,94 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     [pathnameOverride],
   );
   pushMapBrowserPathRef.current = pushMapBrowserPath;
+  const openMapSocialPath = useCallback(
+    (
+      pathname: string,
+      options: { optimisticDescriptor?: MapSocialOverlayDescriptor | null } = {},
+    ) => {
+      if (!pushMapBrowserPath(pathname)) {
+        return false;
+      }
+
+      browserPathRef.current = pathname;
+      if (options.optimisticDescriptor) {
+        setPendingMapSocialOverlay(options.optimisticDescriptor);
+        startTransition(() => {
+          setRoutePathname((currentPathname) =>
+            currentPathname === pathname ? currentPathname : pathname,
+          );
+        });
+        return true;
+      }
+
+      setRoutePathname((currentPathname) =>
+        currentPathname === pathname ? currentPathname : pathname,
+      );
+      return true;
+    },
+    [pushMapBrowserPath],
+  );
+  const handleMapSocialNavigate = useCallback(
+    (target: string) => {
+      const [targetPathname = '/'] = target.split('?');
+      if (targetPathname.startsWith('/map/')) {
+        if (replaceMapBrowserPath(targetPathname)) {
+          browserPathRef.current = targetPathname;
+        }
+        setRoutePathname((currentPathname) =>
+          currentPathname === targetPathname ? currentPathname : targetPathname,
+        );
+        return;
+      }
+
+      router.navigate(toInternalAppHref(target));
+    },
+    [replaceMapBrowserPath],
+  );
+  const handleMapCommentPress = useCallback(
+    (_propertyId: string) => {
+      const routeProperty =
+        interaction.selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+      if (!routeProperty) {
+        return;
+      }
+
+      const pendingDescriptor = getPendingMapSocialDescriptor(
+        'map-comments',
+        routeProperty,
+      );
+      const pathname = pendingDescriptor?.canonicalPath ?? buildPropertyMapCommentsRoute(routeProperty);
+      openMapSocialPath(pathname, { optimisticDescriptor: pendingDescriptor });
+    },
+    [
+      currentPreviewProperty,
+      interaction.selectedPropertyForSheet,
+      openMapSocialPath,
+      selectedProperty,
+    ],
+  );
+  const handleMapGuessPress = useCallback(
+    (_propertyId: string) => {
+      const routeProperty =
+        interaction.selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+      if (!routeProperty) {
+        return;
+      }
+
+      const pendingDescriptor = getPendingMapSocialDescriptor(
+        'map-guesses',
+        routeProperty,
+      );
+      const pathname = pendingDescriptor?.canonicalPath ?? buildPropertyMapGuessesRoute(routeProperty);
+      openMapSocialPath(pathname, { optimisticDescriptor: pendingDescriptor });
+    },
+    [
+      currentPreviewProperty,
+      interaction.selectedPropertyForSheet,
+      openMapSocialPath,
+      selectedProperty,
+    ],
+  );
   const seedDirectPreviewHistory = useCallback(
     (
       previewPath: string,
@@ -3438,6 +3770,50 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
+    if (
+      resolvedRoute.kind === 'map-comments' ||
+      resolvedRoute.kind === 'map-guesses'
+    ) {
+      lockedAreaPathRef.current = null;
+      canReplaceLockedAreaPathRef.current = true;
+
+      const resolvedCoordinates = resolvedRoute.property.coordinates;
+      const socialPreviewPath = buildCanonicalMapPreviewPath(resolvedRoute.routeInput);
+      if (previewCanonicalPath === socialPreviewPath && interaction.previewGroup) {
+        appliedRoutePathRef.current = routeState.pathname;
+        return;
+      }
+
+      if (!resolvedCoordinates) {
+        appliedRoutePathRef.current = routeState.pathname;
+        return;
+      }
+
+      skipNextPassiveUrlSyncRef.current = true;
+      if (!hasNavigableCameraPathRef.current) {
+        const fallbackCameraPath = serializeCanonicalCameraPath({
+          lat: resolvedCoordinates.lat,
+          lng: resolvedCoordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+        lastCameraPathRef.current = fallbackCameraPath;
+        hasNavigableCameraPathRef.current = true;
+        resetCameraHistoryCheckpointBaseline({
+          lat: resolvedCoordinates.lat,
+          lng: resolvedCoordinates.lon,
+          zoom: SEARCH_TARGET_ZOOM,
+        });
+      }
+
+      handlePropertyResolved(resolvedRoute.property, resolvedRoute.resolvedAddress);
+      setSearchCity(resolvedRoute.property.city, [
+        resolvedCoordinates.lon,
+        resolvedCoordinates.lat,
+      ]);
+      appliedRoutePathRef.current = routeState.pathname;
+      return;
+    }
+
     if (resolvedRoute.kind === 'preview') {
       lockedAreaPathRef.current = null;
       canReplaceLockedAreaPathRef.current = true;
@@ -3498,6 +3874,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     if (interaction.previewGroup && previewCanonicalPath) {
       previousPreviewPathRef.current = previewCanonicalPath;
+      if (
+        displayedMapSocialDescriptor &&
+        displayedMapSocialDescriptor.returnTo === previewCanonicalPath
+      ) {
+        browserPathRef.current = displayedMapSocialDescriptor.canonicalPath;
+        return;
+      }
+
       if (pushMapBrowserPath(previewCanonicalPath)) {
         directPreviewHistoryPathRef.current = null;
         browserPathRef.current = previewCanonicalPath;
@@ -3559,6 +3943,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [
     isMapTabActive,
     interaction.previewGroup,
+    displayedMapSocialDescriptor,
     previewCanonicalPath,
     pushMapBrowserPath,
     replaceMapBrowserPath,
@@ -4042,10 +4427,42 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         onSave={interaction.handleSave}
         onShare={interaction.handleShare}
         onLike={interaction.handleLike}
-        onGuessPress={interaction.handleGuessPress}
-        onCommentPress={interaction.handleCommentPress}
+        onGuessPress={handleMapGuessPress}
+        onCommentPress={handleMapCommentPress}
+        onSocialSectionsMountChange={handleMapSocialSectionsMountChange}
         onAuthRequired={interaction.handleAuthRequired}
+        landscapeRightOffset={
+          displayedMapSocialDescriptor && isMapSocialPanelOpen
+            ? MAP_SOCIAL_PANEL_WIDTH
+            : 0
+        }
       />
+
+      {mountedMapSocialDescriptors.comments ? (
+        <MapSocialOverlay
+          descriptor={mountedMapSocialDescriptors.comments}
+          open={displayedMapSocialDescriptor?.kind === 'map-comments'}
+          onNavigate={handleMapSocialNavigate}
+          onPanelOpenChange={
+            displayedMapSocialDescriptor?.kind === 'map-comments'
+              ? handleMapSocialPanelOpenChange
+              : undefined
+          }
+        />
+      ) : null}
+
+      {mountedMapSocialDescriptors.guesses ? (
+        <MapSocialOverlay
+          descriptor={mountedMapSocialDescriptors.guesses}
+          open={displayedMapSocialDescriptor?.kind === 'map-guesses'}
+          onNavigate={handleMapSocialNavigate}
+          onPanelOpenChange={
+            displayedMapSocialDescriptor?.kind === 'map-guesses'
+              ? handleMapSocialPanelOpenChange
+              : undefined
+          }
+        />
+      ) : null}
 
       {/* Auth Modal */}
       <AuthModal

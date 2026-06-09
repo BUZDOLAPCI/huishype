@@ -5,7 +5,7 @@
  * This component simply renders children as-is — the route page
  * handles its own safe areas and layout.
  */
-import type { ReactNode } from 'react';
+import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 
 export interface ResponsivePanelProps {
   children: ReactNode;
@@ -13,8 +13,30 @@ export interface ResponsivePanelProps {
   title?: string;
   /** Close callback (unused on native — navigation is handled by the stack). */
   onClose?: () => void;
+  /** Web-only chrome state callback for map-sheet choreography. */
+  onOpenChange?: (isOpen: boolean) => void;
+  /** Web-only presentation hint; native remains route-style passthrough. */
+  presentation?: 'route' | 'map-sheet';
+  /** Web-only right offset for map sheet choreography. */
+  landscapeRightOffset?: number;
 }
 
-export function ResponsivePanel({ children }: ResponsivePanelProps) {
-  return <>{children}</>;
+export interface ResponsivePanelRef {
+  close: () => void;
 }
+
+export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelProps>(
+  function ResponsivePanel({ children, onClose }, ref) {
+    useImperativeHandle(
+      ref,
+      () => ({
+        close: () => {
+          onClose?.();
+        },
+      }),
+      [onClose]
+    );
+
+    return <>{children}</>;
+  }
+);

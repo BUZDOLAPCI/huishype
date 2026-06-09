@@ -150,11 +150,31 @@ function CanonicalAddressRouteContent() {
     resolvedRoute.kind === 'camera' ||
     resolvedRoute.kind === 'city' ||
     resolvedRoute.kind === 'postcode' ||
-    resolvedRoute.kind === 'preview'
+    resolvedRoute.kind === 'preview' ||
+    resolvedRoute.kind === 'map-comments' ||
+    resolvedRoute.kind === 'map-guesses'
   ) {
     if (Platform.OS === 'web') {
       const MapScreen = require('@/app/(tabs)/index.web').default as typeof import('@/app/(tabs)/index.web').default;
       return <MapScreen pathnameOverride={resolvedPathname} />;
+    }
+
+    if (resolvedRoute.kind === 'map-comments') {
+      return (
+        <CommentsRouteScreen
+          propertyId={resolvedRoute.property.id}
+          returnTo={returnTo ?? buildPropertyMapRoute(resolvedRoute.routeInput)}
+        />
+      );
+    }
+
+    if (resolvedRoute.kind === 'map-guesses') {
+      return (
+        <GuessesRouteScreen
+          propertyId={resolvedRoute.property.id}
+          returnTo={returnTo ?? buildPropertyMapRoute(resolvedRoute.routeInput)}
+        />
+      );
     }
 
     const MapScreen = require('@/app/(tabs)/index').default as typeof import('@/app/(tabs)/index').default;

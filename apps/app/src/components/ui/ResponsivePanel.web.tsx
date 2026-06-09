@@ -8,11 +8,20 @@
  * Portrait (mobile/narrow): Full-screen passthrough — children render
  * without any panel chrome since the route already handles safe areas.
  */
-import { useCallback, useEffect, type ReactNode } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { router } from 'expo-router';
 
 import { useIsLandscape } from '../../hooks/useIsLandscape';
 import { Icon } from './Icon';
+import { WebPanelChrome, WEB_PANEL_TRANSITION_MS, type WebPanelState } from './WebPanelChrome.web';
 import { useT } from '@/src/i18n';
 
 export interface ResponsivePanelProps {
@@ -21,6 +30,18 @@ export interface ResponsivePanelProps {
   title?: string;
   /** Called when the panel is dismissed. Defaults to `router.back()`. */
   onClose?: () => void;
+  /** Reports the chrome-open state for map-sheet choreography. */
+  onOpenChange?: (isOpen: boolean) => void;
+  /** Route pages pass through in portrait; map overlays use bottom-sheet chrome. */
+  presentation?: 'route' | 'map-sheet';
+  /** Controls whether a map-sheet is opened. Hidden map sheets still mount children. */
+  open?: boolean;
+  /** Right offset for landscape map sheets when another panel owns the edge. */
+  landscapeRightOffset?: number;
+}
+
+export interface ResponsivePanelRef {
+  close: () => void;
 }
 
 // Inject CSS for the responsive panel — same injection pattern as PropertyBottomSheet.web.tsx
@@ -113,61 +134,234 @@ if (typeof document !== 'undefined') {
   `;
 }
 
-export function ResponsivePanel({ children, title, onClose }: ResponsivePanelProps) {
-  const t = useT();
-  const isLandscape = useIsLandscape();
+export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelProps>(
+  function ResponsivePanel(
+    {
+      children,
+      title,
+      onClose,
+      onOpenChange,
+      presentation = 'route',
+      open = true,
+      landscapeRightOffset,
+    },
+    ref
+  ) {
+    const t = useT();
+    const isLandscape = useIsLandscape();
+    const mapSheetRestingState: WebPanelState = 'full';
+    const isMapSheetOpenRequested = presentation === 'map-sheet' && open;
+    const hasOpenedMapSheetRef = useRef(false);
+    const hasRenderedClosedMapSheetRef = useRef(false);
+    const isClosingMapSheetRef = useRef(false);
+    const mapSheetCloseTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+    const [mapSheetState, setMapSheetState] = useState<WebPanelState>('closed');
+    const canOpenRenderedClosedMapSheet =
+      presentation === 'map-sheet' &&
+      isMapSheetOpenRequested &&
+      hasRenderedClosedMapSheetRef.current &&
+      !isClosingMapSheetRef.current &&
+      mapSheetState === 'closed';
+    const displayedMapSheetState = canOpenRenderedClosedMapSheet
+      ? mapSheetRestingState
+      : mapSheetState;
 
-  const handleClose = useCallback(() => {
-    if (onClose) {
-      onClose();
-    } else {
-      router.back();
+    const handleClose = useCallback(() => {
+      if (onClose) {
+        onClose();
+      } else {
+        router.back();
+      }
+    }, [onClose]);
+
+    const clearMapSheetCloseTimer = useCallback(() => {
+      if (mapSheetCloseTimerRef.current === null) {
+        return;
+      }
+
+      globalThis.clearTimeout(mapSheetCloseTimerRef.current);
+      mapSheetCloseTimerRef.current = null;
+    }, []);
+
+    const handleMapSheetClose = useCallback(() => {
+      if (isClosingMapSheetRef.current) {
+        return;
+      }
+
+      isClosingMapSheetRef.current = true;
+      hasOpenedMapSheetRef.current = false;
+      setMapSheetState('closed');
+      clearMapSheetCloseTimer();
+      mapSheetCloseTimerRef.current = globalThis.setTimeout(() => {
+        mapSheetCloseTimerRef.current = null;
+        isClosingMapSheetRef.current = false;
+        handleClose();
+      }, WEB_PANEL_TRANSITION_MS);
+    }, [clearMapSheetCloseTimer, handleClose]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        close: () => {
+          if (presentation === 'map-sheet') {
+            handleMapSheetClose();
+            return;
+          }
+
+          handleClose();
+        },
+      }),
+      [handleClose, handleMapSheetClose, presentation]
+    );
+
+    useEffect(
+      () => () => {
+        clearMapSheetCloseTimer();
+      },
+      [clearMapSheetCloseTimer]
+    );
+
+    useEffect(() => {
+      if (presentation !== 'map-sheet') {
+        onOpenChange?.(isLandscape && presentation === 'route');
+        return;
+      }
+
+      onOpenChange?.(isMapSheetOpenRequested && displayedMapSheetState !== 'closed');
+    }, [
+      displayedMapSheetState,
+      isLandscape,
+      isMapSheetOpenRequested,
+      onOpenChange,
+      presentation,
+    ]);
+
+    // Dismiss on Escape key (landscape panel only)
+    useEffect(() => {
+      if (!isLandscape || presentation !== 'route') return;
+      const handler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') handleClose();
+      };
+      document.addEventListener('keydown', handler);
+      return () => document.removeEventListener('keydown', handler);
+    }, [isLandscape, handleClose, presentation]);
+
+    useEffect(() => {
+      if (presentation !== 'map-sheet') {
+        hasOpenedMapSheetRef.current = false;
+        hasRenderedClosedMapSheetRef.current = false;
+        isClosingMapSheetRef.current = false;
+        clearMapSheetCloseTimer();
+        return;
+      }
+
+      if (!isMapSheetOpenRequested) {
+        hasOpenedMapSheetRef.current = false;
+        hasRenderedClosedMapSheetRef.current = true;
+        isClosingMapSheetRef.current = false;
+        clearMapSheetCloseTimer();
+        setMapSheetState('closed');
+        return;
+      }
+
+      if (isClosingMapSheetRef.current) {
+        return;
+      }
+
+      if (hasOpenedMapSheetRef.current) {
+        setMapSheetState((currentState) =>
+          currentState === 'closed' ? currentState : mapSheetRestingState
+        );
+        return;
+      }
+
+      if (hasRenderedClosedMapSheetRef.current) {
+        hasOpenedMapSheetRef.current = true;
+        setMapSheetState(mapSheetRestingState);
+        return;
+      }
+
+      setMapSheetState('closed');
+
+      const openPanel = () => {
+        hasOpenedMapSheetRef.current = true;
+        setMapSheetState(mapSheetRestingState);
+      };
+
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        const frame = window.requestAnimationFrame(openPanel);
+        return () => window.cancelAnimationFrame(frame);
+      }
+
+      const timeout = globalThis.setTimeout(openPanel, 16);
+      return () => globalThis.clearTimeout(timeout);
+    }, [
+      clearMapSheetCloseTimer,
+      isMapSheetOpenRequested,
+      mapSheetRestingState,
+      presentation,
+    ]);
+
+    useEffect(() => {
+      if (presentation !== 'map-sheet') {
+        return;
+      }
+
+      if (!isMapSheetOpenRequested || displayedMapSheetState === 'closed') {
+        hasRenderedClosedMapSheetRef.current = true;
+      }
+    }, [displayedMapSheetState, isMapSheetOpenRequested, presentation]);
+
+    if (presentation === 'map-sheet') {
+      return (
+        <WebPanelChrome
+          state={displayedMapSheetState}
+          title={title}
+          onStateChange={setMapSheetState}
+          onClose={handleMapSheetClose}
+          surfaceColor="#FFFBF5"
+          panelZIndex={2003}
+          backdropZIndex={2002}
+          landscapeRightOffset={landscapeRightOffset}
+          portraitBottomOffset={0}
+          portalToBody
+        >
+          <div className="responsive-panel-content">{children}</div>
+        </WebPanelChrome>
+      );
     }
-  }, [onClose]);
 
-  // Dismiss on Escape key (landscape panel only)
-  useEffect(() => {
-    if (!isLandscape) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [isLandscape, handleClose]);
+    // Portrait: full-screen passthrough — no panel chrome needed
+    if (!isLandscape) {
+      return <>{children}</>;
+    }
 
-  // Portrait: full-screen passthrough — no panel chrome needed
-  if (!isLandscape) {
-    return <>{children}</>;
-  }
+    // Landscape: side panel with backdrop
+    return (
+      <>
+        <div
+          className="responsive-panel-backdrop open"
+          onClick={handleClose}
+          data-testid="responsive-panel-backdrop"
+        />
+        <div className="responsive-panel--landscape open" data-testid="responsive-panel">
+          {/* Header */}
+          <div className="responsive-panel-header">
+            <span className="responsive-panel-title">{title ?? ''}</span>
+            <button
+              className="responsive-panel-close"
+              onClick={handleClose}
+              data-testid="responsive-panel-close"
+              aria-label={t('common.closePanel')}
+            >
+              <Icon name="X" size="md" color="#9C958A" />
+            </button>
+          </div>
 
-  // Landscape: side panel with backdrop
-  return (
-    <>
-      <div
-        className="responsive-panel-backdrop open"
-        onClick={handleClose}
-        data-testid="responsive-panel-backdrop"
-      />
-      <div
-        className="responsive-panel--landscape open"
-        data-testid="responsive-panel"
-      >
-        {/* Header */}
-        <div className="responsive-panel-header">
-          <span className="responsive-panel-title">{title ?? ''}</span>
-          <button
-            className="responsive-panel-close"
-            onClick={handleClose}
-            data-testid="responsive-panel-close"
-            aria-label={t('common.closePanel')}
-          >
-            <Icon name="X" size="md" color="#9C958A" />
-          </button>
+          {/* Content */}
+          <div className="responsive-panel-content">{children}</div>
         </div>
-
-        {/* Content */}
-        <div className="responsive-panel-content">{children}</div>
-      </div>
-    </>
-  );
-}
+      </>
+    );
+  }
+);

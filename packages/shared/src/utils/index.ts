@@ -152,6 +152,8 @@ export {
   buildCanonicalPostcodeMapPath,
   buildCanonicalPropertyPath,
   buildCanonicalMapPreviewPath,
+  buildCanonicalMapCommentsPath,
+  buildCanonicalMapGuessesPath,
   buildCanonicalCommentsPath,
   buildCanonicalGuessesPath,
   normalizeInternalReturnTo,

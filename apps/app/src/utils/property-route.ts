@@ -2,6 +2,8 @@ import {
   appendInternalReturnTo,
   buildCanonicalCommentsPath,
   buildCanonicalGuessesPath,
+  buildCanonicalMapCommentsPath,
+  buildCanonicalMapGuessesPath,
   buildCanonicalMapPreviewPath,
   buildCanonicalPropertyPath,
   normalizeInternalReturnTo,
@@ -154,6 +156,28 @@ export function buildPropertyMapRoute(
   return buildCanonicalPropertySubRoute(
     property,
     buildCanonicalMapPreviewPath,
+    returnTo,
+  );
+}
+
+export function buildPropertyMapCommentsRoute(
+  property: PropertyRouteAddressLike,
+  returnTo?: string | string[] | null,
+): string {
+  return buildCanonicalPropertySubRoute(
+    property,
+    buildCanonicalMapCommentsPath,
+    returnTo,
+  );
+}
+
+export function buildPropertyMapGuessesRoute(
+  property: PropertyRouteAddressLike,
+  returnTo?: string | string[] | null,
+): string {
+  return buildCanonicalPropertySubRoute(
+    property,
+    buildCanonicalMapGuessesPath,
     returnTo,
   );
 }

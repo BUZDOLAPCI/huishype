@@ -11,23 +11,20 @@ import {
 import { Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
-import { ResponsivePanel } from '@/src/components/ui/ResponsivePanel';
+import {
+  ResponsivePanel,
+  type ResponsivePanelProps,
+  type ResponsivePanelRef,
+} from '@/src/components/ui/ResponsivePanel';
 import { FMVVisualization, type FMVData } from '@/src/components/FMVVisualization';
 import { PriceGuessSlider } from '@/src/components/PriceGuessSlider';
 import { useProperty } from '@/src/hooks/useProperties';
-import {
-  useFetchPriceGuess,
-  useSubmitGuess,
-  type PriceGuess,
-} from '@/src/hooks/usePriceGuess';
+import { useFetchPriceGuess, useSubmitGuess, type PriceGuess } from '@/src/hooks/usePriceGuess';
 import { useAuth } from '@/src/hooks/useAuth';
 import { AuthModal } from '@/src/components';
 import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
 import { PropertyImageSurface } from '@/src/components/PropertyImageSurface';
-import {
-  resolvePropertyImageWithType,
-  toPropertyImageSource,
-} from '@/src/utils/property-image';
+import { resolvePropertyImageWithType, toPropertyImageSource } from '@/src/utils/property-image';
 import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { getOfficialValuationDisplayState } from '@/src/lib/officialValuationDisplay';
@@ -46,7 +43,7 @@ function formatPrice(price: number, countryCode?: string): string {
 
 function buildDistributionBins(
   guesses: PriceGuess[],
-  binCount: number = 5,
+  binCount: number = 5
 ): Array<{ label: string; count: number; fraction: number }> {
   if (guesses.length === 0) return [];
 
@@ -150,10 +147,7 @@ function DistributionChart({
             </Text>
             <View style={styles.distBarTrack}>
               <View
-                style={[
-                  styles.distBarFill,
-                  { width: `${Math.max(bin.fraction * 100, 2)}%` },
-                ]}
+                style={[styles.distBarFill, { width: `${Math.max(bin.fraction * 100, 2)}%` }]}
               />
             </View>
           </View>
@@ -177,9 +171,7 @@ function GuessEntry({
   const displayName = guess.user?.displayName || guess.user?.username || t('common.anonymous');
 
   const isAccurate =
-    fmvValue !== null
-      ? Math.abs(guess.guessedPrice - fmvValue) / fmvValue <= 0.1
-      : null;
+    fmvValue !== null ? Math.abs(guess.guessedPrice - fmvValue) / fmvValue <= 0.1 : null;
 
   return (
     <View style={styles.guessEntry}>
@@ -197,9 +189,7 @@ function GuessEntry({
         </Text>
       </View>
       <View style={styles.guessEntryPriceCol}>
-        <Text style={styles.guessEntryPrice}>
-          {formatPrice(guess.guessedPrice, countryCode)}
-        </Text>
+        <Text style={styles.guessEntryPrice}>{formatPrice(guess.guessedPrice, countryCode)}</Text>
         {isAccurate !== null ? (
           <Icon
             name={isAccurate ? 'CheckCircle' : 'WarningCircle'}
@@ -216,17 +206,26 @@ export interface GuessesRouteScreenProps {
   propertyId?: string | null;
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
+  panelPresentation?: ResponsivePanelProps['presentation'];
+  panelOpen?: ResponsivePanelProps['open'];
+  landscapeRightOffset?: ResponsivePanelProps['landscapeRightOffset'];
+  onPanelOpenChange?: ResponsivePanelProps['onOpenChange'];
 }
 
 export function GuessesRouteScreen({
   propertyId,
   returnTo,
   onNavigate,
+  panelPresentation = 'route',
+  panelOpen,
+  landscapeRightOffset,
+  onPanelOpenChange,
 }: GuessesRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
+  const panelRef = useRef<ResponsivePanelRef>(null);
   const lastCloseAtRef = useRef(0);
 
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -244,10 +243,11 @@ export function GuessesRouteScreen({
   });
 
   const { data: property, isLoading: propertyLoading } = useProperty(propertyId ?? null);
-  const { data: guessData, isLoading: guessLoading, refetch } = useFetchPriceGuess(
-    propertyId ?? null,
-    user?.id,
-  );
+  const {
+    data: guessData,
+    isLoading: guessLoading,
+    refetch,
+  } = useFetchPriceGuess(propertyId ?? null, user?.id);
 
   const submitGuess = useSubmitGuess();
   const isLoading = propertyLoading || guessLoading;
@@ -270,13 +270,15 @@ export function GuessesRouteScreen({
 
   const distributionBins = useMemo(
     () => buildDistributionBins(guessData?.guesses ?? []),
-    [guessData?.guesses],
+    [guessData?.guesses]
   );
 
   const recentGuesses = useMemo(() => {
     if (!guessData?.guesses) return [];
     return [...guessData.guesses]
-      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .sort(
+        (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      )
       .slice(0, 20);
   }, [guessData?.guesses]);
 
@@ -301,7 +303,7 @@ export function GuessesRouteScreen({
         // mutation state handles error UI
       }
     },
-    [isAuthenticated, propertyId, refetch, submitGuess],
+    [isAuthenticated, propertyId, refetch, submitGuess]
   );
 
   const topInset = Platform.OS === 'web' ? 16 : insets.top;
@@ -320,7 +322,7 @@ export function GuessesRouteScreen({
 
       router.replace(href);
     },
-    [onNavigate],
+    [onNavigate]
   );
 
   const navigateBackOrFallback = useCallback((fallbackHref: Href) => {
@@ -366,11 +368,22 @@ export function GuessesRouteScreen({
     handleClose();
   }, [handleClose]);
 
+  const requestClose = useCallback(() => {
+    if (panelPresentation === 'map-sheet') {
+      panelRef.current?.close();
+      return;
+    }
+
+    triggerClose();
+  }, [panelPresentation, triggerClose]);
+
   const divergence = guessData?.fmv?.divergence ?? null;
   const propertySaleAskingPrice =
-    property?.marketState === 'for-sale' ? property.askingPrice ?? null : null;
+    property?.marketState === 'for-sale' ? (property.askingPrice ?? null) : null;
   const askingPrice = guessData?.activeListingAskingPrice ?? propertySaleAskingPrice;
-  const valuationDisplay = property ? getOfficialValuationDisplayState(property) : { state: 'hidden' as const };
+  const valuationDisplay = property
+    ? getOfficialValuationDisplayState(property)
+    : { state: 'hidden' as const };
   const currentOfficialValuation =
     valuationDisplay.state === 'ready' ? valuationDisplay.value : undefined;
   const officialValuationLoading = valuationDisplay.state === 'loading';
@@ -384,14 +397,22 @@ export function GuessesRouteScreen({
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <ResponsivePanel title={t('common.guesses')} onClose={triggerClose}>
+      <ResponsivePanel
+        ref={panelRef}
+        title={t('common.guesses')}
+        onClose={triggerClose}
+        onOpenChange={onPanelOpenChange}
+        presentation={panelPresentation}
+        open={panelOpen}
+        landscapeRightOffset={landscapeRightOffset}
+      >
         <ScrollView
           style={styles.container}
           contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         >
           <View style={[styles.header, { paddingTop: topInset + 8 }]}>
             <TouchableOpacity
-              onPress={triggerClose}
+              onPress={requestClose}
               style={styles.headerBackButton}
               testID="guesses-back-button"
               accessibilityRole="button"
@@ -419,15 +440,10 @@ export function GuessesRouteScreen({
                   countryCode={property.countryCode ?? undefined}
                 />
               ) : null}
-              {distributionBins.length > 0 ? (
-                <DistributionChart bins={distributionBins} />
-              ) : null}
+              {distributionBins.length > 0 ? <DistributionChart bins={distributionBins} /> : null}
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Recent guesses</Text>
-                <TouchableOpacity
-                  onPress={() => setShowSlider(true)}
-                  testID="make-guess-button"
-                >
+                <TouchableOpacity onPress={() => setShowSlider(true)} testID="make-guess-button">
                   <Text style={styles.makeGuessText}>Make your guess</Text>
                 </TouchableOpacity>
               </View>
@@ -441,44 +457,41 @@ export function GuessesRouteScreen({
               ))}
               {divergence !== null ? (
                 <Text style={styles.divergenceText}>
-                  Crowd estimate is {Math.abs(divergence)}%{' '}
-                  {divergence >= 0 ? 'above' : 'below'} asking price.
+                  Crowd estimate is {Math.abs(divergence)}% {divergence >= 0 ? 'above' : 'below'}{' '}
+                  asking price.
                 </Text>
               ) : null}
             </View>
           )}
         </ScrollView>
 
-      {showSlider ? (
-        <View style={styles.sliderContainer}>
-          <PriceGuessSlider
-            propertyId={propertyId ?? ''}
-            countryCode={property?.countryCode ?? undefined}
-            officialValuation={currentOfficialValuation}
-            officialValuationYear={property?.officialValuationYear}
-            officialValuationLoading={officialValuationLoading}
-            askingPrice={askingPrice ?? undefined}
-            initialPrice={initialPrice}
-            initialPriceSource={initialPriceSource}
-            initialPriceConfidence={initialPriceConfidence}
-            initialPriceSampleSize={guessData?.priceGuessStart?.sampleSize}
-            currentFMV={fmvData?.value ?? undefined}
-            userGuess={guessData?.userGuess?.guessedPrice}
-            onGuessSubmit={handleGuessSubmit}
-            disabled={false}
-            testID="guesses-slider"
-          />
-          <TouchableOpacity onPress={dismissSlider} style={styles.sliderDismiss}>
-            <Text style={styles.sliderDismissText}>Close slider</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
+        {showSlider ? (
+          <View style={styles.sliderContainer}>
+            <PriceGuessSlider
+              propertyId={propertyId ?? ''}
+              countryCode={property?.countryCode ?? undefined}
+              officialValuation={currentOfficialValuation}
+              officialValuationYear={property?.officialValuationYear}
+              officialValuationLoading={officialValuationLoading}
+              askingPrice={askingPrice ?? undefined}
+              initialPrice={initialPrice}
+              initialPriceSource={initialPriceSource}
+              initialPriceConfidence={initialPriceConfidence}
+              initialPriceSampleSize={guessData?.priceGuessStart?.sampleSize}
+              currentFMV={fmvData?.value ?? undefined}
+              userGuess={guessData?.userGuess?.guessedPrice}
+              onGuessSubmit={handleGuessSubmit}
+              disabled={false}
+              testID="guesses-slider"
+            />
+            <TouchableOpacity onPress={dismissSlider} style={styles.sliderDismiss}>
+              <Text style={styles.sliderDismissText}>Close slider</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </ResponsivePanel>
 
-      <AuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-      />
+      <AuthModal visible={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </>
   );
 }

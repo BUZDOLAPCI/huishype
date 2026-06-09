@@ -4,6 +4,8 @@ import {
   buildCanonicalCityMapPath,
   buildCanonicalCitySlug,
   buildCanonicalCommentsPath,
+  buildCanonicalMapCommentsPath,
+  buildCanonicalMapGuessesPath,
   buildCanonicalMapUrl,
   buildCanonicalGuessesPath,
   buildCanonicalHouseSegment,
@@ -143,6 +145,12 @@ describe('canonical route builders', () => {
     expect(buildCanonicalMapPreviewPath(nlProperty)).toBe(
       '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a',
     );
+    expect(buildCanonicalMapCommentsPath(nlProperty)).toBe(
+      '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/comments',
+    );
+    expect(buildCanonicalMapGuessesPath(nlProperty)).toBe(
+      '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/guesses',
+    );
     expect(buildCanonicalCommentsPath(nlProperty)).toBe(
       '/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/comments',
     );
@@ -172,6 +180,16 @@ describe('canonical map route URL helpers', () => {
     expect(
       isCanonicalMapRoutePath(
         '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a',
+      ),
+    ).toBe(true);
+    expect(
+      isCanonicalMapRoutePath(
+        '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/comments',
+      ),
+    ).toBe(true);
+    expect(
+      isCanonicalMapRoutePath(
+        '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/guesses',
       ),
     ).toBe(true);
     expect(
@@ -215,6 +233,11 @@ describe('internal returnTo normalization', () => {
         '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a',
       ),
     ).toBe('/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a');
+    expect(
+      normalizeInternalReturnTo(
+        '/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/comments',
+      ),
+    ).toBe('/map/amsterdam/1012nx/nieuwezijds-voorburgwal/147-a/comments');
     expect(
       normalizeInternalReturnTo(
         '/amsterdam?marketState=not-listed,for-sale&salePriceFrom=700000&salePriceTo=250000',
