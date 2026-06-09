@@ -214,7 +214,7 @@ describe('ResponsivePanel.web', () => {
     expect(queryDom('responsive-panel')).not.toBeNull();
   });
 
-  it('renders map-sheet presentation as a portrait bottom sheet that mounts closed before opening', () => {
+  it('renders map-sheet presentation as a portrait bottom sheet that mounts closed before opening full-height', () => {
     setWindowSize(390, 844);
     const onOpenChange = jest.fn();
 
@@ -239,7 +239,7 @@ describe('ResponsivePanel.web', () => {
 
     flushAnimationFrame();
 
-    expect(panel?.className).toContain('partial');
+    expect(panel?.className).toContain('full');
     expect(backdrop?.className).toContain('open');
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
   });
@@ -264,11 +264,13 @@ describe('ResponsivePanel.web', () => {
     expect(panel).not.toBeNull();
     expect(container.textContent).toContain('Preloaded map sheet content');
     expect(panel?.className).not.toContain('partial');
+    expect(panel?.className).not.toContain('full');
     expect(backdrop?.className).not.toContain('open');
 
     flushAnimationFrame();
 
     expect(panel?.className).not.toContain('partial');
+    expect(panel?.className).not.toContain('full');
     expect(backdrop?.className).not.toContain('open');
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
 
@@ -283,7 +285,7 @@ describe('ResponsivePanel.web', () => {
       </ResponsivePanel>
     );
 
-    expect(panel?.className).toContain('partial');
+    expect(panel?.className).toContain('full');
     expect(backdrop?.className).toContain('open');
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
   });
@@ -349,7 +351,7 @@ describe('ResponsivePanel.web', () => {
 
     const panel = queryDom('web-property-panel');
     const handle = queryDom('web-panel-handle');
-    expect(panel?.className).toContain('partial');
+    expect(panel?.className).toContain('full');
     expect(handle).not.toBeNull();
 
     act(() => {
@@ -357,14 +359,14 @@ describe('ResponsivePanel.web', () => {
       dispatchPointerEvent(handle!, 'pointerup', 700);
     });
 
-    expect(panel?.className).toContain('full');
+    expect(panel?.className).toContain('partial');
 
     act(() => {
       dispatchPointerEvent(handle!, 'pointerdown', 700);
       dispatchPointerEvent(handle!, 'pointerup', 700);
     });
 
-    expect(panel?.className).toContain('partial');
+    expect(panel?.className).toContain('full');
   });
 
   it('renders map-sheet presentation as a landscape side panel with backdrop close', () => {

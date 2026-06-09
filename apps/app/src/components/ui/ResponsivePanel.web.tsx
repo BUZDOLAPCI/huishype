@@ -149,7 +149,7 @@ export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelPro
   ) {
     const t = useT();
     const isLandscape = useIsLandscape();
-    const mapSheetRestingState: WebPanelState = isLandscape ? 'full' : 'partial';
+    const mapSheetRestingState: WebPanelState = 'full';
     const isMapSheetOpenRequested = presentation === 'map-sheet' && open;
     const hasOpenedMapSheetRef = useRef(false);
     const hasRenderedClosedMapSheetRef = useRef(false);
