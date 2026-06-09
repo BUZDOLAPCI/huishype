@@ -165,6 +165,7 @@ let capturedPropertyBottomSheetProps: {
   landscapeRightOffset?: number;
   onCommentPress?: (propertyId: string) => void;
   onGuessPress?: (propertyId: string) => void;
+  onSocialSectionsMountChange?: (propertyId: string, mounted: boolean) => void;
 } | null = null;
 
 const mockAmbientCommentBubbles = {
@@ -273,6 +274,7 @@ jest.mock('@/src/components', () => {
         landscapeRightOffset?: number;
         onCommentPress?: (propertyId: string) => void;
         onGuessPress?: (propertyId: string) => void;
+        onSocialSectionsMountChange?: (propertyId: string, mounted: boolean) => void;
       },
       _ref: unknown,
     ) => {
@@ -675,6 +677,7 @@ jest.mock('@/src/screens/CommentsRouteScreen', () => ({
     returnTo,
     onNavigate,
     panelPresentation,
+    panelOpen,
     landscapeRightOffset,
     onPanelOpenChange,
   }: {
@@ -682,6 +685,7 @@ jest.mock('@/src/screens/CommentsRouteScreen', () => ({
     returnTo?: string | null;
     onNavigate?: (path: string) => void;
     panelPresentation?: string;
+    panelOpen?: boolean;
     landscapeRightOffset?: number;
     onPanelOpenChange?: (isOpen: boolean) => void;
   }) => {
@@ -696,6 +700,7 @@ jest.mock('@/src/screens/CommentsRouteScreen', () => ({
         'data-testid': 'mock-comments-route-screen',
         'data-property-id': propertyId ?? '',
         'data-panel-presentation': panelPresentation ?? '',
+        'data-panel-open': panelOpen === false ? 'false' : 'true',
         'data-landscape-right-offset': `${landscapeRightOffset ?? ''}`,
         onClick: () => onNavigate?.(returnTo ?? '/'),
       },
@@ -710,6 +715,7 @@ jest.mock('@/src/screens/GuessesRouteScreen', () => ({
     returnTo,
     onNavigate,
     panelPresentation,
+    panelOpen,
     landscapeRightOffset,
     onPanelOpenChange,
   }: {
@@ -717,6 +723,7 @@ jest.mock('@/src/screens/GuessesRouteScreen', () => ({
     returnTo?: string | null;
     onNavigate?: (path: string) => void;
     panelPresentation?: string;
+    panelOpen?: boolean;
     landscapeRightOffset?: number;
     onPanelOpenChange?: (isOpen: boolean) => void;
   }) => {
@@ -731,6 +738,7 @@ jest.mock('@/src/screens/GuessesRouteScreen', () => ({
         'data-testid': 'mock-guesses-route-screen',
         'data-property-id': propertyId ?? '',
         'data-panel-presentation': panelPresentation ?? '',
+        'data-panel-open': panelOpen === false ? 'false' : 'true',
         'data-landscape-right-offset': `${landscapeRightOffset ?? ''}`,
         onClick: () => onNavigate?.(returnTo ?? '/'),
       },
@@ -1422,6 +1430,7 @@ describe('MapScreen web grouped Following mode', () => {
     expect(routeScreen).not.toBeNull();
     expect(routeScreen?.getAttribute('data-property-id')).toBe('property-a');
     expect(routeScreen?.getAttribute('data-panel-presentation')).toBe('map-sheet');
+    expect(routeScreen?.getAttribute('data-panel-open')).toBe('true');
     expect(routeScreen?.getAttribute('data-landscape-right-offset')).toBe('0');
     expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(420);
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
@@ -1478,9 +1487,112 @@ describe('MapScreen web grouped Following mode', () => {
     expect(routeScreen).not.toBeNull();
     expect(routeScreen?.getAttribute('data-property-id')).toBe('property-a');
     expect(routeScreen?.getAttribute('data-panel-presentation')).toBe('map-sheet');
+    expect(routeScreen?.getAttribute('data-panel-open')).toBe('true');
     expect(routeScreen?.getAttribute('data-landscape-right-offset')).toBe('0');
     expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(420);
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
+  });
+
+  it('pre-mounts map social panels when bottom-sheet social entries mount', async () => {
+    mockPreviewRouteInputs();
+    const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
+    const commentsPath = `${previewPath}/comments`;
+    const previewProperty = {
+      id: 'property-a',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      streetName: 'Beeldbuisring',
+      houseNumber: '41',
+      countryCode: 'NL' as const,
+      coordinates: { lon: 5.47, lat: 51.44 },
+      hasActiveListing: false,
+      marketState: 'not-listed' as const,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationSourceFetch: null,
+    };
+    mockResolvedMapRouteState = {
+      isLoading: false,
+      pathname: previewPath,
+      resolvedRoute: {
+        kind: 'preview',
+        canonicalPath: previewPath,
+        property: previewProperty,
+        resolvedAddress: {
+          bagId: 'property-a',
+          formattedAddress: 'Beeldbuisring 41, Eindhoven',
+          lat: 51.44,
+          lon: 5.47,
+          details: {
+            city: 'Eindhoven',
+            zip: '5651HA',
+            street: 'Beeldbuisring',
+            number: '41',
+            houseNumber: '41',
+            houseNumberAddition: null,
+            countryCode: 'NL',
+          },
+        },
+        routeInput: {
+          city: 'Eindhoven',
+          postalCode: '5651HA',
+          streetName: 'Beeldbuisring',
+          houseNumber: '41',
+          houseNumberAddition: null,
+          countryCode: 'NL',
+        },
+      },
+    };
+    Object.assign(mockInteraction, {
+      selectedPropertyForSheet: previewProperty,
+      previewGroup: {
+        properties: [previewProperty],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(container.querySelector('[data-testid="mock-comments-route-screen"]')).toBeNull();
+    expect(container.querySelector('[data-testid="mock-guesses-route-screen"]')).toBeNull();
+
+    await act(async () => {
+      capturedPropertyBottomSheetProps?.onSocialSectionsMountChange?.('property-a', true);
+    });
+    await flushMicrotasks();
+
+    const preloadedComments = container.querySelector('[data-testid="mock-comments-route-screen"]');
+    const preloadedGuesses = container.querySelector('[data-testid="mock-guesses-route-screen"]');
+    expect(preloadedComments).not.toBeNull();
+    expect(preloadedComments?.getAttribute('data-property-id')).toBe('property-a');
+    expect(preloadedComments?.getAttribute('data-panel-open')).toBe('false');
+    expect(preloadedGuesses).not.toBeNull();
+    expect(preloadedGuesses?.getAttribute('data-property-id')).toBe('property-a');
+    expect(preloadedGuesses?.getAttribute('data-panel-open')).toBe('false');
+    expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(0);
+
+    await act(async () => {
+      capturedPropertyBottomSheetProps?.onCommentPress?.('property-a');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledWith(commentsPath);
+    expect(
+      container
+        .querySelector('[data-testid="mock-comments-route-screen"]')
+        ?.getAttribute('data-panel-open')
+    ).toBe('true');
+    expect(
+      container
+        .querySelector('[data-testid="mock-guesses-route-screen"]')
+        ?.getAttribute('data-panel-open')
+    ).toBe('false');
+    expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(420);
   });
 
   it('keeps the map mounted for direct map comments overlays and closes to preview', async () => {

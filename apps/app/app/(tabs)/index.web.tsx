@@ -454,6 +454,10 @@ type MapSocialOverlayDescriptor = {
   returnTo: string;
   propertyId: string;
 };
+type MapSocialOverlayMounts = {
+  comments: MapSocialOverlayDescriptor | null;
+  guesses: MapSocialOverlayDescriptor | null;
+};
 
 function isMapSocialRoute(
   route: ResolvedMapRoute | null | undefined,
@@ -1020,12 +1024,14 @@ function createCurrentLocationMarkerElement(): HTMLDivElement {
 
 function MapSocialOverlay({
   descriptor,
+  open,
   onNavigate,
   onPanelOpenChange,
 }: {
   descriptor: MapSocialOverlayDescriptor;
+  open: boolean;
   onNavigate: (path: string) => void;
-  onPanelOpenChange: (isOpen: boolean) => void;
+  onPanelOpenChange?: (isOpen: boolean) => void;
 }) {
   const testID =
     descriptor.kind === 'map-comments'
@@ -1040,6 +1046,7 @@ function MapSocialOverlay({
           returnTo={descriptor.returnTo}
           onNavigate={onNavigate}
           panelPresentation="map-sheet"
+          panelOpen={open}
           landscapeRightOffset={0}
           onPanelOpenChange={onPanelOpenChange}
         />
@@ -1049,6 +1056,7 @@ function MapSocialOverlay({
           returnTo={descriptor.returnTo}
           onNavigate={onNavigate}
           panelPresentation="map-sheet"
+          panelOpen={open}
           landscapeRightOffset={0}
           onPanelOpenChange={onPanelOpenChange}
         />
@@ -1288,7 +1296,11 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const [pendingMapSocialOverlay, setPendingMapSocialOverlay] =
     useState<MapSocialOverlayDescriptor | null>(null);
   const pendingMapSocialDescriptor =
-    pendingMapSocialOverlay?.canonicalPath === routePathname
+    pendingMapSocialOverlay &&
+    (
+      pendingMapSocialOverlay.canonicalPath === routePathname ||
+      pendingMapSocialOverlay.canonicalPath === browserPathRef.current
+    )
       ? pendingMapSocialOverlay
       : null;
   const displayedMapSocialDescriptor =
@@ -1307,7 +1319,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
       return;
     }
 
-    if (pendingMapSocialOverlay.canonicalPath !== routePathname) {
+    if (
+      pendingMapSocialOverlay.canonicalPath !== routePathname &&
+      pendingMapSocialOverlay.canonicalPath !== browserPathRef.current
+    ) {
       setPendingMapSocialOverlay(null);
       return;
     }
@@ -1717,6 +1732,53 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
 
     return interaction.previewGroup.properties[interaction.currentPreviewIndex] ?? null;
   }, [interaction.currentPreviewIndex, interaction.previewGroup]);
+  const [preloadedMapSocialPropertyId, setPreloadedMapSocialPropertyId] = useState<string | null>(
+    null,
+  );
+  const handleMapSocialSectionsMountChange = useCallback(
+    (propertyId: string, mounted: boolean) => {
+      setPreloadedMapSocialPropertyId((currentPropertyId) => {
+        if (mounted) {
+          return propertyId;
+        }
+
+        return currentPropertyId === propertyId ? null : currentPropertyId;
+      });
+    },
+    [],
+  );
+  const preloadedMapSocialDescriptors = useMemo<MapSocialOverlayMounts>(() => {
+    const routeProperty =
+      interaction.selectedPropertyForSheet ?? currentPreviewProperty ?? selectedProperty;
+
+    if (!routeProperty || routeProperty.id !== preloadedMapSocialPropertyId) {
+      return { comments: null, guesses: null };
+    }
+
+    return {
+      comments: getPendingMapSocialDescriptor('map-comments', routeProperty),
+      guesses: getPendingMapSocialDescriptor('map-guesses', routeProperty),
+    };
+  }, [
+    currentPreviewProperty,
+    interaction.selectedPropertyForSheet,
+    preloadedMapSocialPropertyId,
+    selectedProperty,
+  ]);
+  const mountedMapSocialDescriptors = useMemo<MapSocialOverlayMounts>(() => ({
+    comments:
+      displayedMapSocialDescriptor?.kind === 'map-comments'
+        ? displayedMapSocialDescriptor
+        : preloadedMapSocialDescriptors.comments,
+    guesses:
+      displayedMapSocialDescriptor?.kind === 'map-guesses'
+        ? displayedMapSocialDescriptor
+        : preloadedMapSocialDescriptors.guesses,
+  }), [
+    displayedMapSocialDescriptor,
+    preloadedMapSocialDescriptors.comments,
+    preloadedMapSocialDescriptors.guesses,
+  ]);
   const { recordPropertyView: recordPreviewPropertyView } = usePropertyView();
   useEffect(() => {
     if (currentPreviewProperty?.id) {
@@ -1786,12 +1848,25 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   );
   pushMapBrowserPathRef.current = pushMapBrowserPath;
   const openMapSocialPath = useCallback(
-    (pathname: string) => {
+    (
+      pathname: string,
+      options: { optimisticDescriptor?: MapSocialOverlayDescriptor | null } = {},
+    ) => {
       if (!pushMapBrowserPath(pathname)) {
         return false;
       }
 
       browserPathRef.current = pathname;
+      if (options.optimisticDescriptor) {
+        setPendingMapSocialOverlay(options.optimisticDescriptor);
+        startTransition(() => {
+          setRoutePathname((currentPathname) =>
+            currentPathname === pathname ? currentPathname : pathname,
+          );
+        });
+        return true;
+      }
+
       setRoutePathname((currentPathname) =>
         currentPathname === pathname ? currentPathname : pathname,
       );
@@ -1829,9 +1904,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         routeProperty,
       );
       const pathname = pendingDescriptor?.canonicalPath ?? buildPropertyMapCommentsRoute(routeProperty);
-      if (openMapSocialPath(pathname) && pendingDescriptor) {
-        setPendingMapSocialOverlay(pendingDescriptor);
-      }
+      openMapSocialPath(pathname, { optimisticDescriptor: pendingDescriptor });
     },
     [
       currentPreviewProperty,
@@ -1853,9 +1926,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         routeProperty,
       );
       const pathname = pendingDescriptor?.canonicalPath ?? buildPropertyMapGuessesRoute(routeProperty);
-      if (openMapSocialPath(pathname) && pendingDescriptor) {
-        setPendingMapSocialOverlay(pendingDescriptor);
-      }
+      openMapSocialPath(pathname, { optimisticDescriptor: pendingDescriptor });
     },
     [
       currentPreviewProperty,
@@ -4358,6 +4429,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         onLike={interaction.handleLike}
         onGuessPress={handleMapGuessPress}
         onCommentPress={handleMapCommentPress}
+        onSocialSectionsMountChange={handleMapSocialSectionsMountChange}
         onAuthRequired={interaction.handleAuthRequired}
         landscapeRightOffset={
           displayedMapSocialDescriptor && isMapSocialPanelOpen
@@ -4366,11 +4438,29 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         }
       />
 
-      {displayedMapSocialDescriptor ? (
+      {mountedMapSocialDescriptors.comments ? (
         <MapSocialOverlay
-          descriptor={displayedMapSocialDescriptor}
+          descriptor={mountedMapSocialDescriptors.comments}
+          open={displayedMapSocialDescriptor?.kind === 'map-comments'}
           onNavigate={handleMapSocialNavigate}
-          onPanelOpenChange={handleMapSocialPanelOpenChange}
+          onPanelOpenChange={
+            displayedMapSocialDescriptor?.kind === 'map-comments'
+              ? handleMapSocialPanelOpenChange
+              : undefined
+          }
+        />
+      ) : null}
+
+      {mountedMapSocialDescriptors.guesses ? (
+        <MapSocialOverlay
+          descriptor={mountedMapSocialDescriptors.guesses}
+          open={displayedMapSocialDescriptor?.kind === 'map-guesses'}
+          onNavigate={handleMapSocialNavigate}
+          onPanelOpenChange={
+            displayedMapSocialDescriptor?.kind === 'map-guesses'
+              ? handleMapSocialPanelOpenChange
+              : undefined
+          }
         />
       ) : null}
 

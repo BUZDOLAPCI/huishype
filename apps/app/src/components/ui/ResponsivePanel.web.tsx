@@ -34,6 +34,8 @@ export interface ResponsivePanelProps {
   onOpenChange?: (isOpen: boolean) => void;
   /** Route pages pass through in portrait; map overlays use bottom-sheet chrome. */
   presentation?: 'route' | 'map-sheet';
+  /** Controls whether a map-sheet is opened. Hidden map sheets still mount children. */
+  open?: boolean;
   /** Right offset for landscape map sheets when another panel owns the edge. */
   landscapeRightOffset?: number;
 }
@@ -134,16 +136,35 @@ if (typeof document !== 'undefined') {
 
 export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelProps>(
   function ResponsivePanel(
-    { children, title, onClose, onOpenChange, presentation = 'route', landscapeRightOffset },
+    {
+      children,
+      title,
+      onClose,
+      onOpenChange,
+      presentation = 'route',
+      open = true,
+      landscapeRightOffset,
+    },
     ref
   ) {
     const t = useT();
     const isLandscape = useIsLandscape();
     const mapSheetRestingState: WebPanelState = isLandscape ? 'full' : 'partial';
+    const isMapSheetOpenRequested = presentation === 'map-sheet' && open;
     const hasOpenedMapSheetRef = useRef(false);
+    const hasRenderedClosedMapSheetRef = useRef(false);
     const isClosingMapSheetRef = useRef(false);
     const mapSheetCloseTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
     const [mapSheetState, setMapSheetState] = useState<WebPanelState>('closed');
+    const canOpenRenderedClosedMapSheet =
+      presentation === 'map-sheet' &&
+      isMapSheetOpenRequested &&
+      hasRenderedClosedMapSheetRef.current &&
+      !isClosingMapSheetRef.current &&
+      mapSheetState === 'closed';
+    const displayedMapSheetState = canOpenRenderedClosedMapSheet
+      ? mapSheetRestingState
+      : mapSheetState;
 
     const handleClose = useCallback(() => {
       if (onClose) {
@@ -206,8 +227,14 @@ export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelPro
         return;
       }
 
-      onOpenChange?.(mapSheetState !== 'closed');
-    }, [isLandscape, mapSheetState, onOpenChange, presentation]);
+      onOpenChange?.(isMapSheetOpenRequested && displayedMapSheetState !== 'closed');
+    }, [
+      displayedMapSheetState,
+      isLandscape,
+      isMapSheetOpenRequested,
+      onOpenChange,
+      presentation,
+    ]);
 
     // Dismiss on Escape key (landscape panel only)
     useEffect(() => {
@@ -222,8 +249,18 @@ export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelPro
     useEffect(() => {
       if (presentation !== 'map-sheet') {
         hasOpenedMapSheetRef.current = false;
+        hasRenderedClosedMapSheetRef.current = false;
         isClosingMapSheetRef.current = false;
         clearMapSheetCloseTimer();
+        return;
+      }
+
+      if (!isMapSheetOpenRequested) {
+        hasOpenedMapSheetRef.current = false;
+        hasRenderedClosedMapSheetRef.current = true;
+        isClosingMapSheetRef.current = false;
+        clearMapSheetCloseTimer();
+        setMapSheetState('closed');
         return;
       }
 
@@ -235,6 +272,12 @@ export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelPro
         setMapSheetState((currentState) =>
           currentState === 'closed' ? currentState : mapSheetRestingState
         );
+        return;
+      }
+
+      if (hasRenderedClosedMapSheetRef.current) {
+        hasOpenedMapSheetRef.current = true;
+        setMapSheetState(mapSheetRestingState);
         return;
       }
 
@@ -252,12 +295,27 @@ export const ResponsivePanel = forwardRef<ResponsivePanelRef, ResponsivePanelPro
 
       const timeout = globalThis.setTimeout(openPanel, 16);
       return () => globalThis.clearTimeout(timeout);
-    }, [clearMapSheetCloseTimer, mapSheetRestingState, presentation]);
+    }, [
+      clearMapSheetCloseTimer,
+      isMapSheetOpenRequested,
+      mapSheetRestingState,
+      presentation,
+    ]);
+
+    useEffect(() => {
+      if (presentation !== 'map-sheet') {
+        return;
+      }
+
+      if (!isMapSheetOpenRequested || displayedMapSheetState === 'closed') {
+        hasRenderedClosedMapSheetRef.current = true;
+      }
+    }, [displayedMapSheetState, isMapSheetOpenRequested, presentation]);
 
     if (presentation === 'map-sheet') {
       return (
         <WebPanelChrome
-          state={mapSheetState}
+          state={displayedMapSheetState}
           title={title}
           onStateChange={setMapSheetState}
           onClose={handleMapSheetClose}

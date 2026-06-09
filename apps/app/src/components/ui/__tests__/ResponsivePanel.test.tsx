@@ -244,6 +244,50 @@ describe('ResponsivePanel.web', () => {
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
   });
 
+  it('opens an already mounted closed map-sheet in the same render', () => {
+    setWindowSize(390, 844);
+    const onOpenChange = jest.fn();
+
+    renderToDOM(
+      <ResponsivePanel
+        title="Comments"
+        presentation="map-sheet"
+        open={false}
+        onOpenChange={onOpenChange}
+      >
+        <span>Preloaded map sheet content</span>
+      </ResponsivePanel>
+    );
+
+    const panel = queryDom('web-property-panel');
+    const backdrop = queryDom('web-panel-backdrop');
+    expect(panel).not.toBeNull();
+    expect(container.textContent).toContain('Preloaded map sheet content');
+    expect(panel?.className).not.toContain('partial');
+    expect(backdrop?.className).not.toContain('open');
+
+    flushAnimationFrame();
+
+    expect(panel?.className).not.toContain('partial');
+    expect(backdrop?.className).not.toContain('open');
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+
+    renderToDOM(
+      <ResponsivePanel
+        title="Comments"
+        presentation="map-sheet"
+        open
+        onOpenChange={onOpenChange}
+      >
+        <span>Preloaded map sheet content</span>
+      </ResponsivePanel>
+    );
+
+    expect(panel?.className).toContain('partial');
+    expect(backdrop?.className).toContain('open');
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+  });
+
   it('animates map-sheet presentation closed before calling close handlers', () => {
     jest.useFakeTimers();
     setWindowSize(390, 844);

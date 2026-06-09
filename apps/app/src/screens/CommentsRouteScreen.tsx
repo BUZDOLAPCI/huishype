@@ -52,6 +52,7 @@ export interface CommentsRouteScreenProps {
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
   panelPresentation?: ResponsivePanelProps['presentation'];
+  panelOpen?: ResponsivePanelProps['open'];
   landscapeRightOffset?: ResponsivePanelProps['landscapeRightOffset'];
   onPanelOpenChange?: ResponsivePanelProps['onOpenChange'];
 }
@@ -76,6 +77,7 @@ export function CommentsRouteScreen({
   returnTo,
   onNavigate,
   panelPresentation = 'route',
+  panelOpen,
   landscapeRightOffset,
   onPanelOpenChange,
 }: CommentsRouteScreenProps) {
@@ -268,6 +270,7 @@ export function CommentsRouteScreen({
         onClose={triggerClose}
         onOpenChange={onPanelOpenChange}
         presentation={panelPresentation}
+        open={panelOpen}
         landscapeRightOffset={landscapeRightOffset}
       >
         <KeyboardAvoidingView

@@ -71,6 +71,7 @@ export interface PropertyContentProps {
 
   // Navigation to full-page routes
   onViewAllComments?: (id: string) => void;
+  onSocialSectionsMountChange?: (propertyId: string, mounted: boolean) => void;
 
   // Layout measurement callbacks — containers that need scroll-to-section
   // (native sheet, web panel) provide these; detail page omits them.
@@ -137,6 +138,7 @@ interface PropertyContentSectionsProps {
   onAuthRequired?: (copy?: AuthModalCopyInput, onAuthenticated?: () => void) => void;
   onGuessPress?: (id: string) => void;
   onViewAllComments?: (id: string) => void;
+  onSocialSectionsMountChange?: (propertyId: string, mounted: boolean) => void;
   onGuessSectionLayout?: (y: number) => void;
   onCommentsSectionLayout?: (y: number) => void;
   onHalfExpandedBodyPress?: () => void;
@@ -156,6 +158,7 @@ function PropertyContentSections({
   onAuthRequired,
   onGuessPress,
   onViewAllComments,
+  onSocialSectionsMountChange,
   onGuessSectionLayout,
   onCommentsSectionLayout,
   onHalfExpandedBodyPress,
@@ -268,6 +271,18 @@ function PropertyContentSections({
     sectionStackOffsetY,
     shouldMountSocialSections,
   ]);
+
+  useEffect(() => {
+    if (!property?.id) {
+      return;
+    }
+
+    onSocialSectionsMountChange?.(property.id, shouldMountSocialSections);
+
+    return () => {
+      onSocialSectionsMountChange?.(property.id, false);
+    };
+  }, [onSocialSectionsMountChange, property?.id, shouldMountSocialSections]);
 
   const handleScrollToGuess = useCallback(() => {
     if (!deferSocialSectionsUntilActionsVisible) {
@@ -463,6 +478,7 @@ export function PropertyContent({
   onGuessPress,
   onCommentPress: _onCommentPress,
   onViewAllComments,
+  onSocialSectionsMountChange,
   onGuessSectionLayout,
   onCommentsSectionLayout,
   onHalfExpandedBodyPress,
@@ -516,6 +532,7 @@ export function PropertyContent({
         onAuthRequired={onAuthRequired}
         onGuessPress={onGuessPress}
         onViewAllComments={onViewAllComments}
+        onSocialSectionsMountChange={onSocialSectionsMountChange}
         onGuessSectionLayout={onGuessSectionLayout}
         onCommentsSectionLayout={onCommentsSectionLayout}
         onHalfExpandedBodyPress={onHalfExpandedBodyPress}

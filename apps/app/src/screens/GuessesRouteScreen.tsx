@@ -207,6 +207,7 @@ export interface GuessesRouteScreenProps {
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
   panelPresentation?: ResponsivePanelProps['presentation'];
+  panelOpen?: ResponsivePanelProps['open'];
   landscapeRightOffset?: ResponsivePanelProps['landscapeRightOffset'];
   onPanelOpenChange?: ResponsivePanelProps['onOpenChange'];
 }
@@ -216,6 +217,7 @@ export function GuessesRouteScreen({
   returnTo,
   onNavigate,
   panelPresentation = 'route',
+  panelOpen,
   landscapeRightOffset,
   onPanelOpenChange,
 }: GuessesRouteScreenProps) {
@@ -401,6 +403,7 @@ export function GuessesRouteScreen({
         onClose={triggerClose}
         onOpenChange={onPanelOpenChange}
         presentation={panelPresentation}
+        open={panelOpen}
         landscapeRightOffset={landscapeRightOffset}
       >
         <ScrollView
