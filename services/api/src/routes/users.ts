@@ -649,7 +649,7 @@ export async function userRoutes(fastify: FastifyInstance) {
           lastUsernameChangeAt: users.lastUsernameChangeAt,
         });
 
-      void deleteProfilePhotoByUrl(user.profilePhotoUrl);
+      void deleteProfilePhotoByUrl(user.profilePhotoUrl, userId);
 
       return profileIdentityPayload(updated);
     }
@@ -706,7 +706,7 @@ export async function userRoutes(fastify: FastifyInstance) {
           lastUsernameChangeAt: users.lastUsernameChangeAt,
         });
 
-      void deleteProfilePhotoByUrl(user.profilePhotoUrl);
+      void deleteProfilePhotoByUrl(user.profilePhotoUrl, userId);
 
       return profileIdentityPayload(updated);
     }

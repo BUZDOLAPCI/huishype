@@ -786,6 +786,31 @@ describe('User profile routes', () => {
       const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
       expect(stored?.profilePhotoUrl).toBeNull();
     });
+
+    it('does not delete another user profile photo object', async () => {
+      const { accessToken, userId } = await createTestUser('photo-delete-foreign');
+      const otherUser = await createTestUser('photo-delete-foreign-owner');
+      const foreignKey = `profile-photos/${otherUser.userId}/existing.jpg`;
+
+      await db
+        .update(users)
+        .set({ profilePhotoUrl: `/${foreignKey}` })
+        .where(eq(users.id, userId));
+
+      const resp = await app.inject({
+        method: 'DELETE',
+        url: '/users/me/profile-photo',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body);
+      expect(body.profilePhotoUrl).toBeNull();
+      expect(deletedObjectKeys).toEqual([]);
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(stored?.profilePhotoUrl).toBeNull();
+    });
   });
 
   // ---------- Follow graph ----------

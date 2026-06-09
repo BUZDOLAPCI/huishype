@@ -204,21 +204,27 @@ function getStorageAdapter(): ProfilePhotoStorageAdapter {
   };
 }
 
-function keyFromPublicUrl(publicUrl: string | null | undefined): string | null {
+function isOwnedProfilePhotoKey(key: string, userId: string): boolean {
+  return key.startsWith(`profile-photos/${userId}/`);
+}
+
+function keyFromPublicUrl(publicUrl: string | null | undefined, userId: string): string | null {
   if (!publicUrl) {
     return null;
   }
 
-  const baseUrl = config.r2.publicBaseUrl.replace(/\/$/, '');
-  if (!baseUrl && testStorageAdapter && publicUrl.startsWith('/')) {
-    return publicUrl.slice(1);
+  if (testStorageAdapter && publicUrl.startsWith('/')) {
+    const key = publicUrl.slice(1);
+    return isOwnedProfilePhotoKey(key, userId) ? key : null;
   }
 
+  const baseUrl = config.r2.publicBaseUrl.replace(/\/$/, '');
   if (!baseUrl || !publicUrl.startsWith(`${baseUrl}/`)) {
     return null;
   }
 
-  return publicUrl.slice(baseUrl.length + 1);
+  const key = publicUrl.slice(baseUrl.length + 1);
+  return isOwnedProfilePhotoKey(key, userId) ? key : null;
 }
 
 export async function uploadUserProfilePhoto(input: {
@@ -237,8 +243,11 @@ export async function uploadUserProfilePhoto(input: {
   });
 }
 
-export async function deleteProfilePhotoByUrl(publicUrl: string | null | undefined): Promise<void> {
-  const key = keyFromPublicUrl(publicUrl);
+export async function deleteProfilePhotoByUrl(
+  publicUrl: string | null | undefined,
+  userId: string
+): Promise<void> {
+  const key = keyFromPublicUrl(publicUrl, userId);
   if (!key) {
     return;
   }
