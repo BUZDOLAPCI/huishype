@@ -123,6 +123,8 @@ import {
   withAlpha,
 } from '@huishype/shared/config';
 import {
+  buildCanonicalMapCommentsPath,
+  buildCanonicalMapGuessesPath,
   buildCanonicalMapPreviewPath,
   serializeCanonicalCameraPath,
 } from '@huishype/shared';
@@ -446,11 +448,62 @@ type ResolvedPropertyRoute = Extract<ResolvedMapRoute, { property: unknown }>;
 type MapSocialRoute = Omit<ResolvedPropertyRoute, 'kind'> & {
   kind: 'map-comments' | 'map-guesses';
 };
+type MapSocialOverlayDescriptor = {
+  kind: 'map-comments' | 'map-guesses';
+  canonicalPath: string;
+  returnTo: string;
+  propertyId: string;
+};
 
 function isMapSocialRoute(
   route: ResolvedMapRoute | null | undefined,
 ): route is MapSocialRoute {
   return route?.kind === 'map-comments' || route?.kind === 'map-guesses';
+}
+
+function getMapSocialDescriptorFromRoute(
+  route: MapSocialRoute,
+): MapSocialOverlayDescriptor {
+  return {
+    kind: route.kind,
+    canonicalPath: route.canonicalPath,
+    returnTo: buildCanonicalMapPreviewPath(route.routeInput),
+    propertyId: route.property.id,
+  };
+}
+
+function getPendingMapSocialDescriptor(
+  kind: MapSocialOverlayDescriptor['kind'],
+  property: {
+    id?: string | null;
+    address?: string | null;
+    city?: string | null;
+    postalCode?: string | null;
+    countryCode?: string | null;
+    street?: string | null;
+    streetName?: string | null;
+    houseNumber?: string | number | null;
+    houseNumberAddition?: string | null;
+  },
+): MapSocialOverlayDescriptor | null {
+  if (!property.id) {
+    return null;
+  }
+
+  const routeInput = extractCanonicalRouteInput(property);
+  if (!routeInput) {
+    return null;
+  }
+
+  return {
+    kind,
+    canonicalPath:
+      kind === 'map-comments'
+        ? buildCanonicalMapCommentsPath(routeInput)
+        : buildCanonicalMapGuessesPath(routeInput),
+    returnTo: buildCanonicalMapPreviewPath(routeInput),
+    propertyId: property.id,
+  };
 }
 
 function getInitialWebMapCamera(pathname: string): InitialWebMapCamera {
@@ -966,27 +1019,25 @@ function createCurrentLocationMarkerElement(): HTMLDivElement {
 }
 
 function MapSocialOverlay({
-  route,
-  returnTo,
+  descriptor,
   onNavigate,
   onPanelOpenChange,
 }: {
-  route: MapSocialRoute;
-  returnTo: string;
+  descriptor: MapSocialOverlayDescriptor;
   onNavigate: (path: string) => void;
   onPanelOpenChange: (isOpen: boolean) => void;
 }) {
   const testID =
-    route.kind === 'map-comments'
+    descriptor.kind === 'map-comments'
       ? 'map-comments-overlay'
       : 'map-guesses-overlay';
 
   return (
     <div className="map-social-overlay" data-testid={testID}>
-      {route.kind === 'map-comments' ? (
+      {descriptor.kind === 'map-comments' ? (
         <CommentsRouteScreen
-          propertyId={route.property.id}
-          returnTo={returnTo}
+          propertyId={descriptor.propertyId}
+          returnTo={descriptor.returnTo}
           onNavigate={onNavigate}
           panelPresentation="map-sheet"
           landscapeRightOffset={0}
@@ -994,8 +1045,8 @@ function MapSocialOverlay({
         />
       ) : (
         <GuessesRouteScreen
-          propertyId={route.property.id}
-          returnTo={returnTo}
+          propertyId={descriptor.propertyId}
+          returnTo={descriptor.returnTo}
           onNavigate={onNavigate}
           panelPresentation="map-sheet"
           landscapeRightOffset={0}
@@ -1231,18 +1282,53 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const activeMapSocialRoute = isMapSocialRoute(routeState.resolvedRoute)
     ? routeState.resolvedRoute
     : null;
-  const activeMapSocialPreviewPath = activeMapSocialRoute
-    ? buildCanonicalMapPreviewPath(activeMapSocialRoute.routeInput)
+  const activeMapSocialDescriptor = activeMapSocialRoute
+    ? getMapSocialDescriptorFromRoute(activeMapSocialRoute)
     : null;
+  const [pendingMapSocialOverlay, setPendingMapSocialOverlay] =
+    useState<MapSocialOverlayDescriptor | null>(null);
+  const pendingMapSocialDescriptor =
+    pendingMapSocialOverlay?.canonicalPath === routePathname
+      ? pendingMapSocialOverlay
+      : null;
+  const displayedMapSocialDescriptor =
+    activeMapSocialDescriptor ?? pendingMapSocialDescriptor;
   const [isMapSocialPanelOpen, setIsMapSocialPanelOpen] = useState(false);
   const handleMapSocialPanelOpenChange = useCallback((isOpen: boolean) => {
     setIsMapSocialPanelOpen((current) => (current === isOpen ? current : isOpen));
   }, []);
   useEffect(() => {
-    if (!activeMapSocialRoute) {
+    if (!displayedMapSocialDescriptor) {
       setIsMapSocialPanelOpen(false);
     }
-  }, [activeMapSocialRoute]);
+  }, [displayedMapSocialDescriptor]);
+  useEffect(() => {
+    if (!pendingMapSocialOverlay) {
+      return;
+    }
+
+    if (pendingMapSocialOverlay.canonicalPath !== routePathname) {
+      setPendingMapSocialOverlay(null);
+      return;
+    }
+
+    if (!routeState.isLoading) {
+      if (
+        routeState.resolvedRoute?.kind === 'invalid' ||
+        (
+          isMapSocialRoute(routeState.resolvedRoute) &&
+          routeState.resolvedRoute.canonicalPath === pendingMapSocialOverlay.canonicalPath
+        )
+      ) {
+        setPendingMapSocialOverlay(null);
+      }
+    }
+  }, [
+    pendingMapSocialOverlay,
+    routePathname,
+    routeState.isLoading,
+    routeState.resolvedRoute,
+  ]);
   const appliedRoutePathRef = useRef<string | null>(null);
   const skipNextPassiveUrlSyncRef = useRef(true);
   const lastCameraPathRef = useRef<string>('/');
@@ -1702,13 +1788,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   const openMapSocialPath = useCallback(
     (pathname: string) => {
       if (!pushMapBrowserPath(pathname)) {
-        return;
+        return false;
       }
 
       browserPathRef.current = pathname;
       setRoutePathname((currentPathname) =>
         currentPathname === pathname ? currentPathname : pathname,
       );
+      return true;
     },
     [pushMapBrowserPath],
   );
@@ -1737,7 +1824,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         return;
       }
 
-      openMapSocialPath(buildPropertyMapCommentsRoute(routeProperty));
+      const pendingDescriptor = getPendingMapSocialDescriptor(
+        'map-comments',
+        routeProperty,
+      );
+      const pathname = pendingDescriptor?.canonicalPath ?? buildPropertyMapCommentsRoute(routeProperty);
+      if (openMapSocialPath(pathname) && pendingDescriptor) {
+        setPendingMapSocialOverlay(pendingDescriptor);
+      }
     },
     [
       currentPreviewProperty,
@@ -1754,7 +1848,14 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         return;
       }
 
-      openMapSocialPath(buildPropertyMapGuessesRoute(routeProperty));
+      const pendingDescriptor = getPendingMapSocialDescriptor(
+        'map-guesses',
+        routeProperty,
+      );
+      const pathname = pendingDescriptor?.canonicalPath ?? buildPropertyMapGuessesRoute(routeProperty);
+      if (openMapSocialPath(pathname) && pendingDescriptor) {
+        setPendingMapSocialOverlay(pendingDescriptor);
+      }
     },
     [
       currentPreviewProperty,
@@ -3703,10 +3804,10 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
     if (interaction.previewGroup && previewCanonicalPath) {
       previousPreviewPathRef.current = previewCanonicalPath;
       if (
-        activeMapSocialRoute &&
-        activeMapSocialPreviewPath === previewCanonicalPath
+        displayedMapSocialDescriptor &&
+        displayedMapSocialDescriptor.returnTo === previewCanonicalPath
       ) {
-        browserPathRef.current = activeMapSocialRoute.canonicalPath;
+        browserPathRef.current = displayedMapSocialDescriptor.canonicalPath;
         return;
       }
 
@@ -3771,8 +3872,7 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   }, [
     isMapTabActive,
     interaction.previewGroup,
-    activeMapSocialPreviewPath,
-    activeMapSocialRoute,
+    displayedMapSocialDescriptor,
     previewCanonicalPath,
     pushMapBrowserPath,
     replaceMapBrowserPath,
@@ -4259,13 +4359,16 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
         onGuessPress={handleMapGuessPress}
         onCommentPress={handleMapCommentPress}
         onAuthRequired={interaction.handleAuthRequired}
-        landscapeRightOffset={isMapSocialPanelOpen ? MAP_SOCIAL_PANEL_WIDTH : 0}
+        landscapeRightOffset={
+          displayedMapSocialDescriptor && isMapSocialPanelOpen
+            ? MAP_SOCIAL_PANEL_WIDTH
+            : 0
+        }
       />
 
-      {activeMapSocialRoute && activeMapSocialPreviewPath ? (
+      {displayedMapSocialDescriptor ? (
         <MapSocialOverlay
-          route={activeMapSocialRoute}
-          returnTo={activeMapSocialPreviewPath}
+          descriptor={displayedMapSocialDescriptor}
           onNavigate={handleMapSocialNavigate}
           onPanelOpenChange={handleMapSocialPanelOpenChange}
         />

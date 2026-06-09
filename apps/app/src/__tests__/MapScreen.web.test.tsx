@@ -161,7 +161,11 @@ let capturedSearchBarProps: {
     countryCode?: string | null;
   };
 } | null = null;
-let capturedPropertyBottomSheetProps: { landscapeRightOffset?: number } | null = null;
+let capturedPropertyBottomSheetProps: {
+  landscapeRightOffset?: number;
+  onCommentPress?: (propertyId: string) => void;
+  onGuessPress?: (propertyId: string) => void;
+} | null = null;
 
 const mockAmbientCommentBubbles = {
   bubbles: [] as unknown[],
@@ -265,7 +269,11 @@ jest.mock('@/src/components', () => {
       return null;
     },
     PropertyBottomSheet: ReactModule.forwardRef((
-      props: { landscapeRightOffset?: number },
+      props: {
+        landscapeRightOffset?: number;
+        onCommentPress?: (propertyId: string) => void;
+        onGuessPress?: (propertyId: string) => void;
+      },
       _ref: unknown,
     ) => {
       capturedPropertyBottomSheetProps = props;
@@ -1361,6 +1369,118 @@ describe('MapScreen web grouped Following mode', () => {
     expect(mockMapConstructor).toHaveBeenCalledTimes(1);
 
     window.removeEventListener('popstate', routeNavigation);
+  });
+
+  it('opens map comments immediately from the selected property while route resolution is loading', async () => {
+    mockPreviewRouteInputs();
+    const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
+    const commentsPath = `${previewPath}/comments`;
+    const previewProperty = {
+      id: 'property-a',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      streetName: 'Beeldbuisring',
+      houseNumber: '41',
+      countryCode: 'NL' as const,
+      coordinates: { lon: 5.47, lat: 51.44 },
+      hasActiveListing: false,
+      marketState: 'not-listed' as const,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationSourceFetch: null,
+    };
+    mockResolvedMapRouteState = {
+      isLoading: true,
+      pathname: '/',
+      resolvedRoute: null,
+    };
+    Object.assign(mockInteraction, {
+      selectedPropertyForSheet: previewProperty,
+      previewGroup: {
+        properties: [previewProperty],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(0);
+
+    await act(async () => {
+      capturedPropertyBottomSheetProps?.onCommentPress?.('property-a');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledWith(commentsPath);
+    expect(container.querySelector('[data-testid="map-comments-overlay"]')).not.toBeNull();
+    const routeScreen = container.querySelector('[data-testid="mock-comments-route-screen"]');
+    expect(routeScreen).not.toBeNull();
+    expect(routeScreen?.getAttribute('data-property-id')).toBe('property-a');
+    expect(routeScreen?.getAttribute('data-panel-presentation')).toBe('map-sheet');
+    expect(routeScreen?.getAttribute('data-landscape-right-offset')).toBe('0');
+    expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(420);
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens map guesses immediately from the selected property while route resolution is loading', async () => {
+    mockPreviewRouteInputs();
+    const previewPath = '/map/eindhoven/5651ha/beeldbuisring/41';
+    const guessesPath = `${previewPath}/guesses`;
+    const previewProperty = {
+      id: 'property-a',
+      address: 'Beeldbuisring 41',
+      city: 'Eindhoven',
+      postalCode: '5651HA',
+      streetName: 'Beeldbuisring',
+      houseNumber: '41',
+      countryCode: 'NL' as const,
+      coordinates: { lon: 5.47, lat: 51.44 },
+      hasActiveListing: false,
+      marketState: 'not-listed' as const,
+      officialValuation: null,
+      officialValuationYear: null,
+      officialValuationSourceFetch: null,
+    };
+    mockResolvedMapRouteState = {
+      isLoading: true,
+      pathname: '/',
+      resolvedRoute: null,
+    };
+    Object.assign(mockInteraction, {
+      selectedPropertyForSheet: previewProperty,
+      previewGroup: {
+        properties: [previewProperty],
+        coordinate: [5.47, 51.44],
+      },
+      currentPreviewIndex: 0,
+    });
+
+    await act(async () => {
+      root.render(<MapScreen />);
+    });
+    await flushMicrotasks();
+
+    expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(0);
+
+    await act(async () => {
+      capturedPropertyBottomSheetProps?.onGuessPress?.('property-a');
+    });
+    await flushMicrotasks();
+
+    expect(mockPushBrowserPath).toHaveBeenCalledWith(guessesPath);
+    expect(container.querySelector('[data-testid="map-guesses-overlay"]')).not.toBeNull();
+    const routeScreen = container.querySelector('[data-testid="mock-guesses-route-screen"]');
+    expect(routeScreen).not.toBeNull();
+    expect(routeScreen?.getAttribute('data-property-id')).toBe('property-a');
+    expect(routeScreen?.getAttribute('data-panel-presentation')).toBe('map-sheet');
+    expect(routeScreen?.getAttribute('data-landscape-right-offset')).toBe('0');
+    expect(capturedPropertyBottomSheetProps?.landscapeRightOffset).toBe(420);
+    expect(mockMapConstructor).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the map mounted for direct map comments overlays and closes to preview', async () => {

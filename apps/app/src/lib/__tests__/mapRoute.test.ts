@@ -3,6 +3,8 @@ import {
   parseMapRoutePath,
   parseMapSocialScopeFromSearchParams,
   persistMapSocialScope,
+  registerLocalPreviewRoute,
+  clearLocalPreviewRouteCache,
   resolveMapRoute,
 } from '../mapRoute';
 
@@ -15,6 +17,7 @@ jest.mock('@/src/utils/api', () => ({
 describe('resolveMapRoute', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    clearLocalPreviewRouteCache();
   });
 
   it('parses map-scoped social routes separately from static social routes', () => {
@@ -63,6 +66,90 @@ describe('resolveMapRoute', () => {
         id: '11111111-1111-4111-8111-111111111111',
       }),
     });
+  });
+
+  it('resolves locally registered map-scoped comments without calling /properties/resolve', async () => {
+    registerLocalPreviewRoute(
+      '/map/eindhoven/1234ab/teststraat/42-a',
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        countryCode: 'NL',
+        address: 'Teststraat 42 A, 1234AB Eindhoven',
+        postalCode: '1234AB',
+        city: 'Eindhoven',
+        coordinates: {
+          lon: 5.4697,
+          lat: 51.4416,
+        },
+        hasActiveListing: false,
+        marketState: 'not-listed',
+        officialValuation: null,
+        officialValuationYear: null,
+        officialValuationSourceFetch: null,
+      },
+      {
+        city: 'Eindhoven',
+        postalCode: '1234AB',
+        streetName: 'Teststraat',
+        houseNumber: '42',
+        houseNumberAddition: 'A',
+        countryCode: 'NL',
+      },
+    );
+
+    await expect(
+      resolveMapRoute('/map/eindhoven/1234ab/teststraat/42-a/comments'),
+    ).resolves.toMatchObject({
+      kind: 'map-comments',
+      canonicalPath: '/map/eindhoven/1234ab/teststraat/42-a/comments',
+      property: expect.objectContaining({
+        id: '11111111-1111-4111-8111-111111111111',
+      }),
+    });
+
+    expect(mockResolveProperty).not.toHaveBeenCalled();
+  });
+
+  it('resolves locally registered map-scoped guesses without calling /properties/resolve', async () => {
+    registerLocalPreviewRoute(
+      '/map/eindhoven/1234ab/teststraat/42-a',
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        countryCode: 'NL',
+        address: 'Teststraat 42 A, 1234AB Eindhoven',
+        postalCode: '1234AB',
+        city: 'Eindhoven',
+        coordinates: {
+          lon: 5.4697,
+          lat: 51.4416,
+        },
+        hasActiveListing: false,
+        marketState: 'not-listed',
+        officialValuation: null,
+        officialValuationYear: null,
+        officialValuationSourceFetch: null,
+      },
+      {
+        city: 'Eindhoven',
+        postalCode: '1234AB',
+        streetName: 'Teststraat',
+        houseNumber: '42',
+        houseNumberAddition: 'A',
+        countryCode: 'NL',
+      },
+    );
+
+    await expect(
+      resolveMapRoute('/map/eindhoven/1234ab/teststraat/42-a/guesses'),
+    ).resolves.toMatchObject({
+      kind: 'map-guesses',
+      canonicalPath: '/map/eindhoven/1234ab/teststraat/42-a/guesses',
+      property: expect.objectContaining({
+        id: '11111111-1111-4111-8111-111111111111',
+      }),
+    });
+
+    expect(mockResolveProperty).not.toHaveBeenCalled();
   });
 
   it('resolves canonical address routes directly through /properties/resolve', async () => {

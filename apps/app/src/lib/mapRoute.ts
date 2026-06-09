@@ -99,7 +99,7 @@ export type ResolvedMapRoute =
   | { kind: 'invalid'; canonicalPath: '/'; reason: string };
 
 type LocalPreviewResolvedMapRoute = {
-  kind: 'preview';
+  kind: 'preview' | 'map-comments' | 'map-guesses';
   canonicalPath: string;
   property: PropertyResolveResult;
   resolvedAddress: ResolvedAddress;
@@ -359,11 +359,37 @@ export function registerLocalPreviewRoute(
   }
 
   const canonicalPath = normalizePathname(pathname);
+  const resolvedAddress = buildSyntheticResolvedAddress(property, routeInput);
+  const previewPath = buildCanonicalMapPreviewPath(routeInput);
+  const commentsPath = buildCanonicalMapCommentsPath(routeInput);
+  const guessesPath = buildCanonicalMapGuessesPath(routeInput);
+
   localPreviewRouteCache.set(canonicalPath, {
     kind: 'preview',
     canonicalPath,
     property,
-    resolvedAddress: buildSyntheticResolvedAddress(property, routeInput),
+    resolvedAddress,
+    routeInput,
+  });
+  localPreviewRouteCache.set(previewPath, {
+    kind: 'preview',
+    canonicalPath: previewPath,
+    property,
+    resolvedAddress,
+    routeInput,
+  });
+  localPreviewRouteCache.set(commentsPath, {
+    kind: 'map-comments',
+    canonicalPath: commentsPath,
+    property,
+    resolvedAddress,
+    routeInput,
+  });
+  localPreviewRouteCache.set(guessesPath, {
+    kind: 'map-guesses',
+    canonicalPath: guessesPath,
+    property,
+    resolvedAddress,
     routeInput,
   });
 }
@@ -563,7 +589,11 @@ export async function resolveMapRoute(pathname: string): Promise<ResolvedMapRout
     return { kind: 'invalid', canonicalPath: '/', reason: 'invalid-house-segment' };
   }
 
-  if (parsed.kind === 'preview') {
+  if (
+    parsed.kind === 'preview' ||
+    parsed.kind === 'map-comments' ||
+    parsed.kind === 'map-guesses'
+  ) {
     const cachedPreviewRoute = localPreviewRouteCache.get(normalizePathname(pathname));
     if (cachedPreviewRoute) {
       return cachedPreviewRoute;
