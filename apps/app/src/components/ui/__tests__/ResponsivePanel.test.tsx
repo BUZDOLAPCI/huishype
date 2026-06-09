@@ -22,6 +22,9 @@ jest.mock('../Icon', () => ({
 
 let container: HTMLDivElement;
 let root: Root;
+let animationFrameCallbacks: FrameRequestCallback[];
+let originalRequestAnimationFrame: typeof window.requestAnimationFrame;
+let originalCancelAnimationFrame: typeof window.cancelAnimationFrame;
 
 function setWindowSize(width: number, height: number) {
   Object.defineProperty(window, 'innerWidth', {
@@ -47,9 +50,43 @@ function renderToDOM(element: React.ReactElement) {
   });
 }
 
+function flushAnimationFrame() {
+  const callbacks = animationFrameCallbacks;
+  animationFrameCallbacks = [];
+
+  act(() => {
+    callbacks.forEach((callback) => callback(performance.now()));
+  });
+}
+
+function dispatchPointerEvent(target: HTMLElement, type: string, clientY: number) {
+  const event = new Event(type, { bubbles: true }) as PointerEvent;
+  Object.defineProperty(event, 'clientY', { value: clientY });
+  Object.defineProperty(event, 'pointerId', { value: 1 });
+  target.dispatchEvent(event);
+}
+
 describe('ResponsivePanel.web', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    originalRequestAnimationFrame = window.requestAnimationFrame;
+    originalCancelAnimationFrame = window.cancelAnimationFrame;
+    animationFrameCallbacks = [];
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: jest.fn((callback: FrameRequestCallback) => {
+        animationFrameCallbacks.push(callback);
+        return animationFrameCallbacks.length;
+      }),
+    });
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: jest.fn((handle: number) => {
+        animationFrameCallbacks[handle - 1] = () => {};
+      }),
+    });
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -60,6 +97,16 @@ describe('ResponsivePanel.web', () => {
       root.unmount();
     });
     container.remove();
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: originalRequestAnimationFrame,
+    });
+    Object.defineProperty(window, 'cancelAnimationFrame', {
+      configurable: true,
+      writable: true,
+      value: originalCancelAnimationFrame,
+    });
   });
 
   it('renders children as full-screen passthrough in portrait mode', () => {
@@ -164,5 +211,119 @@ describe('ResponsivePanel.web', () => {
     );
 
     expect(queryDom('responsive-panel')).not.toBeNull();
+  });
+
+  it('renders map-sheet presentation as a portrait bottom sheet that mounts closed before opening', () => {
+    setWindowSize(390, 844);
+
+    renderToDOM(
+      <ResponsivePanel title="Comments" presentation="map-sheet">
+        <span>Map sheet content</span>
+      </ResponsivePanel>
+    );
+
+    const panel = queryDom('web-property-panel');
+    const backdrop = queryDom('web-panel-backdrop');
+
+    expect(panel).not.toBeNull();
+    expect(panel?.className).toContain('web-property-panel--portrait');
+    expect(panel?.className).not.toContain('partial');
+    expect(panel?.className).not.toContain('full');
+    expect(queryDom('web-panel-handle')).not.toBeNull();
+    expect(backdrop).not.toBeNull();
+    expect(backdrop?.className).not.toContain('open');
+    expect(container.textContent).toContain('Map sheet content');
+
+    flushAnimationFrame();
+
+    expect(panel?.className).toContain('partial');
+    expect(backdrop?.className).toContain('open');
+  });
+
+  it('closes map-sheet presentation from close button, backdrop, and Escape', () => {
+    setWindowSize(390, 844);
+    const onClose = jest.fn();
+
+    renderToDOM(
+      <ResponsivePanel title="Comments" presentation="map-sheet" onClose={onClose}>
+        <span>Map sheet content</span>
+      </ResponsivePanel>
+    );
+    flushAnimationFrame();
+
+    act(() => {
+      queryDom('web-panel-close')?.click();
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      queryDom('web-panel-backdrop')?.click();
+    });
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(onClose).toHaveBeenCalledTimes(3);
+    expect(router.back).not.toHaveBeenCalled();
+  });
+
+  it('toggles map-sheet portrait partial and full states from the drag handle tap', () => {
+    setWindowSize(390, 844);
+
+    renderToDOM(
+      <ResponsivePanel title="Comments" presentation="map-sheet">
+        <span>Map sheet content</span>
+      </ResponsivePanel>
+    );
+    flushAnimationFrame();
+
+    const panel = queryDom('web-property-panel');
+    const handle = queryDom('web-panel-handle');
+    expect(panel?.className).toContain('partial');
+    expect(handle).not.toBeNull();
+
+    act(() => {
+      dispatchPointerEvent(handle!, 'pointerdown', 700);
+      dispatchPointerEvent(handle!, 'pointerup', 700);
+    });
+
+    expect(panel?.className).toContain('full');
+
+    act(() => {
+      dispatchPointerEvent(handle!, 'pointerdown', 700);
+      dispatchPointerEvent(handle!, 'pointerup', 700);
+    });
+
+    expect(panel?.className).toContain('partial');
+  });
+
+  it('renders map-sheet presentation as a landscape side panel with backdrop close', () => {
+    setWindowSize(1280, 720);
+    const onClose = jest.fn();
+
+    renderToDOM(
+      <ResponsivePanel title="Guesses" presentation="map-sheet" onClose={onClose}>
+        <span>Landscape map sheet content</span>
+      </ResponsivePanel>
+    );
+
+    const panel = queryDom('web-property-panel');
+    expect(panel).not.toBeNull();
+    expect(panel?.className).toContain('web-property-panel--landscape');
+    expect(panel?.className).not.toContain('open');
+    expect(queryDom('web-panel-handle')).toBeNull();
+    expect(queryDom('web-panel-backdrop')?.className).not.toContain('open');
+
+    flushAnimationFrame();
+
+    expect(panel?.className).toContain('open');
+    expect(queryDom('web-panel-backdrop')?.className).toContain('open');
+
+    act(() => {
+      queryDom('web-panel-backdrop')?.click();
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

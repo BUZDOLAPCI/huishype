@@ -162,7 +162,6 @@ const CAMERA_HISTORY_CHECKPOINT_INTERVAL_MS = 8_000;
 const CAMERA_HISTORY_CHECKPOINT_ZOOM_DELTA = 0.75;
 const CAMERA_HISTORY_CHECKPOINT_CENTER_DELTA_METERS = 750;
 const PROPERTY_TILE_RECOVERY_RELOAD_DELAY_MS = 2_500;
-const MAP_SOCIAL_PANEL_WIDTH = 420;
 
 type WebViewStyle = ViewStyle & {
   animation?: string;
@@ -877,40 +876,6 @@ if (typeof document !== 'undefined') {
     .map-social-overlay {
       display: contents;
     }
-
-    @media (orientation: portrait) {
-      .map-social-overlay {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: ${TAB_BAR_DOCK_HEIGHT}px;
-        height: min(68vh, calc(100vh - ${TAB_BAR_DOCK_HEIGHT + 24}px));
-        z-index: 2003;
-        overflow: hidden;
-        border-radius: 16px 16px 0 0;
-        background: #FFFBF5;
-        box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.16);
-        display: flex;
-        flex-direction: column;
-      }
-
-      .map-social-overlay > * {
-        min-height: 0;
-        flex: 1 1 auto;
-      }
-    }
-
-    @media (orientation: landscape) and (min-width: ${MAP_SOCIAL_PANEL_WIDTH * 2}px) {
-      body.map-social-overlay-open .web-property-panel--landscape.open {
-        right: ${MAP_SOCIAL_PANEL_WIDTH}px;
-      }
-    }
-
-    @media (orientation: landscape) and (max-width: ${MAP_SOCIAL_PANEL_WIDTH * 2 - 1}px) {
-      body.map-social-overlay-open .responsive-panel--landscape.open {
-        z-index: 2003;
-      }
-    }
   `;
 }
 
@@ -1020,12 +985,14 @@ function MapSocialOverlay({
           propertyId={route.property.id}
           returnTo={returnTo}
           onNavigate={onNavigate}
+          panelPresentation="map-sheet"
         />
       ) : (
         <GuessesRouteScreen
           propertyId={route.property.id}
           returnTo={returnTo}
           onNavigate={onNavigate}
+          panelPresentation="map-sheet"
         />
       )}
     </div>
@@ -1297,17 +1264,6 @@ export default function MapScreen({ pathnameOverride }: MapScreenProps = {}) {
   useEffect(() => {
     registerPropertyTileRetryProtocol(maplibregl, API_URL);
   }, []);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') {
-      return undefined;
-    }
-
-    document.body.classList.toggle('map-social-overlay-open', activeMapSocialRoute !== null);
-    return () => {
-      document.body.classList.remove('map-social-overlay-open');
-    };
-  }, [activeMapSocialRoute]);
 
   // Gesture tracking refs to prevent preview card from closing during map gestures
   const isDragging = useRef(false);

@@ -13,6 +13,8 @@ export interface ResponsivePanelProps {
   title?: string;
   /** Close callback (unused on native — navigation is handled by the stack). */
   onClose?: () => void;
+  /** Web-only presentation hint; native remains route-style passthrough. */
+  presentation?: 'route' | 'map-sheet';
 }
 
 export function ResponsivePanel({ children }: ResponsivePanelProps) {

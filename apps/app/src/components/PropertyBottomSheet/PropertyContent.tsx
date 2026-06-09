@@ -49,6 +49,8 @@ export interface PropertyContentProps {
   property: PropertyContentData | null;
   isLoading?: boolean;
   contentWidth?: number;
+  scrollViewport?: PropertyContentScrollViewport;
+  deferSocialSectionsUntilActionsVisible?: boolean;
 
   // If omitted, PropertyContent can own like/save state itself.
   manageInteractionsInternally?: boolean;
@@ -86,6 +88,34 @@ export interface PropertyContentProps {
   isVisible?: boolean;
 }
 
+export interface PropertyContentScrollViewport {
+  offsetY: number;
+  height: number;
+}
+
+interface MeasuredLayout {
+  y: number;
+  height: number;
+}
+
+const SOCIAL_SECTION_PRELOAD_MARGIN = 120;
+
+function isLayoutNearViewport(
+  layout: MeasuredLayout,
+  viewport: PropertyContentScrollViewport,
+) {
+  if (viewport.height <= 0) {
+    return false;
+  }
+
+  const viewportTop = viewport.offsetY - SOCIAL_SECTION_PRELOAD_MARGIN;
+  const viewportBottom = viewport.offsetY + viewport.height + SOCIAL_SECTION_PRELOAD_MARGIN;
+  const layoutTop = layout.y;
+  const layoutBottom = layout.y + Math.max(layout.height, 1);
+
+  return layoutBottom >= viewportTop && layoutTop <= viewportBottom;
+}
+
 interface ManagedInteractionState {
   isLiked: boolean;
   isSaved: boolean;
@@ -97,6 +127,8 @@ interface PropertyContentSectionsProps {
   property: PropertyDetailsData | null;
   listings: ListingData[];
   contentWidth?: number;
+  scrollViewport?: PropertyContentScrollViewport;
+  deferSocialSectionsUntilActionsVisible?: boolean;
   onShare?: () => void;
   onLike?: () => void;
   onSave?: () => void;
@@ -114,6 +146,8 @@ function PropertyContentSections({
   property,
   listings,
   contentWidth,
+  scrollViewport,
+  deferSocialSectionsUntilActionsVisible = false,
   onShare,
   onLike,
   onSave,
@@ -130,8 +164,21 @@ function PropertyContentSections({
   const [showSubmission, setShowSubmission] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [sectionStackOffsetY, setSectionStackOffsetY] = useState(0);
+  const [quickActionsLayout, setQuickActionsLayout] = useState<MeasuredLayout | null>(null);
+  const [shouldMountSocialSections, setShouldMountSocialSections] = useState(
+    !deferSocialSectionsUntilActionsVisible,
+  );
+  const pendingSocialScrollRef = useRef<'guess' | 'comments' | null>(null);
   const guessSectionLocalY = useRef<number | null>(null);
   const commentsSectionLocalY = useRef<number | null>(null);
+
+  useEffect(() => {
+    setQuickActionsLayout(null);
+    setShouldMountSocialSections(!deferSocialSectionsUntilActionsVisible);
+    pendingSocialScrollRef.current = null;
+    guessSectionLocalY.current = null;
+    commentsSectionLocalY.current = null;
+  }, [deferSocialSectionsUntilActionsVisible, property?.id]);
 
   const handleSectionStackLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -140,20 +187,50 @@ function PropertyContentSections({
     []
   );
 
+  const quickActionsSectionLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      setQuickActionsLayout({
+        y: event.nativeEvent.layout.y,
+        height: event.nativeEvent.layout.height,
+      });
+    },
+    [],
+  );
+
+  const replayPendingSocialScroll = useCallback(() => {
+    const pendingTarget = pendingSocialScrollRef.current;
+    if (pendingTarget === 'guess' && guessSectionLocalY.current !== null) {
+      pendingSocialScrollRef.current = null;
+      setTimeout(() => {
+        onScrollToGuess?.();
+      }, 0);
+      return;
+    }
+
+    if (pendingTarget === 'comments' && commentsSectionLocalY.current !== null) {
+      pendingSocialScrollRef.current = null;
+      setTimeout(() => {
+        onScrollToComments?.();
+      }, 0);
+    }
+  }, [onScrollToComments, onScrollToGuess]);
+
   const guessSectionLayout = useCallback(
     (event: LayoutChangeEvent) => {
       guessSectionLocalY.current = event.nativeEvent.layout.y;
       onGuessSectionLayout?.(sectionStackOffsetY + event.nativeEvent.layout.y);
+      replayPendingSocialScroll();
     },
-    [onGuessSectionLayout, sectionStackOffsetY]
+    [onGuessSectionLayout, replayPendingSocialScroll, sectionStackOffsetY]
   );
 
   const commentsSectionLayout = useCallback(
     (event: LayoutChangeEvent) => {
       commentsSectionLocalY.current = event.nativeEvent.layout.y;
       onCommentsSectionLayout?.(sectionStackOffsetY + event.nativeEvent.layout.y);
+      replayPendingSocialScroll();
     },
-    [onCommentsSectionLayout, sectionStackOffsetY]
+    [onCommentsSectionLayout, replayPendingSocialScroll, sectionStackOffsetY]
   );
 
   useEffect(() => {
@@ -164,6 +241,63 @@ function PropertyContentSections({
       onCommentsSectionLayout?.(sectionStackOffsetY + commentsSectionLocalY.current);
     }
   }, [onCommentsSectionLayout, onGuessSectionLayout, sectionStackOffsetY]);
+
+  useEffect(() => {
+    if (shouldMountSocialSections) {
+      replayPendingSocialScroll();
+      return;
+    }
+
+    if (!deferSocialSectionsUntilActionsVisible || !scrollViewport || !quickActionsLayout) {
+      return;
+    }
+
+    const measuredQuickActions = {
+      y: sectionStackOffsetY + quickActionsLayout.y,
+      height: quickActionsLayout.height,
+    };
+
+    if (isLayoutNearViewport(measuredQuickActions, scrollViewport)) {
+      setShouldMountSocialSections(true);
+    }
+  }, [
+    deferSocialSectionsUntilActionsVisible,
+    quickActionsLayout,
+    replayPendingSocialScroll,
+    scrollViewport,
+    sectionStackOffsetY,
+    shouldMountSocialSections,
+  ]);
+
+  const handleScrollToGuess = useCallback(() => {
+    if (!deferSocialSectionsUntilActionsVisible) {
+      onScrollToGuess?.();
+      return;
+    }
+
+    if (shouldMountSocialSections && guessSectionLocalY.current !== null) {
+      onScrollToGuess?.();
+      return;
+    }
+
+    pendingSocialScrollRef.current = 'guess';
+    setShouldMountSocialSections(true);
+  }, [deferSocialSectionsUntilActionsVisible, onScrollToGuess, shouldMountSocialSections]);
+
+  const handleScrollToComments = useCallback(() => {
+    if (!deferSocialSectionsUntilActionsVisible) {
+      onScrollToComments?.();
+      return;
+    }
+
+    if (shouldMountSocialSections && commentsSectionLocalY.current !== null) {
+      onScrollToComments?.();
+      return;
+    }
+
+    pendingSocialScrollRef.current = 'comments';
+    setShouldMountSocialSections(true);
+  }, [deferSocialSectionsUntilActionsVisible, onScrollToComments, shouldMountSocialSections]);
 
   if (!property) {
     return null;
@@ -191,14 +325,16 @@ function PropertyContentSections({
             <PriceSection property={property} />
           </Pressable>
 
-          <QuickActions
-            property={property}
-            onSave={onSave}
-            onShare={onShare}
-            onLike={onLike}
-            onComment={onScrollToComments}
-            onGuess={onScrollToGuess}
-          />
+          <View onLayout={quickActionsSectionLayout} testID="property-content-quick-actions-section">
+            <QuickActions
+              property={property}
+              onSave={onSave}
+              onShare={onShare}
+              onLike={onLike}
+              onComment={onScrollToComments ? handleScrollToComments : undefined}
+              onGuess={onScrollToGuess ? handleScrollToGuess : undefined}
+            />
+          </View>
 
           <ListingLinks
             listings={listings}
@@ -206,20 +342,28 @@ function PropertyContentSections({
           />
 
           <View onLayout={guessSectionLayout} testID="property-content-guess-section">
-            <PriceGuessSection
-              key={property.id}
-              property={property}
-              onGuessPress={() => onGuessPress?.(property.id)}
-              onLoginRequired={onAuthRequired}
-            />
+            {shouldMountSocialSections ? (
+              <PriceGuessSection
+                key={property.id}
+                property={property}
+                onGuessPress={() => onGuessPress?.(property.id)}
+                onLoginRequired={onAuthRequired}
+              />
+            ) : (
+              <View testID="property-content-guess-section-deferred" />
+            )}
           </View>
 
           <View onLayout={commentsSectionLayout} testID="property-content-comments-section">
-            <CommentsSection
-              property={property}
-              onViewAll={onViewAllComments ? () => onViewAllComments(property.id) : undefined}
-              onAuthRequired={onAuthRequired}
-            />
+            {shouldMountSocialSections ? (
+              <CommentsSection
+                property={property}
+                onViewAll={onViewAllComments ? () => onViewAllComments(property.id) : undefined}
+                onAuthRequired={onAuthRequired}
+              />
+            ) : (
+              <View testID="property-content-comments-section-deferred" />
+            )}
           </View>
 
           <View testID="property-content-passive-details">
@@ -305,6 +449,8 @@ export function PropertyContent({
   property,
   isLoading = false,
   contentWidth,
+  scrollViewport,
+  deferSocialSectionsUntilActionsVisible = false,
   manageInteractionsInternally,
   isLiked: isLikedProp,
   isSaved: isSavedProp,
@@ -356,9 +502,12 @@ export function PropertyContent({
 
     return (
       <PropertyContentSections
+        key={propertyDetails?.id ?? 'empty-property'}
         property={propertyDetails}
         listings={listings}
         contentWidth={contentWidth}
+        scrollViewport={scrollViewport}
+        deferSocialSectionsUntilActionsVisible={deferSocialSectionsUntilActionsVisible}
         onSave={interactionState?.onSave ?? (propertyDetails ? () => onSave?.(propertyDetails.id) : undefined)}
         onShare={propertyDetails ? () => onShare?.(propertyDetails.id) : undefined}
         onLike={interactionState?.onLike ?? (propertyDetails ? () => onLike?.(propertyDetails.id) : undefined)}

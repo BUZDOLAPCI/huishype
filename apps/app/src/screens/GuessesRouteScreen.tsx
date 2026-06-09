@@ -11,7 +11,7 @@ import {
 import { Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
-import { ResponsivePanel } from '@/src/components/ui/ResponsivePanel';
+import { ResponsivePanel, type ResponsivePanelProps } from '@/src/components/ui/ResponsivePanel';
 import { FMVVisualization, type FMVData } from '@/src/components/FMVVisualization';
 import { PriceGuessSlider } from '@/src/components/PriceGuessSlider';
 import { useProperty } from '@/src/hooks/useProperties';
@@ -216,12 +216,14 @@ export interface GuessesRouteScreenProps {
   propertyId?: string | null;
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
+  panelPresentation?: ResponsivePanelProps['presentation'];
 }
 
 export function GuessesRouteScreen({
   propertyId,
   returnTo,
   onNavigate,
+  panelPresentation = 'route',
 }: GuessesRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -384,7 +386,11 @@ export function GuessesRouteScreen({
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <ResponsivePanel title={t('common.guesses')} onClose={triggerClose}>
+      <ResponsivePanel
+        title={t('common.guesses')}
+        onClose={triggerClose}
+        presentation={panelPresentation}
+      >
         <ScrollView
           style={styles.container}
           contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}

@@ -14,7 +14,7 @@ import { Stack, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
-import { ResponsivePanel } from '@/src/components/ui/ResponsivePanel';
+import { ResponsivePanel, type ResponsivePanelProps } from '@/src/components/ui/ResponsivePanel';
 import {
   CommentCell,
   type CommentData as CommentCellData,
@@ -53,6 +53,7 @@ export interface CommentsRouteScreenProps {
   propertyId?: string | null;
   returnTo?: string | string[] | null;
   onNavigate?: (path: string) => void;
+  panelPresentation?: ResponsivePanelProps['presentation'];
 }
 
 function findCommentById(comments: Comment[], commentId: string): Comment | undefined {
@@ -74,6 +75,7 @@ export function CommentsRouteScreen({
   propertyId,
   returnTo,
   onNavigate,
+  panelPresentation = 'route',
 }: CommentsRouteScreenProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -253,7 +255,11 @@ export function CommentsRouteScreen({
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <ResponsivePanel title={t('comments.title')} onClose={triggerClose}>
+      <ResponsivePanel
+        title={t('comments.title')}
+        onClose={triggerClose}
+        presentation={panelPresentation}
+      >
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}

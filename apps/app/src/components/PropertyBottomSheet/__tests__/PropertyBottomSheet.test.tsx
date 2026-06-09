@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PropertyBottomSheet } from '../PropertyBottomSheet.native';
 import type { PropertyBottomSheetRef } from '../index';
@@ -19,6 +19,9 @@ type BottomSheetMockProps = React.PropsWithChildren<{
 
 type BottomSheetScrollViewProps = React.PropsWithChildren<{
   testID?: string;
+  onLayout?: (event: {
+    nativeEvent: { layout: { x: number; y: number; width: number; height: number } };
+  }) => void;
 }>;
 
 type BottomSheetScrollViewHandle = {
@@ -60,6 +63,19 @@ const renderWithProviders = (ui: React.ReactElement) => {
   return render(ui, { wrapper: TestWrapper });
 };
 
+async function revealDeferredSocialSections() {
+  fireEvent(screen.getByTestId('property-content-section-stack'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 960 } },
+  });
+  fireEvent(screen.getByTestId('property-content-quick-actions-section'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 120, width: 390, height: 96 } },
+  });
+
+  await waitFor(() => {
+    expect(screen.queryByTestId('property-content-guess-section-deferred')).toBeNull();
+  });
+}
+
 // Mock @gorhom/bottom-sheet
 jest.mock('@gorhom/bottom-sheet', () => {
   const { View, ScrollView } = require('react-native');
@@ -83,10 +99,17 @@ jest.mock('@gorhom/bottom-sheet', () => {
     BottomSheetScrollView: React.forwardRef<
       BottomSheetScrollViewHandle,
       BottomSheetScrollViewProps
-    >(({ children }, ref: React.ForwardedRef<BottomSheetScrollViewHandle>) => {
+    >(({ children, onLayout }, ref: React.ForwardedRef<BottomSheetScrollViewHandle>) => {
       React.useImperativeHandle(ref, () => ({
         scrollTo: mockBottomSheetScrollTo,
       }));
+      React.useEffect(() => {
+        onLayout?.({
+          nativeEvent: {
+            layout: { x: 0, y: 0, width: 390, height: 720 },
+          },
+        });
+      }, [onLayout]);
 
       return <ScrollView testID="bottom-sheet-scroll">{children}</ScrollView>;
       },
@@ -398,23 +421,26 @@ describe('PropertyBottomSheet', () => {
     expect(onLike).toHaveBeenCalledWith('test-property-123');
   });
 
-  it('renders price guess section', () => {
+  it('renders price guess section', async () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
+    await revealDeferredSocialSections();
 
     expect(screen.getByText('Guess the Price')).toBeTruthy();
     expect(screen.getByText('Drag Slider to Adjust Guess')).toBeTruthy();
   });
 
-  it('renders the initial price guess button prompt in the price guess section', () => {
+  it('renders the initial price guess button prompt in the price guess section', async () => {
     renderWithProviders(
       <PropertyBottomSheet property={mockProperty} isPreviewCardVisible />
     );
+    await revealDeferredSocialSections();
 
     expect(screen.getByText('Drag Slider to Adjust Guess')).toBeTruthy();
   });
 
-  it('renders comments section', () => {
+  it('renders comments section', async () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
+    await revealDeferredSocialSections();
 
     // 'Comments' should appear in the section header
     expect(screen.getAllByText('Comments').length).toBeGreaterThan(0);

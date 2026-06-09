@@ -8,11 +8,12 @@
  * Portrait (mobile/narrow): Full-screen passthrough — children render
  * without any panel chrome since the route already handles safe areas.
  */
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { router } from 'expo-router';
 
 import { useIsLandscape } from '../../hooks/useIsLandscape';
 import { Icon } from './Icon';
+import { WebPanelChrome, type WebPanelState } from './WebPanelChrome.web';
 import { useT } from '@/src/i18n';
 
 export interface ResponsivePanelProps {
@@ -21,6 +22,8 @@ export interface ResponsivePanelProps {
   title?: string;
   /** Called when the panel is dismissed. Defaults to `router.back()`. */
   onClose?: () => void;
+  /** Route pages pass through in portrait; map overlays use bottom-sheet chrome. */
+  presentation?: 'route' | 'map-sheet';
 }
 
 // Inject CSS for the responsive panel — same injection pattern as PropertyBottomSheet.web.tsx
@@ -113,9 +116,17 @@ if (typeof document !== 'undefined') {
   `;
 }
 
-export function ResponsivePanel({ children, title, onClose }: ResponsivePanelProps) {
+export function ResponsivePanel({
+  children,
+  title,
+  onClose,
+  presentation = 'route',
+}: ResponsivePanelProps) {
   const t = useT();
   const isLandscape = useIsLandscape();
+  const mapSheetRestingState: WebPanelState = isLandscape ? 'full' : 'partial';
+  const hasOpenedMapSheetRef = useRef(false);
+  const [mapSheetState, setMapSheetState] = useState<WebPanelState>('closed');
 
   const handleClose = useCallback(() => {
     if (onClose) {
@@ -127,13 +138,58 @@ export function ResponsivePanel({ children, title, onClose }: ResponsivePanelPro
 
   // Dismiss on Escape key (landscape panel only)
   useEffect(() => {
-    if (!isLandscape) return;
+    if (!isLandscape || presentation !== 'route') return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') handleClose();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [isLandscape, handleClose]);
+  }, [isLandscape, handleClose, presentation]);
+
+  useEffect(() => {
+    if (presentation !== 'map-sheet') {
+      hasOpenedMapSheetRef.current = false;
+      return;
+    }
+
+    if (hasOpenedMapSheetRef.current) {
+      setMapSheetState((currentState) =>
+        currentState === 'closed' ? currentState : mapSheetRestingState,
+      );
+      return;
+    }
+
+    setMapSheetState('closed');
+
+    const openPanel = () => {
+      hasOpenedMapSheetRef.current = true;
+      setMapSheetState(mapSheetRestingState);
+    };
+
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      const frame = window.requestAnimationFrame(openPanel);
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    const timeout = globalThis.setTimeout(openPanel, 16);
+    return () => globalThis.clearTimeout(timeout);
+  }, [mapSheetRestingState, presentation]);
+
+  if (presentation === 'map-sheet') {
+    return (
+      <WebPanelChrome
+        state={mapSheetState}
+        title={title}
+        onStateChange={setMapSheetState}
+        onClose={handleClose}
+        surfaceColor="#FFFBF5"
+        panelZIndex={2003}
+        backdropZIndex={2002}
+      >
+        <div className="responsive-panel-content">{children}</div>
+      </WebPanelChrome>
+    );
+  }
 
   // Portrait: full-screen passthrough — no panel chrome needed
   if (!isLandscape) {
