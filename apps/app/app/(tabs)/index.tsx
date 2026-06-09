@@ -1669,7 +1669,8 @@ export default function MapScreen() {
                   <AmbientCommentBubble
                     text={bubble.preview.text}
                     likeCount={bubble.preview.likeCount}
-                    authorName={bubble.preview.authorName}
+                    authorUsername={bubble.preview.authorUsername}
+                    authorDisplayName={bubble.preview.authorDisplayName}
                     authorPhotoUrl={bubble.preview.authorPhotoUrl}
                     arrowDirection={bubbleLayout.arrowDirection}
                     arrowHorizontalAlign={bubbleArrowLayout.arrowHorizontalAlign}

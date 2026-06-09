@@ -89,7 +89,8 @@ function buildBubble(overrides?: Partial<AmbientCommentBubble>): AmbientCommentB
     preview: {
       text: 'nice neighbourhood!',
       likeCount: 0,
-      authorName: 'M',
+      authorUsername: 'maria',
+      authorDisplayName: 'M',
       authorPhotoUrl: null,
     },
     ...overrides,
@@ -149,6 +150,8 @@ describe('WebAmbientCommentBubblesPortal', () => {
     expect(mockMarkerInstances[0]?.element.style.position).toBe('absolute');
     expect(mockAmbientCommentBubble.mock.calls.at(-1)?.[0]).toMatchObject({
       arrowHorizontalAlign: 'left',
+      authorUsername: 'maria',
+      authorDisplayName: 'M',
     });
   });
 

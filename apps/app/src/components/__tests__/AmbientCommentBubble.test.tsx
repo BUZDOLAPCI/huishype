@@ -14,7 +14,7 @@ describe('AmbientCommentBubble', () => {
       <AmbientCommentBubble
         text="Why is this still unsold?"
         likeCount={2}
-        authorName="Nina"
+        authorUsername="Nina"
         testID="ambient-bubble"
       />
     );
@@ -30,7 +30,7 @@ describe('AmbientCommentBubble', () => {
       <AmbientCommentBubble
         text="Why is this still unsold?"
         likeCount={2}
-        authorName="Nina"
+        authorUsername="Nina"
         testID="ambient-bubble"
       />
     );
@@ -41,12 +41,26 @@ describe('AmbientCommentBubble', () => {
     );
   });
 
+  it('uses display name for initials while keeping username as the avatar identity', () => {
+    render(
+      <AmbientCommentBubble
+        text="Looks quiet here"
+        likeCount={1}
+        authorUsername="cem_aslan"
+        authorDisplayName="Cem Aslan"
+        testID="ambient-bubble"
+      />
+    );
+
+    expect(screen.getByTestId('ambient-bubble-avatar-art-initials').props.children).toBe('CA');
+  });
+
   it('pins the reaction badge to the bottom row by splitting text into two lines', () => {
     render(
       <AmbientCommentBubble
         text="Why is this still unsold?"
         likeCount={2}
-        authorName="Nina"
+        authorUsername="Nina"
         testID="ambient-bubble"
       />
     );
@@ -62,7 +76,7 @@ describe('AmbientCommentBubble', () => {
       <AmbientCommentBubble
         text="This townhouse is probably still unsold because the HOA fees are brutal"
         likeCount={9}
-        authorName="Sophie"
+        authorUsername="Sophie"
         testID="ambient-bubble"
       />
     );
@@ -75,7 +89,7 @@ describe('AmbientCommentBubble', () => {
       <AmbientCommentBubble
         text="Short note"
         likeCount={1}
-        authorName="Nina"
+        authorUsername="Nina"
         arrowDirection="up"
         testID="ambient-bubble"
       />
@@ -90,7 +104,7 @@ describe('AmbientCommentBubble', () => {
       <AmbientCommentBubble
         text="Short note"
         likeCount={1}
-        authorName="Nina"
+        authorUsername="Nina"
         arrowHorizontalAlign="right"
         testID="ambient-bubble"
       />
@@ -119,7 +133,7 @@ describe('AmbientCommentBubble', () => {
       <AmbientCommentBubble
         text="Short note"
         likeCount={1}
-        authorName="Nina"
+        authorUsername="Nina"
         onPress={onPress}
         testID="ambient-bubble"
       />

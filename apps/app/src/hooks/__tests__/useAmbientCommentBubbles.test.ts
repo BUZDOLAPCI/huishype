@@ -177,7 +177,8 @@ describe('useAmbientCommentBubbles', () => {
       preview: {
         text: 'Would go 50k under ask',
         likeCount: 5,
-        authorName: 'Robin',
+        authorUsername: 'robin',
+        authorDisplayName: 'Robin',
       },
     });
   });

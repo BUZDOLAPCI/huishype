@@ -181,7 +181,8 @@ export function WebAmbientCommentBubblesPortal({
             <AmbientCommentBubble
               text={bubble.preview.text}
               likeCount={bubble.preview.likeCount}
-              authorName={bubble.preview.authorName}
+              authorUsername={bubble.preview.authorUsername}
+              authorDisplayName={bubble.preview.authorDisplayName}
               authorPhotoUrl={bubble.preview.authorPhotoUrl}
               arrowDirection={target.arrowDirection}
               arrowHorizontalAlign={target.arrowHorizontalAlign}

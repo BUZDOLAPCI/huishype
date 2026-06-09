@@ -44,7 +44,8 @@ interface AmbientCommentResponse {
 interface AmbientCommentPreview {
   text: string;
   likeCount: number;
-  authorName: string;
+  authorUsername: string;
+  authorDisplayName: string | null;
   authorPhotoUrl: string | null;
 }
 
@@ -186,10 +187,8 @@ function toAmbientCommentPreview(
   return {
     text: trimmedContent,
     likeCount: comment?.likeCount ?? 0,
-    authorName:
-      comment?.user?.displayName?.trim() ||
-      comment?.user?.username ||
-      'HuisHype',
+    authorUsername: comment?.user?.username?.trim() || 'huishype',
+    authorDisplayName: comment?.user?.displayName?.trim() || null,
     authorPhotoUrl: comment?.user?.profilePhotoUrl ?? null,
   };
 }

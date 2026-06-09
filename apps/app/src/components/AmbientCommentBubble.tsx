@@ -116,7 +116,8 @@ function splitBubbleText(text: string): { firstLine: string; secondLine: string 
 export interface AmbientCommentBubbleProps {
   text: string;
   likeCount: number;
-  authorName: string;
+  authorUsername: string;
+  authorDisplayName?: string | null;
   authorPhotoUrl?: string | null;
   arrowDirection?: 'up' | 'down';
   arrowHorizontalAlign?: AmbientCommentBubbleArrowHorizontalAlign;
@@ -127,7 +128,8 @@ export interface AmbientCommentBubbleProps {
 export function AmbientCommentBubble({
   text,
   likeCount,
-  authorName,
+  authorUsername,
+  authorDisplayName,
   authorPhotoUrl,
   arrowDirection = 'down',
   arrowHorizontalAlign = 'left',
@@ -161,8 +163,8 @@ export function AmbientCommentBubble({
         <View style={[styles.card, Platform.OS === 'web' ? WEB_BUBBLE_SHADOW : null]}>
           <View style={styles.avatar} testID={`${testID}-avatar-wrap`}>
             <UserAvatar
-              username={authorName}
-              displayName={authorName}
+              username={authorUsername}
+              displayName={authorDisplayName ?? undefined}
               profilePhotoUrl={authorPhotoUrl}
               size="sm"
               testID={`${testID}-avatar`}
