@@ -229,6 +229,38 @@ describe('CommentsSection', () => {
     expect(screen.getByText('View all 4 comments')).toBeTruthy();
   });
 
+  it('uses the view-all callback instead of expanding the preview when provided', () => {
+    const onViewAll = jest.fn();
+    mockUseComments.mockReturnValue({
+      data: {
+        pages: [
+          {
+            data: [
+              makeComment('comment-1', 'First comment'),
+              makeComment('comment-2', 'Second comment'),
+              makeComment('comment-3', 'Third comment'),
+              makeComment('comment-4', 'Fourth comment'),
+            ],
+            meta: { total: 4 },
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      fetchNextPage: jest.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    });
+
+    const screen = render(<CommentsSection property={property} onViewAll={onViewAll} />);
+
+    fireEvent.press(screen.getByText('View all 4 comments'));
+
+    expect(onViewAll).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Fourth comment')).toBeNull();
+  });
+
   it('likes preview comments using the fetched liked state', () => {
     mockUseAuthContext.mockReturnValue({
       isAuthenticated: true,

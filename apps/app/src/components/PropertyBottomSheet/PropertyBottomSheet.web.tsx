@@ -210,7 +210,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       onShare,
       onLike,
       onGuessPress,
-      onCommentPress: _onCommentPress,
+      onCommentPress,
       onAuthRequired,
     },
     ref
@@ -607,6 +607,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onScrollToComments={() => scrollToSection(commentsSectionY.current)}
               onScrollToGuess={() => scrollToSection(guessSectionY.current)}
               onGuessPress={onGuessPress}
+              onViewAllComments={onCommentPress}
               onAuthRequired={onAuthRequired}
               onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
               onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}

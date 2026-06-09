@@ -123,11 +123,13 @@ describe('PropertyBottomSheet.web', () => {
 
   it('passes section scroll callbacks into PropertyContent', () => {
     setWindowSize(1280, 720);
+    const onCommentPress = jest.fn();
 
     render(
       <PropertyBottomSheet
         property={property}
         isPreviewCardVisible
+        onCommentPress={onCommentPress}
       />
     );
 
@@ -137,6 +139,7 @@ describe('PropertyBottomSheet.web', () => {
     expect(lastProps).toEqual(expect.objectContaining({
       onScrollToComments: expect.any(Function),
       onScrollToGuess: expect.any(Function),
+      onViewAllComments: onCommentPress,
     }));
   });
 
