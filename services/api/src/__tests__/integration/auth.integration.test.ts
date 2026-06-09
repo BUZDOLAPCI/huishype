@@ -17,6 +17,14 @@ describe('Auth routes', () => {
   let app: FastifyInstance;
   const testUserIds: string[] = [];
 
+  const buildStructuredGoogleToken = (payload: {
+    email: string;
+    googleId: string;
+    name?: string;
+    picture?: string;
+  }) =>
+    `mock-google:${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')}`;
+
   beforeAll(async () => {
     app = await buildApp({ logger: false });
   });
@@ -169,6 +177,109 @@ describe('Auth routes', () => {
       testUserIds.push(user.id);
     });
 
+    it('uses the Google picture as the default for a new Google user', async () => {
+      const uniqueId = `google-picture-${Date.now()}`;
+      const picture = 'https://lh3.googleusercontent.com/a/test-photo';
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: {
+          idToken: buildStructuredGoogleToken({
+            email: `${uniqueId}@gmail.com`,
+            googleId: `gid-${uniqueId}`,
+            name: 'Google Picture',
+            picture,
+          }),
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      testUserIds.push(body.session.user.id);
+      expect(body.session.user.profilePhotoUrl).toBe(picture);
+    });
+
+    it('backfills the Google picture for an existing Google user with no photo', async () => {
+      const uniqueId = `google-backfill-${Date.now()}`;
+      const email = `${uniqueId}@gmail.com`;
+      const googleId = `gid-${uniqueId}`;
+      const picture = 'https://lh3.googleusercontent.com/a/backfill-photo';
+
+      const [existingUser] = await db
+        .insert(users)
+        .values({
+          email,
+          googleId,
+          username: `backfill${Date.now()}`.slice(0, 50),
+          displayName: 'Backfill User',
+          profilePhotoUrl: null,
+        })
+        .returning({ id: users.id });
+      testUserIds.push(existingUser.id);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: {
+          idToken: buildStructuredGoogleToken({
+            email,
+            googleId,
+            name: 'Backfill User',
+            picture,
+          }),
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.isNewUser).toBe(false);
+      expect(body.session.user.profilePhotoUrl).toBe(picture);
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, existingUser.id) });
+      expect(stored?.profilePhotoUrl).toBe(picture);
+    });
+
+    it('does not overwrite an existing custom profile photo with the Google picture', async () => {
+      const uniqueId = `google-custom-${Date.now()}`;
+      const email = `${uniqueId}@gmail.com`;
+      const googleId = `gid-${uniqueId}`;
+      const customPhoto = 'https://cdn.huishype.test/custom-avatar.jpg';
+
+      const [existingUser] = await db
+        .insert(users)
+        .values({
+          email,
+          googleId,
+          username: `custom${Date.now()}`.slice(0, 50),
+          displayName: 'Custom User',
+          profilePhotoUrl: customPhoto,
+        })
+        .returning({ id: users.id });
+      testUserIds.push(existingUser.id);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: {
+          idToken: buildStructuredGoogleToken({
+            email,
+            googleId,
+            name: 'Custom User',
+            picture: 'https://lh3.googleusercontent.com/a/new-google-photo',
+          }),
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.isNewUser).toBe(false);
+      expect(body.session.user.profilePhotoUrl).toBe(customPhoto);
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, existingUser.id) });
+      expect(stored?.profilePhotoUrl).toBe(customPhoto);
+    });
+
     it('should reuse the existing user when the insert races with a stale identity lookup', async () => {
       const uniqueId = `stale-google-${Date.now()}`;
       const email = `${uniqueId}@gmail.com`;
@@ -259,12 +370,14 @@ describe('Auth routes', () => {
     it('should verify real Google tokens in development instead of replacing the email', async () => {
       const email = `real-google-${Date.now()}@live.com`;
       const sub = `google-real-${Date.now()}`;
+      const picture = 'https://lh3.googleusercontent.com/a/real-google-photo';
       const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           email,
           sub,
           name: 'Real Google User',
+          picture,
           aud: config.auth.googleClientId,
         }),
       } as Response);
@@ -279,6 +392,7 @@ describe('Auth routes', () => {
         expect(response.statusCode).toBe(200);
         const body = JSON.parse(response.body);
         expect(body.session.user.email).toBe(email);
+        expect(body.session.user.profilePhotoUrl).toBe(picture);
         expect(body.session.user.email).not.toMatch(/^testuser\d+@gmail\.com$/);
         expect(fetchSpy).toHaveBeenCalledWith(
           'https://oauth2.googleapis.com/tokeninfo?id_token=real-google-id-token',

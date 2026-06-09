@@ -11,6 +11,8 @@ import {
   usePublicProfile,
   useUnfollowUser,
   useUpdateProfile,
+  useUploadProfilePhoto,
+  useDeleteProfilePhoto,
   normalizeUserSearchQuery,
   userKeys,
 } from '../useUserProfile';
@@ -501,6 +503,148 @@ describe('useUserProfile profile update', () => {
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: feedKeys.all });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: commentKeys.all });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: leaderboardKeys.all });
+  });
+
+  it('uploads a profile photo and syncs auth plus identity caches', async () => {
+    const invalidateQueries = jest.spyOn(queryClient, 'invalidateQueries');
+
+    queryClient.setQueryData(userKeys.me('viewer-1'), {
+      id: 'viewer-1',
+      displayName: 'Viewer',
+      handle: 'viewer',
+      profilePhotoUrl: null,
+      homeCountry: 'NL',
+      karma: 10,
+      karmaRank: { title: 'Contributor', level: 2 },
+      guessCount: 2,
+      commentCount: 1,
+      joinedAt: '2026-01-01T00:00:00.000Z',
+      followerCount: 3,
+      followingCount: 4,
+      relationship: 'self',
+      email: 'viewer@example.com',
+      averageAccuracy: null,
+      savedCount: 1,
+      likedCount: 2,
+      lastNameChangeAt: null,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 'viewer-1',
+        displayName: 'Viewer',
+        handle: 'viewer',
+        profilePhotoUrl: 'https://media.example/avatar.jpg',
+        homeCountry: 'NL',
+        lastDisplayNameChangeAt: null,
+        lastHandleChangeAt: null,
+        displayNameChangeAvailableAt: null,
+        handleChangeAvailableAt: null,
+      }),
+    });
+
+    const { result } = renderHook(() => useUploadProfilePhoto(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ imageBase64: 'abc123', mimeType: 'image/png' });
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/users/me/profile-photo',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer viewer-token',
+        },
+        body: JSON.stringify({ imageBase64: 'abc123', mimeType: 'image/png' }),
+      })
+    );
+    expect(mockUpdateAuthUserProfile).toHaveBeenCalledWith({
+      displayName: 'Viewer',
+      handle: 'viewer',
+      profilePhotoUrl: 'https://media.example/avatar.jpg',
+    });
+    expect(queryClient.getQueryData(userKeys.me('viewer-1'))).toEqual(
+      expect.objectContaining({
+        profilePhotoUrl: 'https://media.example/avatar.jpg',
+      })
+    );
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: userKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: activityFeedKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: userActivityKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: feedKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: commentKeys.all });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: leaderboardKeys.all });
+  });
+
+  it('deletes a profile photo and syncs auth plus identity caches', async () => {
+    queryClient.setQueryData(userKeys.me('viewer-1'), {
+      id: 'viewer-1',
+      displayName: 'Viewer',
+      handle: 'viewer',
+      profilePhotoUrl: 'https://media.example/avatar.jpg',
+      homeCountry: 'NL',
+      karma: 10,
+      karmaRank: { title: 'Contributor', level: 2 },
+      guessCount: 2,
+      commentCount: 1,
+      joinedAt: '2026-01-01T00:00:00.000Z',
+      followerCount: 3,
+      followingCount: 4,
+      relationship: 'self',
+      email: 'viewer@example.com',
+      averageAccuracy: null,
+      savedCount: 1,
+      likedCount: 2,
+      lastNameChangeAt: null,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 'viewer-1',
+        displayName: 'Viewer',
+        handle: 'viewer',
+        profilePhotoUrl: null,
+        homeCountry: 'NL',
+        lastDisplayNameChangeAt: null,
+        lastHandleChangeAt: null,
+        displayNameChangeAvailableAt: null,
+        handleChangeAvailableAt: null,
+      }),
+    });
+
+    const { result } = renderHook(() => useDeleteProfilePhoto(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync();
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:3100/users/me/profile-photo',
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: {
+          Authorization: 'Bearer viewer-token',
+        },
+      })
+    );
+    expect(mockUpdateAuthUserProfile).toHaveBeenCalledWith({
+      displayName: 'Viewer',
+      handle: 'viewer',
+      profilePhotoUrl: null,
+    });
+    expect(queryClient.getQueryData(userKeys.me('viewer-1'))).toEqual(
+      expect.objectContaining({
+        profilePhotoUrl: null,
+      })
+    );
   });
 });
 

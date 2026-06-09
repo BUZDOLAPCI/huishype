@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { eq, sql, count } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { users, priceGuesses, comments, savedProperties, reactions } from '../db/schema.js';
+import { config } from '../config.js';
 import { getKarmaRank } from '../services/karma.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { isValidCountryCode, updateUserProfileSchema } from '@huishype/shared';
@@ -22,11 +23,21 @@ import {
   unfollowUser,
   getFollowRelationshipPayload,
 } from '../services/user-follows.js';
+import {
+  deleteProfilePhotoByUrl,
+  ProfilePhotoUploadError,
+  uploadUserProfilePhoto,
+} from '../services/profile-photo-storage.js';
 
 // --- Constants ---
 const DISPLAY_NAME_COOLDOWN_DAYS = 7;
 const HANDLE_COOLDOWN_DAYS = 30;
 const followRelationshipValues = ['self', 'none', 'following', 'followed_by', 'mutual'] as const;
+const profilePhotoSourceBytes =
+  Number.isFinite(config.r2.maxProfilePhotoSourceBytes) && config.r2.maxProfilePhotoSourceBytes > 0
+    ? config.r2.maxProfilePhotoSourceBytes
+    : 5 * 1024 * 1024;
+const profilePhotoBodyLimitBytes = Math.ceil(profilePhotoSourceBytes * 1.4) + 1024;
 
 type UserIdentityUpdateError = {
   code?: string;
@@ -111,6 +122,19 @@ function isUsernameUniqueViolation(error: unknown): boolean {
   }
 
   return false;
+}
+
+function profilePhotoErrorStatus(error: ProfilePhotoUploadError): 400 | 413 | 503 {
+  switch (error.code) {
+    case 'PROFILE_PHOTO_TOO_LARGE':
+      return 413;
+    case 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED':
+      return 503;
+    case 'PROFILE_PHOTO_INVALID_BASE64':
+    case 'PROFILE_PHOTO_UNSUPPORTED_TYPE':
+    case 'PROFILE_PHOTO_PROCESSING_FAILED':
+      return 400;
+  }
 }
 
 // --- Schema Definitions ---
@@ -212,6 +236,11 @@ const updateProfileResponseSchema = z.object({
   displayNameChangeAvailableAt: z.string().datetime().nullable(),
   handleChangeAvailableAt: z.string().datetime().nullable(),
   lastNameChangeAt: z.string().datetime().nullable().optional(),
+});
+
+const profilePhotoUploadBodySchema = z.object({
+  imageBase64: z.string().min(1),
+  mimeType: z.string().min(1).optional(),
 });
 
 const guessHistoryItemSchema = z.object({
@@ -547,6 +576,139 @@ export async function userRoutes(fastify: FastifyInstance) {
       }
 
       return unfollowUser(followerUserId, followedUserId);
+    }
+  );
+
+  /**
+   * POST /users/me/profile-photo - Upload profile photo
+   */
+  app.post(
+    '/users/me/profile-photo',
+    {
+      onRequest: [fastify.authenticate],
+      bodyLimit: profilePhotoBodyLimitBytes,
+      schema: {
+        tags: ['Users'],
+        summary: 'Upload profile photo',
+        body: profilePhotoUploadBodySchema,
+        response: {
+          200: updateProfileResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          413: errorResponseSchema,
+          503: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const userId = request.userId!;
+
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, userId),
+      });
+
+      if (!user) {
+        return reply.status(401).send({
+          error: 'USER_NOT_FOUND',
+          message: 'User not found',
+        });
+      }
+
+      let profilePhotoUrl: string;
+      try {
+        profilePhotoUrl = await uploadUserProfilePhoto({
+          userId,
+          imageBase64: request.body.imageBase64,
+          mimeType: request.body.mimeType,
+        });
+      } catch (error) {
+        if (error instanceof ProfilePhotoUploadError) {
+          return reply.status(profilePhotoErrorStatus(error)).send({
+            error: error.code,
+            message: error.message,
+          });
+        }
+
+        throw error;
+      }
+
+      const [updated] = await db
+        .update(users)
+        .set({
+          profilePhotoUrl,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId))
+        .returning({
+          id: users.id,
+          username: users.username,
+          displayName: users.displayName,
+          profilePhotoUrl: users.profilePhotoUrl,
+          homeCountry: users.homeCountry,
+          lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
+          lastUsernameChangeAt: users.lastUsernameChangeAt,
+        });
+
+      void deleteProfilePhotoByUrl(user.profilePhotoUrl);
+
+      return profileIdentityPayload(updated);
+    }
+  );
+
+  /**
+   * DELETE /users/me/profile-photo - Remove profile photo
+   */
+  app.delete(
+    '/users/me/profile-photo',
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        tags: ['Users'],
+        summary: 'Remove profile photo',
+        response: {
+          200: updateProfileResponseSchema,
+          401: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const userId = request.userId!;
+
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, userId),
+      });
+
+      if (!user) {
+        return reply.status(401).send({
+          error: 'USER_NOT_FOUND',
+          message: 'User not found',
+        });
+      }
+
+      if (!user.profilePhotoUrl) {
+        return profileIdentityPayload(user);
+      }
+
+      const [updated] = await db
+        .update(users)
+        .set({
+          profilePhotoUrl: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId))
+        .returning({
+          id: users.id,
+          username: users.username,
+          displayName: users.displayName,
+          profilePhotoUrl: users.profilePhotoUrl,
+          homeCountry: users.homeCountry,
+          lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
+          lastUsernameChangeAt: users.lastUsernameChangeAt,
+        });
+
+      void deleteProfilePhotoByUrl(user.profilePhotoUrl);
+
+      return profileIdentityPayload(updated);
     }
   );
 

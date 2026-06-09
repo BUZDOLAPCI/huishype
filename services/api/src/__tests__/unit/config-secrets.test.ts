@@ -31,6 +31,11 @@ describe('validateProductionSecrets', () => {
     RESEND_API_KEY: 're_test_key',
     EMAIL_FROM: 'HuisHype <noreply@huishype.nl>',
     EMAIL_REPLY_TO: 'support@huishype.nl',
+    R2_ACCOUNT_ID: 'cloudflare-account-id',
+    R2_ACCESS_KEY_ID: 'r2-access-key-id',
+    R2_SECRET_ACCESS_KEY: 'r2-secret-access-key',
+    R2_BUCKET: 'huishype-media',
+    R2_PUBLIC_BASE_URL: 'https://media.huishype.nl',
     INGEST_API_KEY: 'ingest-secret',
     FUNDA_SOURCE_SERVICE_URL: 'https://funda-source.internal',
     FUNDA_SOURCE_SERVICE_API_KEY: 'funda-source-secret',
@@ -88,7 +93,7 @@ describe('validateProductionSecrets', () => {
 
   it('should list all missing secrets in the error message', () => {
     expect(() => validateProductionSecrets({}, false)).toThrow(
-      'Missing required secrets in production: JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET, GOOGLE_CLIENT_ID, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO, INGEST_API_KEY, FUNDA_SOURCE_SERVICE_URL, FUNDA_SOURCE_SERVICE_API_KEY, PARARIUS_SOURCE_SERVICE_URL, PARARIUS_SOURCE_SERVICE_API_KEY',
+      'Missing required secrets in production: JWT_SECRET, JWT_REFRESH_SECRET, COOKIE_SECRET, GOOGLE_CLIENT_ID, MAGIC_LINK_BASE_URL, RESEND_API_KEY, EMAIL_FROM, EMAIL_REPLY_TO, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_PUBLIC_BASE_URL, INGEST_API_KEY, FUNDA_SOURCE_SERVICE_URL, FUNDA_SOURCE_SERVICE_API_KEY, PARARIUS_SOURCE_SERVICE_URL, PARARIUS_SOURCE_SERVICE_API_KEY',
     );
   });
 
@@ -110,6 +115,21 @@ describe('validateProductionSecrets', () => {
     const env = { ...fullSecrets, EMAIL_REPLY_TO: undefined };
     expect(() => validateProductionSecrets(env, false)).toThrow(
       'Missing required secrets in production: EMAIL_REPLY_TO',
+    );
+  });
+
+  it('should throw in production when R2 profile photo storage secrets are missing', () => {
+    const env = {
+      ...fullSecrets,
+      R2_ACCOUNT_ID: undefined,
+      R2_ACCESS_KEY_ID: undefined,
+      R2_SECRET_ACCESS_KEY: undefined,
+      R2_BUCKET: undefined,
+      R2_PUBLIC_BASE_URL: undefined,
+    };
+
+    expect(() => validateProductionSecrets(env, false)).toThrow(
+      'R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_PUBLIC_BASE_URL',
     );
   });
 

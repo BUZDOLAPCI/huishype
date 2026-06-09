@@ -268,6 +268,13 @@ type UpdateProfileResponseFromOpenApi =
   paths['/users/me/profile']['put']['responses'][200]['content']['application/json'];
 type UpdateProfileConflictFromOpenApi =
   paths['/users/me/profile']['put']['responses'][409]['content']['application/json'];
+type UploadProfilePhotoRequestFromOpenApi = NonNullable<
+  paths['/users/me/profile-photo']['post']['requestBody']
+>['content']['application/json'];
+type UploadProfilePhotoResponseFromOpenApi =
+  paths['/users/me/profile-photo']['post']['responses'][200]['content']['application/json'];
+type DeleteProfilePhotoResponseFromOpenApi =
+  paths['/users/me/profile-photo']['delete']['responses'][200]['content']['application/json'];
 type FollowersResponseFromOpenApi =
   paths['/users/me/followers']['get']['responses'][200]['content']['application/json'];
 type FollowingResponseFromOpenApi =
@@ -641,6 +648,11 @@ const feedContractAssertions = [
   true as Expect<Equal<UserSearchQueryFromOpenApi['q'], string | undefined>>,
   true as Assert<IsExact<UserSearchResponseFromOpenApi, SearchUsersResponse>>,
   true as Assert<IsExact<UserSearchErrorFromOpenApi, CanonicalErrorResponse>>,
+  true as Expect<
+    Equal<UploadProfilePhotoRequestFromOpenApi, { imageBase64: string; mimeType?: string }>
+  >,
+  true as Assert<IsExact<UploadProfilePhotoResponseFromOpenApi, UpdateProfileResponseFromOpenApi>>,
+  true as Assert<IsExact<DeleteProfilePhotoResponseFromOpenApi, UpdateProfileResponseFromOpenApi>>,
   true as Assert<
     IsExact<OpsPropertyTilePyramidResponseFromOpenApi, CanonicalOpsPropertyTilePyramidResponse>
   >,
@@ -690,6 +702,7 @@ describe('Generated OpenAPI types', () => {
       '/geocode/search',
       '/users/me',
       '/users/me/profile',
+      '/users/me/profile-photo',
       '/users/{id}/profile',
       '/users/me/followers',
       '/users/me/following',
@@ -751,6 +764,8 @@ describe('HuisHypeApiClient', () => {
     expect(typeof client.searchUsers).toBe('function');
     expect(typeof client.getProfile).toBe('function');
     expect(typeof client.updateProfile).toBe('function');
+    expect(typeof client.uploadProfilePhoto).toBe('function');
+    expect(typeof client.deleteProfilePhoto).toBe('function');
     expect(typeof client.getUser).toBe('function');
     expect(typeof client.getFollowers).toBe('function');
     expect(typeof client.getFollowing).toBe('function');

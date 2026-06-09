@@ -18,7 +18,8 @@
       "bundleIdentifier": "nl.huishype.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocationWhenInUseUsageDescription": "HuisHype uses your location to center the map around you."
+        "NSLocationWhenInUseUsageDescription": "HuisHype uses your location to center the map around you.",
+        "NSPhotoLibraryUsageDescription": "HuisHype uses your photo library when you choose a profile picture."
       }
     },
     "android": {

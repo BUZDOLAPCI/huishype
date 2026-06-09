@@ -51,6 +51,10 @@ type MyUserProfileResponse =
 type UserSearchQuery = NonNullable<paths['/users/search']['get']['parameters']['query']>;
 type UserSearchGeneratedResponse =
   paths['/users/search']['get']['responses'][200]['content']['application/json'];
+type UploadProfilePhotoRequest =
+  paths['/users/me/profile-photo']['post']['requestBody']['content']['application/json'];
+type ProfilePhotoIdentityResponse =
+  paths['/users/me/profile-photo']['post']['responses'][200]['content']['application/json'];
 type FollowListQuery = NonNullable<paths['/users/me/followers']['get']['parameters']['query']>;
 type FollowListResponse =
   paths['/users/me/followers']['get']['responses'][200]['content']['application/json'];
@@ -357,6 +361,21 @@ export class HuisHypeApiClient {
   async updateProfile(request: UpdateUserProfileRequest): Promise<UpdateUserProfileResponse> {
     return this.request<UpdateUserProfileResponse>('PUT', '/users/me/profile', {
       body: request,
+      requiresAuth: true,
+    });
+  }
+
+  async uploadProfilePhoto(
+    request: UploadProfilePhotoRequest
+  ): Promise<ProfilePhotoIdentityResponse> {
+    return this.request<ProfilePhotoIdentityResponse>('POST', '/users/me/profile-photo', {
+      body: request,
+      requiresAuth: true,
+    });
+  }
+
+  async deleteProfilePhoto(): Promise<ProfilePhotoIdentityResponse> {
+    return this.request<ProfilePhotoIdentityResponse>('DELETE', '/users/me/profile-photo', {
       requiresAuth: true,
     });
   }

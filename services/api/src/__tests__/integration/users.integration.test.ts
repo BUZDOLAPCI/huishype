@@ -18,6 +18,11 @@ import {
   userFollows,
 } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
+import sharp from 'sharp';
+import {
+  setProfilePhotoStorageAdapterForTests,
+  type ProfilePhotoStorageAdapter,
+} from '../../services/profile-photo-storage.js';
 
 /**
  * Integration tests for user profile routes.
@@ -32,6 +37,8 @@ describe('User profile routes', () => {
   let app: FastifyInstance;
   const cleanupIds: { users: string[]; properties: string[] } = { users: [], properties: [] };
   let uniqueHandleSequence = 0;
+  const uploadedObjects: Array<{ key: string; body: Buffer; contentType: string }> = [];
+  const deletedObjectKeys: string[] = [];
 
   function createUniqueHandle(label: string) {
     uniqueHandleSequence += 1;
@@ -79,8 +86,39 @@ describe('User profile routes', () => {
     return property.id;
   }
 
+  async function createTestImageBase64() {
+    const buffer = await sharp({
+      create: {
+        width: 32,
+        height: 24,
+        channels: 3,
+        background: '#005E4F',
+      },
+    })
+      .png()
+      .toBuffer();
+
+    return buffer.toString('base64');
+  }
+
   beforeAll(async () => {
+    const fakeStorage: ProfilePhotoStorageAdapter = {
+      async putObject({ key, body, contentType }) {
+        uploadedObjects.push({ key, body, contentType });
+        return `/${key}`;
+      },
+      async deleteObject(key) {
+        deletedObjectKeys.push(key);
+      },
+    };
+
+    setProfilePhotoStorageAdapterForTests(fakeStorage);
     app = await buildApp({ logger: false });
+  });
+
+  beforeEach(() => {
+    uploadedObjects.length = 0;
+    deletedObjectKeys.length = 0;
   });
 
   afterAll(async () => {
@@ -109,6 +147,7 @@ describe('User profile routes', () => {
     if (app) {
       await app.close();
     }
+    setProfilePhotoStorageAdapterForTests(null);
   });
 
   // ---------- GET /users/search ----------
@@ -623,6 +662,129 @@ describe('User profile routes', () => {
         payload: { displayName: 'Test' },
       });
       expect(resp.statusCode).toBe(401);
+    });
+  });
+
+  // ---------- Profile photo upload/delete ----------
+
+  describe('profile photo routes', () => {
+    it('rejects unauthenticated upload and delete requests', async () => {
+      const uploadResp = await app.inject({
+        method: 'POST',
+        url: '/users/me/profile-photo',
+        payload: { imageBase64: await createTestImageBase64(), mimeType: 'image/png' },
+      });
+
+      expect(uploadResp.statusCode).toBe(401);
+
+      const deleteResp = await app.inject({
+        method: 'DELETE',
+        url: '/users/me/profile-photo',
+      });
+
+      expect(deleteResp.statusCode).toBe(401);
+      expect(uploadedObjects).toHaveLength(0);
+      expect(deletedObjectKeys).toHaveLength(0);
+    });
+
+    it('rejects invalid base64, non-image input, and oversized images', async () => {
+      const { accessToken } = await createTestUser('photo-invalid');
+
+      const invalidBase64Resp = await app.inject({
+        method: 'POST',
+        url: '/users/me/profile-photo',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { imageBase64: 'not-valid-base64', mimeType: 'image/png' },
+      });
+
+      expect(invalidBase64Resp.statusCode).toBe(400);
+      expect(JSON.parse(invalidBase64Resp.body).error).toBe('PROFILE_PHOTO_INVALID_BASE64');
+
+      const nonImageResp = await app.inject({
+        method: 'POST',
+        url: '/users/me/profile-photo',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: {
+          imageBase64: Buffer.from('not an image', 'utf8').toString('base64'),
+          mimeType: 'text/plain',
+        },
+      });
+
+      expect(nonImageResp.statusCode).toBe(400);
+      expect(JSON.parse(nonImageResp.body).error).toBe('PROFILE_PHOTO_UNSUPPORTED_TYPE');
+
+      const oversizedResp = await app.inject({
+        method: 'POST',
+        url: '/users/me/profile-photo',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: {
+          imageBase64: Buffer.alloc(5 * 1024 * 1024 + 1).toString('base64'),
+          mimeType: 'image/png',
+        },
+      });
+
+      expect(oversizedResp.statusCode).toBe(413);
+      expect(JSON.parse(oversizedResp.body).error).toBe('PROFILE_PHOTO_TOO_LARGE');
+      expect(uploadedObjects).toHaveLength(0);
+    });
+
+    it('processes an uploaded image, stores the R2 URL, and returns profile identity', async () => {
+      const { accessToken, userId } = await createTestUser('photo-upload');
+
+      const resp = await app.inject({
+        method: 'POST',
+        url: '/users/me/profile-photo',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: {
+          imageBase64: await createTestImageBase64(),
+          mimeType: 'image/png',
+        },
+      });
+
+      expect(resp.statusCode).toBe(200);
+      expect(uploadedObjects).toHaveLength(1);
+      expect(uploadedObjects[0].key).toMatch(new RegExp(`^profile-photos/${userId}/.+\\.jpg$`));
+      expect(uploadedObjects[0].contentType).toBe('image/jpeg');
+
+      const metadata = await sharp(uploadedObjects[0].body).metadata();
+      expect(metadata.format).toBe('jpeg');
+      expect(metadata.width).toBe(512);
+      expect(metadata.height).toBe(512);
+
+      const body = JSON.parse(resp.body);
+      expect(body).toEqual(
+        expect.objectContaining({
+          id: userId,
+          profilePhotoUrl: `/${uploadedObjects[0].key}`,
+        })
+      );
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(stored?.profilePhotoUrl).toBe(`/${uploadedObjects[0].key}`);
+    });
+
+    it('clears the profile photo and best-effort deletes the owned R2 object', async () => {
+      const { accessToken, userId } = await createTestUser('photo-delete');
+      const existingKey = `profile-photos/${userId}/existing.jpg`;
+
+      await db
+        .update(users)
+        .set({ profilePhotoUrl: `/${existingKey}` })
+        .where(eq(users.id, userId));
+
+      const resp = await app.inject({
+        method: 'DELETE',
+        url: '/users/me/profile-photo',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body);
+      expect(body.profilePhotoUrl).toBeNull();
+      expect(deletedObjectKeys).toEqual([existingKey]);
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(stored?.profilePhotoUrl).toBeNull();
     });
   });
 

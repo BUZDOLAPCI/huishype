@@ -1,11 +1,13 @@
 import React from 'react';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import ProfileSettingsScreen from '../(tabs)/settings';
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from '@/src/i18n';
 import { ANALYTICS_CONSENT_STORAGE_KEY } from '@/src/lib/analytics';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import { useDeleteProfilePhoto, useUploadProfilePhoto } from '@/src/hooks/useUserProfile';
+import * as ImagePicker from 'expo-image-picker';
 
 jest.mock('expo-router', () => ({
   router: {
@@ -16,6 +18,16 @@ jest.mock('expo-router', () => ({
 
 jest.mock('@/src/providers/AuthProvider', () => ({
   useAuthContext: jest.fn(),
+}));
+
+jest.mock('@/src/hooks/useUserProfile', () => ({
+  useUploadProfilePhoto: jest.fn(),
+  useDeleteProfilePhoto: jest.fn(),
+}));
+
+jest.mock('expo-image-picker', () => ({
+  requestMediaLibraryPermissionsAsync: jest.fn(),
+  launchImageLibraryAsync: jest.fn(),
 }));
 
 jest.mock('@/src/components', () => ({
@@ -32,8 +44,34 @@ jest.mock('@/src/components/ui/Icon', () => ({
   },
 }));
 
+jest.mock('@/src/components/ui/UserAvatar', () => ({
+  UserAvatar: ({ profilePhotoUrl }: { profilePhotoUrl?: string | null }) => {
+    const ReactNative = require('react-native');
+    return (
+      <ReactNative.Text testID="settings-profile-photo-avatar">
+        {profilePhotoUrl ?? 'fallback-avatar'}
+      </ReactNative.Text>
+    );
+  },
+}));
+
 const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthContext>;
+const mockUseUploadProfilePhoto = useUploadProfilePhoto as jest.MockedFunction<
+  typeof useUploadProfilePhoto
+>;
+const mockUseDeleteProfilePhoto = useDeleteProfilePhoto as jest.MockedFunction<
+  typeof useDeleteProfilePhoto
+>;
+const mockRequestMediaLibraryPermissionsAsync =
+  ImagePicker.requestMediaLibraryPermissionsAsync as jest.MockedFunction<
+    typeof ImagePicker.requestMediaLibraryPermissionsAsync
+  >;
+const mockLaunchImageLibraryAsync = ImagePicker.launchImageLibraryAsync as jest.MockedFunction<
+  typeof ImagePicker.launchImageLibraryAsync
+>;
 const signOut = jest.fn().mockResolvedValue(undefined);
+const uploadProfilePhoto = jest.fn().mockResolvedValue(undefined);
+const deleteProfilePhoto = jest.fn().mockResolvedValue(undefined);
 const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
 const originalWindowOpen = window.open;
@@ -42,7 +80,7 @@ const getRouterReplace = () =>
 const getRouterPush = () =>
   (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
 
-function mockAuthContext(user: { id: string; email?: string } | null) {
+function mockAuthContext(user: { id: string; email?: string; profilePhotoUrl?: string | null } | null) {
   mockUseAuthContext.mockReturnValue({
     user: user
       ? {
@@ -51,7 +89,7 @@ function mockAuthContext(user: { id: string; email?: string } | null) {
           username: 'test-user',
           handle: 'test-user',
           displayName: 'Test User',
-          profilePhotoUrl: undefined,
+          profilePhotoUrl: user.profilePhotoUrl ?? undefined,
           karma: 42,
           karmaRank: 'Contributor',
           createdAt: '2026-01-01T00:00:00.000Z',
@@ -68,6 +106,7 @@ function mockAuthContext(user: { id: string; email?: string } | null) {
     signOut,
     refreshAuth: jest.fn(),
     getAccessToken: jest.fn(),
+    updateAuthUserProfile: jest.fn(),
   });
 }
 
@@ -82,6 +121,26 @@ function renderSettings() {
 describe('ProfileSettingsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    uploadProfilePhoto.mockResolvedValue(undefined);
+    deleteProfilePhoto.mockResolvedValue(undefined);
+    mockUseUploadProfilePhoto.mockReturnValue({
+      mutateAsync: uploadProfilePhoto,
+      isPending: false,
+    } as unknown as ReturnType<typeof useUploadProfilePhoto>);
+    mockUseDeleteProfilePhoto.mockReturnValue({
+      mutateAsync: deleteProfilePhoto,
+      isPending: false,
+    } as unknown as ReturnType<typeof useDeleteProfilePhoto>);
+    mockRequestMediaLibraryPermissionsAsync.mockResolvedValue({
+      granted: true,
+      status: 'granted',
+      canAskAgain: true,
+      expires: 'never',
+    } as ImagePicker.MediaLibraryPermissionResponse);
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: true,
+      assets: null,
+    });
     localStorage.clear();
     Object.defineProperty(Platform, 'OS', {
       configurable: true,
@@ -101,7 +160,7 @@ describe('ProfileSettingsScreen', () => {
   it('shows the login row and version when signed out', () => {
     mockAuthContext(null);
 
-    const { getByTestId, getByText, queryByText } = renderSettings();
+    const { getByTestId, getByText, queryByTestId, queryByText } = renderSettings();
 
     expect(getByText('Language')).toBeTruthy();
     expect(getByText('English')).toBeTruthy();
@@ -110,6 +169,7 @@ describe('ProfileSettingsScreen', () => {
     expect(getByText('Contact')).toBeTruthy();
     expect(getByText('Log in')).toBeTruthy();
     expect(queryByText('Account email')).toBeNull();
+    expect(queryByTestId('settings-profile-photo-row')).toBeNull();
     expect(queryByText('Terms and Conditions')).toBeNull();
     expect(getByTestId('settings-version').props.children).toBe('Version 0.0.1');
 
@@ -125,6 +185,9 @@ describe('ProfileSettingsScreen', () => {
     const { getByTestId, getByText } = renderSettings();
 
     expect(getByText('Account email')).toBeTruthy();
+    expect(getByTestId('settings-profile-photo-row')).toBeTruthy();
+    expect(getByText('Profile picture')).toBeTruthy();
+    expect(getByTestId('settings-profile-photo-status').props.children).toBe('No photo set');
     expect(getByTestId('settings-account-email-row').props.accessibilityRole).toBe('text');
     expect(getByTestId('settings-account-email-value').props.children).toBe('test@example.com');
     expect(getByTestId('settings-language-row')).toBeTruthy();
@@ -136,6 +199,117 @@ describe('ProfileSettingsScreen', () => {
       expect(globalThis.confirm).toHaveBeenCalledWith('Are you sure you want to sign out?');
       expect(signOut).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('does not upload when the image picker is cancelled', async () => {
+    mockAuthContext({ id: 'user-1' });
+
+    const { getByTestId } = renderSettings();
+
+    fireEvent.press(getByTestId('settings-profile-photo-select'));
+
+    await waitFor(() => {
+      expect(mockRequestMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(mockLaunchImageLibraryAsync).toHaveBeenCalledTimes(1);
+    });
+    expect(uploadProfilePhoto).not.toHaveBeenCalled();
+  });
+
+  it('uploads a selected profile picture', async () => {
+    mockAuthContext({ id: 'user-1' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockLaunchImageLibraryAsync.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ base64: 'base64-image', mimeType: 'image/jpeg', uri: 'file:///avatar.jpg' }],
+    } as ImagePicker.ImagePickerSuccessResult);
+
+    const { getByTestId } = renderSettings();
+
+    fireEvent.press(getByTestId('settings-profile-photo-select'));
+
+    await waitFor(() => {
+      expect(uploadProfilePhoto).toHaveBeenCalledWith({
+        imageBase64: 'base64-image',
+        mimeType: 'image/jpeg',
+      });
+    });
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Profile picture saved',
+      'Your profile picture has been updated.'
+    );
+
+    alertSpy.mockRestore();
+  });
+
+  it('shows a localized alert when photo library permission is denied', async () => {
+    mockAuthContext({ id: 'user-1' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockRequestMediaLibraryPermissionsAsync.mockResolvedValueOnce({
+      granted: false,
+      status: 'denied',
+      canAskAgain: true,
+      expires: 'never',
+    } as ImagePicker.MediaLibraryPermissionResponse);
+
+    const { getByTestId } = renderSettings();
+
+    fireEvent.press(getByTestId('settings-profile-photo-select'));
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Profile picture',
+        'Allow photo library access to choose a profile picture.'
+      );
+    });
+    expect(uploadProfilePhoto).not.toHaveBeenCalled();
+
+    alertSpy.mockRestore();
+  });
+
+  it('shows a localized alert when profile photo upload fails', async () => {
+    mockAuthContext({ id: 'user-1' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    uploadProfilePhoto.mockRejectedValueOnce(new Error('upload failed'));
+    mockLaunchImageLibraryAsync.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ base64: 'base64-image', mimeType: 'image/png', uri: 'file:///avatar.png' }],
+    } as ImagePicker.ImagePickerSuccessResult);
+
+    const { getByTestId } = renderSettings();
+
+    fireEvent.press(getByTestId('settings-profile-photo-select'));
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Profile picture',
+        'Could not save this profile picture. Try another photo or try again later.'
+      );
+    });
+
+    alertSpy.mockRestore();
+  });
+
+  it('removes the current profile picture after confirmation', async () => {
+    mockAuthContext({ id: 'user-1', profilePhotoUrl: 'https://media.example/avatar.jpg' });
+    globalThis.confirm = jest.fn(() => true);
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+
+    const { getByTestId } = renderSettings();
+
+    expect(getByTestId('settings-profile-photo-status').props.children).toBe('Photo set');
+
+    fireEvent.press(getByTestId('settings-profile-photo-remove'));
+
+    await waitFor(() => {
+      expect(globalThis.confirm).toHaveBeenCalledWith('Remove your current profile picture?');
+      expect(deleteProfilePhoto).toHaveBeenCalledTimes(1);
+    });
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Profile picture removed',
+      'Your profile picture has been removed.'
+    );
+
+    alertSpy.mockRestore();
   });
 
   it('opens the legal submenu, navigates legal rows, and backs to main settings', async () => {

@@ -40,6 +40,11 @@ export function validateProductionSecrets(env: Record<string, string | undefined
   if (!env.RESEND_API_KEY) missing.push('RESEND_API_KEY');
   if (!env.EMAIL_FROM) missing.push('EMAIL_FROM');
   if (!env.EMAIL_REPLY_TO) missing.push('EMAIL_REPLY_TO');
+  if (!env.R2_ACCOUNT_ID) missing.push('R2_ACCOUNT_ID');
+  if (!env.R2_ACCESS_KEY_ID) missing.push('R2_ACCESS_KEY_ID');
+  if (!env.R2_SECRET_ACCESS_KEY) missing.push('R2_SECRET_ACCESS_KEY');
+  if (!env.R2_BUCKET) missing.push('R2_BUCKET');
+  if (!env.R2_PUBLIC_BASE_URL) missing.push('R2_PUBLIC_BASE_URL');
   if (!env.INGEST_API_KEY) missing.push('INGEST_API_KEY');
   if (!env.FUNDA_SOURCE_SERVICE_URL) missing.push('FUNDA_SOURCE_SERVICE_URL');
   if (!env.FUNDA_SOURCE_SERVICE_API_KEY) missing.push('FUNDA_SOURCE_SERVICE_API_KEY');
@@ -83,6 +88,21 @@ export const config = {
     resendApiKey: process.env.RESEND_API_KEY || '',
     fromAddress: process.env.EMAIL_FROM || '',
     replyTo: process.env.EMAIL_REPLY_TO || '',
+  },
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID || '',
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+    bucket: process.env.R2_BUCKET || '',
+    publicBaseUrl: process.env.R2_PUBLIC_BASE_URL || '',
+    maxProfilePhotoSourceBytes: parseInt(
+      process.env.PROFILE_PHOTO_MAX_SOURCE_BYTES || String(5 * 1024 * 1024),
+      10
+    ),
+    maxProfilePhotoOutputBytes: parseInt(
+      process.env.PROFILE_PHOTO_MAX_OUTPUT_BYTES || String(1024 * 1024),
+      10
+    ),
   },
   photon: {
     url: process.env.PHOTON_URL || 'http://localhost:2322',

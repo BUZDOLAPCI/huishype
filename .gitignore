@@ -111,6 +111,7 @@ shader-progress-screenshots/
 .env.google
 .env.resend
 .env.scraper-deploy
+.env.cloudflare
 
 # Google OAuth credentials (contain secrets)
 GoogleService-Info.plist

@@ -2460,8 +2460,7 @@ export interface paths {
                                 id: string;
                                 /** Format: uuid */
                                 propertyId: string;
-                                /** Format: uuid */
-                                userId: string;
+                                userId: string | null;
                                 parentId: string | null;
                                 content: string;
                                 /** Format: date-time */
@@ -2475,16 +2474,16 @@ export interface paths {
                                     displayName: string | null;
                                     profilePhotoUrl: string | null;
                                     karma: number;
-                                };
+                                } | null;
                                 likeCount: number;
                                 isLiked: boolean;
+                                isDeleted: boolean;
                                 replies: {
                                     /** Format: uuid */
                                     id: string;
                                     /** Format: uuid */
                                     propertyId: string;
-                                    /** Format: uuid */
-                                    userId: string;
+                                    userId: string | null;
                                     parentId: string | null;
                                     content: string;
                                     /** Format: date-time */
@@ -2498,9 +2497,10 @@ export interface paths {
                                         displayName: string | null;
                                         profilePhotoUrl: string | null;
                                         karma: number;
-                                    };
+                                    } | null;
                                     likeCount: number;
                                     isLiked: boolean;
+                                    isDeleted: boolean;
                                 }[];
                             }[];
                             meta: {
@@ -2566,8 +2566,7 @@ export interface paths {
                             id: string;
                             /** Format: uuid */
                             propertyId: string;
-                            /** Format: uuid */
-                            userId: string;
+                            userId: string | null;
                             parentId: string | null;
                             content: string;
                             /** Format: date-time */
@@ -2581,9 +2580,10 @@ export interface paths {
                                 displayName: string | null;
                                 profilePhotoUrl: string | null;
                                 karma: number;
-                            };
+                            } | null;
                             likeCount: number;
                             isLiked: boolean;
+                            isDeleted: boolean;
                             message: string;
                         };
                     };
@@ -2639,6 +2639,85 @@ export interface paths {
             };
         };
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a comment
+         * @description Mark your own comment as user-deleted without scrubbing stored content.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -4753,6 +4832,163 @@ export interface paths {
                 };
                 /** @description Default Response */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/profile-photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload profile photo */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        imageBase64: string;
+                        mimeType?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            id: string;
+                            displayName: string;
+                            handle: string;
+                            profilePhotoUrl: string | null;
+                            homeCountry: string | null;
+                            lastDisplayNameChangeAt: string | null;
+                            lastHandleChangeAt: string | null;
+                            displayNameChangeAvailableAt: string | null;
+                            handleChangeAvailableAt: string | null;
+                            lastNameChangeAt?: string | null;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
+                        };
+                    };
+                };
+            };
+        };
+        /** Remove profile photo */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            id: string;
+                            displayName: string;
+                            handle: string;
+                            profilePhotoUrl: string | null;
+                            homeCountry: string | null;
+                            lastDisplayNameChangeAt: string | null;
+                            lastHandleChangeAt: string | null;
+                            displayNameChangeAvailableAt: string | null;
+                            handleChangeAvailableAt: string | null;
+                            lastNameChangeAt?: string | null;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
                     headers: {
                         [name: string]: unknown;
                     };

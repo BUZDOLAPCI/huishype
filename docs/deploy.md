@@ -152,7 +152,8 @@ curl -X POST "https://api.hetzner.cloud/v1/servers/124870912/actions/change_type
 ## Env Vars (set in Coolify)
 
 Required: `DB_PASSWORD`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, `EXPO_PUBLIC_API_URL`,
-`INGEST_API_KEY`, `FUNDA_SOURCE_SERVICE_URL`, `FUNDA_SOURCE_SERVICE_API_KEY`,
+`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`,
+`R2_PUBLIC_BASE_URL`, `INGEST_API_KEY`, `FUNDA_SOURCE_SERVICE_URL`, `FUNDA_SOURCE_SERVICE_API_KEY`,
 `PARARIUS_SOURCE_SERVICE_URL`, `PARARIUS_SOURCE_SERVICE_API_KEY`
 
 Auth:
@@ -166,6 +167,14 @@ Optional: `CORS_ORIGINS`
 
 Web analytics:
 - `EXPO_PUBLIC_GA4_MEASUREMENT_ID` — optional GA4 web stream ID. If unset, analytics stays disabled and no Google Analytics script is loaded.
+
+Profile photo storage:
+- `R2_ACCOUNT_ID` — Cloudflare account ID for the R2 S3-compatible endpoint.
+- `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` — R2 API token with object read/write access to the media bucket.
+- `R2_BUCKET` — public media bucket used for user avatars.
+- `R2_PUBLIC_BASE_URL` — public origin/CDN base URL for uploaded avatar objects.
+- `PROFILE_PHOTO_MAX_SOURCE_BYTES` — optional source upload limit; default `5242880` (5 MB).
+- `PROFILE_PHOTO_MAX_OUTPUT_BYTES` — optional processed avatar target limit; default `1048576` (1 MB).
 
 Property tile pyramid:
 - `PROPERTY_TILE_PYRAMID_LEASE_SECONDS` — production default `3600`. Full

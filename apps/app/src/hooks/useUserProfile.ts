@@ -8,6 +8,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from '@tanstack/react-query';
 import { useAuthContext } from '../providers/AuthProvider';
 import { API_URL } from '../utils/api';
@@ -85,6 +86,11 @@ export interface UpdateMyProfileResponse {
   displayNameChangeAvailableAt: string | null;
   handleChangeAvailableAt: string | null;
   lastNameChangeAt?: string | null;
+}
+
+export interface UploadProfilePhotoInput {
+  imageBase64: string;
+  mimeType?: string;
 }
 
 export type SocialFollowAnalyticsEventName =
@@ -173,6 +179,39 @@ async function updateMyProfile(
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ message: 'Failed to update profile' }));
+    throw new Error(err.message || `HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+async function uploadMyProfilePhoto(
+  accessToken: string,
+  data: UploadProfilePhotoInput
+): Promise<UpdateMyProfileResponse> {
+  const resp = await fetch(`${API_URL}/users/me/profile-photo`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(data),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ message: 'Failed to update profile photo' }));
+    throw new Error(err.message || `HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+async function deleteMyProfilePhoto(accessToken: string): Promise<UpdateMyProfileResponse> {
+  const resp = await fetch(`${API_URL}/users/me/profile-photo`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ message: 'Failed to remove profile photo' }));
     throw new Error(err.message || `HTTP ${resp.status}`);
   }
   return resp.json();
@@ -314,6 +353,82 @@ export function useMyProfile() {
   });
 }
 
+async function applyProfileIdentityUpdate({
+  queryClient,
+  updateAuthUserProfile,
+  userId,
+  updated,
+}: {
+  queryClient: QueryClient;
+  updateAuthUserProfile?: (updates: {
+    displayName?: string;
+    handle?: string;
+    profilePhotoUrl?: string | null;
+  }) => Promise<void>;
+  userId?: string;
+  updated: UpdateMyProfileResponse;
+}) {
+  await updateAuthUserProfile?.({
+    displayName: updated.displayName,
+    handle: updated.handle,
+    profilePhotoUrl: updated.profilePhotoUrl,
+  });
+
+  queryClient.setQueriesData<MyProfile>(
+    {
+      queryKey: userKeys.all,
+      predicate: (query) =>
+        Array.isArray(query.queryKey) &&
+        query.queryKey[0] === 'users' &&
+        query.queryKey[1] === 'me',
+    },
+    (old) =>
+      old
+        ? {
+            ...old,
+            displayName: updated.displayName,
+            handle: updated.handle,
+            profilePhotoUrl: updated.profilePhotoUrl,
+            homeCountry: updated.homeCountry,
+            lastNameChangeAt: updated.lastDisplayNameChangeAt ?? updated.lastNameChangeAt ?? null,
+            lastDisplayNameChangeAt: updated.lastDisplayNameChangeAt,
+            lastHandleChangeAt: updated.lastHandleChangeAt,
+            displayNameChangeAvailableAt: updated.displayNameChangeAvailableAt,
+            handleChangeAvailableAt: updated.handleChangeAvailableAt,
+          }
+        : old
+  );
+
+  if (userId) {
+    queryClient.setQueriesData<PublicProfile>(
+      {
+        queryKey: userKeys.all,
+        predicate: (query) =>
+          Array.isArray(query.queryKey) &&
+          query.queryKey[0] === 'users' &&
+          query.queryKey[1] === 'profile' &&
+          query.queryKey[2] === userId,
+      },
+      (old) =>
+        old
+          ? {
+              ...old,
+              displayName: updated.displayName,
+              handle: updated.handle,
+              profilePhotoUrl: updated.profilePhotoUrl,
+            }
+          : old
+    );
+  }
+
+  queryClient.invalidateQueries({ queryKey: userKeys.all });
+  queryClient.invalidateQueries({ queryKey: activityFeedKeys.all });
+  queryClient.invalidateQueries({ queryKey: userActivityKeys.all });
+  queryClient.invalidateQueries({ queryKey: feedKeys.all });
+  queryClient.invalidateQueries({ queryKey: commentKeys.all });
+  queryClient.invalidateQueries({ queryKey: leaderboardKeys.all });
+}
+
 /** Update authenticated user's profile */
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
@@ -326,66 +441,54 @@ export function useUpdateProfile() {
       return updateMyProfile(token, data);
     },
     onSuccess: async (updated) => {
-      await updateAuthUserProfile?.({
-        displayName: updated.displayName,
-        handle: updated.handle,
-        profilePhotoUrl: updated.profilePhotoUrl,
+      await applyProfileIdentityUpdate({
+        queryClient,
+        updateAuthUserProfile,
+        userId: user?.id,
+        updated,
       });
+    },
+  });
+}
 
-      queryClient.setQueriesData<MyProfile>(
-        {
-          queryKey: userKeys.all,
-          predicate: (query) =>
-            Array.isArray(query.queryKey) &&
-            query.queryKey[0] === 'users' &&
-            query.queryKey[1] === 'me',
-        },
-        (old) =>
-          old
-            ? {
-                ...old,
-                displayName: updated.displayName,
-                handle: updated.handle,
-                profilePhotoUrl: updated.profilePhotoUrl,
-                homeCountry: updated.homeCountry,
-                lastNameChangeAt:
-                  updated.lastDisplayNameChangeAt ?? updated.lastNameChangeAt ?? null,
-                lastDisplayNameChangeAt: updated.lastDisplayNameChangeAt,
-                lastHandleChangeAt: updated.lastHandleChangeAt,
-                displayNameChangeAvailableAt: updated.displayNameChangeAvailableAt,
-                handleChangeAvailableAt: updated.handleChangeAvailableAt,
-              }
-            : old
-      );
+export function useUploadProfilePhoto() {
+  const queryClient = useQueryClient();
+  const { getAccessToken, updateAuthUserProfile, user } = useAuthContext();
 
-      if (user?.id) {
-        queryClient.setQueriesData<PublicProfile>(
-          {
-            queryKey: userKeys.all,
-            predicate: (query) =>
-              Array.isArray(query.queryKey) &&
-              query.queryKey[0] === 'users' &&
-              query.queryKey[1] === 'profile' &&
-              query.queryKey[2] === user.id,
-          },
-          (old) =>
-            old
-              ? {
-                  ...old,
-                  displayName: updated.displayName,
-                  handle: updated.handle,
-                  profilePhotoUrl: updated.profilePhotoUrl,
-                }
-              : old
-        );
-      }
+  return useMutation({
+    mutationFn: async (data: UploadProfilePhotoInput) => {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      return uploadMyProfilePhoto(token, data);
+    },
+    onSuccess: async (updated) => {
+      await applyProfileIdentityUpdate({
+        queryClient,
+        updateAuthUserProfile,
+        userId: user?.id,
+        updated,
+      });
+    },
+  });
+}
 
-      queryClient.invalidateQueries({ queryKey: userKeys.all });
-      queryClient.invalidateQueries({ queryKey: activityFeedKeys.all });
-      queryClient.invalidateQueries({ queryKey: userActivityKeys.all });
-      queryClient.invalidateQueries({ queryKey: feedKeys.all });
-      queryClient.invalidateQueries({ queryKey: commentKeys.all });
-      queryClient.invalidateQueries({ queryKey: leaderboardKeys.all });
+export function useDeleteProfilePhoto() {
+  const queryClient = useQueryClient();
+  const { getAccessToken, updateAuthUserProfile, user } = useAuthContext();
+
+  return useMutation({
+    mutationFn: async () => {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      return deleteMyProfilePhoto(token);
+    },
+    onSuccess: async (updated) => {
+      await applyProfileIdentityUpdate({
+        queryClient,
+        updateAuthUserProfile,
+        userId: user?.id,
+        updated,
+      });
     },
   });
 }

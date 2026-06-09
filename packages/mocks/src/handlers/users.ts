@@ -144,7 +144,7 @@ function updateUserIdentity(
   updates: {
     displayName?: string;
     username?: string;
-    profilePhotoUrl?: string;
+    profilePhotoUrl?: string | null;
   }
 ) {
   const user = mockUsers.find((item) => item.id === userId);
@@ -348,6 +348,31 @@ function searchUsers(request: Request) {
   });
 }
 
+function buildProfileIdentityResponse(userId: string) {
+  const identityState = getIdentityState(userId);
+  const updatedProfile = mockUserProfiles.find((profile) => profile.id === userId);
+
+  if (!updatedProfile) {
+    return null;
+  }
+
+  return {
+    id: userId,
+    displayName: updatedProfile.displayName,
+    handle: updatedProfile.handle,
+    profilePhotoUrl: updatedProfile.profilePhotoUrl ?? null,
+    homeCountry: identityState.homeCountry,
+    lastDisplayNameChangeAt: identityState.lastDisplayNameChangeAt,
+    lastHandleChangeAt: identityState.lastUsernameChangeAt,
+    displayNameChangeAvailableAt: availableAt(
+      identityState.lastDisplayNameChangeAt,
+      DISPLAY_NAME_COOLDOWN_DAYS
+    ),
+    handleChangeAvailableAt: availableAt(identityState.lastUsernameChangeAt, HANDLE_COOLDOWN_DAYS),
+    lastNameChangeAt: identityState.lastDisplayNameChangeAt,
+  };
+}
+
 export const userHandlers = [
   http.get('*/users/search', ({ request }) => searchUsers(request)),
 
@@ -506,26 +531,47 @@ export const userHandlers = [
     identityState.lastDisplayNameChangeAt = nextDisplayNameChangeAt;
     identityState.lastUsernameChangeAt = nextUsernameChangeAt;
 
-    const updatedProfile = mockUserProfiles.find((profile) => profile.id === authUser.id) ?? authUser;
+    return HttpResponse.json(buildProfileIdentityResponse(authUser.id));
+  }),
 
-    return HttpResponse.json({
-      id: authUser.id,
-      displayName: updatedProfile.displayName,
-      handle: updatedProfile.handle,
-      profilePhotoUrl: updatedProfile.profilePhotoUrl ?? null,
-      homeCountry: identityState.homeCountry,
-      lastDisplayNameChangeAt: identityState.lastDisplayNameChangeAt,
-      lastHandleChangeAt: identityState.lastUsernameChangeAt,
-      displayNameChangeAvailableAt: availableAt(
-        identityState.lastDisplayNameChangeAt,
-        DISPLAY_NAME_COOLDOWN_DAYS
-      ),
-      handleChangeAvailableAt: availableAt(
-        identityState.lastUsernameChangeAt,
-        HANDLE_COOLDOWN_DAYS
-      ),
-      lastNameChangeAt: identityState.lastDisplayNameChangeAt,
+  http.post('*/users/me/profile-photo', async ({ request }) => {
+    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    if (!authUser) {
+      return HttpResponse.json(
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    const body = (await request.json()) as { imageBase64?: unknown; mimeType?: unknown };
+    if (typeof body.imageBase64 !== 'string' || body.imageBase64.length === 0) {
+      return HttpResponse.json(
+        { error: 'VALIDATION_ERROR', message: 'Profile photo image data is required.' },
+        { status: 400 }
+      );
+    }
+
+    updateUserIdentity(authUser.id, {
+      profilePhotoUrl: `https://media.huishype.test/profile-photos/${authUser.id}/mock-avatar.jpg`,
     });
+
+    return HttpResponse.json(buildProfileIdentityResponse(authUser.id));
+  }),
+
+  http.delete('*/users/me/profile-photo', ({ request }) => {
+    const authUser = getMockAuthUser(request.headers.get('Authorization'));
+    if (!authUser) {
+      return HttpResponse.json(
+        { error: 'UNAUTHORIZED', message: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    updateUserIdentity(authUser.id, {
+      profilePhotoUrl: null,
+    });
+
+    return HttpResponse.json(buildProfileIdentityResponse(authUser.id));
   }),
 
   http.get('*/users/:userId/profile', ({ params, request }) => {

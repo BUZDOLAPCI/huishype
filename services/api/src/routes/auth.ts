@@ -85,6 +85,7 @@ interface MockGoogleTokenPayload {
   email?: string;
   googleId?: string;
   name?: string;
+  picture?: string;
 }
 
 type UserIdentityInsertError = {
@@ -184,7 +185,7 @@ async function verifyAppleJwt(idToken: string): Promise<AppleTokenClaims | null>
 
 function parseMockGoogleToken(
   idToken: string,
-): { email: string; googleId: string; name?: string } | null {
+): { email: string; googleId: string; name?: string; picture?: string } | null {
   if (idToken.startsWith('mock-google:')) {
     const encodedPayload = idToken.slice('mock-google:'.length);
     if (!encodedPayload) {
@@ -204,6 +205,7 @@ function parseMockGoogleToken(
         email: payload.email.toLowerCase(),
         googleId: payload.googleId,
         name: payload.name,
+        picture: normalizeGooglePictureUrl(payload.picture),
       };
     } catch {
       return null;
@@ -265,7 +267,7 @@ function isGoogleIdentityUniqueViolation(error: unknown): boolean {
 
 async function verifyGoogleTokenWithGoogle(
   idToken: string,
-): Promise<{ email: string; googleId: string; name?: string } | null> {
+): Promise<{ email: string; googleId: string; name?: string; picture?: string } | null> {
   try {
     const response = await fetch(
       `https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`
@@ -279,6 +281,7 @@ async function verifyGoogleTokenWithGoogle(
       email?: string;
       sub?: string;
       name?: string;
+      picture?: string;
       aud?: string;
     };
 
@@ -295,6 +298,7 @@ async function verifyGoogleTokenWithGoogle(
       email: data.email.toLowerCase(),
       googleId: data.sub,
       name: data.name,
+      picture: normalizeGooglePictureUrl(data.picture),
     };
   } catch {
     return null;
@@ -310,7 +314,7 @@ async function verifyGoogleTokenWithGoogle(
  */
 async function validateGoogleToken(
   idToken: string
-): Promise<{ email: string; googleId: string; name?: string } | null> {
+): Promise<{ email: string; googleId: string; name?: string; picture?: string } | null> {
   if (config.isDev === true) {
     const mockGoogleUser = parseMockGoogleToken(idToken);
     if (mockGoogleUser) {
@@ -331,6 +335,19 @@ async function findUserByGoogleIdentity(googleUser: {
       eq(users.email, googleUser.email),
     ),
   });
+}
+
+function normalizeGooglePictureUrl(picture: string | undefined): string | undefined {
+  if (!picture) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(picture);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseMockAppleToken(
@@ -486,6 +503,7 @@ export async function authRoutes(fastify: FastifyInstance) {
                 email: googleUser.email,
                 username,
                 displayName,
+                profilePhotoUrl: googleUser.picture ?? null,
               })
               .returning();
 
@@ -502,12 +520,32 @@ export async function authRoutes(fastify: FastifyInstance) {
           }
           isNewUser = false;
         }
-      } else if (!user.googleId) {
-        // Link Google account to existing user
-        await db
+      } else if (!user.googleId || (!user.profilePhotoUrl && googleUser.picture)) {
+        const updates: { googleId?: string; profilePhotoUrl?: string } = {};
+
+        if (!user.googleId) {
+          updates.googleId = googleUser.googleId;
+        }
+
+        if (!user.profilePhotoUrl && googleUser.picture) {
+          updates.profilePhotoUrl = googleUser.picture;
+        }
+
+        const [updatedUser] = await db
           .update(users)
-          .set({ googleId: googleUser.googleId })
-          .where(eq(users.id, user.id));
+          .set(updates)
+          .where(eq(users.id, user.id))
+          .returning();
+        user = updatedUser;
+      }
+
+      if (!isNewUser && user && !user.profilePhotoUrl && googleUser.picture) {
+        const [updatedUser] = await db
+          .update(users)
+          .set({ profilePhotoUrl: googleUser.picture })
+          .where(eq(users.id, user.id))
+          .returning();
+        user = updatedUser;
       }
 
       // Generate tokens

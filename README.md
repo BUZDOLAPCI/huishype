@@ -130,4 +130,9 @@ Copy `.env.example` to `.env` in `services/api/`:
 ```
 DATABASE_URL=postgresql://huishype:huishype_dev@localhost:5440/huishype
 PORT=3100
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET=huishype-media
+R2_PUBLIC_BASE_URL=https://media.huishype.nl
 ```
