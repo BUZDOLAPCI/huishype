@@ -13,6 +13,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -23,6 +24,7 @@ import {
   View,
   StyleSheet,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/src/components/ui/Button';
@@ -36,7 +38,12 @@ import { useT, type TranslationKey } from '@/src/i18n';
 
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useWebDismissibleLayer } from '@/src/providers/WebDismissibleLayerProvider';
-import { useMyProfile, useUpdateProfile } from '@/src/hooks/useUserProfile';
+import {
+  useDeleteProfilePhoto,
+  useMyProfile,
+  useUpdateProfile,
+  useUploadProfilePhoto,
+} from '@/src/hooks/useUserProfile';
 import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
@@ -251,6 +258,8 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { data: profile, isLoading, refetch } = useMyProfile();
   const updateProfile = useUpdateProfile();
+  const uploadProfilePhoto = useUploadProfilePhoto();
+  const deleteProfilePhoto = useDeleteProfilePhoto();
   const { data: achievementsData } = useAchievements();
   const { data: activityData } = useUserActivity();
   const hydratedNow = useHydratedNow();
@@ -258,6 +267,7 @@ export default function ProfileScreen() {
   const [editingField, setEditingField] = useState<IdentityField | null>(null);
   const [displayNameDraft, setDisplayNameDraft] = useState('');
   const [handleDraft, setHandleDraft] = useState('');
+  const [showAvatarActions, setShowAvatarActions] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -273,6 +283,7 @@ export default function ProfileScreen() {
   });
 
   const identityProfile = profile as ProfileIdentityCooldowns | undefined;
+  const isProfilePhotoSaving = uploadProfilePhoto.isPending || deleteProfilePhoto.isPending;
 
   const displayNameChangeAvailableAt = useMemo(() => {
     if (!identityProfile) return null;
@@ -417,6 +428,116 @@ export default function ProfileScreen() {
     }
   }, [handleDraft, t, updateProfile]);
 
+  const showProfilePhotoError = useCallback(
+    (messageKey: TranslationKey) => {
+      Alert.alert(t('profileSettings.profilePhoto.errorTitle'), t(messageKey));
+    },
+    [t]
+  );
+
+  const handleToggleAvatarActions = useCallback(() => {
+    if (isProfilePhotoSaving) {
+      return;
+    }
+
+    setShowAvatarActions((visible) => !visible);
+  }, [isProfilePhotoSaving]);
+
+  const handleSelectProfilePhoto = useCallback(async () => {
+    if (isProfilePhotoSaving) {
+      return;
+    }
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        showProfilePhotoError('profileSettings.profilePhoto.permissionDenied');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+        base64: true,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      if (!asset?.base64) {
+        showProfilePhotoError('profileSettings.profilePhoto.missingImageData');
+        return;
+      }
+
+      await uploadProfilePhoto.mutateAsync({
+        imageBase64: asset.base64,
+        mimeType: asset.mimeType,
+      });
+      setShowAvatarActions(false);
+      Alert.alert(
+        t('profileSettings.profilePhoto.savedTitle'),
+        t('profileSettings.profilePhoto.savedMessage')
+      );
+    } catch {
+      showProfilePhotoError('profileSettings.profilePhoto.uploadFailed');
+    }
+  }, [isProfilePhotoSaving, showProfilePhotoError, t, uploadProfilePhoto]);
+
+  const handleRemoveProfilePhoto = useCallback(() => {
+    if (!profile?.profilePhotoUrl || isProfilePhotoSaving) {
+      return;
+    }
+
+    const remove = async () => {
+      try {
+        await deleteProfilePhoto.mutateAsync();
+        setShowAvatarActions(false);
+        Alert.alert(
+          t('profileSettings.profilePhoto.removedTitle'),
+          t('profileSettings.profilePhoto.removedMessage')
+        );
+      } catch {
+        showProfilePhotoError('profileSettings.profilePhoto.removeFailed');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const shouldRemove =
+        typeof globalThis.confirm !== 'function' ||
+        globalThis.confirm(t('profileSettings.profilePhoto.removeConfirm'));
+
+      if (shouldRemove) {
+        void remove();
+      }
+      return;
+    }
+
+    Alert.alert(
+      t('profileSettings.profilePhoto.removeTitle'),
+      t('profileSettings.profilePhoto.removeConfirm'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('profileSettings.profilePhoto.removeAction'),
+          style: 'destructive',
+          onPress: () => {
+            void remove();
+          },
+        },
+      ]
+    );
+  }, [
+    deleteProfilePhoto,
+    isProfilePhotoSaving,
+    profile?.profilePhotoUrl,
+    showProfilePhotoError,
+    t,
+  ]);
+
   const handleLogout = useCallback(() => {
     setShowSettings(false);
 
@@ -554,13 +675,71 @@ export default function ProfileScreen() {
           />
 
           {/* Avatar */}
-          <View style={styles.avatarContainer}>
-            <UserAvatar
-              username={profile.handle}
-              displayName={profile.displayName}
-              profilePhotoUrl={profile.profilePhotoUrl}
-              size="lg"
-            />
+          <View style={styles.avatarSection}>
+            <View style={styles.avatarContainer}>
+              <UserAvatar
+                username={profile.handle}
+                displayName={profile.displayName}
+                profilePhotoUrl={profile.profilePhotoUrl}
+                size="lg"
+              />
+              <Pressable
+                onPress={handleToggleAvatarActions}
+                disabled={isProfilePhotoSaving}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t('profileSettings.profilePhoto.accessibility')}
+                accessibilityState={{ expanded: showAvatarActions, disabled: isProfilePhotoSaving }}
+                style={[
+                  styles.avatarEditButton,
+                  isProfilePhotoSaving ? styles.avatarActionDisabled : null,
+                ]}
+                testID="profile-avatar-edit"
+              >
+                {isProfilePhotoSaving ? (
+                  <ActivityIndicator size="small" color="#8A6426" testID="profile-avatar-saving" />
+                ) : (
+                  <Icon name="PencilSimple" size="sm" color="#8A6426" />
+                )}
+              </Pressable>
+            </View>
+            {showAvatarActions ? (
+              <View style={styles.avatarActions} testID="profile-avatar-actions">
+                <Pressable
+                  onPress={handleSelectProfilePhoto}
+                  disabled={isProfilePhotoSaving}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('profileSettings.profilePhoto.selectAction')}
+                  style={[
+                    styles.avatarActionButton,
+                    isProfilePhotoSaving ? styles.avatarActionDisabled : null,
+                  ]}
+                  testID="profile-avatar-select"
+                >
+                  <Text style={styles.avatarActionText}>
+                    {t('profileSettings.profilePhoto.selectAction')}
+                  </Text>
+                </Pressable>
+                {profile.profilePhotoUrl ? (
+                  <Pressable
+                    onPress={handleRemoveProfilePhoto}
+                    disabled={isProfilePhotoSaving}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('profileSettings.profilePhoto.removeAction')}
+                    style={[
+                      styles.avatarActionButton,
+                      styles.avatarRemoveAction,
+                      isProfilePhotoSaving ? styles.avatarActionDisabled : null,
+                    ]}
+                    testID="profile-avatar-remove"
+                  >
+                    <Text style={[styles.avatarActionText, styles.avatarRemoveActionText]}>
+                      {t('profileSettings.profilePhoto.removeAction')}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.identitySection}>
@@ -898,9 +1077,60 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#504A42',
   },
-  avatarContainer: {
+  avatarSection: {
     marginTop: 8,
     marginBottom: 12,
+    alignItems: 'center',
+    gap: 8,
+  },
+  avatarContainer: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarEditButton: {
+    position: 'absolute',
+    right: -4,
+    bottom: -2,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 248, 226, 0.96)',
+    borderWidth: 1,
+    borderColor: 'rgba(214, 147, 36, 0.34)',
+  },
+  avatarActions: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  avatarActionButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#005E4F',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 251, 245, 0.92)',
+  },
+  avatarActionDisabled: {
+    opacity: 0.55,
+  },
+  avatarActionText: {
+    color: '#005E4F',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  avatarRemoveAction: {
+    borderColor: '#B42318',
+  },
+  avatarRemoveActionText: {
+    color: '#B42318',
   },
   identitySection: {
     width: '100%',

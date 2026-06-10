@@ -1,11 +1,17 @@
 import React from 'react';
 import { Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import * as ImagePicker from 'expo-image-picker';
 
 import ProfileScreen from '../(tabs)/profile';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { WebDismissibleLayerProvider } from '@/src/providers/WebDismissibleLayerProvider';
-import { useMyProfile, useUpdateProfile } from '@/src/hooks/useUserProfile';
+import {
+  useDeleteProfilePhoto,
+  useMyProfile,
+  useUpdateProfile,
+  useUploadProfilePhoto,
+} from '@/src/hooks/useUserProfile';
 import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity } from '@/src/hooks/useUserActivity';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
@@ -36,8 +42,15 @@ jest.mock('@/src/providers/AuthProvider', () => ({
 }));
 
 jest.mock('@/src/hooks/useUserProfile', () => ({
+  useDeleteProfilePhoto: jest.fn(),
   useMyProfile: jest.fn(),
   useUpdateProfile: jest.fn(),
+  useUploadProfilePhoto: jest.fn(),
+}));
+
+jest.mock('expo-image-picker', () => ({
+  requestMediaLibraryPermissionsAsync: jest.fn(),
+  launchImageLibraryAsync: jest.fn(),
 }));
 
 jest.mock('@/src/hooks/useAchievements', () => ({
@@ -109,15 +122,30 @@ jest.mock('@/src/utils/property-route', () => ({
 }));
 
 const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthContext>;
+const mockUseDeleteProfilePhoto = useDeleteProfilePhoto as jest.MockedFunction<
+  typeof useDeleteProfilePhoto
+>;
 const mockUseMyProfile = useMyProfile as jest.MockedFunction<typeof useMyProfile>;
 const mockUseUpdateProfile = useUpdateProfile as jest.MockedFunction<typeof useUpdateProfile>;
+const mockUseUploadProfilePhoto = useUploadProfilePhoto as jest.MockedFunction<
+  typeof useUploadProfilePhoto
+>;
 const mockUseAchievements = useAchievements as jest.MockedFunction<typeof useAchievements>;
 const mockUseUserActivity = useUserActivity as jest.MockedFunction<typeof useUserActivity>;
 const mockUseHydratedNow = useHydratedNow as jest.MockedFunction<typeof useHydratedNow>;
+const mockRequestMediaLibraryPermissionsAsync =
+  ImagePicker.requestMediaLibraryPermissionsAsync as jest.MockedFunction<
+    typeof ImagePicker.requestMediaLibraryPermissionsAsync
+  >;
+const mockLaunchImageLibraryAsync = ImagePicker.launchImageLibraryAsync as jest.MockedFunction<
+  typeof ImagePicker.launchImageLibraryAsync
+>;
 
 const signOut = jest.fn().mockResolvedValue(undefined);
 const updateAuthUserProfile = jest.fn().mockResolvedValue(undefined);
 const mutateProfileAsync = jest.fn().mockResolvedValue(undefined);
+const uploadProfilePhoto = jest.fn().mockResolvedValue(undefined);
+const deleteProfilePhoto = jest.fn().mockResolvedValue(undefined);
 const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
 const getRouterPush = () =>
@@ -205,6 +233,16 @@ function seedMocks() {
     mutateAsync: mutateProfileAsync,
   } as unknown as ReturnType<typeof useUpdateProfile>);
 
+  mockUseUploadProfilePhoto.mockReturnValue({
+    mutateAsync: uploadProfilePhoto,
+    isPending: false,
+  } as unknown as ReturnType<typeof useUploadProfilePhoto>);
+
+  mockUseDeleteProfilePhoto.mockReturnValue({
+    mutateAsync: deleteProfilePhoto,
+    isPending: false,
+  } as unknown as ReturnType<typeof useDeleteProfilePhoto>);
+
   mockUseAchievements.mockReturnValue({
     data: {
       earned: [],
@@ -224,7 +262,19 @@ describe('ProfileScreen sign out', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mutateProfileAsync.mockResolvedValue(undefined);
+    uploadProfilePhoto.mockResolvedValue(undefined);
+    deleteProfilePhoto.mockResolvedValue(undefined);
     seedMocks();
+    mockRequestMediaLibraryPermissionsAsync.mockResolvedValue({
+      granted: true,
+      status: 'granted',
+      canAskAgain: true,
+      expires: 'never',
+    } as ImagePicker.MediaLibraryPermissionResponse);
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: true,
+      assets: null,
+    });
     Object.defineProperty(Platform, 'OS', {
       configurable: true,
       value: 'web',
@@ -344,8 +394,136 @@ describe('ProfileScreen sign out', () => {
 
     expect(getByText('Test User')).toBeTruthy();
     expect(getByText('@test-user')).toBeTruthy();
+    expect(getByTestId('profile-avatar-edit')).toBeTruthy();
     expect(getByTestId('profile-display-name-edit')).toBeTruthy();
     expect(getByTestId('profile-handle-edit')).toBeTruthy();
+  });
+
+  it('does not upload when the avatar image picker is cancelled', async () => {
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-avatar-edit'));
+    fireEvent.press(getByTestId('profile-avatar-select'));
+
+    await waitFor(() => {
+      expect(mockRequestMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(mockLaunchImageLibraryAsync).toHaveBeenCalledTimes(1);
+    });
+    expect(uploadProfilePhoto).not.toHaveBeenCalled();
+  });
+
+  it('uploads a selected avatar image', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ base64: 'base64-image', mimeType: 'image/jpeg', uri: 'file:///avatar.jpg' }],
+    } as ImagePicker.ImagePickerSuccessResult);
+
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-avatar-edit'));
+    fireEvent.press(getByTestId('profile-avatar-select'));
+
+    await waitFor(() => {
+      expect(uploadProfilePhoto).toHaveBeenCalledWith({
+        imageBase64: 'base64-image',
+        mimeType: 'image/jpeg',
+      });
+    });
+    expect(mockAlert.alert).toHaveBeenCalledWith(
+      'Profile picture saved',
+      'Your profile picture has been updated.'
+    );
+  });
+
+  it('shows a localized alert when avatar photo library permission is denied', async () => {
+    mockRequestMediaLibraryPermissionsAsync.mockResolvedValueOnce({
+      granted: false,
+      status: 'denied',
+      canAskAgain: true,
+      expires: 'never',
+    } as ImagePicker.MediaLibraryPermissionResponse);
+
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-avatar-edit'));
+    fireEvent.press(getByTestId('profile-avatar-select'));
+
+    await waitFor(() => {
+      expect(mockAlert.alert).toHaveBeenCalledWith(
+        'Profile picture',
+        'Allow photo library access to choose a profile picture.'
+      );
+    });
+    expect(uploadProfilePhoto).not.toHaveBeenCalled();
+  });
+
+  it('shows a localized alert when avatar upload fails', async () => {
+    uploadProfilePhoto.mockRejectedValueOnce(new Error('upload failed'));
+    mockLaunchImageLibraryAsync.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ base64: 'base64-image', mimeType: 'image/png', uri: 'file:///avatar.png' }],
+    } as ImagePicker.ImagePickerSuccessResult);
+
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-avatar-edit'));
+    fireEvent.press(getByTestId('profile-avatar-select'));
+
+    await waitFor(() => {
+      expect(mockAlert.alert).toHaveBeenCalledWith(
+        'Profile picture',
+        'Could not save this profile picture. Try another photo or try again later.'
+      );
+    });
+  });
+
+  it('shows avatar remove action for an existing photo and deletes after confirmation', async () => {
+    globalThis.confirm = jest.fn(() => true);
+    mockUseMyProfile.mockReturnValue({
+      data: {
+        id: 'user-1',
+        handle: 'test-user',
+        displayName: 'Test User',
+        profilePhotoUrl: 'https://media.example/avatar.jpg',
+        karma: 42,
+        karmaRank: {
+          title: 'Contributor',
+          level: 2,
+        },
+        guessCount: 5,
+        commentCount: 2,
+        joinedAt: '2026-01-01T00:00:00.000Z',
+        followerCount: 4,
+        followingCount: 5,
+        email: 'test@example.com',
+        averageAccuracy: 67,
+        savedCount: 3,
+        likedCount: 4,
+        lastNameChangeAt: null,
+        lastDisplayNameChangeAt: null,
+        lastHandleChangeAt: null,
+        displayNameChangeAvailableAt: null,
+        handleChangeAvailableAt: null,
+      },
+      isLoading: false,
+      refetch: jest.fn().mockResolvedValue(undefined),
+    } as unknown as ReturnType<typeof useMyProfile>);
+
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-avatar-edit'));
+    expect(getByTestId('profile-avatar-remove')).toBeTruthy();
+
+    fireEvent.press(getByTestId('profile-avatar-remove'));
+
+    await waitFor(() => {
+      expect(globalThis.confirm).toHaveBeenCalledWith('Remove your current profile picture?');
+      expect(deleteProfilePhoto).toHaveBeenCalledTimes(1);
+    });
+    expect(mockAlert.alert).toHaveBeenCalledWith(
+      'Profile picture removed',
+      'Your profile picture has been removed.'
+    );
   });
 
   it('saves a trimmed display name from the inline editor', async () => {

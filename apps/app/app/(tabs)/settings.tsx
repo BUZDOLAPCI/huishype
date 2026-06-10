@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Constants from 'expo-constants';
-import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   Platform,
@@ -17,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AuthModal } from '@/src/components';
 import { Icon } from '@/src/components/ui/Icon';
-import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { PROFILE_TAB_BAR_SPACER } from '@/src/components/navigation/tabBarMetrics';
 import {
   getOpenSourceLicenseUrl,
@@ -29,7 +26,6 @@ import {
   setAnalyticsConsent,
   type AnalyticsConsent,
 } from '@/src/lib/analytics';
-import { useDeleteProfilePhoto, useUploadProfilePhoto } from '@/src/hooks/useUserProfile';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
 type SettingsView = 'main' | 'legal' | 'open-source-licenses' | 'language';
@@ -42,8 +38,6 @@ const languageOptions: Array<{ code: LanguageCode; labelKey: TranslationKey }> =
 export default function ProfileSettingsScreen() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuthContext();
-  const uploadProfilePhoto = useUploadProfilePhoto();
-  const deleteProfilePhoto = useDeleteProfilePhoto();
   const { language, setLanguage } = useLanguage();
   const t = useT();
   const [showAuth, setShowAuth] = useState(false);
@@ -60,7 +54,6 @@ export default function ProfileSettingsScreen() {
         ? 'profileSettings.analytics.statusDisabled'
         : 'profileSettings.analytics.statusNotSet'
   );
-  const isProfilePhotoSaving = uploadProfilePhoto.isPending || deleteProfilePhoto.isPending;
 
   const versionLabel = useMemo(() => {
     const version = Constants.expoConfig?.version ?? '0.0.1';
@@ -146,100 +139,6 @@ export default function ProfileSettingsScreen() {
 
     setShowAuth(true);
   }, [handleLogout, user]);
-
-  const showProfilePhotoError = useCallback(
-    (messageKey: TranslationKey) => {
-      Alert.alert(t('profileSettings.profilePhoto.errorTitle'), t(messageKey));
-    },
-    [t]
-  );
-
-  const handleSelectProfilePhoto = useCallback(async () => {
-    if (isProfilePhotoSaving) {
-      return;
-    }
-
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        showProfilePhotoError('profileSettings.profilePhoto.permissionDenied');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.85,
-        base64: true,
-      });
-
-      if (result.canceled) {
-        return;
-      }
-
-      const asset = result.assets[0];
-      if (!asset?.base64) {
-        showProfilePhotoError('profileSettings.profilePhoto.missingImageData');
-        return;
-      }
-
-      await uploadProfilePhoto.mutateAsync({
-        imageBase64: asset.base64,
-        mimeType: asset.mimeType,
-      });
-      Alert.alert(
-        t('profileSettings.profilePhoto.savedTitle'),
-        t('profileSettings.profilePhoto.savedMessage')
-      );
-    } catch {
-      showProfilePhotoError('profileSettings.profilePhoto.uploadFailed');
-    }
-  }, [isProfilePhotoSaving, showProfilePhotoError, t, uploadProfilePhoto]);
-
-  const handleRemoveProfilePhoto = useCallback(() => {
-    if (!user?.profilePhotoUrl || isProfilePhotoSaving) {
-      return;
-    }
-
-    const remove = async () => {
-      try {
-        await deleteProfilePhoto.mutateAsync();
-        Alert.alert(
-          t('profileSettings.profilePhoto.removedTitle'),
-          t('profileSettings.profilePhoto.removedMessage')
-        );
-      } catch {
-        showProfilePhotoError('profileSettings.profilePhoto.removeFailed');
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      const shouldRemove =
-        typeof globalThis.confirm !== 'function' ||
-        globalThis.confirm(t('profileSettings.profilePhoto.removeConfirm'));
-
-      if (shouldRemove) {
-        void remove();
-      }
-      return;
-    }
-
-    Alert.alert(
-      t('profileSettings.profilePhoto.removeTitle'),
-      t('profileSettings.profilePhoto.removeConfirm'),
-      [
-        { text: t('profileSettings.auth.cancel'), style: 'cancel' },
-        {
-          text: t('profileSettings.profilePhoto.removeAction'),
-          style: 'destructive',
-          onPress: () => {
-            void remove();
-          },
-        },
-      ]
-    );
-  }, [deleteProfilePhoto, isProfilePhotoSaving, showProfilePhotoError, t, user?.profilePhotoUrl]);
 
   const handleAnalyticsConsentChange = useCallback(async (granted: boolean) => {
     const nextConsent = await setAnalyticsConsent(granted);
@@ -516,95 +415,24 @@ export default function ProfileSettingsScreen() {
         ) : (
           <View>
             {user ? (
-              <>
-                <View
-                  style={styles.profilePhotoRow}
-                  accessibilityRole="text"
-                  accessibilityLabel={t('profileSettings.profilePhoto.accessibility')}
-                  testID="settings-profile-photo-row"
+              <View
+                style={styles.accountRow}
+                accessibilityRole="text"
+                accessibilityLabel={t('profileSettings.account.emailAccessibility', {
+                  email: accountEmail ?? t('profileSettings.account.emailUnavailable'),
+                })}
+                testID="settings-account-email-row"
+              >
+                <Text style={styles.accountLabel}>{t('profileSettings.account.email')}</Text>
+                <Text
+                  style={styles.accountEmail}
+                  selectable
+                  numberOfLines={2}
+                  testID="settings-account-email-value"
                 >
-                  <UserAvatar
-                    username={user.handle ?? user.username ?? user.id}
-                    displayName={user.displayName}
-                    profilePhotoUrl={user.profilePhotoUrl ?? null}
-                    size="md"
-                    testID="settings-profile-photo-avatar"
-                  />
-                  <View style={styles.profilePhotoCopy}>
-                    <Text style={styles.accountLabel}>
-                      {t('profileSettings.profilePhoto.label')}
-                    </Text>
-                    <Text style={styles.profilePhotoStatus} testID="settings-profile-photo-status">
-                      {isProfilePhotoSaving
-                        ? t('profileSettings.profilePhoto.saving')
-                        : user.profilePhotoUrl
-                          ? t('profileSettings.profilePhoto.customSet')
-                          : t('profileSettings.profilePhoto.notSet')}
-                    </Text>
-                  </View>
-                  <View style={styles.profilePhotoActions}>
-                    {isProfilePhotoSaving ? (
-                      <ActivityIndicator color="#005E4F" testID="settings-profile-photo-saving" />
-                    ) : null}
-                    <Pressable
-                      onPress={handleSelectProfilePhoto}
-                      disabled={isProfilePhotoSaving}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('profileSettings.profilePhoto.selectAction')}
-                      style={[
-                        styles.profilePhotoAction,
-                        isProfilePhotoSaving ? styles.profilePhotoActionDisabled : null,
-                      ]}
-                      testID="settings-profile-photo-select"
-                    >
-                      <Text style={styles.profilePhotoActionText}>
-                        {t('profileSettings.profilePhoto.selectAction')}
-                      </Text>
-                    </Pressable>
-                    {user.profilePhotoUrl ? (
-                      <Pressable
-                        onPress={handleRemoveProfilePhoto}
-                        disabled={isProfilePhotoSaving}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('profileSettings.profilePhoto.removeAction')}
-                        style={[
-                          styles.profilePhotoAction,
-                          styles.profilePhotoRemoveAction,
-                          isProfilePhotoSaving ? styles.profilePhotoActionDisabled : null,
-                        ]}
-                        testID="settings-profile-photo-remove"
-                      >
-                        <Text
-                          style={[
-                            styles.profilePhotoActionText,
-                            styles.profilePhotoRemoveActionText,
-                          ]}
-                        >
-                          {t('profileSettings.profilePhoto.removeAction')}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </View>
-                <View
-                  style={styles.accountRow}
-                  accessibilityRole="text"
-                  accessibilityLabel={t('profileSettings.account.emailAccessibility', {
-                    email: accountEmail ?? t('profileSettings.account.emailUnavailable'),
-                  })}
-                  testID="settings-account-email-row"
-                >
-                  <Text style={styles.accountLabel}>{t('profileSettings.account.email')}</Text>
-                  <Text
-                    style={styles.accountEmail}
-                    selectable
-                    numberOfLines={2}
-                    testID="settings-account-email-value"
-                  >
-                    {accountEmail ?? t('profileSettings.account.emailUnavailable')}
-                  </Text>
-                </View>
-              </>
+                  {accountEmail ?? t('profileSettings.account.emailUnavailable')}
+                </Text>
+              </View>
             ) : null}
             <Pressable
               style={styles.row}
@@ -809,59 +637,6 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     fontWeight: '500',
     color: '#003C32',
-  },
-  profilePhotoRow: {
-    minHeight: 116,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECECEC',
-    paddingHorizontal: 26,
-    paddingVertical: 16,
-    gap: 14,
-  },
-  profilePhotoCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 3,
-  },
-  profilePhotoStatus: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: '600',
-    color: '#6E6A65',
-  },
-  profilePhotoActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-    flexShrink: 1,
-    gap: 8,
-  },
-  profilePhotoAction: {
-    minHeight: 38,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#005E4F',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#FFFFFF',
-  },
-  profilePhotoActionDisabled: {
-    opacity: 0.55,
-  },
-  profilePhotoActionText: {
-    color: '#005E4F',
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
-  },
-  profilePhotoRemoveAction: {
-    borderColor: '#B42318',
-  },
-  profilePhotoRemoveActionText: {
-    color: '#B42318',
   },
   licenseCredit: {
     borderBottomWidth: 1,
