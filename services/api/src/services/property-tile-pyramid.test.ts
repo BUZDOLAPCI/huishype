@@ -366,8 +366,8 @@ describe('property tile pyramid service helpers', () => {
         cadenceMs,
       })
     ).toMatchObject({
-      eligible: true,
-      reason: 'canonical-source-watermark-advanced',
+      eligible: false,
+      reason: 'cadence-not-due',
     });
     expect(
       evaluatePropertyTilePyramidFullBuildEligibility({
@@ -392,6 +392,15 @@ describe('property tile pyramid service helpers', () => {
         cadenceMs,
       })
     ).toMatchObject({ eligible: true, reason: 'operator-override' });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'source-watermark',
+        current: { ...usableCurrent, promotedAt: '2026-06-09T12:00:00.000Z' },
+        requestedCanonicalComparableSourceWatermarkHash: 'canonical-b',
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: true, reason: 'canonical-source-watermark-advanced' });
     expect(
       evaluatePropertyTilePyramidFullBuildEligibility({
         reason: 'source-watermark',

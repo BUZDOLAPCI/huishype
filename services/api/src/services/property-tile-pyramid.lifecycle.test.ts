@@ -364,7 +364,7 @@ describe('property tile pyramid build lifecycle', () => {
     expect(pendingQuery).toContain('cadence-not-due');
   });
 
-  it('allows canonical source-watermark advances before cadence', async () => {
+  it('records canonical source-watermark advances until cadence is due', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
     executeMock.mockImplementation(async (query) => {
       const queryText = JSON.stringify(query);
@@ -377,35 +377,10 @@ describe('property tile pyramid build lifecycle', () => {
       if (isFullBuildCurrentGenerationQuery(queryText)) {
         return [makeUsableCurrentGenerationRow({ sourceWatermarkHash: 'current-watermarks' })];
       }
-      if (queryText.includes('recovered_count')) {
-        return [{ recovered_count: 0 }];
-      }
-      if (
-        queryText.includes('UPDATE property_tile_pyramid_versions') &&
-        queryText.includes("status = 'superseded'")
-      ) {
+      if (queryText.includes('propertyTilePyramidFullBuildPending')) {
         return [];
       }
-      if (
-        queryText.includes('active_replacement') &&
-        queryText.includes('INSERT INTO property_tile_pyramid_versions')
-      ) {
-        return [
-          {
-            id: 'queued-version',
-            status: 'queued',
-            next_retry_at: null,
-            queue_eligible: true,
-            pending_replacement: false,
-            active_build_in_progress: false,
-          },
-        ];
-      }
       throw new Error(`Unexpected query: ${queryText}`);
-    });
-    enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
-      status: 'enqueued',
-      jobId: 'job-1',
     });
 
     const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
@@ -416,19 +391,20 @@ describe('property tile pyramid build lifecycle', () => {
       buildInputsHash: 'inputs',
     });
 
-    expect(result).toMatchObject({
-      status: 'enqueued',
-      versionId: 'queued-version',
-      existingStatus: 'queued',
+    expect(result).toEqual({
+      status: 'coalesced',
+      reason: 'full-build-eligibility-denied:cadence-not-due',
     });
-    expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+    expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
     const queries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
-    expect(queries.some((query) => query.includes('propertyTilePyramidFullBuildPending'))).toBe(
+    const pendingQuery = queries.find((query) =>
+      query.includes('propertyTilePyramidFullBuildPending')
+    );
+    expect(pendingQuery).toContain('new-canonical-watermarks');
+    expect(pendingQuery).toContain('cadence-not-due');
+    expect(queries.some((query) => query.includes('INSERT INTO property_tile_pyramid_versions'))).toBe(
       false
     );
-    expect(
-      queries.some((query) => query.includes('INSERT INTO property_tile_pyramid_versions'))
-    ).toBe(true);
   });
 
   it('does not dispatch BullMQ when an existing build identity is already promoted', async () => {

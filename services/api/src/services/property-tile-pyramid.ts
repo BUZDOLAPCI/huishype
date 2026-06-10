@@ -896,10 +896,13 @@ export function evaluatePropertyTilePyramidFullBuildEligibility(input: {
     PropertyTilePyramidFullBuildCurrentState,
     { state: 'usable' }
   >;
+  const ageMs = promotedAgeMs(usableCurrent.promotedAt, nowMs);
   if (
     input.requestedCanonicalComparableSourceWatermarkHash != null &&
     input.requestedCanonicalComparableSourceWatermarkHash !==
-      usableCurrent.canonicalComparableSourceWatermarkHash
+      usableCurrent.canonicalComparableSourceWatermarkHash &&
+    ageMs != null &&
+    ageMs >= cadenceMs
   ) {
     return {
       eligible: true,
@@ -909,7 +912,6 @@ export function evaluatePropertyTilePyramidFullBuildEligibility(input: {
     };
   }
 
-  const ageMs = promotedAgeMs(usableCurrent.promotedAt, nowMs);
   if (ageMs != null && ageMs >= cadenceMs) {
     return { eligible: true, reason: 'cadence-elapsed', current: usableCurrent, nextEligibleAt };
   }
