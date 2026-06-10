@@ -49,6 +49,7 @@ import {
   PencilSimple,
   Plus,
   Ruler,
+  ShareFat,
   ShareNetwork,
   ShieldCheck,
   SignOut,
@@ -130,6 +131,7 @@ export type IconName =
   | 'PencilSimple'
   | 'Plus'
   | 'Ruler'
+  | 'ShareFat'
   | 'ShareNetwork'
   | 'ShieldCheck'
   | 'SignOut'
@@ -189,6 +191,7 @@ const ICON_MAP: Record<IconName, ComponentType<any>> = {
   PencilSimple,
   Plus,
   Ruler,
+  ShareFat,
   ShareNetwork,
   ShieldCheck,
   SignOut,

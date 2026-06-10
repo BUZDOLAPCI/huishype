@@ -4522,6 +4522,7 @@ export interface paths {
                             /** @enum {string} */
                             relationship: "self" | "none" | "following" | "followed_by" | "mutual";
                             email: string;
+                            hasDisplayName: boolean;
                             averageAccuracy: number | null;
                             savedCount: number;
                             likedCount: number;

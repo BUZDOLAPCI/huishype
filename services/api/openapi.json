@@ -13068,6 +13068,9 @@
                     "email": {
                       "type": "string"
                     },
+                    "hasDisplayName": {
+                      "type": "boolean"
+                    },
                     "averageAccuracy": {
                       "anyOf": [
                         {
@@ -13160,6 +13163,7 @@
                     "followingCount",
                     "relationship",
                     "email",
+                    "hasDisplayName",
                     "averageAccuracy",
                     "savedCount",
                     "likedCount",

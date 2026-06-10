@@ -201,6 +201,7 @@ function buildMyProfileResponse(userId: string) {
   return {
     ...publicProfile,
     email: `${publicProfile.handle}@example.com`,
+    hasDisplayName: true,
     averageAccuracy: mockUserProfiles.find((user) => user.id === userId)?.averageAccuracy ?? null,
     savedCount: 4,
     likedCount: 7,

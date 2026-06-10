@@ -84,6 +84,7 @@ export interface PublicUserProfile {
 
 export interface MyUserProfile extends PublicUserProfile {
   email: string;
+  hasDisplayName: boolean;
   averageAccuracy: number | null;
   savedCount: number;
   likedCount: number;

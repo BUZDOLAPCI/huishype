@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform } from 'react-native';
+import { Platform, Share } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -23,12 +23,16 @@ jest.mock('react-native', () => {
     Alert: {
       alert: jest.fn(),
     },
+    Share: {
+      share: jest.fn().mockResolvedValue({ action: 'sharedAction' }),
+    },
   };
 });
 
 const mockAlert = jest.requireMock('react-native').Alert as {
   alert: jest.Mock;
 };
+const mockShare = Share.share as jest.Mock;
 
 jest.mock('expo-router', () => ({
   router: {
@@ -204,6 +208,7 @@ function seedMocks() {
       id: 'user-1',
       handle: 'test-user',
       displayName: 'Test User',
+      hasDisplayName: true,
       profilePhotoUrl: null,
       karma: 42,
       karmaRank: {
@@ -389,6 +394,22 @@ describe('ProfileScreen sign out', () => {
     expect(getRouterPush()).toHaveBeenCalledWith('/user/search');
   });
 
+  it('shares the current user profile from the top header', async () => {
+    const { getByTestId } = render(<ProfileScreen />);
+
+    fireEvent.press(getByTestId('profile-share'));
+
+    await waitFor(() => {
+      expect(mockShare).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Test User - HuisHype',
+          url: expect.stringMatching(/\/user\/user-1$/),
+          message: expect.stringContaining('@test-user'),
+        })
+      );
+    });
+  });
+
   it('renders display name above the handle with separate edit buttons', () => {
     const { getByText, getByTestId } = render(<ProfileScreen />);
 
@@ -397,6 +418,49 @@ describe('ProfileScreen sign out', () => {
     expect(getByTestId('profile-avatar-edit')).toBeTruthy();
     expect(getByTestId('profile-display-name-edit')).toBeTruthy();
     expect(getByTestId('profile-handle-edit')).toBeTruthy();
+    expect(getByTestId('profile-likes-stat')).toBeTruthy();
+    expect(getByText('Likes')).toBeTruthy();
+  });
+
+  it('renders add name when display name has not been set and opens a blank editor', () => {
+    mockUseMyProfile.mockReturnValue({
+      data: {
+        id: 'user-1',
+        handle: 'test-user',
+        displayName: 'test-user',
+        hasDisplayName: false,
+        profilePhotoUrl: null,
+        karma: 42,
+        karmaRank: {
+          title: 'Contributor',
+          level: 2,
+        },
+        guessCount: 5,
+        commentCount: 2,
+        joinedAt: '2026-01-01T00:00:00.000Z',
+        followerCount: 4,
+        followingCount: 5,
+        email: 'test@example.com',
+        averageAccuracy: 67,
+        savedCount: 3,
+        likedCount: 4,
+        lastNameChangeAt: null,
+        lastDisplayNameChangeAt: null,
+        lastHandleChangeAt: null,
+        displayNameChangeAvailableAt: null,
+        handleChangeAvailableAt: null,
+      },
+      isLoading: false,
+      refetch: jest.fn().mockResolvedValue(undefined),
+    } as unknown as ReturnType<typeof useMyProfile>);
+
+    const { getByText, getByTestId } = render(<ProfileScreen />);
+
+    expect(getByText('Add name')).toBeTruthy();
+
+    fireEvent.press(getByTestId('profile-display-name-edit'));
+
+    expect(getByTestId('profile-display-name-input').props.value).toBe('');
   });
 
   it('does not upload when the avatar image picker is cancelled', async () => {
@@ -484,6 +548,7 @@ describe('ProfileScreen sign out', () => {
         id: 'user-1',
         handle: 'test-user',
         displayName: 'Test User',
+        hasDisplayName: true,
         profilePhotoUrl: 'https://media.example/avatar.jpg',
         karma: 42,
         karmaRank: {
@@ -601,6 +666,7 @@ describe('ProfileScreen sign out', () => {
         id: 'user-1',
         handle: 'test-user',
         displayName: 'Test User',
+        hasDisplayName: true,
         profilePhotoUrl: null,
         karma: 42,
         karmaRank: {

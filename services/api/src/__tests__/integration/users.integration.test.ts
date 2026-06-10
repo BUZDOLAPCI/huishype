@@ -443,12 +443,35 @@ describe('User profile routes', () => {
     it('should return full profile for authenticated user', async () => {
       const me = await createTestUser('me');
       const follower = await createTestUser('mefollower');
+      const propertyId = await createTestProperty();
+      const [comment] = await db
+        .insert(comments)
+        .values({
+          userId: me.userId,
+          propertyId,
+          content: 'Liked comment',
+        })
+        .returning({ id: comments.id });
 
       await app.inject({
         method: 'PUT',
         url: `/users/${me.userId}/follow`,
         headers: { authorization: `Bearer ${follower.accessToken}` },
       });
+      await db.insert(reactions).values([
+        {
+          userId: me.userId,
+          targetType: 'property',
+          targetId: propertyId,
+          reactionType: 'like',
+        },
+        {
+          userId: me.userId,
+          targetType: 'comment',
+          targetId: comment.id,
+          reactionType: 'like',
+        },
+      ]);
 
       const resp = await app.inject({
         method: 'GET',
@@ -464,14 +487,33 @@ describe('User profile routes', () => {
       expect(body).toHaveProperty('handle');
       expect(body).toHaveProperty('savedCount');
       expect(body).toHaveProperty('likedCount');
+      expect(body).toHaveProperty('hasDisplayName');
       expect(body).toHaveProperty('lastDisplayNameChangeAt');
       expect(body).toHaveProperty('lastHandleChangeAt');
       expect(body).toHaveProperty('displayNameChangeAvailableAt');
       expect(body).toHaveProperty('handleChangeAvailableAt');
       expect(body).toHaveProperty('karmaRank');
+      expect(body.hasDisplayName).toBe(true);
+      expect(body.likedCount).toBe(1);
       expect(body.relationship).toBe('self');
       expect(body.followerCount).toBe(1);
       expect(body.followingCount).toBe(0);
+    });
+
+    it('marks hasDisplayName false when display name is unset', async () => {
+      const me = await createTestUser('noname');
+      await db.update(users).set({ displayName: null }).where(eq(users.id, me.userId));
+
+      const resp = await app.inject({
+        method: 'GET',
+        url: '/users/me',
+        headers: { authorization: `Bearer ${me.accessToken}` },
+      });
+
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body);
+      expect(body.hasDisplayName).toBe(false);
+      expect(body.displayName).toBe(body.handle);
     });
 
     it('should return 401 without auth', async () => {

@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { eq, sql, count } from 'drizzle-orm';
+import { and, eq, sql, count } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { users, priceGuesses, comments, savedProperties, reactions } from '../db/schema.js';
 import { config } from '../config.js';
@@ -162,6 +162,7 @@ const publicProfileSchema = z.object({
 
 const myProfileSchema = publicProfileSchema.extend({
   email: z.string(),
+  hasDisplayName: z.boolean(),
   averageAccuracy: z.number().nullable(),
   savedCount: z.number(),
   likedCount: z.number(),
@@ -410,7 +411,16 @@ export async function userRoutes(fastify: FastifyInstance) {
           .select({ value: count() })
           .from(savedProperties)
           .where(eq(savedProperties.userId, userId)),
-        db.select({ value: count() }).from(reactions).where(eq(reactions.userId, userId)),
+        db
+          .select({ value: count() })
+          .from(reactions)
+          .where(
+            and(
+              eq(reactions.userId, userId),
+              eq(reactions.targetType, 'property'),
+              eq(reactions.reactionType, 'like')
+            )
+          ),
         db.execute<{ average_accuracy: number | null }>(sql`
             SELECT AVG(
               GREATEST(
@@ -443,6 +453,7 @@ export async function userRoutes(fastify: FastifyInstance) {
       return {
         ...profileIdentity,
         email: user.email,
+        hasDisplayName: user.displayName != null && user.displayName.trim().length > 0,
         karma: Math.max(0, user.karma),
         karmaRank: rank,
         guessCount: Number(guessCountResult[0].value),

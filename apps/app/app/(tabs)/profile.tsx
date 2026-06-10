@@ -19,6 +19,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   Text,
   TextInput,
   View,
@@ -81,6 +82,7 @@ type ProfileIdentityCooldowns = MyUserProfile & {
 const DISPLAY_NAME_COOLDOWN_DAYS = 7;
 const HANDLE_COOLDOWN_DAYS = 30;
 const HANDLE_PATTERN = /^[a-z0-9_]{3,20}$/;
+const DEFAULT_SHARE_ORIGIN = 'https://huishype.nl';
 
 function formatRelativeTime(
   isoDate: string,
@@ -112,6 +114,20 @@ function formatAvailabilityDate(timestampMs: number): string {
 
 function normalizeHandleInput(input: string): string {
   return input.trim().replace(/^@+/, '').toLowerCase();
+}
+
+function buildProfileSharePayload(profile: Pick<MyUserProfile, 'id' | 'displayName' | 'handle'>) {
+  const origin =
+    Platform.OS === 'web' && typeof window !== 'undefined' && window.location.origin
+      ? window.location.origin.replace(/\/+$/, '')
+      : DEFAULT_SHARE_ORIGIN;
+  const url = `${origin}/user/${profile.id}`;
+
+  return {
+    title: `${profile.displayName} - HuisHype`,
+    message: `Check out ${profile.displayName} (@${profile.handle}) on HuisHype: ${url}`,
+    url,
+  };
 }
 
 // --- Settings dropdown ---
@@ -177,7 +193,7 @@ function ProfileSettingsButton({
       accessibilityHint={t('profile.settings.hint')}
       style={styles.headerIconButton}
     >
-      <Icon name="DotsThreeVertical" size="lg" color="#504A42" />
+      <Icon name="List" size={25} weight="bold" color="#504A42" />
     </Pressable>
   );
 }
@@ -185,9 +201,13 @@ function ProfileSettingsButton({
 function ProfileActionsHeader({
   topInset,
   showTitle = false,
+  showSearch = false,
   showNotifications = false,
+  showShare = false,
   isSignedIn,
   showSettings,
+  onSearchUsers = () => undefined,
+  onShareProfile = () => undefined,
   onToggleSettings,
   onOpenSettings,
   onSignOut = () => undefined,
@@ -195,9 +215,13 @@ function ProfileActionsHeader({
 }: {
   topInset: number;
   showTitle?: boolean;
+  showSearch?: boolean;
   showNotifications?: boolean;
+  showShare?: boolean;
   isSignedIn: boolean;
   showSettings: boolean;
+  onSearchUsers?: () => void;
+  onShareProfile?: () => void;
   onToggleSettings: () => void;
   onOpenSettings: () => void;
   onSignOut?: () => void;
@@ -210,12 +234,19 @@ function ProfileActionsHeader({
       style={[styles.profileActionsHeader, { paddingTop: topInset }]}
       testID="profile-actions-header"
     >
-      {showTitle ? (
-        <Text
-          style={styles.profileActionsTitle}
-          numberOfLines={1}
-          accessibilityRole="header"
+      {showSearch ? (
+        <Pressable
+          onPress={onSearchUsers}
+          hitSlop={8}
+          testID="profile-search-user-button"
+          accessibilityRole="button"
+          accessibilityLabel={t('profile.searchUser')}
+          style={styles.headerIconButton}
         >
+          <Icon name="UserPlus" size={28} weight="bold" color="#504A42" />
+        </Pressable>
+      ) : showTitle ? (
+        <Text style={styles.profileActionsTitle} numberOfLines={1} accessibilityRole="header">
           {t('profile.header')}
         </Text>
       ) : (
@@ -232,7 +263,19 @@ function ProfileActionsHeader({
             accessibilityHint={t('profile.notifications.hint')}
             style={styles.headerIconButton}
           >
-            <Icon name="Bell" size="lg" color="#504A42" />
+            <Icon name="Bell" size={25} weight="bold" color="#504A42" />
+          </Pressable>
+        ) : null}
+        {showShare ? (
+          <Pressable
+            onPress={onShareProfile}
+            hitSlop={8}
+            testID="profile-share"
+            accessibilityRole="button"
+            accessibilityLabel={t('profile.share')}
+            style={styles.headerIconButton}
+          >
+            <Icon name="ShareFat" size={25} weight="bold" color="#504A42" />
           </Pressable>
         ) : null}
         <View style={styles.settingsMenuAnchor} testID="profile-settings-anchor">
@@ -366,9 +409,9 @@ export default function ProfileScreen() {
       );
       return;
     }
-    setDisplayNameDraft(profile?.displayName || '');
+    setDisplayNameDraft(profile?.hasDisplayName === false ? '' : profile?.displayName || '');
     setEditingField('displayName');
-  }, [canChangeDisplayName, nextDisplayNameChangeDate, profile?.displayName, t]);
+  }, [canChangeDisplayName, nextDisplayNameChangeDate, profile?.displayName, profile?.hasDisplayName, t]);
 
   const handleStartHandleEdit = useCallback(() => {
     if (!canChangeHandle) {
@@ -573,6 +616,18 @@ export default function ProfileScreen() {
     setShowSettings(false);
   }, []);
 
+  const handleSearchUsers = useCallback(() => {
+    router.push('/user/search');
+  }, []);
+
+  const handleShareProfile = useCallback(() => {
+    if (!profile) {
+      return;
+    }
+
+    void Share.share(buildProfileSharePayload(profile));
+  }, [profile]);
+
   const profileHeaderTopInset = Platform.OS === 'web' ? 16 : insets.top + 8;
 
   // --- Not logged in ---
@@ -666,8 +721,12 @@ export default function ProfileScreen() {
           <ProfileActionsHeader
             topInset={profileHeaderTopInset}
             isSignedIn
+            showSearch
             showNotifications
+            showShare
             showSettings={showSettings}
+            onSearchUsers={handleSearchUsers}
+            onShareProfile={handleShareProfile}
             onToggleSettings={toggleSettings}
             onOpenSettings={handleOpenSettings}
             onSignOut={handleLogout}
@@ -775,19 +834,34 @@ export default function ProfileScreen() {
               </View>
             ) : (
               <View style={styles.identityDisplayRow} testID="profile-display-name-row">
-                <View style={styles.identityEditButtonSpacer} />
-                <Text style={styles.displayName} numberOfLines={1}>
-                  {profile.displayName}
-                </Text>
-                <Pressable
-                  onPress={handleStartDisplayNameEdit}
-                  style={styles.identityEditButton}
-                  testID="profile-display-name-edit"
-                  accessibilityRole="button"
-                  accessibilityLabel={t('profile.edit.displayName')}
-                >
-                  <Icon name="PencilSimple" size="sm" color="#8A6426" />
-                </Pressable>
+                {profile.hasDisplayName === false ? (
+                  <Pressable
+                    onPress={handleStartDisplayNameEdit}
+                    style={styles.addNameButton}
+                    testID="profile-display-name-edit"
+                    accessibilityRole="button"
+                    accessibilityLabel={t('profile.addName')}
+                  >
+                    <Icon name="Plus" size="lg" color="#111111" />
+                    <Text style={styles.addNameText}>{t('profile.addName')}</Text>
+                  </Pressable>
+                ) : (
+                  <>
+                    <View style={styles.identityEditButtonSpacer} />
+                    <Text style={styles.displayName} numberOfLines={1}>
+                      {profile.displayName}
+                    </Text>
+                    <Pressable
+                      onPress={handleStartDisplayNameEdit}
+                      style={styles.identityEditButton}
+                      testID="profile-display-name-edit"
+                      accessibilityRole="button"
+                      accessibilityLabel={t('profile.edit.displayName')}
+                    >
+                      <Icon name="PencilSimple" size="sm" color="#8A6426" />
+                    </Pressable>
+                  </>
+                )}
               </View>
             )}
 
@@ -847,39 +921,34 @@ export default function ProfileScreen() {
             )}
           </View>
 
+          <View style={styles.socialStatsRow}>
+            <Pressable
+              onPress={() => router.push('/user/following')}
+              style={styles.socialStatItem}
+              testID="profile-following-link"
+            >
+              <Text style={styles.socialStatValue}>{profile.followingCount}</Text>
+              <Text style={styles.socialStatLabel}>{t('common.following')}</Text>
+            </Pressable>
+            <View style={styles.socialStatDivider} />
+            <Pressable
+              onPress={() => router.push('/user/followers')}
+              style={styles.socialStatItem}
+              testID="profile-followers-link"
+            >
+              <Text style={styles.socialStatValue}>{profile.followerCount}</Text>
+              <Text style={styles.socialStatLabel}>{t('profile.followerStat')}</Text>
+            </Pressable>
+            <View style={styles.socialStatDivider} />
+            <View style={styles.socialStatItem} testID="profile-likes-stat">
+              <Text style={styles.socialStatValue}>{profile.likedCount}</Text>
+              <Text style={styles.socialStatLabel}>{t('common.likes')}</Text>
+            </View>
+          </View>
+
           {/* Karma Badge */}
           <View style={styles.karmaRow}>
             <KarmaBadge karma={profile.karma} size="md" />
-          </View>
-
-          <View style={styles.followCountsRow}>
-            <Pressable
-              onPress={() => router.push('/user/followers')}
-              style={[styles.followCountCard, styles.followCountCardAligned]}
-              testID="profile-followers-link"
-            >
-              <Text style={styles.followCountValue}>{profile.followerCount}</Text>
-              <Text style={styles.followCountLabel}>{t('profile.followers')}</Text>
-            </Pressable>
-            <View style={styles.followingColumn}>
-              <Button
-                label={t('profile.searchUser')}
-                size="sm"
-                variant="secondary"
-                onPress={() => router.push('/user/search')}
-                leading={<Icon name="UserPlus" size="sm" color="#B47712" />}
-                style={styles.searchUserButton}
-                testID="profile-search-user-button"
-              />
-              <Pressable
-                onPress={() => router.push('/user/following')}
-                style={styles.followCountCard}
-                testID="profile-following-link"
-              >
-                <Text style={styles.followCountValue}>{profile.followingCount}</Text>
-                <Text style={styles.followCountLabel}>{t('common.following')}</Text>
-              </Pressable>
-            </View>
           </View>
         </View>
 
@@ -1007,7 +1076,7 @@ const styles = StyleSheet.create({
     maxWidth: 768,
     alignSelf: 'center',
     minHeight: 62,
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     paddingBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1030,7 +1099,8 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 12,
+    alignItems: 'center',
+    gap: 6,
   },
   settingsMenuAnchor: {
     position: 'relative',
@@ -1146,6 +1216,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  addNameButton: {
+    minHeight: 42,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(238, 238, 238, 0.9)',
+  },
+  addNameText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111111',
+    lineHeight: 28,
+    letterSpacing: 0,
+  },
   displayName: {
     fontSize: 20,
     fontWeight: '700',
@@ -1242,46 +1329,44 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(232, 224, 212, 0.84)',
   },
   karmaRow: {
-    marginBottom: 8,
+    marginTop: 14,
+    marginBottom: 10,
   },
-  followCountsRow: {
-    marginTop: 18,
+  socialStatsRow: {
     width: '100%',
+    maxWidth: 520,
+    marginTop: 12,
+    paddingHorizontal: 20,
+    minHeight: 58,
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 12,
-  },
-  followCountCard: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 248, 240, 0.84)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(222, 198, 166, 0.58)',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  followCountCardAligned: {
-    marginTop: 44,
-  },
-  followingColumn: {
+  socialStatItem: {
     flex: 1,
-    alignItems: 'stretch',
-    gap: 8,
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  searchUserButton: {
-    alignSelf: 'flex-end',
-    minWidth: 138,
+  socialStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(190, 184, 176, 0.5)',
   },
-  followCountValue: {
-    fontSize: 18,
+  socialStatValue: {
+    fontSize: 22,
     fontWeight: '700',
-    color: '#2D2926',
+    color: '#000000',
+    lineHeight: 24,
+    letterSpacing: 0,
+    fontVariant: ['tabular-nums'],
   },
-  followCountLabel: {
-    marginTop: 4,
-    fontSize: 12,
-    color: '#9C958A',
+  socialStatLabel: {
+    marginTop: 0,
+    fontSize: 17,
+    color: '#8A8580',
+    lineHeight: 20,
+    letterSpacing: 0,
   },
 
   // Stats grid
