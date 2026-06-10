@@ -143,6 +143,68 @@ describe('Mock handler runtime parity', () => {
     expect(meBody.user).toHaveProperty('username');
   });
 
+  it('supports email code verification with one-time token semantics', async () => {
+    const requestResponse = await fetch('http://localhost/auth/email/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'code-user@example.com' }),
+    });
+    const requestBody = await requestResponse.json() as { token: string; code: string };
+
+    expect(requestResponse.status).toBe(200);
+    expect(requestBody.code).toBe('123456');
+
+    const codeResponse = await fetch('http://localhost/auth/email/verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'code-user@example.com', code: '123456' }),
+    });
+    const codeBody = await codeResponse.json() as { session?: { accessToken: string } };
+
+    expect(codeResponse.status).toBe(200);
+    expect(codeBody.session?.accessToken).toMatch(/^mock-access-token-email-/);
+
+    const tokenAfterCodeResponse = await fetch('http://localhost/auth/email/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: requestBody.token }),
+    });
+
+    expect(tokenAfterCodeResponse.status).toBe(401);
+  });
+
+  it('limits email code verification attempts', async () => {
+    const requestResponse = await fetch('http://localhost/auth/email/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'attempt-limit@example.com' }),
+    });
+    expect(requestResponse.status).toBe(200);
+
+    let lastResponse: Response | null = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      lastResponse = await fetch('http://localhost/auth/email/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'attempt-limit@example.com', code: '000000' }),
+      });
+    }
+
+    expect(lastResponse?.status).toBe(429);
+    expect(await lastResponse?.json()).toEqual({
+      error: 'TOO_MANY_CODE_ATTEMPTS',
+      message: 'Too many attempts. Request a new sign-in email.',
+    });
+
+    const correctAfterLimitResponse = await fetch('http://localhost/auth/email/verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'attempt-limit@example.com', code: '123456' }),
+    });
+
+    expect(correctAfterLimitResponse.status).toBe(429);
+  });
+
   it('uses canonical error envelopes across core mock handlers', async () => {
     const loginErrorResponse = await fetch('http://localhost/auth/google', {
       method: 'POST',

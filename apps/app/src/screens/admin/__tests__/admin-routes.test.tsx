@@ -74,6 +74,7 @@ function seedAuth(overrides: Partial<ReturnType<typeof useAuthContext>> = {}) {
     signInWithMockToken: jest.fn(),
     requestEmailLink: jest.fn(),
     verifyEmailToken: jest.fn(),
+    verifyEmailCode: jest.fn(),
     signOut: jest.fn(),
     refreshAuth: jest.fn(),
     getAccessToken: jest.fn(),

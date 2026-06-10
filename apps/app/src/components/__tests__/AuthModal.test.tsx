@@ -17,6 +17,7 @@ const mockSignInWithGoogle = jest.fn();
 const mockSignInWithMockToken = jest.fn();
 const mockRequestEmailLink = jest.fn();
 const mockVerifyEmailToken = jest.fn();
+const mockVerifyEmailCode = jest.fn();
 const mockClearError = jest.fn();
 
 let mockUseAuthReturn: Record<string, unknown> = {};
@@ -57,6 +58,7 @@ function setAuthDefaults(overrides: Record<string, unknown> = {}) {
     signInWithMockToken: mockSignInWithMockToken,
     requestEmailLink: mockRequestEmailLink,
     verifyEmailToken: mockVerifyEmailToken,
+    verifyEmailCode: mockVerifyEmailCode,
     isSigningIn: false,
     error: null,
     clearError: mockClearError,
@@ -299,6 +301,138 @@ describe('AuthModal', () => {
       await waitFor(() => {
         expect(getByText('Check your email')).toBeTruthy();
         expect(getByText('user@test.com')).toBeTruthy();
+      });
+    });
+
+    it('renders code input with verify button disabled until 6 digits are present', async () => {
+      mockRequestEmailLink.mockResolvedValue(undefined);
+      const { getByLabelText, getByTestId } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+      fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
+      fireEvent.press(getByLabelText('Send sign-in link'));
+
+      await waitFor(() => {
+        expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
+      });
+
+      const verifyButton = getByTestId('verify-email-code-button');
+      expect(verifyButton.props.accessibilityState?.disabled).toBe(true);
+
+      fireEvent.changeText(getByLabelText('6-digit sign-in code'), '12345');
+      expect(verifyButton.props.accessibilityState?.disabled).toBe(true);
+      expect(mockVerifyEmailCode).not.toHaveBeenCalled();
+    });
+
+    it('normalizes pasted code and auto-submits once 6 digits are present', async () => {
+      mockRequestEmailLink.mockResolvedValue(undefined);
+      mockVerifyEmailCode.mockResolvedValue(undefined);
+      const { getByLabelText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+      fireEvent.changeText(getByLabelText('Email address'), 'User@Test.com');
+      fireEvent.press(getByLabelText('Send sign-in link'));
+
+      await waitFor(() => {
+        expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
+      });
+
+      const codeInput = getByLabelText('6-digit sign-in code');
+      fireEvent.changeText(codeInput, '123- 456');
+
+      await waitFor(() => {
+        expect(mockVerifyEmailCode).toHaveBeenCalledWith('user@test.com', '123456');
+      });
+      expect(codeInput.props.value).toBe('123456');
+    });
+
+    it('shows inline invalid code errors', async () => {
+      mockRequestEmailLink.mockResolvedValue(undefined);
+      mockVerifyEmailCode.mockRejectedValue(new Error('Invalid or expired code'));
+      const { getByLabelText, getByText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+      fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
+      fireEvent.press(getByLabelText('Send sign-in link'));
+
+      await waitFor(() => {
+        expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
+      });
+
+      fireEvent.changeText(getByLabelText('6-digit sign-in code'), '000000');
+
+      await waitFor(() => {
+        expect(getByText('That code is invalid. Please try again.')).toBeTruthy();
+      });
+    });
+
+    it('shows inline expired code errors', async () => {
+      mockRequestEmailLink.mockResolvedValue(undefined);
+      mockVerifyEmailCode.mockRejectedValue(new Error('Code has expired'));
+      const { getByLabelText, getByText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+      fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
+      fireEvent.press(getByLabelText('Send sign-in link'));
+
+      await waitFor(() => {
+        expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
+      });
+
+      fireEvent.changeText(getByLabelText('6-digit sign-in code'), '000000');
+
+      await waitFor(() => {
+        expect(getByText('That code has expired. Request a new one.')).toBeTruthy();
+      });
+    });
+
+    it('shows inline too-many-attempts code errors', async () => {
+      mockRequestEmailLink.mockResolvedValue(undefined);
+      mockVerifyEmailCode.mockRejectedValue(new Error('Too many attempts'));
+      const { getByLabelText, getByText } = render(<AuthModal {...defaultProps} />);
+
+      fireEvent.press(getByLabelText('Continue with email'));
+      fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
+      fireEvent.press(getByLabelText('Send sign-in link'));
+
+      await waitFor(() => {
+        expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
+      });
+
+      fireEvent.changeText(getByLabelText('6-digit sign-in code'), '000000');
+
+      await waitFor(() => {
+        expect(getByText('Too many attempts. Request a new code.')).toBeTruthy();
+      });
+    });
+
+    it('closes and calls onSuccess after successful code verification', async () => {
+      mockRequestEmailLink.mockResolvedValue(undefined);
+      mockVerifyEmailCode.mockResolvedValue(undefined);
+      const onClose = jest.fn();
+      const onSuccess = jest.fn();
+      const { getByLabelText } = render(
+        <AuthModal
+          {...defaultProps}
+          onClose={onClose}
+          onSuccess={onSuccess}
+        />
+      );
+
+      fireEvent.press(getByLabelText('Continue with email'));
+      fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
+      fireEvent.press(getByLabelText('Send sign-in link'));
+
+      await waitFor(() => {
+        expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
+      });
+
+      fireEvent.changeText(getByLabelText('6-digit sign-in code'), '123456');
+
+      await waitFor(() => {
+        expect(mockVerifyEmailCode).toHaveBeenCalledWith('user@test.com', '123456');
+        expect(onSuccess).toHaveBeenCalledTimes(1);
+        expect(onClose).toHaveBeenCalledTimes(1);
       });
     });
 

@@ -264,7 +264,7 @@ export class HuisHypeApiClient {
   }
 
   // ============================================
-  // Auth Endpoints  (paths: /auth/google, /auth/email/request, /auth/email/verify, /auth/refresh, /auth/logout, /auth/me)
+  // Auth Endpoints  (paths: /auth/google, /auth/email/request, /auth/email/verify, /auth/email/verify-code, /auth/refresh, /auth/logout, /auth/me)
   // ============================================
 
   async loginGoogle(idToken: string): Promise<AuthLoginResponse> {
@@ -287,6 +287,17 @@ export class HuisHypeApiClient {
   async verifyEmailToken(token: string): Promise<AuthLoginResponse> {
     const data = await this.request<AuthLoginResponse>('POST', '/auth/email/verify', {
       body: { token },
+    });
+    if (data?.session) {
+      this.setAccessToken(data.session.accessToken);
+      this.setRefreshToken(data.session.refreshToken);
+    }
+    return data;
+  }
+
+  async verifyEmailCode(email: string, code: string): Promise<AuthLoginResponse> {
+    const data = await this.request<AuthLoginResponse>('POST', '/auth/email/verify-code', {
+      body: { email, code },
     });
     if (data?.session) {
       this.setAccessToken(data.session.accessToken);

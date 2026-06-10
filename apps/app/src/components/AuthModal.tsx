@@ -116,6 +116,7 @@ export function AuthModal({
     signInWithGoogle,
     signInWithMockToken,
     requestEmailLink,
+    verifyEmailCode,
     isSigningIn,
     error,
     clearError,
@@ -124,7 +125,10 @@ export function AuthModal({
   const [view, setView] = useState<AuthView>('main');
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailCode, setEmailCode] = useState('');
+  const [emailCodeError, setEmailCodeError] = useState<string | null>(null);
   const [isRequestingEmail, setIsRequestingEmail] = useState(false);
+  const [isVerifyingEmailCode, setIsVerifyingEmailCode] = useState(false);
   const [isMounted, setIsMounted] = useState(visible);
   const reducedMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
@@ -132,6 +136,7 @@ export function AuthModal({
   const visibleRef = useRef(visible);
   const authAttemptStartedRef = useRef(false);
   const successHandledRef = useRef(false);
+  const lastSubmittedCodeRef = useRef<string | null>(null);
 
   // Card entrance animation
   const scale = useSharedValue(visible ? 1 : CARD_ENTER_SCALE);
@@ -142,7 +147,11 @@ export function AuthModal({
     setView('main');
     setEmail('');
     setEmailError(null);
+    setEmailCode('');
+    setEmailCodeError(null);
     setIsRequestingEmail(false);
+    setIsVerifyingEmailCode(false);
+    lastSubmittedCodeRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -328,6 +337,10 @@ export function AuthModal({
     onAuthStarting?.();
     try {
       await requestEmailLink(trimmed);
+      setEmail(trimmed);
+      setEmailCode('');
+      setEmailCodeError(null);
+      lastSubmittedCodeRef.current = null;
       setView('email-sent');
     } catch (err) {
       authAttemptStartedRef.current = false;
@@ -345,6 +358,73 @@ export function AuthModal({
       setIsRequestingEmail(false);
     }
   }, [email, onAuthStarting, requestEmailLink, t]);
+
+  const getEmailCodeErrorMessage = useCallback((err: unknown) => {
+    if (!(err instanceof Error)) {
+      return t('auth.email.codeGenericError');
+    }
+
+    const normalized = err.message.toLowerCase();
+    if (
+      normalized.includes('too many') ||
+      normalized.includes('too_many') ||
+      normalized.includes('attempt')
+    ) {
+      return t('auth.email.codeTooManyAttempts');
+    }
+    if (normalized.includes('invalid')) {
+      return t('auth.email.codeInvalid');
+    }
+    if (normalized.includes('expired')) {
+      return t('auth.email.codeExpired');
+    }
+    return err.message || t('auth.email.codeGenericError');
+  }, [t]);
+
+  const handleEmailCodeSubmit = useCallback(async (codeOverride?: string) => {
+    const code = (codeOverride ?? emailCode).replace(/\D/g, '').slice(0, 6);
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (code.length !== 6 || isVerifyingEmailCode) {
+      return;
+    }
+
+    setEmailCodeError(null);
+    setIsVerifyingEmailCode(true);
+    authAttemptStartedRef.current = true;
+    successHandledRef.current = false;
+    try {
+      await verifyEmailCode(trimmedEmail, code);
+      completeSuccessfulAuth();
+    } catch (err) {
+      lastSubmittedCodeRef.current = null;
+      authAttemptStartedRef.current = false;
+      successHandledRef.current = false;
+      setEmailCodeError(getEmailCodeErrorMessage(err));
+    } finally {
+      setIsVerifyingEmailCode(false);
+    }
+  }, [
+    completeSuccessfulAuth,
+    email,
+    emailCode,
+    getEmailCodeErrorMessage,
+    isVerifyingEmailCode,
+    verifyEmailCode,
+  ]);
+
+  const handleEmailCodeChange = useCallback((text: string) => {
+    const normalizedCode = text.replace(/\D/g, '').slice(0, 6);
+    setEmailCode(normalizedCode);
+    setEmailCodeError(null);
+
+    if (normalizedCode.length === 6 && lastSubmittedCodeRef.current !== normalizedCode) {
+      lastSubmittedCodeRef.current = normalizedCode;
+      void handleEmailCodeSubmit(normalizedCode);
+    } else if (normalizedCode.length < 6) {
+      lastSubmittedCodeRef.current = null;
+    }
+  }, [handleEmailCodeSubmit]);
 
   const handleClose = useCallback(() => {
     clearError();
@@ -584,11 +664,48 @@ export function AuthModal({
           {'\n'}{t('auth.email.sentSuffix')}
         </Text>
 
+        <TextInput
+          value={emailCode}
+          onChangeText={handleEmailCodeChange}
+          placeholder={t('auth.email.codePlaceholder')}
+          placeholderTextColor={WARM_500}
+          keyboardType="number-pad"
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="oneTimeCode"
+          style={[
+            styles.emailInput,
+            styles.codeInput,
+            emailCodeError ? styles.emailInputError : null,
+          ]}
+          testID="email-code-input"
+          accessibilityLabel={t('auth.email.codeLabel')}
+          onSubmitEditing={() => void handleEmailCodeSubmit()}
+          returnKeyType="done"
+          editable={!isVerifyingEmailCode}
+        />
+
+        {emailCodeError && (
+          <Text style={styles.emailErrorText}>{emailCodeError}</Text>
+        )}
+
+        <Button
+          label={isVerifyingEmailCode ? t('auth.email.verifyingCode') : t('auth.email.verifyCode')}
+          onPress={() => void handleEmailCodeSubmit()}
+          disabled={isVerifyingEmailCode || emailCode.length !== 6}
+          accessibilityLabel={t('auth.email.verifyCodeLabel')}
+          style={styles.sendLinkButton}
+          testID="verify-email-code-button"
+        />
+
         {/* Back to main */}
         <TouchableOpacity
           onPress={() => {
             setView('main');
             setEmail('');
+            setEmailCode('');
+            setEmailCodeError(null);
+            lastSubmittedCodeRef.current = null;
           }}
           style={styles.backLink}
           accessibilityLabel={t('auth.email.backToOptions')}
@@ -768,6 +885,12 @@ const styles = StyleSheet.create({
   },
   emailInputError: {
     borderColor: '#E53935',
+  },
+  codeInput: {
+    textAlign: 'center',
+    fontSize: 22,
+    fontWeight: '600',
+    letterSpacing: 0,
   },
   emailErrorText: {
     fontSize: 13,

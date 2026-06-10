@@ -65,6 +65,7 @@ function mockAuthContext(user: { id: string; email?: string; profilePhotoUrl?: s
     signInWithMockToken: jest.fn(),
     requestEmailLink: jest.fn(),
     verifyEmailToken: jest.fn(),
+    verifyEmailCode: jest.fn(),
     signOut,
     refreshAuth: jest.fn(),
     getAccessToken: jest.fn(),

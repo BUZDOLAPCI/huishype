@@ -11,7 +11,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { eq, and, isNull, sql } from 'drizzle-orm';
+import { eq, and, isNull, sql, desc } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { db } from '../db/index.js';
 import { emailAuthTokens, users } from '../db/schema.js';
@@ -31,7 +31,9 @@ import { withGeneratedUniqueUsername } from '../utils/username.js';
 
 // Token is valid for 15 minutes
 const TOKEN_TTL_MS = 15 * 60 * 1000;
+const CODE_ATTEMPT_LIMIT = 5;
 const RESEND_API_URL = 'https://api.resend.com/emails';
+type EmailAuthTokenRow = typeof emailAuthTokens.$inferSelect;
 
 const authUserSchema = z.object({
   id: z.string(),
@@ -72,6 +74,25 @@ function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
+function generateCode(): string {
+  return crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+}
+
+function formatCode(code: string): string {
+  return `${code.slice(0, 3)} ${code.slice(3)}`;
+}
+
+function normalizeCode(code: string): string {
+  return code.replace(/\D/g, '');
+}
+
+function hashCode(email: string, token: string, code: string): string {
+  return crypto
+    .createHmac('sha256', config.auth.jwtSecret)
+    .update(`${email}:${token}:${code}`)
+    .digest('hex');
+}
+
 function buildMagicLink(token: string): string {
   if (!config.auth.magicLinkBaseUrl) {
     throw new Error('Magic link base URL is not configured');
@@ -82,7 +103,7 @@ function buildMagicLink(token: string): string {
   return url.toString();
 }
 
-async function sendMagicLinkEmail(email: string, magicLink: string): Promise<void> {
+async function sendMagicLinkEmail(email: string, magicLink: string, code: string): Promise<void> {
   if (!config.email.resendApiKey || !config.email.fromAddress) {
     throw new Error('Email delivery is not configured');
   }
@@ -93,7 +114,7 @@ async function sendMagicLinkEmail(email: string, magicLink: string): Promise<voi
       Authorization: `Bearer ${config.email.resendApiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(buildResendMagicLinkPayload(email, magicLink)),
+    body: JSON.stringify(buildResendMagicLinkPayload(email, magicLink, formatCode(code))),
     signal: AbortSignal.timeout(5000),
   });
 
@@ -101,6 +122,51 @@ async function sendMagicLinkEmail(email: string, magicLink: string): Promise<voi
     const detail = await response.text().catch(() => '');
     throw new Error(`Resend rejected the request (${response.status}): ${detail}`);
   }
+}
+
+async function buildSessionFromEmailToken(fastify: FastifyInstance, tokenRow: EmailAuthTokenRow) {
+  await db
+    .update(emailAuthTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(emailAuthTokens.id, tokenRow.id));
+
+  let user = await db.query.users.findFirst({
+    where: eq(users.email, tokenRow.email),
+  });
+
+  let isNewUser = false;
+
+  if (!user) {
+    isNewUser = true;
+    user = await withGeneratedUniqueUsername(async (username) => {
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          email: tokenRow.email,
+          username,
+          displayName: tokenRow.email.split('@')[0],
+        })
+        .returning();
+
+      return newUser;
+    });
+  }
+
+  const accessToken = generateAccessToken(fastify, user.id);
+  const refreshToken = generateRefreshToken(user.id);
+  const expiresAt = getAccessTokenExpiry();
+
+  return {
+    session: {
+      user: {
+        ...authUserPayload(user),
+      },
+      accessToken,
+      refreshToken,
+      expiresAt: expiresAt.toISOString(),
+    },
+    isNewUser,
+  };
 }
 
 export async function emailAuthRoutes(fastify: FastifyInstance) {
@@ -136,18 +202,20 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
           querystring: z.object({
             email: z.string().email().optional(),
             token: z.string().min(1).optional(),
+            code: z.string().min(1).optional(),
           }),
         },
       },
       async (request, reply) => {
         const previewEmail = request.query.email?.trim().toLowerCase() || 'preview@huishype.nl';
         const previewToken = request.query.token?.trim() || 'preview-magic-link-token';
+        const previewCode = request.query.code?.trim() || '123 456';
         const magicLink = buildMagicLink(previewToken);
         const logoUrl = `${request.protocol}://${request.headers.host}/auth/email/preview/logo.png`;
 
         return reply
           .type('text/html; charset=utf-8')
-          .send(buildMagicLinkEmailPreviewPage(previewEmail, magicLink, logoUrl));
+          .send(buildMagicLinkEmailPreviewPage(previewEmail, magicLink, previewCode, logoUrl));
       }
     );
   }
@@ -163,7 +231,7 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
         summary: 'Request email magic link',
         description:
           'Generates a magic link token for the given email. ' +
-          'In production, delivers via email. In dev mode, returns the token in the response.',
+          'In production, delivers via email. In dev mode, returns the token and code in the response.',
         body: z.object({
           email: z.string().email(),
         }),
@@ -172,6 +240,8 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
             message: z.string(),
             /** Only present in dev mode */
             token: z.string().optional(),
+            /** Only present in dev mode */
+            code: z.string().optional(),
           }),
           503: z.object({
             error: z.string(),
@@ -205,27 +275,30 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
       }
 
       const token = generateToken();
+      const code = generateCode();
       const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
 
       await db.insert(emailAuthTokens).values({
         email: normalizedEmail,
         token,
+        codeHash: hashCode(normalizedEmail, token, code),
         expiresAt,
       });
 
-      const response: { message: string; token?: string } = {
+      const response: { message: string; token?: string; code?: string } = {
         message: 'If an account with this email exists, a magic link has been sent.',
       };
 
       // In dev mode, return the token directly for testing
       if (config.isDev === true) {
         response.token = token;
+        response.code = code;
         return response;
       }
 
       try {
         const magicLink = buildMagicLink(token);
-        await sendMagicLinkEmail(normalizedEmail, magicLink);
+        await sendMagicLinkEmail(normalizedEmail, magicLink, code);
       } catch (error) {
         app.log.error({ err: error, email: normalizedEmail }, 'Failed to deliver magic link email');
         return reply.status(503).send({
@@ -305,50 +378,117 @@ export async function emailAuthRoutes(fastify: FastifyInstance) {
       }
 
       // Mark token as used
-      await db
-        .update(emailAuthTokens)
-        .set({ usedAt: new Date() })
-        .where(eq(emailAuthTokens.id, tokenRow.id));
+      return buildSessionFromEmailToken(fastify, tokenRow);
+    }
+  );
 
-      // Find or create user
-      let user = await db.query.users.findFirst({
-        where: eq(users.email, tokenRow.email),
-      });
+  /**
+   * POST /auth/email/verify-code — verify email code and return session
+   */
+  app.post(
+    '/auth/email/verify-code',
+    {
+      schema: {
+        tags: ['Auth'],
+        summary: 'Verify email sign-in code',
+        description: 'Validates the one-time email code, creates or finds the user, returns a session.',
+        body: z.object({
+          email: z.string().email(),
+          code: z.string().min(1),
+        }),
+        response: {
+          200: z.object({
+            session: z.object({
+              user: authUserSchema,
+              accessToken: z.string(),
+              refreshToken: z.string(),
+              expiresAt: z.string(),
+            }),
+            isNewUser: z.boolean(),
+          }),
+          400: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
+          401: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
+          429: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    async (request, reply) => {
+      const email = request.body.email.toLowerCase().trim();
+      const code = normalizeCode(request.body.code);
 
-      let isNewUser = false;
-
-      if (!user) {
-        isNewUser = true;
-        user = await withGeneratedUniqueUsername(async (username) => {
-          const [newUser] = await db
-            .insert(users)
-            .values({
-              email: tokenRow.email,
-              username,
-              displayName: tokenRow.email.split('@')[0],
-            })
-            .returning();
-
-          return newUser;
+      if (code.length !== 6) {
+        return reply.status(400).send({
+          error: 'INVALID_CODE_FORMAT',
+          message: 'Code must be 6 digits.',
         });
       }
 
-      // Generate tokens
-      const accessToken = generateAccessToken(fastify, user.id);
-      const refreshToken = generateRefreshToken(user.id);
-      const expiresAt = getAccessTokenExpiry();
+      const tokenRows = await db
+        .select()
+        .from(emailAuthTokens)
+        .where(
+          and(
+            eq(emailAuthTokens.email, email),
+            isNull(emailAuthTokens.usedAt)
+          )
+        )
+        .orderBy(desc(emailAuthTokens.createdAt))
+        .limit(1);
 
-      return {
-        session: {
-          user: {
-            ...authUserPayload(user),
-          },
-          accessToken,
-          refreshToken,
-          expiresAt: expiresAt.toISOString(),
-        },
-        isNewUser,
+      const tokenRow = tokenRows[0];
+      const invalidResponse = {
+        error: 'INVALID_CODE',
+        message: 'Invalid or expired code. Request a new sign-in email.',
       };
+
+      if (!tokenRow || !tokenRow.codeHash) {
+        return reply.status(401).send(invalidResponse);
+      }
+
+      if (new Date() > tokenRow.expiresAt) {
+        return reply.status(401).send(invalidResponse);
+      }
+
+      if (tokenRow.codeAttempts >= CODE_ATTEMPT_LIMIT) {
+        return reply.status(429).send({
+          error: 'TOO_MANY_CODE_ATTEMPTS',
+          message: 'Too many attempts. Request a new sign-in email.',
+        });
+      }
+
+      const expectedHash = hashCode(email, tokenRow.token, code);
+      const isValid = crypto.timingSafeEqual(
+        Buffer.from(expectedHash, 'hex'),
+        Buffer.from(tokenRow.codeHash, 'hex')
+      );
+
+      if (!isValid) {
+        const nextAttempts = tokenRow.codeAttempts + 1;
+        await db
+          .update(emailAuthTokens)
+          .set({ codeAttempts: nextAttempts })
+          .where(eq(emailAuthTokens.id, tokenRow.id));
+
+        if (nextAttempts >= CODE_ATTEMPT_LIMIT) {
+          return reply.status(429).send({
+            error: 'TOO_MANY_CODE_ATTEMPTS',
+            message: 'Too many attempts. Request a new sign-in email.',
+          });
+        }
+
+        return reply.status(401).send(invalidResponse);
+      }
+
+      return buildSessionFromEmailToken(fastify, tokenRow);
     }
   );
 }

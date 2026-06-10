@@ -2618,12 +2618,17 @@ export const emailAuthTokens = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     email: varchar('email', { length: 255 }).notNull(),
     token: varchar('token', { length: 64 }).notNull().unique(),
+    codeHash: varchar('code_hash', { length: 64 }),
+    codeAttempts: integer('code_attempts').notNull().default(0),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     usedAt: timestamp('used_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('email_auth_tokens_email_idx').on(table.email),
+    index('email_auth_tokens_active_email_idx')
+      .on(table.email, table.createdAt)
+      .where(sql`${table.usedAt} IS NULL`),
     index('email_auth_tokens_token_idx').on(table.token),
   ]
 );

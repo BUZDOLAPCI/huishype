@@ -283,4 +283,5 @@ export type {
   EmailAuthRequestBody,
   EmailAuthRequestResponse,
   EmailAuthVerifyBody,
+  EmailAuthVerifyCodeBody,
 } from './api.js';

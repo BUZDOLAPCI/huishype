@@ -13,9 +13,8 @@ function escapeHtml(str: string): string {
 }
 
 const DEFAULT_SUPPORT_EMAIL = 'support@huishype.nl';
-const MAGIC_LINK_EMAIL_SUBJECT = 'Sign in to HuisHype';
 const MAGIC_LINK_EMAIL_PREHEADER =
-  'Use your secure HuisHype sign-in link. It expires in 15 minutes.';
+  'Use your secure HuisHype sign-in link or code. It expires in 15 minutes.';
 const MAGIC_LINK_EMAIL_LOGO_CID = 'huishype-logo';
 const MAGIC_LINK_EMAIL_LOGO_PNG_URL = new URL(
   '../../assets/logo-email.png',
@@ -54,12 +53,15 @@ function resolveSupportEmail(): string {
 
 function buildMagicLinkEmailHtml(
   magicLink: string,
+  code: string,
   supportEmail: string,
   options: MagicLinkEmailRenderOptions = {}
 ): string {
   const escapedMagicLink = escapeHtml(magicLink);
+  const escapedCode = escapeHtml(code);
   const escapedSupportEmail = escapeHtml(supportEmail);
   const logoSrc = escapeHtml(options.logoSrc || `cid:${MAGIC_LINK_EMAIL_LOGO_CID}`);
+  const subject = `Your HuisHype sign-in code: ${code}`;
 
   return [
     '<!doctype html>',
@@ -67,7 +69,7 @@ function buildMagicLinkEmailHtml(
     '<head>',
     '  <meta charset="utf-8" />',
     '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
-    `  <title>${MAGIC_LINK_EMAIL_SUBJECT}</title>`,
+    `  <title>${escapeHtml(subject)}</title>`,
     '  <style>',
     '    body { margin: 0; padding: 0; background: #fffaf2; }',
     '    img { border: 0; outline: none; text-decoration: none; }',
@@ -96,7 +98,12 @@ function buildMagicLinkEmailHtml(
     '              <td style="padding:0 0 18px;color:#F5A623;font-size:22px;line-height:28px;font-weight:700;letter-spacing:-0.2px;font-family:Inter,-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;text-align:center;">HuisHype</td>',
     '            </tr>',
     '            <tr>',
-    '              <td style="padding:0 18px 30px;color:#5c4c3d;font-size:17px;line-height:29px;text-align:center;">Use the button below to continue to HuisHype.</td>',
+    '              <td style="padding:0 18px 20px;color:#5c4c3d;font-size:17px;line-height:29px;text-align:center;">Use the button below to continue to HuisHype, or enter the code in the app.</td>',
+    '            </tr>',
+    '            <tr>',
+    '              <td align="center" style="padding:0 0 26px;">',
+    `                <div style="display:inline-block;padding:14px 22px;border:1px solid #eadfcd;border-radius:12px;background:#fffaf2;color:#2d2418;font-size:28px;line-height:34px;font-weight:800;letter-spacing:0.14em;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${escapedCode}</div>`,
+    '              </td>',
     '            </tr>',
     '            <tr>',
     '              <td align="center" style="padding:0 0 36px;">',
@@ -108,7 +115,7 @@ function buildMagicLinkEmailHtml(
     '              </td>',
     '            </tr>',
     '            <tr>',
-    '              <td style="padding:0 18px 16px;color:#77675a;font-size:14px;line-height:24px;text-align:center;">This link expires in 15 minutes and can only be used once. If you did not request it, you can safely ignore this email.</td>',
+    '              <td style="padding:0 18px 16px;color:#77675a;font-size:14px;line-height:24px;text-align:center;">This link and code expire in 15 minutes and can only be used once. If you did not request it, you can safely ignore this email.</td>',
     '            </tr>',
     '            <tr>',
     '              <td style="padding:0 18px 56px;color:#9a8a7b;font-size:12px;line-height:20px;text-align:center;">',
@@ -136,32 +143,36 @@ function buildMagicLinkEmailHtml(
 export function buildMagicLinkEmailContent(
   _email: string,
   magicLink: string,
+  code: string,
   options: MagicLinkEmailRenderOptions = {}
 ): MagicLinkEmailContent {
   const supportEmail = resolveSupportEmail();
+  const subject = `Your HuisHype sign-in code: ${code}`;
 
   return {
-    subject: MAGIC_LINK_EMAIL_SUBJECT,
+    subject,
     text: [
       'Sign in to HuisHype',
+      '',
+      `Your sign-in code is ${code}.`,
       '',
       'Use the secure link below to continue:',
       magicLink,
       '',
-      'This link expires in 15 minutes and can only be used once.',
+      'This link and code expire in 15 minutes and can only be used once.',
       'If you did not request this email, you can safely ignore it.',
       `Need help? Contact ${supportEmail}.`,
     ].join('\n'),
-    html: buildMagicLinkEmailHtml(magicLink, supportEmail, options),
+    html: buildMagicLinkEmailHtml(magicLink, code, supportEmail, options),
   };
 }
 
-export function buildResendMagicLinkPayload(email: string, magicLink: string) {
+export function buildResendMagicLinkPayload(email: string, magicLink: string, code: string) {
   if (!config.email.replyTo) {
     throw new Error('Reply-to address is not configured');
   }
 
-  const content = buildMagicLinkEmailContent(email, magicLink);
+  const content = buildMagicLinkEmailContent(email, magicLink, code);
 
   return {
     from: config.email.fromAddress,
@@ -184,9 +195,10 @@ export function buildResendMagicLinkPayload(email: string, magicLink: string) {
 export function buildMagicLinkEmailPreviewPage(
   email: string,
   magicLink: string,
+  code = '123 456',
   logoUrl = '/auth/email/preview/logo.png'
 ): string {
-  const content = buildMagicLinkEmailContent(email, magicLink, {
+  const content = buildMagicLinkEmailContent(email, magicLink, code, {
     logoSrc: logoUrl,
   });
   const escapedEmail = escapeHtml(email);

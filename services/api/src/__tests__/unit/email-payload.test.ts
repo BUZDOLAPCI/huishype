@@ -35,17 +35,20 @@ describe('buildResendMagicLinkPayload', () => {
 
     const email = 'user@example.com';
     const magicLink = 'https://huishype.nl/auth/callback?emailToken=abc123';
+    const code = '123 456';
 
-    const content = buildMagicLinkEmailContent(email, magicLink);
-    const payload = buildResendMagicLinkPayload(email, magicLink);
-    const previewPage = buildMagicLinkEmailPreviewPage(email, magicLink);
+    const content = buildMagicLinkEmailContent(email, magicLink, code);
+    const payload = buildResendMagicLinkPayload(email, magicLink, code);
+    const previewPage = buildMagicLinkEmailPreviewPage(email, magicLink, code);
 
-    expect(content.subject).toBe('Sign in to HuisHype');
+    expect(content.subject).toBe('Your HuisHype sign-in code: 123 456');
     expect(content.text).not.toContain('We received a request to sign in to HuisHype for');
-    expect(content.text).toContain('This link expires in 15 minutes and can only be used once.');
+    expect(content.text).toContain('Your sign-in code is 123 456.');
+    expect(content.text).toContain('This link and code expire in 15 minutes and can only be used once.');
     expect(content.text).toContain('Need help? Contact support@huishype.nl.');
     expect(content.html).toContain('Sign in to HuisHype');
-    expect(content.html).toContain('Use the button below to continue to HuisHype.');
+    expect(content.html).toContain('Use the button below to continue to HuisHype, or enter the code in the app.');
+    expect(content.html).toContain('123 456');
     expect(content.html).toContain('background:#fdae10');
     expect(content.html).toContain('color:#ffffff');
     expect(content.html).toContain('font-size:12px;line-height:20px');
@@ -61,10 +64,12 @@ describe('buildResendMagicLinkPayload', () => {
       from: 'HuisHype <noreply@huishype.nl>',
       to: [email],
       reply_to: 'support@huishype.nl',
-      subject: 'Sign in to HuisHype',
+      subject: 'Your HuisHype sign-in code: 123 456',
     });
     expect(payload.text).toContain(magicLink);
+    expect(payload.text).toContain(code);
     expect(payload.html).not.toContain('Your secure sign-in link');
+    expect(payload.html).toContain(code);
     expect(payload.attachments).toEqual([
       expect.objectContaining({
         filename: 'huishype-logo.png',

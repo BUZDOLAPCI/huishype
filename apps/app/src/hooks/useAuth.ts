@@ -25,6 +25,8 @@ export interface UseAuthReturn {
   requestEmailLink: (email: string) => Promise<void>;
   /** Verify an email sign-in link token */
   verifyEmailToken: (token: string) => Promise<void>;
+  /** Verify an email sign-in code */
+  verifyEmailCode: (email: string, code: string) => Promise<void>;
   /** Sign out */
   signOut: () => Promise<void>;
   /** Get current access token (refreshes if needed) */
@@ -121,6 +123,21 @@ export function useAuth(): UseAuthReturn {
     }
   }, [auth, queryClient]);
 
+  const verifyEmailCode = useCallback(async (email: string, code: string) => {
+    setError(null);
+    setIsSigningIn(true);
+    try {
+      await auth.verifyEmailCode(email, code);
+      await queryClient.invalidateQueries({ queryKey: authKeys.user() });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Invalid or expired code');
+      setError(error);
+      throw error;
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [auth, queryClient]);
+
   const signOut = useCallback(async () => {
     setError(null);
     try {
@@ -147,6 +164,7 @@ export function useAuth(): UseAuthReturn {
     signInWithMockToken,
     requestEmailLink,
     verifyEmailToken,
+    verifyEmailCode,
     signOut,
     getAccessToken: auth.getAccessToken,
     error,

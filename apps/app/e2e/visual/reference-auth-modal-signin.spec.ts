@@ -290,6 +290,33 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect(page.locator('body')).toBeVisible();
   });
 
+  test('verify auth modal email code sent state', async ({ page }) => {
+    await page.goto('/profile');
+    await page.waitForLoadState('networkidle');
+
+    const profileSignIn = page.locator('[data-testid="profile-sign-in-button"]');
+    await expect(profileSignIn).toBeVisible({ timeout: 10000 });
+    await profileSignIn.click();
+
+    const authModal = page.locator('[data-testid="auth-modal-overlay"]');
+    await expect(authModal.first()).toBeVisible({ timeout: 10000 });
+
+    await page.getByLabel('Continue with email').click();
+    await expect(page.getByLabel('Email address')).toBeVisible();
+    await page.getByLabel('Email address').fill('visual-code@example.com');
+    await page.getByLabel('Send sign-in link').click();
+
+    await expect(page.getByText('Check your email')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('visual-code@example.com')).toBeVisible();
+    await expect(page.getByLabel('6-digit sign-in code')).toBeVisible();
+    await expect(page.getByLabel('Verify sign-in code')).toBeDisabled();
+
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-email-code-sent.png`,
+      fullPage: false,
+    });
+  });
+
   test('verify auth modal close functionality', async ({ page }) => {
     await page.goto('/profile');
     await page.waitForLoadState('networkidle');

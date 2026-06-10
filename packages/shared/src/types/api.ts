@@ -792,8 +792,14 @@ export interface EmailAuthRequestBody {
 export interface EmailAuthRequestResponse {
   message: string;
   token?: string;
+  code?: string;
 }
 
 export interface EmailAuthVerifyBody {
   token: string;
+}
+
+export interface EmailAuthVerifyCodeBody {
+  email: string;
+  code: string;
 }

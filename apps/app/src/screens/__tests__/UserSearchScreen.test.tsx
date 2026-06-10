@@ -111,6 +111,7 @@ function seedViewer(user: { id: string } | null = { id: 'viewer-1' }) {
     signInWithMockToken: jest.fn(),
     requestEmailLink: jest.fn(),
     verifyEmailToken: jest.fn(),
+    verifyEmailCode: jest.fn(),
     signOut: jest.fn(),
     refreshAuth: jest.fn(),
     getAccessToken: jest.fn(),

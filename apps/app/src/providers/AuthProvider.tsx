@@ -56,6 +56,7 @@ export interface AuthContextValue extends AuthState {
   signInWithMockToken: (token: string) => Promise<void>;
   requestEmailLink: (email: string) => Promise<void>;
   verifyEmailToken: (token: string) => Promise<void>;
+  verifyEmailCode: (email: string, code: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshAuth: () => Promise<boolean>;
   getAccessToken: () => Promise<string | null>;
@@ -523,7 +524,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
    *
    * Calls POST /auth/email/verify and stores the returned session.
    * This is invoked either from deep-link handling (production) or
-   * automatically in dev mode after requestEmailLink.
+   * after the user opens a magic link.
    */
   const verifyEmailToken = useCallback(
     async (token: string) => {
@@ -577,12 +578,67 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   /**
+   * Verify an email sign-in code.
+   *
+   * Calls POST /auth/email/verify-code and stores the returned session.
+   */
+  const verifyEmailCode = useCallback(
+    async (email: string, code: string) => {
+      try {
+        setState((prev) => ({ ...prev, isLoading: true, authError: null }));
+
+        const response = await fetch(`${API_BASE_URL}/auth/email/verify-code`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code }),
+        });
+
+        if (!response.ok) {
+          const errorData = (await response.json()) as { error: string; message: string };
+          const message = errorData.message || 'Invalid or expired code';
+          if (response.status === 400 || response.status === 401 || response.status === 429) {
+            throw new ExpectedEmailAuthError(message);
+          }
+          throw new Error(message);
+        }
+
+        const data = (await response.json()) as {
+          session: {
+            user: AuthUser;
+            accessToken: string;
+            refreshToken: string;
+            expiresAt: string;
+          };
+          isNewUser: boolean;
+        };
+
+        await storeAuthData(
+          data.session.accessToken,
+          data.session.refreshToken,
+          data.session.user,
+          data.session.expiresAt
+        );
+      } catch (error) {
+        if (!(error instanceof ExpectedEmailAuthError)) {
+          console.error('Email code verification failed:', error);
+        }
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          authError: error instanceof Error ? error.message : 'Invalid or expired code',
+        }));
+        throw error;
+      }
+    },
+    [storeAuthData]
+  );
+
+  /**
    * Request an email sign-in link.
    *
-   * Calls POST /auth/email/request. In dev mode the backend returns
-   * the token directly (no email sent). In production the user clicks
-   * the link in the email which deep-links back to the app calling
-   * verifyEmailToken.
+   * Calls POST /auth/email/request. Dev/test backends may return the
+   * token/code directly, but this method intentionally does not auto-verify
+   * so the code entry UI can be exercised.
    */
   const requestEmailLink = useCallback(async (email: string) => {
     const response = await fetch(`${API_BASE_URL}/auth/email/request`, {
@@ -591,23 +647,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
       body: JSON.stringify({ email }),
     });
 
+    let data: { error?: string; message?: string; token?: string; code?: string } | null = null;
+    try {
+      data = (await response.json()) as {
+        error?: string;
+        message?: string;
+        token?: string;
+        code?: string;
+      };
+    } catch {
+      data = null;
+    }
+
     if (response.status === 429) {
-      const data = (await response.json()) as { error: string; message: string };
-      throw new Error(data.message || 'Too many requests. Please try again later.');
+      throw new Error(data?.message || 'Too many requests. Please try again later.');
     }
 
     if (!response.ok) {
-      throw new Error('Failed to send sign-in link. Please try again.');
+      throw new Error(data?.message || 'Failed to send sign-in link. Please try again.');
     }
-
-    // In dev mode the backend returns the token — we can auto-verify
-    if (__DEV__) {
-      const data = (await response.json()) as { message: string; token?: string };
-      if (data.token) {
-        await verifyEmailToken(data.token);
-      }
-    }
-  }, [verifyEmailToken]);
+  }, []);
 
   const handleIncomingAuthUrl = useCallback(
     async (url: string | null) => {
@@ -755,6 +814,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signInWithMockToken,
     requestEmailLink,
     verifyEmailToken,
+    verifyEmailCode,
     signOut,
     refreshAuth,
     getAccessToken,

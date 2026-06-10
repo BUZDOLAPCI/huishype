@@ -27,6 +27,8 @@ import type {
   GetPropertyResponse,
   GetSavedPropertiesResponse,
   GetUserProfileResponse,
+  EmailAuthRequestResponse,
+  EmailAuthVerifyCodeBody,
   PropertyResolveRequest,
   PropertyResolveResponse,
   SearchUsersRequest,
@@ -57,6 +59,15 @@ type ContactRequestFromOpenApi =
   paths['/contact']['post']['requestBody']['content']['application/json'];
 type ContactResponseFromOpenApi =
   paths['/contact']['post']['responses'][200]['content']['application/json'];
+type EmailAuthRequestResponseFromOpenApi =
+  paths['/auth/email/request']['post']['responses'][200]['content']['application/json'];
+type EmailAuthVerifyCodeRequestFromOpenApi =
+  paths['/auth/email/verify-code']['post']['requestBody']['content']['application/json'];
+type CanonicalEmailAuthRequestResponse = {
+  message: string;
+  token?: string;
+  code?: string;
+};
 type ListingPreviewRequestFromOpenApi =
   paths['/listings/preview']['post']['requestBody']['content']['application/json'];
 type ListingPreviewResponseFromOpenApi =
@@ -209,6 +220,16 @@ type CanonicalOpsPropertyTilePyramidResponse = {
   encodedTileCount: number | null;
   nodeCount: number | null;
   memberCount: number | null;
+  generationCounts: Record<string, number>;
+  activeBuildCount: number;
+  generatedPyramidGenerationCount: number;
+  generatedCandidateSnapshotCount: number;
+  retainedGenerationCount: number;
+  relationStats: {
+    relationName: string;
+    rowEstimate: number | null;
+    totalBytes: number | null;
+  }[];
   currentBuildDurationMs: number | null;
   currentObservedWalBytes: number | null;
   activeCandidateStage: string | null;
@@ -220,6 +241,60 @@ type CanonicalOpsPropertyTilePyramidResponse = {
   lastSuccessfulPromotionAt: string | null;
   lastAuditAction: string | null;
   lastAuditReason: string | null;
+  lastRetentionResult: {
+    action: string | null;
+    reason: string | null;
+    createdAt: string | null;
+    details: Record<string, unknown> | null;
+  };
+  lastEligibilityVerdict: string | null;
+  lastEligibilityBlockReason: string | null;
+  pendingFullBuildDemand: {
+    requestReason: string;
+    denialReason: string;
+    deniedAt: string;
+    nextEligibleAt: string | null;
+    due: boolean;
+    sourceWatermarkHash: string;
+    buildInputsHash: string;
+  } | null;
+  guardrails: {
+    verdict: 'ok' | 'blocked' | 'disabled';
+    automaticBuildsBlocked: boolean;
+    violations: {
+      reason: string;
+      message: string;
+    }[];
+    thresholds: {
+      hostObservationMaxAgeMs: number;
+      rootMaxUsedPercent: number;
+      rootMinFreeBytes: number;
+      dbMaxBytes: number;
+      generatedMaxBytes: number;
+      generatedGenerationMax: number;
+      retainedGenerationMax: number;
+    };
+    enabled: boolean;
+    unsafeOperatorBypass: boolean;
+    hostObservation: {
+      source: string;
+      observedAt: string;
+      rootFilesystemBytes: number;
+      rootFilesystemUsedBytes: number;
+      rootFilesystemFreeBytes: number;
+      rootFilesystemUsedPercent: number;
+      postgresVolumeBytes: number | null;
+      photonVolumeBytes: number | null;
+      dockerVolumes: Record<string, unknown>;
+    } | null;
+    hostObservationAgeMs: number | null;
+    dbBytes: number | null;
+    generatedBytes: number | null;
+    generatedPyramidGenerationCount: number | null;
+    generatedCandidateSnapshotCount: number | null;
+    retainedGenerationCount: number | null;
+    evaluatedAt: string;
+  };
   resourceControls: {
     chunkTileLimit: number;
     memberPageSize: number;
@@ -658,6 +733,9 @@ const feedContractAssertions = [
   >,
   true as Assert<IsExact<Expand<ContactRequestFromOpenApi>, CanonicalContactRequest>>,
   true as Assert<IsExact<ContactResponseFromOpenApi, CanonicalContactResponse>>,
+  true as Assert<IsExact<EmailAuthRequestResponseFromOpenApi, CanonicalEmailAuthRequestResponse>>,
+  true as Assert<IsExact<EmailAuthRequestResponse, CanonicalEmailAuthRequestResponse>>,
+  true as Assert<IsExact<Expand<EmailAuthVerifyCodeRequestFromOpenApi>, EmailAuthVerifyCodeBody>>,
 ] as const;
 
 describe('Generated OpenAPI types', () => {
@@ -675,6 +753,7 @@ describe('Generated OpenAPI types', () => {
       '/auth/google',
       '/auth/email/request',
       '/auth/email/verify',
+      '/auth/email/verify-code',
       '/auth/refresh',
       '/auth/logout',
       '/auth/me',
@@ -722,7 +801,6 @@ describe('Generated OpenAPI types', () => {
       '/tiles/properties/read.json',
       '/tiles/properties/read/{z}/{x}/{y}.pbf',
     ];
-
     // Runtime: verify each path key is valid
     for (const path of expectedPaths) {
       expect(path).toBeTruthy();
@@ -756,6 +834,7 @@ describe('HuisHypeApiClient', () => {
     expect(typeof client.loginGoogle).toBe('function');
     expect(typeof client.requestEmailMagicLink).toBe('function');
     expect(typeof client.verifyEmailToken).toBe('function');
+    expect(typeof client.verifyEmailCode).toBe('function');
     expect(typeof client.refreshAccessToken).toBe('function');
     expect(typeof client.logout).toBe('function');
     expect(typeof client.getAuthMe).toBe('function');

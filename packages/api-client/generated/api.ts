@@ -233,6 +233,18 @@ export interface paths {
                             encodedTileCount: number | null;
                             nodeCount: number | null;
                             memberCount: number | null;
+                            generationCounts: {
+                                [key: string]: number;
+                            };
+                            activeBuildCount: number;
+                            generatedPyramidGenerationCount: number;
+                            generatedCandidateSnapshotCount: number;
+                            retainedGenerationCount: number;
+                            relationStats: {
+                                relationName: string;
+                                rowEstimate: number | null;
+                                totalBytes: number | null;
+                            }[];
                             currentBuildDurationMs: number | null;
                             currentObservedWalBytes: number | null;
                             activeCandidateStage: string | null;
@@ -246,6 +258,65 @@ export interface paths {
                             lastSuccessfulPromotionAt: string | null;
                             lastAuditAction: string | null;
                             lastAuditReason: string | null;
+                            lastRetentionResult: {
+                                action: string | null;
+                                reason: string | null;
+                                createdAt: string | null;
+                                details: {
+                                    [key: string]: unknown;
+                                } | null;
+                            };
+                            lastEligibilityVerdict: string | null;
+                            lastEligibilityBlockReason: string | null;
+                            pendingFullBuildDemand: {
+                                requestReason: string;
+                                denialReason: string;
+                                deniedAt: string;
+                                nextEligibleAt: string | null;
+                                due: boolean;
+                                sourceWatermarkHash: string;
+                                buildInputsHash: string;
+                            } | null;
+                            guardrails: {
+                                /** @enum {string} */
+                                verdict: "ok" | "blocked" | "disabled";
+                                automaticBuildsBlocked: boolean;
+                                violations: {
+                                    reason: string;
+                                    message: string;
+                                }[];
+                                thresholds: {
+                                    hostObservationMaxAgeMs: number;
+                                    rootMaxUsedPercent: number;
+                                    rootMinFreeBytes: number;
+                                    dbMaxBytes: number;
+                                    generatedMaxBytes: number;
+                                    generatedGenerationMax: number;
+                                    retainedGenerationMax: number;
+                                };
+                                enabled: boolean;
+                                unsafeOperatorBypass: boolean;
+                                hostObservation: {
+                                    source: string;
+                                    observedAt: string;
+                                    rootFilesystemBytes: number;
+                                    rootFilesystemUsedBytes: number;
+                                    rootFilesystemFreeBytes: number;
+                                    rootFilesystemUsedPercent: number;
+                                    postgresVolumeBytes: number | null;
+                                    photonVolumeBytes: number | null;
+                                    dockerVolumes: {
+                                        [key: string]: unknown;
+                                    };
+                                } | null;
+                                hostObservationAgeMs: number | null;
+                                dbBytes: number | null;
+                                generatedBytes: number | null;
+                                generatedPyramidGenerationCount: number | null;
+                                generatedCandidateSnapshotCount: number | null;
+                                retainedGenerationCount: number | null;
+                                evaluatedAt: string;
+                            };
                             resourceControls: {
                                 chunkTileLimit: number;
                                 memberPageSize: number;
@@ -4942,6 +5013,20 @@ export interface paths {
                     };
                 };
                 /** @description Default Response */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
                 503: {
                     headers: {
                         [name: string]: unknown;
@@ -6446,6 +6531,7 @@ export interface paths {
                 query?: {
                     email?: string;
                     token?: string;
+                    code?: string;
                 };
                 header?: never;
                 path?: never;
@@ -6481,7 +6567,7 @@ export interface paths {
         put?: never;
         /**
          * Request email magic link
-         * @description Generates a magic link token for the given email. In production, delivers via email. In dev mode, returns the token in the response.
+         * @description Generates a magic link token for the given email. In production, delivers via email. In dev mode, returns the token and code in the response.
          */
         post: {
             parameters: {
@@ -6508,6 +6594,7 @@ export interface paths {
                         "application/json": {
                             message: string;
                             token?: string;
+                            code?: string;
                         };
                     };
                 };
@@ -6612,6 +6699,107 @@ export interface paths {
                 };
                 /** @description Default Response */
                 401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/email/verify-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify email sign-in code
+         * @description Validates the one-time email code, creates or finds the user, returns a session.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        email: string;
+                        code: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            session: {
+                                user: {
+                                    id: string;
+                                    handle: string;
+                                    displayName: string;
+                                    profilePhotoUrl: string | null;
+                                    email: string;
+                                    karma: number;
+                                    karmaRank: string;
+                                    createdAt: string;
+                                    isAdmin: boolean;
+                                };
+                                accessToken: string;
+                                refreshToken: string;
+                                expiresAt: string;
+                            };
+                            isNewUser: boolean;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                429: {
                     headers: {
                         [name: string]: unknown;
                     };
