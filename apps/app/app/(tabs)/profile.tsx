@@ -756,9 +756,9 @@ export default function ProfileScreen() {
                 testID="profile-avatar-edit"
               >
                 {isProfilePhotoSaving ? (
-                  <ActivityIndicator size="small" color="#8A6426" testID="profile-avatar-saving" />
+                  <ActivityIndicator size="small" color="#00D1FB" testID="profile-avatar-saving" />
                 ) : (
-                  <Icon name="PencilSimple" size="sm" color="#8A6426" />
+                  <Icon name="PlusCircle" size={34} weight="fill" color="#00D1FB" />
                 )}
               </Pressable>
             </View>
@@ -1160,16 +1160,14 @@ const styles = StyleSheet.create({
   },
   avatarEditButton: {
     position: 'absolute',
-    right: -4,
-    bottom: -2,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    right: -5,
+    bottom: -3,
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 248, 226, 0.96)',
-    borderWidth: 1,
-    borderColor: 'rgba(214, 147, 36, 0.34)',
+    backgroundColor: '#FEF6EE',
   },
   avatarActions: {
     minHeight: 34,

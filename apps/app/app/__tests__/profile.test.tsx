@@ -412,10 +412,21 @@ describe('ProfileScreen sign out', () => {
 
   it('renders display name above the handle with separate edit buttons', () => {
     const { getByText, getByTestId } = render(<ProfileScreen />);
+    const [avatarEditStyle] = getByTestId('profile-avatar-edit').props.style;
 
     expect(getByText('Test User')).toBeTruthy();
     expect(getByText('@test-user')).toBeTruthy();
     expect(getByTestId('profile-avatar-edit')).toBeTruthy();
+    expect(getByText('PlusCircle')).toBeTruthy();
+    expect(avatarEditStyle).toMatchObject({
+      width: 35,
+      height: 35,
+      borderRadius: 17.5,
+      backgroundColor: '#FEF6EE',
+    });
+    expect(avatarEditStyle).not.toHaveProperty('borderWidth');
+    expect(avatarEditStyle).not.toHaveProperty('shadowColor');
+    expect(avatarEditStyle).not.toHaveProperty('elevation');
     expect(getByTestId('profile-display-name-edit')).toBeTruthy();
     expect(getByTestId('profile-handle-edit')).toBeTruthy();
     expect(getByTestId('profile-likes-stat')).toBeTruthy();

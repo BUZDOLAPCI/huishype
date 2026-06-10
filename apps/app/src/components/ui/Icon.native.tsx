@@ -47,6 +47,7 @@ import {
   PaperPlaneTilt,
   PencilSimple,
   Plus,
+  PlusCircle,
   Ruler,
   ShareFat,
   ShareNetwork,
@@ -128,6 +129,7 @@ export type IconName =
   | 'PaperPlaneTilt'
   | 'PencilSimple'
   | 'Plus'
+  | 'PlusCircle'
   | 'Ruler'
   | 'ShareFat'
   | 'ShareNetwork'
@@ -188,6 +190,7 @@ const ICON_MAP: Record<IconName, ComponentType<any>> = {
   PaperPlaneTilt,
   PencilSimple,
   Plus,
+  PlusCircle,
   Ruler,
   ShareFat,
   ShareNetwork,
