@@ -2144,6 +2144,75 @@ describe('property tile pyramid build lifecycle', () => {
     });
   });
 
+  it('does not advance source hashes for source-watermark bookkeeping churn', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-07T10:30:00.000Z'));
+    const sourceRows = (updatedAt: string) => [
+      {
+        scope: 'listing_facts',
+        scope_key: 'global',
+        watermark_value: '3',
+        watermark_timestamp: '2026-05-07T10:00:00.000Z',
+        updated_at: updatedAt,
+      },
+      {
+        scope: 'rolling_social_window',
+        scope_key: 'full-build-eligibility',
+        watermark_value: '0',
+        watermark_timestamp: null,
+        updated_at: updatedAt,
+      },
+    ];
+    executeMock
+      .mockResolvedValueOnce(sourceRows('2026-05-07T10:01:00.000Z'))
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(sourceRows('2026-05-07T10:29:00.000Z'))
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const { readPropertyTilePyramidSourceWatermarkSnapshot } =
+      await import('./property-tile-pyramid.js');
+    const first = await readPropertyTilePyramidSourceWatermarkSnapshot();
+    const second = await readPropertyTilePyramidSourceWatermarkSnapshot();
+
+    expect(second.sourceWatermarkHash).toBe(first.sourceWatermarkHash);
+    expect(second.sourceWatermarksJson.comparableSourceWatermarkHash).toBe(
+      first.sourceWatermarksJson.comparableSourceWatermarkHash
+    );
+    const sources = second.sourceWatermarksJson.sources as Array<Record<string, unknown>>;
+    expect(sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'property_tile_pyramid_source_watermarks',
+          scope: 'listing_facts',
+          watermarkValue: '3',
+          watermarkTimestamp: '2026-05-07T10:00:00.000Z',
+        }),
+      ])
+    );
+    expect(
+      sources.some(
+        (source) =>
+          source.source === 'property_tile_pyramid_source_watermarks' &&
+          source.scope === 'rolling_social_window' &&
+          source.scopeKey === 'full-build-eligibility'
+      )
+    ).toBe(false);
+    expect(
+      sources.some(
+        (source) =>
+          source.source === 'property_tile_pyramid_source_watermarks' &&
+          Object.hasOwn(source, 'updatedAt')
+      )
+    ).toBe(false);
+  });
+
   it('checks health freshness against the full closed pyramid source set', async () => {
     executeMock.mockResolvedValueOnce([
       {

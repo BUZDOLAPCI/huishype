@@ -2529,29 +2529,35 @@ export async function readPropertyTilePyramidSourceWatermarkSnapshot(
       scope_key: string;
       watermark_value: string | bigint;
       watermark_timestamp: string | Date | null;
-      updated_at: string | Date;
     }>(sql`
       SELECT
         scope::text,
         scope_key,
         watermark_value::text,
-        watermark_timestamp,
-        updated_at
+        watermark_timestamp
       FROM property_tile_pyramid_source_watermarks
+      WHERE NOT (
+        scope = 'rolling_social_window'::property_tile_pyramid_watermark_scope
+        AND scope_key = 'full-build-eligibility'
+      )
       ORDER BY scope::text, scope_key
     `);
     sources.push(
-      ...Array.from(rows).map((row) => ({
-        source: 'property_tile_pyramid_source_watermarks',
-        scope: row.scope,
-        scopeKey: row.scope_key,
-        watermarkValue: String(row.watermark_value),
-        watermarkTimestamp:
-          row.watermark_timestamp instanceof Date
-            ? row.watermark_timestamp.toISOString()
-            : row.watermark_timestamp,
-        updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
-      }))
+      ...Array.from(rows)
+        .filter(
+          (row) =>
+            !(row.scope === 'rolling_social_window' && row.scope_key === 'full-build-eligibility')
+        )
+        .map((row) => ({
+          source: 'property_tile_pyramid_source_watermarks',
+          scope: row.scope,
+          scopeKey: row.scope_key,
+          watermarkValue: String(row.watermark_value),
+          watermarkTimestamp:
+            row.watermark_timestamp instanceof Date
+              ? row.watermark_timestamp.toISOString()
+              : row.watermark_timestamp,
+        }))
     );
   } catch (error) {
     if (!isMissingPyramidSchemaError(error)) {
