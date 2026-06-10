@@ -511,6 +511,10 @@ async function withHermeticCurrentPyramidNode(
   `);
 
   await db.execute(sql`
+    SELECT ensure_property_tile_pyramid_version_partitions(${versionId}::uuid)
+  `);
+
+  await db.execute(sql`
     INSERT INTO property_tile_pyramid_tiles (
       version_id,
       z,
@@ -621,6 +625,9 @@ async function withHermeticCurrentPyramidNode(
       `);
     }
 
+    await db.execute(sql`
+      SELECT drop_property_tile_pyramid_version_partitions(${versionId}::uuid)
+    `);
     await db.execute(sql`DELETE FROM property_tile_pyramid_versions WHERE id = ${versionId}`);
     await db.execute(sql`
       DELETE FROM property_tile_candidate_source_snapshots

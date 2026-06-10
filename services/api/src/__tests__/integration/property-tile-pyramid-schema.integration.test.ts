@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { sql } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { advancePropertyTilePyramidSourceWatermark } from '../../services/property-tile-pyramid.js';
@@ -9,22 +9,100 @@ const coveragePrefix = `schema-promotion-${crypto.randomUUID()}`;
 type TileStatus = 'pending' | 'valid_empty' | 'valid_nodes' | 'valid_encoded' | 'failed';
 type ValidationStatus = 'pending' | 'validated' | 'failed';
 
+function isUndefinedFunctionError(error: unknown): boolean {
+  const code =
+    (error as { code?: unknown } | null)?.code ??
+    (error as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return code === '42883';
+}
+
+async function tryEnsurePyramidVersionPartitions(versionId: string): Promise<void> {
+  try {
+    await db.execute(sql`
+      SELECT ensure_property_tile_pyramid_version_partitions(${versionId}::uuid)
+    `);
+  } catch (error) {
+    if (!isUndefinedFunctionError(error)) {
+      throw error;
+    }
+  }
+}
+
 async function cleanupPyramidSchemaTestRows(): Promise<void> {
+  try {
+    await db.execute(sql`
+      SELECT drop_property_tile_pyramid_version_partitions(id)
+      FROM property_tile_pyramid_versions
+      WHERE coverage_id LIKE ${`${coveragePrefix}%`}
+         OR candidate_snapshot_id IN (
+           SELECT id
+           FROM property_tile_candidate_source_snapshots
+           WHERE source_watermarks_json::text LIKE '%schema-candidate-source%'
+         )
+         OR source_watermarks_json::text LIKE '%schema-version-source%'
+         OR source_watermarks_json::text LIKE '%propertyTilePyramidRepair%'
+    `);
+    await db.execute(sql`
+      SELECT drop_property_tile_candidate_source_partitions(id)
+      FROM property_tile_candidate_source_snapshots
+      WHERE coverage_id LIKE ${`${coveragePrefix}%`}
+         OR source_watermarks_json::text LIKE '%schema-candidate-source%'
+    `);
+  } catch (error) {
+    if (!isUndefinedFunctionError(error)) {
+      throw error;
+    }
+  }
   await db.execute(sql`
     DELETE FROM property_tile_pyramid_current
     WHERE coverage_id LIKE ${`${coveragePrefix}%`}
+       OR current_version_id IN (
+         SELECT id
+         FROM property_tile_pyramid_versions
+         WHERE candidate_snapshot_id IN (
+           SELECT id
+           FROM property_tile_candidate_source_snapshots
+           WHERE source_watermarks_json::text LIKE '%schema-candidate-source%'
+         )
+            OR source_watermarks_json::text LIKE '%schema-version-source%'
+            OR source_watermarks_json::text LIKE '%propertyTilePyramidRepair%'
+       )
+       OR previous_version_id IN (
+         SELECT id
+         FROM property_tile_pyramid_versions
+         WHERE candidate_snapshot_id IN (
+           SELECT id
+           FROM property_tile_candidate_source_snapshots
+           WHERE source_watermarks_json::text LIKE '%schema-candidate-source%'
+         )
+            OR source_watermarks_json::text LIKE '%schema-version-source%'
+            OR source_watermarks_json::text LIKE '%propertyTilePyramidRepair%'
+       )
   `);
   await db.execute(sql`
     DELETE FROM property_tile_candidate_source_current
     WHERE coverage_id LIKE ${`${coveragePrefix}%`}
+       OR snapshot_id IN (
+         SELECT id
+         FROM property_tile_candidate_source_snapshots
+         WHERE source_watermarks_json::text LIKE '%schema-candidate-source%'
+       )
   `);
   await db.execute(sql`
     DELETE FROM property_tile_pyramid_versions
     WHERE coverage_id LIKE ${`${coveragePrefix}%`}
+       OR candidate_snapshot_id IN (
+         SELECT id
+         FROM property_tile_candidate_source_snapshots
+         WHERE source_watermarks_json::text LIKE '%schema-candidate-source%'
+       )
+       OR source_watermarks_json::text LIKE '%schema-version-source%'
+       OR source_watermarks_json::text LIKE '%propertyTilePyramidRepair%'
   `);
   await db.execute(sql`
     DELETE FROM property_tile_candidate_source_snapshots
     WHERE coverage_id LIKE ${`${coveragePrefix}%`}
+       OR source_watermarks_json::text LIKE '%schema-candidate-source%'
   `);
 }
 
@@ -157,6 +235,8 @@ async function insertTileManifest(input: {
   nodeCount?: number;
 }): Promise<void> {
   const payload = input.tileStatus === 'valid_encoded' ? Buffer.from('encoded tile') : null;
+  await tryEnsurePyramidVersionPartitions(input.versionId);
+
   await db.execute(sql`
     INSERT INTO property_tile_pyramid_tiles (
       version_id,
@@ -197,6 +277,7 @@ async function insertPyramidNode(input: {
   representativePropertyId?: string;
 }): Promise<void> {
   const propertyId = input.representativePropertyId ?? crypto.randomUUID();
+  await tryEnsurePyramidVersionPartitions(input.versionId);
   await db.execute(sql`
     INSERT INTO property_tile_pyramid_nodes (
       version_id,
@@ -425,6 +506,8 @@ async function insertDefaultSlotVersionWithCandidate(input: {
     )
   `);
 
+  await tryEnsurePyramidVersionPartitions(versionId);
+
   await db.execute(sql`
     INSERT INTO property_tile_pyramid_tiles (
       version_id,
@@ -454,6 +537,10 @@ async function insertDefaultSlotVersionWithCandidate(input: {
 }
 
 describe('property tile pyramid schema safeguards', () => {
+  beforeEach(async () => {
+    await cleanupPyramidSchemaTestRows();
+  });
+
   afterEach(async () => {
     await cleanupPyramidSchemaTestRows();
   });
@@ -661,7 +748,12 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_pyramid_current_guard',
         'property_tile_pyramid_current_promoted_constraint',
         'property_tile_candidate_source_current_guard',
-        'property_tile_candidate_source_snapshots_current_guard'
+        'property_tile_candidate_source_snapshots_current_guard',
+        'ensure_property_tile_candidate_source_partitions',
+        'ensure_property_tile_pyramid_version_partitions',
+        'drop_property_tile_candidate_source_partitions',
+        'drop_property_tile_pyramid_version_partitions',
+        'property_tile_generated_partition_retention'
       )
     `)
     ).map((row) => row.proname);
@@ -674,6 +766,39 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_pyramid_current_promoted_constraint',
         'property_tile_candidate_source_current_guard',
         'property_tile_candidate_source_snapshots_current_guard',
+        'ensure_property_tile_candidate_source_partitions',
+        'ensure_property_tile_pyramid_version_partitions',
+        'drop_property_tile_candidate_source_partitions',
+        'drop_property_tile_pyramid_version_partitions',
+        'property_tile_generated_partition_retention',
+      ])
+    );
+
+    const partitionedParents = Array.from(
+      await db.execute<{ relname: string }>(sql`
+      SELECT c.relname
+      FROM pg_class c
+      INNER JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind = 'p'
+        AND c.relname IN (
+          'property_tile_listing_candidates',
+          'property_tile_listing_facts',
+          'property_tile_social_facts',
+          'property_tile_grouping_facts',
+          'property_tile_pyramid_tiles',
+          'property_tile_pyramid_nodes'
+        )
+    `)
+    ).map((row) => row.relname);
+    expect(partitionedParents).toEqual(
+      expect.arrayContaining([
+        'property_tile_listing_candidates',
+        'property_tile_listing_facts',
+        'property_tile_social_facts',
+        'property_tile_grouping_facts',
+        'property_tile_pyramid_tiles',
+        'property_tile_pyramid_nodes',
       ])
     );
 

@@ -77,10 +77,9 @@ tranche but still expected later. Keep it aligned with shipped code:
 
 ## Architecture Improvements
 
-### Materialized Property Tile Pyramid Rollout
-- **Status**: Deferred. Work exists on `dev/materialized-tile-pyramid-v0` to replace the low-zoom snapshot path with a promoted materialized property tile pyramid.
-- **Current repo state**: The branch was not merged because testing exposed issues: low-zoom behavior needed closer parity review against `main` before rollout. The branch was pushed at commit `80d6852`.
-- **Deferred work**: Revisit the branch, decide whether the pyramid route is sufficiently on par with the current low-zoom behavior before merging. We don't need this if performance does not become a blocking issue.
+### Property Tile Pyramid Operator Tooling
+- **Status**: Partial. The promoted property tile pyramid is now the default low-zoom path, with durable build requests, worker recovery, retention, health, and ops summaries in the mainline code.
+- **Deferred work**: Add a first-class authenticated operator endpoint or CLI for intentionally requesting a full rebuild with reason `operator`. Until then, use documented maintenance flows and avoid direct SQL pointer changes.
 
 ### Generated OpenAPI Runtime Client Adoption
 - **Status**: Partial. The OpenAPI pipeline exists and `packages/api-client/generated/api.ts` is generated from `services/api/openapi.json`, but the runtime client wrapper remains hand-authored.

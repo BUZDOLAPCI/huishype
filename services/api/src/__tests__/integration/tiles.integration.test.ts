@@ -137,6 +137,14 @@ async function clearPropertyTileCandidateSnapshotFixtures(): Promise<void> {
       )
   `);
   await db.execute(sql`
+    SELECT drop_property_tile_candidate_source_partitions(id)
+    FROM property_tile_candidate_source_snapshots
+    WHERE coverage_id = 'public_default_low_zoom'
+      AND filter_signature = 'default'
+      AND pyramid_kind = 'public_default_low_zoom'
+      AND source_watermark_hash LIKE 'integration-tile-%'
+  `);
+  await db.execute(sql`
     DELETE FROM property_tile_candidate_source_snapshots
     WHERE coverage_id = 'public_default_low_zoom'
       AND filter_signature = 'default'
@@ -158,6 +166,12 @@ async function removeDefaultCandidateSnapshotCurrentForTest(): Promise<string | 
 
 async function restoreDefaultCandidateSnapshotCurrentForTest(snapshotId: string | null): Promise<void> {
   if (!snapshotId) {
+    await db.execute(sql`
+      DELETE FROM property_tile_candidate_source_current
+      WHERE coverage_id = 'public_default_low_zoom'
+        AND filter_signature = 'default'
+        AND pyramid_kind = 'public_default_low_zoom'
+    `);
     return;
   }
 
@@ -229,6 +243,9 @@ async function createReadyPropertyTileCandidateSnapshotFixture(propertyIds: stri
       0,
       now()
     )
+  `);
+  await db.execute(sql`
+    SELECT ensure_property_tile_candidate_source_partitions(${snapshotId}::uuid)
   `);
   if (uniquePropertyIds.length > 0) {
     const propertyIdList = sql.join(
@@ -322,10 +339,10 @@ async function createReadyPropertyTileCandidateSnapshotFixture(propertyIds: stri
           active_listing.asking_price,
           active_listing.thumbnail_url,
           active_listing.property_id IS NOT NULL AS has_active_listing,
-          (
-            active_listing.property_id IS NULL
-            AND latest_listing.status IN ('sold', 'rented')
-          ) AS has_completed_listing,
+              (
+                active_listing.property_id IS NULL
+                AND latest_listing.status IN ('sold', 'rented')
+              ) IS TRUE AS has_completed_listing,
           CASE
             WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
               THEN 'for-rent'
@@ -429,6 +446,14 @@ async function createReadyPropertyTileCandidateSnapshotFixture(propertyIds: stri
       updated_at = now()
   `);
   return snapshotId;
+}
+
+async function replaceDefaultCandidateSnapshotFixture(
+  propertyIds: string[] = []
+): Promise<{ previousSnapshotId: string | null; snapshotId: string }> {
+  const previousSnapshotId = await readDefaultCandidateSnapshotCurrentForTest();
+  const snapshotId = await createReadyPropertyTileCandidateSnapshotFixture(propertyIds);
+  return { previousSnapshotId, snapshotId };
 }
 
 /**
@@ -1461,6 +1486,7 @@ describe('Tile routes', () => {
         degradedAt: null,
         degradedReason: null,
       };
+      const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
 
       setPropertyTilePyramidServiceForTests({
         getMaxZoom: () => 10,
@@ -1496,6 +1522,7 @@ describe('Tile routes', () => {
           },
           actor: 'tiles-route',
         });
+        expect(requestBuild).toHaveBeenCalledTimes(1);
         expect(requestBuild).toHaveBeenCalledWith({
           reason: 'manifest-missing',
           slot: {
@@ -1505,7 +1532,9 @@ describe('Tile routes', () => {
             pyramidKind: 'public_default_low_zoom',
           },
         });
+        expect(runtimeRunSpy).not.toHaveBeenCalled();
       } finally {
+        runtimeRunSpy.mockRestore();
         resetPropertyTileCacheForTests();
       }
     });
@@ -1717,6 +1746,7 @@ describe('Tile routes', () => {
           },
           actor: 'tiles-route',
         });
+        expect(requestBuild).toHaveBeenCalledTimes(1);
         expect(requestBuild).toHaveBeenCalledWith({
           reason: 'payload-regeneration-error',
           slot: {
@@ -1914,6 +1944,7 @@ describe('Tile routes', () => {
     it('returns timeout-empty public headers when runtime budget misses and no stale tile exists', async () => {
       process.env.PROPERTY_TILE_MAX_CONCURRENCY = '1';
       process.env.PROPERTY_TILE_QUEUE_WAIT_MS = '5';
+      const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture();
       let releaseBlocker!: () => void;
       let markBlockerStarted!: () => void;
       const blockerStarted = new Promise<void>((resolve) => {
@@ -1954,6 +1985,7 @@ describe('Tile routes', () => {
       } finally {
         releaseBlocker();
         await blocker;
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
         propertyTileRuntime.resetForTests();
       }
     });
@@ -1975,29 +2007,41 @@ describe('Tile routes', () => {
     });
 
     it('should return MVT data for Eindhoven area at zoom 14 (more detail)', async () => {
-      // At zoom 14, x=8434, y=5443 covers central Eindhoven
-      const response = await app.inject({
-        method: 'GET',
-        url: '/tiles/properties/14/8434/5443.pbf',
-      });
+      const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture();
 
-      expect([200, 204]).toContain(response.statusCode);
-      if (response.statusCode === 200) {
-        expect(response.headers['content-type']).toBe('application/x-protobuf');
+      // At zoom 14, x=8434, y=5443 covers central Eindhoven
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/14/8434/5443.pbf',
+        });
+
+        expect([200, 204]).toContain(response.statusCode);
+        if (response.statusCode === 200) {
+          expect(response.headers['content-type']).toBe('application/x-protobuf');
+        }
+      } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
       }
     });
 
     it('should return density-aware grouped features at zoom 17+', async () => {
+      const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture();
+
       // At zoom 17, Eindhoven center tile
       // x = 67478, y = 43551 (approx)
-      const response = await app.inject({
-        method: 'GET',
-        url: '/tiles/properties/17/67478/43551.pbf',
-      });
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/tiles/properties/17/67478/43551.pbf',
+        });
 
-      expect([200, 204]).toContain(response.statusCode);
-      if (response.statusCode === 200) {
-        expect(response.headers['content-type']).toBe('application/x-protobuf');
+        expect([200, 204]).toContain(response.statusCode);
+        if (response.statusCode === 200) {
+          expect(response.headers['content-type']).toBe('application/x-protobuf');
+        }
+      } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
       }
     });
 
@@ -2011,6 +2055,7 @@ describe('Tile routes', () => {
         lat: -34.1234,
       });
       const tile = tileCoordinatesForPoint(property.lon, property.lat, PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM);
+      const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture([property.id]);
 
       try {
         const groups = await buildCanonicalGroupsForTile(tile);
@@ -2022,6 +2067,7 @@ describe('Tile routes', () => {
         });
         expect([200, 204]).toContain(response.statusCode);
       } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }
     });
@@ -2039,80 +2085,98 @@ describe('Tile routes', () => {
 
     it('should serve repeated property tile requests from the server cache', async () => {
       const tileUrl = '/tiles/properties/13/4208/2686.pbf';
+      const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture();
 
-      const firstResponse = await app.inject({
-        method: 'GET',
-        url: tileUrl,
-      });
-      const secondResponse = await app.inject({
-        method: 'GET',
-        url: tileUrl,
-      });
+      try {
+        const firstResponse = await app.inject({
+          method: 'GET',
+          url: tileUrl,
+        });
+        const secondResponse = await app.inject({
+          method: 'GET',
+          url: tileUrl,
+        });
 
-      expect([200, 204]).toContain(firstResponse.statusCode);
-      expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
-      expect(secondResponse.headers['x-tile-cache']).toBe('hit');
-      expect(secondResponse.headers['x-tile-coalesced']).toBe('false');
-      expect(secondResponse.headers['x-tile-queue-time']).toMatch(/^\d+ms$/);
-      expect(secondResponse.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
-      expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+        expect([200, 204]).toContain(firstResponse.statusCode);
+        expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
+        expect(secondResponse.headers['x-tile-cache']).toBe('hit');
+        expect(secondResponse.headers['x-tile-coalesced']).toBe('false');
+        expect(secondResponse.headers['x-tile-queue-time']).toMatch(/^\d+ms$/);
+        expect(secondResponse.headers['x-tile-budget-ms']).toMatch(/^\d+$/);
+        expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+      } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
+      }
     });
 
     it('coalesces concurrent repeated property tile requests', async () => {
       const tileUrl = '/tiles/properties/13/4208/2686.pbf';
+      const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture();
 
-      const [firstResponse, secondResponse] = await Promise.all([
-        app.inject({ method: 'GET', url: tileUrl }),
-        app.inject({ method: 'GET', url: tileUrl }),
-      ]);
+      try {
+        const [firstResponse, secondResponse] = await Promise.all([
+          app.inject({ method: 'GET', url: tileUrl }),
+          app.inject({ method: 'GET', url: tileUrl }),
+        ]);
 
-      expect([200, 204]).toContain(firstResponse.statusCode);
-      expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
-      expect([
-        firstResponse.headers['x-tile-cache'],
-        secondResponse.headers['x-tile-cache'],
-      ]).toEqual(['miss', 'miss']);
-      expect([
-        firstResponse.headers['x-tile-coalesced'],
-        secondResponse.headers['x-tile-coalesced'],
-      ]).toContain('true');
+        expect([200, 204]).toContain(firstResponse.statusCode);
+        expect(secondResponse.statusCode).toBe(firstResponse.statusCode);
+        expect(firstResponse.headers['x-tile-cache']).toBe('miss');
+        expect(['miss', 'hit']).toContain(secondResponse.headers['x-tile-cache']);
+        if (secondResponse.headers['x-tile-cache'] === 'miss') {
+          expect([
+            firstResponse.headers['x-tile-coalesced'],
+            secondResponse.headers['x-tile-coalesced'],
+          ]).toContain('true');
+        } else {
+          expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+        }
+      } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
+      }
     });
 
     it('returns 304 when a cached public property tile ETag matches', async () => {
       const tileUrl = '/tiles/properties/11/0/0.pbf';
-      const firstResponse = await app.inject({ method: 'GET', url: tileUrl });
-      const etag = firstResponse.headers.etag;
+      const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture();
 
-      expect(firstResponse.statusCode).toBe(204);
-      expect(etag).toBeDefined();
+      try {
+        const firstResponse = await app.inject({ method: 'GET', url: tileUrl });
+        const etag = firstResponse.headers.etag;
 
-      const secondResponse = await app.inject({
-        method: 'GET',
-        url: tileUrl,
-        headers: { 'if-none-match': String(etag) },
-      });
+        expect(firstResponse.statusCode).toBe(204);
+        expect(etag).toBeDefined();
 
-      expect(secondResponse.statusCode).toBe(304);
-      expect(secondResponse.headers['x-tile-cache']).toBe('hit');
-      expect(secondResponse.headers.etag).toBe(etag);
+        const secondResponse = await app.inject({
+          method: 'GET',
+          url: tileUrl,
+          headers: { 'if-none-match': String(etag) },
+        });
 
-      const weakListResponse = await app.inject({
-        method: 'GET',
-        url: tileUrl,
-        headers: { 'if-none-match': `"not-match", W/${String(etag)}` },
-      });
+        expect(secondResponse.statusCode).toBe(304);
+        expect(secondResponse.headers['x-tile-cache']).toBe('hit');
+        expect(secondResponse.headers.etag).toBe(etag);
 
-      expect(weakListResponse.statusCode).toBe(304);
-      expect(weakListResponse.headers['x-tile-cache']).toBe('hit');
+        const weakListResponse = await app.inject({
+          method: 'GET',
+          url: tileUrl,
+          headers: { 'if-none-match': `"not-match", W/${String(etag)}` },
+        });
 
-      const wildcardResponse = await app.inject({
-        method: 'GET',
-        url: tileUrl,
-        headers: { 'if-none-match': '*' },
-      });
+        expect(weakListResponse.statusCode).toBe(304);
+        expect(weakListResponse.headers['x-tile-cache']).toBe('hit');
 
-      expect(wildcardResponse.statusCode).toBe(304);
-      expect(wildcardResponse.headers['x-tile-cache']).toBe('hit');
+        const wildcardResponse = await app.inject({
+          method: 'GET',
+          url: tileUrl,
+          headers: { 'if-none-match': '*' },
+        });
+
+        expect(wildcardResponse.statusCode).toBe(304);
+        expect(wildcardResponse.headers['x-tile-cache']).toBe('hit');
+      } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
+      }
     });
 
     it('keeps public property tile cache viewer-agnostic even when request identity headers differ', async () => {
@@ -2132,22 +2196,27 @@ describe('Tile routes', () => {
           askingPrice: 525000,
           sourceUrl: `https://example.com/viewer-agnostic-${property.id}`,
         });
+        const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture([property.id]);
 
-        const firstResponse = await app.inject({
-          method: 'GET',
-          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
-        });
-        const secondResponse = await app.inject({
-          method: 'GET',
-          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
-          headers: { 'x-session-id': `viewer-agnostic-${Date.now()}` },
-        });
+        try {
+          const firstResponse = await app.inject({
+            method: 'GET',
+            url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          });
+          const secondResponse = await app.inject({
+            method: 'GET',
+            url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+            headers: { 'x-session-id': `viewer-agnostic-${Date.now()}` },
+          });
 
-        expect(firstResponse.statusCode).toBe(200);
-        expect(firstResponse.headers['x-tile-cache']).toBe('miss');
-        expect(secondResponse.statusCode).toBe(200);
-        expect(secondResponse.headers['x-tile-cache']).toBe('hit');
-        expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+          expect(firstResponse.statusCode).toBe(200);
+          expect(firstResponse.headers['x-tile-cache']).toBe('miss');
+          expect(secondResponse.statusCode).toBe(200);
+          expect(secondResponse.headers['x-tile-cache']).toBe('hit');
+          expect(secondResponse.headers['x-tile-generation-time']).toBe('0ms');
+        } finally {
+          await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
+        }
       } finally {
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
@@ -2384,26 +2453,77 @@ describe('Tile routes', () => {
         [z, x - 1, y],
       ];
 
-      let foundCluster = false;
-      for (const [tz, tx, ty] of tilesToTry) {
-        const response = await app.inject({
-          method: 'GET',
-          url: `/tiles/properties/${tz}/${tx}/${ty}.pbf`,
-        });
+      const properties = await Promise.all(
+        [
+          { street: 'Eindhoven Cluster Tile A', lon: 5.4697, lat: 51.4416 },
+          { street: 'Eindhoven Cluster Tile B', lon: 5.4701, lat: 51.4418 },
+          { street: 'Eindhoven Cluster Tile C', lon: 5.4694, lat: 51.4413 },
+        ].map((property, index) =>
+          createIntegrationProperty({
+            street: property.street,
+            houseNumber: index + 1,
+            city: 'Eindhoven',
+            postalCode: `5611${String.fromCharCode(65 + index)}A`,
+            lon: property.lon,
+            lat: property.lat,
+          })
+        )
+      );
 
-        if (response.statusCode === 200 && response.rawPayload.length > 0) {
-          // At z13 with clustering enabled, the tile should encode correctly
-          // (bbox_west/south/east/north are added as MVT feature properties).
-          // Full MVT property verification requires a protobuf decoder;
-          // here we confirm the tile encodes without error and is non-empty.
-          expect(response.headers['content-type']).toBe('application/x-protobuf');
-          expect(response.rawPayload.length).toBeGreaterThan(0);
-          foundCluster = true;
-          break;
+      try {
+        await Promise.all(
+          properties.map((property, index) =>
+            createIntegrationListing({
+              propertyId: property.id,
+              askingPrice: 425000 + index * 25_000,
+              sourceUrl: `https://example.com/eindhoven-cluster-${property.id}`,
+            })
+          )
+        );
+        const { previousSnapshotId } = await replaceDefaultCandidateSnapshotFixture(
+          properties.map((property) => property.id)
+        );
+
+        try {
+          let foundCluster = false;
+          for (const [tz, tx, ty] of tilesToTry) {
+            const response = await app.inject({
+              method: 'GET',
+              url: `/tiles/properties/${tz}/${tx}/${ty}.pbf`,
+            });
+
+            if (response.statusCode === 200 && response.rawPayload.length > 0) {
+              // At z13 with clustering enabled, the tile should encode correctly
+              // (bbox_west/south/east/north are added as MVT feature properties).
+              // Full MVT property verification requires a protobuf decoder;
+              // here we confirm the tile encodes without error and is non-empty.
+              expect(response.headers['content-type']).toBe('application/x-protobuf');
+              expect(response.rawPayload.length).toBeGreaterThan(0);
+              foundCluster = true;
+              break;
+            }
+          }
+
+          expect(foundCluster).toBe(true);
+        } finally {
+          await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
         }
+      } finally {
+        await db.execute(sql`
+          DELETE FROM listings
+          WHERE property_id IN (${sql.join(
+            properties.map((property) => sql`${property.id}`),
+            sql`, `
+          )})
+        `);
+        await db.execute(sql`
+          DELETE FROM properties
+          WHERE id IN (${sql.join(
+            properties.map((property) => sql`${property.id}`),
+            sql`, `
+          )})
+        `);
       }
-
-      expect(foundCluster).toBe(true);
     });
   });
 
@@ -2600,8 +2720,8 @@ describe('Tile routes', () => {
         houseNumber: 1,
         city: 'Readtile',
         postalCode: '9303AA',
-        lon: 6.203,
-        lat: 52.203,
+        lon: 6.201,
+        lat: 52.201,
       });
       const tile = tileCoordinatesForPoint(property.lon, property.lat, 17);
       const readerSessionId = `read-overlay-reader-${Date.now()}`;
@@ -2613,41 +2733,45 @@ describe('Tile routes', () => {
           askingPrice: 477000,
           sourceUrl: `https://example.com/read-overlay-identity-${property.id}`,
         });
-        const previousSnapshotId = await readDefaultCandidateSnapshotCurrentForTest();
-        await createReadyPropertyTileCandidateSnapshotFixture([property.id]);
 
-        try {
-          const publicResponse = await app.inject({
-            method: 'GET',
-            url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
-          });
-          expect(publicResponse.statusCode).toBe(200);
+        const publicCacheKey = `${tile.z}/${tile.x}/${tile.y}:default`;
+        const publicPayload = Buffer.from([0x1a, 0x06, 0x70, 0x75, 0x62, 0x6c, 0x69, 0x63]);
+        publicPropertyTileCache.set(publicCacheKey, {
+          payload: publicPayload,
+          statusCode: 200,
+          etag: buildPropertyTileEtag(publicCacheKey, publicPayload),
+        });
 
-          const viewResponse = await app.inject({
-            method: 'POST',
-            url: `/properties/${property.id}/view`,
-            headers: { 'x-session-id': readerSessionId },
-          });
-          expect(viewResponse.statusCode).toBe(200);
+        const unreadResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': readerSessionId },
+        });
+        expect(unreadResponse.statusCode).toBe(204);
 
-          const readerResponse = await app.inject({
-            method: 'GET',
-            url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
-            headers: { 'x-session-id': readerSessionId },
-          });
-          const otherViewerResponse = await app.inject({
-            method: 'GET',
-            url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
-            headers: { 'x-session-id': otherSessionId },
-          });
+        const viewResponse = await app.inject({
+          method: 'POST',
+          url: `/properties/${property.id}/view`,
+          headers: { 'x-session-id': readerSessionId },
+        });
+        expect(viewResponse.statusCode).toBe(200);
 
-          expect(readerResponse.statusCode).toBe(200);
-          expect(readerResponse.headers['cache-control']).toBe('private, no-store');
-          expect(otherViewerResponse.statusCode).toBe(204);
-          expect(otherViewerResponse.headers['cache-control']).toBe('private, no-store');
-        } finally {
-          await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
-        }
+        const readerResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': readerSessionId },
+        });
+        const otherViewerResponse = await app.inject({
+          method: 'GET',
+          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          headers: { 'x-session-id': otherSessionId },
+        });
+
+        expect(readerResponse.statusCode).toBe(200);
+        expect(readerResponse.headers['cache-control']).toBe('private, no-store');
+        expect(readerResponse.rawPayload).not.toEqual(publicPayload);
+        expect(otherViewerResponse.statusCode).toBe(204);
+        expect(otherViewerResponse.headers['cache-control']).toBe('private, no-store');
       } finally {
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);

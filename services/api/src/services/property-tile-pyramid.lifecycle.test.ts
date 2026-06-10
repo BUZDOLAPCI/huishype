@@ -179,6 +179,134 @@ function isCandidateSourceSnapshotProgressQuery(queryText: string): boolean {
   );
 }
 
+function makeUsableCurrentGenerationRow(
+  input: {
+    sourceWatermarkHash?: string;
+    sourceWatermarksJson?: Record<string, unknown>;
+  } = {}
+) {
+  return {
+    current_version_id: '00000000-0000-0000-0000-0000000000aa',
+    current_promoted_at: '2026-06-10T00:00:00.000Z',
+    source_watermark_hash: input.sourceWatermarkHash ?? 'current-watermarks',
+    source_watermarks_json: input.sourceWatermarksJson ?? {},
+    status: 'promoted',
+    degraded_at: null,
+    degraded_reason: null,
+    expected_tile_count: 1,
+    validated_tile_count: 1,
+    node_count: 10,
+    encoded_payload_bytes: '100',
+    wal_bytes: '200',
+    tile_count: '1',
+    invalid_tile_count: '0',
+  };
+}
+
+function isFullBuildCurrentGenerationQuery(queryText: string): boolean {
+  return (
+    queryText.includes('FROM property_tile_pyramid_current c') &&
+    queryText.includes('tile_stats.invalid_tile_count')
+  );
+}
+
+function isRecoverStaleBuildRequestQuery(queryText: string): boolean {
+  return queryText.includes('recovered_count') && queryText.includes('lease_expired');
+}
+
+function isLeasedActiveBuildLookupQuery(queryText: string): boolean {
+  return (
+    queryText.includes('SELECT id::text, status, next_retry_at::text') &&
+    queryText.includes("status IN ('building', 'validating')") &&
+    queryText.includes('lease_until > now()') &&
+    !queryText.includes('active_replacement')
+  );
+}
+
+function isLeasedActiveCoalesceQuery(queryText: string): boolean {
+  return (
+    queryText.includes('WITH active_replacement AS MATERIALIZED') &&
+    queryText.includes('pending_replacement_watermarks_json') &&
+    queryText.includes('active_same') &&
+    !queryText.includes('INSERT INTO property_tile_pyramid_versions')
+  );
+}
+
+function isQueuedBuildSupersedeQuery(queryText: string): boolean {
+  return (
+    queryText.includes("status = 'superseded'") &&
+    queryText.includes('Superseded by newer property tile pyramid build request before work started')
+  );
+}
+
+function isDurableBuildRequestQuery(queryText: string): boolean {
+  return (
+    queryText.includes('WITH active_replacement AS MATERIALIZED') &&
+    queryText.includes('INSERT INTO property_tile_pyramid_versions') &&
+    queryText.includes('RETURNING id::text, status, next_retry_at::text')
+  );
+}
+
+function isExistingBuildIdentityLookupQuery(queryText: string): boolean {
+  return (
+    queryText.includes('SELECT id::text, status, next_retry_at::text') &&
+    queryText.includes('build_inputs_hash =') &&
+    queryText.includes('source_watermark_hash =') &&
+    !queryText.includes("status IN ('building', 'validating')")
+  );
+}
+
+function isQueueDispatchFailureUpdateQuery(queryText: string): boolean {
+  return queryText.includes('queue_dispatch') && queryText.includes('failure_message');
+}
+
+type RequestBuildLifecycleMockOptions = {
+  currentRows?: unknown[];
+  activeLookupRows?: unknown[];
+  activeCoalesceRows?: unknown[];
+  recoveryRows?: unknown[];
+  durableRows?: unknown[];
+  existingRows?: unknown[];
+  durableError?: unknown;
+};
+
+function mockRequestBuildLifecycle(options: RequestBuildLifecycleMockOptions): void {
+  executeMock.mockImplementation(async (query) => {
+    const queryText = JSON.stringify(query);
+    if (isLeasedActiveBuildLookupQuery(queryText)) {
+      return options.activeLookupRows ?? [];
+    }
+    if (isLeasedActiveCoalesceQuery(queryText)) {
+      return options.activeCoalesceRows ?? [];
+    }
+    if (isFullBuildCurrentGenerationQuery(queryText)) {
+      return options.currentRows ?? [];
+    }
+    if (queryText.includes('propertyTilePyramidFullBuildPending')) {
+      return [];
+    }
+    if (isRecoverStaleBuildRequestQuery(queryText)) {
+      return options.recoveryRows ?? [{ recovered_count: 0 }];
+    }
+    if (isQueuedBuildSupersedeQuery(queryText)) {
+      return [];
+    }
+    if (isDurableBuildRequestQuery(queryText)) {
+      if (options.durableError) {
+        throw options.durableError;
+      }
+      return options.durableRows ?? [];
+    }
+    if (isExistingBuildIdentityLookupQuery(queryText)) {
+      return options.existingRows ?? [];
+    }
+    if (isQueueDispatchFailureUpdateQuery(queryText)) {
+      return [];
+    }
+    throw new Error(`Unexpected query: ${queryText}`);
+  });
+}
+
 describe('property tile pyramid build lifecycle', () => {
   beforeEach(() => {
     jest.useRealTimers();
@@ -195,18 +323,125 @@ describe('property tile pyramid build lifecycle', () => {
     transactionMock.mockImplementation(async (run) => run({ execute: txExecuteMock }));
   });
 
+  it('records denied full-build demand without creating a version row before cadence', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    executeMock.mockImplementation(async (query) => {
+      const queryText = JSON.stringify(query);
+      if (queryText.includes('active_replacement')) {
+        return [];
+      }
+      if (isFullBuildCurrentGenerationQuery(queryText)) {
+        return [makeUsableCurrentGenerationRow()];
+      }
+      if (queryText.includes('propertyTilePyramidFullBuildPending')) {
+        return [];
+      }
+      throw new Error(`Unexpected query: ${queryText}`);
+    });
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'source-watermark',
+      sourceWatermarkHash: 'current-watermarks',
+      sourceWatermarksJson: {},
+      buildInputsHash: 'inputs',
+    });
+
+    expect(result).toEqual({
+      status: 'coalesced',
+      reason: 'full-build-eligibility-denied:cadence-not-due',
+    });
+    expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+    const queries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+    expect(
+      queries.some((query) => query.includes('INSERT INTO property_tile_pyramid_versions'))
+    ).toBe(false);
+    const pendingQuery = queries.find((query) =>
+      query.includes('propertyTilePyramidFullBuildPending')
+    );
+    expect(pendingQuery).toContain('property_tile_pyramid_source_watermarks');
+    expect(pendingQuery).toContain('full-build-eligibility');
+    expect(pendingQuery).toContain('cadence-not-due');
+  });
+
+  it('allows canonical source-watermark advances before cadence', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    executeMock.mockImplementation(async (query) => {
+      const queryText = JSON.stringify(query);
+      if (
+        queryText.includes('active_replacement') &&
+        !queryText.includes('INSERT INTO property_tile_pyramid_versions')
+      ) {
+        return [];
+      }
+      if (isFullBuildCurrentGenerationQuery(queryText)) {
+        return [makeUsableCurrentGenerationRow({ sourceWatermarkHash: 'current-watermarks' })];
+      }
+      if (queryText.includes('recovered_count')) {
+        return [{ recovered_count: 0 }];
+      }
+      if (
+        queryText.includes('UPDATE property_tile_pyramid_versions') &&
+        queryText.includes("status = 'superseded'")
+      ) {
+        return [];
+      }
+      if (
+        queryText.includes('active_replacement') &&
+        queryText.includes('INSERT INTO property_tile_pyramid_versions')
+      ) {
+        return [
+          {
+            id: 'queued-version',
+            status: 'queued',
+            next_retry_at: null,
+            queue_eligible: true,
+            pending_replacement: false,
+            active_build_in_progress: false,
+          },
+        ];
+      }
+      throw new Error(`Unexpected query: ${queryText}`);
+    });
+    enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
+      status: 'enqueued',
+      jobId: 'job-1',
+    });
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'source-watermark',
+      sourceWatermarkHash: 'new-canonical-watermarks',
+      sourceWatermarksJson: {},
+      buildInputsHash: 'inputs',
+    });
+
+    expect(result).toMatchObject({
+      status: 'enqueued',
+      versionId: 'queued-version',
+      existingStatus: 'queued',
+    });
+    expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+    const queries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+    expect(queries.some((query) => query.includes('propertyTilePyramidFullBuildPending'))).toBe(
+      false
+    );
+    expect(
+      queries.some((query) => query.includes('INSERT INTO property_tile_pyramid_versions'))
+    ).toBe(true);
+  });
+
   it('does not dispatch BullMQ when an existing build identity is already promoted', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    mockRequestBuildLifecycle({
+      durableRows: [],
+      existingRows: [
         {
           id: 'promoted-version',
           status: 'promoted',
           next_retry_at: null,
         },
-      ]);
+      ],
+    });
 
     const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
     const result = await requestPropertyTilePyramidBuild({
@@ -225,18 +460,16 @@ describe('property tile pyramid build lifecycle', () => {
   });
 
   it('dispatches BullMQ only after Postgres returns a queue-eligible version', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    mockRequestBuildLifecycle({
+      durableRows: [
         {
           id: 'queued-version',
           status: 'queued',
           next_retry_at: null,
           queue_eligible: true,
         },
-      ]);
+      ],
+    });
     enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
       status: 'enqueued',
       jobId: 'job-1',
@@ -260,10 +493,14 @@ describe('property tile pyramid build lifecycle', () => {
   });
 
   it('creates a repair replacement when a promoted version has corrupt tile state but source watermarks are unchanged', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    mockRequestBuildLifecycle({
+      currentRows: [
+        {
+          ...makeUsableCurrentGenerationRow({ sourceWatermarkHash: 'watermarks' }),
+          invalid_tile_count: '1',
+        },
+      ],
+      durableRows: [
         {
           id: 'repair-version',
           status: 'queued',
@@ -271,7 +508,8 @@ describe('property tile pyramid build lifecycle', () => {
           queue_eligible: true,
           pending_replacement: false,
         },
-      ]);
+      ],
+    });
     enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
       status: 'enqueued',
       jobId: 'job-1',
@@ -294,11 +532,8 @@ describe('property tile pyramid build lifecycle', () => {
   });
 
   it('reports enqueue failure instead of claiming the durable request was enqueued', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    mockRequestBuildLifecycle({
+      durableRows: [
         {
           id: 'queued-version',
           status: 'queued',
@@ -306,8 +541,8 @@ describe('property tile pyramid build lifecycle', () => {
           queue_eligible: true,
           pending_replacement: false,
         },
-      ])
-      .mockResolvedValueOnce([]);
+      ],
+    });
     enqueuePropertyTilePyramidBuildMock.mockRejectedValueOnce(new Error('redis unavailable'));
 
     const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
@@ -331,10 +566,8 @@ describe('property tile pyramid build lifecycle', () => {
   });
 
   it('records pending replacement metadata instead of dispatching a duplicate active build for the slot', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    mockRequestBuildLifecycle({
+      activeCoalesceRows: [
         {
           id: 'active-version',
           status: 'building',
@@ -342,7 +575,8 @@ describe('property tile pyramid build lifecycle', () => {
           queue_eligible: false,
           pending_replacement: true,
         },
-      ]);
+      ],
+    });
 
     const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
     const result = await requestPropertyTilePyramidBuild({
@@ -359,7 +593,10 @@ describe('property tile pyramid build lifecycle', () => {
       reason: 'pending-replacement-recorded',
     });
     expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-    const requestQuery = JSON.stringify(executeMock.mock.calls[2]?.[0]);
+    const requestQuery =
+      executeMock.mock.calls
+        .map((call) => JSON.stringify(call[0]))
+        .find((query) => isLeasedActiveCoalesceQuery(query)) ?? '';
     expect(requestQuery).toContain('active_replacement');
     expect(requestQuery).toContain('pending_replacement_watermarks_json');
     expect(requestQuery).toContain("status IN ('building', 'validating')");
@@ -368,9 +605,8 @@ describe('property tile pyramid build lifecycle', () => {
   });
 
   it('short-circuits worker recovery when an active leased build is in progress', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    mockRequestBuildLifecycle({
+      activeLookupRows: [
         {
           id: 'active-version',
           status: 'building',
@@ -379,7 +615,8 @@ describe('property tile pyramid build lifecycle', () => {
           pending_replacement: false,
           active_build_in_progress: true,
         },
-      ]);
+      ],
+    });
 
     const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
     const result = await requestPropertyTilePyramidBuild({
@@ -396,8 +633,11 @@ describe('property tile pyramid build lifecycle', () => {
       reason: 'active-build-in-progress',
     });
     expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-    expect(executeMock).toHaveBeenCalledTimes(2);
-    const activeLookupQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const activeLookupQuery =
+      executeMock.mock.calls
+        .map((call) => JSON.stringify(call[0]))
+        .find((query) => isLeasedActiveBuildLookupQuery(query)) ?? '';
     expect(activeLookupQuery).toContain("status IN ('building', 'validating')");
     expect(activeLookupQuery).toContain('lease_until > now()');
     expect(activeLookupQuery).not.toContain('INSERT INTO property_tile_pyramid_versions');
@@ -414,18 +654,33 @@ describe('property tile pyramid build lifecycle', () => {
         code: '23505',
         ...errorShape,
       });
-      executeMock
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockRejectedValueOnce(activeSlotConflict)
-        .mockResolvedValueOnce([
-          {
-            id: 'active-version',
-            status: 'building',
-            next_retry_at: null,
-            pending_replacement: true,
-          },
-        ]);
+      let activeReplacementQueryCount = 0;
+      executeMock.mockImplementation(async (query) => {
+        const queryText = JSON.stringify(query);
+        if (isLeasedActiveCoalesceQuery(queryText)) {
+          activeReplacementQueryCount += 1;
+          return activeReplacementQueryCount === 1
+            ? []
+            : [
+                {
+                  id: 'active-version',
+                  status: 'building',
+                  next_retry_at: null,
+                  pending_replacement: true,
+                },
+              ];
+        }
+        if (isFullBuildCurrentGenerationQuery(queryText)) {
+          return [];
+        }
+        if (isRecoverStaleBuildRequestQuery(queryText) || isQueuedBuildSupersedeQuery(queryText)) {
+          return [];
+        }
+        if (isDurableBuildRequestQuery(queryText)) {
+          throw activeSlotConflict;
+        }
+        throw new Error(`Unexpected query: ${queryText}`);
+      });
 
       const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
       const result = await requestPropertyTilePyramidBuild({
@@ -442,7 +697,11 @@ describe('property tile pyramid build lifecycle', () => {
         reason: 'pending-replacement-recorded',
       });
       expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-      const conflictRecoveryQuery = JSON.stringify(executeMock.mock.calls[3]?.[0]);
+      const conflictRecoveryQuery =
+        executeMock.mock.calls
+          .map((call) => JSON.stringify(call[0]))
+          .filter((query) => isLeasedActiveCoalesceQuery(query))
+          .at(-1) ?? '';
       expect(conflictRecoveryQuery).toContain('active_replacement');
       expect(conflictRecoveryQuery).toContain('pending_replacement_watermarks_json');
       expect(conflictRecoveryQuery).toContain("status IN ('building', 'validating')");
@@ -500,10 +759,8 @@ describe('property tile pyramid build lifecycle', () => {
   );
 
   it('does not record pending replacement metadata for same comparable source watermarks', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    mockRequestBuildLifecycle({
+      activeCoalesceRows: [
         {
           id: 'active-version',
           status: 'building',
@@ -511,7 +768,8 @@ describe('property tile pyramid build lifecycle', () => {
           queue_eligible: false,
           pending_replacement: false,
         },
-      ]);
+      ],
+    });
 
     const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
     const result = await requestPropertyTilePyramidBuild({
@@ -528,7 +786,10 @@ describe('property tile pyramid build lifecycle', () => {
     });
     expect(result.reason).toBeUndefined();
     expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-    const requestQuery = JSON.stringify(executeMock.mock.calls[2]?.[0]);
+    const requestQuery =
+      executeMock.mock.calls
+        .map((call) => JSON.stringify(call[0]))
+        .find((query) => isLeasedActiveCoalesceQuery(query)) ?? '';
     expect(requestQuery).toContain('active_same');
     expect(requestQuery).toContain('comparable_source_watermark_hash');
     expect(requestQuery).toContain('pending_replacement_watermarks_json');
@@ -536,10 +797,8 @@ describe('property tile pyramid build lifecycle', () => {
   });
 
   it('supersedes a stale queued candidate before inserting newer queued inputs for the same slot', async () => {
-    executeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
+    mockRequestBuildLifecycle({
+      durableRows: [
         {
           id: 'newer-version',
           status: 'queued',
@@ -547,7 +806,8 @@ describe('property tile pyramid build lifecycle', () => {
           queue_eligible: true,
           pending_replacement: false,
         },
-      ]);
+      ],
+    });
     enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
       status: 'enqueued',
       jobId: 'job-1',
@@ -567,8 +827,9 @@ describe('property tile pyramid build lifecycle', () => {
       existingStatus: 'queued',
     });
     expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
-    const supersedeQuery = JSON.stringify(executeMock.mock.calls[1]?.[0]);
-    const requestQuery = JSON.stringify(executeMock.mock.calls[2]?.[0]);
+    const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+    const supersedeQuery = executedQueries.find((query) => isQueuedBuildSupersedeQuery(query)) ?? '';
+    const requestQuery = executedQueries.find((query) => isDurableBuildRequestQuery(query)) ?? '';
     expect(supersedeQuery).toContain("status = 'queued'");
     expect(supersedeQuery).toContain("status = 'failed_retryable'");
     expect(supersedeQuery).toContain('build_started_at IS NULL');
@@ -607,18 +868,16 @@ describe('property tile pyramid build lifecycle', () => {
   it.each([['expired active'], ['legacy validated']])(
     'enqueues a recovered %s build identity instead of coalescing',
     async () => {
-      executeMock
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([
+      mockRequestBuildLifecycle({
+        durableRows: [
           {
             id: 'recovered-version',
             status: 'failed_retryable',
             next_retry_at: null,
             queue_eligible: true,
           },
-        ]);
+        ],
+      });
       enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
         status: 'enqueued',
         jobId: 'job-1',
@@ -639,7 +898,10 @@ describe('property tile pyramid build lifecycle', () => {
         queueJobId: expect.stringMatching(/^property-tile-pyramid-[a-f0-9]{40}$/),
       });
       expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
-      const recoveryQuery = JSON.stringify(executeMock.mock.calls[0]?.[0]);
+      const recoveryQuery =
+        executeMock.mock.calls
+          .map((call) => JSON.stringify(call[0]))
+          .find((query) => isRecoverStaleBuildRequestQuery(query)) ?? '';
       expect(recoveryQuery).toContain("status IN ('building', 'validating')");
       expect(recoveryQuery).toContain("status = 'validated'");
       expect(recoveryQuery).toContain('lease_until IS NULL');
@@ -731,6 +993,14 @@ describe('property tile pyramid build lifecycle', () => {
           }
           if (queryText.includes(' AS ok')) {
             return [{ ok: true }];
+          }
+          if (
+            isLeasedActiveCoalesceQuery(queryText) ||
+            isFullBuildCurrentGenerationQuery(queryText) ||
+            isRecoverStaleBuildRequestQuery(queryText) ||
+            isQueuedBuildSupersedeQuery(queryText)
+          ) {
+            return [];
           }
           if (
             queryText.includes('active_replacement') &&
@@ -860,6 +1130,14 @@ describe('property tile pyramid build lifecycle', () => {
           }
           if (queryText.includes(' AS ok')) {
             return [{ ok: true }];
+          }
+          if (
+            isLeasedActiveCoalesceQuery(queryText) ||
+            isFullBuildCurrentGenerationQuery(queryText) ||
+            isRecoverStaleBuildRequestQuery(queryText) ||
+            isQueuedBuildSupersedeQuery(queryText)
+          ) {
+            return [];
           }
           if (
             queryText.includes('active_replacement') &&
@@ -1342,6 +1620,14 @@ describe('property tile pyramid build lifecycle', () => {
             return [{ ok: true }];
           }
           if (
+            isLeasedActiveCoalesceQuery(queryText) ||
+            isFullBuildCurrentGenerationQuery(queryText) ||
+            isRecoverStaleBuildRequestQuery(queryText) ||
+            isQueuedBuildSupersedeQuery(queryText)
+          ) {
+            return [];
+          }
+          if (
             queryText.includes('active_replacement') &&
             queryText.includes('INSERT INTO property_tile_pyramid_versions')
           ) {
@@ -1455,6 +1741,14 @@ describe('property tile pyramid build lifecycle', () => {
             return [];
           }
           if (
+            isLeasedActiveCoalesceQuery(queryText) ||
+            isFullBuildCurrentGenerationQuery(queryText) ||
+            isRecoverStaleBuildRequestQuery(queryText) ||
+            isQueuedBuildSupersedeQuery(queryText)
+          ) {
+            return [];
+          }
+          if (
             queryText.includes('active_replacement') &&
             queryText.includes('INSERT INTO property_tile_pyramid_versions')
           ) {
@@ -1561,6 +1855,14 @@ describe('property tile pyramid build lifecycle', () => {
             queryText.includes('WITH current_snapshot AS MATERIALIZED') ||
             queryText.includes('FROM property_tile_listing_candidates') ||
             queryText.includes('FROM property_tile_listing_facts')
+          ) {
+            return [];
+          }
+          if (
+            isLeasedActiveCoalesceQuery(queryText) ||
+            isFullBuildCurrentGenerationQuery(queryText) ||
+            isRecoverStaleBuildRequestQuery(queryText) ||
+            isQueuedBuildSupersedeQuery(queryText)
           ) {
             return [];
           }
@@ -1830,8 +2132,10 @@ describe('property tile pyramid build lifecycle', () => {
         }),
         expect.objectContaining({
           source: 'rolling_social_window',
-          bucket: 493930,
-          cutoffAt: '2026-05-07T10:00:00.000Z',
+          bucket: 20580,
+          bucketUnit: 'cadence',
+          cadenceMs: 86400000,
+          cutoffAt: '2026-05-07T00:00:00.000Z',
         }),
       ])
     );
@@ -1984,6 +2288,7 @@ describe('property tile pyramid build lifecycle', () => {
 
   it('runs retention through chunked pyramid and candidate snapshot cleanup', async () => {
     executeMock
+      .mockResolvedValueOnce([{ result: { partitioned: false } }])
       .mockResolvedValueOnce([{ affected: 0 }])
       .mockResolvedValueOnce([{ relation_name: 'property_tile_pyramid_members' }])
       .mockResolvedValueOnce([{ affected: 0 }])
@@ -2040,6 +2345,9 @@ describe('property tile pyramid build lifecycle', () => {
   it('marks retention as draining after bounded full chunks remain', async () => {
     executeMock.mockImplementation(async (query) => {
       const queryText = JSON.stringify(query);
+      if (queryText.includes('property_tile_generated_partition_retention')) {
+        return [{ result: { partitioned: false } }];
+      }
       if (queryText.includes('to_regclass')) {
         return [{ relation_name: 'property_tile_pyramid_members' }];
       }
@@ -2078,7 +2386,7 @@ describe('property tile pyramid build lifecycle', () => {
         deletedCandidateSourceSnapshots: 2,
       },
     });
-    expect(executeMock).toHaveBeenCalledTimes(21);
+    expect(executeMock).toHaveBeenCalledTimes(23);
     const retentionQueries = executeMock.mock.calls
       .map((call) => JSON.stringify(call[0]))
       .join('\n');
@@ -2093,6 +2401,9 @@ describe('property tile pyramid build lifecycle', () => {
   it('skips optional member retention when the legacy members table is absent', async () => {
     executeMock.mockImplementation(async (query) => {
       const queryText = JSON.stringify(query);
+      if (queryText.includes('property_tile_generated_partition_retention')) {
+        return [{ result: { partitioned: false } }];
+      }
       if (queryText.includes('to_regclass')) {
         return [{ relation_name: null }];
       }
@@ -2112,5 +2423,39 @@ describe('property tile pyramid build lifecycle', () => {
     expect(retentionQueries).toContain('to_regclass');
     expect(retentionQueries).not.toContain('FROM property_tile_pyramid_members m');
     expect(retentionQueries).not.toContain('DELETE FROM property_tile_pyramid_members m');
+  });
+
+  it('uses partition retention without row-by-row generated table deletes when partitioned', async () => {
+    executeMock.mockResolvedValueOnce([
+      {
+        result: {
+          partitioned: true,
+          droppedVersionPartitions: 4,
+          droppedSnapshotPartitions: 8,
+          deletedVersions: 2,
+          deletedCandidateSourceSnapshots: 2,
+        },
+      },
+    ]);
+
+    const { runPropertyTilePyramidRetention } = await import('./property-tile-pyramid.js');
+    const result = await runPropertyTilePyramidRetention();
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      hasMore: false,
+      partitioned: true,
+      deletedVersions: 2,
+      deletedCandidateSourceSnapshots: 2,
+      droppedVersionPartitions: 4,
+      droppedSnapshotPartitions: 8,
+    });
+    const retentionQueries = executeMock.mock.calls
+      .map((call) => JSON.stringify(call[0]))
+      .join('\n');
+    expect(retentionQueries).toContain('property_tile_generated_partition_retention');
+    expect(retentionQueries).not.toContain('DELETE FROM property_tile_pyramid_nodes n');
+    expect(retentionQueries).not.toContain('DELETE FROM property_tile_listing_candidates c');
+    expect(retentionQueries).not.toContain('property_tile_pyramid_source_watermarks');
   });
 });

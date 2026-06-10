@@ -243,6 +243,21 @@ describe('property tile pyramid health and ops contracts', () => {
       encodedTileCount: 12,
       nodeCount: 41,
       memberCount: 140,
+      generationCounts: {
+        queued: 1,
+        building: 1,
+        promoted: 2,
+        failed_retryable: 1,
+      },
+      activeBuildCount: 2,
+      retainedGenerationCount: 3,
+      relationStats: [
+        {
+          relationName: 'property_tile_pyramid_tiles',
+          rowEstimate: 8192,
+          totalBytes: 48_000_000,
+        },
+      ],
       currentBuildDurationMs: 120_000,
       currentObservedWalBytes: 8_000_000,
       activeCandidateStage: 'resource-validation',
@@ -253,6 +268,14 @@ describe('property tile pyramid health and ops contracts', () => {
       activeLeaseAgeSeconds: 42,
       lastAuditAction: 'promoted',
       lastAuditReason: 'contract-test',
+      lastRetentionResult: {
+        action: 'retention_deleted',
+        reason: 'completed',
+        createdAt: '2026-05-07T08:10:00.000Z',
+        details: { deletedVersions: 1, deletedTiles: 128 },
+      },
+      lastEligibilityVerdict: 'blocked',
+      lastEligibilityBlockReason: 'retry-backoff',
     });
 
     const response = await app.inject({ method: 'GET', url: '/ops/property-tile-pyramid' });
@@ -270,6 +293,21 @@ describe('property tile pyramid health and ops contracts', () => {
       encodedTileCount: 12,
       nodeCount: 41,
       memberCount: 140,
+      generationCounts: {
+        queued: 1,
+        building: 1,
+        promoted: 2,
+        failed_retryable: 1,
+      },
+      activeBuildCount: 2,
+      retainedGenerationCount: 3,
+      relationStats: [
+        {
+          relationName: 'property_tile_pyramid_tiles',
+          rowEstimate: 8192,
+          totalBytes: 48_000_000,
+        },
+      ],
       closedWatermarkMaxUpdatedAt: '2026-05-07T07:58:00.000Z',
       currentWatermarkMaxUpdatedAt: '2026-05-07T08:03:00.000Z',
       closedToCurrentWatermarkLagSeconds: 300,
@@ -283,6 +321,14 @@ describe('property tile pyramid health and ops contracts', () => {
       activeLeaseAgeSeconds: 42,
       lastAuditAction: 'promoted',
       lastAuditReason: 'contract-test',
+      lastRetentionResult: {
+        action: 'retention_deleted',
+        reason: 'completed',
+        createdAt: '2026-05-07T08:10:00.000Z',
+        details: { deletedVersions: 1, deletedTiles: 128 },
+      },
+      lastEligibilityVerdict: 'blocked',
+      lastEligibilityBlockReason: 'retry-backoff',
       resourceControls: {
         chunkTileLimit: 128,
         memberPageSize: 500,

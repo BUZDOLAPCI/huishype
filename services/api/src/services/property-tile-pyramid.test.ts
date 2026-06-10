@@ -1,11 +1,14 @@
 import { describe, expect, it } from '@jest/globals';
 import { PROPERTY_PREVIEW_MEMBER_LIMIT } from '@huishype/shared';
 import {
+  buildPropertyTilePyramidRollingSocialWindowFingerprint,
   buildPropertyTilePyramidBuildIdentitySnapshots,
   buildPropertyTilePyramidBuildInputsHash,
   buildPropertyTilePyramidCacheKey,
   buildPropertyTilePyramidEtag,
   buildPropertyTilePyramidQueueJobId,
+  evaluatePropertyTilePyramidFullBuildEligibility,
+  getPropertyTilePyramidFullRebuildCadenceMs,
   getPropertyTilePyramidMaxZoom,
   getPropertyTilePyramidResourceControls,
   type PropertyTilePyramidSlot,
@@ -18,13 +21,8 @@ const slot: PropertyTilePyramidSlot = {
   pyramidKind: 'public_default_low_zoom',
 };
 
-function withTemporaryEnv<T>(
-  updates: Record<string, string | undefined>,
-  run: () => T,
-): T {
-  const previous = new Map(
-    Object.keys(updates).map((key) => [key, process.env[key]] as const),
-  );
+function withTemporaryEnv<T>(updates: Record<string, string | undefined>, run: () => T): T {
+  const previous = new Map(Object.keys(updates).map((key) => [key, process.env[key]] as const));
 
   try {
     for (const [key, value] of Object.entries(updates)) {
@@ -60,23 +58,31 @@ const defaultBuildIdentityEnv = {
   PROPERTY_TILE_PYRAMID_MAX_MEMBER_ROWS: undefined,
   PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK: undefined,
   PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD: undefined,
+  PROPERTY_TILE_PYRAMID_FULL_REBUILD_CADENCE_MS: undefined,
+  PROPERTY_TILE_PYRAMID_FULL_BUILD_MAX_CURRENT_NODE_COUNT: undefined,
+  PROPERTY_TILE_PYRAMID_FULL_BUILD_MAX_CURRENT_ENCODED_PAYLOAD_BYTES: undefined,
+  PROPERTY_TILE_PYRAMID_FULL_BUILD_MAX_CURRENT_WAL_BYTES: undefined,
 } satisfies Record<string, string | undefined>;
 
 describe('property tile pyramid service helpers', () => {
   it('partitions public tile cache keys by version id', () => {
-    expect(buildPropertyTilePyramidCacheKey({
-      versionId: 'version-a',
-      z: 0,
-      x: 0,
-      y: 0,
-    })).toBe('pyramid:version-a:0/0/0');
+    expect(
+      buildPropertyTilePyramidCacheKey({
+        versionId: 'version-a',
+        z: 0,
+        x: 0,
+        y: 0,
+      })
+    ).toBe('pyramid:version-a:0/0/0');
 
-    expect(buildPropertyTilePyramidCacheKey({
-      versionId: 'version-b',
-      z: 0,
-      x: 0,
-      y: 0,
-    })).toBe('pyramid:version-b:0/0/0');
+    expect(
+      buildPropertyTilePyramidCacheKey({
+        versionId: 'version-b',
+        z: 0,
+        x: 0,
+        y: 0,
+      })
+    ).toBe('pyramid:version-b:0/0/0');
   });
 
   it('includes version id in tile etags', () => {
@@ -108,16 +114,19 @@ describe('property tile pyramid service helpers', () => {
     });
 
     expect(jobId).toMatch(/^property-tile-pyramid-[a-f0-9]{40}$/);
-    expect(buildPropertyTilePyramidQueueJobId({
-      slot,
-      buildInputsHash: 'inputs',
-      sourceWatermarkHash: 'watermarks-2',
-    })).not.toBe(jobId);
+    expect(
+      buildPropertyTilePyramidQueueJobId({
+        slot,
+        buildInputsHash: 'inputs',
+        sourceWatermarkHash: 'watermarks-2',
+      })
+    ).not.toBe(jobId);
   });
 
   it('hashes immutable build identity inputs and snapshots the resolved definitions', () => {
     const baselineIdentity = withTemporaryEnv(defaultBuildIdentityEnv, () =>
-      buildPropertyTilePyramidBuildIdentitySnapshots(slot));
+      buildPropertyTilePyramidBuildIdentitySnapshots(slot)
+    );
     const baselineHash = baselineIdentity.buildInputsHash;
 
     expect(baselineHash).toMatch(/^[a-f0-9]{64}$/);
@@ -172,35 +181,55 @@ describe('property tile pyramid service helpers', () => {
       },
     });
 
-    expect(withTemporaryEnv(defaultBuildIdentityEnv, () => buildPropertyTilePyramidBuildInputsHash({
-      ...slot,
-      maxZoom: slot.maxZoom + 1,
-    }))).not.toBe(baselineHash);
-    expect(withTemporaryEnv({
-      ...defaultBuildIdentityEnv,
-      PROPERTY_TILE_PRECOMPUTE_MAX_LON: '33.5',
-    }, () => buildPropertyTilePyramidBuildInputsHash(slot))).not.toBe(baselineHash);
-    expect(withTemporaryEnv({
-      ...defaultBuildIdentityEnv,
-      PROPERTY_TILE_PYRAMID_MEMBER_PAGE_SIZE: '6000',
-    }, () => buildPropertyTilePyramidBuildInputsHash(slot))).not.toBe(baselineHash);
+    expect(
+      withTemporaryEnv(defaultBuildIdentityEnv, () =>
+        buildPropertyTilePyramidBuildInputsHash({
+          ...slot,
+          maxZoom: slot.maxZoom + 1,
+        })
+      )
+    ).not.toBe(baselineHash);
+    expect(
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          PROPERTY_TILE_PRECOMPUTE_MAX_LON: '33.5',
+        },
+        () => buildPropertyTilePyramidBuildInputsHash(slot)
+      )
+    ).not.toBe(baselineHash);
+    expect(
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          PROPERTY_TILE_PYRAMID_MEMBER_PAGE_SIZE: '6000',
+        },
+        () => buildPropertyTilePyramidBuildInputsHash(slot)
+      )
+    ).not.toBe(baselineHash);
   });
 
   it('keeps source watermark values out of build input hashes', () => {
     const buildInputsHash = withTemporaryEnv(defaultBuildIdentityEnv, () =>
-      buildPropertyTilePyramidBuildInputsHash(slot));
+      buildPropertyTilePyramidBuildInputsHash(slot)
+    );
 
-    expect(buildInputsHash).toBe(withTemporaryEnv(defaultBuildIdentityEnv, () =>
-      buildPropertyTilePyramidBuildInputsHash(slot)));
-    expect(buildPropertyTilePyramidQueueJobId({
-      slot,
-      buildInputsHash,
-      sourceWatermarkHash: 'watermarks-a',
-    })).not.toBe(buildPropertyTilePyramidQueueJobId({
-      slot,
-      buildInputsHash,
-      sourceWatermarkHash: 'watermarks-b',
-    }));
+    expect(buildInputsHash).toBe(
+      withTemporaryEnv(defaultBuildIdentityEnv, () => buildPropertyTilePyramidBuildInputsHash(slot))
+    );
+    expect(
+      buildPropertyTilePyramidQueueJobId({
+        slot,
+        buildInputsHash,
+        sourceWatermarkHash: 'watermarks-a',
+      })
+    ).not.toBe(
+      buildPropertyTilePyramidQueueJobId({
+        slot,
+        buildInputsHash,
+        sourceWatermarkHash: 'watermarks-b',
+      })
+    );
   });
 
   it('includes immutable coverage, config, and grouping snapshots in the build identity', () => {
@@ -241,9 +270,9 @@ describe('property tile pyramid service helpers', () => {
   });
 
   it('exposes default resource controls required by health output', () => {
-    expect(withTemporaryEnv(defaultBuildIdentityEnv, () =>
-      getPropertyTilePyramidResourceControls()
-    )).toMatchObject({
+    expect(
+      withTemporaryEnv(defaultBuildIdentityEnv, () => getPropertyTilePyramidResourceControls())
+    ).toMatchObject({
       chunkTileLimit: 128,
       memberPageSize: 5000,
       statementTimeoutMs: 30000,
@@ -255,35 +284,225 @@ describe('property tile pyramid service helpers', () => {
     });
   });
 
-  it('fails loudly on invalid pyramid resource control env values', () => {
-    expect(() => withTemporaryEnv({
-      ...defaultBuildIdentityEnv,
-      PROPERTY_TILE_PYRAMID_MEMBER_PAGE_SIZE: '5000ms',
-    }, () => getPropertyTilePyramidResourceControls())).toThrow(
-      /PROPERTY_TILE_PYRAMID_MEMBER_PAGE_SIZE must be an integer/
-    );
+  it('defaults full rebuild eligibility cadence to 24 hours and rejects invalid overrides', () => {
+    expect(
+      withTemporaryEnv(defaultBuildIdentityEnv, () => getPropertyTilePyramidFullRebuildCadenceMs())
+    ).toBe(24 * 60 * 60 * 1000);
 
-    expect(() => withTemporaryEnv({
-      ...defaultBuildIdentityEnv,
-      PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD: '0',
-    }, () => getPropertyTilePyramidResourceControls())).toThrow(
-      /PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD must be a positive integer/
-    );
+    expect(() =>
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          PROPERTY_TILE_PYRAMID_FULL_REBUILD_CADENCE_MS: '0',
+        },
+        () => getPropertyTilePyramidFullRebuildCadenceMs()
+      )
+    ).toThrow(/PROPERTY_TILE_PYRAMID_FULL_REBUILD_CADENCE_MS must be a positive integer/);
+  });
+
+  it('coarsens rolling social window fingerprints to the full rebuild cadence', () => {
+    const cadenceMs = 24 * 60 * 60 * 1000;
+    const dayStart = Date.parse('2026-06-10T00:00:00.000Z');
+    const firstHour = buildPropertyTilePyramidRollingSocialWindowFingerprint({
+      nowMs: dayStart + 60 * 60 * 1000,
+      cadenceMs,
+    });
+    const laterSameDay = buildPropertyTilePyramidRollingSocialWindowFingerprint({
+      nowMs: dayStart + 23 * 60 * 60 * 1000,
+      cadenceMs,
+    });
+    const nextDay = buildPropertyTilePyramidRollingSocialWindowFingerprint({
+      nowMs: dayStart + 25 * 60 * 60 * 1000,
+      cadenceMs,
+    });
+
+    expect(laterSameDay).toEqual(firstHour);
+    expect(firstHour).toMatchObject({
+      source: 'rolling_social_window',
+      bucketUnit: 'cadence',
+      cadenceMs,
+      cutoffAt: '2026-06-10T00:00:00.000Z',
+    });
+    expect(nextDay).toMatchObject({
+      bucket: (firstHour.bucket as number) + 1,
+      cutoffAt: '2026-06-11T00:00:00.000Z',
+    });
+  });
+
+  it('gates full rebuilds by cadence while allowing operator, cadence, missing, degraded, and corrupt current states', () => {
+    const nowMs = Date.parse('2026-06-10T12:00:00.000Z');
+    const cadenceMs = 24 * 60 * 60 * 1000;
+    const usableCurrent = {
+      state: 'usable' as const,
+      currentVersionId: 'current-version',
+      promotedAt: '2026-06-10T00:00:00.000Z',
+      sourceWatermarkHash: 'current-watermarks',
+      comparableSourceWatermarkHash: 'current-comparable-with-rolling',
+      canonicalComparableSourceWatermarkHash: 'canonical-a',
+      nodeCount: 10,
+      encodedPayloadBytes: 20,
+      walBytes: 30,
+    };
+
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'source-watermark',
+        current: usableCurrent,
+        requestedCanonicalComparableSourceWatermarkHash: 'canonical-a',
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({
+      eligible: false,
+      reason: 'cadence-not-due',
+      nextEligibleAt: '2026-06-11T00:00:00.000Z',
+    });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'source-watermark',
+        current: usableCurrent,
+        requestedCanonicalComparableSourceWatermarkHash: 'canonical-b',
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({
+      eligible: true,
+      reason: 'canonical-source-watermark-advanced',
+    });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'source-watermark',
+        current: {
+          ...usableCurrent,
+          comparableSourceWatermarkHash: 'current-comparable-before-rolling-bucket',
+        },
+        requestedCanonicalComparableSourceWatermarkHash: 'canonical-a',
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({
+      eligible: false,
+      reason: 'cadence-not-due',
+    });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'operator',
+        current: usableCurrent,
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: true, reason: 'operator-override' });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'source-watermark',
+        current: { ...usableCurrent, promotedAt: '2026-06-09T12:00:00.000Z' },
+        requestedCanonicalComparableSourceWatermarkHash: 'canonical-a',
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: true, reason: 'cadence-elapsed' });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'source-watermark',
+        current: {
+          state: 'missing',
+          currentVersionId: null,
+          promotedAt: null,
+          reason: 'current-missing',
+        },
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: true, reason: 'current-missing' });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'manifest-missing',
+        current: {
+          state: 'degraded',
+          currentVersionId: 'current-version',
+          promotedAt: '2026-06-10T00:00:00.000Z',
+          reason: 'tile-invalid',
+          sourceWatermarkHash: 'current-watermarks',
+          comparableSourceWatermarkHash: 'current-comparable',
+          canonicalComparableSourceWatermarkHash: 'canonical-a',
+          nodeCount: 10,
+          encodedPayloadBytes: 20,
+          walBytes: 30,
+        },
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: true, reason: 'current-degraded' });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'payload-regeneration-error',
+        current: {
+          state: 'corrupt',
+          currentVersionId: 'current-version',
+          promotedAt: '2026-06-10T00:00:00.000Z',
+          reason: 'current-manifest-missing',
+          sourceWatermarkHash: 'current-watermarks',
+          comparableSourceWatermarkHash: 'current-comparable',
+          canonicalComparableSourceWatermarkHash: 'canonical-a',
+          nodeCount: 10,
+          encodedPayloadBytes: 20,
+          walBytes: 30,
+        },
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: true, reason: 'current-corrupt' });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'manifest-missing',
+        current: usableCurrent,
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: false, reason: 'repair-current-usable' });
+  });
+
+  it('fails loudly on invalid pyramid resource control env values', () => {
+    expect(() =>
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          PROPERTY_TILE_PYRAMID_MEMBER_PAGE_SIZE: '5000ms',
+        },
+        () => getPropertyTilePyramidResourceControls()
+      )
+    ).toThrow(/PROPERTY_TILE_PYRAMID_MEMBER_PAGE_SIZE must be an integer/);
+
+    expect(() =>
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD: '0',
+        },
+        () => getPropertyTilePyramidResourceControls()
+      )
+    ).toThrow(/PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD must be a positive integer/);
   });
 
   it('rejects invalid precompute max zoom values instead of silently clamping or falling back', () => {
-    expect(() => withTemporaryEnv({
-      ...defaultBuildIdentityEnv,
-      PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '23',
-    }, () => getPropertyTilePyramidMaxZoom())).toThrow(
-      /PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM must be an integer between 0 and 22/
-    );
+    expect(() =>
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: '23',
+        },
+        () => getPropertyTilePyramidMaxZoom()
+      )
+    ).toThrow(/PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM must be an integer between 0 and 22/);
 
-    expect(() => withTemporaryEnv({
-      ...defaultBuildIdentityEnv,
-      PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: 'ten',
-    }, () => getPropertyTilePyramidMaxZoom())).toThrow(
-      /PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM must be an integer/
-    );
+    expect(() =>
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM: 'ten',
+        },
+        () => getPropertyTilePyramidMaxZoom()
+      )
+    ).toThrow(/PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM must be an integer/);
   });
 });

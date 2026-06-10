@@ -74,6 +74,70 @@ deployment/operator secrets are stored in the gitignored root file
 
 CPX32 (150GB) is too small for the app database plus generated tile cache. Production currently uses the Photon Europe dump (~44GB extracted as of 2026-06-10); the planet dump was ~88GB extracted and should not share the app root disk with PostgreSQL unless storage has been resized or moved. Disk-full can corrupt Photon's OpenSearch index irreparably and can prevent PostgreSQL crash recovery.
 
+Root disk alerting should warn at 75% used and page at 85% used. Treat 90% used
+as an incident: stop nonessential rebuild/import work, check `docker system df`,
+PostgreSQL volume growth, Photon volume size, and `/ops/property-tile-pyramid`
+relation sizes before restarting builders. Keep at least 40GB free before a full
+property tile pyramid rebuild; the rebuild writes a candidate generation before
+retention can reclaim old generations.
+
+Photon must stay on the Europe dump for the current single-VM app stack. Do not
+replace it with the planet dump unless Photon data has been moved off the root
+disk or the server has been resized with enough additional headroom.
+
+## Property Tile Pyramid Operations
+
+The production stack precomputes the public default low-zoom property tile
+pyramid. Normal listing, social, view, official valuation, ingest recovery, tile
+miss, and operator requests all go through the durable build gate; do not run
+ad-hoc SQL updates against `property_tile_pyramid_current` or promoted versions.
+
+Operational endpoints:
+```bash
+curl -fsS https://api.huishype.nl/health
+curl -fsS https://api.huishype.nl/health/property-tile-pyramid
+curl -fsS -H "Authorization: Bearer <operator-token>" \
+  https://api.huishype.nl/ops/property-tile-pyramid
+```
+
+Full rebuild cadence: schedule manual full rebuilds only after large imports,
+schema/algorithm changes, or visible low-zoom parity issues. Routine production
+changes should rely on mutation-triggered coalesced rebuilds plus the worker
+recovery sweep. Avoid more than one full rebuild per day unless the previous run
+has promoted and retention has completed.
+
+Safety thresholds before starting or retrying a full rebuild:
+- Root disk below 75% used and at least 40GB free.
+- `/ops/property-tile-pyramid.activeBuildCount` is `0`.
+- Retained generation count is small, normally current + previous + at most one
+  queued/validated build. If `retainedGenerationCount` is above `4`, run
+  retention first and wait for `lastRetentionResult.reason` to become
+  `completed`.
+- Generated relation sizes are reviewed. If
+  `property_tile_pyramid_tiles`, `property_tile_pyramid_nodes`,
+  `property_tile_pyramid_members`, or candidate source relations are growing
+  unexpectedly, pause rebuilds and investigate before increasing limits.
+
+Production maintenance/rebuild flow:
+```bash
+# 1. Confirm API is up and inspect pyramid state.
+curl -fsS https://api.huishype.nl/health/property-tile-pyramid
+curl -fsS -H "Authorization: Bearer <operator-token>" \
+  https://api.huishype.nl/ops/property-tile-pyramid
+
+# 2. Confirm root disk headroom on the host.
+ssh root@94.130.105.129 'df -h / && docker system df'
+
+# 3. Run/allow worker retention if old generations are still retained.
+# Retention runs daily at WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY
+# and retries on later sweeps while it reports "draining".
+
+# 4. Request a rebuild through the application/operator path, not direct SQL.
+# If no operator route is available for the exact operation, use the worker
+# recovery sweep and mutation watermarks rather than updating promoted pointers.
+docker compose -f docker-compose.prod.yml logs -f worker api
+```
+
 ## Gotchas
 
 **Postgres shared memory for tile queries**: Production Postgres sets
@@ -187,6 +251,14 @@ Property tile pyramid:
 - `PROPERTY_TILE_PYRAMID_STATEMENT_TIMEOUT_MS` — production default `600000`.
   Large replacement builds can exceed the shorter development default; keep this
   value aligned between API and worker.
+- `PROPERTY_TILE_PYRAMID_MAX_HEAP_MB`, `PROPERTY_TILE_PYRAMID_MAX_MEMBER_ROWS`,
+  `PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_CHUNK`, and
+  `PROPERTY_TILE_PYRAMID_MAX_WAL_BYTES_PER_BUILD` are safety rails. Raise them
+  only after checking disk headroom and `/ops/property-tile-pyramid` relation
+  sizes/counts.
+- `PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP` and
+  `WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY` control cleanup
+  cadence. Production default retention time is UTC minute `200` (03:20 UTC).
 
 Listing ingest/source services:
 - `INGEST_API_KEY` — shared secret used by scraper callbacks and protected ingest routes.

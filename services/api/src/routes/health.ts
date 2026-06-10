@@ -49,6 +49,16 @@ const opsPropertyTilePyramidResponseSchema = z.object({
   encodedTileCount: z.number().nullable(),
   nodeCount: z.number().nullable(),
   memberCount: z.number().nullable(),
+  generationCounts: z.record(z.string(), z.number()),
+  activeBuildCount: z.number(),
+  retainedGenerationCount: z.number(),
+  relationStats: z.array(
+    z.object({
+      relationName: z.string(),
+      rowEstimate: z.number().nullable(),
+      totalBytes: z.number().nullable(),
+    })
+  ),
   currentBuildDurationMs: z.number().nullable(),
   currentObservedWalBytes: z.number().nullable(),
   activeCandidateStage: z.string().nullable(),
@@ -60,6 +70,14 @@ const opsPropertyTilePyramidResponseSchema = z.object({
   lastSuccessfulPromotionAt: z.string().nullable(),
   lastAuditAction: z.string().nullable(),
   lastAuditReason: z.string().nullable(),
+  lastRetentionResult: z.object({
+    action: z.string().nullable(),
+    reason: z.string().nullable(),
+    createdAt: z.string().nullable(),
+    details: z.record(z.string(), z.unknown()).nullable(),
+  }),
+  lastEligibilityVerdict: z.string().nullable(),
+  lastEligibilityBlockReason: z.string().nullable(),
   resourceControls: z.object({
     chunkTileLimit: z.number(),
     memberPageSize: z.number(),

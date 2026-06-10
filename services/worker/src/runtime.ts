@@ -42,6 +42,7 @@ interface RecoverySweepSummary {
   officialValuationHydrationJobIds: string[];
   propertyTilePyramidBuildRequested: boolean;
   propertyTilePyramidBuildStatus: string | null;
+  propertyTilePyramidBuildReason: string | null;
   propertyTilePyramidRetentionStatus: string | null;
 }
 
@@ -617,6 +618,7 @@ export class WorkerRuntime {
 
     let propertyTilePyramidBuildRequested = false;
     let propertyTilePyramidBuildStatus: string | null = null;
+    let propertyTilePyramidBuildReason: string | null = null;
     let propertyTilePyramidRetentionStatus: string | null = null;
     try {
       const buildRequest = await propertyTilePyramid.requestPropertyTilePyramidBuild({
@@ -624,6 +626,7 @@ export class WorkerRuntime {
       });
       propertyTilePyramidBuildRequested = buildRequest.status !== 'unavailable';
       propertyTilePyramidBuildStatus = buildRequest.status;
+      propertyTilePyramidBuildReason = buildRequest.reason ?? null;
       this.logger.info('Property tile pyramid recovery build request recorded', {
         trigger,
         ...buildRequest,
@@ -674,6 +677,7 @@ export class WorkerRuntime {
       officialValuationHydrationJobIds,
       propertyTilePyramidBuildRequested,
       propertyTilePyramidBuildStatus,
+      propertyTilePyramidBuildReason,
       propertyTilePyramidRetentionStatus,
     };
 
@@ -690,6 +694,7 @@ export class WorkerRuntime {
       officialValuationHydrationDispatchedCount: officialValuationHydrationJobIds.length,
       propertyTilePyramidBuildRequested,
       propertyTilePyramidBuildStatus,
+      propertyTilePyramidBuildReason,
       propertyTilePyramidRetentionStatus,
     });
 
