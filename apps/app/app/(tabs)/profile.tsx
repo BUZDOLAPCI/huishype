@@ -15,6 +15,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -477,14 +478,6 @@ export default function ProfileScreen() {
     [t]
   );
 
-  const handleToggleAvatarActions = useCallback(() => {
-    if (isProfilePhotoSaving) {
-      return;
-    }
-
-    setShowAvatarActions((visible) => !visible);
-  }, [isProfilePhotoSaving]);
-
   const handleSelectProfilePhoto = useCallback(async () => {
     if (isProfilePhotoSaving) {
       return;
@@ -529,15 +522,35 @@ export default function ProfileScreen() {
     }
   }, [isProfilePhotoSaving, showProfilePhotoError, t, uploadProfilePhoto]);
 
+  const handlePressAvatarEdit = useCallback(() => {
+    if (isProfilePhotoSaving) {
+      return;
+    }
+
+    if (!profile?.profilePhotoUrl) {
+      setShowAvatarActions(false);
+      void handleSelectProfilePhoto();
+      return;
+    }
+
+    setShowAvatarActions((visible) => !visible);
+  }, [handleSelectProfilePhoto, isProfilePhotoSaving, profile?.profilePhotoUrl]);
+
+  const handleSelectProfilePhotoFromMenu = useCallback(() => {
+    setShowAvatarActions(false);
+    void handleSelectProfilePhoto();
+  }, [handleSelectProfilePhoto]);
+
   const handleRemoveProfilePhoto = useCallback(() => {
     if (!profile?.profilePhotoUrl || isProfilePhotoSaving) {
       return;
     }
 
+    setShowAvatarActions(false);
+
     const remove = async () => {
       try {
         await deleteProfilePhoto.mutateAsync();
-        setShowAvatarActions(false);
         Alert.alert(
           t('profileSettings.profilePhoto.removedTitle'),
           t('profileSettings.profilePhoto.removedMessage')
@@ -742,7 +755,7 @@ export default function ProfileScreen() {
                 size="lg"
               />
               <Pressable
-                onPress={handleToggleAvatarActions}
+                onPress={handlePressAvatarEdit}
                 disabled={isProfilePhotoSaving}
                 hitSlop={8}
                 accessibilityRole="button"
@@ -757,46 +770,73 @@ export default function ProfileScreen() {
                 {isProfilePhotoSaving ? (
                   <ActivityIndicator size="small" color="#00D1FB" testID="profile-avatar-saving" />
                 ) : (
-                  <Icon name="PlusCircle" size={34} weight="fill" color="#00D1FB" />
+                  <View style={styles.avatarEditIconBadge} testID="profile-avatar-edit-icon-badge">
+                    <Icon
+                      name="PencilSimple"
+                      size={17}
+                      weight="bold"
+                      color="#FFFFFF"
+                      testID="profile-avatar-edit-icon"
+                    />
+                  </View>
                 )}
               </Pressable>
             </View>
             {showAvatarActions ? (
-              <View style={styles.avatarActions} testID="profile-avatar-actions">
-                <Pressable
-                  onPress={handleSelectProfilePhoto}
-                  disabled={isProfilePhotoSaving}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('profileSettings.profilePhoto.selectAction')}
-                  style={[
-                    styles.avatarActionButton,
-                    isProfilePhotoSaving ? styles.avatarActionDisabled : null,
-                  ]}
-                  testID="profile-avatar-select"
-                >
-                  <Text style={styles.avatarActionText}>
-                    {t('profileSettings.profilePhoto.selectAction')}
-                  </Text>
-                </Pressable>
-                {profile.profilePhotoUrl ? (
+              <Modal
+                visible={showAvatarActions}
+                transparent
+                animationType="fade"
+                presentationStyle="overFullScreen"
+                onRequestClose={() => setShowAvatarActions(false)}
+              >
+                <View style={styles.avatarActionOverlay}>
                   <Pressable
-                    onPress={handleRemoveProfilePhoto}
-                    disabled={isProfilePhotoSaving}
+                    style={StyleSheet.absoluteFillObject}
+                    onPress={() => setShowAvatarActions(false)}
                     accessibilityRole="button"
-                    accessibilityLabel={t('profileSettings.profilePhoto.removeAction')}
-                    style={[
-                      styles.avatarActionButton,
-                      styles.avatarRemoveAction,
-                      isProfilePhotoSaving ? styles.avatarActionDisabled : null,
-                    ]}
-                    testID="profile-avatar-remove"
-                  >
-                    <Text style={[styles.avatarActionText, styles.avatarRemoveActionText]}>
-                      {t('profileSettings.profilePhoto.removeAction')}
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </View>
+                    accessibilityLabel={t('profileSettings.profilePhoto.closeActions')}
+                    testID="profile-avatar-actions-backdrop"
+                  />
+                  <View style={styles.avatarActionMenu} testID="profile-avatar-actions">
+                    <Pressable
+                      onPress={handleSelectProfilePhotoFromMenu}
+                      disabled={isProfilePhotoSaving}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('profileSettings.profilePhoto.selectAction')}
+                      style={({ pressed }) => [
+                        styles.avatarActionMenuItem,
+                        pressed && styles.avatarActionMenuItemPressed,
+                        isProfilePhotoSaving ? styles.avatarActionDisabled : null,
+                      ]}
+                      testID="profile-avatar-select"
+                    >
+                      <Icon name="Camera" size="lg" color="#2D2926" />
+                      <Text style={styles.avatarActionMenuItemText}>
+                        {t('profileSettings.profilePhoto.selectAction')}
+                      </Text>
+                    </Pressable>
+                    <View style={styles.avatarActionDivider} />
+                    <Pressable
+                      onPress={handleRemoveProfilePhoto}
+                      disabled={isProfilePhotoSaving}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('profileSettings.profilePhoto.removeAction')}
+                      style={({ pressed }) => [
+                        styles.avatarActionMenuItem,
+                        pressed && styles.avatarActionMenuItemPressed,
+                        isProfilePhotoSaving ? styles.avatarActionDisabled : null,
+                      ]}
+                      testID="profile-avatar-remove"
+                    >
+                      <Icon name="Trash" size="lg" color="#B91C1C" />
+                      <Text style={[styles.avatarActionMenuItemText, styles.avatarRemoveMenuItemText]}>
+                        {t('profileSettings.profilePhoto.removeAction')}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </Modal>
             ) : null}
           </View>
 
@@ -1155,45 +1195,66 @@ const styles = StyleSheet.create({
   },
   avatarEditButton: {
     position: 'absolute',
-    right: -5,
-    bottom: -3,
-    width: 35,
-    height: 35,
-    borderRadius: 17.5,
+    right: -9,
+    bottom: -6,
+    width: 41,
+    height: 41,
+    borderRadius: 20.5,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FEF6EE',
   },
-  avatarActions: {
-    minHeight: 34,
-    flexDirection: 'row',
+  avatarEditIconBadge: {
+    width: 31,
+    height: 31,
+    borderRadius: 15.5,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-  },
-  avatarActionButton: {
-    minHeight: 34,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#005E4F',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255, 251, 245, 0.92)',
+    backgroundColor: '#00D1FB',
   },
   avatarActionDisabled: {
     opacity: 0.55,
   },
-  avatarActionText: {
-    color: '#005E4F',
-    fontSize: 14,
-    lineHeight: 18,
+  avatarActionOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(45, 41, 38, 0.28)',
+  },
+  avatarActionMenu: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 16,
+  },
+  avatarActionMenuItem: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 22,
+  },
+  avatarActionMenuItemPressed: {
+    backgroundColor: '#F8F3EC',
+  },
+  avatarActionMenuItemText: {
+    fontSize: 17,
     fontWeight: '700',
+    color: '#2D2926',
   },
-  avatarRemoveAction: {
-    borderColor: '#B42318',
+  avatarRemoveMenuItemText: {
+    color: '#B91C1C',
   },
-  avatarRemoveActionText: {
-    color: '#B42318',
+  avatarActionDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E8E0D4',
   },
   identitySection: {
     width: '100%',

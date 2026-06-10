@@ -89,9 +89,9 @@ jest.mock('@/src/components/ui/Button', () => ({
 }));
 
 jest.mock('@/src/components/ui/Icon', () => ({
-  Icon: ({ name }: { name: string }) => {
+  Icon: ({ name, testID }: { name: string; testID?: string }) => {
     const ReactNative = require('react-native');
-    return <ReactNative.Text>{name}</ReactNative.Text>;
+    return <ReactNative.Text testID={testID}>{name}</ReactNative.Text>;
   },
 }));
 
@@ -406,20 +406,27 @@ describe('ProfileScreen sign out', () => {
   it('renders display name above the handle with separate edit buttons', () => {
     const { getByText, getByTestId } = render(<ProfileScreen />);
     const [avatarEditStyle] = getByTestId('profile-avatar-edit').props.style;
+    const avatarEditIconBadgeStyle = getByTestId('profile-avatar-edit-icon-badge').props.style;
 
     expect(getByText('Test User')).toBeTruthy();
     expect(getByText('@test-user')).toBeTruthy();
     expect(getByTestId('profile-avatar-edit')).toBeTruthy();
-    expect(getByText('PlusCircle')).toBeTruthy();
+    expect(getByTestId('profile-avatar-edit-icon').props.children).toBe('PencilSimple');
     expect(avatarEditStyle).toMatchObject({
-      width: 35,
-      height: 35,
-      borderRadius: 17.5,
+      width: 41,
+      height: 41,
+      borderRadius: 20.5,
       backgroundColor: '#FEF6EE',
     });
     expect(avatarEditStyle).not.toHaveProperty('borderWidth');
     expect(avatarEditStyle).not.toHaveProperty('shadowColor');
     expect(avatarEditStyle).not.toHaveProperty('elevation');
+    expect(avatarEditIconBadgeStyle).toMatchObject({
+      width: 31,
+      height: 31,
+      borderRadius: 15.5,
+      backgroundColor: '#00D1FB',
+    });
     expect(getByTestId('profile-display-name-edit')).toBeTruthy();
     expect(getByTestId('profile-handle-edit')).toBeTruthy();
     expect(getByTestId('profile-likes-stat')).toBeTruthy();
@@ -468,15 +475,15 @@ describe('ProfileScreen sign out', () => {
   });
 
   it('does not upload when the avatar image picker is cancelled', async () => {
-    const { getByTestId } = render(<ProfileScreen />);
+    const { getByTestId, queryByTestId } = render(<ProfileScreen />);
 
     fireEvent.press(getByTestId('profile-avatar-edit'));
-    fireEvent.press(getByTestId('profile-avatar-select'));
 
     await waitFor(() => {
       expect(mockRequestMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(1);
       expect(mockLaunchImageLibraryAsync).toHaveBeenCalledTimes(1);
     });
+    expect(queryByTestId('profile-avatar-actions')).toBeNull();
     expect(uploadProfilePhoto).not.toHaveBeenCalled();
   });
 
@@ -489,7 +496,6 @@ describe('ProfileScreen sign out', () => {
     const { getByTestId } = render(<ProfileScreen />);
 
     fireEvent.press(getByTestId('profile-avatar-edit'));
-    fireEvent.press(getByTestId('profile-avatar-select'));
 
     await waitFor(() => {
       expect(uploadProfilePhoto).toHaveBeenCalledWith({
@@ -514,7 +520,6 @@ describe('ProfileScreen sign out', () => {
     const { getByTestId } = render(<ProfileScreen />);
 
     fireEvent.press(getByTestId('profile-avatar-edit'));
-    fireEvent.press(getByTestId('profile-avatar-select'));
 
     await waitFor(() => {
       expect(mockAlert.alert).toHaveBeenCalledWith(
@@ -535,7 +540,6 @@ describe('ProfileScreen sign out', () => {
     const { getByTestId } = render(<ProfileScreen />);
 
     fireEvent.press(getByTestId('profile-avatar-edit'));
-    fireEvent.press(getByTestId('profile-avatar-select'));
 
     await waitFor(() => {
       expect(mockAlert.alert).toHaveBeenCalledWith(
@@ -578,11 +582,19 @@ describe('ProfileScreen sign out', () => {
       refetch: jest.fn().mockResolvedValue(undefined),
     } as unknown as ReturnType<typeof useMyProfile>);
 
-    const { getByTestId } = render(<ProfileScreen />);
+    const { getByTestId, queryByTestId } = render(<ProfileScreen />);
 
     fireEvent.press(getByTestId('profile-avatar-edit'));
+    expect(getByTestId('profile-avatar-actions')).toBeTruthy();
+    expect(getByTestId('profile-avatar-select')).toBeTruthy();
     expect(getByTestId('profile-avatar-remove')).toBeTruthy();
+    expect(getByTestId('profile-avatar-actions-backdrop')).toBeTruthy();
+    expect(mockRequestMediaLibraryPermissionsAsync).not.toHaveBeenCalled();
 
+    fireEvent.press(getByTestId('profile-avatar-actions-backdrop'));
+    expect(queryByTestId('profile-avatar-actions')).toBeNull();
+
+    fireEvent.press(getByTestId('profile-avatar-edit'));
     fireEvent.press(getByTestId('profile-avatar-remove'));
 
     await waitFor(() => {
