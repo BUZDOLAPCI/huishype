@@ -1,0 +1,12 @@
+[Unit]
+Description=Property tile pyramid disk guardrail watchdog for HuisHype
+After=network-online.target
+After=docker.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/property-tile-guardrail-watchdog
+StateDirectory=property-tile-guardrail-watchdog
+ExecStart=/usr/local/bin/property-tile-guardrail-watchdog.sh

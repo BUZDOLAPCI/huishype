@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { sql } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { advancePropertyTilePyramidSourceWatermark } from '../../services/property-tile-pyramid.js';
 
 const coveragePrefix = `schema-promotion-${crypto.randomUUID()}`;
+
+jest.setTimeout(30_000);
 
 type TileStatus = 'pending' | 'valid_empty' | 'valid_nodes' | 'valid_encoded' | 'failed';
 type ValidationStatus = 'pending' | 'validated' | 'failed';
@@ -612,7 +614,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_listing_candidates'::regclass,
         'property_tile_listing_facts'::regclass,
         'property_tile_social_facts'::regclass,
-        'property_tile_grouping_facts'::regclass
+        'property_tile_grouping_facts'::regclass,
+        'property_tile_pyramid_guardrail_observations'::regclass
       )
     `)
     ).map((row) => row.conname);
@@ -633,6 +636,9 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_social_facts_pkey',
         'property_tile_grouping_facts_pkey',
         'property_tile_grouping_facts_market_state_check',
+        'property_tile_pyramid_guardrail_observations_pkey',
+        'property_tile_pyramid_guardrail_observations_root_bytes_check',
+        'property_tile_pyramid_guardrail_observations_volume_bytes_check',
       ])
     );
 
@@ -649,7 +655,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_listing_candidates',
         'property_tile_listing_facts',
         'property_tile_social_facts',
-        'property_tile_grouping_facts'
+        'property_tile_grouping_facts',
+        'property_tile_pyramid_guardrail_observations'
       )
     `)
     ).map((row) => row.indexname);
@@ -687,6 +694,8 @@ describe('property tile pyramid schema safeguards', () => {
         'property_tile_grouping_facts_vis_sale_price_idx',
         'property_tile_grouping_facts_vis_rent_price_idx',
         'property_tile_grouping_facts_property_id_idx',
+        'property_tile_pyramid_guardrail_observations_pkey',
+        'property_tile_pyramid_guardrail_observations_observed_at_idx',
       ])
     );
 
@@ -753,7 +762,8 @@ describe('property tile pyramid schema safeguards', () => {
         'ensure_property_tile_pyramid_version_partitions',
         'drop_property_tile_candidate_source_partitions',
         'drop_property_tile_pyramid_version_partitions',
-        'property_tile_generated_partition_retention'
+        'property_tile_generated_partition_retention',
+        'property_tile_generated_partition_retention_for_slot'
       )
     `)
     ).map((row) => row.proname);
@@ -771,8 +781,16 @@ describe('property tile pyramid schema safeguards', () => {
         'drop_property_tile_candidate_source_partitions',
         'drop_property_tile_pyramid_version_partitions',
         'property_tile_generated_partition_retention',
+        'property_tile_generated_partition_retention_for_slot',
       ])
     );
+
+    const promotionFunction = Array.from(
+      await db.execute<{ definition: string }>(sql`
+      SELECT pg_get_functiondef('promote_property_tile_pyramid_version(uuid,uuid,text,text)'::regprocedure) AS definition
+    `)
+    )[0]?.definition;
+    expect(promotionFunction).toContain('property_tile_generated_partition_retention_for_slot');
 
     const partitionedParents = Array.from(
       await db.execute<{ relname: string }>(sql`
@@ -1058,7 +1076,7 @@ describe('property tile pyramid schema safeguards', () => {
     });
   });
 
-  it('marks promoted versions that are no longer current or previous as superseded', async () => {
+  it('retains only current and previous promoted versions after promotion', async () => {
     const coverageId = `${coveragePrefix}-promoted-lifecycle`;
     const firstVersionId = await insertPyramidVersion({
       coverageId,
@@ -1133,14 +1151,6 @@ describe('property tile pyramid schema safeguards', () => {
     );
 
     expect(rows).toEqual([
-      {
-        id: firstVersionId,
-        status: 'promoted',
-        is_current: false,
-        is_previous: false,
-        superseded: true,
-        superseded_reason: 'promoted-version-no-longer-current-or-previous',
-      },
       {
         id: secondVersionId,
         status: 'promoted',

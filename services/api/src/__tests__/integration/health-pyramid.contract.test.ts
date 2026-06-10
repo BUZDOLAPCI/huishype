@@ -276,6 +276,37 @@ describe('property tile pyramid health and ops contracts', () => {
       },
       lastEligibilityVerdict: 'blocked',
       lastEligibilityBlockReason: 'retry-backoff',
+      guardrails: {
+        verdict: 'ok',
+        automaticBuildsBlocked: false,
+        violations: [],
+        thresholds: {
+          hostObservationMaxAgeMs: 300_000,
+          rootMaxUsedPercent: 75,
+          rootMinFreeBytes: 42_949_672_960,
+          dbMaxBytes: 139_586_437_120,
+          generatedMaxBytes: 42_949_672_960,
+          retainedGenerationMax: 3,
+        },
+        enabled: true,
+        unsafeOperatorBypass: false,
+        hostObservation: {
+          source: 'host-watchdog',
+          observedAt: '2026-05-07T08:14:30.000Z',
+          rootFilesystemBytes: 323_196_289_024,
+          rootFilesystemUsedBytes: 155_692_564_480,
+          rootFilesystemFreeBytes: 154_618_822_656,
+          rootFilesystemUsedPercent: 49,
+          postgresVolumeBytes: 91_268_055_040,
+          photonVolumeBytes: 50_251_117_363,
+          dockerVolumes: {},
+        },
+        hostObservationAgeMs: 30_000,
+        dbBytes: 83_751_862_272,
+        generatedBytes: 12_884_901_888,
+        retainedGenerationCount: 3,
+        evaluatedAt: '2026-05-07T08:15:00.000Z',
+      },
     });
 
     const response = await app.inject({ method: 'GET', url: '/ops/property-tile-pyramid' });
@@ -329,6 +360,11 @@ describe('property tile pyramid health and ops contracts', () => {
       },
       lastEligibilityVerdict: 'blocked',
       lastEligibilityBlockReason: 'retry-backoff',
+      guardrails: {
+        verdict: 'ok',
+        automaticBuildsBlocked: false,
+        retainedGenerationCount: 3,
+      },
       resourceControls: {
         chunkTileLimit: 128,
         memberPageSize: 500,

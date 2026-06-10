@@ -183,11 +183,12 @@ function makeUsableCurrentGenerationRow(
   input: {
     sourceWatermarkHash?: string;
     sourceWatermarksJson?: Record<string, unknown>;
+    currentPromotedAt?: string;
   } = {}
 ) {
   return {
     current_version_id: '00000000-0000-0000-0000-0000000000aa',
-    current_promoted_at: '2026-06-10T00:00:00.000Z',
+    current_promoted_at: input.currentPromotedAt ?? '2026-06-10T00:00:00.000Z',
     source_watermark_hash: input.sourceWatermarkHash ?? 'current-watermarks',
     source_watermarks_json: input.sourceWatermarksJson ?? {},
     status: 'promoted',
@@ -203,10 +204,47 @@ function makeUsableCurrentGenerationRow(
   };
 }
 
+function makeGuardrailRow(
+  input: {
+    observedAt?: string | null;
+    rootUsedPercent?: string;
+    rootFreeBytes?: string;
+    dbBytes?: string;
+    generatedBytes?: string;
+    retainedGenerationCount?: string;
+  } = {}
+) {
+  const observedAt =
+    input.observedAt === undefined ? '2026-06-10T11:59:00.000Z' : input.observedAt;
+  return {
+    observation_source: observedAt == null ? null : 'host-watchdog',
+    observation_observed_at: observedAt,
+    root_filesystem_bytes: observedAt == null ? null : '323196289024',
+    root_filesystem_used_bytes: observedAt == null ? null : '155692564480',
+    root_filesystem_free_bytes:
+      observedAt == null ? null : (input.rootFreeBytes ?? '154618822656'),
+    root_filesystem_used_percent: observedAt == null ? null : (input.rootUsedPercent ?? '49'),
+    postgres_volume_bytes: observedAt == null ? null : '91268055040',
+    photon_volume_bytes: observedAt == null ? null : '50251117363',
+    docker_volumes_json: observedAt == null ? null : {},
+    db_bytes: input.dbBytes ?? '83751862272',
+    generated_bytes: input.generatedBytes ?? '12884901888',
+    retained_generation_count: input.retainedGenerationCount ?? '2',
+  };
+}
+
 function isFullBuildCurrentGenerationQuery(queryText: string): boolean {
   return (
     queryText.includes('FROM property_tile_pyramid_current c') &&
     queryText.includes('tile_stats.invalid_tile_count')
+  );
+}
+
+function isGuardrailSummaryQuery(queryText: string): boolean {
+  return (
+    queryText.includes('property_tile_pyramid_guardrail_observations') &&
+    queryText.includes('generated_storage') &&
+    queryText.includes('retained_generations')
   );
 }
 
@@ -265,6 +303,7 @@ type RequestBuildLifecycleMockOptions = {
   activeLookupRows?: unknown[];
   activeCoalesceRows?: unknown[];
   recoveryRows?: unknown[];
+  guardrailRows?: unknown[];
   durableRows?: unknown[];
   existingRows?: unknown[];
   durableError?: unknown;
@@ -281,6 +320,9 @@ function mockRequestBuildLifecycle(options: RequestBuildLifecycleMockOptions): v
     }
     if (isFullBuildCurrentGenerationQuery(queryText)) {
       return options.currentRows ?? [];
+    }
+    if (isGuardrailSummaryQuery(queryText)) {
+      return options.guardrailRows ?? [];
     }
     if (queryText.includes('propertyTilePyramidFullBuildPending')) {
       return [];
@@ -362,6 +404,126 @@ describe('property tile pyramid build lifecycle', () => {
     expect(pendingQuery).toContain('property_tile_pyramid_source_watermarks');
     expect(pendingQuery).toContain('full-build-eligibility');
     expect(pendingQuery).toContain('cadence-not-due');
+  });
+
+  it('blocks production full-build requests when the host guardrail observation is missing', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    mockRequestBuildLifecycle({
+      currentRows: [
+        makeUsableCurrentGenerationRow({ currentPromotedAt: '2026-06-09T00:00:00.000Z' }),
+      ],
+      guardrailRows: [makeGuardrailRow({ observedAt: null })],
+    });
+
+    await withTemporaryEnv(
+      {
+        NODE_ENV: 'production',
+        PROPERTY_TILE_PYRAMID_GUARDRAILS_ENABLED: undefined,
+        PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS: undefined,
+      },
+      async () => {
+        const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+        const result = await requestPropertyTilePyramidBuild({
+          reason: 'source-watermark',
+          sourceWatermarkHash: 'new-watermarks',
+          sourceWatermarksJson: { sources: [{ source: 'unit' }] },
+          buildInputsHash: 'inputs',
+        });
+
+        expect(result).toEqual({
+          status: 'coalesced',
+          reason: 'full-build-eligibility-denied:guardrail-host-observation-missing',
+        });
+        expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+        const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        expect(executedQueries.some((query) => isGuardrailSummaryQuery(query))).toBe(true);
+        expect(executedQueries.some((query) => isDurableBuildRequestQuery(query))).toBe(false);
+        const pendingQuery =
+          executedQueries.find((query) => query.includes('propertyTilePyramidFullBuildPending')) ??
+          '';
+        expect(pendingQuery).toContain('guardrail-host-observation-missing');
+      }
+    );
+  });
+
+  it('does not let operator cadence override bypass hard guardrails by default', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    mockRequestBuildLifecycle({
+      currentRows: [
+        makeUsableCurrentGenerationRow({ currentPromotedAt: '2026-06-10T00:00:00.000Z' }),
+      ],
+      guardrailRows: [makeGuardrailRow({ rootUsedPercent: '80' })],
+    });
+
+    await withTemporaryEnv(
+      {
+        NODE_ENV: 'production',
+        PROPERTY_TILE_PYRAMID_GUARDRAILS_ENABLED: undefined,
+        PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS: undefined,
+      },
+      async () => {
+        const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+        const result = await requestPropertyTilePyramidBuild({
+          reason: 'operator',
+          sourceWatermarkHash: 'operator-watermarks',
+          sourceWatermarksJson: {},
+          buildInputsHash: 'inputs',
+        });
+
+        expect(result).toEqual({
+          status: 'coalesced',
+          reason: 'full-build-eligibility-denied:guardrail-root-disk-high',
+        });
+        expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  it('allows a due production full-build request when hard guardrails are healthy', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    mockRequestBuildLifecycle({
+      currentRows: [
+        makeUsableCurrentGenerationRow({ currentPromotedAt: '2026-06-09T00:00:00.000Z' }),
+      ],
+      guardrailRows: [makeGuardrailRow()],
+      durableRows: [
+        {
+          id: 'queued-version',
+          status: 'queued',
+          next_retry_at: null,
+          queue_eligible: true,
+          pending_replacement: false,
+        },
+      ],
+    });
+    enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
+      status: 'enqueued',
+      jobId: 'job-1',
+    });
+
+    await withTemporaryEnv(
+      {
+        NODE_ENV: 'production',
+        PROPERTY_TILE_PYRAMID_GUARDRAILS_ENABLED: undefined,
+        PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS: undefined,
+      },
+      async () => {
+        const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+        const result = await requestPropertyTilePyramidBuild({
+          reason: 'source-watermark',
+          sourceWatermarkHash: 'new-watermarks',
+          sourceWatermarksJson: { sources: [{ source: 'unit' }] },
+          buildInputsHash: 'inputs',
+        });
+
+        expect(result).toMatchObject({
+          status: 'enqueued',
+          versionId: 'queued-version',
+          existingStatus: 'queued',
+        });
+        expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+      }
+    );
   });
 
   it('records canonical source-watermark advances until cadence is due', async () => {

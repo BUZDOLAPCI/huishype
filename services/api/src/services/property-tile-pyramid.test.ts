@@ -8,6 +8,8 @@ import {
   buildPropertyTilePyramidEtag,
   buildPropertyTilePyramidQueueJobId,
   evaluatePropertyTilePyramidFullBuildEligibility,
+  evaluatePropertyTilePyramidGuardrailVerdict,
+  getPropertyTilePyramidGuardrailControls,
   getPropertyTilePyramidFullRebuildCadenceMs,
   getPropertyTilePyramidMaxZoom,
   getPropertyTilePyramidResourceControls,
@@ -62,6 +64,14 @@ const defaultBuildIdentityEnv = {
   PROPERTY_TILE_PYRAMID_FULL_BUILD_MAX_CURRENT_NODE_COUNT: undefined,
   PROPERTY_TILE_PYRAMID_FULL_BUILD_MAX_CURRENT_ENCODED_PAYLOAD_BYTES: undefined,
   PROPERTY_TILE_PYRAMID_FULL_BUILD_MAX_CURRENT_WAL_BYTES: undefined,
+  PROPERTY_TILE_PYRAMID_GUARDRAILS_ENABLED: undefined,
+  PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS: undefined,
+  PROPERTY_TILE_PYRAMID_GUARDRAIL_HOST_OBSERVATION_MAX_AGE_MS: undefined,
+  PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MAX_USED_PERCENT: undefined,
+  PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MIN_FREE_BYTES: undefined,
+  PROPERTY_TILE_PYRAMID_GUARDRAIL_DB_MAX_BYTES: undefined,
+  PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES: undefined,
+  PROPERTY_TILE_PYRAMID_GUARDRAIL_RETAINED_GENERATION_MAX: undefined,
 } satisfies Record<string, string | undefined>;
 
 describe('property tile pyramid service helpers', () => {
@@ -469,6 +479,127 @@ describe('property tile pyramid service helpers', () => {
         cadenceMs,
       })
     ).toMatchObject({ eligible: false, reason: 'repair-current-usable' });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'tile-miss',
+        current: usableCurrent,
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: false, reason: 'repair-current-usable' });
+    expect(
+      evaluatePropertyTilePyramidFullBuildEligibility({
+        reason: 'nearby-fallback-miss',
+        current: usableCurrent,
+        nowMs,
+        cadenceMs,
+      })
+    ).toMatchObject({ eligible: false, reason: 'repair-current-usable' });
+  });
+
+  it('evaluates production guardrail observations and hard storage thresholds', () => {
+    const controls = {
+      enabled: true,
+      unsafeOperatorBypass: false,
+      hostObservationMaxAgeMs: 5 * 60 * 1000,
+      rootMaxUsedPercent: 75,
+      rootMinFreeBytes: 40 * 1_073_741_824,
+      dbMaxBytes: 130 * 1_073_741_824,
+      generatedMaxBytes: 40 * 1_073_741_824,
+      retainedGenerationMax: 3,
+    };
+    const nowMs = Date.parse('2026-06-10T12:00:00.000Z');
+    const healthyObservation = {
+      source: 'host-watchdog',
+      observedAt: '2026-06-10T11:59:00.000Z',
+      rootFilesystemBytes: 301 * 1_073_741_824,
+      rootFilesystemUsedBytes: 145 * 1_073_741_824,
+      rootFilesystemFreeBytes: 144 * 1_073_741_824,
+      rootFilesystemUsedPercent: 49,
+      postgresVolumeBytes: 85 * 1_073_741_824,
+      photonVolumeBytes: 47 * 1_073_741_824,
+      dockerVolumes: {},
+    };
+
+    expect(
+      evaluatePropertyTilePyramidGuardrailVerdict({
+        controls,
+        hostObservation: healthyObservation,
+        dbBytes: 78 * 1_073_741_824,
+        generatedBytes: 12 * 1_073_741_824,
+        retainedGenerationCount: 2,
+        nowMs,
+      })
+    ).toMatchObject({
+      verdict: 'ok',
+      automaticBuildsBlocked: false,
+      violations: [],
+      hostObservationAgeMs: 60_000,
+    });
+
+    expect(
+      evaluatePropertyTilePyramidGuardrailVerdict({
+        controls,
+        hostObservation: null,
+        dbBytes: 78 * 1_073_741_824,
+        generatedBytes: 12 * 1_073_741_824,
+        retainedGenerationCount: 2,
+        nowMs,
+      }).violations.map((violation) => violation.reason)
+    ).toContain('guardrail-host-observation-missing');
+
+    expect(
+      evaluatePropertyTilePyramidGuardrailVerdict({
+        controls,
+        hostObservation: {
+          ...healthyObservation,
+          observedAt: '2026-06-10T11:50:00.000Z',
+          rootFilesystemFreeBytes: 30 * 1_073_741_824,
+          rootFilesystemUsedPercent: 85,
+        },
+        dbBytes: 131 * 1_073_741_824,
+        generatedBytes: 41 * 1_073_741_824,
+        retainedGenerationCount: 4,
+        nowMs,
+      }).violations.map((violation) => violation.reason)
+    ).toEqual(
+      expect.arrayContaining([
+        'guardrail-host-observation-stale',
+        'guardrail-root-disk-high',
+        'guardrail-root-disk-free-low',
+        'guardrail-db-size-high',
+        'guardrail-generated-storage-high',
+        'guardrail-retained-generations-high',
+      ])
+    );
+  });
+
+  it('defaults production guardrails on only in production and parses overrides', () => {
+    expect(
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          NODE_ENV: 'test',
+        },
+        () => getPropertyTilePyramidGuardrailControls()
+      )
+    ).toMatchObject({ enabled: false, rootMaxUsedPercent: 75 });
+
+    expect(
+      withTemporaryEnv(
+        {
+          ...defaultBuildIdentityEnv,
+          NODE_ENV: 'production',
+          PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES: '12345',
+          PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS: 'true',
+        },
+        () => getPropertyTilePyramidGuardrailControls()
+      )
+    ).toMatchObject({
+      enabled: true,
+      unsafeOperatorBypass: true,
+      generatedMaxBytes: 12345,
+    });
   });
 
   it('fails loudly on invalid pyramid resource control env values', () => {

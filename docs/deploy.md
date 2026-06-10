@@ -108,6 +108,11 @@ has promoted and retention has completed.
 
 Safety thresholds before starting or retrying a full rebuild:
 - Root disk below 75% used and at least 40GB free.
+- `/ops/property-tile-pyramid.guardrails.verdict` is `ok` and
+  `hostObservationAgeMs` is fresh. In production, automatic and operator
+  rebuild requests are blocked by hard guardrails unless
+  `PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS=true` is explicitly set
+  for an operator override.
 - `/ops/property-tile-pyramid.activeBuildCount` is `0`.
 - Retained generation count is small, normally current + previous + at most one
   queued/validated build. If `retainedGenerationCount` is above `4`, run
@@ -128,6 +133,10 @@ curl -fsS -H "Authorization: Bearer <operator-token>" \
 # 2. Confirm root disk headroom on the host.
 ssh root@94.130.105.129 'df -h / && docker system df'
 
+# 2b. Confirm the host watchdog has written a fresh observation.
+ssh root@94.130.105.129 systemctl status property-tile-guardrail-watchdog.timer
+ssh root@94.130.105.129 journalctl -u property-tile-guardrail-watchdog.service -n 50 --no-pager
+
 # 3. Run/allow worker retention if old generations are still retained.
 # Retention runs daily at WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY
 # and retries on later sweeps while it reports "draining".
@@ -136,6 +145,43 @@ ssh root@94.130.105.129 'df -h / && docker system df'
 # If no operator route is available for the exact operation, use the worker
 # recovery sweep and mutation watermarks rather than updating promoted pointers.
 docker compose -f docker-compose.prod.yml logs -f worker api
+```
+
+### Property Tile Guardrail Watchdog
+
+Production disk guardrails use both application-side database metrics and
+host-side root filesystem observations. The host observation is written by a
+systemd watchdog on the app VM:
+
+- Repo source of truth:
+  `tools/ops/property-tile-guardrail-watchdog.sh`,
+  `tools/ops/property-tile-guardrail-watchdog.service`,
+  `tools/ops/property-tile-guardrail-watchdog.timer`
+- Install/sync command: `./tools/install-property-tile-guardrail-watchdog.sh`
+- Server runtime paths:
+  - `/usr/local/bin/property-tile-guardrail-watchdog.sh`
+  - `/etc/systemd/system/property-tile-guardrail-watchdog.service`
+  - `/etc/systemd/system/property-tile-guardrail-watchdog.timer`
+  - `/etc/default/property-tile-guardrail-watchdog` - host-local config;
+    created on first install and preserved on reruns
+- Logs: `journalctl -u property-tile-guardrail-watchdog.service`
+
+Behavior:
+- Timer runs every minute.
+- Writes the latest root filesystem and Docker volume sizes into
+  `property_tile_pyramid_guardrail_observations`.
+- Sends Resend email alerts to `support@huishype.nl` on warning/critical state
+  changes and repeated critical states. Resend credentials are read from the
+  running API container environment.
+- Sends a recovery email when the state returns healthy.
+- Does not start, stop, or restart app containers.
+
+Verification:
+```bash
+./tools/install-property-tile-guardrail-watchdog.sh
+ssh root@94.130.105.129 systemctl start property-tile-guardrail-watchdog.service
+ssh root@94.130.105.129 journalctl -u property-tile-guardrail-watchdog.service -n 20 --no-pager
+ssh root@94.130.105.129 systemctl enable --now property-tile-guardrail-watchdog.timer
 ```
 
 ## Gotchas
@@ -259,6 +305,21 @@ Property tile pyramid:
 - `PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP` and
   `WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY` control cleanup
   cadence. Production default retention time is UTC minute `200` (03:20 UTC).
+- `PROPERTY_TILE_PYRAMID_GUARDRAILS_ENABLED` defaults to `true` in production.
+  Keep it enabled. It requires a fresh
+  `property_tile_pyramid_guardrail_observations` row from the host watchdog.
+- `PROPERTY_TILE_PYRAMID_GUARDRAIL_HOST_OBSERVATION_MAX_AGE_MS`,
+  `PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MAX_USED_PERCENT`, and
+  `PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MIN_FREE_BYTES` block full rebuilds
+  when host disk observations are stale, root disk is at least 75% used, or
+  root free space is below 40GiB.
+- `PROPERTY_TILE_PYRAMID_GUARDRAIL_DB_MAX_BYTES`,
+  `PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES`, and
+  `PROPERTY_TILE_PYRAMID_GUARDRAIL_RETAINED_GENERATION_MAX` block full rebuilds
+  when database/generated storage or retained generation counts exceed the
+  configured hard caps.
+- `PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS` defaults to `false`.
+  Set it only for an explicit operator override after checking disk headroom.
 
 Listing ingest/source services:
 - `INGEST_API_KEY` — shared secret used by scraper callbacks and protected ingest routes.

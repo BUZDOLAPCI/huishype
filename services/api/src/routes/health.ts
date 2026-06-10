@@ -78,6 +78,44 @@ const opsPropertyTilePyramidResponseSchema = z.object({
   }),
   lastEligibilityVerdict: z.string().nullable(),
   lastEligibilityBlockReason: z.string().nullable(),
+  guardrails: z.object({
+    verdict: z.enum(['ok', 'blocked', 'disabled']),
+    automaticBuildsBlocked: z.boolean(),
+    violations: z.array(
+      z.object({
+        reason: z.string(),
+        message: z.string(),
+      })
+    ),
+    thresholds: z.object({
+      hostObservationMaxAgeMs: z.number(),
+      rootMaxUsedPercent: z.number(),
+      rootMinFreeBytes: z.number(),
+      dbMaxBytes: z.number(),
+      generatedMaxBytes: z.number(),
+      retainedGenerationMax: z.number(),
+    }),
+    enabled: z.boolean(),
+    unsafeOperatorBypass: z.boolean(),
+    hostObservation: z
+      .object({
+        source: z.string(),
+        observedAt: z.string(),
+        rootFilesystemBytes: z.number(),
+        rootFilesystemUsedBytes: z.number(),
+        rootFilesystemFreeBytes: z.number(),
+        rootFilesystemUsedPercent: z.number(),
+        postgresVolumeBytes: z.number().nullable(),
+        photonVolumeBytes: z.number().nullable(),
+        dockerVolumes: z.record(z.string(), z.unknown()),
+      })
+      .nullable(),
+    hostObservationAgeMs: z.number().nullable(),
+    dbBytes: z.number().nullable(),
+    generatedBytes: z.number().nullable(),
+    retainedGenerationCount: z.number().nullable(),
+    evaluatedAt: z.string(),
+  }),
   resourceControls: z.object({
     chunkTileLimit: z.number(),
     memberPageSize: z.number(),

@@ -30,6 +30,12 @@ const DEFAULT_MAX_MEMBER_ROWS = 5_000_000;
 const DEFAULT_MAX_WAL_BYTES_PER_CHUNK = 1_073_741_824;
 const DEFAULT_MAX_WAL_BYTES_PER_BUILD = 10 * 1_073_741_824;
 const DEFAULT_PROPERTY_TILE_PYRAMID_FULL_REBUILD_CADENCE_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_HOST_OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
+const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MAX_USED_PERCENT = 75;
+const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MIN_FREE_BYTES = 40 * 1_073_741_824;
+const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_DB_MAX_BYTES = 130 * 1_073_741_824;
+const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES = 40 * 1_073_741_824;
+const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_RETAINED_GENERATION_MAX = 3;
 const PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT = 10_000;
 const PROPERTY_TILE_GROUPING_FACT_INSERT_BATCH_SIZE = 10_000;
 const DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP = 25;
@@ -44,8 +50,10 @@ const PROPERTY_TILE_PYRAMID_MVT_LAYER_NAME = 'properties';
 const PROPERTY_TILE_PYRAMID_SINGLE_TAP_RADIUS_PX = 24;
 const PROPERTY_TILE_PYRAMID_CLUSTER_TAP_RADIUS_PX = 36;
 const PROPERTY_TILE_PYRAMID_REPAIR_REASONS = new Set<string>([
+  'tile-miss',
   'manifest-missing',
   'payload-regeneration-error',
+  'nearby-fallback-miss',
 ]);
 const WOZ_SOURCE_CONFIG = getOfficialValuationSourceConfig('woz');
 
@@ -206,6 +214,65 @@ export type PropertyTilePyramidFullBuildCurrentState =
       walBytes: number;
     };
 
+export type PropertyTilePyramidGuardrailViolationReason =
+  | 'guardrail-host-observation-missing'
+  | 'guardrail-host-observation-stale'
+  | 'guardrail-root-disk-high'
+  | 'guardrail-root-disk-free-low'
+  | 'guardrail-db-size-high'
+  | 'guardrail-generated-storage-high'
+  | 'guardrail-retained-generations-high';
+
+export type PropertyTilePyramidGuardrailVerdict = 'ok' | 'blocked' | 'disabled';
+
+export interface PropertyTilePyramidGuardrailControls {
+  enabled: boolean;
+  unsafeOperatorBypass: boolean;
+  hostObservationMaxAgeMs: number;
+  rootMaxUsedPercent: number;
+  rootMinFreeBytes: number;
+  dbMaxBytes: number;
+  generatedMaxBytes: number;
+  retainedGenerationMax: number;
+}
+
+export interface PropertyTilePyramidGuardrailHostObservation {
+  source: string;
+  observedAt: string;
+  rootFilesystemBytes: number;
+  rootFilesystemUsedBytes: number;
+  rootFilesystemFreeBytes: number;
+  rootFilesystemUsedPercent: number;
+  postgresVolumeBytes: number | null;
+  photonVolumeBytes: number | null;
+  dockerVolumes: Record<string, unknown>;
+}
+
+export interface PropertyTilePyramidGuardrailSummary {
+  verdict: PropertyTilePyramidGuardrailVerdict;
+  automaticBuildsBlocked: boolean;
+  violations: Array<{
+    reason: PropertyTilePyramidGuardrailViolationReason;
+    message: string;
+  }>;
+  thresholds: {
+    hostObservationMaxAgeMs: number;
+    rootMaxUsedPercent: number;
+    rootMinFreeBytes: number;
+    dbMaxBytes: number;
+    generatedMaxBytes: number;
+    retainedGenerationMax: number;
+  };
+  enabled: boolean;
+  unsafeOperatorBypass: boolean;
+  hostObservation: PropertyTilePyramidGuardrailHostObservation | null;
+  hostObservationAgeMs: number | null;
+  dbBytes: number | null;
+  generatedBytes: number | null;
+  retainedGenerationCount: number | null;
+  evaluatedAt: string;
+}
+
 export type PropertyTilePyramidFullBuildEligibility =
   | {
       eligible: true;
@@ -221,9 +288,14 @@ export type PropertyTilePyramidFullBuildEligibility =
     }
   | {
       eligible: false;
-      reason: 'cadence-not-due' | 'repair-current-usable' | 'current-size-threshold-exceeded';
+      reason:
+        | 'cadence-not-due'
+        | 'repair-current-usable'
+        | 'current-size-threshold-exceeded'
+        | PropertyTilePyramidGuardrailViolationReason;
       current: PropertyTilePyramidFullBuildCurrentState;
       nextEligibleAt: string | null;
+      guardrails?: PropertyTilePyramidGuardrailSummary;
     };
 
 const PROPERTY_TILE_PYRAMID_MUTATION_BUILD_POLICIES: Record<
@@ -321,6 +393,7 @@ export interface PropertyTilePyramidOpsSummary extends PropertyTilePyramidHealth
   };
   lastEligibilityVerdict: string | null;
   lastEligibilityBlockReason: string | null;
+  guardrails: PropertyTilePyramidGuardrailSummary;
 }
 
 export type PropertyTilePyramidCoverageCheck = {
@@ -447,6 +520,21 @@ function parseOptionalPositiveIntegerEnv(name: string): number | null {
   return parsed;
 }
 
+function parseBooleanEnv(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === '') {
+    return fallback;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  throw new Error(`${name} must be a boolean, received "${raw}"`);
+}
+
 export function getPropertyTilePyramidMaxZoom(): number {
   return parseNonNegativeIntegerEnv('PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM', DEFAULT_MAX_ZOOM, 22);
 }
@@ -474,6 +562,41 @@ function getPropertyTilePyramidFullBuildGateControls(): {
     ),
     maxCurrentWalBytes: parseOptionalPositiveIntegerEnv(
       'PROPERTY_TILE_PYRAMID_FULL_BUILD_MAX_CURRENT_WAL_BYTES'
+    ),
+  };
+}
+
+export function getPropertyTilePyramidGuardrailControls(): PropertyTilePyramidGuardrailControls {
+  const enabledByDefault = process.env.NODE_ENV === 'production';
+  return {
+    enabled: parseBooleanEnv('PROPERTY_TILE_PYRAMID_GUARDRAILS_ENABLED', enabledByDefault),
+    unsafeOperatorBypass: parseBooleanEnv(
+      'PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS',
+      false
+    ),
+    hostObservationMaxAgeMs: parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PYRAMID_GUARDRAIL_HOST_OBSERVATION_MAX_AGE_MS',
+      DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_HOST_OBSERVATION_MAX_AGE_MS
+    ),
+    rootMaxUsedPercent: parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MAX_USED_PERCENT',
+      DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MAX_USED_PERCENT
+    ),
+    rootMinFreeBytes: parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MIN_FREE_BYTES',
+      DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MIN_FREE_BYTES
+    ),
+    dbMaxBytes: parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PYRAMID_GUARDRAIL_DB_MAX_BYTES',
+      DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_DB_MAX_BYTES
+    ),
+    generatedMaxBytes: parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES',
+      DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES
+    ),
+    retainedGenerationMax: parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PYRAMID_GUARDRAIL_RETAINED_GENERATION_MAX',
+      DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_RETAINED_GENERATION_MAX
     ),
   };
 }
@@ -830,6 +953,132 @@ function promotedAgeMs(promotedAt: string | null, nowMs: number): number | null 
   return nowMs - promotedAtMs;
 }
 
+function nextEligibleAtForCurrent(
+  current: PropertyTilePyramidFullBuildCurrentState,
+  cadenceMs: number
+): string | null {
+  if (!current.promotedAt) {
+    return null;
+  }
+  const promotedAtMs = new Date(current.promotedAt).getTime();
+  if (!Number.isFinite(promotedAtMs)) {
+    return null;
+  }
+  return new Date(promotedAtMs + cadenceMs).toISOString();
+}
+
+export function evaluatePropertyTilePyramidGuardrailVerdict(input: {
+  controls: PropertyTilePyramidGuardrailControls;
+  hostObservation: PropertyTilePyramidGuardrailHostObservation | null;
+  dbBytes: number | null;
+  generatedBytes: number | null;
+  retainedGenerationCount: number | null;
+  nowMs?: number;
+}): PropertyTilePyramidGuardrailSummary {
+  const nowMs = input.nowMs ?? Date.now();
+  const evaluatedAt = new Date(nowMs).toISOString();
+  const thresholds = {
+    hostObservationMaxAgeMs: input.controls.hostObservationMaxAgeMs,
+    rootMaxUsedPercent: input.controls.rootMaxUsedPercent,
+    rootMinFreeBytes: input.controls.rootMinFreeBytes,
+    dbMaxBytes: input.controls.dbMaxBytes,
+    generatedMaxBytes: input.controls.generatedMaxBytes,
+    retainedGenerationMax: input.controls.retainedGenerationMax,
+  };
+  const hostObservationAgeMs =
+    input.hostObservation == null
+      ? null
+      : Math.max(0, nowMs - new Date(input.hostObservation.observedAt).getTime());
+  const violations: PropertyTilePyramidGuardrailSummary['violations'] = [];
+
+  if (input.controls.enabled) {
+    if (input.hostObservation == null) {
+      violations.push({
+        reason: 'guardrail-host-observation-missing',
+        message: 'No production host disk observation has been recorded.',
+      });
+    } else if (hostObservationAgeMs == null || !Number.isFinite(hostObservationAgeMs)) {
+      violations.push({
+        reason: 'guardrail-host-observation-stale',
+        message: 'Latest production host disk observation has an invalid timestamp.',
+      });
+    } else if (hostObservationAgeMs > input.controls.hostObservationMaxAgeMs) {
+      violations.push({
+        reason: 'guardrail-host-observation-stale',
+        message: `Latest production host disk observation is ${hostObservationAgeMs}ms old.`,
+      });
+    }
+
+    if (
+      input.hostObservation != null &&
+      input.hostObservation.rootFilesystemUsedPercent >= input.controls.rootMaxUsedPercent
+    ) {
+      violations.push({
+        reason: 'guardrail-root-disk-high',
+        message: `Root filesystem is ${input.hostObservation.rootFilesystemUsedPercent}% used.`,
+      });
+    }
+
+    if (
+      input.hostObservation != null &&
+      input.hostObservation.rootFilesystemFreeBytes < input.controls.rootMinFreeBytes
+    ) {
+      violations.push({
+        reason: 'guardrail-root-disk-free-low',
+        message: `Root filesystem has ${input.hostObservation.rootFilesystemFreeBytes} bytes free.`,
+      });
+    }
+
+    if (input.dbBytes != null && input.dbBytes > input.controls.dbMaxBytes) {
+      violations.push({
+        reason: 'guardrail-db-size-high',
+        message: `Database size is ${input.dbBytes} bytes.`,
+      });
+    }
+
+    if (input.generatedBytes != null && input.generatedBytes > input.controls.generatedMaxBytes) {
+      violations.push({
+        reason: 'guardrail-generated-storage-high',
+        message: `Generated property tile storage is ${input.generatedBytes} bytes.`,
+      });
+    }
+
+    if (
+      input.retainedGenerationCount != null &&
+      input.retainedGenerationCount > input.controls.retainedGenerationMax
+    ) {
+      violations.push({
+        reason: 'guardrail-retained-generations-high',
+        message: `Retained pyramid generation count is ${input.retainedGenerationCount}.`,
+      });
+    }
+  }
+
+  const verdict: PropertyTilePyramidGuardrailVerdict = !input.controls.enabled
+    ? 'disabled'
+    : violations.length > 0
+      ? 'blocked'
+      : 'ok';
+
+  return {
+    verdict,
+    automaticBuildsBlocked: verdict === 'blocked',
+    violations,
+    thresholds,
+    enabled: input.controls.enabled,
+    unsafeOperatorBypass: input.controls.unsafeOperatorBypass,
+    hostObservation: input.hostObservation,
+    hostObservationAgeMs:
+      hostObservationAgeMs == null || !Number.isFinite(hostObservationAgeMs)
+        ? null
+        : hostObservationAgeMs,
+    dbBytes: input.dbBytes,
+    generatedBytes: input.generatedBytes,
+    retainedGenerationCount: input.retainedGenerationCount,
+    evaluatedAt,
+  };
+}
+
 export function evaluatePropertyTilePyramidFullBuildEligibility(input: {
   reason: string;
   current: PropertyTilePyramidFullBuildCurrentState;
@@ -843,10 +1092,7 @@ export function evaluatePropertyTilePyramidFullBuildEligibility(input: {
   const reason = String(input.reason);
   const nowMs = input.nowMs ?? Date.now();
   const cadenceMs = input.cadenceMs ?? getPropertyTilePyramidFullRebuildCadenceMs();
-  const nextEligibleAt =
-    input.current.promotedAt && Number.isFinite(new Date(input.current.promotedAt).getTime())
-      ? new Date(new Date(input.current.promotedAt).getTime() + cadenceMs).toISOString()
-      : null;
+  const nextEligibleAt = nextEligibleAtForCurrent(input.current, cadenceMs);
 
   if (reason === 'operator') {
     return {
@@ -3762,6 +4008,128 @@ async function recordDeniedPropertyTilePyramidFullBuildDemand(input: {
   `);
 }
 
+async function readPropertyTilePyramidGuardrails(input: {
+  slot: PropertyTilePyramidSlot;
+  controls: PropertyTilePyramidGuardrailControls;
+}): Promise<PropertyTilePyramidGuardrailSummary> {
+  const rows = await db.execute<{
+    observation_source: string | null;
+    observation_observed_at: string | null;
+    root_filesystem_bytes: number | string | null;
+    root_filesystem_used_bytes: number | string | null;
+    root_filesystem_free_bytes: number | string | null;
+    root_filesystem_used_percent: number | string | null;
+    postgres_volume_bytes: number | string | null;
+    photon_volume_bytes: number | string | null;
+    docker_volumes_json: Record<string, unknown> | null;
+    db_bytes: number | string | null;
+    generated_bytes: number | string | null;
+    retained_generation_count: number | string | null;
+  }>(sql`
+    WITH RECURSIVE latest_observation AS (
+      SELECT *
+      FROM property_tile_pyramid_guardrail_observations
+      ORDER BY observed_at DESC
+      LIMIT 1
+    ),
+    tracked_relations(relation_name) AS (
+      VALUES
+        ('property_tile_candidate_source_snapshots'),
+        ('property_tile_grouping_facts'),
+        ('property_tile_listing_candidates'),
+        ('property_tile_listing_facts'),
+        ('property_tile_pyramid_members'),
+        ('property_tile_pyramid_nodes'),
+        ('property_tile_pyramid_tiles'),
+        ('property_tile_pyramid_versions'),
+        ('property_tile_social_facts')
+    ),
+    relation_roots AS (
+      SELECT relation_name, to_regclass('public.' || relation_name) AS oid
+      FROM tracked_relations
+    ),
+    relation_tree(relation_name, oid) AS (
+      SELECT relation_name, oid
+      FROM relation_roots
+      WHERE oid IS NOT NULL
+      UNION ALL
+      SELECT rt.relation_name, i.inhrelid
+      FROM relation_tree rt
+      JOIN pg_inherits i ON i.inhparent = rt.oid
+    ),
+    generated_storage AS (
+      SELECT COALESCE(sum(pg_total_relation_size(oid)), 0)::text AS total_bytes
+      FROM relation_tree
+    ),
+    retained_generations AS (
+      SELECT count(DISTINCT id)::int AS count
+      FROM (
+        SELECT current_version_id AS id
+        FROM property_tile_pyramid_current
+        WHERE coverage_id = ${input.slot.coverageId}
+          AND filter_signature = ${input.slot.filterSignature}
+          AND max_zoom = ${input.slot.maxZoom}
+          AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
+        UNION ALL
+        SELECT previous_version_id AS id
+        FROM property_tile_pyramid_current
+        WHERE coverage_id = ${input.slot.coverageId}
+          AND filter_signature = ${input.slot.filterSignature}
+          AND max_zoom = ${input.slot.maxZoom}
+          AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
+        UNION ALL
+        SELECT id
+        FROM property_tile_pyramid_versions
+        WHERE coverage_id = ${input.slot.coverageId}
+          AND filter_signature = ${input.slot.filterSignature}
+          AND max_zoom = ${input.slot.maxZoom}
+          AND pyramid_kind = ${input.slot.pyramidKind}::property_tile_pyramid_kind
+          AND status IN ('queued', 'building', 'validating', 'validated')
+      ) retained
+      WHERE id IS NOT NULL
+    )
+    SELECT
+      (SELECT source FROM latest_observation) AS observation_source,
+      (SELECT observed_at::text FROM latest_observation) AS observation_observed_at,
+      (SELECT root_filesystem_bytes::text FROM latest_observation) AS root_filesystem_bytes,
+      (SELECT root_filesystem_used_bytes::text FROM latest_observation) AS root_filesystem_used_bytes,
+      (SELECT root_filesystem_free_bytes::text FROM latest_observation) AS root_filesystem_free_bytes,
+      (SELECT root_filesystem_used_percent::text FROM latest_observation) AS root_filesystem_used_percent,
+      (SELECT postgres_volume_bytes::text FROM latest_observation) AS postgres_volume_bytes,
+      (SELECT photon_volume_bytes::text FROM latest_observation) AS photon_volume_bytes,
+      (SELECT docker_volumes_json FROM latest_observation) AS docker_volumes_json,
+      pg_database_size(current_database())::text AS db_bytes,
+      (SELECT total_bytes FROM generated_storage) AS generated_bytes,
+      (SELECT count FROM retained_generations)::text AS retained_generation_count
+  `);
+  const row = dbRows(rows)[0];
+  const hostObservation =
+    row?.observation_source == null || row.observation_observed_at == null
+      ? null
+      : {
+          source: row.observation_source,
+          observedAt: row.observation_observed_at,
+          rootFilesystemBytes: Number(row.root_filesystem_bytes ?? 0),
+          rootFilesystemUsedBytes: Number(row.root_filesystem_used_bytes ?? 0),
+          rootFilesystemFreeBytes: Number(row.root_filesystem_free_bytes ?? 0),
+          rootFilesystemUsedPercent: Number(row.root_filesystem_used_percent ?? 0),
+          postgresVolumeBytes:
+            row.postgres_volume_bytes == null ? null : Number(row.postgres_volume_bytes),
+          photonVolumeBytes:
+            row.photon_volume_bytes == null ? null : Number(row.photon_volume_bytes),
+          dockerVolumes: row.docker_volumes_json ?? {},
+        };
+
+  return evaluatePropertyTilePyramidGuardrailVerdict({
+    controls: input.controls,
+    hostObservation,
+    dbBytes: row?.db_bytes == null ? null : Number(row.db_bytes),
+    generatedBytes: row?.generated_bytes == null ? null : Number(row.generated_bytes),
+    retainedGenerationCount:
+      row?.retained_generation_count == null ? null : Number(row.retained_generation_count),
+  });
+}
+
 export async function claimPropertyTilePyramidFullBuildEligibility(input: {
   reason: PropertyTilePyramidBuildRequestReason | string;
   slot?: PropertyTilePyramidSlot;
@@ -3772,6 +4140,7 @@ export async function claimPropertyTilePyramidFullBuildEligibility(input: {
 }): Promise<PropertyTilePyramidFullBuildEligibility> {
   const slot = input.slot ?? getDefaultPropertyTilePyramidSlot();
   const controls = getPropertyTilePyramidFullBuildGateControls();
+  const guardrailControls = getPropertyTilePyramidGuardrailControls();
   const current = await readPropertyTilePyramidFullBuildCurrentState(slot);
   const requestedComparableSourceWatermarkHash = comparableSourceWatermarkHash({
     sourceWatermarkHash: input.sourceWatermarkHash,
@@ -3781,6 +4150,36 @@ export async function claimPropertyTilePyramidFullBuildEligibility(input: {
     sourceWatermarkHash: input.sourceWatermarkHash,
     sourceWatermarksJson: input.sourceWatermarksJson,
   });
+
+  if (
+    guardrailControls.enabled &&
+    !(String(input.reason) === 'operator' && guardrailControls.unsafeOperatorBypass)
+  ) {
+    const guardrails = await readPropertyTilePyramidGuardrails({ slot, controls: guardrailControls });
+    if (guardrails.automaticBuildsBlocked) {
+      const eligibility: PropertyTilePyramidFullBuildEligibility & { eligible: false } = {
+        eligible: false,
+        reason: guardrails.violations[0]?.reason ?? 'guardrail-host-observation-missing',
+        current,
+        nextEligibleAt: nextEligibleAtForCurrent(current, controls.cadenceMs),
+        guardrails,
+      };
+      if (input.recordDenied !== false) {
+        await recordDeniedPropertyTilePyramidFullBuildDemand({
+          slot,
+          reason: String(input.reason),
+          buildInputsHash: input.buildInputsHash,
+          sourceWatermarkHash: input.sourceWatermarkHash,
+          sourceWatermarksJson: input.sourceWatermarksJson,
+          requestedComparableSourceWatermarkHash,
+          requestedCanonicalComparableSourceWatermarkHash,
+          eligibility,
+        });
+      }
+      return eligibility;
+    }
+  }
+
   const eligibility = evaluatePropertyTilePyramidFullBuildEligibility({
     reason: String(input.reason),
     current,
@@ -6327,7 +6726,7 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
       closed_to_current_watermark_lag_seconds: number | string | null;
       last_successful_promotion_at: string | null;
     }>(sql`
-      WITH current_version AS (
+      WITH RECURSIVE current_version AS (
         SELECT v.*
         FROM property_tile_pyramid_current c
         JOIN property_tile_pyramid_versions v ON v.id = c.current_version_id
@@ -6588,7 +6987,16 @@ export async function getPropertyTilePyramidHealthSummary(): Promise<PropertyTil
 export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePyramidOpsSummary> {
   const health = await getPropertyTilePyramidHealthSummary();
   const slot = getDefaultPropertyTilePyramidSlot();
+  const guardrailControls = getPropertyTilePyramidGuardrailControls();
+  let guardrails = evaluatePropertyTilePyramidGuardrailVerdict({
+    controls: guardrailControls,
+    hostObservation: null,
+    dbBytes: null,
+    generatedBytes: null,
+    retainedGenerationCount: null,
+  });
   try {
+    guardrails = await readPropertyTilePyramidGuardrails({ slot, controls: guardrailControls });
     const rows = await db.execute<{
       previous_version_id: string | null;
       manifest_tile_count: number | string | null;
@@ -6623,7 +7031,7 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
       last_eligibility_verdict: string | null;
       last_eligibility_block_reason: string | null;
     }>(sql`
-      WITH current_version AS (
+      WITH RECURSIVE current_version AS (
         SELECT v.*
         FROM property_tile_pyramid_current c
         JOIN property_tile_pyramid_versions v ON v.id = c.current_version_id
@@ -6720,34 +7128,50 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
         ORDER BY requested_at DESC NULLS LAST, updated_at DESC NULLS LAST
         LIMIT 1
       ),
+      tracked_relation_roots AS (
+        SELECT relation_name, to_regclass('public.' || relation_name) AS oid
+        FROM (
+          VALUES
+            ('property_tile_candidate_source_snapshots'),
+            ('property_tile_grouping_facts'),
+            ('property_tile_listing_candidates'),
+            ('property_tile_listing_facts'),
+            ('property_tile_pyramid_members'),
+            ('property_tile_pyramid_nodes'),
+            ('property_tile_pyramid_tiles'),
+            ('property_tile_pyramid_versions'),
+            ('property_tile_social_facts')
+        ) AS tracked(relation_name)
+      ),
+      relation_tree(relation_name, oid) AS (
+        SELECT relation_name, oid
+        FROM tracked_relation_roots
+        WHERE oid IS NOT NULL
+        UNION ALL
+        SELECT rt.relation_name, i.inhrelid
+        FROM relation_tree rt
+        JOIN pg_inherits i ON i.inhparent = rt.oid
+      ),
+      relation_rollup AS (
+        SELECT
+          relation_name,
+          sum(GREATEST(c.reltuples::bigint, 0))::text AS row_estimate,
+          sum(pg_total_relation_size(rt.oid))::text AS total_bytes
+        FROM relation_tree rt
+        JOIN pg_class c ON c.oid = rt.oid
+        GROUP BY relation_name
+      ),
       relation_stats AS (
         SELECT jsonb_agg(
           jsonb_build_object(
-            'relationName', relation_name,
-            'rowEstimate', row_estimate,
-            'totalBytes', total_bytes
+            'relationName', roots.relation_name,
+            'rowEstimate', relation_rollup.row_estimate,
+            'totalBytes', relation_rollup.total_bytes
           )
-          ORDER BY relation_name
+          ORDER BY roots.relation_name
         ) AS stats
-        FROM (
-          SELECT
-            relation_name,
-            CASE WHEN c.oid IS NULL THEN NULL ELSE GREATEST(c.reltuples::bigint, 0)::text END AS row_estimate,
-            CASE WHEN c.oid IS NULL THEN NULL ELSE pg_total_relation_size(c.oid)::text END AS total_bytes
-          FROM (
-            VALUES
-              ('property_tile_candidate_source_snapshots'),
-              ('property_tile_grouping_facts'),
-              ('property_tile_listing_candidates'),
-              ('property_tile_listing_facts'),
-              ('property_tile_pyramid_members'),
-              ('property_tile_pyramid_nodes'),
-              ('property_tile_pyramid_tiles'),
-              ('property_tile_pyramid_versions'),
-              ('property_tile_social_facts')
-          ) AS tracked(relation_name)
-          LEFT JOIN pg_class c ON c.oid = to_regclass('public.' || tracked.relation_name)
-        ) sized
+        FROM tracked_relation_roots roots
+        LEFT JOIN relation_rollup USING (relation_name)
       )
       SELECT
         (
@@ -6981,6 +7405,7 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
       },
       lastEligibilityVerdict: row?.last_eligibility_verdict ?? null,
       lastEligibilityBlockReason: row?.last_eligibility_block_reason ?? null,
+      guardrails,
     };
   } catch (error) {
     if (isMissingPyramidSchemaError(error)) {
@@ -7013,6 +7438,7 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
         },
         lastEligibilityVerdict: null,
         lastEligibilityBlockReason: null,
+        guardrails,
       };
     }
     throw error;
