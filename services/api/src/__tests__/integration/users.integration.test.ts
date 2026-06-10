@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../../db/index.js';
@@ -613,22 +613,38 @@ describe('User profile routes', () => {
       expect(JSON.parse(resp.body).error).toBe('HANDLE_TAKEN');
     });
 
-    it('allows profile photo and home country updates without identity cooldowns', async () => {
+    it('allows home country updates without identity cooldowns', async () => {
       const { accessToken } = await createTestUser('photo');
 
       const resp = await app.inject({
         method: 'PUT',
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${accessToken}` },
-        payload: { profilePhotoUrl: 'https://example.com/photo.jpg', homeCountry: 'be' },
+        payload: { homeCountry: 'be' },
       });
 
       expect(resp.statusCode).toBe(200);
       const body = JSON.parse(resp.body);
-      expect(body.profilePhotoUrl).toBe('https://example.com/photo.jpg');
+      expect(body.profilePhotoUrl).toBeNull();
       expect(body.homeCountry).toBe('BE');
       expect(body.lastDisplayNameChangeAt).toBeNull();
       expect(body.lastHandleChangeAt).toBeNull();
+    });
+
+    it('rejects profile photo URLs on the generic profile update route', async () => {
+      const { accessToken, userId } = await createTestUser('photo-generic-reject');
+
+      const resp = await app.inject({
+        method: 'PUT',
+        url: '/users/me/profile',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { profilePhotoUrl: 'https://example.com/photo.jpg' },
+      });
+
+      expect(resp.statusCode).toBe(400);
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(stored?.profilePhotoUrl).toBeNull();
     });
 
     it('should reject too-short display name', async () => {
@@ -761,6 +777,31 @@ describe('User profile routes', () => {
 
       const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
       expect(stored?.profilePhotoUrl).toBe(`/${uploadedObjects[0].key}`);
+    });
+
+    it('deletes the uploaded R2 object if storing the profile photo URL fails', async () => {
+      const { accessToken } = await createTestUser('photo-upload-db-fail');
+      const dbUpdateSpy = jest.spyOn(db, 'update').mockImplementationOnce(() => {
+        throw new Error('forced profile photo update failure');
+      });
+
+      try {
+        const resp = await app.inject({
+          method: 'POST',
+          url: '/users/me/profile-photo',
+          headers: { authorization: `Bearer ${accessToken}` },
+          payload: {
+            imageBase64: await createTestImageBase64(),
+            mimeType: 'image/png',
+          },
+        });
+
+        expect(resp.statusCode).toBe(500);
+        expect(uploadedObjects).toHaveLength(1);
+        expect(deletedObjectKeys).toEqual([uploadedObjects[0].key]);
+      } finally {
+        dbUpdateSpy.mockRestore();
+      }
     });
 
     it('clears the profile photo and best-effort deletes the owned R2 object', async () => {

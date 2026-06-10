@@ -71,7 +71,6 @@ export interface UserSearchResponse {
 export interface UpdateMyProfileInput {
   displayName?: string;
   handle?: string;
-  profilePhotoUrl?: string;
   homeCountry?: string | null;
 }
 

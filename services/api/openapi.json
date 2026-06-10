@@ -14215,10 +14215,6 @@
                   "handle": {
                     "type": "string"
                   },
-                  "profilePhotoUrl": {
-                    "type": "string",
-                    "format": "uri"
-                  },
                   "homeCountry": {
                     "anyOf": [
                       {
@@ -14231,7 +14227,8 @@
                       }
                     ]
                   }
-                }
+                },
+                "additionalProperties": false
               }
             }
           }

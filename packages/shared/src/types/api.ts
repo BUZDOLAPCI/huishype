@@ -174,7 +174,6 @@ export type GetMyProfileResponse = MyUserProfile;
 export interface UpdateUserProfileRequest {
   displayName?: string;
   handle?: string;
-  profilePhotoUrl?: string;
   homeCountry?: string | null;
 }
 

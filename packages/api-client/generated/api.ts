@@ -5029,8 +5029,6 @@ export interface paths {
                     "application/json": {
                         displayName?: string;
                         handle?: string;
-                        /** Format: uri */
-                        profilePhotoUrl?: string;
                         homeCountry?: string | null;
                     };
                 };

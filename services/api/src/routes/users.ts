@@ -632,22 +632,28 @@ export async function userRoutes(fastify: FastifyInstance) {
         throw error;
       }
 
-      const [updated] = await db
-        .update(users)
-        .set({
-          profilePhotoUrl,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, userId))
-        .returning({
-          id: users.id,
-          username: users.username,
-          displayName: users.displayName,
-          profilePhotoUrl: users.profilePhotoUrl,
-          homeCountry: users.homeCountry,
-          lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
-          lastUsernameChangeAt: users.lastUsernameChangeAt,
-        });
+      let updated: Parameters<typeof profileIdentityPayload>[0];
+      try {
+        [updated] = await db
+          .update(users)
+          .set({
+            profilePhotoUrl,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, userId))
+          .returning({
+            id: users.id,
+            username: users.username,
+            displayName: users.displayName,
+            profilePhotoUrl: users.profilePhotoUrl,
+            homeCountry: users.homeCountry,
+            lastDisplayNameChangeAt: users.lastDisplayNameChangeAt,
+            lastUsernameChangeAt: users.lastUsernameChangeAt,
+          });
+      } catch (error) {
+        await deleteProfilePhotoByUrl(profilePhotoUrl, userId);
+        throw error;
+      }
 
       void deleteProfilePhotoByUrl(user.profilePhotoUrl, userId);
 
@@ -734,7 +740,7 @@ export async function userRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const userId = request.userId!;
-      const { displayName, handle, profilePhotoUrl, homeCountry } = request.body;
+      const { displayName, handle, homeCountry } = request.body;
 
       const user = await db.query.users.findFirst({
         where: eq(users.id, userId),
@@ -797,10 +803,6 @@ export async function userRoutes(fastify: FastifyInstance) {
 
         updates.username = handle;
         updates.lastUsernameChangeAt = now;
-      }
-
-      if (profilePhotoUrl !== undefined && profilePhotoUrl !== user.profilePhotoUrl) {
-        updates.profilePhotoUrl = profilePhotoUrl;
       }
 
       if (homeCountry !== undefined && homeCountry !== (user.homeCountry ?? null)) {

@@ -126,7 +126,6 @@ export const authRefreshSchema = z.object({
 export const updateUserProfileSchema = z.object({
   displayName: displayNameSchema.optional(),
   handle: handleSchema.optional(),
-  profilePhotoUrl: z.string().url('Invalid profile photo URL').optional(),
   homeCountry: z
     .string()
     .length(2, 'Home country must be a 2-letter country code')
@@ -136,7 +135,7 @@ export const updateUserProfileSchema = z.object({
     })
     .nullable()
     .optional(),
-});
+}).strict();
 
 // ============================================
 // Property Schemas
