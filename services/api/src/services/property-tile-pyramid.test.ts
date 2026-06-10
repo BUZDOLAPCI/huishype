@@ -13,6 +13,7 @@ import {
   getPropertyTilePyramidFullRebuildCadenceMs,
   getPropertyTilePyramidMaxZoom,
   getPropertyTilePyramidResourceControls,
+  readPropertyTilePyramidFullBuildPendingDemandFromWatermarkRow,
   type PropertyTilePyramidSlot,
 } from './property-tile-pyramid.js';
 
@@ -339,6 +340,84 @@ describe('property tile pyramid service helpers', () => {
     });
   });
 
+  it('strictly validates pending full-build demand watermark rows', () => {
+    const pending = {
+      deniedAt: '2026-06-10T10:00:00.000Z',
+      denialReason: 'cadence-not-due',
+      requestReason: 'source-watermark',
+      slot,
+      buildInputsHash: 'inputs',
+      sourceWatermarkHash: 'watermarks',
+      sourceWatermarksJson: { sources: [{ source: 'unit' }] },
+      requestedComparableSourceWatermarkHash: 'watermarks',
+      requestedCanonicalComparableSourceWatermarkHash: 'watermarks',
+      current: {
+        state: 'usable',
+        currentVersionId: 'current-version',
+        promotedAt: '2026-06-10T00:00:00.000Z',
+        sourceWatermarkHash: 'current-watermarks',
+        comparableSourceWatermarkHash: 'current-watermarks',
+        canonicalComparableSourceWatermarkHash: 'current-watermarks',
+        nodeCount: 10,
+        encodedPayloadBytes: 20,
+        walBytes: 30,
+      },
+      nextEligibleAt: '2026-06-11T00:00:00.000Z',
+    };
+
+    expect(
+      readPropertyTilePyramidFullBuildPendingDemandFromWatermarkRow({
+        scope: 'rolling_social_window',
+        scope_key: 'full-build-eligibility',
+        watermark_json: { propertyTilePyramidFullBuildPending: pending },
+      })
+    ).toMatchObject({
+      requestReason: 'source-watermark',
+      buildInputsHash: 'inputs',
+      sourceWatermarkHash: 'watermarks',
+      nextEligibleAt: '2026-06-11T00:00:00.000Z',
+    });
+
+    expect(
+      readPropertyTilePyramidFullBuildPendingDemandFromWatermarkRow({
+        scope: 'social_inputs',
+        scope_key: 'full-build-eligibility',
+        watermark_json: { propertyTilePyramidFullBuildPending: pending },
+      })
+    ).toBeNull();
+    expect(
+      readPropertyTilePyramidFullBuildPendingDemandFromWatermarkRow({
+        scope: 'rolling_social_window',
+        scope_key: 'global',
+        watermark_json: { propertyTilePyramidFullBuildPending: pending },
+      })
+    ).toBeNull();
+    expect(
+      readPropertyTilePyramidFullBuildPendingDemandFromWatermarkRow({
+        scope: 'rolling_social_window',
+        scope_key: 'full-build-eligibility',
+        watermark_json: {
+          propertyTilePyramidFullBuildPending: {
+            ...pending,
+            sourceWatermarksJson: [],
+          },
+        },
+      })
+    ).toBeNull();
+    expect(
+      readPropertyTilePyramidFullBuildPendingDemandFromWatermarkRow({
+        scope: 'rolling_social_window',
+        scope_key: 'full-build-eligibility',
+        watermark_json: {
+          propertyTilePyramidFullBuildPending: {
+            ...pending,
+            nextEligibleAt: 'not-a-date',
+          },
+        },
+      })
+    ).toBeNull();
+  });
+
   it('gates full rebuilds by cadence while allowing operator, cadence, missing, degraded, and corrupt current states', () => {
     const nowMs = Date.parse('2026-06-10T12:00:00.000Z');
     const cadenceMs = 24 * 60 * 60 * 1000;
@@ -506,6 +585,7 @@ describe('property tile pyramid service helpers', () => {
       rootMinFreeBytes: 40 * 1_073_741_824,
       dbMaxBytes: 130 * 1_073_741_824,
       generatedMaxBytes: 40 * 1_073_741_824,
+      generatedGenerationMax: 3,
       retainedGenerationMax: 3,
     };
     const nowMs = Date.parse('2026-06-10T12:00:00.000Z');
@@ -527,6 +607,8 @@ describe('property tile pyramid service helpers', () => {
         hostObservation: healthyObservation,
         dbBytes: 78 * 1_073_741_824,
         generatedBytes: 12 * 1_073_741_824,
+        generatedPyramidGenerationCount: 2,
+        generatedCandidateSnapshotCount: 2,
         retainedGenerationCount: 2,
         nowMs,
       })
@@ -543,6 +625,8 @@ describe('property tile pyramid service helpers', () => {
         hostObservation: null,
         dbBytes: 78 * 1_073_741_824,
         generatedBytes: 12 * 1_073_741_824,
+        generatedPyramidGenerationCount: 2,
+        generatedCandidateSnapshotCount: 2,
         retainedGenerationCount: 2,
         nowMs,
       }).violations.map((violation) => violation.reason)
@@ -559,6 +643,8 @@ describe('property tile pyramid service helpers', () => {
         },
         dbBytes: 131 * 1_073_741_824,
         generatedBytes: 41 * 1_073_741_824,
+        generatedPyramidGenerationCount: 4,
+        generatedCandidateSnapshotCount: 2,
         retainedGenerationCount: 4,
         nowMs,
       }).violations.map((violation) => violation.reason)
@@ -569,7 +655,34 @@ describe('property tile pyramid service helpers', () => {
         'guardrail-root-disk-free-low',
         'guardrail-db-size-high',
         'guardrail-generated-storage-high',
+        'guardrail-generated-generations-high',
         'guardrail-retained-generations-high',
+      ])
+    );
+
+    const generatedCountVerdict = evaluatePropertyTilePyramidGuardrailVerdict({
+      controls,
+      hostObservation: healthyObservation,
+      dbBytes: 78 * 1_073_741_824,
+      generatedBytes: 12 * 1_073_741_824,
+      generatedPyramidGenerationCount: 3,
+      generatedCandidateSnapshotCount: 4,
+      retainedGenerationCount: 99,
+      nowMs,
+    });
+    expect(generatedCountVerdict).toMatchObject({
+      verdict: 'blocked',
+      automaticBuildsBlocked: true,
+      retainedGenerationCount: 99,
+    });
+    expect(generatedCountVerdict.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'guardrail-generated-generations-high',
+        }),
+        expect.objectContaining({
+          reason: 'guardrail-retained-generations-high',
+        }),
       ])
     );
   });
@@ -591,6 +704,7 @@ describe('property tile pyramid service helpers', () => {
           ...defaultBuildIdentityEnv,
           NODE_ENV: 'production',
           PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES: '12345',
+          PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_GENERATION_MAX: '5',
           PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS: 'true',
         },
         () => getPropertyTilePyramidGuardrailControls()
@@ -599,6 +713,7 @@ describe('property tile pyramid service helpers', () => {
       enabled: true,
       unsafeOperatorBypass: true,
       generatedMaxBytes: 12345,
+      generatedGenerationMax: 5,
     });
   });
 

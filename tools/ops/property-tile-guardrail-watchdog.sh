@@ -18,6 +18,7 @@ ROOT_EMERGENCY_USED_PERCENT="${ROOT_EMERGENCY_USED_PERCENT:-95}"
 ROOT_CRITICAL_MIN_FREE_BYTES="${ROOT_CRITICAL_MIN_FREE_BYTES:-42949672960}"
 DB_CRITICAL_MAX_BYTES="${DB_CRITICAL_MAX_BYTES:-139586437120}"
 GENERATED_CRITICAL_MAX_BYTES="${GENERATED_CRITICAL_MAX_BYTES:-42949672960}"
+GENERATED_GENERATION_CRITICAL_MAX="${GENERATED_GENERATION_CRITICAL_MAX:-${PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_GENERATION_MAX:-3}}"
 RETAINED_GENERATION_CRITICAL_MAX="${RETAINED_GENERATION_CRITICAL_MAX:-3}"
 
 mkdir -p "$STATE_DIR"
@@ -193,6 +194,44 @@ generated_storage AS (
   SELECT COALESCE(sum(pg_total_relation_size(oid)), 0)::bigint AS generated_bytes
   FROM relation_tree
 ),
+generated_partition_children AS (
+  SELECT
+    parent.relname AS parent_relation_name,
+    pg_get_expr(child.relpartbound, child.oid) AS partition_bound
+  FROM pg_inherits inherits
+  INNER JOIN pg_class parent ON parent.oid = inherits.inhparent
+  INNER JOIN pg_namespace parent_namespace ON parent_namespace.oid = parent.relnamespace
+  INNER JOIN pg_class child ON child.oid = inherits.inhrelid
+  WHERE parent_namespace.nspname = 'public'
+    AND parent.relname IN (
+      'property_tile_grouping_facts',
+      'property_tile_listing_candidates',
+      'property_tile_listing_facts',
+      'property_tile_pyramid_members',
+      'property_tile_pyramid_nodes',
+      'property_tile_pyramid_tiles',
+      'property_tile_social_facts'
+    )
+),
+generated_generation_counts AS (
+  SELECT
+    CAST(count(DISTINCT partition_bound) FILTER (
+      WHERE parent_relation_name IN (
+        'property_tile_pyramid_members',
+        'property_tile_pyramid_nodes',
+        'property_tile_pyramid_tiles'
+      )
+    ) AS int) AS pyramid_generation_count,
+    CAST(count(DISTINCT partition_bound) FILTER (
+      WHERE parent_relation_name IN (
+        'property_tile_grouping_facts',
+        'property_tile_listing_candidates',
+        'property_tile_listing_facts',
+        'property_tile_social_facts'
+      )
+    ) AS int) AS candidate_snapshot_count
+  FROM generated_partition_children
+),
 retained_generations AS (
   SELECT count(DISTINCT id)::int AS retained_generation_count
   FROM (
@@ -209,6 +248,8 @@ retained_generations AS (
 SELECT
   pg_database_size(current_database())::bigint,
   (SELECT generated_bytes FROM generated_storage),
+  (SELECT pyramid_generation_count FROM generated_generation_counts),
+  (SELECT candidate_snapshot_count FROM generated_generation_counts),
   (SELECT retained_generation_count FROM retained_generations);
 SQL
 }
@@ -292,7 +333,7 @@ main() {
   local db_user db_name
   local root_line root_total root_used root_free root_percent_raw root_percent
   local postgres_mount photon_mount postgres_bytes photon_bytes observed_epoch
-  local storage_line db_bytes generated_bytes retained_count
+  local storage_line db_bytes generated_bytes generated_pyramid_count generated_candidate_count retained_count
   local state="ok"
   local -a reasons=()
   local key message
@@ -337,7 +378,7 @@ main() {
     "$observed_epoch"
 
   storage_line="$(query_storage_state "$postgres_container" "$db_user" "$db_name")"
-  IFS='|' read -r db_bytes generated_bytes retained_count <<<"$storage_line"
+  IFS='|' read -r db_bytes generated_bytes generated_pyramid_count generated_candidate_count retained_count <<<"$storage_line"
 
   if [ "$root_percent" -ge "$ROOT_EMERGENCY_USED_PERCENT" ]; then
     state="$(raise_state "$state" emergency)"
@@ -362,13 +403,20 @@ main() {
     state="$(raise_state "$state" critical)"
     reasons+=("generated-bytes=$generated_bytes")
   fi
+  if [ "$generated_pyramid_count" -gt "$GENERATED_GENERATION_CRITICAL_MAX" ]; then
+    state="$(raise_state "$state" critical)"
+    reasons+=("generated-pyramid-generations=$generated_pyramid_count")
+  fi
+  if [ "$generated_candidate_count" -gt "$GENERATED_GENERATION_CRITICAL_MAX" ]; then
+    state="$(raise_state "$state" critical)"
+    reasons+=("generated-candidate-snapshots=$generated_candidate_count")
+  fi
   if [ "$retained_count" -gt "$RETAINED_GENERATION_CRITICAL_MAX" ]; then
     state="$(raise_state "$state" critical)"
     reasons+=("retained-generations=$retained_count")
   fi
-
   key="$state:${reasons[*]:-healthy}"
-  message="state=$state rootUsedPercent=$root_percent rootFreeBytes=$root_free dbBytes=$db_bytes generatedBytes=$generated_bytes retainedGenerations=$retained_count postgresVolumeBytes=$postgres_bytes photonVolumeBytes=$photon_bytes reasons=${reasons[*]:-healthy}"
+  message="state=$state rootUsedPercent=$root_percent rootFreeBytes=$root_free dbBytes=$db_bytes generatedBytes=$generated_bytes generatedPyramidGenerations=$generated_pyramid_count generatedCandidateSnapshots=$generated_candidate_count retainedGenerations=$retained_count postgresVolumeBytes=$postgres_bytes photonVolumeBytes=$photon_bytes reasons=${reasons[*]:-healthy}"
   maybe_alert "$api_container" "$state" "$key" "$message"
   log "$message"
 }

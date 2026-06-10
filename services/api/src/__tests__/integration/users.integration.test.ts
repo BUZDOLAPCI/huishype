@@ -535,25 +535,26 @@ describe('User profile routes', () => {
   describe('PUT /users/me/profile', () => {
     it('updates display name and handle with trimming and @ normalization', async () => {
       const { accessToken, userId } = await createTestUser('update');
+      const targetHandle = createUniqueHandle('nieuwe');
 
       const resp = await app.inject({
         method: 'PUT',
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${accessToken}` },
-        payload: { displayName: '  Nieuwe Naam  ', handle: '  @Nieuwe_Handle  ' },
+        payload: { displayName: '  Nieuwe Naam  ', handle: `  @${targetHandle.toUpperCase()}  ` },
       });
 
       expect(resp.statusCode).toBe(200);
       const body = JSON.parse(resp.body);
       expect(body.displayName).toBe('Nieuwe Naam');
-      expect(body.handle).toBe('nieuwe_handle');
+      expect(body.handle).toBe(targetHandle);
       expect(body.lastDisplayNameChangeAt).toBeTruthy();
       expect(body.lastHandleChangeAt).toBeTruthy();
       expect(body.displayNameChangeAvailableAt).toBeTruthy();
       expect(body.handleChangeAvailableAt).toBeTruthy();
 
       const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
-      expect(stored?.username).toBe('nieuwe_handle');
+      expect(stored?.username).toBe(targetHandle);
       expect(stored?.displayName).toBe('Nieuwe Naam');
     });
 
@@ -586,12 +587,14 @@ describe('User profile routes', () => {
 
     it('enforces the 30-day handle cooldown and returns the next timestamp', async () => {
       const { accessToken } = await createTestUser('handlecooldown');
+      const firstHandle = createUniqueHandle('first');
+      const secondHandle = createUniqueHandle('second');
 
       const first = await app.inject({
         method: 'PUT',
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${accessToken}` },
-        payload: { handle: 'first_handle' },
+        payload: { handle: firstHandle },
       });
       expect(first.statusCode).toBe(200);
 
@@ -599,7 +602,7 @@ describe('User profile routes', () => {
         method: 'PUT',
         url: '/users/me/profile',
         headers: { authorization: `Bearer ${accessToken}` },
-        payload: { handle: 'second_handle' },
+        payload: { handle: secondHandle },
       });
       expect(second.statusCode).toBe(429);
       const body = JSON.parse(second.body);

@@ -579,14 +579,89 @@ async function withHermeticCurrentPyramidNode(
     )
   `);
 
-  await db.execute(sql`
-    SELECT promote_property_tile_pyramid_version(
-      ${versionId}::uuid,
-      ${previousCurrent?.current_version_id ?? null}::uuid,
-      'nearby fractional zoom test',
-      'jest'
-    )
-  `);
+  await db.transaction(async (tx) => {
+    const txRows = await tx.execute<{ txid: string }>(sql`
+      SELECT txid_current()::bigint::text AS txid
+    `);
+    const txid = Array.from(txRows)[0]?.txid;
+    if (!txid) {
+      throw new Error('Failed to acquire transaction id for nearby pyramid fixture');
+    }
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_promotion_intents (
+        txid,
+        version_id,
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        actor,
+        reason
+      )
+      VALUES (
+        ${txid}::bigint,
+        ${versionId}::uuid,
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.maxZoom},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
+        'jest',
+        'nearby fractional zoom test'
+      )
+      ON CONFLICT (txid, version_id) DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      SELECT set_config(
+        'huishype.property_tile_pyramid_promotion_version_id',
+        ${versionId},
+        true
+      )
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_current (
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        current_version_id,
+        previous_version_id,
+        current_promoted_at,
+        promotion_reason,
+        updated_at
+      )
+      VALUES (
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.maxZoom},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
+        ${versionId}::uuid,
+        ${previousCurrent?.current_version_id ?? null}::uuid,
+        now(),
+        'nearby fractional zoom test',
+        now()
+      )
+      ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
+      DO UPDATE SET
+        current_version_id = EXCLUDED.current_version_id,
+        previous_version_id = property_tile_pyramid_current.current_version_id,
+        current_promoted_at = EXCLUDED.current_promoted_at,
+        promotion_reason = EXCLUDED.promotion_reason,
+        updated_at = now()
+    `);
+
+    await tx.execute(sql`
+      UPDATE property_tile_pyramid_versions
+      SET
+        status = 'promoted',
+        promoted_at = COALESCE(promoted_at, now()),
+        build_finished_at = COALESCE(build_finished_at, now()),
+        updated_at = now()
+      WHERE id = ${versionId}::uuid
+    `);
+  });
 
   if (!includeTileManifest) {
     await db.execute(sql`
@@ -627,6 +702,10 @@ async function withHermeticCurrentPyramidNode(
 
     await db.execute(sql`
       SELECT drop_property_tile_pyramid_version_partitions(${versionId}::uuid)
+    `);
+    await db.execute(sql`
+      DELETE FROM property_tile_pyramid_promotion_intents
+      WHERE version_id = ${versionId}::uuid
     `);
     await db.execute(sql`DELETE FROM property_tile_pyramid_versions WHERE id = ${versionId}`);
     await db.execute(sql`

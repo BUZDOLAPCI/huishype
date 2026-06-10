@@ -36,6 +36,7 @@ const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_ROOT_MIN_FREE_BYTES = 40 * 1_073_7
 const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_DB_MAX_BYTES = 130 * 1_073_741_824;
 const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES = 40 * 1_073_741_824;
 const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_RETAINED_GENERATION_MAX = 3;
+const DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_GENERATION_MAX = 3;
 const PROPERTY_TILE_PYRAMID_RETENTION_CHUNK_LIMIT = 10_000;
 const PROPERTY_TILE_GROUPING_FACT_INSERT_BATCH_SIZE = 10_000;
 const DEFAULT_PROPERTY_TILE_PYRAMID_RETENTION_MAX_CHUNKS_PER_STEP = 25;
@@ -221,6 +222,7 @@ export type PropertyTilePyramidGuardrailViolationReason =
   | 'guardrail-root-disk-free-low'
   | 'guardrail-db-size-high'
   | 'guardrail-generated-storage-high'
+  | 'guardrail-generated-generations-high'
   | 'guardrail-retained-generations-high';
 
 export type PropertyTilePyramidGuardrailVerdict = 'ok' | 'blocked' | 'disabled';
@@ -233,6 +235,7 @@ export interface PropertyTilePyramidGuardrailControls {
   rootMinFreeBytes: number;
   dbMaxBytes: number;
   generatedMaxBytes: number;
+  generatedGenerationMax: number;
   retainedGenerationMax: number;
 }
 
@@ -261,6 +264,7 @@ export interface PropertyTilePyramidGuardrailSummary {
     rootMinFreeBytes: number;
     dbMaxBytes: number;
     generatedMaxBytes: number;
+    generatedGenerationMax: number;
     retainedGenerationMax: number;
   };
   enabled: boolean;
@@ -269,6 +273,8 @@ export interface PropertyTilePyramidGuardrailSummary {
   hostObservationAgeMs: number | null;
   dbBytes: number | null;
   generatedBytes: number | null;
+  generatedPyramidGenerationCount: number | null;
+  generatedCandidateSnapshotCount: number | null;
   retainedGenerationCount: number | null;
   evaluatedAt: string;
 }
@@ -297,6 +303,30 @@ export type PropertyTilePyramidFullBuildEligibility =
       nextEligibleAt: string | null;
       guardrails?: PropertyTilePyramidGuardrailSummary;
     };
+
+export interface PropertyTilePyramidFullBuildPendingDemand {
+  deniedAt: string;
+  denialReason: Extract<PropertyTilePyramidFullBuildEligibility, { eligible: false }>['reason'];
+  requestReason: string;
+  slot: PropertyTilePyramidSlot;
+  buildInputsHash: string;
+  sourceWatermarkHash: string;
+  sourceWatermarksJson: Record<string, unknown>;
+  requestedComparableSourceWatermarkHash: string;
+  requestedCanonicalComparableSourceWatermarkHash: string;
+  current: PropertyTilePyramidFullBuildCurrentState;
+  nextEligibleAt: string | null;
+}
+
+export interface PropertyTilePyramidPendingFullBuildDemandSummary {
+  requestReason: string;
+  denialReason: PropertyTilePyramidFullBuildPendingDemand['denialReason'];
+  deniedAt: string;
+  nextEligibleAt: string | null;
+  due: boolean;
+  sourceWatermarkHash: string;
+  buildInputsHash: string;
+}
 
 const PROPERTY_TILE_PYRAMID_MUTATION_BUILD_POLICIES: Record<
   PropertyTilePyramidMutationBuildPolicy,
@@ -369,6 +399,8 @@ export interface PropertyTilePyramidOpsSummary extends PropertyTilePyramidHealth
   memberCount: number | null;
   generationCounts: Record<string, number>;
   activeBuildCount: number;
+  generatedPyramidGenerationCount: number;
+  generatedCandidateSnapshotCount: number;
   retainedGenerationCount: number;
   relationStats: Array<{
     relationName: string;
@@ -393,6 +425,7 @@ export interface PropertyTilePyramidOpsSummary extends PropertyTilePyramidHealth
   };
   lastEligibilityVerdict: string | null;
   lastEligibilityBlockReason: string | null;
+  pendingFullBuildDemand: PropertyTilePyramidPendingFullBuildDemandSummary | null;
   guardrails: PropertyTilePyramidGuardrailSummary;
 }
 
@@ -593,6 +626,10 @@ export function getPropertyTilePyramidGuardrailControls(): PropertyTilePyramidGu
     generatedMaxBytes: parsePositiveIntegerEnv(
       'PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES',
       DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES
+    ),
+    generatedGenerationMax: parsePositiveIntegerEnv(
+      'PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_GENERATION_MAX',
+      DEFAULT_PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_GENERATION_MAX
     ),
     retainedGenerationMax: parsePositiveIntegerEnv(
       'PROPERTY_TILE_PYRAMID_GUARDRAIL_RETAINED_GENERATION_MAX',
@@ -972,6 +1009,8 @@ export function evaluatePropertyTilePyramidGuardrailVerdict(input: {
   hostObservation: PropertyTilePyramidGuardrailHostObservation | null;
   dbBytes: number | null;
   generatedBytes: number | null;
+  generatedPyramidGenerationCount: number | null;
+  generatedCandidateSnapshotCount: number | null;
   retainedGenerationCount: number | null;
   nowMs?: number;
 }): PropertyTilePyramidGuardrailSummary {
@@ -983,6 +1022,7 @@ export function evaluatePropertyTilePyramidGuardrailVerdict(input: {
     rootMinFreeBytes: input.controls.rootMinFreeBytes,
     dbMaxBytes: input.controls.dbMaxBytes,
     generatedMaxBytes: input.controls.generatedMaxBytes,
+    generatedGenerationMax: input.controls.generatedGenerationMax,
     retainedGenerationMax: input.controls.retainedGenerationMax,
   };
   const hostObservationAgeMs =
@@ -1044,6 +1084,20 @@ export function evaluatePropertyTilePyramidGuardrailVerdict(input: {
     }
 
     if (
+      (input.generatedPyramidGenerationCount != null &&
+        input.generatedPyramidGenerationCount > input.controls.generatedGenerationMax) ||
+      (input.generatedCandidateSnapshotCount != null &&
+        input.generatedCandidateSnapshotCount > input.controls.generatedGenerationMax)
+    ) {
+      violations.push({
+        reason: 'guardrail-generated-generations-high',
+        message:
+          `Generated property tile generations are pyramid=${input.generatedPyramidGenerationCount ?? 'unknown'}, ` +
+          `candidateSnapshots=${input.generatedCandidateSnapshotCount ?? 'unknown'}.`,
+      });
+    }
+
+    if (
       input.retainedGenerationCount != null &&
       input.retainedGenerationCount > input.controls.retainedGenerationMax
     ) {
@@ -1074,6 +1128,8 @@ export function evaluatePropertyTilePyramidGuardrailVerdict(input: {
         : hostObservationAgeMs,
     dbBytes: input.dbBytes,
     generatedBytes: input.generatedBytes,
+    generatedPyramidGenerationCount: input.generatedPyramidGenerationCount,
+    generatedCandidateSnapshotCount: input.generatedCandidateSnapshotCount,
     retainedGenerationCount: input.retainedGenerationCount,
     evaluatedAt,
   };
@@ -4008,6 +4064,356 @@ async function recordDeniedPropertyTilePyramidFullBuildDemand(input: {
   `);
 }
 
+function isIsoDateString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
+}
+
+function readPendingDemandRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readPendingDemandSlot(value: unknown): PropertyTilePyramidSlot | null {
+  const slotValue = readPendingDemandRecord(value);
+  if (!slotValue) {
+    return null;
+  }
+  const { coverageId, filterSignature, maxZoom, pyramidKind } = slotValue;
+  if (
+    typeof coverageId !== 'string' ||
+    coverageId.length === 0 ||
+    typeof filterSignature !== 'string' ||
+    filterSignature.length === 0 ||
+    typeof maxZoom !== 'number' ||
+    !Number.isSafeInteger(maxZoom) ||
+    maxZoom < PROPERTY_TILE_PYRAMID_MIN_ZOOM ||
+    typeof pyramidKind !== 'string' ||
+    pyramidKind.length === 0
+  ) {
+    return null;
+  }
+  return { coverageId, filterSignature, maxZoom, pyramidKind };
+}
+
+function readPendingDemandCurrentState(
+  value: unknown
+): PropertyTilePyramidFullBuildCurrentState | null {
+  const current = readPendingDemandRecord(value);
+  if (!current || typeof current.state !== 'string') {
+    return null;
+  }
+
+  if (current.state === 'missing') {
+    return current.currentVersionId === null &&
+      current.promotedAt === null &&
+      current.reason === 'current-missing'
+      ? {
+          state: 'missing',
+          currentVersionId: null,
+          promotedAt: null,
+          reason: 'current-missing',
+        }
+      : null;
+  }
+
+  if (current.state !== 'usable' && current.state !== 'degraded' && current.state !== 'corrupt') {
+    return null;
+  }
+
+  const currentVersionId = current.currentVersionId;
+  const promotedAt = current.promotedAt;
+  const sourceWatermarkHash = current.sourceWatermarkHash;
+  const comparableSourceWatermarkHash = current.comparableSourceWatermarkHash;
+  const canonicalComparableSourceWatermarkHash = current.canonicalComparableSourceWatermarkHash;
+  const nodeCount = current.nodeCount;
+  const encodedPayloadBytes = current.encodedPayloadBytes;
+  const walBytes = current.walBytes;
+  if (
+    (currentVersionId !== null && typeof currentVersionId !== 'string') ||
+    (promotedAt !== null && !isIsoDateString(promotedAt)) ||
+    (sourceWatermarkHash !== null && typeof sourceWatermarkHash !== 'string') ||
+    (comparableSourceWatermarkHash !== null &&
+      typeof comparableSourceWatermarkHash !== 'string') ||
+    (canonicalComparableSourceWatermarkHash !== null &&
+      typeof canonicalComparableSourceWatermarkHash !== 'string') ||
+    typeof nodeCount !== 'number' ||
+    !Number.isFinite(nodeCount) ||
+    typeof encodedPayloadBytes !== 'number' ||
+    !Number.isFinite(encodedPayloadBytes) ||
+    typeof walBytes !== 'number' ||
+    !Number.isFinite(walBytes)
+  ) {
+    return null;
+  }
+
+  if (current.state === 'usable') {
+    if (
+      typeof currentVersionId !== 'string' ||
+      !isIsoDateString(promotedAt) ||
+      typeof sourceWatermarkHash !== 'string' ||
+      typeof comparableSourceWatermarkHash !== 'string' ||
+      typeof canonicalComparableSourceWatermarkHash !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      state: 'usable',
+      currentVersionId,
+      promotedAt,
+      sourceWatermarkHash,
+      comparableSourceWatermarkHash,
+      canonicalComparableSourceWatermarkHash,
+      nodeCount,
+      encodedPayloadBytes,
+      walBytes,
+    };
+  }
+
+  if (typeof current.reason !== 'string' || current.reason.length === 0) {
+    return null;
+  }
+  return {
+    state: current.state,
+    currentVersionId,
+    promotedAt,
+    reason: current.reason,
+    sourceWatermarkHash,
+    comparableSourceWatermarkHash,
+    canonicalComparableSourceWatermarkHash,
+    nodeCount,
+    encodedPayloadBytes,
+    walBytes,
+  };
+}
+
+const PROPERTY_TILE_PYRAMID_FULL_BUILD_PENDING_DENIAL_REASONS = new Set<
+  PropertyTilePyramidFullBuildPendingDemand['denialReason']
+>([
+  'cadence-not-due',
+  'repair-current-usable',
+  'current-size-threshold-exceeded',
+  'guardrail-host-observation-missing',
+  'guardrail-host-observation-stale',
+  'guardrail-root-disk-high',
+  'guardrail-root-disk-free-low',
+  'guardrail-db-size-high',
+  'guardrail-generated-storage-high',
+  'guardrail-generated-generations-high',
+  'guardrail-retained-generations-high',
+]);
+
+export function readPropertyTilePyramidFullBuildPendingDemandFromWatermarkRow(row: {
+  scope: unknown;
+  scope_key: unknown;
+  watermark_json: unknown;
+}): PropertyTilePyramidFullBuildPendingDemand | null {
+  if (row.scope !== 'rolling_social_window' || row.scope_key !== 'full-build-eligibility') {
+    return null;
+  }
+  const watermark = readPendingDemandRecord(row.watermark_json);
+  const pending = readPendingDemandRecord(watermark?.propertyTilePyramidFullBuildPending);
+  if (!pending) {
+    return null;
+  }
+
+  const slot = readPendingDemandSlot(pending.slot);
+  const sourceWatermarksJson = readPendingDemandRecord(pending.sourceWatermarksJson);
+  const current = readPendingDemandCurrentState(pending.current);
+  const nextEligibleAt = pending.nextEligibleAt;
+  if (
+    !isIsoDateString(pending.deniedAt) ||
+    typeof pending.denialReason !== 'string' ||
+    !PROPERTY_TILE_PYRAMID_FULL_BUILD_PENDING_DENIAL_REASONS.has(
+      pending.denialReason as PropertyTilePyramidFullBuildPendingDemand['denialReason']
+    ) ||
+    typeof pending.requestReason !== 'string' ||
+    pending.requestReason.length === 0 ||
+    !slot ||
+    typeof pending.buildInputsHash !== 'string' ||
+    pending.buildInputsHash.length === 0 ||
+    typeof pending.sourceWatermarkHash !== 'string' ||
+    pending.sourceWatermarkHash.length === 0 ||
+    !sourceWatermarksJson ||
+    typeof pending.requestedComparableSourceWatermarkHash !== 'string' ||
+    pending.requestedComparableSourceWatermarkHash.length === 0 ||
+    typeof pending.requestedCanonicalComparableSourceWatermarkHash !== 'string' ||
+    pending.requestedCanonicalComparableSourceWatermarkHash.length === 0 ||
+    !current ||
+    (nextEligibleAt !== null && !isIsoDateString(nextEligibleAt))
+  ) {
+    return null;
+  }
+
+  return {
+    deniedAt: pending.deniedAt,
+    denialReason: pending.denialReason as PropertyTilePyramidFullBuildPendingDemand['denialReason'],
+    requestReason: pending.requestReason,
+    slot,
+    buildInputsHash: pending.buildInputsHash,
+    sourceWatermarkHash: pending.sourceWatermarkHash,
+    sourceWatermarksJson,
+    requestedComparableSourceWatermarkHash: pending.requestedComparableSourceWatermarkHash,
+    requestedCanonicalComparableSourceWatermarkHash:
+      pending.requestedCanonicalComparableSourceWatermarkHash,
+    current,
+    nextEligibleAt,
+  };
+}
+
+function isPropertyTilePyramidFullBuildPendingDemandDue(
+  pending: PropertyTilePyramidFullBuildPendingDemand,
+  nowMs = Date.now()
+): boolean {
+  if (pending.nextEligibleAt == null) {
+    return true;
+  }
+  return Date.parse(pending.nextEligibleAt) <= nowMs;
+}
+
+async function readPropertyTilePyramidFullBuildPendingDemand(
+  slot: PropertyTilePyramidSlot
+): Promise<PropertyTilePyramidFullBuildPendingDemand | null> {
+  const rows = await db.execute<{
+    scope: string;
+    scope_key: string;
+    watermark_json: Record<string, unknown> | null;
+  }>(sql`
+    SELECT scope::text, scope_key, watermark_json
+    FROM property_tile_pyramid_source_watermarks
+    WHERE scope = 'rolling_social_window'::property_tile_pyramid_watermark_scope
+      AND scope_key = 'full-build-eligibility'
+    LIMIT 1
+  `);
+  const row = dbRows(rows)[0];
+  if (!row) {
+    return null;
+  }
+  const pending = readPropertyTilePyramidFullBuildPendingDemandFromWatermarkRow(row);
+  if (
+    !pending ||
+    pending.slot.coverageId !== slot.coverageId ||
+    pending.slot.filterSignature !== slot.filterSignature ||
+    pending.slot.maxZoom !== slot.maxZoom ||
+    pending.slot.pyramidKind !== slot.pyramidKind
+  ) {
+    return null;
+  }
+  return pending;
+}
+
+async function readDuePropertyTilePyramidFullBuildPendingDemand(
+  slot: PropertyTilePyramidSlot
+): Promise<PropertyTilePyramidFullBuildPendingDemand | null> {
+  const pending = await readPropertyTilePyramidFullBuildPendingDemand(slot);
+  if (!pending || !isPropertyTilePyramidFullBuildPendingDemandDue(pending)) {
+    return null;
+  }
+  return pending;
+}
+
+function summarizePropertyTilePyramidFullBuildPendingDemand(
+  pending: PropertyTilePyramidFullBuildPendingDemand | null,
+  nowMs = Date.now()
+): PropertyTilePyramidPendingFullBuildDemandSummary | null {
+  if (!pending) {
+    return null;
+  }
+  return {
+    requestReason: pending.requestReason,
+    denialReason: pending.denialReason,
+    deniedAt: pending.deniedAt,
+    nextEligibleAt: pending.nextEligibleAt,
+    due: isPropertyTilePyramidFullBuildPendingDemandDue(pending, nowMs),
+    sourceWatermarkHash: pending.sourceWatermarkHash,
+    buildInputsHash: pending.buildInputsHash,
+  };
+}
+
+async function clearMatchingPropertyTilePyramidFullBuildPendingDemand(
+  pending: PropertyTilePyramidFullBuildPendingDemand
+): Promise<void> {
+  await db.execute(sql`
+    WITH pending_row AS (
+      SELECT
+        scope,
+        scope_key,
+        watermark_json
+      FROM property_tile_pyramid_source_watermarks
+      WHERE scope = 'rolling_social_window'::property_tile_pyramid_watermark_scope
+        AND scope_key = 'full-build-eligibility'
+        AND watermark_json#>>'{propertyTilePyramidFullBuildPending,buildInputsHash}' = ${pending.buildInputsHash}
+        AND watermark_json#>>'{propertyTilePyramidFullBuildPending,sourceWatermarkHash}' = ${pending.sourceWatermarkHash}
+        AND watermark_json#>'{propertyTilePyramidFullBuildPending,sourceWatermarksJson}' = ${JSON.stringify(pending.sourceWatermarksJson)}::jsonb
+    ),
+    matching_durable AS (
+      SELECT 1
+      FROM property_tile_pyramid_versions
+      WHERE coverage_id = ${pending.slot.coverageId}
+        AND filter_signature = ${pending.slot.filterSignature}
+        AND max_zoom = ${pending.slot.maxZoom}
+        AND pyramid_kind = ${pending.slot.pyramidKind}::property_tile_pyramid_kind
+        AND build_inputs_hash = ${pending.buildInputsHash}
+        AND source_watermark_hash = ${pending.sourceWatermarkHash}
+        AND status IN ('queued', 'building', 'validating')
+      LIMIT 1
+    ),
+    matching_pending_replacement AS (
+      SELECT 1
+      FROM property_tile_pyramid_versions
+      WHERE coverage_id = ${pending.slot.coverageId}
+        AND filter_signature = ${pending.slot.filterSignature}
+        AND max_zoom = ${pending.slot.maxZoom}
+        AND pyramid_kind = ${pending.slot.pyramidKind}::property_tile_pyramid_kind
+        AND status IN ('building', 'validating')
+        AND pending_replacement_watermarks_json#>>'{sourceWatermarkHash}' = ${pending.sourceWatermarkHash}
+        AND pending_replacement_watermarks_json#>'{sourceWatermarksJson}' = ${JSON.stringify(pending.sourceWatermarksJson)}::jsonb
+      LIMIT 1
+    )
+    UPDATE property_tile_pyramid_source_watermarks
+    SET
+      watermark_json = COALESCE(property_tile_pyramid_source_watermarks.watermark_json, '{}'::jsonb)
+        #- '{propertyTilePyramidFullBuildPending}',
+      pending_replacement_watermark_value = NULL,
+      updated_at = now()
+    FROM pending_row
+    WHERE property_tile_pyramid_source_watermarks.scope = pending_row.scope
+      AND property_tile_pyramid_source_watermarks.scope_key = pending_row.scope_key
+      AND (
+        EXISTS (SELECT 1 FROM matching_durable)
+        OR EXISTS (SELECT 1 FROM matching_pending_replacement)
+      )
+  `);
+}
+
+async function consumeDuePropertyTilePyramidFullBuildPendingDemand(
+  slot: PropertyTilePyramidSlot
+): Promise<PropertyTilePyramidBuildRequest | null> {
+  const pending = await readDuePropertyTilePyramidFullBuildPendingDemand(slot);
+  if (!pending) {
+    return null;
+  }
+
+  const result = await requestPropertyTilePyramidBuild({
+    reason: pending.requestReason,
+    slot: pending.slot,
+    sourceWatermarkHash: pending.sourceWatermarkHash,
+    sourceWatermarksJson: pending.sourceWatermarksJson,
+    buildInputsHash: pending.buildInputsHash,
+  });
+  if (
+    result.status === 'enqueued' ||
+    (result.status === 'coalesced' &&
+      result.versionId != null &&
+      (result.existingStatus === 'queued' ||
+        result.existingStatus === 'building' ||
+        result.existingStatus === 'validating'))
+  ) {
+    await clearMatchingPropertyTilePyramidFullBuildPendingDemand(pending);
+  }
+  return result;
+}
+
 async function readPropertyTilePyramidGuardrails(input: {
   slot: PropertyTilePyramidSlot;
   controls: PropertyTilePyramidGuardrailControls;
@@ -4024,6 +4430,8 @@ async function readPropertyTilePyramidGuardrails(input: {
     docker_volumes_json: Record<string, unknown> | null;
     db_bytes: number | string | null;
     generated_bytes: number | string | null;
+    generated_pyramid_generation_count: number | string | null;
+    generated_candidate_snapshot_count: number | string | null;
     retained_generation_count: number | string | null;
   }>(sql`
     WITH RECURSIVE latest_observation AS (
@@ -4060,6 +4468,44 @@ async function readPropertyTilePyramidGuardrails(input: {
     generated_storage AS (
       SELECT COALESCE(sum(pg_total_relation_size(oid)), 0)::text AS total_bytes
       FROM relation_tree
+    ),
+    generated_partition_children AS (
+      SELECT
+        parent.relname AS parent_relation_name,
+        pg_get_expr(child.relpartbound, child.oid) AS partition_bound
+      FROM pg_inherits inherits
+      INNER JOIN pg_class parent ON parent.oid = inherits.inhparent
+      INNER JOIN pg_namespace parent_namespace ON parent_namespace.oid = parent.relnamespace
+      INNER JOIN pg_class child ON child.oid = inherits.inhrelid
+      WHERE parent_namespace.nspname = 'public'
+        AND parent.relname IN (
+          'property_tile_grouping_facts',
+          'property_tile_listing_candidates',
+          'property_tile_listing_facts',
+          'property_tile_pyramid_members',
+          'property_tile_pyramid_nodes',
+          'property_tile_pyramid_tiles',
+          'property_tile_social_facts'
+        )
+    ),
+    generated_generation_counts AS (
+      SELECT
+        CAST(count(DISTINCT partition_bound) FILTER (
+          WHERE parent_relation_name IN (
+            'property_tile_pyramid_members',
+            'property_tile_pyramid_nodes',
+            'property_tile_pyramid_tiles'
+          )
+        ) AS int) AS pyramid_generation_count,
+        CAST(count(DISTINCT partition_bound) FILTER (
+          WHERE parent_relation_name IN (
+            'property_tile_grouping_facts',
+            'property_tile_listing_candidates',
+            'property_tile_listing_facts',
+            'property_tile_social_facts'
+          )
+        ) AS int) AS candidate_snapshot_count
+      FROM generated_partition_children
     ),
     retained_generations AS (
       SELECT count(DISTINCT id)::int AS count
@@ -4100,6 +4546,8 @@ async function readPropertyTilePyramidGuardrails(input: {
       (SELECT docker_volumes_json FROM latest_observation) AS docker_volumes_json,
       pg_database_size(current_database())::text AS db_bytes,
       (SELECT total_bytes FROM generated_storage) AS generated_bytes,
+      (SELECT pyramid_generation_count FROM generated_generation_counts)::text AS generated_pyramid_generation_count,
+      (SELECT candidate_snapshot_count FROM generated_generation_counts)::text AS generated_candidate_snapshot_count,
       (SELECT count FROM retained_generations)::text AS retained_generation_count
   `);
   const row = dbRows(rows)[0];
@@ -4125,6 +4573,14 @@ async function readPropertyTilePyramidGuardrails(input: {
     hostObservation,
     dbBytes: row?.db_bytes == null ? null : Number(row.db_bytes),
     generatedBytes: row?.generated_bytes == null ? null : Number(row.generated_bytes),
+    generatedPyramidGenerationCount:
+      row?.generated_pyramid_generation_count == null
+        ? null
+        : Number(row.generated_pyramid_generation_count),
+    generatedCandidateSnapshotCount:
+      row?.generated_candidate_snapshot_count == null
+        ? null
+        : Number(row.generated_candidate_snapshot_count),
     retainedGenerationCount:
       row?.retained_generation_count == null ? null : Number(row.retained_generation_count),
   });
@@ -4238,6 +4694,10 @@ export async function requestPropertyTilePyramidBuild(input: {
         !(await hasPropertyTilePyramidRecoveryWorkInSlot(slot)) &&
         !(await claimPropertyTilePyramidWorkerRecoveryBuildRequest(reason))
       ) {
+        const pendingDemandResult = await consumeDuePropertyTilePyramidFullBuildPendingDemand(slot);
+        if (pendingDemandResult) {
+          return pendingDemandResult;
+        }
         return { status: 'coalesced', reason: 'mutation-build-throttled' };
       }
     }
@@ -6993,10 +7453,15 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
     hostObservation: null,
     dbBytes: null,
     generatedBytes: null,
+    generatedPyramidGenerationCount: null,
+    generatedCandidateSnapshotCount: null,
     retainedGenerationCount: null,
   });
   try {
     guardrails = await readPropertyTilePyramidGuardrails({ slot, controls: guardrailControls });
+    const pendingFullBuildDemand = summarizePropertyTilePyramidFullBuildPendingDemand(
+      await readPropertyTilePyramidFullBuildPendingDemand(slot)
+    );
     const rows = await db.execute<{
       previous_version_id: string | null;
       manifest_tile_count: number | string | null;
@@ -7005,6 +7470,8 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
       member_count: number | string | null;
       generation_counts: Record<string, number | string> | null;
       active_build_count: number | string | null;
+      generated_pyramid_generation_count: number | string | null;
+      generated_candidate_snapshot_count: number | string | null;
       retained_generation_count: number | string | null;
       relation_stats: Array<{
         relationName?: string;
@@ -7172,6 +7639,44 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
         ) AS stats
         FROM tracked_relation_roots roots
         LEFT JOIN relation_rollup USING (relation_name)
+      ),
+      generated_partition_children AS (
+        SELECT
+          parent.relname AS parent_relation_name,
+          pg_get_expr(child.relpartbound, child.oid) AS partition_bound
+        FROM pg_inherits inherits
+        INNER JOIN pg_class parent ON parent.oid = inherits.inhparent
+        INNER JOIN pg_namespace parent_namespace ON parent_namespace.oid = parent.relnamespace
+        INNER JOIN pg_class child ON child.oid = inherits.inhrelid
+        WHERE parent_namespace.nspname = 'public'
+          AND parent.relname IN (
+            'property_tile_grouping_facts',
+            'property_tile_listing_candidates',
+            'property_tile_listing_facts',
+            'property_tile_pyramid_members',
+            'property_tile_pyramid_nodes',
+            'property_tile_pyramid_tiles',
+            'property_tile_social_facts'
+          )
+      ),
+      generated_generation_counts AS (
+        SELECT
+          CAST(count(DISTINCT partition_bound) FILTER (
+            WHERE parent_relation_name IN (
+              'property_tile_pyramid_members',
+              'property_tile_pyramid_nodes',
+              'property_tile_pyramid_tiles'
+            )
+          ) AS int) AS pyramid_generation_count,
+          CAST(count(DISTINCT partition_bound) FILTER (
+            WHERE parent_relation_name IN (
+              'property_tile_grouping_facts',
+              'property_tile_listing_candidates',
+              'property_tile_listing_facts',
+              'property_tile_social_facts'
+            )
+          ) AS int) AS candidate_snapshot_count
+        FROM generated_partition_children
       )
       SELECT
         (
@@ -7206,6 +7711,14 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
           SELECT count
           FROM active_builds
         ) AS active_build_count,
+        (
+          SELECT pyramid_generation_count
+          FROM generated_generation_counts
+        ) AS generated_pyramid_generation_count,
+        (
+          SELECT candidate_snapshot_count
+          FROM generated_generation_counts
+        ) AS generated_candidate_snapshot_count,
         (
           SELECT count
           FROM retained_generations
@@ -7375,6 +7888,14 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
       memberCount: row?.member_count == null ? null : Number(row.member_count),
       generationCounts,
       activeBuildCount: row?.active_build_count == null ? 0 : Number(row.active_build_count),
+      generatedPyramidGenerationCount:
+        row?.generated_pyramid_generation_count == null
+          ? 0
+          : Number(row.generated_pyramid_generation_count),
+      generatedCandidateSnapshotCount:
+        row?.generated_candidate_snapshot_count == null
+          ? 0
+          : Number(row.generated_candidate_snapshot_count),
       retainedGenerationCount:
         row?.retained_generation_count == null ? 0 : Number(row.retained_generation_count),
       relationStats,
@@ -7405,6 +7926,7 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
       },
       lastEligibilityVerdict: row?.last_eligibility_verdict ?? null,
       lastEligibilityBlockReason: row?.last_eligibility_block_reason ?? null,
+      pendingFullBuildDemand,
       guardrails,
     };
   } catch (error) {
@@ -7418,6 +7940,8 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
         memberCount: null,
         generationCounts: {},
         activeBuildCount: 0,
+        generatedPyramidGenerationCount: 0,
+        generatedCandidateSnapshotCount: 0,
         retainedGenerationCount: 0,
         relationStats: [],
         currentBuildDurationMs: null,
@@ -7438,6 +7962,7 @@ export async function getPropertyTilePyramidOpsSummary(): Promise<PropertyTilePy
         },
         lastEligibilityVerdict: null,
         lastEligibilityBlockReason: null,
+        pendingFullBuildDemand: null,
         guardrails,
       };
     }

@@ -211,6 +211,8 @@ function makeGuardrailRow(
     rootFreeBytes?: string;
     dbBytes?: string;
     generatedBytes?: string;
+    generatedPyramidGenerationCount?: string;
+    generatedCandidateSnapshotCount?: string;
     retainedGenerationCount?: string;
   } = {}
 ) {
@@ -229,7 +231,61 @@ function makeGuardrailRow(
     docker_volumes_json: observedAt == null ? null : {},
     db_bytes: input.dbBytes ?? '83751862272',
     generated_bytes: input.generatedBytes ?? '12884901888',
+    generated_pyramid_generation_count: input.generatedPyramidGenerationCount ?? '2',
+    generated_candidate_snapshot_count: input.generatedCandidateSnapshotCount ?? '2',
     retained_generation_count: input.retainedGenerationCount ?? '2',
+  };
+}
+
+function makePendingFullBuildDemandWatermarkRow(
+  input: {
+    nextEligibleAt?: string | null;
+    buildInputsHash?: string;
+    sourceWatermarkHash?: string;
+    sourceWatermarksJson?: Record<string, unknown>;
+    requestReason?: string;
+  } = {}
+) {
+  const sourceWatermarkHash = input.sourceWatermarkHash ?? 'pending-watermarks';
+  const sourceWatermarksJson = input.sourceWatermarksJson ?? {
+    sources: [{ source: 'unit-pending' }],
+  };
+  return {
+    scope: 'rolling_social_window',
+    scope_key: 'full-build-eligibility',
+    watermark_json: {
+      propertyTilePyramidFullBuildPending: {
+        deniedAt: '2026-06-10T10:00:00.000Z',
+        denialReason: 'cadence-not-due',
+        requestReason: input.requestReason ?? 'source-watermark',
+        slot: {
+          coverageId: 'public_default_low_zoom',
+          filterSignature: 'default',
+          maxZoom: 10,
+          pyramidKind: 'public_default_low_zoom',
+        },
+        buildInputsHash: input.buildInputsHash ?? 'pending-inputs',
+        sourceWatermarkHash,
+        sourceWatermarksJson,
+        requestedComparableSourceWatermarkHash: sourceWatermarkHash,
+        requestedCanonicalComparableSourceWatermarkHash: sourceWatermarkHash,
+        current: {
+          state: 'usable',
+          currentVersionId: '00000000-0000-0000-0000-0000000000aa',
+          promotedAt: '2026-06-10T00:00:00.000Z',
+          sourceWatermarkHash: 'current-watermarks',
+          comparableSourceWatermarkHash: 'current-watermarks',
+          canonicalComparableSourceWatermarkHash: 'current-watermarks',
+          nodeCount: 10,
+          encodedPayloadBytes: 100,
+          walBytes: 200,
+        },
+        nextEligibleAt:
+          input.nextEligibleAt === undefined
+            ? '2026-06-10T11:00:00.000Z'
+            : input.nextEligibleAt,
+      },
+    },
   };
 }
 
@@ -244,6 +300,7 @@ function isGuardrailSummaryQuery(queryText: string): boolean {
   return (
     queryText.includes('property_tile_pyramid_guardrail_observations') &&
     queryText.includes('generated_storage') &&
+    queryText.includes('generated_generation_counts') &&
     queryText.includes('retained_generations')
   );
 }
@@ -282,6 +339,31 @@ function isDurableBuildRequestQuery(queryText: string): boolean {
     queryText.includes('WITH active_replacement AS MATERIALIZED') &&
     queryText.includes('INSERT INTO property_tile_pyramid_versions') &&
     queryText.includes('RETURNING id::text, status, next_retry_at::text')
+  );
+}
+
+function isPendingFullBuildDemandReadQuery(queryText: string): boolean {
+  return (
+    queryText.includes('SELECT scope::text, scope_key, watermark_json') &&
+    queryText.includes('property_tile_pyramid_source_watermarks') &&
+    queryText.includes("scope_key = 'full-build-eligibility'")
+  );
+}
+
+function isPendingFullBuildDemandClearQuery(queryText: string): boolean {
+  return (
+    queryText.includes('matching_durable') &&
+    queryText.includes('matching_pending_replacement') &&
+    queryText.includes('#-') &&
+    queryText.includes('propertyTilePyramidFullBuildPending')
+  );
+}
+
+function isPendingFullBuildDemandWriteQuery(queryText: string): boolean {
+  return (
+    queryText.includes('jsonb_build_object') &&
+    queryText.includes('propertyTilePyramidFullBuildPending') &&
+    queryText.includes('property_tile_pyramid_source_watermarks')
   );
 }
 
@@ -475,6 +557,52 @@ describe('property tile pyramid build lifecycle', () => {
           reason: 'full-build-eligibility-denied:guardrail-root-disk-high',
         });
         expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  it('blocks production full-build requests when generated catalog generations are high', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    mockRequestBuildLifecycle({
+      currentRows: [
+        makeUsableCurrentGenerationRow({ currentPromotedAt: '2026-06-09T00:00:00.000Z' }),
+      ],
+      guardrailRows: [
+        makeGuardrailRow({
+          generatedPyramidGenerationCount: '4',
+          generatedCandidateSnapshotCount: '3',
+          retainedGenerationCount: '2',
+        }),
+      ],
+    });
+
+    await withTemporaryEnv(
+      {
+        NODE_ENV: 'production',
+        PROPERTY_TILE_PYRAMID_GUARDRAILS_ENABLED: undefined,
+        PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_GENERATION_MAX: undefined,
+        PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS: undefined,
+      },
+      async () => {
+        const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+        const result = await requestPropertyTilePyramidBuild({
+          reason: 'source-watermark',
+          sourceWatermarkHash: 'new-watermarks',
+          sourceWatermarksJson: { sources: [{ source: 'unit' }] },
+          buildInputsHash: 'inputs',
+        });
+
+        expect(result).toEqual({
+          status: 'coalesced',
+          reason: 'full-build-eligibility-denied:guardrail-generated-generations-high',
+        });
+        expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+        const guardrailQuery =
+          executeMock.mock.calls
+            .map((call) => JSON.stringify(call[0]))
+            .find((query) => isGuardrailSummaryQuery(query)) ?? '';
+        expect(guardrailQuery).toContain('pg_inherits');
+        expect(guardrailQuery).toContain('pg_get_expr(child.relpartbound, child.oid)');
       }
     );
   });
@@ -980,7 +1108,8 @@ describe('property tile pyramid build lifecycle', () => {
   it('throttles worker recovery build requests through mutation coalescing when there is no active recovery work', async () => {
     executeMock
       .mockResolvedValueOnce([{ recovered_count: 0 }])
-      .mockResolvedValueOnce([{ has_recovery_work: false }]);
+      .mockResolvedValueOnce([{ has_recovery_work: false }])
+      .mockResolvedValueOnce([]);
     txExecuteMock
       .mockResolvedValueOnce([{ acquired: true }])
       .mockResolvedValueOnce([])
@@ -1000,7 +1129,273 @@ describe('property tile pyramid build lifecycle', () => {
     });
     expect(transactionMock).toHaveBeenCalledTimes(3);
     expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
-    expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(executeMock).toHaveBeenCalledTimes(3);
+    expect(isPendingFullBuildDemandReadQuery(JSON.stringify(executeMock.mock.calls[2]?.[0]))).toBe(
+      true
+    );
+  });
+
+  it('keeps worker recovery throttled when pending full-build demand is not due yet', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    executeMock
+      .mockResolvedValueOnce([{ recovered_count: 0 }])
+      .mockResolvedValueOnce([{ has_recovery_work: false }])
+      .mockResolvedValueOnce([
+        makePendingFullBuildDemandWatermarkRow({
+          nextEligibleAt: '2026-06-11T00:00:00.000Z',
+        }),
+      ]);
+    txExecuteMock
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([]);
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'worker-recovery',
+    });
+
+    expect(result).toEqual({
+      status: 'coalesced',
+      reason: 'mutation-build-throttled',
+    });
+    expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+    const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+    expect(executedQueries.some((query) => isPendingFullBuildDemandReadQuery(query))).toBe(true);
+    expect(executedQueries.some((query) => isFullBuildCurrentGenerationQuery(query))).toBe(false);
+    expect(executedQueries.some((query) => isDurableBuildRequestQuery(query))).toBe(false);
+    expect(executedQueries.some((query) => isPendingFullBuildDemandClearQuery(query))).toBe(false);
+  });
+
+  it('consumes due pending full-build demand from the throttled worker recovery branch', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    const pendingSourceWatermarksJson = { sources: [{ source: 'unit-pending-due' }] };
+    executeMock.mockImplementation(async (query) => {
+      const queryText = JSON.stringify(query);
+      if (isRecoverStaleBuildRequestQuery(queryText)) {
+        return [{ recovered_count: 0 }];
+      }
+      if (queryText.includes('has_recovery_work')) {
+        return [{ has_recovery_work: false }];
+      }
+      if (isPendingFullBuildDemandReadQuery(queryText)) {
+        return [
+          makePendingFullBuildDemandWatermarkRow({
+            buildInputsHash: 'pending-inputs',
+            sourceWatermarkHash: 'pending-watermarks',
+            sourceWatermarksJson: pendingSourceWatermarksJson,
+            nextEligibleAt: '2026-06-10T11:00:00.000Z',
+          }),
+        ];
+      }
+      if (isLeasedActiveCoalesceQuery(queryText)) {
+        return [];
+      }
+      if (isFullBuildCurrentGenerationQuery(queryText)) {
+        return [
+          makeUsableCurrentGenerationRow({
+            sourceWatermarkHash: 'current-watermarks',
+            currentPromotedAt: '2026-06-09T00:00:00.000Z',
+          }),
+        ];
+      }
+      if (isQueuedBuildSupersedeQuery(queryText)) {
+        return [];
+      }
+      if (isDurableBuildRequestQuery(queryText)) {
+        return [
+          {
+            id: 'pending-version',
+            status: 'queued',
+            next_retry_at: null,
+            queue_eligible: true,
+            pending_replacement: false,
+            active_build_in_progress: false,
+          },
+        ];
+      }
+      if (isPendingFullBuildDemandClearQuery(queryText)) {
+        return [];
+      }
+      throw new Error(`Unexpected query: ${queryText}`);
+    });
+    txExecuteMock
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([]);
+    enqueuePropertyTilePyramidBuildMock.mockResolvedValueOnce({
+      status: 'enqueued',
+      jobId: 'job-1',
+    });
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'worker-recovery',
+    });
+
+    expect(result).toMatchObject({
+      status: 'enqueued',
+      versionId: 'pending-version',
+      existingStatus: 'queued',
+    });
+    expect(enqueuePropertyTilePyramidBuildMock).toHaveBeenCalledTimes(1);
+    const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+    const requestQuery = executedQueries.find((query) => isDurableBuildRequestQuery(query)) ?? '';
+    expect(requestQuery).toContain('pending-inputs');
+    expect(requestQuery).toContain('pending-watermarks');
+    const clearQuery =
+      executedQueries.find((query) => isPendingFullBuildDemandClearQuery(query)) ?? '';
+    expect(clearQuery).toContain('matching_durable');
+    expect(clearQuery).toContain('build_inputs_hash =');
+    expect(clearQuery).toContain('source_watermark_hash =');
+    expect(clearQuery).toContain('pending-inputs');
+    expect(clearQuery).toContain('pending-watermarks');
+    expect(clearQuery).toContain('propertyTilePyramidFullBuildPending');
+  });
+
+  it('re-records due pending full-build demand when guardrails block recovery consumption', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    executeMock.mockImplementation(async (query) => {
+      const queryText = JSON.stringify(query);
+      if (isRecoverStaleBuildRequestQuery(queryText)) {
+        return [{ recovered_count: 0 }];
+      }
+      if (queryText.includes('has_recovery_work')) {
+        return [{ has_recovery_work: false }];
+      }
+      if (isPendingFullBuildDemandReadQuery(queryText)) {
+        return [makePendingFullBuildDemandWatermarkRow()];
+      }
+      if (isLeasedActiveCoalesceQuery(queryText)) {
+        return [];
+      }
+      if (isFullBuildCurrentGenerationQuery(queryText)) {
+        return [
+          makeUsableCurrentGenerationRow({
+            sourceWatermarkHash: 'current-watermarks',
+            currentPromotedAt: '2026-06-09T00:00:00.000Z',
+          }),
+        ];
+      }
+      if (isGuardrailSummaryQuery(queryText)) {
+        return [makeGuardrailRow({ observedAt: null })];
+      }
+      if (isPendingFullBuildDemandWriteQuery(queryText)) {
+        return [];
+      }
+      throw new Error(`Unexpected query: ${queryText}`);
+    });
+    txExecuteMock
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([]);
+
+    await withTemporaryEnv(
+      {
+        NODE_ENV: 'production',
+        PROPERTY_TILE_PYRAMID_GUARDRAILS_ENABLED: undefined,
+        PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS: undefined,
+      },
+      async () => {
+        const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+        const result = await requestPropertyTilePyramidBuild({
+          reason: 'worker-recovery',
+        });
+
+        expect(result).toEqual({
+          status: 'coalesced',
+          reason: 'full-build-eligibility-denied:guardrail-host-observation-missing',
+        });
+        expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+        const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+        expect(executedQueries.some((query) => isDurableBuildRequestQuery(query))).toBe(false);
+        expect(executedQueries.some((query) => isPendingFullBuildDemandClearQuery(query))).toBe(
+          false
+        );
+        const pendingWrite =
+          executedQueries.find((query) => isPendingFullBuildDemandWriteQuery(query)) ?? '';
+        expect(pendingWrite).toContain('guardrail-host-observation-missing');
+        expect(pendingWrite).toContain('pending-watermarks');
+      }
+    );
+  });
+
+  it('clears due pending full-build demand only through a matching pending replacement', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
+    const pendingSourceWatermarksJson = { sources: [{ source: 'unit-replacement' }] };
+    executeMock.mockImplementation(async (query) => {
+      const queryText = JSON.stringify(query);
+      if (isRecoverStaleBuildRequestQuery(queryText)) {
+        return [{ recovered_count: 0 }];
+      }
+      if (queryText.includes('has_recovery_work')) {
+        return [{ has_recovery_work: false }];
+      }
+      if (isPendingFullBuildDemandReadQuery(queryText)) {
+        return [
+          makePendingFullBuildDemandWatermarkRow({
+            buildInputsHash: 'pending-inputs',
+            sourceWatermarkHash: 'pending-watermarks',
+            sourceWatermarksJson: pendingSourceWatermarksJson,
+          }),
+        ];
+      }
+      if (isLeasedActiveCoalesceQuery(queryText)) {
+        return [
+          {
+            id: 'active-version',
+            status: 'building',
+            next_retry_at: null,
+            pending_replacement: true,
+          },
+        ];
+      }
+      if (isPendingFullBuildDemandClearQuery(queryText)) {
+        return [];
+      }
+      throw new Error(`Unexpected query: ${queryText}`);
+    });
+    txExecuteMock
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([]);
+
+    const { requestPropertyTilePyramidBuild } = await import('./property-tile-pyramid.js');
+    const result = await requestPropertyTilePyramidBuild({
+      reason: 'worker-recovery',
+    });
+
+    expect(result).toMatchObject({
+      status: 'coalesced',
+      versionId: 'active-version',
+      existingStatus: 'building',
+      reason: 'pending-replacement-recorded',
+    });
+    expect(enqueuePropertyTilePyramidBuildMock).not.toHaveBeenCalled();
+    const executedQueries = executeMock.mock.calls.map((call) => JSON.stringify(call[0]));
+    const clearQuery =
+      executedQueries.find((query) => isPendingFullBuildDemandClearQuery(query)) ?? '';
+    expect(clearQuery).toContain('matching_pending_replacement');
+    expect(clearQuery).toContain(
+      "watermark_json#>>'{propertyTilePyramidFullBuildPending,buildInputsHash}'"
+    );
+    expect(clearQuery).toContain(
+      "watermark_json#>>'{propertyTilePyramidFullBuildPending,sourceWatermarkHash}'"
+    );
+    expect(clearQuery).toContain('pending-inputs');
+    expect(clearQuery).toContain('pending-watermarks');
   });
 
   it.each([['expired active'], ['legacy validated']])(

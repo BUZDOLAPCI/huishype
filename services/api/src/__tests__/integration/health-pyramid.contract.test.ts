@@ -250,6 +250,8 @@ describe('property tile pyramid health and ops contracts', () => {
         failed_retryable: 1,
       },
       activeBuildCount: 2,
+      generatedPyramidGenerationCount: 3,
+      generatedCandidateSnapshotCount: 2,
       retainedGenerationCount: 3,
       relationStats: [
         {
@@ -275,17 +277,32 @@ describe('property tile pyramid health and ops contracts', () => {
         details: { deletedVersions: 1, deletedTiles: 128 },
       },
       lastEligibilityVerdict: 'blocked',
-      lastEligibilityBlockReason: 'retry-backoff',
+      lastEligibilityBlockReason: 'guardrail-generated-generations-high',
+      pendingFullBuildDemand: {
+        requestReason: 'source-watermark',
+        denialReason: 'guardrail-generated-generations-high',
+        deniedAt: '2026-05-07T08:14:00.000Z',
+        nextEligibleAt: null,
+        due: true,
+        sourceWatermarkHash: 'pending-watermarks',
+        buildInputsHash: 'pending-inputs',
+      },
       guardrails: {
-        verdict: 'ok',
-        automaticBuildsBlocked: false,
-        violations: [],
+        verdict: 'blocked',
+        automaticBuildsBlocked: true,
+        violations: [
+          {
+            reason: 'guardrail-generated-generations-high',
+            message: 'Generated property tile generations are pyramid=4, candidateSnapshots=2.',
+          },
+        ],
         thresholds: {
           hostObservationMaxAgeMs: 300_000,
           rootMaxUsedPercent: 75,
           rootMinFreeBytes: 42_949_672_960,
           dbMaxBytes: 139_586_437_120,
           generatedMaxBytes: 42_949_672_960,
+          generatedGenerationMax: 3,
           retainedGenerationMax: 3,
         },
         enabled: true,
@@ -304,6 +321,8 @@ describe('property tile pyramid health and ops contracts', () => {
         hostObservationAgeMs: 30_000,
         dbBytes: 83_751_862_272,
         generatedBytes: 12_884_901_888,
+        generatedPyramidGenerationCount: 3,
+        generatedCandidateSnapshotCount: 2,
         retainedGenerationCount: 3,
         evaluatedAt: '2026-05-07T08:15:00.000Z',
       },
@@ -331,6 +350,8 @@ describe('property tile pyramid health and ops contracts', () => {
         failed_retryable: 1,
       },
       activeBuildCount: 2,
+      generatedPyramidGenerationCount: 3,
+      generatedCandidateSnapshotCount: 2,
       retainedGenerationCount: 3,
       relationStats: [
         {
@@ -359,10 +380,27 @@ describe('property tile pyramid health and ops contracts', () => {
         details: { deletedVersions: 1, deletedTiles: 128 },
       },
       lastEligibilityVerdict: 'blocked',
-      lastEligibilityBlockReason: 'retry-backoff',
+      lastEligibilityBlockReason: 'guardrail-generated-generations-high',
+      pendingFullBuildDemand: {
+        requestReason: 'source-watermark',
+        denialReason: 'guardrail-generated-generations-high',
+        deniedAt: '2026-05-07T08:14:00.000Z',
+        nextEligibleAt: null,
+        due: true,
+        sourceWatermarkHash: 'pending-watermarks',
+        buildInputsHash: 'pending-inputs',
+      },
       guardrails: {
-        verdict: 'ok',
-        automaticBuildsBlocked: false,
+        verdict: 'blocked',
+        automaticBuildsBlocked: true,
+        violations: [
+          {
+            reason: 'guardrail-generated-generations-high',
+            message: 'Generated property tile generations are pyramid=4, candidateSnapshots=2.',
+          },
+        ],
+        generatedPyramidGenerationCount: 3,
+        generatedCandidateSnapshotCount: 2,
         retainedGenerationCount: 3,
       },
       resourceControls: {

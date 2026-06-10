@@ -106,6 +106,17 @@ changes should rely on mutation-triggered coalesced rebuilds plus the worker
 recovery sweep. Avoid more than one full rebuild per day unless the previous run
 has promoted and retention has completed.
 
+Pending full-build demand cadence: when a full rebuild is denied before the
+cadence window is eligible, or while a hard guardrail is blocking, the API
+records the latest denied demand instead of creating repeated durable build
+rows. Operators can inspect
+`/ops/property-tile-pyramid.pendingFullBuildDemand`; `due` becomes `true` when
+`nextEligibleAt` has passed or no later eligibility time applies. The worker
+recovery sweep can then consume the pending demand using its recorded
+`sourceWatermarkHash` and `buildInputsHash` through the same eligibility gate.
+If guardrails still block the due demand, the pending record is refreshed and
+left in place.
+
 Safety thresholds before starting or retrying a full rebuild:
 - Root disk below 75% used and at least 40GB free.
 - `/ops/property-tile-pyramid.guardrails.verdict` is `ok` and
@@ -118,6 +129,11 @@ Safety thresholds before starting or retrying a full rebuild:
   queued/validated build. If `retainedGenerationCount` is above `4`, run
   retention first and wait for `lastRetentionResult.reason` to become
   `completed`.
+- Generated pyramid and candidate snapshot generation counts are within the
+  generated-generation cap (`generatedPyramidGenerationCount <= 3` and
+  `generatedCandidateSnapshotCount <= 3` by default). A
+  `guardrail-generated-generations-high` violation means retention or cleanup
+  must complete before another full rebuild is allowed.
 - Generated relation sizes are reviewed. If
   `property_tile_pyramid_tiles`, `property_tile_pyramid_nodes`,
   `property_tile_pyramid_members`, or candidate source relations are growing
@@ -314,10 +330,12 @@ Property tile pyramid:
   when host disk observations are stale, root disk is at least 75% used, or
   root free space is below 40GiB.
 - `PROPERTY_TILE_PYRAMID_GUARDRAIL_DB_MAX_BYTES`,
-  `PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES`, and
+  `PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_MAX_BYTES`,
+  `PROPERTY_TILE_PYRAMID_GUARDRAIL_GENERATED_GENERATION_MAX`, and
   `PROPERTY_TILE_PYRAMID_GUARDRAIL_RETAINED_GENERATION_MAX` block full rebuilds
-  when database/generated storage or retained generation counts exceed the
-  configured hard caps.
+  when database/generated storage, generated pyramid or candidate snapshot
+  generation counts, or retained generation counts exceed the configured hard
+  caps. The production generated-generation default is `3`.
 - `PROPERTY_TILE_PYRAMID_UNSAFE_BYPASS_HARD_GUARDRAILS` defaults to `false`.
   Set it only for an explicit operator override after checking disk headroom.
 

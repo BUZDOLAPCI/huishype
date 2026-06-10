@@ -295,6 +295,10 @@ async function main(): Promise<void> {
     `);
 
     await tx.execute(sql`
+      SELECT ensure_property_tile_candidate_source_partitions(${candidateSnapshotId}::uuid)
+    `);
+
+    await tx.execute(sql`
       INSERT INTO property_tile_grouping_facts (
         snapshot_id,
         property_id,
@@ -413,6 +417,10 @@ async function main(): Promise<void> {
     `);
 
     await tx.execute(sql`
+      SELECT ensure_property_tile_pyramid_version_partitions(${versionId}::uuid)
+    `);
+
+    await tx.execute(sql`
       INSERT INTO property_tile_pyramid_tiles (
         version_id,
         z,
@@ -520,14 +528,88 @@ async function main(): Promise<void> {
         LIMIT 1
       `)
     );
+    const txRows = Array.from(
+      await tx.execute<{ txid: string }>(sql`
+        SELECT txid_current()::bigint::text AS txid
+      `)
+    );
+    const txid = txRows[0]?.txid;
+    if (!txid) {
+      throw new Error('Failed to acquire transaction id for Playwright pyramid fixture');
+    }
 
     await tx.execute(sql`
-      SELECT promote_property_tile_pyramid_version(
+      INSERT INTO property_tile_pyramid_promotion_intents (
+        txid,
+        version_id,
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        actor,
+        reason
+      )
+      VALUES (
+        ${txid}::bigint,
+        ${versionId}::uuid,
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.maxZoom},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
+        'playwright-runtime',
+        'playwright runtime fixture'
+      )
+      ON CONFLICT (txid, version_id) DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      SELECT set_config(
+        'huishype.property_tile_pyramid_promotion_version_id',
+        ${versionId},
+        true
+      )
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_pyramid_current (
+        coverage_id,
+        filter_signature,
+        max_zoom,
+        pyramid_kind,
+        current_version_id,
+        previous_version_id,
+        current_promoted_at,
+        promotion_reason,
+        updated_at
+      )
+      VALUES (
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.maxZoom},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
         ${versionId}::uuid,
         ${previousRows[0]?.current_version_id ?? null}::uuid,
+        now(),
         'playwright runtime fixture',
-        'playwright-runtime'
+        now()
       )
+      ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
+      DO UPDATE SET
+        current_version_id = EXCLUDED.current_version_id,
+        previous_version_id = property_tile_pyramid_current.current_version_id,
+        current_promoted_at = EXCLUDED.current_promoted_at,
+        promotion_reason = EXCLUDED.promotion_reason,
+        updated_at = now()
+    `);
+
+    await tx.execute(sql`
+      UPDATE property_tile_pyramid_versions
+      SET
+        status = 'promoted',
+        promoted_at = COALESCE(promoted_at, now()),
+        build_finished_at = COALESCE(build_finished_at, now()),
+        updated_at = now()
+      WHERE id = ${versionId}::uuid
     `);
   });
 }

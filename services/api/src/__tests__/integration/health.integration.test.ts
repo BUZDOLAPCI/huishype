@@ -440,6 +440,10 @@ describe('GET /health', () => {
     `);
 
     await db.execute(sql`
+      SELECT ensure_property_tile_pyramid_version_partitions(${fixtureVersionId}::uuid)
+    `);
+
+    await db.execute(sql`
       INSERT INTO property_tile_pyramid_tiles (
         version_id,
         z,
@@ -464,14 +468,89 @@ describe('GET /health', () => {
       )
     `);
 
-    await db.execute(sql`
-      SELECT promote_property_tile_pyramid_version(
-        ${fixtureVersionId}::uuid,
-        ${savedCurrentPointer?.current_version_id ?? null}::uuid,
-        'health integration fixture',
-        'health.integration.test'
-      )
-    `);
+    await db.transaction(async (tx) => {
+      const txRows = await tx.execute<{ txid: string }>(sql`
+        SELECT txid_current()::bigint::text AS txid
+      `);
+      const txid = Array.from(txRows)[0]?.txid;
+      if (!txid) {
+        throw new Error('Failed to acquire transaction id for health integration fixture');
+      }
+
+      await tx.execute(sql`
+        INSERT INTO property_tile_pyramid_promotion_intents (
+          txid,
+          version_id,
+          coverage_id,
+          filter_signature,
+          max_zoom,
+          pyramid_kind,
+          actor,
+          reason
+        )
+        VALUES (
+          ${txid}::bigint,
+          ${fixtureVersionId}::uuid,
+          ${slot.coverageId},
+          ${slot.filterSignature},
+          ${slot.maxZoom},
+          ${slot.pyramidKind}::property_tile_pyramid_kind,
+          'health.integration.test',
+          'health integration fixture'
+        )
+        ON CONFLICT (txid, version_id) DO NOTHING
+      `);
+
+      await tx.execute(sql`
+        SELECT set_config(
+          'huishype.property_tile_pyramid_promotion_version_id',
+          ${fixtureVersionId},
+          true
+        )
+      `);
+
+      await tx.execute(sql`
+        INSERT INTO property_tile_pyramid_current (
+          coverage_id,
+          filter_signature,
+          max_zoom,
+          pyramid_kind,
+          current_version_id,
+          previous_version_id,
+          current_promoted_at,
+          promotion_reason,
+          updated_at
+        )
+        VALUES (
+          ${slot.coverageId},
+          ${slot.filterSignature},
+          ${slot.maxZoom},
+          ${slot.pyramidKind}::property_tile_pyramid_kind,
+          ${fixtureVersionId}::uuid,
+          ${savedCurrentPointer?.current_version_id ?? null}::uuid,
+          now(),
+          'health integration fixture',
+          now()
+        )
+        ON CONFLICT (coverage_id, filter_signature, max_zoom, pyramid_kind)
+        DO UPDATE SET
+          current_version_id = EXCLUDED.current_version_id,
+          previous_version_id = property_tile_pyramid_current.current_version_id,
+          current_promoted_at = EXCLUDED.current_promoted_at,
+          promotion_reason = EXCLUDED.promotion_reason,
+          updated_at = now()
+      `);
+
+      await tx.execute(sql`
+        UPDATE property_tile_pyramid_versions
+        SET
+          status = 'promoted',
+          promoted_at = COALESCE(promoted_at, now()),
+          build_finished_at = COALESCE(build_finished_at, now()),
+          updated_at = now()
+        WHERE id = ${fixtureVersionId}::uuid
+      `);
+    });
   }
 
   async function restorePromotedPyramidFixture(): Promise<void> {
@@ -525,6 +604,9 @@ describe('GET /health', () => {
     await db.execute(sql`
       DELETE FROM property_tile_pyramid_tiles
       WHERE version_id = ${fixtureVersionId}::uuid
+    `);
+    await db.execute(sql`
+      SELECT drop_property_tile_pyramid_version_partitions(${fixtureVersionId}::uuid)
     `);
     await db.execute(sql`
       DELETE FROM property_tile_pyramid_versions

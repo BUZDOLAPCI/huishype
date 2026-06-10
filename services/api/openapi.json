@@ -882,6 +882,12 @@
                     "activeBuildCount": {
                       "type": "number"
                     },
+                    "generatedPyramidGenerationCount": {
+                      "type": "number"
+                    },
+                    "generatedCandidateSnapshotCount": {
+                      "type": "number"
+                    },
                     "retainedGenerationCount": {
                       "type": "number"
                     },
@@ -1112,6 +1118,56 @@
                         }
                       ]
                     },
+                    "pendingFullBuildDemand": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "requestReason": {
+                              "type": "string"
+                            },
+                            "denialReason": {
+                              "type": "string"
+                            },
+                            "deniedAt": {
+                              "type": "string"
+                            },
+                            "nextEligibleAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "due": {
+                              "type": "boolean"
+                            },
+                            "sourceWatermarkHash": {
+                              "type": "string"
+                            },
+                            "buildInputsHash": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "requestReason",
+                            "denialReason",
+                            "deniedAt",
+                            "nextEligibleAt",
+                            "due",
+                            "sourceWatermarkHash",
+                            "buildInputsHash"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "guardrails": {
                       "type": "object",
                       "properties": {
@@ -1163,6 +1219,9 @@
                             "generatedMaxBytes": {
                               "type": "number"
                             },
+                            "generatedGenerationMax": {
+                              "type": "number"
+                            },
                             "retainedGenerationMax": {
                               "type": "number"
                             }
@@ -1173,6 +1232,7 @@
                             "rootMinFreeBytes",
                             "dbMaxBytes",
                             "generatedMaxBytes",
+                            "generatedGenerationMax",
                             "retainedGenerationMax"
                           ],
                           "additionalProperties": false
@@ -1282,6 +1342,26 @@
                             }
                           ]
                         },
+                        "generatedPyramidGenerationCount": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "generatedCandidateSnapshotCount": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "retainedGenerationCount": {
                           "anyOf": [
                             {
@@ -1307,6 +1387,8 @@
                         "hostObservationAgeMs",
                         "dbBytes",
                         "generatedBytes",
+                        "generatedPyramidGenerationCount",
+                        "generatedCandidateSnapshotCount",
                         "retainedGenerationCount",
                         "evaluatedAt"
                       ],
@@ -1373,6 +1455,8 @@
                     "memberCount",
                     "generationCounts",
                     "activeBuildCount",
+                    "generatedPyramidGenerationCount",
+                    "generatedCandidateSnapshotCount",
                     "retainedGenerationCount",
                     "relationStats",
                     "currentBuildDurationMs",
@@ -1389,6 +1473,7 @@
                     "lastRetentionResult",
                     "lastEligibilityVerdict",
                     "lastEligibilityBlockReason",
+                    "pendingFullBuildDemand",
                     "guardrails",
                     "resourceControls"
                   ],

@@ -51,6 +51,8 @@ const opsPropertyTilePyramidResponseSchema = z.object({
   memberCount: z.number().nullable(),
   generationCounts: z.record(z.string(), z.number()),
   activeBuildCount: z.number(),
+  generatedPyramidGenerationCount: z.number(),
+  generatedCandidateSnapshotCount: z.number(),
   retainedGenerationCount: z.number(),
   relationStats: z.array(
     z.object({
@@ -78,6 +80,17 @@ const opsPropertyTilePyramidResponseSchema = z.object({
   }),
   lastEligibilityVerdict: z.string().nullable(),
   lastEligibilityBlockReason: z.string().nullable(),
+  pendingFullBuildDemand: z
+    .object({
+      requestReason: z.string(),
+      denialReason: z.string(),
+      deniedAt: z.string(),
+      nextEligibleAt: z.string().nullable(),
+      due: z.boolean(),
+      sourceWatermarkHash: z.string(),
+      buildInputsHash: z.string(),
+    })
+    .nullable(),
   guardrails: z.object({
     verdict: z.enum(['ok', 'blocked', 'disabled']),
     automaticBuildsBlocked: z.boolean(),
@@ -93,6 +106,7 @@ const opsPropertyTilePyramidResponseSchema = z.object({
       rootMinFreeBytes: z.number(),
       dbMaxBytes: z.number(),
       generatedMaxBytes: z.number(),
+      generatedGenerationMax: z.number(),
       retainedGenerationMax: z.number(),
     }),
     enabled: z.boolean(),
@@ -113,6 +127,8 @@ const opsPropertyTilePyramidResponseSchema = z.object({
     hostObservationAgeMs: z.number().nullable(),
     dbBytes: z.number().nullable(),
     generatedBytes: z.number().nullable(),
+    generatedPyramidGenerationCount: z.number().nullable(),
+    generatedCandidateSnapshotCount: z.number().nullable(),
     retainedGenerationCount: z.number().nullable(),
     evaluatedAt: z.string(),
   }),
