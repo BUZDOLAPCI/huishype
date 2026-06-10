@@ -4,17 +4,21 @@ Hetzner CPX42 (8 vCPU, 16GB, 240GB disk) → Coolify PaaS → `docker-compose.pr
 
 Push to `main` triggers auto-deploy. Manual: Coolify dashboard at `http://94.130.105.129:8000`.
 
-## Photon Planet DB (critical)
+## Photon Europe DB (critical)
 
-The `photon_data` Docker volume must be populated before Photon starts. **Use the 1.0 database URL** — the old URL (`photon-db-latest.tar.bz2`) is Elasticsearch format and won't work with Photon 1.x (OpenSearch). The app container should run Photon **1.1.0 or newer** because `/api?countrycode=XX` was added after 1.0.1.
+The `photon_data` Docker volume must be populated before Photon starts. Production uses the Europe regional dump, which matches the app's European scope and is much smaller than the planet dump. **Use the 1.0 database URL** — the old URL (`photon-db-latest.tar.bz2`) is Elasticsearch format and won't work with Photon 1.x (OpenSearch). The app container should run Photon **1.1.0 or newer** because `/api?countrycode=XX` was added after 1.0.1.
 
 ```bash
 # SSH into server, extract directly into Docker volume (streaming — no double disk space needed)
 ssh root@94.130.105.129
 cd /var/lib/docker/volumes/cop1e1822hijj6g3zmxhrs0k_photon-data/_data
 
-# CORRECT (OpenSearch, ~56GB compressed → ~88GB extracted)
-wget -O - https://download1.graphhopper.com/public/photon-db-planet-1.0-latest.tar.bz2 | tar xjf -
+# CORRECT (OpenSearch Europe dump, ~29GB compressed → ~44GB extracted as of 2026-06-10)
+wget -q -O - https://download1.graphhopper.com/public/europe/photon-db-europe-1.0-latest.tar.bz2 | tar xjf -
+
+# Avoid the planet dump on the app VM unless storage has been resized or moved.
+# It was ~56GB compressed → ~88GB extracted and contributed to root disk exhaustion.
+# wget -q -O - https://download1.graphhopper.com/public/photon-db-planet-1.0-latest.tar.bz2 | tar xjf -
 
 # WRONG — do NOT use (Elasticsearch format, incompatible with Photon 1.x)
 # wget -O - https://download1.graphhopper.com/public/photon-db-latest.tar.bz2 | tar xjf -
@@ -68,7 +72,7 @@ deployment/operator secrets are stored in the gitignored root file
 
 ## Disk Sizing
 
-CPX32 (150GB) is too small. Photon planet DB (~88GB) + PostgreSQL (~51GB) + Docker overhead exceeds it. **CPX42 (240GB) is the minimum.** Disk-full corrupts Photon's OpenSearch index irreparably — requires full re-download.
+CPX32 (150GB) is too small for the app database plus generated tile cache. Production currently uses the Photon Europe dump (~44GB extracted as of 2026-06-10); the planet dump was ~88GB extracted and should not share the app root disk with PostgreSQL unless storage has been resized or moved. Disk-full can corrupt Photon's OpenSearch index irreparably and can prevent PostgreSQL crash recovery.
 
 ## Gotchas
 

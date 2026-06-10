@@ -180,7 +180,7 @@ services:
     networks:
       - internal
 
-  # ---------- Photon geocoder (planet-wide address search) ----------
+  # ---------- Photon geocoder (Europe-scoped address search) ----------
   photon:
     build:
       context: .
