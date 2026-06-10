@@ -193,8 +193,9 @@ async function readDefaultCandidateSnapshotCurrentForTest(): Promise<string | nu
   return Array.from(currentRows)[0]?.snapshot_id ?? null;
 }
 
-async function createReadyPropertyTileCandidateSnapshotFixture(): Promise<string> {
+async function createReadyPropertyTileCandidateSnapshotFixture(propertyIds: string[] = []): Promise<string> {
   const snapshotId = crypto.randomUUID();
+  const uniquePropertyIds = [...new Set(propertyIds)];
   await db.execute(sql`
     INSERT INTO property_tile_candidate_source_snapshots (
       id,
@@ -229,6 +230,186 @@ async function createReadyPropertyTileCandidateSnapshotFixture(): Promise<string
       now()
     )
   `);
+  if (uniquePropertyIds.length > 0) {
+    const propertyIdList = sql.join(
+      uniquePropertyIds.map((id) => sql`${id}::uuid`),
+      sql`, `
+    );
+    await db.execute(sql`
+      WITH target_properties AS MATERIALIZED (
+        SELECT
+          p.id,
+          p.geometry,
+          p.official_valuation,
+          p.country_code,
+          p.city,
+          p.region,
+          p.postal_code,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          p.official_valuation_year
+        FROM properties p
+        WHERE p.id IN (${propertyIdList})
+          AND p.geometry IS NOT NULL
+          AND p.status = 'active'
+      ),
+      latest_listing AS MATERIALIZED (
+        SELECT DISTINCT ON (cl.property_id)
+          cl.property_id,
+          cl.status::text AS status
+        FROM canonical_listings cl
+        INNER JOIN target_properties tp ON tp.id = cl.property_id
+        WHERE cl.verification_state <> 'invalid'
+        ORDER BY
+          cl.property_id,
+          COALESCE(
+            cl.last_reconciled_at,
+            cl.last_mirror_seen_at,
+            cl.last_user_seen_at,
+            cl.last_seen_at,
+            cl.updated_at,
+            cl.created_at
+          ) DESC,
+          cl.created_at DESC,
+          cl.id DESC
+      ),
+      active_listing AS MATERIALIZED (
+        SELECT DISTINCT ON (cl.property_id)
+          cl.property_id,
+          cl.asking_price,
+          cl.thumbnail_url,
+          CASE
+            WHEN lower(cl.source_name) = 'funda'
+              AND lower(btrim(cl.price_type)) = 'buy'
+              THEN 'sale'
+            WHEN lower(btrim(cl.price_type)) IN ('sale', 'rent')
+              THEN lower(btrim(cl.price_type))
+            WHEN lower(cl.source_name) = 'pararius'
+              THEN 'rent'
+            ELSE 'sale'
+          END AS price_type
+        FROM canonical_listings cl
+        INNER JOIN target_properties tp ON tp.id = cl.property_id
+        WHERE cl.verification_state <> 'invalid'
+          AND cl.status = 'active'
+        ORDER BY
+          cl.property_id,
+          COALESCE(
+            cl.last_reconciled_at,
+            cl.last_mirror_seen_at,
+            cl.last_user_seen_at,
+            cl.last_seen_at,
+            cl.updated_at,
+            cl.created_at
+          ) DESC,
+          cl.created_at DESC,
+          cl.id DESC
+      ),
+      snapshot_rows AS MATERIALIZED (
+        SELECT
+          tp.id,
+          tp.geometry,
+          tp.official_valuation,
+          tp.country_code,
+          tp.city,
+          tp.region,
+          tp.postal_code,
+          tp.street,
+          tp.house_number,
+          tp.house_number_addition,
+          tp.official_valuation_year,
+          active_listing.asking_price,
+          active_listing.thumbnail_url,
+          active_listing.property_id IS NOT NULL AS has_active_listing,
+          (
+            active_listing.property_id IS NULL
+            AND latest_listing.status IN ('sold', 'rented')
+          ) AS has_completed_listing,
+          CASE
+            WHEN active_listing.property_id IS NOT NULL AND active_listing.price_type = 'rent'
+              THEN 'for-rent'
+            WHEN active_listing.property_id IS NOT NULL
+              THEN 'for-sale'
+            WHEN latest_listing.status = 'sold'
+              THEN 'sold'
+            WHEN latest_listing.status = 'rented'
+              THEN 'rented'
+            ELSE 'not-listed'
+          END AS market_state,
+          CASE
+            WHEN active_listing.property_id IS NOT NULL
+              AND active_listing.price_type = 'sale'
+              THEN active_listing.asking_price
+            ELSE NULL
+          END AS sale_effective_price,
+          CASE
+            WHEN active_listing.property_id IS NOT NULL
+              AND active_listing.price_type = 'rent'
+              THEN active_listing.asking_price
+            ELSE NULL
+          END AS rent_effective_price
+        FROM target_properties tp
+        LEFT JOIN latest_listing ON latest_listing.property_id = tp.id
+        LEFT JOIN active_listing ON active_listing.property_id = tp.id
+      )
+      INSERT INTO property_tile_grouping_facts (
+        snapshot_id,
+        property_id,
+        geometry,
+        official_valuation,
+        country_code,
+        city,
+        region,
+        postal_code,
+        street,
+        house_number,
+        house_number_addition,
+        official_valuation_year,
+        asking_price,
+        thumbnail_url,
+        sale_effective_price,
+        rent_effective_price,
+        has_active_listing,
+        has_completed_listing,
+        market_state,
+        updated_at
+      )
+      SELECT
+        ${snapshotId}::uuid,
+        id,
+        geometry,
+        official_valuation,
+        country_code,
+        city,
+        region,
+        postal_code,
+        street,
+        house_number,
+        house_number_addition,
+        official_valuation_year,
+        asking_price,
+        thumbnail_url,
+        sale_effective_price,
+        rent_effective_price,
+        has_active_listing,
+        has_completed_listing,
+        market_state,
+        now()
+      FROM snapshot_rows
+      ON CONFLICT (snapshot_id, property_id) DO NOTHING
+    `);
+
+    await db.execute(sql`
+      UPDATE property_tile_candidate_source_snapshots
+      SET grouping_fact_row_count = (
+        SELECT count(*)::bigint
+        FROM property_tile_grouping_facts
+        WHERE snapshot_id = ${snapshotId}::uuid
+      )
+      WHERE id = ${snapshotId}::uuid
+    `);
+  }
   await db.execute(sql`
     INSERT INTO property_tile_candidate_source_current (
       coverage_id,
@@ -1999,6 +2180,8 @@ describe('Tile routes', () => {
         priceType: 'sale',
         sourceUrl: `https://example.com/tile-filter-${property.id}`,
       });
+      const previousSnapshotId = await readDefaultCandidateSnapshotCurrentForTest();
+      await createReadyPropertyTileCandidateSnapshotFixture([property.id]);
 
       try {
         const baseUrl = `/tiles/properties/${z}/${x}/${y}.pbf`;
@@ -2018,6 +2201,7 @@ describe('Tile routes', () => {
         expect(secondFilteredResponse.headers['x-tile-cache']).toBe('hit');
         expect(secondFilteredResponse.headers['x-tile-generation-time']).toBe('0ms');
       } finally {
+        await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);
       }
     });
@@ -2085,66 +2269,72 @@ describe('Tile routes', () => {
           priceType: 'rent',
           sourceUrl: `https://example.com/rented-listing-only-${rentedProperty.id}`,
         });
+        const previousSnapshotId = await readDefaultCandidateSnapshotCurrentForTest();
+        await createReadyPropertyTileCandidateSnapshotFixture([soldProperty.id, rentedProperty.id]);
 
-        for (const tile of soldTiles) {
+        try {
+          for (const tile of soldTiles) {
+            expectCompletedActiveSingleGroup(
+              await buildCanonicalGroupsForTile(tile),
+              soldProperty.id,
+              'sold'
+            );
+            expectCompletedActiveSingleGroup(
+              await buildCanonicalGroupsForTile(tile, completedFilters),
+              soldProperty.id,
+              'sold'
+            );
+            await expectPublicPropertyTile(tile, '', 200);
+            await expectPublicPropertyTile(tile, '?marketState=sold,rented', 200);
+          }
+
+          for (const tile of rentedTiles) {
+            expectCompletedActiveSingleGroup(
+              await buildCanonicalGroupsForTile(tile),
+              rentedProperty.id,
+              'rented'
+            );
+            expectCompletedActiveSingleGroup(
+              await buildCanonicalGroupsForTile(tile, completedFilters),
+              rentedProperty.id,
+              'rented'
+            );
+            await expectPublicPropertyTile(tile, '', 200);
+            await expectPublicPropertyTile(tile, '?marketState=sold,rented', 200);
+          }
+
+          const soldActiveTile = soldTiles[1];
+          const rentedActiveTile = rentedTiles[1];
           expectCompletedActiveSingleGroup(
-            await buildCanonicalGroupsForTile(tile),
+            await buildCanonicalGroupsForTile(soldActiveTile, soldFilters),
             soldProperty.id,
             'sold'
           );
+          expect(
+            findGroupForProperty(
+              await buildCanonicalGroupsForTile(soldActiveTile, rentedFilters),
+              soldProperty.id
+            )
+          ).toBeUndefined();
           expectCompletedActiveSingleGroup(
-            await buildCanonicalGroupsForTile(tile, completedFilters),
-            soldProperty.id,
-            'sold'
-          );
-          await expectPublicPropertyTile(tile, '', 200);
-          await expectPublicPropertyTile(tile, '?marketState=sold,rented', 200);
-        }
-
-        for (const tile of rentedTiles) {
-          expectCompletedActiveSingleGroup(
-            await buildCanonicalGroupsForTile(tile),
+            await buildCanonicalGroupsForTile(rentedActiveTile, rentedFilters),
             rentedProperty.id,
             'rented'
           );
-          expectCompletedActiveSingleGroup(
-            await buildCanonicalGroupsForTile(tile, completedFilters),
-            rentedProperty.id,
-            'rented'
-          );
-          await expectPublicPropertyTile(tile, '', 200);
-          await expectPublicPropertyTile(tile, '?marketState=sold,rented', 200);
+          expect(
+            findGroupForProperty(
+              await buildCanonicalGroupsForTile(rentedActiveTile, soldFilters),
+              rentedProperty.id
+            )
+          ).toBeUndefined();
+
+          await expectPublicPropertyTile(soldActiveTile, '?marketState=sold', 200);
+          await expectPublicPropertyTile(soldActiveTile, '?marketState=rented', 204);
+          await expectPublicPropertyTile(rentedActiveTile, '?marketState=rented', 200);
+          await expectPublicPropertyTile(rentedActiveTile, '?marketState=sold', 204);
+        } finally {
+          await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
         }
-
-        const soldActiveTile = soldTiles[1];
-        const rentedActiveTile = rentedTiles[1];
-        expectCompletedActiveSingleGroup(
-          await buildCanonicalGroupsForTile(soldActiveTile, soldFilters),
-          soldProperty.id,
-          'sold'
-        );
-        expect(
-          findGroupForProperty(
-            await buildCanonicalGroupsForTile(soldActiveTile, rentedFilters),
-            soldProperty.id
-          )
-        ).toBeUndefined();
-        expectCompletedActiveSingleGroup(
-          await buildCanonicalGroupsForTile(rentedActiveTile, rentedFilters),
-          rentedProperty.id,
-          'rented'
-        );
-        expect(
-          findGroupForProperty(
-            await buildCanonicalGroupsForTile(rentedActiveTile, soldFilters),
-            rentedProperty.id
-          )
-        ).toBeUndefined();
-
-        await expectPublicPropertyTile(soldActiveTile, '?marketState=sold', 200);
-        await expectPublicPropertyTile(soldActiveTile, '?marketState=rented', 204);
-        await expectPublicPropertyTile(rentedActiveTile, '?marketState=rented', 200);
-        await expectPublicPropertyTile(rentedActiveTile, '?marketState=sold', 204);
       } finally {
         await db.execute(
           sql`DELETE FROM listings WHERE property_id IN (${soldProperty.id}, ${rentedProperty.id})`
@@ -2423,35 +2613,41 @@ describe('Tile routes', () => {
           askingPrice: 477000,
           sourceUrl: `https://example.com/read-overlay-identity-${property.id}`,
         });
+        const previousSnapshotId = await readDefaultCandidateSnapshotCurrentForTest();
+        await createReadyPropertyTileCandidateSnapshotFixture([property.id]);
 
-        const publicResponse = await app.inject({
-          method: 'GET',
-          url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
-        });
-        expect(publicResponse.statusCode).toBe(200);
+        try {
+          const publicResponse = await app.inject({
+            method: 'GET',
+            url: `/tiles/properties/${tile.z}/${tile.x}/${tile.y}.pbf`,
+          });
+          expect(publicResponse.statusCode).toBe(200);
 
-        const viewResponse = await app.inject({
-          method: 'POST',
-          url: `/properties/${property.id}/view`,
-          headers: { 'x-session-id': readerSessionId },
-        });
-        expect(viewResponse.statusCode).toBe(200);
+          const viewResponse = await app.inject({
+            method: 'POST',
+            url: `/properties/${property.id}/view`,
+            headers: { 'x-session-id': readerSessionId },
+          });
+          expect(viewResponse.statusCode).toBe(200);
 
-        const readerResponse = await app.inject({
-          method: 'GET',
-          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
-          headers: { 'x-session-id': readerSessionId },
-        });
-        const otherViewerResponse = await app.inject({
-          method: 'GET',
-          url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
-          headers: { 'x-session-id': otherSessionId },
-        });
+          const readerResponse = await app.inject({
+            method: 'GET',
+            url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+            headers: { 'x-session-id': readerSessionId },
+          });
+          const otherViewerResponse = await app.inject({
+            method: 'GET',
+            url: `/tiles/properties/read/${tile.z}/${tile.x}/${tile.y}.pbf`,
+            headers: { 'x-session-id': otherSessionId },
+          });
 
-        expect(readerResponse.statusCode).toBe(200);
-        expect(readerResponse.headers['cache-control']).toBe('private, no-store');
-        expect(otherViewerResponse.statusCode).toBe(204);
-        expect(otherViewerResponse.headers['cache-control']).toBe('private, no-store');
+          expect(readerResponse.statusCode).toBe(200);
+          expect(readerResponse.headers['cache-control']).toBe('private, no-store');
+          expect(otherViewerResponse.statusCode).toBe(204);
+          expect(otherViewerResponse.headers['cache-control']).toBe('private, no-store');
+        } finally {
+          await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
+        }
       } finally {
         await db.execute(sql`DELETE FROM listings WHERE property_id = ${property.id}`);
         await db.execute(sql`DELETE FROM properties WHERE id = ${property.id}`);

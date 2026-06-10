@@ -108,6 +108,10 @@ function createDismissedWelcomeModalStorageState(origin) {
             name: 'huishype_welcome_modal_dismissed_v1',
             value: '1',
           },
+          {
+            name: 'huishype_analytics_consent',
+            value: 'denied',
+          },
         ],
       },
     ],

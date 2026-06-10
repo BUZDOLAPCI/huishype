@@ -286,12 +286,84 @@ async function main(): Promise<void> {
         ${sourceWatermarkHash},
         ${JSON.stringify({ sources: [{ source: 'playwright-runtime' }] })}::jsonb,
         'ready',
+        ${previewPropertyIds.length},
+        ${previewPropertyIds.length},
         0,
-        0,
-        0,
-        0,
+        ${previewPropertyIds.length},
         now()
       )
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_grouping_facts (
+        snapshot_id,
+        property_id,
+        geometry,
+        official_valuation,
+        country_code,
+        city,
+        region,
+        postal_code,
+        street,
+        house_number,
+        house_number_addition,
+        official_valuation_year,
+        asking_price,
+        sale_effective_price,
+        has_active_listing,
+        has_completed_listing,
+        market_state,
+        updated_at
+      )
+      SELECT
+        ${candidateSnapshotId}::uuid,
+        p.id,
+        p.geometry,
+        p.official_valuation,
+        p.country_code,
+        p.city,
+        p.region,
+        p.postal_code,
+        p.street,
+        p.house_number,
+        p.house_number_addition,
+        p.official_valuation_year,
+        p.official_valuation,
+        p.official_valuation,
+        TRUE,
+        FALSE,
+        'for-sale',
+        now()
+      FROM properties p
+      WHERE p.id IN (${sql.join(
+        previewPropertyIds.map((id) => sql`${id}::uuid`),
+        sql`, `
+      )})
+      ON CONFLICT (snapshot_id, property_id) DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO property_tile_candidate_source_current (
+        coverage_id,
+        filter_signature,
+        pyramid_kind,
+        snapshot_id,
+        promoted_at,
+        updated_at
+      )
+      VALUES (
+        ${slot.coverageId},
+        ${slot.filterSignature},
+        ${slot.pyramidKind}::property_tile_pyramid_kind,
+        ${candidateSnapshotId}::uuid,
+        now(),
+        now()
+      )
+      ON CONFLICT (coverage_id, filter_signature, pyramid_kind)
+      DO UPDATE SET
+        snapshot_id = EXCLUDED.snapshot_id,
+        promoted_at = EXCLUDED.promoted_at,
+        updated_at = now()
     `);
 
     await tx.execute(sql`
