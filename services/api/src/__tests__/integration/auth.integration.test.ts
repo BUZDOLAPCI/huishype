@@ -200,6 +200,28 @@ describe('Auth routes', () => {
       expect(body.session.user.profilePhotoUrl).toBe(picture);
     });
 
+    it('ignores non-HTTPS Google picture URLs', async () => {
+      const uniqueId = `google-http-picture-${Date.now()}`;
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/auth/google',
+        payload: {
+          idToken: buildStructuredGoogleToken({
+            email: `${uniqueId}@gmail.com`,
+            googleId: `gid-${uniqueId}`,
+            name: 'HTTP Picture',
+            picture: 'http://lh3.googleusercontent.com/a/insecure-photo',
+          }),
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      testUserIds.push(body.session.user.id);
+      expect(body.session.user.profilePhotoUrl).toBeNull();
+    });
+
     it('backfills the Google picture for an existing Google user with no photo', async () => {
       const uniqueId = `google-backfill-${Date.now()}`;
       const email = `${uniqueId}@gmail.com`;

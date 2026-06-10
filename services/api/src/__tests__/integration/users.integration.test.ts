@@ -39,6 +39,7 @@ describe('User profile routes', () => {
   let uniqueHandleSequence = 0;
   const uploadedObjects: Array<{ key: string; body: Buffer; contentType: string }> = [];
   const deletedObjectKeys: string[] = [];
+  let putObjectError: Error | null = null;
 
   function createUniqueHandle(label: string) {
     uniqueHandleSequence += 1;
@@ -104,6 +105,9 @@ describe('User profile routes', () => {
   beforeAll(async () => {
     const fakeStorage: ProfilePhotoStorageAdapter = {
       async putObject({ key, body, contentType }) {
+        if (putObjectError) {
+          throw putObjectError;
+        }
         uploadedObjects.push({ key, body, contentType });
         return `/${key}`;
       },
@@ -119,6 +123,7 @@ describe('User profile routes', () => {
   beforeEach(() => {
     uploadedObjects.length = 0;
     deletedObjectKeys.length = 0;
+    putObjectError = null;
   });
 
   afterAll(async () => {
@@ -786,6 +791,28 @@ describe('User profile routes', () => {
       expect(uploadedObjects).toHaveLength(0);
     });
 
+    it('rejects SVG payloads even when declared as an allowed image MIME type', async () => {
+      const { accessToken } = await createTestUser('photo-svg');
+      const svgBase64 = Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="red"/></svg>',
+        'utf8'
+      ).toString('base64');
+
+      const resp = await app.inject({
+        method: 'POST',
+        url: '/users/me/profile-photo',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: {
+          imageBase64: svgBase64,
+          mimeType: 'image/png',
+        },
+      });
+
+      expect(resp.statusCode).toBe(400);
+      expect(JSON.parse(resp.body).error).toBe('PROFILE_PHOTO_UNSUPPORTED_TYPE');
+      expect(uploadedObjects).toHaveLength(0);
+    });
+
     it('processes an uploaded image, stores the R2 URL, and returns profile identity', async () => {
       const { accessToken, userId } = await createTestUser('photo-upload');
 
@@ -844,6 +871,53 @@ describe('User profile routes', () => {
       } finally {
         dbUpdateSpy.mockRestore();
       }
+    });
+
+    it('returns a controlled 503 when profile photo storage fails', async () => {
+      const { accessToken, userId } = await createTestUser('photo-storage-fail');
+      putObjectError = new Error('forced R2 upload failure');
+
+      const resp = await app.inject({
+        method: 'POST',
+        url: '/users/me/profile-photo',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: {
+          imageBase64: await createTestImageBase64(),
+          mimeType: 'image/png',
+        },
+      });
+
+      expect(resp.statusCode).toBe(503);
+      expect(JSON.parse(resp.body).error).toBe('PROFILE_PHOTO_STORAGE_FAILED');
+      expect(uploadedObjects).toHaveLength(0);
+
+      const stored = await db.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(stored?.profilePhotoUrl).toBeNull();
+    });
+
+    it('rate-limits repeated profile photo upload attempts per user', async () => {
+      const { accessToken } = await createTestUser('photo-rate-limit');
+
+      const requestUpload = () =>
+        app.inject({
+          method: 'POST',
+          url: '/users/me/profile-photo',
+          headers: { authorization: `Bearer ${accessToken}` },
+          payload: {
+            imageBase64: 'aaaa',
+            mimeType: 'image/png',
+          },
+        });
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const resp = await requestUpload();
+        expect(resp.statusCode).toBe(400);
+      }
+
+      const limitedResp = await requestUpload();
+      expect(limitedResp.statusCode).toBe(429);
+      expect(JSON.parse(limitedResp.body).error).toBe('RATE_LIMITED');
+      expect(uploadedObjects).toHaveLength(0);
     });
 
     it('clears the profile photo and best-effort deletes the owned R2 object', async () => {

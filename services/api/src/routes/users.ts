@@ -5,6 +5,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import rateLimit from '@fastify/rate-limit';
 import { z } from 'zod';
 import { and, eq, sql, count } from 'drizzle-orm';
 import { db } from '../db/index.js';
@@ -38,6 +39,7 @@ const profilePhotoSourceBytes =
     ? config.r2.maxProfilePhotoSourceBytes
     : 5 * 1024 * 1024;
 const profilePhotoBodyLimitBytes = Math.ceil(profilePhotoSourceBytes * 1.4) + 1024;
+const profilePhotoUploadRateLimitMax = 5;
 
 type UserIdentityUpdateError = {
   code?: string;
@@ -129,6 +131,7 @@ function profilePhotoErrorStatus(error: ProfilePhotoUploadError): 400 | 413 | 50
     case 'PROFILE_PHOTO_TOO_LARGE':
       return 413;
     case 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED':
+    case 'PROFILE_PHOTO_STORAGE_FAILED':
       return 503;
     case 'PROFILE_PHOTO_INVALID_BASE64':
     case 'PROFILE_PHOTO_UNSUPPORTED_TYPE':
@@ -261,6 +264,19 @@ const errorResponseSchema = z.object({
 
 export async function userRoutes(fastify: FastifyInstance) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  await fastify.register(rateLimit, {
+    global: false,
+    max: profilePhotoUploadRateLimitMax,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => request.userId ?? request.ip,
+    errorResponseBuilder: (_request, context) => ({
+      statusCode: context.statusCode,
+      name: 'RATE_LIMITED',
+      error: 'RATE_LIMITED',
+      message: 'Too many profile photo uploads. Please try again later.',
+    }),
+  });
 
   /**
    * GET /users/search - Search public user profiles
@@ -606,8 +622,16 @@ export async function userRoutes(fastify: FastifyInstance) {
           200: updateProfileResponseSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          429: errorResponseSchema,
           413: errorResponseSchema,
           503: errorResponseSchema,
+        },
+      },
+      config: {
+        rateLimit: {
+          max: profilePhotoUploadRateLimitMax,
+          timeWindow: '1 minute',
+          keyGenerator: (request) => request.userId ?? request.ip,
         },
       },
     },

@@ -344,7 +344,7 @@ function normalizeGooglePictureUrl(picture: string | undefined): string | undefi
 
   try {
     const url = new URL(picture);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : undefined;
+    return url.protocol === 'https:' ? url.toString() : undefined;
   } catch {
     return undefined;
   }

@@ -13,13 +13,15 @@ const ALLOWED_INPUT_MIME_TYPES = new Set([
   'image/heic',
   'image/heif',
 ]);
+const ALLOWED_INPUT_FORMATS = new Set(['jpeg', 'png', 'webp', 'gif', 'heif']);
 
 export type ProfilePhotoUploadErrorCode =
   | 'PROFILE_PHOTO_STORAGE_NOT_CONFIGURED'
   | 'PROFILE_PHOTO_INVALID_BASE64'
   | 'PROFILE_PHOTO_UNSUPPORTED_TYPE'
   | 'PROFILE_PHOTO_TOO_LARGE'
-  | 'PROFILE_PHOTO_PROCESSING_FAILED';
+  | 'PROFILE_PHOTO_PROCESSING_FAILED'
+  | 'PROFILE_PHOTO_STORAGE_FAILED';
 
 export class ProfilePhotoUploadError extends Error {
   constructor(
@@ -120,7 +122,12 @@ async function processAvatarImage(buffer: Buffer, mimeType: string | undefined):
 
   try {
     const metadata = await image.metadata();
-    if (!metadata.format || !metadata.width || !metadata.height) {
+    if (
+      !metadata.format ||
+      !ALLOWED_INPUT_FORMATS.has(metadata.format) ||
+      !metadata.width ||
+      !metadata.height
+    ) {
       throw new ProfilePhotoUploadError(
         'PROFILE_PHOTO_UNSUPPORTED_TYPE',
         'Profile photo must be an image.'
@@ -144,11 +151,18 @@ async function processAvatarImage(buffer: Buffer, mimeType: string | undefined):
   });
 
   const maxOutputBytes = getMaxOutputBytes();
-  for (const quality of [86, 78, 70, 62]) {
-    const output = await resized.clone().jpeg({ quality, mozjpeg: true }).toBuffer();
-    if (output.length <= maxOutputBytes) {
-      return output;
+  try {
+    for (const quality of [86, 78, 70, 62]) {
+      const output = await resized.clone().jpeg({ quality, mozjpeg: true }).toBuffer();
+      if (output.length <= maxOutputBytes) {
+        return output;
+      }
     }
+  } catch {
+    throw new ProfilePhotoUploadError(
+      'PROFILE_PHOTO_PROCESSING_FAILED',
+      'Profile photo could not be processed.'
+    );
   }
 
   throw new ProfilePhotoUploadError(
@@ -236,11 +250,22 @@ export async function uploadUserProfilePhoto(input: {
   const outputBuffer = await processAvatarImage(sourceBuffer, input.mimeType);
   const key = `profile-photos/${input.userId}/${Date.now()}-${randomUUID()}.jpg`;
 
-  return getStorageAdapter().putObject({
-    key,
-    body: outputBuffer,
-    contentType: 'image/jpeg',
-  });
+  try {
+    return await getStorageAdapter().putObject({
+      key,
+      body: outputBuffer,
+      contentType: 'image/jpeg',
+    });
+  } catch (error) {
+    if (error instanceof ProfilePhotoUploadError) {
+      throw error;
+    }
+
+    throw new ProfilePhotoUploadError(
+      'PROFILE_PHOTO_STORAGE_FAILED',
+      'Profile photo storage is temporarily unavailable.'
+    );
+  }
 }
 
 export async function deleteProfilePhotoByUrl(
