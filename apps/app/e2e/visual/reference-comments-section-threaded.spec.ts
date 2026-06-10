@@ -4,7 +4,7 @@
  * This test verifies the comments section appearance in the property detail page
  * matches the expected TikTok/Instagram-inspired design with:
  * - User avatars with initials
- * - Username, karma badge, and timestamp display
+ * - Username and timestamp display
  * - Like button with count
  * - Reply functionality (1 level deep threading)
  * - Sort toggle (Recent/Popular)
@@ -309,16 +309,6 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const replyButtons = page.locator('[data-testid="reply-button"]');
     const replyButtonCount = await replyButtons.count();
     console.log(`Number of reply buttons found: ${replyButtonCount}`);
-
-    // Check for karma badges
-    const karmaLabels = ['Newcomer', 'Contributor', 'Rising Star', 'Local Expert', 'Expert', 'Local Legend', 'Master'];
-    for (const label of karmaLabels) {
-      const badge = page.locator(`text=${label}`);
-      const isVisible = await badge.first().isVisible().catch(() => false);
-      if (isVisible) {
-        console.log(`Karma badge "${label}" found`);
-      }
-    }
 
     // Check for comment author names (patterns from mock data)
     const authorPatterns = ['HousingEnthusiast', 'LocalResident', 'RealEstateWatcher'];

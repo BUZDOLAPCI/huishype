@@ -128,14 +128,6 @@ jest.mock('@/src/components/Comments/Comment', () => ({
   formatRelativeTime: () => 'just now',
 }));
 
-jest.mock('@/src/components/Comments/KarmaBadge', () => ({
-  KarmaBadge: () => {
-    const React = require('react');
-    const { Text } = require('react-native');
-    return <Text>Karma</Text>;
-  },
-}));
-
 describe('GuessesPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();

@@ -109,13 +109,6 @@ jest.mock('@/src/components/ui/AchievementBadge', () => ({
   },
 }));
 
-jest.mock('@/src/components/Comments/KarmaBadge', () => ({
-  KarmaBadge: () => {
-    const ReactNative = require('react-native');
-    return <ReactNative.Text>KarmaBadge</ReactNative.Text>;
-  },
-}));
-
 jest.mock('@/src/components', () => ({
   AuthModal: () => null,
 }));

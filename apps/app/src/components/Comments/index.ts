@@ -1,4 +1,3 @@
-export { KarmaBadge, getKarmaConfig, type KarmaBadgeProps } from './KarmaBadge';
 export {
   Comment,
   formatRelativeTime,

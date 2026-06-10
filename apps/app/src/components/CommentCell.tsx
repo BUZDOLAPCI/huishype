@@ -1,5 +1,5 @@
 /**
- * CommentCell — Single comment display with author, karma badge, content, and actions.
+ * CommentCell — Single comment display with author, content, and actions.
  *
  * Design spec: Section 7.8 (Comments Page).
  *
@@ -16,7 +16,6 @@ import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { Icon } from './ui/Icon';
 import { UserAvatar, type AvatarSize } from './ui/UserAvatar';
-import { KarmaBadge } from './Comments/KarmaBadge';
 import { CommentActionMenu } from './CommentActionMenu';
 import { useT } from '@/src/i18n';
 
@@ -195,7 +194,7 @@ export function CommentCell({
       <View style={styles.threadColumn}>
         <View style={styles.contentRow}>
           <View style={styles.content}>
-            {/* Header: name and karma badge */}
+            {/* Header: author name */}
             <View style={styles.header}>
               <View style={styles.authorRow}>
                 {comment.authorId ? (
@@ -215,7 +214,6 @@ export function CommentCell({
                     {displayName}
                   </Text>
                 )}
-                <KarmaBadge karma={comment.authorKarma} size="xs" />
               </View>
             </View>
 

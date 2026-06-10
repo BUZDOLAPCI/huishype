@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from 'react';
 import { Pressable, Text, View, Animated, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { KarmaBadge } from './KarmaBadge';
 import { UserAvatar } from '../ui/UserAvatar';
 import { CommentActionMenu } from '../CommentActionMenu';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
@@ -177,7 +176,7 @@ export function Comment({
         className={`px-3 py-3 ${isReply ? 'ml-10 pl-3 border-l-2 border-warm-200' : ''}`}
         testID={isReply ? 'comment-reply-long-press-target' : 'comment-long-press-target'}
       >
-        {/* Header: Avatar, Username, Badge, Timestamp */}
+        {/* Header: avatar, username, and timestamp */}
         <View className="flex-row items-center mb-2">
           <Pressable
             onPress={handleAuthorPress}
@@ -203,7 +202,6 @@ export function Comment({
                 <Text className="font-semibold text-warm-900 mr-1.5">
                   {displayName}
                 </Text>
-                <KarmaBadge karma={user.karma} size="sm" />
               </View>
               <Text className="text-xs text-warm-400 mt-0.5">
                 @{user.username}

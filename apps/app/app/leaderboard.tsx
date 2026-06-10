@@ -7,7 +7,7 @@
  *   - Period tabs (Week, Month, All Time)
  *   - Featured property card (most discussed)
  *   - Top 3 podium with crown for 1st place
- *   - Ranked list with karma badges
+ *   - Ranked list with activity stats
  *   - Current user highlighted
  */
 
@@ -24,7 +24,6 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/src/components/ui/Icon';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
-import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
 import { Chip } from '@/src/components/ui/Chip';
 import {
   useLeaderboard,
@@ -119,9 +118,6 @@ function PodiumEntry({
         {entry.displayName}
       </Text>
 
-      {/* Karma badge (1st only) */}
-      {isFirst && <KarmaBadge karma={entry.karma} size="sm" />}
-
       {/* Points */}
       <Text style={[styles.podiumPoints, isFirst && styles.podiumPointsFirst]}>
         {t('leaderboard.points', { count: entry.karma.toLocaleString() })}
@@ -196,7 +192,6 @@ function RankingRow({
           {entry.displayName}
         </Text>
         <View style={styles.rankingMeta}>
-          <KarmaBadge karma={entry.karma} size="sm" />
           <Text style={styles.rankingMetaText}>
             {t('leaderboard.meta', {
               comments: entry.commentCount,

@@ -60,10 +60,9 @@ describe('CommentCell', () => {
     jest.clearAllMocks();
   });
 
-  it('renders author name and karma badge', () => {
+  it('renders author name', () => {
     render(<CommentCell comment={mockComment} />);
     expect(screen.getByText('Marco V.')).toBeTruthy();
-    expect(screen.getByTestId('karma-badge')).toBeTruthy();
   });
 
   it('renders comment content', () => {

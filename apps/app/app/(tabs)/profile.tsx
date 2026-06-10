@@ -4,7 +4,7 @@
  * Design spec: matches 7. Profile Screen.jpg.
  *
  * Features:
- *   - Profile card with avatar, display name, karma badge
+ *   - Profile card with avatar and display name
  *   - Stats grid (guesses, karma, accuracy)
  *   - Achievements row (horizontal scroll of AchievementBadge compact)
  *   - Recent activity log from API
@@ -33,7 +33,6 @@ import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { AchievementBadge } from '@/src/components/ui/AchievementBadge';
-import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
 import { AuthModal } from '@/src/components';
 import { useT, type TranslationKey } from '@/src/i18n';
 
@@ -946,10 +945,6 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {/* Karma Badge */}
-          <View style={styles.karmaRow}>
-            <KarmaBadge karma={profile.karma} size="md" />
-          </View>
         </View>
 
         {/* Stats Grid */}
@@ -1325,10 +1320,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 251, 245, 0.86)',
     borderWidth: 1,
     borderColor: 'rgba(232, 224, 212, 0.84)',
-  },
-  karmaRow: {
-    marginTop: 14,
-    marginBottom: 10,
   },
   socialStatsRow: {
     width: '100%',

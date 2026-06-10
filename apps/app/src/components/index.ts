@@ -32,15 +32,12 @@ export type { GroupPreviewCardProps, GroupPreviewProperty } from './GroupPreview
 
 // Comments components
 export {
-  KarmaBadge,
-  getKarmaConfig,
   Comment,
   formatRelativeTime,
   CommentInput,
   CommentsList,
 } from './Comments';
 export type {
-  KarmaBadgeProps,
   CommentData,
   CommentUser,
   CommentProps,

@@ -29,7 +29,6 @@ import { formatPropertyPrice, type CountryCode } from '@huishype/shared';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { getOfficialValuationDisplayState } from '@/src/lib/officialValuationDisplay';
 import { formatRelativeTime } from '@/src/components/Comments/Comment';
-import { KarmaBadge } from '@/src/components/Comments/KarmaBadge';
 import {
   buildPropertyRoute,
   normalizePropertyReturnTarget,
@@ -180,9 +179,6 @@ function GuessEntry({
           <Text style={styles.guessEntryName} numberOfLines={1}>
             {displayName}
           </Text>
-          {guess.user?.karma !== undefined ? (
-            <KarmaBadge karma={guess.user.karma} size="sm" />
-          ) : null}
         </View>
         <Text style={styles.guessEntryTime}>
           {hydratedNow === null ? '\u00A0' : formatRelativeTime(guess.createdAt, hydratedNow)}

@@ -22,7 +22,6 @@ Each comment should show:
 
 2. **User Info** (header row)
    - Display name (bold, gray-900)
-   - Karma badge next to name showing user rank (Newbie, Regular, Trusted, Expert, Legend)
    - Username below in lighter text (@username format)
    - Timestamp on the right (relative time: "2h ago", "3d ago")
 
@@ -72,7 +71,7 @@ When no comments exist:
 
 2. Each comment displays:
    - User avatar
-   - Username and karma badge
+   - Username
    - Timestamp
    - Comment text
    - Like button with count

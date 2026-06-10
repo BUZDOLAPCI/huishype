@@ -146,18 +146,6 @@ describe('Comment', () => {
     expect(getByText('testuser')).toBeTruthy();
   });
 
-  it('renders karma badge', () => {
-    const { getByTestId } = render(
-      <Comment
-        comment={mockComment}
-        onLike={mockOnLike}
-        onReply={mockOnReply}
-      />
-    );
-
-    expect(getByTestId('karma-badge')).toBeTruthy();
-  });
-
   it('renders like button', () => {
     const { getByTestId } = render(
       <Comment
@@ -482,7 +470,7 @@ describe('Comment', () => {
       ],
     };
 
-    const { getByText, getAllByTestId } = render(
+    const { getByText } = render(
       <Comment
         comment={commentWithReplies}
         onLike={mockOnLike}
@@ -491,8 +479,7 @@ describe('Comment', () => {
     );
 
     expect(getByText('This is a reply')).toBeTruthy();
-    // Should have both parent comment and reply
-    expect(getAllByTestId('karma-badge').length).toBe(2);
+    expect(getByText('Reply User')).toBeTruthy();
   });
 
   it('renders user avatar', () => {

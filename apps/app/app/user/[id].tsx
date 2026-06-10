@@ -15,20 +15,6 @@ import {
 } from '@/src/hooks/useUserProfile';
 import { useT } from '@/src/i18n';
 
-function KarmaRankBadge({ title, level }: { title: string; level: number }) {
-  const colors = [
-    '#C7BFB3', '#F5A623', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444',
-  ];
-  const color = colors[Math.min(level - 1, colors.length - 1)] || colors[0];
-
-  return (
-    <View className="flex-row items-center px-3 py-1 rounded-full" style={{ backgroundColor: `${color}20` }}>
-      <Icon name="Star" size="sm" weight="fill" color={color} />
-      <Text className="ml-1 text-xs font-semibold" style={{ color }}>{title}</Text>
-    </View>
-  );
-}
-
 function StatItem({ label, value, iconName }: { label: string; value: number; iconName: 'Crosshair' | 'ChatCircle' }) {
   return (
     <View className="items-center flex-1">
@@ -132,8 +118,6 @@ export default function PublicProfileScreen() {
 
             <Text className="text-xl font-bold text-warm-900 mb-1">{profile.displayName}</Text>
             <Text className="text-sm text-warm-400 mb-2">@{profile.handle}</Text>
-
-            <KarmaRankBadge title={profile.karmaRank.title} level={profile.karmaRank.level} />
 
             <Text className="text-sm text-warm-500 mt-2">
               {t('profile.public.karma', { count: profile.karma })}
