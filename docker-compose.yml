@@ -50,13 +50,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Photon geocoder (Komoot) — self-hosted, planet-wide address search.
+  # Photon geocoder (Komoot) — self-hosted, Europe-scoped address search.
   # There is no official Docker image. This builds from a Dockerfile that
   # downloads the Photon JAR from GitHub releases.
   #
-  # First run: download a pre-built database extract into the photon_data volume:
+  # First run: download a pre-built Europe database extract into the photon_data volume:
   #   mkdir -p photon_data && cd photon_data
-  #   wget -O - https://download1.graphhopper.com/public/photon-db-planet-1.0-latest.tar.bz2 | pbzip2 -cd | tar x
+  #   wget -O - https://download1.graphhopper.com/public/europe/photon-db-europe-1.0-latest.tar.bz2 | pbzip2 -cd | tar x
   # Or for NL only (smaller):
   #   wget -O - https://download1.graphhopper.com/public/photon-db-nl-1.0-latest.tar.bz2 | pbzip2 -cd | tar x
   #

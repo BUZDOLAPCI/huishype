@@ -126,7 +126,7 @@ Single deployment serves 19 European countries simultaneously. No per-country de
 
 **Formatting**: Use `formatPropertyPrice(price, countryCode)` from `@huishype/shared` — never hardcode locale/currency. Non-property formatting (dates, numbers) uses device locale (no hardcoded `nl-NL`).
 
-**Geocoding**: Photon self-hosted (planet DB). Backend proxy `GET /geocode/search?q=...&countrycode=XX`. Frontend uses `apiGeocoder.search()` from `apps/app/src/services/api-geocoder.ts`. PDOK address search is deleted; PDOK aerial imagery stays (NL-gated).
+**Geocoding**: Photon self-hosted (Europe regional DB in production, about 44GB extracted as of 2026-06-10). Backend proxy `GET /geocode/search?q=...&countrycode=XX`. Frontend uses `apiGeocoder.search()` from `apps/app/src/services/api-geocoder.ts`. PDOK address search is deleted; PDOK aerial imagery stays (NL-gated).
 
 **Validation**: `validatePostalCode(code, countryCode)` and `normalizePostalCode(code, countryCode)` from `@huishype/shared` — no hardcoded Dutch regex.
 
@@ -244,7 +244,7 @@ Then hard-refresh the browser (Ctrl+Shift+R).
 The `data_sources/` folder contains locally available data:
 - `data_sources/bag-light.gpkg` — 7GB BAG GeoPackage (NL-only property data)
 - `data_sources/{CC}/` — Country-specific OSM PBF files (NL, DE, BE, FR, GB downloaded)
-- `photon_data/` — Photon geocoder planet DB (~88GB extracted, bind-mounted into Docker)
+- `photon_data/` — Photon geocoder data (production uses the Europe regional DB, ~44GB extracted as of 2026-06-10, bind-mounted into Docker)
 
 Refer to `data_sources/data-sources.md` for more information.
 
