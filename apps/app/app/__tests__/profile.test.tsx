@@ -433,6 +433,18 @@ describe('ProfileScreen sign out', () => {
     expect(getByText('Likes')).toBeTruthy();
   });
 
+  it('renders guesses karma and accuracy inside the Stats group', () => {
+    const { getAllByText, getByText } = render(<ProfileScreen />);
+
+    expect(getByText('Stats')).toBeTruthy();
+    expect(getByText('GUESSES')).toBeTruthy();
+    expect(getByText('KARMA')).toBeTruthy();
+    expect(getByText('ACCURACY')).toBeTruthy();
+    expect(getAllByText('5').length).toBeGreaterThan(0);
+    expect(getByText('42')).toBeTruthy();
+    expect(getByText('67%')).toBeTruthy();
+  });
+
   it('renders add name when display name has not been set and opens a blank editor', () => {
     mockUseMyProfile.mockReturnValue({
       data: {

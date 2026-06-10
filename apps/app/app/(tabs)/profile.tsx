@@ -987,25 +987,30 @@ export default function ProfileScreen() {
 
         </View>
 
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
-          <View style={[styles.statItem, styles.statItemPrimary, shadows.card]}>
-            <Text style={styles.statValue}>{profile.guessCount}</Text>
-            <Text style={styles.statLabel}>{t('profile.stats.guesses')}</Text>
-          </View>
-          <View style={[styles.statItem, styles.statItemGold, shadows.card]}>
-            <Text style={[styles.statValue, { color: '#F5A623' }]}>
-              {profile.karma}
-            </Text>
-            <Text style={styles.statLabel}>{t('profile.stats.karma')}</Text>
-          </View>
-          <View style={[styles.statItem, styles.statItemGreen, shadows.card]}>
-            <Text style={[styles.statValue, { color: '#4CAF50' }]}>
-              {profile.averageAccuracy != null
-                ? `${Math.round(profile.averageAccuracy)}%`
-                : '-'}
-            </Text>
-            <Text style={styles.statLabel}>{t('profile.stats.accuracy')}</Text>
+        {/* Stats Section */}
+        <View style={styles.statsSection}>
+          <Text style={styles.sectionTitle}>{t('profile.stats.title')}</Text>
+          <View style={[styles.statsGroup, shadows.card]}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{profile.guessCount}</Text>
+              <Text style={styles.statLabel}>{t('profile.stats.guesses')}</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, styles.statValueGold]}>
+                {profile.karma}
+              </Text>
+              <Text style={styles.statLabel}>{t('profile.stats.karma')}</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, styles.statValueGreen]}>
+                {profile.averageAccuracy != null
+                  ? `${Math.round(profile.averageAccuracy)}%`
+                  : '-'}
+              </Text>
+              <Text style={styles.statLabel}>{t('profile.stats.accuracy')}</Text>
+            </View>
           </View>
         </View>
 
@@ -1419,32 +1424,34 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
 
-  // Stats grid
-  statsGrid: {
-    flexDirection: 'row',
-    gap: 12,
+  // Stats
+  statsSection: {
     paddingHorizontal: 16,
     marginBottom: 18,
   },
-  statItem: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 251, 245, 0.76)',
+  statsGroup: {
+    minHeight: 88,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: 'rgba(255, 251, 245, 0.82)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(232, 224, 212, 0.72)',
+    borderColor: 'rgba(232, 224, 212, 0.78)',
+    overflow: 'hidden',
+  },
+  statItem: {
+    flex: 1,
+    minWidth: 0,
     paddingVertical: 16,
+    paddingHorizontal: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  statItemPrimary: {
-    backgroundColor: 'rgba(255, 251, 245, 0.82)',
-  },
-  statItemGold: {
-    backgroundColor: 'rgba(255, 248, 226, 0.78)',
-    borderColor: 'rgba(245, 166, 35, 0.2)',
-  },
-  statItemGreen: {
-    backgroundColor: 'rgba(244, 252, 243, 0.76)',
-    borderColor: 'rgba(76, 175, 80, 0.18)',
+  statDivider: {
+    width: 1,
+    alignSelf: 'center',
+    height: 52,
+    backgroundColor: 'rgba(232, 224, 212, 0.82)',
   },
   statValue: {
     fontSize: 24,
@@ -1452,6 +1459,12 @@ const styles = StyleSheet.create({
     color: '#2D2926',
     letterSpacing: 0,
     lineHeight: 30,
+  },
+  statValueGold: {
+    color: '#F5A623',
+  },
+  statValueGreen: {
+    color: '#4CAF50',
   },
   statLabel: {
     fontSize: 11,
