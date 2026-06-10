@@ -1,7 +1,7 @@
 /**
  * AuthCallbackScreen Unit Tests
  *
- * Tests the /auth/callback route that handles magic link email verification.
+ * Tests the /auth/callback route that handles sign-in link email verification.
  * Verifies loading states, error surfacing, timeout fallback, and navigation.
  */
 

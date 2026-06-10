@@ -223,7 +223,7 @@ const representativeSourceConcepts: Array<{
   {
     sourceUrl: `${SOURCE}/help/artikel/433/ik-ben-mijn-wachtwoord-vergeten`,
     targetId: 'account-login',
-    concepts: [/magic link/i, /does not require a separate password/i, /check spam folders/i],
+    concepts: [/sign-in link/i, /does not require a separate password/i, /check spam folders/i],
   },
   {
     sourceUrl: `${SOURCE}/help/artikel/362/hoe-deel-ik-suggesties-of-feedback`,

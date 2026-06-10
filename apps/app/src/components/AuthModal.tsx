@@ -543,14 +543,14 @@ export function AuthModal({
           <Text style={styles.emailErrorText}>{emailError}</Text>
         )}
 
-        {/* Send magic link button */}
+        {/* Send sign-in link button */}
         <Button
           label={isRequestingEmail ? t('auth.email.sending') : t('auth.email.sendMagicLink')}
           onPress={handleEmailSubmit}
           disabled={isRequestingEmail || !email.trim()}
           accessibilityLabel={t('auth.email.sendMagicLinkLabel')}
           style={styles.sendLinkButton}
-          testID="send-magic-link-button"
+          testID="send-sign-in-link-button"
         />
 
         {/* Back to main */}

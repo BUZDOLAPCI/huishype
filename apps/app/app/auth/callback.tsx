@@ -5,9 +5,9 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useT } from '@/src/i18n';
 
 /**
- * Web auth callback route — handles magic link email verification.
+ * Web auth callback route — handles sign-in link email verification.
  *
- * When a user clicks the magic link in their email, this page loads with
+ * When a user clicks the sign-in link in their email, this page loads with
  * ?emailToken=... in the URL. The AuthProvider's Linking listener picks up
  * the token and verifies it automatically. This route just shows a loading
  * state and redirects to home once auth completes (or shows an error).

@@ -820,7 +820,7 @@ export const supportArticles: SupportArticle[] = [
         title: 'When login is needed',
         paragraphs: [
           'You can browse without an account. HuisHype may ask you to log in when you save a property, post a comment, react, submit a price guess, or manage profile-related activity.',
-          'If you use email login, follow the magic link or verification flow shown in the app. HuisHype does not require a separate password for magic-link login. If the email does not arrive, check spam folders and confirm that you used the intended address.',
+          'If you use email login, follow the sign-in link or verification flow shown in the app. HuisHype does not require a separate password for email login. If the email does not arrive, check spam folders and confirm that you used the intended address.',
         ],
       },
       {

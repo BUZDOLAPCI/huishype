@@ -462,7 +462,7 @@ export const nlSupportCatalogText = {
           title: 'Wanneer inloggen nodig is',
           paragraphs: [
             'U kunt surfen zonder account. HuisHype kan u vragen om in te loggen wanneer u een woning opslaat, een opmerking plaatst, reageert, een prijsschatting indient of profielgerelateerde activiteiten beheert.',
-            'Als u e-mailaanmelding gebruikt, volgt u de magische link of het verificatieproces dat in de app wordt weergegeven. HuisHype vereist geen apart wachtwoord voor inloggen via Magic Link. Als de e-mail niet aankomt, controleer dan de spammappen en bevestig dat u het bedoelde adres heeft gebruikt.',
+            'Als u e-mailaanmelding gebruikt, volgt u de inloglink of het verificatieproces dat in de app wordt weergegeven. HuisHype vereist geen apart wachtwoord voor inloggen via e-mail. Als de e-mail niet aankomt, controleer dan de spammappen en bevestig dat u het bedoelde adres heeft gebruikt.',
           ],
         },
         {

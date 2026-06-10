@@ -248,7 +248,7 @@ describe('AuthModal', () => {
     });
   });
 
-  describe('Email magic link', () => {
+  describe('Email sign-in link', () => {
     it('navigates to email input view when email button is pressed', () => {
       const { getByLabelText, getByText } = render(<AuthModal {...defaultProps} />);
 
@@ -266,7 +266,7 @@ describe('AuthModal', () => {
       const input = getByLabelText('Email address');
       fireEvent.changeText(input, 'not-an-email');
 
-      fireEvent.press(getByLabelText('Send magic link'));
+      fireEvent.press(getByLabelText('Send sign-in link'));
 
       expect(getByText('Please enter a valid email address')).toBeTruthy();
     });
@@ -279,7 +279,7 @@ describe('AuthModal', () => {
 
       const input = getByLabelText('Email address');
       fireEvent.changeText(input, 'test@example.com');
-      fireEvent.press(getByLabelText('Send magic link'));
+      fireEvent.press(getByLabelText('Send sign-in link'));
 
       await waitFor(() => {
         expect(mockRequestEmailLink).toHaveBeenCalledWith('test@example.com');
@@ -294,7 +294,7 @@ describe('AuthModal', () => {
 
       const input = getByLabelText('Email address');
       fireEvent.changeText(input, 'user@test.com');
-      fireEvent.press(getByLabelText('Send magic link'));
+      fireEvent.press(getByLabelText('Send sign-in link'));
 
       await waitFor(() => {
         expect(getByText('Check your email')).toBeTruthy();
@@ -312,7 +312,7 @@ describe('AuthModal', () => {
 
       const input = getByLabelText('Email address');
       fireEvent.changeText(input, 'test@example.com');
-      fireEvent.press(getByLabelText('Send magic link'));
+      fireEvent.press(getByLabelText('Send sign-in link'));
 
       await waitFor(() => {
         expect(

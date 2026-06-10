@@ -21,9 +21,9 @@ export interface UseAuthReturn {
   signInWithGoogle: () => Promise<void>;
   /** Sign in with a mock token (dev only) */
   signInWithMockToken: (token: string) => Promise<void>;
-  /** Request an email magic link */
+  /** Request an email sign-in link */
   requestEmailLink: (email: string) => Promise<void>;
-  /** Verify an email magic link token */
+  /** Verify an email sign-in link token */
   verifyEmailToken: (token: string) => Promise<void>;
   /** Sign out */
   signOut: () => Promise<void>;
@@ -100,7 +100,7 @@ export function useAuth(): UseAuthReturn {
     try {
       await auth.requestEmailLink(email);
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to send magic link');
+      const error = err instanceof Error ? err : new Error('Failed to send sign-in link');
       setError(error);
       throw error;
     }

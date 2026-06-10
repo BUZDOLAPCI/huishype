@@ -519,7 +519,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   /**
-   * Verify an email magic link token.
+   * Verify an email sign-in link token.
    *
    * Calls POST /auth/email/verify and stores the returned session.
    * This is invoked either from deep-link handling (production) or
@@ -577,7 +577,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   /**
-   * Request an email magic link.
+   * Request an email sign-in link.
    *
    * Calls POST /auth/email/request. In dev mode the backend returns
    * the token directly (no email sent). In production the user clicks
@@ -597,7 +597,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     if (!response.ok) {
-      throw new Error('Failed to send magic link. Please try again.');
+      throw new Error('Failed to send sign-in link. Please try again.');
     }
 
     // In dev mode the backend returns the token — we can auto-verify
