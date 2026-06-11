@@ -25,6 +25,12 @@ function resetHistory(path = '/map?city=eindhoven#property') {
   window.history.replaceState({ expo: 'router-state', keep: true }, '', path);
 }
 
+async function flushDeferredHistoryCleanup() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 describe('WebDismissibleLayerProvider', () => {
   beforeEach(() => {
     setPlatform('web');
@@ -101,7 +107,7 @@ describe('WebDismissibleLayerProvider', () => {
     expect(stopImmediatePropagation).toHaveBeenCalledTimes(1);
   });
 
-  it('consumes the stale history entry when the top layer is closed in app', () => {
+  it('consumes the stale history entry when the top layer is closed in app', async () => {
     const onDismiss = jest.fn();
     const backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {});
     const stopImmediatePropagation = jest.fn();
@@ -121,6 +127,10 @@ describe('WebDismissibleLayerProvider', () => {
 
     rerender({ active: false });
 
+    expect(backSpy).not.toHaveBeenCalled();
+
+    await flushDeferredHistoryCleanup();
+
     expect(backSpy).toHaveBeenCalledTimes(1);
 
     act(() => {
@@ -136,7 +146,7 @@ describe('WebDismissibleLayerProvider', () => {
     expect(stopImmediatePropagation).toHaveBeenCalledTimes(1);
   });
 
-  it('does not consume history when closing after route navigation already changed location', () => {
+  it('does not consume history when route navigation changes location before cleanup runs', async () => {
     const onDismiss = jest.fn();
     const backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {});
 
@@ -153,16 +163,19 @@ describe('WebDismissibleLayerProvider', () => {
       },
     );
 
+    rerender({ active: false });
+
     act(() => {
       window.history.pushState({ expo: 'next-route' }, '', '/settings');
     });
-    rerender({ active: false });
+
+    await flushDeferredHistoryCleanup();
 
     expect(backSpy).not.toHaveBeenCalled();
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
-  it('clears a stale layer marker when the current entry URL was passively rewritten', () => {
+  it('clears a stale layer marker when the current entry URL was passively rewritten', async () => {
     resetHistory('/');
     const onDismiss = jest.fn();
     const backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {});
@@ -190,6 +203,8 @@ describe('WebDismissibleLayerProvider', () => {
 
     rerender({ active: false });
 
+    await flushDeferredHistoryCleanup();
+
     expect(backSpy).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe('/@52.3626765,5.3574841,6.29z');
     expect(window.history.state).toMatchObject({
@@ -197,6 +212,32 @@ describe('WebDismissibleLayerProvider', () => {
       keep: true,
     });
     expect(window.history.state).not.toHaveProperty('__huishypeDismissibleLayer');
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('cancels pending history cleanup when the same layer is re-registered', async () => {
+    const onDismiss = jest.fn();
+    const backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {});
+
+    const { rerender } = renderHook(
+      ({ active }: { active: boolean }) =>
+        useWebDismissibleLayer({
+          id: 'sheet',
+          active,
+          onDismiss,
+        }),
+      {
+        wrapper,
+        initialProps: { active: true },
+      },
+    );
+
+    rerender({ active: false });
+    rerender({ active: true });
+
+    await flushDeferredHistoryCleanup();
+
+    expect(backSpy).not.toHaveBeenCalled();
     expect(onDismiss).not.toHaveBeenCalled();
   });
 

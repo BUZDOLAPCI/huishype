@@ -147,6 +147,8 @@ const originalPlatform = Platform.OS;
 const originalConfirm = globalThis.confirm;
 const getRouterPush = () =>
   (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
+const getRouterReplace = () =>
+  (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
 
 function renderWithDismissibleLayer(ui: React.ReactElement) {
   return render(<WebDismissibleLayerProvider>{ui}</WebDismissibleLayerProvider>);
@@ -259,8 +261,12 @@ function seedMocks() {
 }
 
 describe('ProfileScreen sign out', () => {
+  let replaceStateSpy: jest.SpyInstance;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    window.history.replaceState({}, '', '/profile');
+    replaceStateSpy = jest.spyOn(window.history, 'replaceState');
     mutateProfileAsync.mockResolvedValue(undefined);
     uploadProfilePhoto.mockResolvedValue(undefined);
     deleteProfilePhoto.mockResolvedValue(undefined);
@@ -279,6 +285,10 @@ describe('ProfileScreen sign out', () => {
       configurable: true,
       value: 'web',
     });
+  });
+
+  afterEach(() => {
+    replaceStateSpy.mockRestore();
   });
 
   afterAll(() => {
@@ -335,6 +345,8 @@ describe('ProfileScreen sign out', () => {
     fireEvent.press(getByTestId('settings-open'));
 
     expect(getRouterPush()).toHaveBeenCalledWith('/settings');
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
+    expect(replaceStateSpy).not.toHaveBeenCalled();
   });
 
   it('shows settings and sign out from the signed-in loading profile state', () => {
@@ -357,6 +369,8 @@ describe('ProfileScreen sign out', () => {
     fireEvent.press(getByTestId('settings-open'));
 
     expect(getRouterPush()).toHaveBeenCalledWith('/settings');
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
+    expect(replaceStateSpy).not.toHaveBeenCalled();
   });
 
   it('opens settings from the signed-in profile menu', () => {
@@ -369,6 +383,8 @@ describe('ProfileScreen sign out', () => {
     fireEvent.press(getByTestId('settings-open'));
 
     expect(getRouterPush()).toHaveBeenCalledWith('/settings');
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
+    expect(replaceStateSpy).not.toHaveBeenCalled();
   });
 
   it('keeps self follower and following counts as navigation entrypoints', () => {

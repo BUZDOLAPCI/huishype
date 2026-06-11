@@ -119,6 +119,7 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
   const nextOrderRef = useRef(0);
   const ignorePopCountRef = useRef(0);
   const popDismissedKeysRef = useRef(new Set<string>());
+  const pendingCleanupTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const getTopLayer = useCallback(() => {
     let topLayer: LayerRecord | null = null;
@@ -152,8 +153,55 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
     });
   }, []);
 
+  const clearPendingCleanup = useCallback((key: string) => {
+    const timeoutId = pendingCleanupTimersRef.current.get(key);
+
+    if (!timeoutId) {
+      return;
+    }
+
+    clearTimeout(timeoutId);
+    pendingCleanupTimersRef.current.delete(key);
+  }, []);
+
+  const reconcileLayerHistory = useCallback((layer: LayerRecord) => {
+    const isCurrentLayerEntry = isCurrentLayerHistoryEntry(layer);
+
+    if (!isCurrentLayerEntry) {
+      return;
+    }
+
+    if (getCurrentSamePathUrl() === layer.url) {
+      ignorePopCountRef.current += 1;
+      window.history.back();
+      return;
+    }
+
+    window.history.replaceState(
+      stripLayerHistoryState(window.history.state),
+      '',
+      getCurrentSamePathUrl(),
+    );
+  }, []);
+
+  const scheduleLayerHistoryReconciliation = useCallback(
+    (layer: LayerRecord) => {
+      clearPendingCleanup(layer.key);
+
+      const timeoutId = setTimeout(() => {
+        pendingCleanupTimersRef.current.delete(layer.key);
+        reconcileLayerHistory(layer);
+      }, 0);
+
+      pendingCleanupTimersRef.current.set(layer.key, timeoutId);
+    },
+    [clearPendingCleanup, reconcileLayerHistory],
+  );
+
   const unregisterLayer = useCallback(
     (key: string) => {
+      clearPendingCleanup(key);
+
       if (!canUseWebHistory()) {
         layersRef.current.delete(key);
         popDismissedKeysRef.current.delete(key);
@@ -168,17 +216,8 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
       }
 
       const topLayer = getTopLayer();
-      const isCurrentLayerEntry = isCurrentLayerHistoryEntry(existingLayer);
-      const shouldConsumeHistory =
-        topLayer?.key === key &&
-        !popDismissedKeysRef.current.has(key) &&
-        isCurrentLayerEntry &&
-        getCurrentSamePathUrl() === existingLayer.url;
-      const shouldClearStaleLayerState =
-        topLayer?.key === key &&
-        !popDismissedKeysRef.current.has(key) &&
-        isCurrentLayerEntry &&
-        getCurrentSamePathUrl() !== existingLayer.url;
+      const shouldReconcileHistory =
+        topLayer?.key === key && !popDismissedKeysRef.current.has(key);
 
       layersRef.current.delete(key);
 
@@ -186,25 +225,17 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
         return;
       }
 
-      if (shouldConsumeHistory) {
-        ignorePopCountRef.current += 1;
-        window.history.back();
-        return;
-      }
-
-      if (shouldClearStaleLayerState) {
-        window.history.replaceState(
-          stripLayerHistoryState(window.history.state),
-          '',
-          getCurrentSamePathUrl(),
-        );
+      if (shouldReconcileHistory) {
+        scheduleLayerHistoryReconciliation(existingLayer);
       }
     },
-    [getTopLayer],
+    [clearPendingCleanup, getTopLayer, scheduleLayerHistoryReconciliation],
   );
 
   const registerLayer = useCallback(
     (layer: LayerRegistration) => {
+      clearPendingCleanup(layer.key);
+
       if (!canUseWebHistory()) {
         return noop;
       }
@@ -237,7 +268,7 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
 
       return () => unregisterLayer(layer.key);
     },
-    [unregisterLayer],
+    [clearPendingCleanup, unregisterLayer],
   );
 
   const contextValue = useMemo<WebDismissibleLayerContextValue>(
@@ -282,6 +313,16 @@ export function WebDismissibleLayerProvider({ children }: PropsWithChildren) {
     window.addEventListener('popstate', handlePopState, { capture: true });
     return () => window.removeEventListener('popstate', handlePopState, { capture: true });
   }, [getTopLayer]);
+
+  React.useEffect(
+    () => () => {
+      for (const timeoutId of pendingCleanupTimersRef.current.values()) {
+        clearTimeout(timeoutId);
+      }
+      pendingCleanupTimersRef.current.clear();
+    },
+    [],
+  );
 
   return (
     <WebDismissibleLayerContext.Provider value={contextValue}>
