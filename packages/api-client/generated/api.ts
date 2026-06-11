@@ -4477,6 +4477,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/by-handle/{handle}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get public user profile by handle */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    handle: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            id: string;
+                            displayName: string;
+                            handle: string;
+                            profilePhotoUrl: string | null;
+                            homeCountry: string | null;
+                            karma: number;
+                            karmaRank: {
+                                title: string;
+                                level: number;
+                            };
+                            guessCount: number;
+                            commentCount: number;
+                            /** Format: date-time */
+                            joinedAt: string;
+                            followerCount: number;
+                            followingCount: number;
+                            /** @enum {string} */
+                            relationship: "self" | "none" | "following" | "followed_by" | "mutual";
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                            /** Format: date-time */
+                            nextAvailableAt?: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{id}/profile": {
         parameters: {
             query?: never;
@@ -5687,6 +5759,7 @@ export interface paths {
                                     /** Format: uuid */
                                     id: string;
                                     displayName: string;
+                                    handle: string;
                                     profilePhotoUrl: string | null;
                                 } | null;
                             }[];

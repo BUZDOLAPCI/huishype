@@ -18,6 +18,7 @@ import { Icon } from './ui/Icon';
 import { UserAvatar, type AvatarSize } from './ui/UserAvatar';
 import { CommentActionMenu } from './CommentActionMenu';
 import { useT } from '@/src/i18n';
+import { buildUserProfileRoute } from '@/src/utils/user-route';
 
 export type CommentCellVariant = 'compact' | 'full';
 
@@ -95,7 +96,7 @@ export function CommentCell({
       return;
     }
 
-    router.push(`/user/${comment.authorId}`);
+    router.push(buildUserProfileRoute(comment.author));
   };
 
   const handleLongPress = () => {

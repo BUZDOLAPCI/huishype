@@ -10,6 +10,7 @@ import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { useFollowers, useFollowing, type FollowListResponse } from '@/src/hooks/useUserProfile';
+import { buildUserProfileRoute } from '@/src/utils/user-route';
 
 type FollowListKind = 'followers' | 'following';
 
@@ -140,7 +141,7 @@ export function OwnFollowListScreen({ kind }: OwnFollowListScreenProps) {
         testID={`follow-list-${kind}`}
         renderItem={({ item }: { item: FollowListItem }) => (
           <Pressable
-            onPress={() => router.push(`/user/${item.id}`)}
+            onPress={() => router.push(buildUserProfileRoute(item.handle))}
             className="bg-surface-card rounded-2xl px-4 py-3 flex-row items-center"
             testID={`follow-list-item-${item.id}`}
           >

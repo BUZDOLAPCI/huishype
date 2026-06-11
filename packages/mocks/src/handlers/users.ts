@@ -192,6 +192,19 @@ function buildPublicProfile(userId: string, viewerId: string | null) {
   };
 }
 
+function buildPublicProfileByHandle(handle: string, viewerId: string | null) {
+  const normalizedHandle = normalizeHandle(handle);
+  if (!handlePattern.test(normalizedHandle)) {
+    return null;
+  }
+
+  const profile = mockUserProfiles.find(
+    (user) => user.handle.toLowerCase() === normalizedHandle
+  );
+
+  return profile ? buildPublicProfile(profile.id, viewerId) : null;
+}
+
 function buildMyProfileResponse(userId: string) {
   const publicProfile = buildPublicProfile(userId, userId);
   if (!publicProfile) {
@@ -573,6 +586,18 @@ export const userHandlers = [
     });
 
     return HttpResponse.json(buildProfileIdentityResponse(authUser.id));
+  }),
+
+  http.get('*/users/by-handle/:handle/profile', ({ params, request }) => {
+    const viewerId = getMockAuthUser(request.headers.get('Authorization'))?.id ?? null;
+    const { handle } = params;
+    const profile = buildPublicProfileByHandle(String(handle), viewerId);
+
+    if (!profile) {
+      return HttpResponse.json({ error: 'NOT_FOUND', message: 'User not found' }, { status: 404 });
+    }
+
+    return HttpResponse.json(profile);
   }),
 
   http.get('*/users/:userId/profile', ({ params, request }) => {

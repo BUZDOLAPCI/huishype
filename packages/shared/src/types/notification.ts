@@ -17,6 +17,7 @@ export type NotificationEventType =
 export interface NotificationActor {
   id: string;
   displayName: string;
+  handle: string;
   profilePhotoUrl: string | null;
 }
 

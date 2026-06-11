@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
-import PublicProfileScreen from '../user/[id]';
+import PublicProfileScreen from '../user/[handle]';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
   useFollowUser,
@@ -14,6 +14,7 @@ const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthC
 const mockUsePublicProfile = usePublicProfile as jest.MockedFunction<typeof usePublicProfile>;
 const mockUseFollowUser = useFollowUser as jest.MockedFunction<typeof useFollowUser>;
 const mockUseUnfollowUser = useUnfollowUser as jest.MockedFunction<typeof useUnfollowUser>;
+let mockRouteHandle = '@Target_User';
 
 jest.mock('expo-router', () => ({
   Stack: {
@@ -23,7 +24,7 @@ jest.mock('expo-router', () => ({
       return <ReactNative.Text>{options.title}</ReactNative.Text>;
     },
   },
-  useLocalSearchParams: () => ({ id: 'target-user' }),
+  useLocalSearchParams: () => ({ handle: mockRouteHandle }),
   router: {
     push: jest.fn(),
   },
@@ -138,12 +139,13 @@ describe('PublicProfileScreen', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRouteHandle = '@Target_User';
     seedViewer();
     mockUsePublicProfile.mockReturnValue({
       data: {
         id: 'target-user',
         displayName: 'Target User',
-        handle: 'target-user',
+        handle: 'target_user',
         profilePhotoUrl: null,
         homeCountry: 'NL',
         karma: 10,
@@ -187,6 +189,8 @@ describe('PublicProfileScreen', () => {
   it('keeps other-user counts as static labels and emits follow button analytics', async () => {
     const { getByTestId, getByText, queryByTestId } = render(<PublicProfileScreen />);
 
+    expect(mockUsePublicProfile).toHaveBeenCalledWith('target_user');
+
     expect(getByText('4')).toBeTruthy();
     expect(getByText('Followers')).toBeTruthy();
     expect(getByText('5')).toBeTruthy();
@@ -227,6 +231,24 @@ describe('PublicProfileScreen', () => {
         }),
       ])
     );
+  });
+
+  it('shows not found and skips profile lookup for UUID-style routes', () => {
+    mockRouteHandle = 'a0000000-0000-4000-a000-000000000099';
+
+    const { getByText } = render(<PublicProfileScreen />);
+
+    expect(mockUsePublicProfile).toHaveBeenCalledWith(null);
+    expect(getByText('User not found')).toBeTruthy();
+  });
+
+  it('shows not found and skips profile lookup for bare handle routes', () => {
+    mockRouteHandle = 'liza';
+
+    const { getByText } = render(<PublicProfileScreen />);
+
+    expect(mockUsePublicProfile).toHaveBeenCalledWith(null);
+    expect(getByText('User not found')).toBeTruthy();
   });
 
   it('emits follow-click analytics and opens auth gating when a signed-out viewer taps follow', async () => {

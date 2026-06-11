@@ -233,6 +233,6 @@ describe('UserSearchScreen', () => {
     fireEvent.changeText(getByTestId('user-search-input'), 'target');
     fireEvent.press(getByLabelText('Target User, @target'));
 
-    expect(mockRouterPush).toHaveBeenCalledWith('/user/target-user');
+    expect(mockRouterPush).toHaveBeenCalledWith('/user/@target');
   });
 });

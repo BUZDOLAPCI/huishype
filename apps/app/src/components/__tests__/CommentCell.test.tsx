@@ -266,13 +266,13 @@ describe('CommentCell', () => {
   it('navigates to the author profile when avatar is pressed', () => {
     render(<CommentCell comment={mockComment} />);
     fireEvent.press(screen.getByTestId('comment-author-avatar-button'));
-    expect(router.push).toHaveBeenCalledWith('/user/user-1');
+    expect(router.push).toHaveBeenCalledWith('/user/@marcov');
   });
 
   it('navigates to the author profile when name is pressed', () => {
     render(<CommentCell comment={mockComment} />);
     fireEvent.press(screen.getByTestId('comment-author-button'));
-    expect(router.push).toHaveBeenCalledWith('/user/user-1');
+    expect(router.push).toHaveBeenCalledWith('/user/@marcov');
   });
 
   it('shows "View 1 reply" toggle when replies exist', () => {

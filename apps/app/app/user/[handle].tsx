@@ -14,6 +14,7 @@ import {
   useUnfollowUser,
 } from '@/src/hooks/useUserProfile';
 import { useT } from '@/src/i18n';
+import { parseUserProfileRouteParam } from '@/src/utils/user-route';
 
 function StatItem({ label, value, iconName }: { label: string; value: number; iconName: 'Crosshair' | 'ChatCircle' }) {
   return (
@@ -28,9 +29,10 @@ function StatItem({ label, value, iconName }: { label: string; value: number; ic
 export default function PublicProfileScreen() {
   const t = useT();
   const { isAuthenticated, user } = useAuthContext();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { handle } = useLocalSearchParams<{ handle: string }>();
+  const normalizedHandle = parseUserProfileRouteParam(handle ?? null);
   const [showAuth, setShowAuth] = React.useState(false);
-  const { data: profile, isLoading, isError } = usePublicProfile(id ?? null);
+  const { data: profile, isLoading, isError } = usePublicProfile(normalizedHandle);
   const followMutation = useFollowUser();
   const unfollowMutation = useUnfollowUser();
   const isOwnProfile = profile?.id != null && profile.id === user?.id;
@@ -79,7 +81,7 @@ export default function PublicProfileScreen() {
     }
   }, [followMutation, isAuthenticated, isFollowing, profile, t, unfollowMutation, user]);
 
-  if (isLoading) {
+  if (normalizedHandle && isLoading) {
     return (
       <>
         <Stack.Screen options={{ title: t('profile.header') }} />
@@ -91,7 +93,7 @@ export default function PublicProfileScreen() {
     );
   }
 
-  if (isError || !profile) {
+  if (!normalizedHandle || isError || !profile) {
     return (
       <>
         <Stack.Screen options={{ title: t('profile.header') }} />

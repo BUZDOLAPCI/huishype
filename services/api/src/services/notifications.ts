@@ -59,6 +59,7 @@ export interface NotificationRow {
   actor: {
     id: string;
     displayName: string;
+    handle: string;
     profilePhotoUrl: string | null;
   } | null;
 }
@@ -126,6 +127,7 @@ export async function getNotifications(
     created_at: string;
     actor_id: string | null;
     actor_display_name: string | null;
+    actor_handle: string | null;
     actor_photo_url: string | null;
   }>(sql`
     SELECT
@@ -140,6 +142,7 @@ export async function getNotifications(
       n.created_at,
       u.id AS actor_id,
       COALESCE(u.display_name, u.username) AS actor_display_name,
+      u.username AS actor_handle,
       u.profile_photo_url AS actor_photo_url
     FROM notifications n
     LEFT JOIN users u ON u.id = n.actor_user_id
@@ -163,6 +166,7 @@ export async function getNotifications(
       ? {
           id: r.actor_id,
           displayName: r.actor_display_name!,
+          handle: r.actor_handle!,
           profilePhotoUrl: r.actor_photo_url,
         }
       : null,

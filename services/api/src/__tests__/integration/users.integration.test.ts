@@ -442,6 +442,91 @@ describe('User profile routes', () => {
     });
   });
 
+  // ---------- GET /users/by-handle/:handle/profile ----------
+
+  describe('GET /users/by-handle/:handle/profile', () => {
+    it('returns a public profile for an existing handle with a leading @', async () => {
+      const { userId } = await createTestUser('handle-public');
+      const handle = createUniqueHandle('profile');
+
+      await db
+        .update(users)
+        .set({ username: handle, displayName: 'Handle Profile' })
+        .where(eq(users.id, userId));
+
+      const resp = await app.inject({
+        method: 'GET',
+        url: `/users/by-handle/@${handle}/profile`,
+      });
+
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body);
+      expect(body).toEqual(
+        expect.objectContaining({
+          id: userId,
+          displayName: 'Handle Profile',
+          handle,
+          relationship: 'none',
+        })
+      );
+      expect(body).not.toHaveProperty('email');
+    });
+
+    it('normalizes handle casing and resolves viewer-aware relationship', async () => {
+      const viewer = await createTestUser('handle-viewer');
+      const target = await createTestUser('handle-target');
+      const handle = createUniqueHandle('mixed');
+
+      await db.update(users).set({ username: handle }).where(eq(users.id, target.userId));
+      await createIntegrationFollow({
+        followerUserId: viewer.userId,
+        followedUserId: target.userId,
+      });
+
+      const resp = await app.inject({
+        method: 'GET',
+        url: `/users/by-handle/@${handle.toUpperCase()}/profile`,
+        headers: { authorization: `Bearer ${viewer.accessToken}` },
+      });
+
+      expect(resp.statusCode).toBe(200);
+      expect(JSON.parse(resp.body)).toEqual(
+        expect.objectContaining({
+          id: target.userId,
+          handle,
+          relationship: 'following',
+          followerCount: 1,
+        })
+      );
+    });
+
+    it('returns 404 for an unknown handle', async () => {
+      const resp = await app.inject({
+        method: 'GET',
+        url: `/users/by-handle/@${createUniqueHandle('missing')}/profile`,
+      });
+
+      expect(resp.statusCode).toBe(404);
+      expect(JSON.parse(resp.body)).toEqual({
+        error: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
+    });
+
+    it('returns 404 for UUID-style values through the handle route', async () => {
+      const resp = await app.inject({
+        method: 'GET',
+        url: '/users/by-handle/a0000000-0000-4000-a000-000000000099/profile',
+      });
+
+      expect(resp.statusCode).toBe(404);
+      expect(JSON.parse(resp.body)).toEqual({
+        error: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
+    });
+  });
+
   // ---------- GET /users/me ----------
 
   describe('GET /users/me', () => {

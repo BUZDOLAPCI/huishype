@@ -33,6 +33,7 @@ const notificationItemSchema = z.object({
     .object({
       id: z.string().uuid(),
       displayName: z.string(),
+      handle: z.string(),
       profilePhotoUrl: z.string().nullable(),
     })
     .nullable(),

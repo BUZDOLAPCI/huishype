@@ -395,7 +395,7 @@ describe('Comment', () => {
     );
 
     fireEvent.press(getByTestId('comment-author-avatar-button'));
-    expect(router.push).toHaveBeenCalledWith('/user/user-1');
+    expect(router.push).toHaveBeenCalledWith('/user/@testuser');
   });
 
   it('navigates to the author profile when the name block is pressed', () => {
@@ -408,7 +408,7 @@ describe('Comment', () => {
     );
 
     fireEvent.press(getByTestId('comment-author-button'));
-    expect(router.push).toHaveBeenCalledWith('/user/user-1');
+    expect(router.push).toHaveBeenCalledWith('/user/@testuser');
   });
 
   it('renders like count when greater than 0', () => {

@@ -13,7 +13,7 @@ import { users, priceGuesses, comments, savedProperties, reactions } from '../db
 import { config } from '../config.js';
 import { getKarmaRank } from '../services/karma.js';
 import { formatDisplayAddress } from '../utils/address.js';
-import { isValidCountryCode, updateUserProfileSchema } from '@huishype/shared';
+import { isValidCountryCode, updateUserProfileSchema, usernameSchema } from '@huishype/shared';
 import {
   ensureUserExists,
   followUser,
@@ -138,6 +138,58 @@ function profilePhotoErrorStatus(error: ProfilePhotoUploadError): 400 | 413 | 50
     case 'PROFILE_PHOTO_PROCESSING_FAILED':
       return 400;
   }
+}
+
+async function getPublicProfilePayload(userId: string, viewerId: string | null) {
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  const [guessCountResult, commentCountResult, relationshipPayload] = await Promise.all([
+    db.select({ value: count() }).from(priceGuesses).where(eq(priceGuesses.userId, userId)),
+    db
+      .select({ value: count() })
+      .from(comments)
+      .where(sql`${comments.userId} = ${userId} AND ${comments.hiddenAt} IS NULL`),
+    getFollowRelationshipPayload(userId, viewerId),
+  ]);
+
+  const rank = getKarmaRank(user.karma);
+
+  return {
+    id: user.id,
+    displayName: user.displayName || user.username,
+    handle: user.username,
+    profilePhotoUrl: user.profilePhotoUrl,
+    homeCountry: user.homeCountry ?? null,
+    karma: Math.max(0, user.karma),
+    karmaRank: rank,
+    guessCount: Number(guessCountResult[0].value),
+    commentCount: Number(commentCountResult[0].value),
+    joinedAt: user.createdAt.toISOString(),
+    followerCount: relationshipPayload.followerCount,
+    followingCount: relationshipPayload.followingCount,
+    relationship: relationshipPayload.relationship,
+  };
+}
+
+async function getPublicProfilePayloadByHandle(handle: string, viewerId: string | null) {
+  const parsedHandle = usernameSchema.safeParse(handle);
+
+  if (!parsedHandle.success) {
+    return null;
+  }
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.username, parsedHandle.data),
+    columns: { id: true },
+  });
+
+  return user ? getPublicProfilePayload(user.id, viewerId) : null;
 }
 
 // --- Schema Definitions ---
@@ -316,6 +368,40 @@ export async function userRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * GET /users/by-handle/:handle/profile - Public user profile by handle
+   */
+  app.get(
+    '/users/by-handle/:handle/profile',
+    {
+      onRequest: [fastify.optionalAuth],
+      schema: {
+        tags: ['Users'],
+        summary: 'Get public user profile by handle',
+        params: z.object({
+          handle: z.string(),
+        }),
+        response: {
+          200: publicProfileSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { handle } = request.params;
+      const profile = await getPublicProfilePayloadByHandle(handle, request.userId ?? null);
+
+      if (!profile) {
+        return reply.status(404).send({
+          error: 'USER_NOT_FOUND',
+          message: 'User not found',
+        });
+      }
+
+      return profile;
+    }
+  );
+
+  /**
    * GET /users/:id/profile - Public user profile
    */
   app.get(
@@ -336,48 +422,16 @@ export async function userRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const viewerId = request.userId ?? null;
+      const profile = await getPublicProfilePayload(id, request.userId ?? null);
 
-      const user = await db.query.users.findFirst({
-        where: eq(users.id, id),
-      });
-
-      if (!user) {
+      if (!profile) {
         return reply.status(404).send({
           error: 'USER_NOT_FOUND',
           message: 'User not found',
         });
       }
 
-      // Count guesses and comments
-      const [guessCountResult] = await db
-        .select({ value: count() })
-        .from(priceGuesses)
-        .where(eq(priceGuesses.userId, id));
-
-      const [commentCountResult] = await db
-        .select({ value: count() })
-        .from(comments)
-        .where(sql`${comments.userId} = ${id} AND ${comments.hiddenAt} IS NULL`);
-      const relationshipPayload = await getFollowRelationshipPayload(id, viewerId);
-
-      const rank = getKarmaRank(user.karma);
-
-      return {
-        id: user.id,
-        displayName: user.displayName || user.username,
-        handle: user.username,
-        profilePhotoUrl: user.profilePhotoUrl,
-        homeCountry: user.homeCountry ?? null,
-        karma: Math.max(0, user.karma),
-        karmaRank: rank,
-        guessCount: Number(guessCountResult.value),
-        commentCount: Number(commentCountResult.value),
-        joinedAt: user.createdAt.toISOString(),
-        followerCount: relationshipPayload.followerCount,
-        followingCount: relationshipPayload.followingCount,
-        relationship: relationshipPayload.relationship,
-      };
+      return profile;
     }
   );
 

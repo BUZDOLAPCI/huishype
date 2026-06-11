@@ -32,6 +32,7 @@ interface MockNotificationItem {
   actor: {
     id: string;
     displayName: string;
+    handle: string;
     profilePhotoUrl: string | null;
   } | null;
 }
@@ -50,6 +51,7 @@ const mockNotificationItems: MockNotificationItem[] = [
     actor: {
       id: mockUserIds.maria,
       displayName: 'Maria Bakker',
+      handle: 'mariabakker',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=maria',
     },
   },
@@ -66,6 +68,7 @@ const mockNotificationItems: MockNotificationItem[] = [
     actor: {
       id: mockUserIds.pieter,
       displayName: 'Pieter Jansen',
+      handle: 'pieterjansen',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=pieter',
     },
   },
@@ -82,6 +85,7 @@ const mockNotificationItems: MockNotificationItem[] = [
     actor: {
       id: mockUserIds.sophie,
       displayName: 'Sophie Meijer',
+      handle: 'sophiemeijer',
       profilePhotoUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sophie',
     },
   },

@@ -111,7 +111,7 @@ describe('useUserProfile follow surfaces', () => {
     ).__HUISHYPE_ANALYTICS_EVENTS__;
   });
 
-  it('sends auth on public-profile reads when a viewer token exists', async () => {
+  it('normalizes handle reads and sends auth when a viewer token exists', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -131,7 +131,7 @@ describe('useUserProfile follow surfaces', () => {
       }),
     });
 
-    const { result } = renderHook(() => usePublicProfile('target-user'), {
+    const { result } = renderHook(() => usePublicProfile('@Target_User'), {
       wrapper: createWrapper(queryClient),
     });
 
@@ -140,7 +140,7 @@ describe('useUserProfile follow surfaces', () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://localhost:3100/users/target-user/profile',
+      'http://localhost:3100/users/by-handle/target_user/profile',
       expect.objectContaining({
         headers: { Authorization: 'Bearer viewer-token' },
       })

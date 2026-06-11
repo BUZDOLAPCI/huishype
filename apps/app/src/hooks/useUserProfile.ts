@@ -19,6 +19,7 @@ import { leaderboardKeys } from './useLeaderboard';
 import { getViewerCacheKey, propertyKeys } from './useProperties';
 import { userActivityKeys } from './useUserActivity';
 import { trackAnalyticsEvent } from '../lib/analytics';
+import { normalizeUserProfileHandle } from '../utils/user-route';
 import type {
   PublicUserProfile as PublicProfile,
   MyUserProfile as MyProfile,
@@ -120,7 +121,8 @@ const FOLLOW_LIST_PAGE_SIZE = 20;
 
 export const userKeys = {
   all: ['users'] as const,
-  publicProfile: (id: string, viewerKey: string) => [...userKeys.all, 'profile', id, viewerKey] as const,
+  publicProfile: (handle: string, viewerKey: string) =>
+    [...userKeys.all, 'profile', handle, viewerKey] as const,
   me: (viewerKey: string) => [...userKeys.all, 'me', viewerKey] as const,
   followers: (viewerKey: string, pageSize = FOLLOW_LIST_PAGE_SIZE) =>
     [...userKeys.all, 'me', 'followers', viewerKey, pageSize] as const,
@@ -135,7 +137,7 @@ export const userKeys = {
 // --- API Functions ---
 
 async function fetchPublicProfile(
-  userId: string,
+  handle: string,
   accessToken?: string | null
 ): Promise<PublicProfile> {
   const headers: Record<string, string> = {};
@@ -143,7 +145,7 @@ async function fetchPublicProfile(
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  const resp = await fetch(`${API_URL}/users/${userId}/profile`, {
+  const resp = await fetch(`${API_URL}/users/by-handle/${encodeURIComponent(handle)}/profile`, {
     headers,
   });
   if (!resp.ok) {
@@ -309,20 +311,21 @@ async function fetchMyGuesses(
 
 // --- Hooks ---
 
-/** Fetch a public user profile by ID */
-export function usePublicProfile(userId: string | null) {
+/** Fetch a public user profile by handle */
+export function usePublicProfile(handle: string | null) {
   const { getAccessToken, isAuthenticated, user } = useAuthContext();
   const viewerKey = getViewerCacheKey(user, isAuthenticated);
+  const normalizedHandle = normalizeUserProfileHandle(handle);
 
   return useQuery({
-    queryKey: userKeys.publicProfile(userId ?? '', viewerKey),
+    queryKey: userKeys.publicProfile(normalizedHandle ?? '', viewerKey),
     queryFn: async () => {
-      if (!userId) {
-        throw new Error('User ID is required');
+      if (!normalizedHandle) {
+        throw new Error('User handle is required');
       }
 
       if (viewerKey === 'anon') {
-        return fetchPublicProfile(userId);
+        return fetchPublicProfile(normalizedHandle);
       }
 
       const accessToken = await getAccessToken();
@@ -330,9 +333,9 @@ export function usePublicProfile(userId: string | null) {
         throw new Error('Authenticated profile fetch requires an access token');
       }
 
-      return fetchPublicProfile(userId, accessToken);
+      return fetchPublicProfile(normalizedHandle, accessToken);
     },
-    enabled: !!userId,
+    enabled: !!normalizedHandle,
   });
 }
 
@@ -406,10 +409,10 @@ async function applyProfileIdentityUpdate({
           Array.isArray(query.queryKey) &&
           query.queryKey[0] === 'users' &&
           query.queryKey[1] === 'profile' &&
-          query.queryKey[2] === userId,
+          typeof query.queryKey[2] === 'string',
       },
       (old) =>
-        old
+        old && old.id === userId
           ? {
               ...old,
               displayName: updated.displayName,

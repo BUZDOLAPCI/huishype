@@ -100,6 +100,7 @@ describe('Notification routes', () => {
       expect(body.items[0].readAt).toBeNull();
       expect(body.items[0].actor).not.toBeNull();
       expect(body.items[0].actor.id).toBe(actorId);
+      expect(typeof body.items[0].actor.handle).toBe('string');
     });
 
     it('returns canonical notification event names including new_follower', async () => {

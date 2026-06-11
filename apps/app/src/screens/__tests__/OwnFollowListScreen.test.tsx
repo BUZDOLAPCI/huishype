@@ -98,7 +98,7 @@ function makeFollowItem(id: string, displayName = `User ${id}`) {
   return {
     id,
     displayName,
-    handle: `user-${id}`,
+    handle: `user_${id.replace(/-/g, '_')}`,
     profilePhotoUrl: null,
     followedAt: '2026-04-19T10:00:00.000Z',
     relationship: 'following' as const,
@@ -109,8 +109,8 @@ function seedSignedInState() {
   mockUseAuthContext.mockReturnValue({
     user: {
       id: 'viewer-1',
-      username: 'viewer-1',
-      handle: 'viewer-1',
+      username: 'viewer_1',
+      handle: 'viewer_1',
       displayName: 'Viewer',
       karma: 10,
       karmaRank: 'Contributor',
@@ -198,7 +198,7 @@ describe('OwnFollowListScreen', () => {
     expect(mockUseFollowing).toHaveBeenCalledWith(undefined, false);
     fireEvent.press(getByTestId('follow-list-item-follower-1'));
 
-    expect(getMockRouter().push).toHaveBeenCalledWith('/user/follower-1');
+    expect(getMockRouter().push).toHaveBeenCalledWith('/user/@user_follower_1');
   });
 
   it('renders an in-screen back button that returns to the previous route', () => {

@@ -334,6 +334,8 @@ type SelfActivityResponseFromOpenApi =
   paths['/users/me/activity']['get']['responses'][200]['content']['application/json'];
 type PublicProfileResponseFromOpenApi =
   paths['/users/{id}/profile']['get']['responses'][200]['content']['application/json'];
+type PublicProfileByHandleResponseFromOpenApi =
+  paths['/users/by-handle/{handle}/profile']['get']['responses'][200]['content']['application/json'];
 type MyProfileResponseFromOpenApi =
   paths['/users/me']['get']['responses'][200]['content']['application/json'];
 type UpdateProfileRequestFromOpenApi = NonNullable<
@@ -544,6 +546,7 @@ const feedContractAssertions = [
   true as Assert<IsExact<SavedPropertiesResponseFromOpenApi, CanonicalSavedPropertiesResponse>>,
   true as Assert<IsExact<PropertyResponseFromOpenApi, CanonicalPropertyResponse>>,
   true as Assert<IsExact<PublicProfileResponseFromOpenApi, GetUserProfileResponse>>,
+  true as Assert<IsExact<PublicProfileByHandleResponseFromOpenApi, GetUserProfileResponse>>,
   true as Assert<IsExact<MyProfileResponseFromOpenApi, GetMyProfileResponse>>,
   true as Assert<IsExact<UpdateProfileRequestFromOpenApi, UpdateUserProfileRequest>>,
   true as Assert<IsExact<UpdateProfileResponseFromOpenApi, UpdateUserProfileResponse>>,
@@ -578,7 +581,7 @@ const feedContractAssertions = [
   true as Expect<
     Equal<
       NotificationsResponseFromOpenApi['items'][number]['actor'],
-      { id: string; displayName: string; profilePhotoUrl: string | null } | null
+      { id: string; displayName: string; handle: string; profilePhotoUrl: string | null } | null
     >
   >,
   true as Expect<Equal<ActivityQueryFromOpenApi['scope'], 'public' | 'following' | undefined>>,
@@ -782,6 +785,7 @@ describe('Generated OpenAPI types', () => {
       '/users/me',
       '/users/me/profile',
       '/users/me/profile-photo',
+      '/users/by-handle/{handle}/profile',
       '/users/{id}/profile',
       '/users/me/followers',
       '/users/me/following',

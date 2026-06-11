@@ -34,6 +34,7 @@ import {
 import { fetchPropertyById } from '@/src/hooks/useProperties';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { buildUserProfileRoute } from '@/src/utils/user-route';
 import { useT, type TranslationKey } from '@/src/i18n';
 
 // --- Time grouping ---
@@ -203,8 +204,8 @@ export default function NotificationsScreen() {
         return;
       }
 
-      if (notification.actor?.id) {
-        router.push(`/user/${notification.actor.id}`);
+      if (notification.actor?.handle) {
+        router.push(buildUserProfileRoute(notification.actor.handle));
       }
     },
     [markOneRead]

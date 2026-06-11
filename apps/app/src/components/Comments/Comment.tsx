@@ -7,6 +7,7 @@ import { CommentActionMenu } from '../CommentActionMenu';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { useT } from '@/src/i18n';
+import { buildUserProfileRoute } from '@/src/utils/user-route';
 
 export interface CommentUser {
   id: string;
@@ -114,7 +115,7 @@ export function Comment({
 
   const handleAuthorPress = useCallback(() => {
     if (user) {
-      router.push(`/user/${user.id}`);
+      router.push(buildUserProfileRoute(user.username));
     }
   }, [user]);
 

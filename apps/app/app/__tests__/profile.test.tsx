@@ -177,8 +177,8 @@ function seedMocks() {
   mockUseAuthContext.mockReturnValue({
     user: {
       id: 'user-1',
-      username: 'test-user',
-      handle: 'test-user',
+      username: 'test_user',
+      handle: 'test_user',
       displayName: 'Test User',
       profilePhotoUrl: undefined,
       karma: 42,
@@ -203,7 +203,7 @@ function seedMocks() {
   mockUseMyProfile.mockReturnValue({
     data: {
       id: 'user-1',
-      handle: 'test-user',
+      handle: 'test_user',
       displayName: 'Test User',
       hasDisplayName: true,
       profilePhotoUrl: null,
@@ -414,8 +414,8 @@ describe('ProfileScreen sign out', () => {
       expect(mockShare).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'Test User - HuisHype',
-          url: expect.stringMatching(/\/user\/user-1$/),
-          message: expect.stringContaining('@test-user'),
+          url: expect.stringMatching(/\/user\/@test_user$/),
+          message: expect.stringContaining('@test_user'),
         })
       );
     });
@@ -427,7 +427,7 @@ describe('ProfileScreen sign out', () => {
     const avatarEditIconBadgeStyle = getByTestId('profile-avatar-edit-icon-badge').props.style;
 
     expect(getByText('Test User')).toBeTruthy();
-    expect(getByText('@test-user')).toBeTruthy();
+    expect(getByText('@test_user')).toBeTruthy();
     expect(getByTestId('profile-avatar-edit')).toBeTruthy();
     expect(getByTestId('profile-avatar-edit-icon').props.children).toBe('PencilSimple');
     expect(avatarEditStyle).toMatchObject({
@@ -467,8 +467,8 @@ describe('ProfileScreen sign out', () => {
     mockUseMyProfile.mockReturnValue({
       data: {
         id: 'user-1',
-        handle: 'test-user',
-        displayName: 'test-user',
+        handle: 'test_user',
+        displayName: 'test_user',
         hasDisplayName: false,
         profilePhotoUrl: null,
         karma: 42,
@@ -584,7 +584,7 @@ describe('ProfileScreen sign out', () => {
     mockUseMyProfile.mockReturnValue({
       data: {
         id: 'user-1',
-        handle: 'test-user',
+        handle: 'test_user',
         displayName: 'Test User',
         hasDisplayName: true,
         profilePhotoUrl: 'https://media.example/avatar.jpg',
@@ -655,7 +655,7 @@ describe('ProfileScreen sign out', () => {
 
     fireEvent.press(getByTestId('profile-handle-edit'));
     expect(getByTestId('profile-handle-prefix')).toBeTruthy();
-    expect(getByTestId('profile-handle-input').props.value).toBe('test-user');
+    expect(getByTestId('profile-handle-input').props.value).toBe('test_user');
     expect(getByTestId('profile-handle-input').props.maxLength).toBe(20);
 
     fireEvent.changeText(getByTestId('profile-handle-input'), '  @New_Handle  ');
@@ -710,7 +710,7 @@ describe('ProfileScreen sign out', () => {
     mockUseMyProfile.mockReturnValue({
       data: {
         id: 'user-1',
-        handle: 'test-user',
+        handle: 'test_user',
         displayName: 'Test User',
         hasDisplayName: true,
         profilePhotoUrl: null,

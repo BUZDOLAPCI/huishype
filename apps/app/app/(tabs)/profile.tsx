@@ -49,6 +49,7 @@ import { useAchievements } from '@/src/hooks/useAchievements';
 import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
 import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
+import { buildUserProfileRoute } from '@/src/utils/user-route';
 
 import type { AchievementDefinition, MyUserProfile } from '@huishype/shared';
 import { shadows } from '@/src/lib/shadows';
@@ -116,12 +117,12 @@ function normalizeHandleInput(input: string): string {
   return input.trim().replace(/^@+/, '').toLowerCase();
 }
 
-function buildProfileSharePayload(profile: Pick<MyUserProfile, 'id' | 'displayName' | 'handle'>) {
+function buildProfileSharePayload(profile: Pick<MyUserProfile, 'displayName' | 'handle'>) {
   const origin =
     Platform.OS === 'web' && typeof window !== 'undefined' && window.location.origin
       ? window.location.origin.replace(/\/+$/, '')
       : DEFAULT_SHARE_ORIGIN;
-  const url = `${origin}/user/${profile.id}`;
+  const url = `${origin}${buildUserProfileRoute(profile.handle)}`;
 
   return {
     title: `${profile.displayName} - HuisHype`,

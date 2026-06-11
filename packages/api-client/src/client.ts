@@ -46,6 +46,8 @@ import type { paths } from '../generated/api.js';
 
 type PublicUserProfileResponse =
   paths['/users/{id}/profile']['get']['responses'][200]['content']['application/json'];
+type PublicUserProfileByHandleResponse =
+  paths['/users/by-handle/{handle}/profile']['get']['responses'][200]['content']['application/json'];
 type MyUserProfileResponse =
   paths['/users/me']['get']['responses'][200]['content']['application/json'];
 type UserSearchQuery = NonNullable<paths['/users/search']['get']['parameters']['query']>;
@@ -344,7 +346,7 @@ export class HuisHypeApiClient {
   }
 
   // ============================================
-  // User Endpoints  (paths: /users/search, /users/me, /users/me/profile, /users/:id/profile, /users/me/guesses, /users/me/followers, /users/me/following, /users/:id/follow)
+  // User Endpoints  (paths: /users/search, /users/me, /users/me/profile, /users/by-handle/:handle/profile, /users/:id/profile, /users/me/guesses, /users/me/followers, /users/me/following, /users/:id/follow)
   // ============================================
 
   async searchUsers(request: SearchUsersRequest): Promise<UserSearchGeneratedResponse> {
@@ -393,6 +395,13 @@ export class HuisHypeApiClient {
 
   async getUser(userId: string): Promise<PublicUserProfileResponse> {
     return this.request<PublicUserProfileResponse>('GET', `/users/${userId}/profile`);
+  }
+
+  async getUserByHandle(handle: string): Promise<PublicUserProfileByHandleResponse> {
+    return this.request<PublicUserProfileByHandleResponse>(
+      'GET',
+      `/users/by-handle/${encodeURIComponent(handle)}/profile`
+    );
   }
 
   async getFollowers(params: FollowListQuery = {}): Promise<FollowListResponse> {

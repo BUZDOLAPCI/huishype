@@ -27,6 +27,7 @@ import {
   type UserSearchRelationship,
   type UserSearchResult,
 } from '@/src/hooks/useUserProfile';
+import { buildUserProfileRoute } from '@/src/utils/user-route';
 
 type ResultOverride = Pick<UserSearchResult, 'relationship' | 'followerCount'>;
 
@@ -154,7 +155,7 @@ export function UserSearchScreen() {
       return (
         <View style={styles.resultCard} testID={`user-search-result-${item.id}`}>
           <Pressable
-            onPress={() => router.push(`/user/${item.id}`)}
+            onPress={() => router.push(buildUserProfileRoute(item.handle))}
             style={styles.resultIdentity}
             accessibilityRole="button"
             accessibilityLabel={t('userSearch.openProfile', {

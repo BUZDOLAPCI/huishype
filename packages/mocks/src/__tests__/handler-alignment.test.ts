@@ -1018,6 +1018,17 @@ describe('Mock handler runtime parity', () => {
     expect(publicProfileBody).toHaveProperty('followerCount');
     expect(publicProfileBody).toHaveProperty('followingCount');
 
+    const handleProfileResponse = await fetch(
+      'http://localhost/users/by-handle/@SOPHIEMEIJER/profile'
+    );
+    const handleProfileBody = await handleProfileResponse.json();
+    expect(handleProfileResponse.status).toBe(200);
+    expect(handleProfileBody).toMatchObject({
+      id: mockUserIds.sophie,
+      handle: 'sophiemeijer',
+      relationship: 'none',
+    });
+
     const followResponse = await fetch(`http://localhost/users/${mockUserIds.sophie}/follow`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}` },
@@ -1353,6 +1364,7 @@ describe('Mock handler runtime parity', () => {
       })
     );
     expect(publicBody.items[0].actor.id).toMatch(uuidShape);
+    expect(publicBody.items[0].actor.handle).toEqual(expect.any(String));
     expect(publicBody.items[0].property.id).toMatch(uuidShape);
     expect(publicBody.items[0].property).toHaveProperty('streetName');
     expect(publicBody.items[0].property).toHaveProperty('postalCode');
