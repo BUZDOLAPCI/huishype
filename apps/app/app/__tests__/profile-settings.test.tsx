@@ -126,7 +126,11 @@ describe('ProfileSettingsScreen', () => {
     expect(queryByText('Account email')).toBeNull();
     expect(queryByTestId('settings-profile-photo-row')).toBeNull();
     expect(queryByText('Terms and Conditions')).toBeNull();
-    expect(getByTestId('settings-version').props.children).toBe('Version 0.0.1');
+    expect(getByText('Version 1.0.0.0')).toBeTruthy();
+
+    fireEvent.press(getByTestId('settings-version'));
+
+    expect(getByText('Version 1.0.0.0 (build unknown)')).toBeTruthy();
 
     fireEvent.press(getByTestId('settings-auth-row'));
 

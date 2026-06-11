@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import {
   Alert,
@@ -25,6 +24,7 @@ import {
   setAnalyticsConsent,
   type AnalyticsConsent,
 } from '@/src/lib/analytics';
+import { getAppVersionInfo } from '@/src/lib/appVersion';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
 const languageOptions: Array<{ code: LanguageCode; labelKey: TranslationKey }> = [
@@ -466,10 +466,14 @@ function SettingsScreenFrame({
 }) {
   const insets = useSafeAreaInsets();
   const t = useT();
+  const [showBuildVersion, setShowBuildVersion] = useState(false);
   const versionLabel = useMemo(() => {
-    const version = Constants.expoConfig?.version ?? '0.0.1';
+    const versionInfo = getAppVersionInfo();
+    const version = showBuildVersion
+      ? versionInfo.expandedDisplayVersion
+      : versionInfo.displayVersion;
     return t('profileSettings.version', { version });
-  }, [t]);
+  }, [showBuildVersion, t]);
 
   return (
     <View
@@ -508,9 +512,15 @@ function SettingsScreenFrame({
         contentInsetAdjustmentBehavior="automatic"
       >
         {children}
-        <Text style={styles.versionText} testID="settings-version">
-          {versionLabel}
-        </Text>
+        <Pressable
+          onPress={() => setShowBuildVersion((current) => !current)}
+          accessibilityRole="button"
+          accessibilityLabel={versionLabel}
+          style={styles.versionButton}
+          testID="settings-version"
+        >
+          <Text style={styles.versionText}>{versionLabel}</Text>
+        </Pressable>
       </ScrollView>
       {overlay}
     </View>
@@ -695,5 +705,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     color: '#6E6A65',
+  },
+  versionButton: {
+    alignSelf: 'center',
   },
 });

@@ -51,7 +51,7 @@ This serves the web app through Expo/Metro on port `8081`.
 
 ### Native Workflow
 
-Native runs through the generated Android/iOS projects plus a few required local override points. `apps/app/app.json` is the Expo config source of truth; `apps/app/android/` and `apps/app/ios/` are generated, gitignored output.
+Native runs through the generated Android/iOS projects plus a few required local override points. `apps/app/app.config.js` is the Expo config source of truth; `apps/app/android/` and `apps/app/ios/` are generated, gitignored output.
 
 If the native folders are missing, stale, or you changed Expo config/plugin wiring, regenerate them and then re-apply the documented override points from `apps/app/README.md`:
 
@@ -105,7 +105,7 @@ Unit-test runners are mixed by workspace: `apps/app` and `services/api` use Jest
 
 ## Native Source Of Truth
 
-Keep Expo config in `apps/app/app.json`. Treat `apps/app/android/` and `apps/app/ios/` as regenerated output, not as the canonical configuration source.
+Keep Expo config in `apps/app/app.config.js`. Treat `apps/app/android/` and `apps/app/ios/` as regenerated output, not as the canonical configuration source.
 
 The generated native folders still contain required override points today:
 

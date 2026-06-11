@@ -1,6 +1,6 @@
 # HuisHype App Workflow
 
-This app ships from Expo config plus regenerated native projects. Treat `apps/app/app.json` as the source of truth for Expo config, and treat `apps/app/android/` and `apps/app/ios/` as generated, gitignored output with a small set of required local override points.
+This app ships from Expo config plus regenerated native projects. Treat `apps/app/app.config.js` as the source of truth for Expo config, and treat `apps/app/android/` and `apps/app/ios/` as generated, gitignored output with a small set of required local override points.
 
 ## Day-To-Day Commands
 
@@ -30,7 +30,7 @@ EXPO_PUBLIC_GA4_MEASUREMENT_ID= # optional GA4 web stream ID; unset disables Goo
 Run a clean prebuild when:
 
 - `apps/app/android/` or `apps/app/ios/` do not exist locally.
-- You changed `apps/app/app.json`.
+- You changed `apps/app/app.config.js`.
 - You changed Expo plugins or native dependency wiring.
 - The generated projects drifted into a bad state and you want to rebuild them from Expo config.
 
@@ -40,7 +40,7 @@ Command:
 pnpm -C apps/app exec expo prebuild --clean
 ```
 
-Prebuild regenerates the native folders from `app.json`, but it does not eliminate the repo's current manual override points. Re-check the items below before running Android or iOS again.
+Prebuild regenerates the native folders from `app.config.js`, but it does not eliminate the repo's current manual override points. Re-check the items below before running Android or iOS again.
 
 ## Required Post-Prebuild Override Points
 
@@ -86,7 +86,7 @@ If a clean prebuild removes that file, restore it before opening the iOS project
 
 After `expo prebuild --clean`, verify:
 
-1. [`app.json`](/home/caslan/dev/git_repos/hh/huishype/apps/app/app.json) still reflects the intended Expo config.
+1. [`app.config.js`](/home/caslan/dev/git_repos/hh/huishype/apps/app/app.config.js) still reflects the intended Expo config.
 2. [`android/build.gradle`](/home/caslan/dev/git_repos/hh/huishype/apps/app/android/build.gradle) still contains `mavenLocal()` and the `12.2.3-huishype` override.
 3. [`ios/HuisHype/Info.plist`](/home/caslan/dev/git_repos/hh/huishype/apps/app/ios/HuisHype/Info.plist) still contains the expected URL schemes.
 4. [`ios/HuisHype/GoogleService-Info.plist`](/home/caslan/dev/git_repos/hh/huishype/apps/app/ios/HuisHype/GoogleService-Info.plist) exists locally.
@@ -96,7 +96,7 @@ After `expo prebuild --clean`, verify:
 
 The generated native folders are not self-maintaining yet. The current repo truth is:
 
-- Expo config lives in `app.json`.
+- Expo config lives in `app.config.js`.
 - Native projects are regenerated output.
 - A small number of Android/iOS override points still need to survive regeneration.
 
