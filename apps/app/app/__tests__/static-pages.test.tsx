@@ -1,11 +1,11 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 
-import GlossaryScreen from '../settings/glossary/index';
-import GlossaryTermScreen from '../settings/glossary/[slug]';
-import HelpArticleScreen from '../settings/help/article/[slug]';
-import HelpCategoryScreen from '../settings/help/category/[slug]';
-import HelpScreen from '../settings/help/index';
+import GlossaryScreen from '../glossary/index';
+import GlossaryTermScreen from '../glossary/[slug]';
+import HelpArticleScreen from '../help/article/[slug]';
+import HelpCategoryScreen from '../help/category/[slug]';
+import HelpScreen from '../help/index';
 
 const mockUseLocalSearchParams = jest.fn(() => ({}));
 const mockUseLanguage = jest.fn(() => ({
@@ -63,13 +63,13 @@ describe('static help and glossary pages', () => {
     expect(getByText(/Find help for browsing homes/i)).toBeTruthy();
 
     fireEvent.press(getByTestId('help-category-basics'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/help/category/basics');
+    expect(getRouterPush()).toHaveBeenCalledWith('/help/category/basics');
 
     fireEvent.press(getByTestId('help-article-price-guesses'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/help/article/price-guesses');
+    expect(getRouterPush()).toHaveBeenCalledWith('/help/article/price-guesses');
 
     fireEvent.press(getByTestId('help-glossary-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/glossary');
+    expect(getRouterPush()).toHaveBeenCalledWith('/glossary');
   });
 
   it('renders a help category and article from dynamic slugs', () => {
@@ -97,7 +97,7 @@ describe('static help and glossary pages', () => {
     expect(glossary.getAllByText('Glossary').length).toBeGreaterThan(0);
 
     fireEvent.press(glossary.getByTestId('glossary-term-asking-price'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/glossary/asking-price');
+    expect(getRouterPush()).toHaveBeenCalledWith('/glossary/asking-price');
 
     mockUseLocalSearchParams.mockReturnValue({ slug: 'woz-value' });
 
@@ -155,14 +155,14 @@ describe('static help and glossary pages', () => {
     expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
   });
 
-  it('returns from nested help and glossary pages to their parent settings routes', () => {
+  it('returns from nested help and glossary pages to their parent root routes', () => {
     mockUseLocalSearchParams.mockReturnValue({ slug: 'prices-and-valuations' });
 
     const category = render(<HelpCategoryScreen />);
 
     fireEvent.press(category.getByTestId('static-page-back'));
     expect(getRouterBack()).toHaveBeenCalledTimes(1);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/help');
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/help');
 
     mockUseLocalSearchParams.mockReturnValue({ slug: 'price-guesses' });
 
@@ -170,13 +170,13 @@ describe('static help and glossary pages', () => {
 
     fireEvent.press(article.getByTestId('static-page-back'));
     expect(getRouterBack()).toHaveBeenCalledTimes(2);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/help');
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/help');
 
     const glossary = render(<GlossaryScreen />);
 
     fireEvent.press(glossary.getByTestId('static-page-back'));
     expect(getRouterBack()).toHaveBeenCalledTimes(3);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/help');
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/help');
 
     mockUseLocalSearchParams.mockReturnValue({ slug: 'woz-value' });
 
@@ -184,7 +184,7 @@ describe('static help and glossary pages', () => {
 
     fireEvent.press(term.getByTestId('static-page-back'));
     expect(getRouterBack()).toHaveBeenCalledTimes(4);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/glossary');
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/glossary');
   });
 
   it('uses parent route fallback for direct nested support page entry', () => {
@@ -195,7 +195,7 @@ describe('static help and glossary pages', () => {
 
     fireEvent.press(term.getByTestId('static-page-back'));
 
-    expect(getRouterReplace()).toHaveBeenCalledWith('/settings/glossary');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/glossary');
     expect(getRouterBack()).not.toHaveBeenCalled();
   });
 });

@@ -6,8 +6,10 @@ import { LanguageProvider } from '@/src/i18n';
 import { CustomTabBar } from '../CustomTabBar';
 
 const mockRouterPush = jest.fn();
+let mockPathname = '/';
 
 jest.mock('expo-router', () => ({
+  usePathname: () => mockPathname,
   useRouter: () => ({
     push: mockRouterPush,
   }),
@@ -70,6 +72,7 @@ describe('CustomTabBar', () => {
   beforeEach(() => {
     setPlatform('web');
     jest.clearAllMocks();
+    mockPathname = '/';
     window.history.replaceState({ id: 'tab-state' }, '', '/');
   });
 
@@ -123,6 +126,8 @@ describe('CustomTabBar', () => {
   });
 
   it('selects the profile tab only for the profile route', () => {
+    mockPathname = '/profile';
+
     const { getByTestId } = render(
       <CustomTabBar
         state={{
@@ -138,6 +143,23 @@ describe('CustomTabBar', () => {
     expect(getByTestId('tab-index').props.accessibilityState).toEqual({});
     expect(getByTestId('tab-feed').props.accessibilityState).toEqual({});
     expect(getByTestId('tab-saved').props.accessibilityState).toEqual({});
+  });
+
+  it('does not render while a static stack route is active', () => {
+    mockPathname = '/settings';
+
+    const { queryByTestId } = render(
+      <CustomTabBar
+        state={{
+          index: 0,
+          routes: baseRoutes,
+        }}
+        descriptors={descriptors}
+        navigation={navigation}
+      />
+    );
+
+    expect(queryByTestId('custom-tab-bar')).toBeNull();
   });
 
   it('pushes a stable map root entry before leaving a camera URL on web', () => {

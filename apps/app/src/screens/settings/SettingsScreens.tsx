@@ -135,7 +135,7 @@ export default function ProfileSettingsScreen() {
         </Pressable>
         <Pressable
           style={styles.row}
-          onPress={() => router.push('/settings/help')}
+          onPress={() => router.push('/help')}
           accessibilityRole="button"
           testID="settings-help-row"
         >
@@ -144,7 +144,7 @@ export default function ProfileSettingsScreen() {
         </Pressable>
         <Pressable
           style={styles.row}
-          onPress={() => router.push('/settings/contact')}
+          onPress={() => router.push('/contact')}
           accessibilityRole="button"
           testID="settings-contact-row"
         >
@@ -253,7 +253,7 @@ export function SettingsLegalScreen() {
       <View testID="settings-legal-submenu">
         <Pressable
           style={styles.row}
-          onPress={() => router.push('/settings/terms')}
+          onPress={() => router.push('/terms')}
           accessibilityRole="button"
           testID="settings-terms-row"
         >
@@ -262,7 +262,7 @@ export function SettingsLegalScreen() {
         </Pressable>
         <Pressable
           style={styles.row}
-          onPress={() => router.push('/settings/privacy')}
+          onPress={() => router.push('/privacy')}
           accessibilityRole="button"
           testID="settings-privacy-row"
         >
@@ -271,7 +271,7 @@ export function SettingsLegalScreen() {
         </Pressable>
         <Pressable
           style={styles.row}
-          onPress={() => router.push('/settings/cookies')}
+          onPress={() => router.push('/cookies')}
           accessibilityRole="button"
           testID="settings-cookies-row"
         >
@@ -280,7 +280,7 @@ export function SettingsLegalScreen() {
         </Pressable>
         <Pressable
           style={styles.row}
-          onPress={() => router.push('/settings/data-privacy')}
+          onPress={() => router.push('/data-privacy')}
           accessibilityRole="button"
           testID="settings-data-privacy-row"
         >
@@ -350,7 +350,7 @@ export function SettingsLegalScreen() {
         </View>
         <Pressable
           style={styles.row}
-          onPress={() => router.push('/settings/sharing-permissions')}
+          onPress={() => router.push('/sharing-permissions')}
           accessibilityRole="button"
           testID="settings-sharing-permissions-row"
         >

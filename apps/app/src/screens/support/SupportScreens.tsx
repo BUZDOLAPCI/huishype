@@ -178,7 +178,7 @@ export function HelpHubScreen() {
               title={category.title}
               summary={category.summary}
               testID={`help-category-${category.slug}`}
-              onPress={() => router.push(`/settings/help/category/${category.slug}`)}
+              onPress={() => router.push(`/help/category/${category.slug}`)}
             />
           ))}
         </View>
@@ -194,7 +194,7 @@ export function HelpHubScreen() {
             title={article.title}
             summary={article.summary}
             testID={`help-article-${article.slug}`}
-            onPress={() => router.push(`/settings/help/article/${article.slug}`)}
+            onPress={() => router.push(`/help/article/${article.slug}`)}
           />
         ))}
       </View>
@@ -205,19 +205,19 @@ export function HelpHubScreen() {
           title={copy.glossaryTitle}
           summary={copy.glossarySummary}
           testID="help-glossary-row"
-          onPress={() => router.push('/settings/glossary')}
+          onPress={() => router.push('/glossary')}
         />
         <ListRow
           title={copy.legalTitle}
           summary={copy.legalSummary}
           testID="help-legal-row"
-          onPress={() => router.push('/settings/privacy')}
+          onPress={() => router.push('/privacy')}
         />
         <ListRow
           title={copy.contactTitle}
           summary={copy.contactSummary}
           testID="help-contact-row"
-          onPress={() => router.push('/settings/contact')}
+          onPress={() => router.push('/contact')}
         />
       </View>
     </SupportPage>
@@ -234,7 +234,7 @@ export function HelpCategoryScreen({ slug }: { slug: string }) {
     return (
       <MissingSupportScreen
         title={copy.categoryNotFound}
-        backPath="/settings/help"
+        backPath="/help"
         copy={copy}
       />
     );
@@ -247,7 +247,7 @@ export function HelpCategoryScreen({ slug }: { slug: string }) {
       title={category.title}
       testID="help-category-screen"
       backLabel={copy.backToHelp}
-      onBack={() => goBackOrReplace('/settings/help')}
+      onBack={() => goBackOrReplace('/help')}
     >
       <Text style={styles.lead}>{category.summary}</Text>
       <BodySections sections={category.bodySections} />
@@ -259,7 +259,7 @@ export function HelpCategoryScreen({ slug }: { slug: string }) {
             title={article.title}
             summary={article.summary}
             testID={`category-article-${article.slug}`}
-            onPress={() => router.push(`/settings/help/article/${article.slug}`)}
+            onPress={() => router.push(`/help/article/${article.slug}`)}
           />
         ))}
       </View>
@@ -277,7 +277,7 @@ export function HelpArticleScreen({ slug }: { slug: string }) {
     return (
       <MissingSupportScreen
         title={copy.articleNotFound}
-        backPath="/settings/help"
+        backPath="/help"
         copy={copy}
       />
     );
@@ -290,7 +290,7 @@ export function HelpArticleScreen({ slug }: { slug: string }) {
       copy={copy}
       testID="help-article-screen"
       backLabel={copy.backToHelp}
-      onBack={() => goBackOrReplace('/settings/help')}
+      onBack={() => goBackOrReplace('/help')}
       relatedPrefix="help"
     />
   );
@@ -317,7 +317,7 @@ export function GlossaryIndexScreen() {
       title={copy.glossaryTitle}
       testID="glossary-screen"
       backLabel={copy.backToHelp}
-      onBack={() => goBackOrReplace('/settings/help')}
+      onBack={() => goBackOrReplace('/help')}
     >
       <Text style={styles.lead}>{copy.glossaryLead}</Text>
       <TextInput
@@ -336,7 +336,7 @@ export function GlossaryIndexScreen() {
             title={termRecord.title}
             summary={termRecord.summary}
             testID={`glossary-term-${termRecord.slug}`}
-            onPress={() => router.push(`/settings/glossary/${termRecord.slug}`)}
+            onPress={() => router.push(`/glossary/${termRecord.slug}`)}
           />
         ))}
       </View>
@@ -354,7 +354,7 @@ export function GlossaryTermScreen({ slug }: { slug: string }) {
     return (
       <MissingSupportScreen
         title={copy.termNotFound}
-        backPath="/settings/glossary"
+        backPath="/glossary"
         copy={copy}
       />
     );
@@ -367,7 +367,7 @@ export function GlossaryTermScreen({ slug }: { slug: string }) {
       copy={copy}
       testID="glossary-term-screen"
       backLabel={copy.backToGlossary}
-      onBack={() => goBackOrReplace('/settings/glossary')}
+      onBack={() => goBackOrReplace('/glossary')}
       relatedPrefix="glossary"
     />
   );
@@ -452,16 +452,16 @@ function SupportContentDetail({
               testID={`${relatedPrefix}-related-${record.slug}`}
               onPress={() => {
                 if (getSupportArticle(record.slug, catalog)) {
-                  router.push(`/settings/help/article/${record.slug}`);
+                  router.push(`/help/article/${record.slug}`);
                   return;
                 }
 
                 if (getGlossaryTerm(record.slug, catalog)) {
-                  router.push(`/settings/glossary/${record.slug}`);
+                  router.push(`/glossary/${record.slug}`);
                   return;
                 }
 
-                router.push(`/settings/${record.slug}`);
+                router.push(`/${record.slug}`);
               }}
             />
           ))}

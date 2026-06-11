@@ -109,6 +109,10 @@ describe('property-route', () => {
     expect(isStaticAppRoutePath('/notifications')).toBe(true);
     expect(isStaticAppRoutePath('/leaderboard')).toBe(true);
     expect(isStaticAppRoutePath('/settings/privacy')).toBe(true);
+    expect(isStaticAppRoutePath('/privacy')).toBe(true);
+    expect(isStaticAppRoutePath('/help/article/price-guesses')).toBe(true);
+    expect(isStaticAppRoutePath('/contact')).toBe(true);
+    expect(isStaticAppRoutePath('/glossary/woz-value')).toBe(true);
     expect(isStaticAppRoutePath('/eindhoven/5600aa/nieuwe-emmasingel/12-b')).toBe(false);
     expect(isStaticAppRoutePath('/map/eindhoven/5600aa/nieuwe-emmasingel/12-b')).toBe(false);
     expect(isStaticAppRoutePath('/@51.4416,5.4697,14z')).toBe(false);

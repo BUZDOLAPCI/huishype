@@ -1860,7 +1860,7 @@ export default function MapScreen() {
       />
 
       <WelcomeModal
-        visible={welcomeModal.visible && !interaction.showAuthModal}
+        visible={isFocused && welcomeModal.visible && !interaction.showAuthModal}
         onClose={welcomeModal.dismiss}
       />
     </ScreenBackground>

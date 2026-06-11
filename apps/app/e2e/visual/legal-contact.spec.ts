@@ -21,6 +21,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
   test.beforeEach(async ({ page }) => {
     consoleErrors = attachConsoleErrorCollector(page);
+    await page.addInitScript(() => {
+      window.localStorage.setItem('huishype_analytics_consent', 'denied');
+    });
   });
 
   test.afterEach(async () => {
@@ -65,7 +68,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: false,
     });
 
-    await page.goto('/settings/glossary', { waitUntil: 'domcontentloaded' });
+    await page.goto('/glossary', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('glossary-screen')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Glossary' })).toBeVisible();
     await expectSettingsTabBarHidden(page);
@@ -115,7 +118,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     const sourcePage = await sourcePagePromise;
     await expect.poll(() => sourcePage.url()).toBe('https://maplibre.org/');
     await sourcePage.close();
-    await page.getByTestId('profile-settings-back').click();
+    await page.getByTestId('profile-settings-back').last().click();
     await expect(page.getByTestId('settings-terms-row')).toBeVisible();
 
     await page.getByTestId('settings-terms-row').click();
@@ -127,9 +130,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: false,
     });
 
-    await page.goto('/settings/privacy', { waitUntil: 'domcontentloaded' });
+    await page.goto('/privacy', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('privacy-screen')).toBeVisible();
-    await expect(page.getByText('Privacy Policy')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Privacy Policy' })).toBeVisible();
     await expect(page.getByText(/including in the EU/)).toBeVisible();
     await expectSettingsTabBarHidden(page);
     await page.screenshot({
@@ -137,22 +140,22 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: false,
     });
 
-    await page.goto('/settings/cookies', { waitUntil: 'domcontentloaded' });
+    await page.goto('/cookies', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('cookies-screen')).toBeVisible();
     await expect(page.getByText('Cookie Policy')).toBeVisible();
     await expectSettingsTabBarHidden(page);
 
-    await page.goto('/settings/data-privacy', { waitUntil: 'domcontentloaded' });
+    await page.goto('/data-privacy', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('data-privacy-screen')).toBeVisible();
     await expect(page.getByText('Data and Privacy Choices')).toBeVisible();
     await expectSettingsTabBarHidden(page);
 
-    await page.goto('/settings/sharing-permissions', { waitUntil: 'domcontentloaded' });
+    await page.goto('/sharing-permissions', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('sharing-permissions-screen')).toBeVisible();
     await expect(page.getByText('Sharing Permissions')).toBeVisible();
     await expectSettingsTabBarHidden(page);
 
-    await page.goto('/settings/contact', { waitUntil: 'domcontentloaded' });
+    await page.goto('/contact', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('contact-screen')).toBeVisible();
     await expectSettingsTabBarHidden(page);
     await page.route('**/contact', async (route) => {
@@ -195,7 +198,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       .poll(() => page.evaluate(() => window.localStorage.getItem('huishype_language')))
       .toBe('nl');
 
-    await page.getByTestId('profile-settings-back').click();
+    await page.getByTestId('profile-settings-back').last().click();
     await expect(page.getByRole('heading', { name: 'Profiel' })).toBeVisible();
     await expect(page.getByTestId('settings-language-row')).toContainText('Taal');
     await expect(page.getByTestId('settings-help-row')).toContainText('Hulp nodig?');
@@ -237,7 +240,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: false,
     });
 
-    await page.goto('/settings/contact', { waitUntil: 'domcontentloaded' });
+    await page.goto('/contact', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('contact-screen')).toBeVisible();
     await expect(page.getByText(/Hulp nodig met HuisHype/)).toBeVisible();
     await expect(page.getByPlaceholder('Je naam')).toBeVisible();

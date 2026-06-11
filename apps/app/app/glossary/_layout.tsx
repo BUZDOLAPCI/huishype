@@ -1,13 +1,11 @@
 import React from 'react';
 import { Stack } from 'expo-router';
 
-export default function SettingsLayout() {
+export default function GlossaryLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="language" />
-      <Stack.Screen name="legal" />
-      <Stack.Screen name="open-source-licenses" />
+      <Stack.Screen name="[slug]" />
     </Stack>
   );
 }

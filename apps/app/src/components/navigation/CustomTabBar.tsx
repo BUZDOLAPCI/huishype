@@ -6,11 +6,12 @@
 import React from 'react';
 import { View, Pressable, Text, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, type Href } from 'expo-router';
+import { usePathname, useRouter, type Href } from 'expo-router';
 
 import { Icon, type IconName } from '@/src/components/ui/Icon';
 import { BlurContainer } from '@/src/components/ui/BlurContainer';
 import { useT, type TranslationKey } from '@/src/i18n';
+import { isStaticAppRoutePath } from '@/src/utils/property-route';
 import {
   TAB_BAR_DOCK_BOTTOM_PADDING,
   TAB_BAR_DOCK_HEIGHT,
@@ -98,6 +99,18 @@ const MAP_ROUTE_NAMES = new Set([
   'map/[country]/[city]/[postcode]/[street]/[house]',
 ]);
 
+const TAB_ROUTE_PREFIXES = new Set(['feed', 'saved', 'profile']);
+
+function shouldHideTabBarForPath(pathname: string): boolean {
+  const firstSegment = pathname.split('/').filter(Boolean)[0]?.toLowerCase();
+
+  if (!firstSegment || TAB_ROUTE_PREFIXES.has(firstSegment)) {
+    return false;
+  }
+
+  return isStaticAppRoutePath(pathname);
+}
+
 /** Palette derived from the selected pen frame. */
 const COLORS = {
   warmDivider: '#E8E0D4',
@@ -112,7 +125,12 @@ const COLORS = {
 export function CustomTabBar({ state, descriptors: _descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
   const t = useT();
+
+  if (shouldHideTabBarForPath(pathname)) {
+    return null;
+  }
 
   const activeRoute = state.routes[state.index];
   const isMapRouteActive = !!activeRoute?.name && MAP_ROUTE_NAMES.has(activeRoute.name);

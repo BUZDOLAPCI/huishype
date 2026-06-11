@@ -170,10 +170,10 @@ describe('ProfileSettingsScreen', () => {
     expect(getRouterPush()).toHaveBeenCalledWith('/settings/legal');
 
     fireEvent.press(getByTestId('settings-help-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/help');
+    expect(getRouterPush()).toHaveBeenCalledWith('/help');
 
     fireEvent.press(getByTestId('settings-contact-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/contact');
+    expect(getRouterPush()).toHaveBeenCalledWith('/contact');
   });
 
   it('renders legal settings directly and navigates legal rows', async () => {
@@ -192,16 +192,16 @@ describe('ProfileSettingsScreen', () => {
     expect(getByText('Open source licenses')).toBeTruthy();
 
     fireEvent.press(getByTestId('settings-terms-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/terms');
+    expect(getRouterPush()).toHaveBeenCalledWith('/terms');
 
     fireEvent.press(getByTestId('settings-privacy-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/privacy');
+    expect(getRouterPush()).toHaveBeenCalledWith('/privacy');
 
     fireEvent.press(getByTestId('settings-cookies-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/cookies');
+    expect(getRouterPush()).toHaveBeenCalledWith('/cookies');
 
     fireEvent.press(getByTestId('settings-data-privacy-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/data-privacy');
+    expect(getRouterPush()).toHaveBeenCalledWith('/data-privacy');
 
     fireEvent.press(getByTestId('settings-analytics-accept'));
     await waitFor(() => {
@@ -209,7 +209,7 @@ describe('ProfileSettingsScreen', () => {
     });
 
     fireEvent.press(getByTestId('settings-sharing-permissions-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/settings/sharing-permissions');
+    expect(getRouterPush()).toHaveBeenCalledWith('/sharing-permissions');
 
     fireEvent.press(getByTestId('profile-settings-back'));
     expect(getRouterBack()).toHaveBeenCalledTimes(1);

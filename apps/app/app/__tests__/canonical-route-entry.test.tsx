@@ -156,28 +156,6 @@ describe('canonical route entry', () => {
     });
   });
 
-  it.each(['/privacy', '/help', '/contact', '/glossary'])(
-    'renders not-found for removed root support route %s',
-    async (pathname) => {
-      mockPathname = pathname;
-      mockUseResolvedMapRoute.mockReturnValue({
-        pathname: mockPathname,
-        isLoading: false,
-        resolvedRoute: {
-          kind: 'invalid',
-          canonicalPath: '/',
-          reason: 'unsupported-route-shape',
-        },
-      });
-
-      const screen = render(<CanonicalAddressRouteScreen />);
-
-      expect(screen.getByText("This screen doesn't exist.")).toBeTruthy();
-      expect(mockReplace).not.toHaveBeenCalled();
-      expect(mockReplacePassiveBrowserPath).not.toHaveBeenCalled();
-    },
-  );
-
   it('renders web map routes for map-scoped comments overlays', async () => {
     Platform.OS = 'web';
     mockPathname = '/map/eindhoven/5600aa/routelaan/12/comments';

@@ -1,11 +1,11 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 
-import CookiesScreen from '../settings/cookies';
-import DataPrivacyScreen from '../settings/data-privacy';
-import TermsScreen from '../settings/terms';
-import PrivacyScreen from '../settings/privacy';
-import SharingPermissionsScreen from '../settings/sharing-permissions';
+import CookiesScreen from '../cookies';
+import DataPrivacyScreen from '../data-privacy';
+import TermsScreen from '../terms';
+import PrivacyScreen from '../privacy';
+import SharingPermissionsScreen from '../sharing-permissions';
 
 const mockUseLanguage = jest.fn(() => ({
   language: 'en',

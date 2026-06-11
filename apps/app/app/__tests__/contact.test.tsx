@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
-import ContactScreen from '../settings/contact';
+import ContactScreen from '../contact';
 import { api } from '@/src/utils/api';
 
 const mockUseLanguage = jest.fn(() => ({

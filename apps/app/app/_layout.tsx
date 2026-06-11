@@ -92,6 +92,14 @@ function RootLayoutNav() {
                 <Stack>
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                   <Stack.Screen name="settings" options={{ headerShown: false }} />
+                  <Stack.Screen name="help" options={{ headerShown: false }} />
+                  <Stack.Screen name="glossary" options={{ headerShown: false }} />
+                  <Stack.Screen name="terms" options={{ headerShown: false }} />
+                  <Stack.Screen name="privacy" options={{ headerShown: false }} />
+                  <Stack.Screen name="cookies" options={{ headerShown: false }} />
+                  <Stack.Screen name="data-privacy" options={{ headerShown: false }} />
+                  <Stack.Screen name="sharing-permissions" options={{ headerShown: false }} />
+                  <Stack.Screen name="contact" options={{ headerShown: false }} />
                   <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
                   <Stack.Screen name="admin" options={{ headerShown: false }} />
                   <Stack.Screen name="leaderboard" options={{ headerShown: false }} />
