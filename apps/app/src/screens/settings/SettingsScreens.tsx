@@ -120,7 +120,7 @@ export default function ProfileSettingsScreen() {
           <Text style={styles.rowText}>{t('profileSettings.main.language')}</Text>
           <View style={styles.rowTrailing}>
             <Text style={styles.rowValue}>{selectedLanguageLabel}</Text>
-            <Icon name="ArrowRight" size={30} color="#6E6A65" />
+            <Icon name="ArrowRight" size={24} color="#6E6A65" />
           </View>
         </Pressable>
         <Pressable
@@ -130,7 +130,7 @@ export default function ProfileSettingsScreen() {
           testID="settings-legal-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.legal.title')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
         <Pressable
           style={styles.row}
@@ -139,7 +139,7 @@ export default function ProfileSettingsScreen() {
           testID="settings-help-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.help')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
         <Pressable
           style={styles.row}
@@ -148,7 +148,7 @@ export default function ProfileSettingsScreen() {
           testID="settings-contact-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.contact')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
         <Pressable
           style={styles.row}
@@ -159,7 +159,7 @@ export default function ProfileSettingsScreen() {
           <Text style={styles.rowText}>
             {user ? t('profileSettings.auth.logout') : t('profileSettings.auth.login')}
           </Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
       </View>
     </SettingsScreenFrame>
@@ -200,7 +200,7 @@ export function SettingsLanguageScreen() {
               testID={`settings-language-${option.code}`}
             >
               <Text style={styles.rowText}>{label}</Text>
-              {isSelected ? <Icon name="Check" size={30} color="#005E4F" /> : null}
+              {isSelected ? <Icon name="Check" size={24} color="#005E4F" /> : null}
             </Pressable>
           );
         })}
@@ -257,7 +257,7 @@ export function SettingsLegalScreen() {
           testID="settings-terms-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.legal.terms')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
         <Pressable
           style={styles.row}
@@ -266,7 +266,7 @@ export function SettingsLegalScreen() {
           testID="settings-privacy-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.legal.privacy')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
         <Pressable
           style={styles.row}
@@ -275,7 +275,7 @@ export function SettingsLegalScreen() {
           testID="settings-cookies-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.legal.cookies')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
         <Pressable
           style={styles.row}
@@ -284,7 +284,7 @@ export function SettingsLegalScreen() {
           testID="settings-data-privacy-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.legal.dataPrivacy')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
         <View
           style={styles.analyticsRow}
@@ -354,7 +354,7 @@ export function SettingsLegalScreen() {
           testID="settings-sharing-permissions-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.legal.sharingPermissions')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
         <Pressable
           style={styles.row}
@@ -363,7 +363,7 @@ export function SettingsLegalScreen() {
           testID="settings-open-source-licenses-row"
         >
           <Text style={styles.rowText}>{t('profileSettings.legal.openSourceLicenses')}</Text>
-          <Icon name="ArrowRight" size={30} color="#6E6A65" />
+          <Icon name="ArrowRight" size={24} color="#6E6A65" />
         </Pressable>
       </View>
     </SettingsScreenFrame>
@@ -552,18 +552,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   row: {
-    minHeight: 84,
+    minHeight: 74,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
     borderBottomColor: '#ECECEC',
-    paddingHorizontal: 26,
+    paddingHorizontal: 24,
   },
   rowText: {
     flex: 1,
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: '500',
     color: '#003C32',
   },
@@ -578,20 +578,20 @@ const styles = StyleSheet.create({
   },
   rowValue: {
     flexShrink: 1,
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: '600',
     color: '#6E6A65',
   },
   analyticsRow: {
-    minHeight: 104,
+    minHeight: 90,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
     borderBottomColor: '#ECECEC',
-    paddingHorizontal: 26,
-    paddingVertical: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     gap: 16,
   },
   analyticsCopy: {
@@ -599,8 +599,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   analyticsStatus: {
-    fontSize: 17,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '600',
     color: '#6E6A65',
   },
@@ -633,22 +633,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   accountRow: {
-    minHeight: 96,
+    minHeight: 82,
     justifyContent: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#ECECEC',
-    paddingHorizontal: 26,
+    paddingHorizontal: 24,
     gap: 4,
   },
   accountLabel: {
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: '600',
     color: '#6E6A65',
   },
   accountEmail: {
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: '500',
     color: '#003C32',
   },
@@ -692,8 +692,8 @@ const styles = StyleSheet.create({
   },
   versionText: {
     textAlign: 'center',
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 16,
+    lineHeight: 22,
     color: '#6E6A65',
   },
 });
