@@ -268,7 +268,7 @@ describe('AuthModal', () => {
       const input = getByLabelText('Email address');
       fireEvent.changeText(input, 'not-an-email');
 
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       expect(getByText('Please enter a valid email address')).toBeTruthy();
     });
@@ -281,7 +281,7 @@ describe('AuthModal', () => {
 
       const input = getByLabelText('Email address');
       fireEvent.changeText(input, 'test@example.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(mockRequestEmailLink).toHaveBeenCalledWith('test@example.com');
@@ -296,7 +296,7 @@ describe('AuthModal', () => {
 
       const input = getByLabelText('Email address');
       fireEvent.changeText(input, 'user@test.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(getByText('Check your email')).toBeTruthy();
@@ -310,7 +310,7 @@ describe('AuthModal', () => {
 
       fireEvent.press(getByLabelText('Continue with email'));
       fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
@@ -331,7 +331,7 @@ describe('AuthModal', () => {
 
       fireEvent.press(getByLabelText('Continue with email'));
       fireEvent.changeText(getByLabelText('Email address'), 'User@Test.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
@@ -353,7 +353,7 @@ describe('AuthModal', () => {
 
       fireEvent.press(getByLabelText('Continue with email'));
       fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
@@ -373,7 +373,7 @@ describe('AuthModal', () => {
 
       fireEvent.press(getByLabelText('Continue with email'));
       fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
@@ -393,7 +393,7 @@ describe('AuthModal', () => {
 
       fireEvent.press(getByLabelText('Continue with email'));
       fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
@@ -421,7 +421,7 @@ describe('AuthModal', () => {
 
       fireEvent.press(getByLabelText('Continue with email'));
       fireEvent.changeText(getByLabelText('Email address'), 'user@test.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(getByLabelText('6-digit sign-in code')).toBeTruthy();
@@ -446,7 +446,7 @@ describe('AuthModal', () => {
 
       const input = getByLabelText('Email address');
       fireEvent.changeText(input, 'test@example.com');
-      fireEvent.press(getByLabelText('Send sign-in link'));
+      fireEvent.press(getByLabelText('Next'));
 
       await waitFor(() => {
         expect(

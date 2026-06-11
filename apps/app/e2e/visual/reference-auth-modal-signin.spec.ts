@@ -304,7 +304,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.getByLabel('Continue with email').click();
     await expect(page.getByLabel('Email address')).toBeVisible();
     await page.getByLabel('Email address').fill('visual-code@example.com');
-    await page.getByLabel('Send sign-in link').click();
+    await page.getByLabel('Next').click();
 
     await expect(page.getByText('Check your email')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('visual-code@example.com')).toBeVisible();

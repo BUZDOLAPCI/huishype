@@ -623,7 +623,7 @@ export function AuthModal({
           <Text style={styles.emailErrorText}>{emailError}</Text>
         )}
 
-        {/* Send sign-in link button */}
+        {/* Email submission button */}
         <Button
           label={isRequestingEmail ? t('auth.email.sending') : t('auth.email.sendMagicLink')}
           onPress={handleEmailSubmit}
