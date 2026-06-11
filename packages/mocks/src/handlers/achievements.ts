@@ -7,6 +7,7 @@
 
 import { http, HttpResponse } from 'msw';
 import { getMockAuthUser } from './auth.js';
+import { getMockUser } from '../data/fixtures.js';
 import { fixedTimestamp } from '../data/visual-fixtures.js';
 
 // --- Mock achievement data aligned with OpenAPI schema ---
@@ -131,6 +132,23 @@ export const achievementHandlers = [
   http.get('/achievements/registry', () => {
     return HttpResponse.json({
       achievements: achievementRegistry,
+    });
+  }),
+
+  /**
+   * GET /users/:userId/achievements — list earned public achievements for a user
+   */
+  http.get('*/users/:userId/achievements', ({ params }) => {
+    const userId = String(params.userId);
+    if (!getMockUser(userId)) {
+      return HttpResponse.json(
+        { error: 'USER_NOT_FOUND', message: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    return HttpResponse.json({
+      earned: mockEarned,
     });
   }),
 ];

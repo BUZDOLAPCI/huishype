@@ -156,4 +156,50 @@ describe('Achievement routes', () => {
       expect(earnedKeys.length).toBe(uniqueKeys.length);
     });
   });
+
+  describe('GET /users/:id/achievements', () => {
+    it('returns earned achievements for a public user', async () => {
+      await db
+        .insert(userAchievements)
+        .values({
+          userId,
+          achievementKey: 'first_guess',
+        })
+        .onConflictDoNothing();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/users/${userId}/achievements`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body).toEqual({
+        earned: expect.arrayContaining([
+          expect.objectContaining({
+            key: 'first_guess',
+            name: expect.any(String),
+            description: expect.any(String),
+            icon: expect.any(String),
+            category: 'guessing',
+            awardedAt: expect.any(String),
+          }),
+        ]),
+      });
+      expect(body).not.toHaveProperty('available');
+    });
+
+    it('returns 404 for missing users', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/users/a0000000-0000-4000-a000-000000000099/achievements',
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
+    });
+  });
 });

@@ -10,6 +10,7 @@ import {
 import {
   users,
   priceGuesses,
+  priceHistory,
   comments,
   properties,
   savedProperties,
@@ -363,9 +364,40 @@ describe('User profile routes', () => {
       expect(body.karmaRank).toHaveProperty('level');
       expect(body).toHaveProperty('guessCount');
       expect(body).toHaveProperty('commentCount');
+      expect(body).toHaveProperty('averageAccuracy');
       expect(body).toHaveProperty('joinedAt');
 
       // Public profile should NOT include email
+      expect(body).not.toHaveProperty('email');
+      expect(body).not.toHaveProperty('savedCount');
+    });
+
+    it('should expose public average guess accuracy without private profile fields', async () => {
+      const { userId } = await createTestUser('accuracy-public');
+      const propId = await createTestProperty();
+
+      await db.insert(priceGuesses).values({
+        userId,
+        propertyId: propId,
+        guessedPrice: 450000,
+        isMemeGuess: false,
+      });
+      await db.insert(priceHistory).values({
+        propertyId: propId,
+        price: 500000,
+        priceDate: '2035-01-01',
+        eventType: 'sold',
+        source: 'observed',
+      });
+
+      const resp = await app.inject({
+        method: 'GET',
+        url: `/users/${userId}/profile`,
+      });
+
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body);
+      expect(body.averageAccuracy).toBeCloseTo(90);
       expect(body).not.toHaveProperty('email');
       expect(body).not.toHaveProperty('savedCount');
     });

@@ -33,7 +33,6 @@ import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { UserAvatar } from '@/src/components/ui/UserAvatar';
-import { AchievementBadge } from '@/src/components/ui/AchievementBadge';
 import { AuthModal } from '@/src/components';
 import { useT, type TranslationKey } from '@/src/i18n';
 
@@ -46,30 +45,18 @@ import {
   useUploadProfilePhoto,
 } from '@/src/hooks/useUserProfile';
 import { useAchievements } from '@/src/hooks/useAchievements';
-import { useUserActivity, type ActivityItem } from '@/src/hooks/useUserActivity';
+import { useUserActivity } from '@/src/hooks/useUserActivity';
 import { useHydratedNow } from '@/src/hooks/useHydratedNow';
-import { buildPropertyRoute, toInternalAppHref } from '@/src/utils/property-route';
 import { buildUserProfileRoute } from '@/src/utils/user-route';
+import {
+  ProfileReputationSections,
+  ProfileSocialStatsRow,
+  type ProfileAchievementItem,
+} from '@/src/screens/profile/ProfileSurface';
 
 import type { AchievementDefinition, MyUserProfile } from '@huishype/shared';
 import { shadows } from '@/src/lib/shadows';
 import { PROFILE_TAB_BAR_SPACER } from '@/src/components/navigation/tabBarMetrics';
-
-// --- Activity event config ---
-
-const ACTIVITY_ICONS: Record<string, { icon: React.ComponentProps<typeof Icon>['name']; color: string }> = {
-  comment: { icon: 'ChatCircle', color: '#42A5F5' },
-  property_like: { icon: 'Heart', color: '#FF6B35' },
-  price_guess: { icon: 'Tag', color: '#4CAF50' },
-  save: { icon: 'BookmarkSimple', color: '#F5A623' },
-};
-
-const ACTIVITY_LABEL_KEYS: Record<string, TranslationKey> = {
-  comment: 'profile.activity.comment',
-  property_like: 'profile.activity.propertyLike',
-  price_guess: 'profile.activity.priceGuess',
-  save: 'profile.activity.save',
-};
 
 type IdentityField = 'displayName' | 'handle';
 
@@ -84,20 +71,6 @@ const DISPLAY_NAME_COOLDOWN_DAYS = 7;
 const HANDLE_COOLDOWN_DAYS = 30;
 const HANDLE_PATTERN = /^[a-z0-9_]{3,20}$/;
 const DEFAULT_SHARE_ORIGIN = 'https://huishype.nl';
-
-function formatRelativeTime(
-  isoDate: string,
-  nowMs: number,
-  t: (key: TranslationKey, values?: Record<string, string | number | Date>) => string,
-): string {
-  const diffMs = nowMs - new Date(isoDate).getTime();
-  const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
-  if (diffHrs < 1) return t('time.justNow');
-  if (diffHrs < 24) return `${diffHrs}h`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 7) return `${diffDays}d`;
-  return `${Math.floor(diffDays / 7)}w`;
-}
 
 function addDays(isoDate: string, days: number): number {
   const date = new Date(isoDate);
@@ -380,7 +353,7 @@ export default function ProfileScreen() {
     return activityData.pages.flatMap((page) => page.items).slice(0, 5);
   }, [activityData]);
 
-  const earnedAchievements = useMemo(() => {
+  const earnedAchievements = useMemo<ProfileAchievementItem[]>(() => {
     if (!achievementsData) return [];
     return achievementsData.earned.map((ea) => ({
       definition: {
@@ -961,135 +934,42 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          <View style={styles.socialStatsRow}>
-            <Pressable
-              onPress={() => router.push('/user/following')}
-              style={styles.socialStatItem}
-              testID="profile-following-link"
-            >
-              <Text style={styles.socialStatValue}>{profile.followingCount}</Text>
-              <Text style={styles.socialStatLabel}>{t('common.following')}</Text>
-            </Pressable>
-            <View style={styles.socialStatDivider} />
-            <Pressable
-              onPress={() => router.push('/user/followers')}
-              style={styles.socialStatItem}
-              testID="profile-followers-link"
-            >
-              <Text style={styles.socialStatValue}>{profile.followerCount}</Text>
-              <Text style={styles.socialStatLabel}>{t('profile.followerStat')}</Text>
-            </Pressable>
-            <View style={styles.socialStatDivider} />
-            <View style={styles.socialStatItem} testID="profile-likes-stat">
-              <Text style={styles.socialStatValue}>{profile.likedCount}</Text>
-              <Text style={styles.socialStatLabel}>{t('common.likes')}</Text>
-            </View>
-          </View>
+          <ProfileSocialStatsRow
+            stats={[
+              {
+                key: 'following',
+                label: t('common.following'),
+                value: profile.followingCount,
+                testID: 'profile-following-link',
+                onPress: () => router.push('/user/following'),
+              },
+              {
+                key: 'followers',
+                label: t('profile.followerStat'),
+                value: profile.followerCount,
+                testID: 'profile-followers-link',
+                onPress: () => router.push('/user/followers'),
+              },
+              {
+                key: 'likes',
+                label: t('common.likes'),
+                value: profile.likedCount,
+                testID: 'profile-likes-stat',
+              },
+            ]}
+          />
 
         </View>
 
-        {/* Stats Section */}
-        <View style={styles.statsSection}>
-          <Text style={styles.sectionTitle}>{t('profile.stats.title')}</Text>
-          <View style={[styles.statsGroup, shadows.card]}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{profile.guessCount}</Text>
-              <Text style={styles.statLabel}>{t('profile.stats.guesses')}</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={[styles.statValue, styles.statValueGold]}>
-                {profile.karma}
-              </Text>
-              <Text style={styles.statLabel}>{t('profile.stats.karma')}</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={[styles.statValue, styles.statValueGreen]}>
-                {profile.averageAccuracy != null
-                  ? `${Math.round(profile.averageAccuracy)}%`
-                  : '-'}
-              </Text>
-              <Text style={styles.statLabel}>{t('profile.stats.accuracy')}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Achievements Section */}
-        {earnedAchievements.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('profile.achievements')}</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.achievementsScroll}
-            >
-              {earnedAchievements.map((ea) => (
-                <View key={ea.definition.key} style={styles.achievementItem}>
-                  <AchievementBadge
-                    achievement={ea.definition}
-                    earned
-                    awardedAt={ea.awardedAt}
-                    variant="compact"
-                  />
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Recent Activity Section */}
-        <View style={[styles.section, styles.activitySection]}>
-          <Text style={styles.sectionTitle}>{t('profile.recentActivity')}</Text>
-
-          {recentActivities.length === 0 ? (
-            <View style={styles.emptyActivity}>
-              <Icon name="Flame" size="xl" color="#E8E0D4" />
-              <Text style={styles.emptyActivityText}>{t('profile.noRecentActivity')}</Text>
-            </View>
-          ) : (
-            recentActivities.map((item: ActivityItem) => {
-              const config =
-                ACTIVITY_ICONS[item.eventType] ?? ACTIVITY_ICONS.comment;
-              const label =
-                t(ACTIVITY_LABEL_KEYS[item.eventType] ?? 'profile.activity.fallback');
-
-              return (
-                <Pressable
-                  key={item.id}
-                  style={styles.activityRow}
-                  onPress={() =>
-                    router.push(
-                      toInternalAppHref(buildPropertyRoute(item.property, '/profile')),
-                    )
-                  }
-                >
-                  <View style={styles.activityIconWell}>
-                    <Icon
-                      name={config.icon}
-                      size={15}
-                      weight="fill"
-                      color={config.color}
-                    />
-                  </View>
-                  <Text style={styles.activityText} numberOfLines={2}>
-                    {label} {item.property.address}
-                  </Text>
-                  <View style={styles.activityMeta}>
-                    <Text style={styles.activityTime}>
-                      {hydratedNow === null
-                        ? '\u00A0'
-                        : formatRelativeTime(item.createdAt, hydratedNow, t)}
-                    </Text>
-                    <Icon name="CaretRight" size={14} color="#C7BFB3" />
-                  </View>
-                </Pressable>
-              );
-            })
-          )}
-        </View>
-
-        <View style={{ height: PROFILE_TAB_BAR_SPACER }} />
+        <ProfileReputationSections
+          guessCount={profile.guessCount}
+          karma={profile.karma}
+          averageAccuracy={profile.averageAccuracy}
+          earnedAchievements={earnedAchievements}
+          recentActivities={recentActivities}
+          nowMs={hydratedNow}
+          bottomSpacer={PROFILE_TAB_BAR_SPACER}
+        />
       </ScrollView>
     </ScreenBackground>
   );

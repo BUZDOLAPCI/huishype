@@ -332,6 +332,10 @@ type GroupedPropertyActivityResponseFromOpenApi =
   paths['/activity/properties']['get']['responses'][200]['content']['application/json'];
 type SelfActivityResponseFromOpenApi =
   paths['/users/me/activity']['get']['responses'][200]['content']['application/json'];
+type PublicUserActivityResponseFromOpenApi =
+  paths['/users/{id}/activity']['get']['responses'][200]['content']['application/json'];
+type PublicUserAchievementsResponseFromOpenApi =
+  paths['/users/{id}/achievements']['get']['responses'][200]['content']['application/json'];
 type PublicProfileResponseFromOpenApi =
   paths['/users/{id}/profile']['get']['responses'][200]['content']['application/json'];
 type PublicProfileByHandleResponseFromOpenApi =
@@ -568,6 +572,13 @@ const feedContractAssertions = [
   >,
   true as Expect<
     Equal<
+      PublicUserActivityResponseFromOpenApi['items'][number]['eventType'],
+      'comment' | 'property_like' | 'price_guess'
+    >
+  >,
+  true as Expect<Equal<keyof PublicUserAchievementsResponseFromOpenApi, 'earned'>>,
+  true as Expect<
+    Equal<
       NotificationEventTypeFromOpenApi,
       | 'property_comment'
       | 'comment_reply'
@@ -794,6 +805,8 @@ describe('Generated OpenAPI types', () => {
       '/activity',
       '/activity/properties',
       '/users/me/activity',
+      '/users/{id}/activity',
+      '/users/{id}/achievements',
       '/notifications',
       '/notifications/unread-count',
       '/notifications/read-all',
@@ -886,6 +899,8 @@ describe('HuisHypeApiClient', () => {
     expect(typeof client.getActivity).toBe('function');
     expect(typeof client.getGroupedPropertyActivity).toBe('function');
     expect(typeof client.getMyActivity).toBe('function');
+    expect(typeof client.getPublicUserActivity).toBe('function');
+    expect(typeof client.getPublicUserAchievements).toBe('function');
     expect(typeof client.getNotifications).toBe('function');
     expect(typeof client.getUnreadNotificationCount).toBe('function');
     expect(typeof client.markAllNotificationsRead).toBe('function');

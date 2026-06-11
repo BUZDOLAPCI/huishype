@@ -31,6 +31,7 @@ describe('Activity routes', () => {
     viewerLike: crypto.randomUUID(),
     followedComment: crypto.randomUUID(),
     otherComment: crypto.randomUUID(),
+    hiddenComment: crypto.randomUUID(),
     followedGuess: crypto.randomUUID(),
     followedSave: crypto.randomUUID(),
     otherLike: crypto.randomUUID(),
@@ -40,6 +41,7 @@ describe('Activity routes', () => {
     viewerLikeCreatedAt: new Date('2035-01-01T10:00:00.000Z'),
     followedCommentCreatedAt: new Date('2035-01-01T11:00:00.000Z'),
     otherCommentCreatedAt: new Date('2035-01-01T11:30:00.000Z'),
+    hiddenCommentCreatedAt: new Date('2035-01-01T11:45:00.000Z'),
     followedGuessUpdatedAt: new Date('2035-01-01T12:00:00.000Z'),
     followedSaveCreatedAt: new Date('2035-01-01T12:30:00.000Z'),
     otherLikeCreatedAt: new Date('2035-01-01T13:00:00.000Z'),
@@ -110,6 +112,15 @@ describe('Activity routes', () => {
         content: 'Unfollowed user comment',
         createdAt: timeline.otherCommentCreatedAt,
         updatedAt: timeline.otherCommentCreatedAt,
+      },
+      {
+        id: activityEventIds.hiddenComment,
+        userId: followedUserId,
+        propertyId,
+        content: 'Hidden followed user comment',
+        hiddenAt: new Date('2035-01-01T11:50:00.000Z'),
+        createdAt: timeline.hiddenCommentCreatedAt,
+        updatedAt: timeline.hiddenCommentCreatedAt,
       },
     ]);
 
@@ -262,6 +273,80 @@ describe('Activity routes', () => {
       expect(body.items.every((item: { eventType: string }) => item.eventType !== 'save')).toBe(
         true
       );
+    });
+  });
+
+  describe('GET /users/:id/activity', () => {
+    it('returns only one user public activity, excluding saves and hidden comments', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/users/${followedUserId}/activity?limit=10`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe(
+        'public, max-age=15, stale-while-revalidate=30'
+      );
+      const body = JSON.parse(response.body);
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual([
+        activityEventIds.followedGuess,
+        activityEventIds.followedComment,
+      ]);
+      expect(
+        body.items.every((item: { actor: { id: string } }) => item.actor.id === followedUserId)
+      ).toBe(true);
+      expect(body.items.every((item: { eventType: string }) => item.eventType !== 'save')).toBe(
+        true
+      );
+      expect(body.items.some((item: { id: string }) => item.id === activityEventIds.hiddenComment))
+        .toBe(false);
+    });
+
+    it('paginates public user activity', async () => {
+      const firstPage = await app.inject({
+        method: 'GET',
+        url: `/users/${followedUserId}/activity?limit=1&offset=0`,
+      });
+      const secondPage = await app.inject({
+        method: 'GET',
+        url: `/users/${followedUserId}/activity?limit=1&offset=1`,
+      });
+
+      expect(firstPage.statusCode).toBe(200);
+      expect(secondPage.statusCode).toBe(200);
+      expect(JSON.parse(firstPage.body)).toEqual(
+        expect.objectContaining({
+          items: [expect.objectContaining({ id: activityEventIds.followedGuess })],
+          pagination: {
+            limit: 1,
+            offset: 0,
+            hasMore: true,
+          },
+        })
+      );
+      expect(JSON.parse(secondPage.body)).toEqual(
+        expect.objectContaining({
+          items: [expect.objectContaining({ id: activityEventIds.followedComment })],
+          pagination: {
+            limit: 1,
+            offset: 1,
+            hasMore: false,
+          },
+        })
+      );
+    });
+
+    it('returns 404 for missing users', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/users/a0000000-0000-4000-a000-000000000099/activity',
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
     });
   });
 

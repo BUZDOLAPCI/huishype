@@ -107,8 +107,13 @@ function mapActivityRow(row: ActivityRow): ActivityFeedItem {
 export function activityActorPredicate(
   scope: ActivityFeedScope,
   eventUserIdColumn: string,
-  viewerId: string | null
+  viewerId: string | null,
+  targetUserId?: string | null
 ) {
+  if (targetUserId) {
+    return sql`${sql.raw(eventUserIdColumn)} = ${targetUserId}`;
+  }
+
   if (scope === 'self') {
     return sql`${sql.raw(eventUserIdColumn)} = ${viewerId}`;
   }
@@ -128,6 +133,7 @@ export function activityActorPredicate(
 export async function fetchActivityFeed(params: {
   scope: ActivityFeedScope;
   viewerId: string | null;
+  targetUserId?: string | null;
   limit: number;
   offset: number;
 }): Promise<ActivityFeedResponse> {
@@ -135,18 +141,26 @@ export async function fetchActivityFeed(params: {
   const propertyLikeActorPredicate = activityActorPredicate(
     params.scope,
     'r.user_id',
-    params.viewerId
+    params.viewerId,
+    params.targetUserId
   );
-  const commentActorPredicate = activityActorPredicate(params.scope, 'c.user_id', params.viewerId);
+  const commentActorPredicate = activityActorPredicate(
+    params.scope,
+    'c.user_id',
+    params.viewerId,
+    params.targetUserId
+  );
   const priceGuessActorPredicate = activityActorPredicate(
     params.scope,
     'pg.user_id',
-    params.viewerId
+    params.viewerId,
+    params.targetUserId
   );
   const savedPropertyActorPredicate = activityActorPredicate(
     params.scope,
     'sp.user_id',
-    params.viewerId
+    params.viewerId,
+    params.targetUserId
   );
 
   const rows = await db.execute<ActivityRow>(sql`

@@ -4516,6 +4516,7 @@ export interface paths {
                             };
                             guessCount: number;
                             commentCount: number;
+                            averageAccuracy: number | null;
                             /** Format: date-time */
                             joinedAt: string;
                             followerCount: number;
@@ -4588,6 +4589,7 @@ export interface paths {
                             };
                             guessCount: number;
                             commentCount: number;
+                            averageAccuracy: number | null;
                             /** Format: date-time */
                             joinedAt: string;
                             followerCount: number;
@@ -4658,6 +4660,7 @@ export interface paths {
                             };
                             guessCount: number;
                             commentCount: number;
+                            averageAccuracy: number | null;
                             /** Format: date-time */
                             joinedAt: string;
                             followerCount: number;
@@ -4666,7 +4669,6 @@ export interface paths {
                             relationship: "self" | "none" | "following" | "followed_by" | "mutual";
                             email: string;
                             hasDisplayName: boolean;
-                            averageAccuracy: number | null;
                             savedCount: number;
                             likedCount: number;
                             lastDisplayNameChangeAt: string | null;
@@ -6469,6 +6471,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/{id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get public user activity history
+         * @description Returns newest-first public activity items for one user. Private save events and hidden comments are excluded.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                /** @enum {string} */
+                                eventType: "property_like" | "comment" | "price_guess";
+                                actor: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    displayName: string;
+                                    handle: string;
+                                    profilePhotoUrl: string | null;
+                                };
+                                property: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    address: string;
+                                    streetName: string;
+                                    houseNumber: number;
+                                    houseNumberAddition: string | null;
+                                    city: string;
+                                    postalCode: string;
+                                    countryCode: string;
+                                    geometry: {
+                                        /** @enum {string} */
+                                        type: "Point";
+                                        coordinates: [
+                                            number,
+                                            number
+                                        ];
+                                    } | null;
+                                    thumbnailUrl: string | null;
+                                };
+                                /** Format: date-time */
+                                createdAt: string;
+                                meta: {
+                                    [key: string]: unknown;
+                                } | null;
+                            }[];
+                            pagination: {
+                                limit: number;
+                                offset: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/achievements": {
         parameters: {
             query?: never;
@@ -6575,6 +6677,70 @@ export interface paths {
                                 /** @enum {string} */
                                 category: "social" | "guessing" | "exploration" | "milestone";
                             }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/achievements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get public user achievements
+         * @description Returns earned achievements for a public user profile.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            earned: {
+                                key: string;
+                                name: string;
+                                description: string;
+                                icon: string;
+                                /** @enum {string} */
+                                category: "social" | "guessing" | "exploration" | "milestone";
+                                /** Format: date-time */
+                                awardedAt: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
                         };
                     };
                 };

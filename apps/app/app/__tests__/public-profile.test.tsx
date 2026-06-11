@@ -2,6 +2,9 @@ import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import PublicProfileScreen from '../user/[handle]';
+import { usePublicAchievements } from '@/src/hooks/useAchievements';
+import { useHydratedNow } from '@/src/hooks/useHydratedNow';
+import { usePublicUserActivity } from '@/src/hooks/useUserActivity';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import {
   useFollowUser,
@@ -14,6 +17,13 @@ const mockUseAuthContext = useAuthContext as jest.MockedFunction<typeof useAuthC
 const mockUsePublicProfile = usePublicProfile as jest.MockedFunction<typeof usePublicProfile>;
 const mockUseFollowUser = useFollowUser as jest.MockedFunction<typeof useFollowUser>;
 const mockUseUnfollowUser = useUnfollowUser as jest.MockedFunction<typeof useUnfollowUser>;
+const mockUsePublicAchievements = usePublicAchievements as jest.MockedFunction<
+  typeof usePublicAchievements
+>;
+const mockUsePublicUserActivity = usePublicUserActivity as jest.MockedFunction<
+  typeof usePublicUserActivity
+>;
+const mockUseHydratedNow = useHydratedNow as jest.MockedFunction<typeof useHydratedNow>;
 let mockRouteHandle = '@Target_User';
 
 jest.mock('expo-router', () => ({
@@ -25,6 +35,7 @@ jest.mock('expo-router', () => ({
     },
   },
   useLocalSearchParams: () => ({ handle: mockRouteHandle }),
+  usePathname: () => '/user/[handle]',
   router: {
     push: jest.fn(),
   },
@@ -40,6 +51,18 @@ jest.mock('@/src/hooks/useUserProfile', () => ({
   usePublicProfile: jest.fn(),
   useFollowUser: jest.fn(),
   useUnfollowUser: jest.fn(),
+}));
+
+jest.mock('@/src/hooks/useAchievements', () => ({
+  usePublicAchievements: jest.fn(),
+}));
+
+jest.mock('@/src/hooks/useUserActivity', () => ({
+  usePublicUserActivity: jest.fn(),
+}));
+
+jest.mock('@/src/hooks/useHydratedNow', () => ({
+  useHydratedNow: jest.fn(),
 }));
 
 jest.mock('@/src/components', () => ({
@@ -87,6 +110,39 @@ jest.mock('@/src/components/ui/Icon', () => ({
     const ReactNative = require('react-native');
     return <ReactNative.Text>{name}</ReactNative.Text>;
   },
+}));
+
+jest.mock('@/src/components/ui/UserAvatar', () => ({
+  UserAvatar: ({
+    displayName,
+    username,
+  }: {
+    displayName: string;
+    username: string;
+  }) => {
+    const ReactNative = require('react-native');
+    return (
+      <ReactNative.Text testID="public-profile-avatar">
+        {displayName}:{username}
+      </ReactNative.Text>
+    );
+  },
+}));
+
+jest.mock('@/src/components/ui/AchievementBadge', () => ({
+  AchievementBadge: ({
+    achievement,
+  }: {
+    achievement: { name: string };
+  }) => {
+    const ReactNative = require('react-native');
+    return <ReactNative.Text>{achievement.name}</ReactNative.Text>;
+  },
+}));
+
+jest.mock('@/src/utils/property-route', () => ({
+  buildPropertyRoute: jest.fn(() => '/property/test'),
+  toInternalAppHref: jest.fn((href: string) => href),
 }));
 
 function seedViewer() {
@@ -155,6 +211,7 @@ describe('PublicProfileScreen', () => {
         },
         guessCount: 2,
         commentCount: 3,
+        averageAccuracy: 88.4,
         joinedAt: '2026-01-01T00:00:00.000Z',
         followerCount: 4,
         followingCount: 5,
@@ -171,6 +228,60 @@ describe('PublicProfileScreen', () => {
       mutateAsync: unfollowMutateAsync,
       isPending: false,
     } as unknown as ReturnType<typeof useUnfollowUser>);
+    mockUsePublicAchievements.mockReturnValue({
+      data: {
+        earned: [
+          {
+            key: 'first_guess',
+            name: 'First Guess',
+            description: 'Submit your first price guess',
+            icon: 'Target',
+            category: 'guessing',
+            awardedAt: '2026-01-02T00:00:00.000Z',
+          },
+        ],
+      },
+    } as unknown as ReturnType<typeof usePublicAchievements>);
+    mockUsePublicUserActivity.mockReturnValue({
+      data: {
+        pages: [
+          {
+            items: [
+              {
+                id: 'activity-1',
+                eventType: 'price_guess',
+                actor: {
+                  id: 'target-user',
+                  displayName: 'Target User',
+                  handle: 'target_user',
+                  profilePhotoUrl: null,
+                },
+                property: {
+                  id: 'property-1',
+                  address: 'Main Street 1',
+                  streetName: 'Main Street',
+                  houseNumber: 1,
+                  houseNumberAddition: null,
+                  city: 'Eindhoven',
+                  postalCode: '5611AA',
+                  countryCode: 'NL',
+                  geometry: null,
+                  thumbnailUrl: null,
+                },
+                createdAt: '2026-01-02T10:00:00.000Z',
+                meta: null,
+              },
+            ],
+            pagination: {
+              limit: 20,
+              offset: 0,
+              hasMore: false,
+            },
+          },
+        ],
+      },
+    } as unknown as ReturnType<typeof usePublicUserActivity>);
+    mockUseHydratedNow.mockReturnValue(new Date('2026-01-02T12:00:00.000Z').getTime());
     (
       globalThis as typeof globalThis & {
         __HUISHYPE_ANALYTICS_EVENTS__?: unknown[];
@@ -186,17 +297,40 @@ describe('PublicProfileScreen', () => {
     ).__HUISHYPE_ANALYTICS_EVENTS__;
   });
 
-  it('keeps other-user counts as static labels and emits follow button analytics', async () => {
-    const { getByTestId, getByText, queryByTestId } = render(<PublicProfileScreen />);
+  it('renders the shared public reputation surface and emits follow button analytics', async () => {
+    const { getAllByText, getByTestId, getByText, queryByTestId } = render(
+      <PublicProfileScreen />
+    );
 
     expect(mockUsePublicProfile).toHaveBeenCalledWith('target_user');
+    expect(mockUsePublicAchievements).toHaveBeenCalledWith('target-user');
+    expect(mockUsePublicUserActivity).toHaveBeenCalledWith('target-user');
 
-    expect(getByText('4')).toBeTruthy();
-    expect(getByText('Followers')).toBeTruthy();
+    expect(getByTestId('public-profile-avatar')).toHaveTextContent('Target User:target_user');
+    expect(getAllByText('Target User').length).toBeGreaterThan(0);
+    expect(getByText('@target_user')).toBeTruthy();
     expect(getByText('5')).toBeTruthy();
     expect(getByText('Following')).toBeTruthy();
+    expect(getByText('4')).toBeTruthy();
+    expect(getByText('Followers')).toBeTruthy();
+    expect(getByText('3')).toBeTruthy();
+    expect(getByText('Comments')).toBeTruthy();
+    expect(getByText('2')).toBeTruthy();
+    expect(getByText('GUESSES')).toBeTruthy();
+    expect(getByText('10')).toBeTruthy();
+    expect(getByText('KARMA')).toBeTruthy();
+    expect(getByText('88%')).toBeTruthy();
+    expect(getByText('ACCURACY')).toBeTruthy();
+    expect(getByText('First Guess')).toBeTruthy();
+    expect(getByText(/Guessed on/)).toBeTruthy();
+    expect(getByText(/Main Street 1/)).toBeTruthy();
     expect(queryByTestId('profile-followers-link')).toBeNull();
     expect(queryByTestId('profile-following-link')).toBeNull();
+    expect(queryByTestId('profile-settings')).toBeNull();
+    expect(queryByTestId('profile-notifications')).toBeNull();
+    expect(queryByTestId('profile-avatar-edit')).toBeNull();
+    expect(queryByTestId('profile-display-name-edit')).toBeNull();
+    expect(queryByTestId('profile-handle-edit')).toBeNull();
 
     fireEvent.press(getByTestId('public-profile-follow-button'));
 

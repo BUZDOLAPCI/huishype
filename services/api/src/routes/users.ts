@@ -149,16 +149,39 @@ async function getPublicProfilePayload(userId: string, viewerId: string | null) 
     return null;
   }
 
-  const [guessCountResult, commentCountResult, relationshipPayload] = await Promise.all([
+  const [guessCountResult, commentCountResult, averageAccuracyResult, relationshipPayload] = await Promise.all([
     db.select({ value: count() }).from(priceGuesses).where(eq(priceGuesses.userId, userId)),
     db
       .select({ value: count() })
       .from(comments)
       .where(sql`${comments.userId} = ${userId} AND ${comments.hiddenAt} IS NULL`),
+    db.execute<{ average_accuracy: number | null }>(sql`
+      SELECT AVG(
+        GREATEST(
+          0,
+          100 - (
+            ABS(pg.guessed_price - ph.price)::numeric
+            / NULLIF(ph.price, 0)
+          ) * 100
+        )
+      )::float8 AS average_accuracy
+      FROM price_guesses pg
+      INNER JOIN LATERAL (
+        SELECT sold.price
+        FROM price_history sold
+        WHERE sold.property_id = pg.property_id
+          AND sold.event_type = 'sold'
+        ORDER BY sold.price_date DESC, sold.created_at DESC
+        LIMIT 1
+      ) ph ON true
+      WHERE pg.user_id = ${userId}
+        AND pg.is_meme_guess = false
+    `),
     getFollowRelationshipPayload(userId, viewerId),
   ]);
 
   const rank = getKarmaRank(user.karma);
+  const averageAccuracy = Array.from(averageAccuracyResult)[0]?.average_accuracy ?? null;
 
   return {
     id: user.id,
@@ -170,6 +193,8 @@ async function getPublicProfilePayload(userId: string, viewerId: string | null) 
     karmaRank: rank,
     guessCount: Number(guessCountResult[0].value),
     commentCount: Number(commentCountResult[0].value),
+    averageAccuracy:
+      averageAccuracy != null ? Math.max(0, Math.min(100, Number(averageAccuracy))) : null,
     joinedAt: user.createdAt.toISOString(),
     followerCount: relationshipPayload.followerCount,
     followingCount: relationshipPayload.followingCount,
@@ -209,6 +234,7 @@ const publicProfileSchema = z.object({
   karmaRank: karmaRankSchema,
   guessCount: z.number(),
   commentCount: z.number(),
+  averageAccuracy: z.number().nullable(),
   joinedAt: z.string().datetime(),
   followerCount: z.number(),
   followingCount: z.number(),

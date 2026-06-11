@@ -185,6 +185,7 @@ function buildPublicProfile(userId: string, viewerId: string | null) {
     karmaRank: mapKarmaRank(profile.karmaRank),
     guessCount,
     commentCount,
+    averageAccuracy: profile.averageAccuracy ?? null,
     joinedAt: profile.createdAt,
     followerCount: getFollowerCount(profile.id),
     followingCount: getFollowingCount(profile.id),

@@ -36,6 +36,10 @@ const achievementsResponseSchema = z.object({
   totalAvailable: z.number(),
 });
 
+const publicAchievementsResponseSchema = z.object({
+  earned: z.array(earnedAchievementSchema),
+});
+
 const errorResponseSchema = z.object({
   error: z.string(),
   message: z.string(),
@@ -113,6 +117,41 @@ export async function achievementRoutes(fastify: FastifyInstance) {
           category: a.category,
         })),
       };
+    }
+  );
+
+  app.get(
+    '/users/:id/achievements',
+    {
+      schema: {
+        tags: ['achievements'],
+        summary: 'Get public user achievements',
+        description: 'Returns earned achievements for a public user profile.',
+        params: z.object({
+          id: z.string().uuid(),
+        }),
+        response: {
+          200: publicAchievementsResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, id),
+        columns: { id: true },
+      });
+
+      if (!user) {
+        return reply.status(404).send({
+          error: 'USER_NOT_FOUND',
+          message: 'User not found',
+        });
+      }
+
+      const { earned } = await getUserAchievements(id);
+      return { earned };
     }
   );
 }

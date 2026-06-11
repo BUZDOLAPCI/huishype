@@ -8,6 +8,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { eq } from 'drizzle-orm';
+import { db } from '../db/index.js';
+import { users } from '../db/schema.js';
 import { fetchActivityFeed } from '../services/activity-feed.js';
 import { fetchGroupedPropertyActivityFeed } from '../services/grouped-property-activity-feed.js';
 import { parsePropertyMarketFiltersQuery } from '../services/map-filters.js';
@@ -250,6 +253,60 @@ export async function activityRoutes(fastify: FastifyInstance) {
         limit,
         offset,
       });
+    }
+  );
+
+  app.get(
+    '/users/:id/activity',
+    {
+      onRequest: [fastify.optionalAuth],
+      schema: {
+        tags: ['activity'],
+        summary: 'Get public user activity history',
+        description:
+          'Returns newest-first public activity items for one user. Private save events and hidden comments are excluded.',
+        params: z.object({
+          id: z.string().uuid(),
+        }),
+        querystring: selfActivityQuerySchema,
+        response: {
+          200: publicActivityResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { limit, offset } = request.query;
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, id),
+        columns: { id: true },
+      });
+
+      if (!user) {
+        return reply.status(404).send({
+          error: 'USER_NOT_FOUND',
+          message: 'User not found',
+        });
+      }
+
+      reply.header('Cache-Control', applyActivityCacheHeader('public', request.userId ?? null));
+
+      const feed = await fetchActivityFeed({
+        scope: 'public',
+        viewerId: request.userId ?? null,
+        targetUserId: id,
+        limit,
+        offset,
+      });
+
+      return {
+        ...feed,
+        items: feed.items.map((item) => ({
+          ...item,
+          eventType: item.eventType as (typeof publicActivityEventTypes)[number],
+        })),
+      };
     }
   );
 }

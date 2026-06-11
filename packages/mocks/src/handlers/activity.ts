@@ -380,6 +380,26 @@ export const activityHandlers = [
     return HttpResponse.json(sliceActivity(items, limit, offset));
   }),
 
+  http.get('*/users/:userId/activity', ({ params, request }) => {
+    const userId = String(params.userId);
+    if (!getMockUser(userId)) {
+      return HttpResponse.json(
+        { error: 'USER_NOT_FOUND', message: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+    const items = getScopedActivityEvents('public', null).filter(
+      (event): event is MockActivityEvent & { eventType: PublicActivityEventType } =>
+        event.actorUserId === userId && event.eventType !== 'save'
+    );
+
+    return HttpResponse.json(sliceActivity(items, limit, offset));
+  }),
+
   http.get('*/activity', ({ request }) => {
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') ?? 'public') as 'public' | 'following';

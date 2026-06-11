@@ -71,6 +71,12 @@ type GroupedPropertyActivityResponseFromOpenApi =
 type MyActivityQuery = NonNullable<paths['/users/me/activity']['get']['parameters']['query']>;
 type MyActivityResponse =
   paths['/users/me/activity']['get']['responses'][200]['content']['application/json'];
+type PublicUserActivityQuery =
+  NonNullable<paths['/users/{id}/activity']['get']['parameters']['query']>;
+type PublicUserActivityResponse =
+  paths['/users/{id}/activity']['get']['responses'][200]['content']['application/json'];
+type PublicUserAchievementsResponse =
+  paths['/users/{id}/achievements']['get']['responses'][200]['content']['application/json'];
 type NotificationsQuery = NonNullable<paths['/notifications']['get']['parameters']['query']>;
 type NotificationsResponse =
   paths['/notifications']['get']['responses'][200]['content']['application/json'];
@@ -684,7 +690,7 @@ export class HuisHypeApiClient {
   }
 
   // ============================================
-  // Activity Endpoints  (paths: /activity, /users/me/activity)
+  // Activity Endpoints  (paths: /activity, /users/me/activity, /users/:id/activity)
   // ============================================
 
   async getActivity(params: ActivityQuery = {}): Promise<ActivityResponse> {
@@ -724,6 +730,19 @@ export class HuisHypeApiClient {
       query: { limit: params.limit, offset: params.offset },
       requiresAuth: true,
     });
+  }
+
+  async getPublicUserActivity(
+    userId: string,
+    params: PublicUserActivityQuery = {},
+  ): Promise<PublicUserActivityResponse> {
+    return this.request<PublicUserActivityResponse>('GET', `/users/${userId}/activity`, {
+      query: { limit: params.limit, offset: params.offset },
+    });
+  }
+
+  async getPublicUserAchievements(userId: string): Promise<PublicUserAchievementsResponse> {
+    return this.request<PublicUserAchievementsResponse>('GET', `/users/${userId}/achievements`);
   }
 
   // ============================================

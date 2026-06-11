@@ -1017,6 +1017,7 @@ describe('Mock handler runtime parity', () => {
     expect(publicProfileBody.relationship).toBe('none');
     expect(publicProfileBody).toHaveProperty('followerCount');
     expect(publicProfileBody).toHaveProperty('followingCount');
+    expect(publicProfileBody).toHaveProperty('averageAccuracy');
 
     const handleProfileResponse = await fetch(
       'http://localhost/users/by-handle/@SOPHIEMEIJER/profile'
@@ -1065,6 +1066,14 @@ describe('Mock handler runtime parity', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(selfFollowResponse.status).toBe(400);
+
+    const achievementsResponse = await fetch(
+      `http://localhost/users/${mockUserIds.sophie}/achievements`
+    );
+    const achievementsBody = await achievementsResponse.json();
+    expect(achievementsResponse.status).toBe(200);
+    expect(Array.isArray(achievementsBody.earned)).toBe(true);
+    expect(achievementsBody).not.toHaveProperty('available');
   });
 
   it('matches user search validation, ranking, and viewer-aware payload shape', async () => {
@@ -1370,6 +1379,31 @@ describe('Mock handler runtime parity', () => {
     expect(publicBody.items[0].property).toHaveProperty('postalCode');
     expect(publicBody.items[0].property).toHaveProperty('countryCode');
     expect(publicBody.items[0].property).toHaveProperty('geometry');
+
+    const publicUserActivityResponse = await fetch(
+      `http://localhost/users/${mockUserIds.lars}/activity?limit=1`
+    );
+    const publicUserActivityBody = await publicUserActivityResponse.json();
+    expect(publicUserActivityResponse.status).toBe(200);
+    expect(publicUserActivityBody.items).toHaveLength(1);
+    expect(
+      publicUserActivityBody.items.every(
+        (item: { actor: { id: string }; eventType: string }) =>
+          item.actor.id === mockUserIds.lars && item.eventType !== 'save'
+      )
+    ).toBe(true);
+    expect(publicUserActivityBody.pagination).toEqual(
+      expect.objectContaining({
+        limit: 1,
+        offset: 0,
+        hasMore: expect.any(Boolean),
+      })
+    );
+
+    const missingUserActivityResponse = await fetch(
+      'http://localhost/users/a0000000-0000-4000-a000-000000000099/activity'
+    );
+    expect(missingUserActivityResponse.status).toBe(404);
 
     const unauthorizedFollowingResponse = await fetch('http://localhost/activity?scope=following');
     expect(unauthorizedFollowingResponse.status).toBe(401);

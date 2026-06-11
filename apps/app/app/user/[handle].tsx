@@ -1,12 +1,21 @@
 import React from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { Alert, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Stack, useLocalSearchParams, usePathname } from 'expo-router';
 
 import { AuthModal } from '@/src/components';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
+import { usePublicAchievements } from '@/src/hooks/useAchievements';
+import { useHydratedNow } from '@/src/hooks/useHydratedNow';
+import { usePublicUserActivity } from '@/src/hooks/useUserActivity';
 import { useAuthContext } from '@/src/providers/AuthProvider';
+import {
+  ProfilePublicIdentity,
+  ProfileReputationSections,
+  ProfileSocialStatsRow,
+  type ProfileAchievementItem,
+} from '@/src/screens/profile/ProfileSurface';
 import {
   emitSocialFollowAnalyticsEvent,
   useFollowUser,
@@ -14,30 +23,61 @@ import {
   useUnfollowUser,
 } from '@/src/hooks/useUserProfile';
 import { useT } from '@/src/i18n';
-import { parseUserProfileRouteParam } from '@/src/utils/user-route';
+import { normalizeUserProfileHandle, parseUserProfileRouteParam } from '@/src/utils/user-route';
 
-function StatItem({ label, value, iconName }: { label: string; value: number; iconName: 'Crosshair' | 'ChatCircle' }) {
-  return (
-    <View className="items-center flex-1">
-      <Icon name={iconName} size="md" color="#9C958A" />
-      <Text className="text-lg font-bold text-warm-900 mt-1">{value}</Text>
-      <Text className="text-xs text-warm-500">{label}</Text>
-    </View>
-  );
-}
+import type { AchievementDefinition } from '@huishype/shared';
 
 export default function PublicProfileScreen() {
   const t = useT();
   const { isAuthenticated, user } = useAuthContext();
   const { handle } = useLocalSearchParams<{ handle: string }>();
-  const normalizedHandle = parseUserProfileRouteParam(handle ?? null);
+  const pathname = usePathname();
+  const browserPathname =
+    Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.pathname : null;
+  const browserSearchHandle =
+    Platform.OS === 'web' && typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('handle')
+      : null;
+  const pathHandle = React.useMemo(() => {
+    const routePathname = pathname?.includes('[handle]') ? null : pathname;
+    const match = (routePathname ?? browserPathname)?.match(/\/user\/([^/?#]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }, [browserPathname, pathname]);
+  const normalizedHandle =
+    parseUserProfileRouteParam(handle ?? null) ??
+    parseUserProfileRouteParam(pathHandle) ??
+    normalizeUserProfileHandle(pathHandle) ??
+    parseUserProfileRouteParam(browserSearchHandle) ??
+    normalizeUserProfileHandle(browserSearchHandle);
   const [showAuth, setShowAuth] = React.useState(false);
   const { data: profile, isLoading, isError } = usePublicProfile(normalizedHandle);
+  const { data: achievementsData } = usePublicAchievements(profile?.id);
+  const { data: activityData } = usePublicUserActivity(profile?.id);
   const followMutation = useFollowUser();
   const unfollowMutation = useUnfollowUser();
+  const hydratedNow = useHydratedNow();
   const isOwnProfile = profile?.id != null && profile.id === user?.id;
   const isFollowing = profile?.relationship === 'following' || profile?.relationship === 'mutual';
   const isFollowPending = followMutation.isPending || unfollowMutation.isPending;
+
+  const recentActivities = React.useMemo(() => {
+    if (!activityData?.pages) return [];
+    return activityData.pages.flatMap((page) => page.items).slice(0, 5);
+  }, [activityData]);
+
+  const earnedAchievements = React.useMemo<ProfileAchievementItem[]>(() => {
+    if (!achievementsData) return [];
+    return achievementsData.earned.map((achievement) => ({
+      definition: {
+        key: achievement.key,
+        name: achievement.name,
+        description: achievement.description,
+        icon: achievement.icon,
+        category: achievement.category,
+      } as AchievementDefinition,
+      awardedAt: achievement.awardedAt,
+    }));
+  }, [achievementsData]);
 
   React.useEffect(() => {
     if (!profile || isOwnProfile) {
@@ -97,7 +137,9 @@ export default function PublicProfileScreen() {
     return (
       <>
         <Stack.Screen options={{ title: t('profile.header') }} />
-        <ScreenBackground style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+        <ScreenBackground
+          style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}
+        >
           <Icon name="WarningCircle" size={48} color="#C7BFB3" />
           <Text className="text-lg font-semibold text-warm-900 mt-4">
             {t('profile.public.notFound')}
@@ -110,64 +152,58 @@ export default function PublicProfileScreen() {
   return (
     <>
       <Stack.Screen options={{ title: profile.displayName }} />
-      <ScreenBackground>
-        <ScrollView className="flex-1" testID="public-profile-screen">
-          {/* Profile Header */}
-          <View className="bg-surface-card px-6 py-6 items-center border-b border-warm-100">
-            <View className="w-20 h-20 rounded-full bg-primary-100 items-center justify-center mb-3">
-              <Icon name="User" size={32} color="#DE911D" />
-            </View>
-
-            <Text className="text-xl font-bold text-warm-900 mb-1">{profile.displayName}</Text>
-            <Text className="text-sm text-warm-400 mb-2">@{profile.handle}</Text>
-
-            <Text className="text-sm text-warm-500 mt-2">
-              {t('profile.public.karma', { count: profile.karma })}
-            </Text>
-            {!isOwnProfile ? (
-              <Button
-                label={isFollowing ? t('profile.public.following') : t('common.follow')}
-                onPress={() => void handleFollowPress()}
-                variant={isFollowing ? 'secondary' : 'primary'}
-                disabled={isFollowPending}
-                style={{ alignSelf: 'stretch', marginTop: 16 }}
-                testID="public-profile-follow-button"
-              />
-            ) : (
-              <Text className="text-xs text-warm-500 mt-4">
-                {t('profile.public.ownProfile')}
-              </Text>
-            )}
+      <ScreenBackground style={styles.screen}>
+        <ScrollView style={styles.contentFrame} className="flex-1" testID="public-profile-screen">
+          <View style={styles.profileHeader}>
+            <ProfilePublicIdentity
+              profile={profile}
+              action={
+                !isOwnProfile ? (
+                  <Button
+                    label={isFollowing ? t('profile.public.following') : t('common.follow')}
+                    onPress={() => void handleFollowPress()}
+                    variant={isFollowing ? 'secondary' : 'primary'}
+                    disabled={isFollowPending}
+                    style={{ alignSelf: 'stretch' }}
+                    testID="public-profile-follow-button"
+                  />
+                ) : (
+                  <Text style={styles.ownProfileText}>{t('profile.public.ownProfile')}</Text>
+                )
+              }
+            />
+            <ProfileSocialStatsRow
+              stats={[
+                {
+                  key: 'following',
+                  label: t('common.following'),
+                  value: profile.followingCount,
+                  testID: 'public-profile-following-stat',
+                },
+                {
+                  key: 'followers',
+                  label: t('common.followers'),
+                  value: profile.followerCount,
+                  testID: 'public-profile-followers-stat',
+                },
+                {
+                  key: 'comments',
+                  label: t('common.comments'),
+                  value: profile.commentCount,
+                  testID: 'public-profile-comments-stat',
+                },
+              ]}
+            />
           </View>
-
-          {/* Stats */}
-          <View className="bg-surface-card mt-2 px-6 py-5 flex-row border-b border-warm-100">
-            <StatItem label={t('common.guesses')} value={profile.guessCount} iconName="Crosshair" />
-            <StatItem label={t('common.comments')} value={profile.commentCount} iconName="ChatCircle" />
-          </View>
-
-          <View className="bg-surface-card mt-2 px-6 py-4 flex-row justify-between border-b border-warm-100">
-            <View className="items-center flex-1">
-              <Text className="text-lg font-bold text-warm-900">{profile.followerCount}</Text>
-              <Text className="text-xs text-warm-500">{t('common.followers')}</Text>
-            </View>
-            <View className="items-center flex-1">
-              <Text className="text-lg font-bold text-warm-900">{profile.followingCount}</Text>
-              <Text className="text-xs text-warm-500">{t('common.following')}</Text>
-            </View>
-          </View>
-
-          {/* Member since */}
-          <View className="bg-surface-card mt-2 px-6 py-4">
-            <Text className="text-sm text-warm-500">
-              {t('profile.public.memberSince', {
-                date: new Date(profile.joinedAt).toLocaleDateString(undefined, {
-                  month: 'long',
-                  year: 'numeric',
-                }),
-              })}
-            </Text>
-          </View>
+          <ProfileReputationSections
+            guessCount={profile.guessCount}
+            karma={profile.karma}
+            averageAccuracy={profile.averageAccuracy}
+            earnedAchievements={earnedAchievements}
+            recentActivities={recentActivities}
+            nowMs={hydratedNow}
+            bottomSpacer={24}
+          />
         </ScrollView>
       </ScreenBackground>
       <AuthModal
@@ -179,3 +215,26 @@ export default function PublicProfileScreen() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    alignItems: 'center',
+  },
+  contentFrame: {
+    width: '100%',
+    maxWidth: 768,
+    flex: 1,
+  },
+  profileHeader: {
+    marginTop: 0,
+    paddingTop: 24,
+    paddingBottom: 20,
+    alignItems: 'center',
+    overflow: 'visible',
+  },
+  ownProfileText: {
+    fontSize: 12,
+    color: '#857D72',
+    textAlign: 'center',
+  },
+});

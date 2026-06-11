@@ -76,6 +76,7 @@ export interface PublicUserProfile {
   karmaRank: KarmaRankSummary;
   guessCount: number;
   commentCount: number;
+  averageAccuracy: number | null;
   joinedAt: string;
   followerCount: number;
   followingCount: number;
