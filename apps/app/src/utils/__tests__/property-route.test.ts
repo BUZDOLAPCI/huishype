@@ -108,6 +108,7 @@ describe('property-route', () => {
     expect(isStaticAppRoutePath('/showcase/consensus-alignment')).toBe(true);
     expect(isStaticAppRoutePath('/notifications')).toBe(true);
     expect(isStaticAppRoutePath('/leaderboard')).toBe(true);
+    expect(isStaticAppRoutePath('/settings/privacy')).toBe(true);
     expect(isStaticAppRoutePath('/eindhoven/5600aa/nieuwe-emmasingel/12-b')).toBe(false);
     expect(isStaticAppRoutePath('/map/eindhoven/5600aa/nieuwe-emmasingel/12-b')).toBe(false);
     expect(isStaticAppRoutePath('/@51.4416,5.4697,14z')).toBe(false);

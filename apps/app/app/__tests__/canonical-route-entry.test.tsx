@@ -17,6 +17,7 @@ const mockUseResolvedMapRoute = jest.fn();
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockParams,
   usePathname: () => mockPathname,
+  Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   Stack: {
     Screen: () => null,
   },
@@ -154,6 +155,28 @@ describe('canonical route entry', () => {
       expect(mockReplace).toHaveBeenCalledWith('/');
     });
   });
+
+  it.each(['/privacy', '/help', '/contact', '/glossary'])(
+    'renders not-found for removed root support route %s',
+    async (pathname) => {
+      mockPathname = pathname;
+      mockUseResolvedMapRoute.mockReturnValue({
+        pathname: mockPathname,
+        isLoading: false,
+        resolvedRoute: {
+          kind: 'invalid',
+          canonicalPath: '/',
+          reason: 'unsupported-route-shape',
+        },
+      });
+
+      const screen = render(<CanonicalAddressRouteScreen />);
+
+      expect(screen.getByText("This screen doesn't exist.")).toBeTruthy();
+      expect(mockReplace).not.toHaveBeenCalled();
+      expect(mockReplacePassiveBrowserPath).not.toHaveBeenCalled();
+    },
+  );
 
   it('renders web map routes for map-scoped comments overlays', async () => {
     Platform.OS = 'web';

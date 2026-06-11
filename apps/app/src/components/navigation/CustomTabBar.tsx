@@ -98,22 +98,6 @@ const MAP_ROUTE_NAMES = new Set([
   'map/[country]/[city]/[postcode]/[street]/[house]',
 ]);
 
-const PROFILE_ROUTE_NAMES = new Set([
-  'profile',
-  'settings',
-  'terms',
-  'privacy',
-  'cookies',
-  'data-privacy',
-  'sharing-permissions',
-  'contact',
-  'help/index',
-  'help/category/[slug]',
-  'help/article/[slug]',
-  'glossary/index',
-  'glossary/[slug]',
-]);
-
 /** Palette derived from the selected pen frame. */
 const COLORS = {
   warmDivider: '#E8E0D4',
@@ -132,7 +116,6 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
 
   const activeRoute = state.routes[state.index];
   const isMapRouteActive = !!activeRoute?.name && MAP_ROUTE_NAMES.has(activeRoute.name);
-  const isProfileRouteActive = !!activeRoute?.name && PROFILE_ROUTE_NAMES.has(activeRoute.name);
   const isMapTab = isMapRouteActive;
   const extraBottomInset = Math.max(insets.bottom - TAB_BAR_DOCK_BOTTOM_PADDING, 0);
 
@@ -144,8 +127,7 @@ export function CustomTabBar({ state, descriptors: _descriptors, navigation }: T
     const routeIndex = state.routes.indexOf(route);
     const isRouteFocused =
       state.index === routeIndex || (route.name === 'index' && isMapRouteActive);
-    const isFocused =
-      isRouteFocused || (route.name === 'profile' && isProfileRouteActive);
+    const isFocused = isRouteFocused;
     const iconName = TAB_ICONS[route.name] ?? 'HouseLine';
     const labelKey = TAB_LABEL_KEYS[route.name];
     const label = labelKey ? t(labelKey) : route.name;

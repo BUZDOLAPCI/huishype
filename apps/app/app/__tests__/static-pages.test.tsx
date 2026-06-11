@@ -1,11 +1,11 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 
-import GlossaryScreen from '../(tabs)/glossary/index';
-import GlossaryTermScreen from '../(tabs)/glossary/[slug]';
-import HelpArticleScreen from '../(tabs)/help/article/[slug]';
-import HelpCategoryScreen from '../(tabs)/help/category/[slug]';
-import HelpScreen from '../(tabs)/help/index';
+import GlossaryScreen from '../settings/glossary/index';
+import GlossaryTermScreen from '../settings/glossary/[slug]';
+import HelpArticleScreen from '../settings/help/article/[slug]';
+import HelpCategoryScreen from '../settings/help/category/[slug]';
+import HelpScreen from '../settings/help/index';
 
 const mockUseLocalSearchParams = jest.fn(() => ({}));
 const mockUseLanguage = jest.fn(() => ({
@@ -16,6 +16,8 @@ const mockUseLanguage = jest.fn(() => ({
 
 jest.mock('expo-router', () => ({
   router: {
+    back: jest.fn(),
+    canGoBack: jest.fn(() => true),
     push: jest.fn(),
     replace: jest.fn(),
   },
@@ -37,6 +39,10 @@ const getRouterPush = () =>
   (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
 const getRouterReplace = () =>
   (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
+const getRouterBack = () =>
+  (jest.requireMock('expo-router') as { router: { back: jest.Mock } }).router.back;
+const getRouterCanGoBack = () =>
+  (jest.requireMock('expo-router') as { router: { canGoBack: jest.Mock } }).router.canGoBack;
 
 describe('static help and glossary pages', () => {
   beforeEach(() => {
@@ -57,13 +63,13 @@ describe('static help and glossary pages', () => {
     expect(getByText(/Find help for browsing homes/i)).toBeTruthy();
 
     fireEvent.press(getByTestId('help-category-basics'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/help/category/basics');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/help/category/basics');
 
     fireEvent.press(getByTestId('help-article-price-guesses'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/help/article/price-guesses');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/help/article/price-guesses');
 
     fireEvent.press(getByTestId('help-glossary-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/glossary');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/glossary');
   });
 
   it('renders a help category and article from dynamic slugs', () => {
@@ -91,7 +97,7 @@ describe('static help and glossary pages', () => {
     expect(glossary.getAllByText('Glossary').length).toBeGreaterThan(0);
 
     fireEvent.press(glossary.getByTestId('glossary-term-asking-price'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/glossary/asking-price');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/glossary/asking-price');
 
     mockUseLocalSearchParams.mockReturnValue({ slug: 'woz-value' });
 
@@ -140,11 +146,56 @@ describe('static help and glossary pages', () => {
     expect(term.getByText('WOZ-waarde')).toBeTruthy();
   });
 
-  it('returns from static pages through replace navigation', () => {
+  it('returns from static pages through normal back navigation', () => {
     const { getByTestId } = render(<HelpScreen />);
 
     fireEvent.press(getByTestId('static-page-back'));
 
-    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
+    expect(getRouterBack()).toHaveBeenCalledTimes(1);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
+  });
+
+  it('returns from nested help and glossary pages to their parent settings routes', () => {
+    mockUseLocalSearchParams.mockReturnValue({ slug: 'prices-and-valuations' });
+
+    const category = render(<HelpCategoryScreen />);
+
+    fireEvent.press(category.getByTestId('static-page-back'));
+    expect(getRouterBack()).toHaveBeenCalledTimes(1);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/help');
+
+    mockUseLocalSearchParams.mockReturnValue({ slug: 'price-guesses' });
+
+    const article = render(<HelpArticleScreen />);
+
+    fireEvent.press(article.getByTestId('static-page-back'));
+    expect(getRouterBack()).toHaveBeenCalledTimes(2);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/help');
+
+    const glossary = render(<GlossaryScreen />);
+
+    fireEvent.press(glossary.getByTestId('static-page-back'));
+    expect(getRouterBack()).toHaveBeenCalledTimes(3);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/help');
+
+    mockUseLocalSearchParams.mockReturnValue({ slug: 'woz-value' });
+
+    const term = render(<GlossaryTermScreen />);
+
+    fireEvent.press(term.getByTestId('static-page-back'));
+    expect(getRouterBack()).toHaveBeenCalledTimes(4);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/glossary');
+  });
+
+  it('uses parent route fallback for direct nested support page entry', () => {
+    getRouterCanGoBack().mockReturnValueOnce(false);
+    mockUseLocalSearchParams.mockReturnValue({ slug: 'woz-value' });
+
+    const term = render(<GlossaryTermScreen />);
+
+    fireEvent.press(term.getByTestId('static-page-back'));
+
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings/glossary');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 });

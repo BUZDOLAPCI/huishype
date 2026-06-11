@@ -9,12 +9,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
-import { PROFILE_TAB_BAR_SPACER } from '@/src/components/navigation/tabBarMetrics';
 import { useLanguage, type LanguageCode } from '@/src/i18n';
+import { goBackOrReplace } from '@/src/utils/goBackOrReplace';
 import { api } from '@/src/utils/api';
 
 type FormStatus =
@@ -121,7 +120,7 @@ export default function ContactScreen() {
   );
 
   const handleBack = useCallback(() => {
-    router.replace('/settings');
+    goBackOrReplace('/settings');
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -208,7 +207,10 @@ export default function ContactScreen() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: PROFILE_TAB_BAR_SPACER + 32 }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: Math.max(insets.bottom, 20) + 32 },
+        ]}
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
       >

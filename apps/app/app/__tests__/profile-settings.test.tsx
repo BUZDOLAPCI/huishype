@@ -1,14 +1,21 @@
 import React from 'react';
 import { Platform } from 'react-native';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
-import ProfileSettingsScreen from '../(tabs)/settings';
+import ProfileSettingsScreen from '../settings/index';
+import {
+  SettingsLanguageScreen,
+  SettingsLegalScreen,
+  SettingsOpenSourceLicensesScreen,
+} from '@/src/screens/settings/SettingsScreens';
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from '@/src/i18n';
 import { ANALYTICS_CONSENT_STORAGE_KEY } from '@/src/lib/analytics';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 
 jest.mock('expo-router', () => ({
   router: {
+    back: jest.fn(),
+    canGoBack: jest.fn(() => true),
     push: jest.fn(),
     replace: jest.fn(),
   },
@@ -41,6 +48,10 @@ const getRouterReplace = () =>
   (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
 const getRouterPush = () =>
   (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
+const getRouterBack = () =>
+  (jest.requireMock('expo-router') as { router: { back: jest.Mock } }).router.back;
+const getRouterCanGoBack = () =>
+  (jest.requireMock('expo-router') as { router: { canGoBack: jest.Mock } }).router.canGoBack;
 
 function mockAuthContext(user: { id: string; email?: string; profilePhotoUrl?: string | null } | null) {
   mockUseAuthContext.mockReturnValue({
@@ -73,12 +84,16 @@ function mockAuthContext(user: { id: string; email?: string; profilePhotoUrl?: s
   });
 }
 
-function renderSettings() {
+function renderWithLanguageProvider(ui: React.ReactElement) {
   return render(
     <LanguageProvider>
-      <ProfileSettingsScreen />
+      {ui}
     </LanguageProvider>
   );
+}
+
+function renderSettings() {
+  return renderWithLanguageProvider(<ProfileSettingsScreen />);
 }
 
 describe('ProfileSettingsScreen', () => {
@@ -143,12 +158,28 @@ describe('ProfileSettingsScreen', () => {
     });
   });
 
-  it('opens the legal submenu, navigates legal rows, and backs to main settings', async () => {
+  it('navigates main settings rows to canonical settings routes', () => {
     mockAuthContext(null);
 
-    const { getByTestId, getByText, queryByTestId } = renderSettings();
+    const { getByTestId } = renderSettings();
+
+    fireEvent.press(getByTestId('settings-language-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/language');
 
     fireEvent.press(getByTestId('settings-legal-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/legal');
+
+    fireEvent.press(getByTestId('settings-help-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/help');
+
+    fireEvent.press(getByTestId('settings-contact-row'));
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/contact');
+  });
+
+  it('renders legal settings directly and navigates legal rows', async () => {
+    mockAuthContext(null);
+
+    const { getByTestId, getByText } = renderWithLanguageProvider(<SettingsLegalScreen />);
 
     expect(getByTestId('settings-legal-submenu')).toBeTruthy();
     expect(getByText('Terms and Conditions')).toBeTruthy();
@@ -159,19 +190,18 @@ describe('ProfileSettingsScreen', () => {
     expect(getByTestId('settings-analytics-status').props.children).toBe('No choice saved');
     expect(getByText('Sharing permissions')).toBeTruthy();
     expect(getByText('Open source licenses')).toBeTruthy();
-    expect(queryByTestId('settings-auth-row')).toBeNull();
 
     fireEvent.press(getByTestId('settings-terms-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/terms');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/terms');
 
     fireEvent.press(getByTestId('settings-privacy-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/privacy');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/privacy');
 
     fireEvent.press(getByTestId('settings-cookies-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/cookies');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/cookies');
 
     fireEvent.press(getByTestId('settings-data-privacy-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/data-privacy');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/data-privacy');
 
     fireEvent.press(getByTestId('settings-analytics-accept'));
     await waitFor(() => {
@@ -179,18 +209,17 @@ describe('ProfileSettingsScreen', () => {
     });
 
     fireEvent.press(getByTestId('settings-sharing-permissions-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/sharing-permissions');
+    expect(getRouterPush()).toHaveBeenCalledWith('/settings/sharing-permissions');
 
     fireEvent.press(getByTestId('profile-settings-back'));
-    expect(getByTestId('settings-auth-row')).toBeTruthy();
+    expect(getRouterBack()).toHaveBeenCalledTimes(1);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
   });
 
   it('changes analytics preferences from the legal submenu', async () => {
     mockAuthContext(null);
 
-    const { getByTestId } = renderSettings();
-
-    fireEvent.press(getByTestId('settings-legal-row'));
+    const { getByTestId } = renderWithLanguageProvider(<SettingsLegalScreen />);
 
     await waitFor(() => {
       expect(getByTestId('settings-analytics-status').props.children).toBe('No choice saved');
@@ -222,15 +251,10 @@ describe('ProfileSettingsScreen', () => {
       getByLabelText,
       getByTestId,
       getByText,
-      queryByTestId,
-    } = renderSettings();
-
-    fireEvent.press(getByTestId('settings-legal-row'));
-    fireEvent.press(getByTestId('settings-open-source-licenses-row'));
+    } = renderWithLanguageProvider(<SettingsOpenSourceLicensesScreen />);
 
     expect(getByText('Open source licenses')).toBeTruthy();
     expect(getByTestId('settings-open-source-licenses-subview')).toBeTruthy();
-    expect(queryByTestId('settings-legal-submenu')).toBeNull();
 
     expect(getByText('OpenStreetMap contributors')).toBeTruthy();
     expect(getByText('Map data - ODbL-1.0')).toBeTruthy();
@@ -262,53 +286,27 @@ describe('ProfileSettingsScreen', () => {
     );
 
     fireEvent.press(getByTestId('profile-settings-back'));
-
-    expect(getByTestId('settings-legal-submenu')).toBeTruthy();
-    expect(getByTestId('settings-open-source-licenses-row')).toBeTruthy();
-    expect(queryByTestId('settings-open-source-licenses-subview')).toBeNull();
+    expect(getRouterBack()).toHaveBeenCalledTimes(1);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/legal');
   });
 
-  it('navigates help center and contact rows', () => {
+  it('uses the profile fallback from the main settings back arrow on direct entry', () => {
     mockAuthContext(null);
-
-    const { getByTestId } = renderSettings();
-
-    fireEvent.press(getByTestId('settings-help-row'));
-    expect(getRouterPush()).toHaveBeenCalledWith('/help');
-
-    fireEvent.press(getByTestId('settings-contact-row'));
-
-    expect(getRouterPush()).toHaveBeenCalledWith('/contact');
-  });
-
-  it('dismisses to the profile tab from the back arrow', () => {
-    mockAuthContext(null);
+    getRouterCanGoBack().mockReturnValueOnce(false);
 
     const { getByTestId } = renderSettings();
 
     fireEvent.press(getByTestId('profile-settings-back'));
 
     expect(getRouterReplace()).toHaveBeenCalledWith('/profile');
-  });
-
-  it('dismisses to the profile tab on browser back', () => {
-    mockAuthContext(null);
-
-    renderSettings();
-
-    act(() => {
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    });
-
-    expect(getRouterReplace()).toHaveBeenCalledWith('/profile');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
   it('selects and persists Dutch from the language subview while signed out', async () => {
     mockAuthContext(null);
 
-    const { getByLabelText, getByTestId, getByText } = renderSettings();
-
-    fireEvent.press(getByTestId('settings-language-row'));
+    const { getByLabelText, getByTestId, getByText } =
+      renderWithLanguageProvider(<SettingsLanguageScreen />);
 
     expect(getByTestId('settings-language-subview')).toBeTruthy();
     expect(getByLabelText('English, selected')).toBeTruthy();
@@ -329,10 +327,8 @@ describe('ProfileSettingsScreen', () => {
     expect(getByText('Taal')).toBeTruthy();
 
     fireEvent.press(getByTestId('profile-settings-back'));
-
-    expect(getByText('Juridisch')).toBeTruthy();
-    expect(getByText('Inloggen')).toBeTruthy();
-    expect(getByTestId('settings-version').props.children).toBe('Versie 0.0.1');
+    expect(getRouterBack()).toHaveBeenCalledTimes(1);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
   });
 
   it('loads the persisted language and translates signed-in account settings', async () => {

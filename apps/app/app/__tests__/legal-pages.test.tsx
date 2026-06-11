@@ -1,11 +1,11 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 
-import CookiesScreen from '../(tabs)/cookies';
-import DataPrivacyScreen from '../(tabs)/data-privacy';
-import TermsScreen from '../(tabs)/terms';
-import PrivacyScreen from '../(tabs)/privacy';
-import SharingPermissionsScreen from '../(tabs)/sharing-permissions';
+import CookiesScreen from '../settings/cookies';
+import DataPrivacyScreen from '../settings/data-privacy';
+import TermsScreen from '../settings/terms';
+import PrivacyScreen from '../settings/privacy';
+import SharingPermissionsScreen from '../settings/sharing-permissions';
 
 const mockUseLanguage = jest.fn(() => ({
   language: 'en',
@@ -15,6 +15,8 @@ const mockUseLanguage = jest.fn(() => ({
 
 jest.mock('expo-router', () => ({
   router: {
+    back: jest.fn(),
+    canGoBack: jest.fn(() => true),
     replace: jest.fn(),
   },
 }));
@@ -32,6 +34,10 @@ jest.mock('@/src/components/ui/Icon', () => ({
 
 const getRouterReplace = () =>
   (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
+const getRouterBack = () =>
+  (jest.requireMock('expo-router') as { router: { back: jest.Mock } }).router.back;
+const getRouterCanGoBack = () =>
+  (jest.requireMock('expo-router') as { router: { canGoBack: jest.Mock } }).router.canGoBack;
 
 describe('Legal pages', () => {
   beforeEach(() => {
@@ -55,7 +61,19 @@ describe('Legal pages', () => {
 
     fireEvent.press(getByTestId('static-page-back'));
 
-    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
+    expect(getRouterBack()).toHaveBeenCalledTimes(1);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/legal');
+  });
+
+  it('uses the legal settings fallback on direct legal page entry', () => {
+    getRouterCanGoBack().mockReturnValueOnce(false);
+
+    const { getByTestId } = render(<TermsScreen />);
+
+    fireEvent.press(getByTestId('static-page-back'));
+
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings/legal');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
   it('renders HuisHype privacy content and EU rights', () => {

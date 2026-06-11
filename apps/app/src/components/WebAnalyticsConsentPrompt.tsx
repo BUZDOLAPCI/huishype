@@ -62,7 +62,7 @@ export function WebAnalyticsConsentPrompt() {
         <View style={styles.links}>
           <Pressable
             accessibilityRole="link"
-            onPress={() => router.push('/privacy')}
+            onPress={() => router.push('/settings/privacy')}
             testID="analytics-consent-privacy-link"
           >
             <Text style={styles.linkText}>{t('profileSettings.legal.privacy')}</Text>
@@ -70,7 +70,7 @@ export function WebAnalyticsConsentPrompt() {
           <Text style={styles.linkSeparator}>/</Text>
           <Pressable
             accessibilityRole="link"
-            onPress={() => router.push('/cookies')}
+            onPress={() => router.push('/settings/cookies')}
             testID="analytics-consent-cookies-link"
           >
             <Text style={styles.linkText}>{t('profileSettings.legal.cookies')}</Text>
@@ -78,7 +78,7 @@ export function WebAnalyticsConsentPrompt() {
           <Text style={styles.linkSeparator}>/</Text>
           <Pressable
             accessibilityRole="link"
-            onPress={() => router.push('/data-privacy')}
+            onPress={() => router.push('/settings/data-privacy')}
             testID="analytics-consent-data-privacy-link"
           >
             <Text style={styles.linkText}>{t('profileSettings.legal.dataPrivacy')}</Text>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
-import ContactScreen from '../(tabs)/contact';
+import ContactScreen from '../settings/contact';
 import { api } from '@/src/utils/api';
 
 const mockUseLanguage = jest.fn(() => ({
@@ -12,6 +12,8 @@ const mockUseLanguage = jest.fn(() => ({
 
 jest.mock('expo-router', () => ({
   router: {
+    back: jest.fn(),
+    canGoBack: jest.fn(() => true),
     replace: jest.fn(),
   },
 }));
@@ -36,6 +38,8 @@ jest.mock('@/src/components/ui/Icon', () => ({
 const mockApi = api as jest.Mocked<typeof api>;
 const getRouterReplace = () =>
   (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
+const getRouterBack = () =>
+  (jest.requireMock('expo-router') as { router: { back: jest.Mock } }).router.back;
 
 describe('ContactScreen', () => {
   beforeEach(() => {
@@ -56,7 +60,8 @@ describe('ContactScreen', () => {
 
     fireEvent.press(getByTestId('contact-page-back'));
 
-    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
+    expect(getRouterBack()).toHaveBeenCalledTimes(1);
+    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
   });
 
   it('validates email format before posting', () => {

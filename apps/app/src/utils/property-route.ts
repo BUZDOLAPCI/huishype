@@ -15,6 +15,7 @@ const STATIC_ROUTE_PREFIXES = new Set([
   'feed',
   'saved',
   'profile',
+  'settings',
   'notifications',
   'leaderboard',
   'admin',

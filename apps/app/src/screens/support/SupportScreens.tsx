@@ -4,7 +4,6 @@ import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/src/components/ui/Icon';
-import { PROFILE_TAB_BAR_SPACER } from '@/src/components/navigation/tabBarMetrics';
 import {
   getArticlesForCategory,
   getGlossaryTerm,
@@ -19,6 +18,7 @@ import {
   type SupportBodySection,
 } from '@/src/content/supportContent';
 import { useLanguage, type LanguageCode } from '@/src/i18n';
+import { goBackOrReplace } from '@/src/utils/goBackOrReplace';
 
 const COLORS = {
   ink: '#003C32',
@@ -157,7 +157,7 @@ export function HelpHubScreen() {
       title={copy.helpTitle}
       testID="help-screen"
       backLabel={copy.backToSettings}
-      onBack={() => router.replace('/settings')}
+      onBack={() => goBackOrReplace('/settings')}
     >
       <Text style={styles.lead}>{copy.helpLead}</Text>
       <TextInput
@@ -178,7 +178,7 @@ export function HelpHubScreen() {
               title={category.title}
               summary={category.summary}
               testID={`help-category-${category.slug}`}
-              onPress={() => router.push(`/help/category/${category.slug}`)}
+              onPress={() => router.push(`/settings/help/category/${category.slug}`)}
             />
           ))}
         </View>
@@ -194,7 +194,7 @@ export function HelpHubScreen() {
             title={article.title}
             summary={article.summary}
             testID={`help-article-${article.slug}`}
-            onPress={() => router.push(`/help/article/${article.slug}`)}
+            onPress={() => router.push(`/settings/help/article/${article.slug}`)}
           />
         ))}
       </View>
@@ -205,19 +205,19 @@ export function HelpHubScreen() {
           title={copy.glossaryTitle}
           summary={copy.glossarySummary}
           testID="help-glossary-row"
-          onPress={() => router.push('/glossary')}
+          onPress={() => router.push('/settings/glossary')}
         />
         <ListRow
           title={copy.legalTitle}
           summary={copy.legalSummary}
           testID="help-legal-row"
-          onPress={() => router.push('/privacy')}
+          onPress={() => router.push('/settings/privacy')}
         />
         <ListRow
           title={copy.contactTitle}
           summary={copy.contactSummary}
           testID="help-contact-row"
-          onPress={() => router.push('/contact')}
+          onPress={() => router.push('/settings/contact')}
         />
       </View>
     </SupportPage>
@@ -231,7 +231,13 @@ export function HelpCategoryScreen({ slug }: { slug: string }) {
   const category = getSupportCategory(slug, catalog);
 
   if (!category) {
-    return <MissingSupportScreen title={copy.categoryNotFound} backPath="/help" copy={copy} />;
+    return (
+      <MissingSupportScreen
+        title={copy.categoryNotFound}
+        backPath="/settings/help"
+        copy={copy}
+      />
+    );
   }
 
   const articles = getArticlesForCategory(category.id, catalog);
@@ -241,7 +247,7 @@ export function HelpCategoryScreen({ slug }: { slug: string }) {
       title={category.title}
       testID="help-category-screen"
       backLabel={copy.backToHelp}
-      onBack={() => router.replace('/help')}
+      onBack={() => goBackOrReplace('/settings/help')}
     >
       <Text style={styles.lead}>{category.summary}</Text>
       <BodySections sections={category.bodySections} />
@@ -253,7 +259,7 @@ export function HelpCategoryScreen({ slug }: { slug: string }) {
             title={article.title}
             summary={article.summary}
             testID={`category-article-${article.slug}`}
-            onPress={() => router.push(`/help/article/${article.slug}`)}
+            onPress={() => router.push(`/settings/help/article/${article.slug}`)}
           />
         ))}
       </View>
@@ -268,7 +274,13 @@ export function HelpArticleScreen({ slug }: { slug: string }) {
   const article = getSupportArticle(slug, catalog);
 
   if (!article) {
-    return <MissingSupportScreen title={copy.articleNotFound} backPath="/help" copy={copy} />;
+    return (
+      <MissingSupportScreen
+        title={copy.articleNotFound}
+        backPath="/settings/help"
+        copy={copy}
+      />
+    );
   }
 
   return (
@@ -278,7 +290,7 @@ export function HelpArticleScreen({ slug }: { slug: string }) {
       copy={copy}
       testID="help-article-screen"
       backLabel={copy.backToHelp}
-      onBack={() => router.replace('/help')}
+      onBack={() => goBackOrReplace('/settings/help')}
       relatedPrefix="help"
     />
   );
@@ -305,7 +317,7 @@ export function GlossaryIndexScreen() {
       title={copy.glossaryTitle}
       testID="glossary-screen"
       backLabel={copy.backToHelp}
-      onBack={() => router.replace('/help')}
+      onBack={() => goBackOrReplace('/settings/help')}
     >
       <Text style={styles.lead}>{copy.glossaryLead}</Text>
       <TextInput
@@ -324,7 +336,7 @@ export function GlossaryIndexScreen() {
             title={termRecord.title}
             summary={termRecord.summary}
             testID={`glossary-term-${termRecord.slug}`}
-            onPress={() => router.push(`/glossary/${termRecord.slug}`)}
+            onPress={() => router.push(`/settings/glossary/${termRecord.slug}`)}
           />
         ))}
       </View>
@@ -339,7 +351,13 @@ export function GlossaryTermScreen({ slug }: { slug: string }) {
   const termRecord = getGlossaryTerm(slug, catalog);
 
   if (!termRecord) {
-    return <MissingSupportScreen title={copy.termNotFound} backPath="/glossary" copy={copy} />;
+    return (
+      <MissingSupportScreen
+        title={copy.termNotFound}
+        backPath="/settings/glossary"
+        copy={copy}
+      />
+    );
   }
 
   return (
@@ -349,7 +367,7 @@ export function GlossaryTermScreen({ slug }: { slug: string }) {
       copy={copy}
       testID="glossary-term-screen"
       backLabel={copy.backToGlossary}
-      onBack={() => router.replace('/glossary')}
+      onBack={() => goBackOrReplace('/settings/glossary')}
       relatedPrefix="glossary"
     />
   );
@@ -362,7 +380,7 @@ export function LegalContentScreen({ slug }: { slug: string }) {
 
   if (!page) {
     return (
-      <MissingSupportScreen title={copy.pageNotFound} backPath="/settings" copy={copy} />
+      <MissingSupportScreen title={copy.pageNotFound} backPath="/settings/legal" copy={copy} />
     );
   }
 
@@ -371,7 +389,7 @@ export function LegalContentScreen({ slug }: { slug: string }) {
       title={page.title}
       testID={`${page.slug}-screen`}
       backLabel={copy.backToSettings}
-      onBack={() => router.replace('/settings')}
+      onBack={() => goBackOrReplace('/settings/legal')}
       backTestID="static-page-back"
       maxWidth={760}
     >
@@ -434,16 +452,16 @@ function SupportContentDetail({
               testID={`${relatedPrefix}-related-${record.slug}`}
               onPress={() => {
                 if (getSupportArticle(record.slug, catalog)) {
-                  router.push(`/help/article/${record.slug}`);
+                  router.push(`/settings/help/article/${record.slug}`);
                   return;
                 }
 
                 if (getGlossaryTerm(record.slug, catalog)) {
-                  router.push(`/glossary/${record.slug}`);
+                  router.push(`/settings/glossary/${record.slug}`);
                   return;
                 }
 
-                router.push(`/${record.slug}`);
+                router.push(`/settings/${record.slug}`);
               }}
             />
           ))}
@@ -497,7 +515,7 @@ function SupportPage({
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
-          { maxWidth, paddingBottom: PROFILE_TAB_BAR_SPACER + 32 },
+          { maxWidth, paddingBottom: Math.max(insets.bottom, 20) + 32 },
         ]}
         contentInsetAdjustmentBehavior="automatic"
       >
@@ -589,7 +607,7 @@ function MissingSupportScreen({
       title={title}
       testID="support-missing-screen"
       backLabel={copy.back}
-      onBack={() => router.replace(backPath)}
+      onBack={() => goBackOrReplace(backPath)}
     >
       <Text style={styles.lead}>{copy.missingPage}</Text>
     </SupportPage>

@@ -8,6 +8,7 @@ import {
   usePathname,
 } from 'expo-router';
 
+import NotFoundScreen from '@/app/+not-found';
 import { RouteLoadingShell } from '@/src/components/RouteLoadingShell';
 import { useResolvedMapRoute } from '@/src/lib/useResolvedMapRoute';
 import { replacePassiveBrowserPath } from '@/src/lib/webMapUrlSync';
@@ -23,6 +24,22 @@ import {
 import { useT } from '@/src/i18n';
 
 const NON_MAP_TAB_PATHNAMES = new Set(['/feed', '/saved', '/profile']);
+const REMOVED_SUPPORT_ROOT_PREFIXES = [
+  '/contact',
+  '/cookies',
+  '/data-privacy',
+  '/glossary',
+  '/help',
+  '/privacy',
+  '/sharing-permissions',
+  '/terms',
+] as const;
+
+function isRemovedSupportRootPath(pathname: string): boolean {
+  return REMOVED_SUPPORT_ROOT_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
 
 function RedirectingScreen() {
   const t = useT();
@@ -46,6 +63,7 @@ function CanonicalAddressRouteContent() {
   const [webRedirectPathname, setWebRedirectPathname] = useState<string | null>(null);
   const isNonMapTabPath =
     Platform.OS === 'web' && NON_MAP_TAB_PATHNAMES.has(pathname);
+  const isRemovedSupportRoot = isRemovedSupportRootPath(pathname);
   const pathnameOverride =
     Platform.OS === 'web' && webRedirectPathname && pathname !== webRedirectPathname
       ? webRedirectPathname
@@ -61,7 +79,7 @@ function CanonicalAddressRouteContent() {
   }, []);
 
   useEffect(() => {
-    if (isNonMapTabPath) {
+    if (isNonMapTabPath || isRemovedSupportRoot) {
       return;
     }
 
@@ -72,10 +90,10 @@ function CanonicalAddressRouteContent() {
     ) {
       setWebRedirectPathname(null);
     }
-  }, [isNonMapTabPath, pathname, webRedirectPathname]);
+  }, [isNonMapTabPath, isRemovedSupportRoot, pathname, webRedirectPathname]);
 
   useEffect(() => {
-    if (isNonMapTabPath) {
+    if (isNonMapTabPath || isRemovedSupportRoot) {
       return;
     }
 
@@ -105,10 +123,14 @@ function CanonicalAddressRouteContent() {
         buildCanonicalRouteHref(resolvedRoute.canonicalPath, returnTo) as Href,
       );
     }
-  }, [isNonMapTabPath, resolvedPathname, resolvedRoute, returnTo]);
+  }, [isNonMapTabPath, isRemovedSupportRoot, resolvedPathname, resolvedRoute, returnTo]);
 
   if (isNonMapTabPath) {
     return null;
+  }
+
+  if (isRemovedSupportRoot) {
+    return <NotFoundScreen />;
   }
 
   if (!resolvedRoute || routeState.isLoading) {
