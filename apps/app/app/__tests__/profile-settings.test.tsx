@@ -15,7 +15,6 @@ import { useAuthContext } from '@/src/providers/AuthProvider';
 jest.mock('expo-router', () => ({
   router: {
     back: jest.fn(),
-    canGoBack: jest.fn(() => true),
     push: jest.fn(),
     replace: jest.fn(),
   },
@@ -50,8 +49,6 @@ const getRouterPush = () =>
   (jest.requireMock('expo-router') as { router: { push: jest.Mock } }).router.push;
 const getRouterBack = () =>
   (jest.requireMock('expo-router') as { router: { back: jest.Mock } }).router.back;
-const getRouterCanGoBack = () =>
-  (jest.requireMock('expo-router') as { router: { canGoBack: jest.Mock } }).router.canGoBack;
 
 function mockAuthContext(user: { id: string; email?: string; profilePhotoUrl?: string | null } | null) {
   mockUseAuthContext.mockReturnValue({
@@ -212,8 +209,8 @@ describe('ProfileSettingsScreen', () => {
     expect(getRouterPush()).toHaveBeenCalledWith('/sharing-permissions');
 
     fireEvent.press(getByTestId('profile-settings-back'));
-    expect(getRouterBack()).toHaveBeenCalledTimes(1);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
   it('changes analytics preferences from the legal submenu', async () => {
@@ -286,13 +283,12 @@ describe('ProfileSettingsScreen', () => {
     );
 
     fireEvent.press(getByTestId('profile-settings-back'));
-    expect(getRouterBack()).toHaveBeenCalledTimes(1);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/legal');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings/legal');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
-  it('uses the profile fallback from the main settings back arrow on direct entry', () => {
+  it('returns to profile from the main settings back arrow', () => {
     mockAuthContext(null);
-    getRouterCanGoBack().mockReturnValueOnce(false);
 
     const { getByTestId } = renderSettings();
 
@@ -327,8 +323,8 @@ describe('ProfileSettingsScreen', () => {
     expect(getByText('Taal')).toBeTruthy();
 
     fireEvent.press(getByTestId('profile-settings-back'));
-    expect(getRouterBack()).toHaveBeenCalledTimes(1);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
   it('loads the persisted language and translates signed-in account settings', async () => {

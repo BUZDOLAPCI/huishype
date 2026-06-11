@@ -18,7 +18,6 @@ import {
   type SupportBodySection,
 } from '@/src/content/supportContent';
 import { useLanguage, type LanguageCode } from '@/src/i18n';
-import { goBackOrReplace } from '@/src/utils/goBackOrReplace';
 
 const COLORS = {
   ink: '#003C32',
@@ -157,7 +156,7 @@ export function HelpHubScreen() {
       title={copy.helpTitle}
       testID="help-screen"
       backLabel={copy.backToSettings}
-      onBack={() => goBackOrReplace('/settings')}
+      onBack={() => router.replace('/settings')}
     >
       <Text style={styles.lead}>{copy.helpLead}</Text>
       <TextInput
@@ -247,7 +246,7 @@ export function HelpCategoryScreen({ slug }: { slug: string }) {
       title={category.title}
       testID="help-category-screen"
       backLabel={copy.backToHelp}
-      onBack={() => goBackOrReplace('/help')}
+      onBack={() => router.replace('/help')}
     >
       <Text style={styles.lead}>{category.summary}</Text>
       <BodySections sections={category.bodySections} />
@@ -290,7 +289,7 @@ export function HelpArticleScreen({ slug }: { slug: string }) {
       copy={copy}
       testID="help-article-screen"
       backLabel={copy.backToHelp}
-      onBack={() => goBackOrReplace('/help')}
+      onBack={() => router.replace('/help')}
       relatedPrefix="help"
     />
   );
@@ -317,7 +316,7 @@ export function GlossaryIndexScreen() {
       title={copy.glossaryTitle}
       testID="glossary-screen"
       backLabel={copy.backToHelp}
-      onBack={() => goBackOrReplace('/help')}
+      onBack={() => router.replace('/help')}
     >
       <Text style={styles.lead}>{copy.glossaryLead}</Text>
       <TextInput
@@ -367,7 +366,7 @@ export function GlossaryTermScreen({ slug }: { slug: string }) {
       copy={copy}
       testID="glossary-term-screen"
       backLabel={copy.backToGlossary}
-      onBack={() => goBackOrReplace('/glossary')}
+      onBack={() => router.replace('/glossary')}
       relatedPrefix="glossary"
     />
   );
@@ -389,7 +388,7 @@ export function LegalContentScreen({ slug }: { slug: string }) {
       title={page.title}
       testID={`${page.slug}-screen`}
       backLabel={copy.backToSettings}
-      onBack={() => goBackOrReplace('/settings/legal')}
+      onBack={() => router.replace('/settings/legal')}
       backTestID="static-page-back"
       maxWidth={760}
     >
@@ -607,7 +606,7 @@ function MissingSupportScreen({
       title={title}
       testID="support-missing-screen"
       backLabel={copy.back}
-      onBack={() => goBackOrReplace(backPath)}
+      onBack={() => router.replace(backPath)}
     >
       <Text style={styles.lead}>{copy.missingPage}</Text>
     </SupportPage>

@@ -26,7 +26,6 @@ import {
   type AnalyticsConsent,
 } from '@/src/lib/analytics';
 import { useAuthContext } from '@/src/providers/AuthProvider';
-import { goBackOrReplace } from '@/src/utils/goBackOrReplace';
 
 const languageOptions: Array<{ code: LanguageCode; labelKey: TranslationKey }> = [
   { code: 'en', labelKey: 'profileSettings.language.english' },
@@ -80,7 +79,7 @@ export default function ProfileSettingsScreen() {
     <SettingsScreenFrame
       title={t('profileSettings.header.profile')}
       testID="profile-settings-screen"
-      onBack={() => goBackOrReplace('/profile')}
+      onBack={() => router.replace('/profile')}
       overlay={
         <AuthModal
           visible={showAuth}
@@ -175,7 +174,7 @@ export function SettingsLanguageScreen() {
     <SettingsScreenFrame
       title={t('profileSettings.header.language')}
       testID="profile-settings-screen"
-      onBack={() => goBackOrReplace('/settings')}
+      onBack={() => router.replace('/settings')}
     >
       <View testID="settings-language-subview">
         {languageOptions.map((option) => {
@@ -248,7 +247,7 @@ export function SettingsLegalScreen() {
     <SettingsScreenFrame
       title={t('profileSettings.header.legal')}
       testID="profile-settings-screen"
-      onBack={() => goBackOrReplace('/settings')}
+      onBack={() => router.replace('/settings')}
     >
       <View testID="settings-legal-submenu">
         <Pressable
@@ -391,7 +390,7 @@ export function SettingsOpenSourceLicensesScreen() {
     <SettingsScreenFrame
       title={t('profileSettings.header.openSourceLicenses')}
       testID="profile-settings-screen"
-      onBack={() => goBackOrReplace('/settings/legal')}
+      onBack={() => router.replace('/settings/legal')}
     >
       <View testID="settings-open-source-licenses-subview">
         {openSourceLicenseCredits.map((credit) => (

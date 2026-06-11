@@ -17,7 +17,6 @@ const mockUseLanguage = jest.fn(() => ({
 jest.mock('expo-router', () => ({
   router: {
     back: jest.fn(),
-    canGoBack: jest.fn(() => true),
     push: jest.fn(),
     replace: jest.fn(),
   },
@@ -41,8 +40,6 @@ const getRouterReplace = () =>
   (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
 const getRouterBack = () =>
   (jest.requireMock('expo-router') as { router: { back: jest.Mock } }).router.back;
-const getRouterCanGoBack = () =>
-  (jest.requireMock('expo-router') as { router: { canGoBack: jest.Mock } }).router.canGoBack;
 
 describe('static help and glossary pages', () => {
   beforeEach(() => {
@@ -146,13 +143,13 @@ describe('static help and glossary pages', () => {
     expect(term.getByText('WOZ-waarde')).toBeTruthy();
   });
 
-  it('returns from static pages through normal back navigation', () => {
+  it('returns from the help hub to settings', () => {
     const { getByTestId } = render(<HelpScreen />);
 
     fireEvent.press(getByTestId('static-page-back'));
 
-    expect(getRouterBack()).toHaveBeenCalledTimes(1);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
   it('returns from nested help and glossary pages to their parent root routes', () => {
@@ -161,34 +158,33 @@ describe('static help and glossary pages', () => {
     const category = render(<HelpCategoryScreen />);
 
     fireEvent.press(category.getByTestId('static-page-back'));
-    expect(getRouterBack()).toHaveBeenCalledTimes(1);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/help');
+    expect(getRouterReplace()).toHaveBeenLastCalledWith('/help');
+    expect(getRouterBack()).not.toHaveBeenCalled();
 
     mockUseLocalSearchParams.mockReturnValue({ slug: 'price-guesses' });
 
     const article = render(<HelpArticleScreen />);
 
     fireEvent.press(article.getByTestId('static-page-back'));
-    expect(getRouterBack()).toHaveBeenCalledTimes(2);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/help');
+    expect(getRouterReplace()).toHaveBeenLastCalledWith('/help');
+    expect(getRouterBack()).not.toHaveBeenCalled();
 
     const glossary = render(<GlossaryScreen />);
 
     fireEvent.press(glossary.getByTestId('static-page-back'));
-    expect(getRouterBack()).toHaveBeenCalledTimes(3);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/help');
+    expect(getRouterReplace()).toHaveBeenLastCalledWith('/help');
+    expect(getRouterBack()).not.toHaveBeenCalled();
 
     mockUseLocalSearchParams.mockReturnValue({ slug: 'woz-value' });
 
     const term = render(<GlossaryTermScreen />);
 
     fireEvent.press(term.getByTestId('static-page-back'));
-    expect(getRouterBack()).toHaveBeenCalledTimes(4);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/glossary');
+    expect(getRouterReplace()).toHaveBeenLastCalledWith('/glossary');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
-  it('uses parent route fallback for direct nested support page entry', () => {
-    getRouterCanGoBack().mockReturnValueOnce(false);
+  it('uses parent route navigation for direct nested support page entry', () => {
     mockUseLocalSearchParams.mockReturnValue({ slug: 'woz-value' });
 
     const term = render(<GlossaryTermScreen />);

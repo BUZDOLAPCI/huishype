@@ -13,7 +13,6 @@ const mockUseLanguage = jest.fn(() => ({
 jest.mock('expo-router', () => ({
   router: {
     back: jest.fn(),
-    canGoBack: jest.fn(() => true),
     replace: jest.fn(),
   },
 }));
@@ -60,8 +59,8 @@ describe('ContactScreen', () => {
 
     fireEvent.press(getByTestId('contact-page-back'));
 
-    expect(getRouterBack()).toHaveBeenCalledTimes(1);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
   it('validates email format before posting', () => {

@@ -10,10 +10,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 
 import { Icon } from '@/src/components/ui/Icon';
 import { useLanguage, type LanguageCode } from '@/src/i18n';
-import { goBackOrReplace } from '@/src/utils/goBackOrReplace';
 import { api } from '@/src/utils/api';
 
 type FormStatus =
@@ -120,7 +120,7 @@ export default function ContactScreen() {
   );
 
   const handleBack = useCallback(() => {
-    goBackOrReplace('/settings');
+    router.replace('/settings');
   }, []);
 
   const handleSubmit = useCallback(async () => {

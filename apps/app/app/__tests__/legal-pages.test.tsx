@@ -16,7 +16,6 @@ const mockUseLanguage = jest.fn(() => ({
 jest.mock('expo-router', () => ({
   router: {
     back: jest.fn(),
-    canGoBack: jest.fn(() => true),
     replace: jest.fn(),
   },
 }));
@@ -36,8 +35,6 @@ const getRouterReplace = () =>
   (jest.requireMock('expo-router') as { router: { replace: jest.Mock } }).router.replace;
 const getRouterBack = () =>
   (jest.requireMock('expo-router') as { router: { back: jest.Mock } }).router.back;
-const getRouterCanGoBack = () =>
-  (jest.requireMock('expo-router') as { router: { canGoBack: jest.Mock } }).router.canGoBack;
 
 describe('Legal pages', () => {
   beforeEach(() => {
@@ -61,13 +58,11 @@ describe('Legal pages', () => {
 
     fireEvent.press(getByTestId('static-page-back'));
 
-    expect(getRouterBack()).toHaveBeenCalledTimes(1);
-    expect(getRouterReplace()).not.toHaveBeenCalledWith('/settings/legal');
+    expect(getRouterReplace()).toHaveBeenCalledWith('/settings/legal');
+    expect(getRouterBack()).not.toHaveBeenCalled();
   });
 
-  it('uses the legal settings fallback on direct legal page entry', () => {
-    getRouterCanGoBack().mockReturnValueOnce(false);
-
+  it('uses the legal settings parent route on direct legal page entry', () => {
     const { getByTestId } = render(<TermsScreen />);
 
     fireEvent.press(getByTestId('static-page-back'));
