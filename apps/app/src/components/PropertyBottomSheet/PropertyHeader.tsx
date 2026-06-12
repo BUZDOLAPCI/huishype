@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
   infoActionRow: {
     marginTop: 16,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
   },
