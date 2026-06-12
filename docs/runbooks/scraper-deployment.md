@@ -27,21 +27,21 @@ The app/prod Coolify env must use the scraper API keys from
 
 ## Current Infrastructure
 
-| Item | Value |
-|------|-------|
-| Scraper VM | `huishype-scrapers-cx23-nbg1` |
-| Hetzner server ID | `127989278` |
-| Plan | `CX23` |
-| Datacenter | `nbg1-dc3` |
-| Public IPv4 | `178.104.119.167` |
-| Private IPv4 | `10.42.0.2` |
-| SSH user | `root` |
-| Runtime root | `/opt/huishype-scrapers` |
-| App/prod VM | `huishype-coolify-ubuntu-8gb-nbg1`, server ID `124870912` |
-| App/prod private IPv4 | `10.42.0.10` |
-| App/prod public IPv4 | `94.130.105.129` |
-| Private network | `huishype-private`, ID `12161934`, range `10.42.0.0/16` |
-| Scraper firewall | `huishype-scraper-vm`, ID `10889637` |
+| Item                  | Value                                                     |
+| --------------------- | --------------------------------------------------------- |
+| Scraper VM            | `huishype-scrapers-cx23-nbg1`                             |
+| Hetzner server ID     | `127989278`                                               |
+| Plan                  | `CX23`                                                    |
+| Datacenter            | `nbg1-dc3`                                                |
+| Public IPv4           | `178.104.119.167`                                         |
+| Private IPv4          | `10.42.0.2`                                               |
+| SSH user              | `root`                                                    |
+| Runtime root          | `/opt/huishype-scrapers`                                  |
+| App/prod VM           | `huishype-coolify-ubuntu-8gb-nbg1`, server ID `124870912` |
+| App/prod private IPv4 | `10.42.0.10`                                              |
+| App/prod public IPv4  | `94.130.105.129`                                          |
+| Private network       | `huishype-private`, ID `12161934`, range `10.42.0.0/16`   |
+| Scraper firewall      | `huishype-scraper-vm`, ID `10889637`                      |
 
 The scraper firewall allows:
 
@@ -59,10 +59,10 @@ HuisHype app/prod public IP.
 
 ## Services
 
-| Source | Local repo | VM path | Compose file | Private API |
-|--------|------------|---------|--------------|-------------|
-| Funda | `/home/caslan/dev/git_repos/hh/huishype-funda-scraper` | `/opt/huishype-scrapers/huishype-funda-scraper` | `docker-compose.prod.yml` | `http://10.42.0.2:8100` |
-| Pararius | `/home/caslan/dev/git_repos/hh/huishype-pararius-scraper` | `/opt/huishype-scrapers/huishype-pararius-scraper` | `docker-compose.yml` | `http://10.42.0.2:8101` |
+| Source   | Local repo                                                | VM path                                            | Compose file              | Private API             |
+| -------- | --------------------------------------------------------- | -------------------------------------------------- | ------------------------- | ----------------------- |
+| Funda    | `/home/caslan/dev/git_repos/hh/huishype-funda-scraper`    | `/opt/huishype-scrapers/huishype-funda-scraper`    | `docker-compose.prod.yml` | `http://10.42.0.2:8100` |
+| Pararius | `/home/caslan/dev/git_repos/hh/huishype-pararius-scraper` | `/opt/huishype-scrapers/huishype-pararius-scraper` | `docker-compose.yml`      | `http://10.42.0.2:8101` |
 
 Expected containers:
 
@@ -126,10 +126,32 @@ The `/api/v1/status` responses are owned by the individual scraper/source-servic
 repos, not by the HuisHype app API. The app API currently only consumes source
 observations and exposes app health under `/health`; do not add a compatibility
 breaking app route for scraper diagnostics here. The Pararius source-service
-status should expose stale listing diagnostics including available stale count,
-oldest available `last_seen_at`, refresh backlog/backoff counts, and recent
-terminal transitions. If those fields are missing from the JSON response, fix
-the Pararius scraper repo and then re-run this check.
+status must expose operator-visible throttle/refresh health fields:
+
+- `upstream_throttle.active`
+- `upstream_throttle.blocked`
+- `upstream_throttle.cooling_down`
+- `upstream_throttle.cooldown_until`
+- `upstream_throttle.seconds_remaining`
+- `upstream_throttle.consecutive_block_count`
+- `upstream_throttle.total_block_count`
+- `upstream_throttle.last_blocked_at`
+- `upstream_throttle.last_success_at`
+- `upstream_throttle.last_block_error`
+- `available_stale_count`
+- `oldest_available_last_seen_at`
+- `refresh_backlog_count`
+- `refresh_backoff_count`
+- `refresh_leased_count`
+- `recent_terminal_transitions`
+
+Treat `upstream_throttle.cooling_down = true`, increasing
+`upstream_throttle.consecutive_block_count`, increasing `refresh_backoff_count`,
+a nonzero `refresh_backlog_count` that does not drain, or an old
+`oldest_available_last_seen_at` as evidence that the Pararius mirror is being
+throttled, blocked, or under-provisioned. If these fields are missing from the
+JSON response, fix/deploy the Pararius scraper repo and then re-run this check;
+do not add a HuisHype app API compatibility route for scraper diagnostics.
 
 ## Logs
 
@@ -200,8 +222,49 @@ SQL
     WHERE to_jsonb(l)::text ILIKE '%5104ad06%'
     LIMIT 5;
 SQL
+  docker compose exec -T postgres psql -U scraper -d pararius_mirror <<'SQL'
+    SELECT
+      id,
+      pararius_id,
+      listing_url,
+      status,
+      last_seen_at,
+      last_changed_at,
+      refresh_last_success_at,
+      next_refresh_at,
+      refresh_error_count,
+      refresh_last_error,
+      refresh_next_attempt_at,
+      refresh_lease_expires_at
+    FROM listings
+    WHERE pararius_id = '5104ad06'
+       OR listing_url ILIKE '%5104ad06%'
+    ORDER BY last_changed_at DESC NULLS LAST, updated_at DESC NULLS LAST;
+SQL
+  docker compose exec -T postgres psql -U scraper -d pararius_mirror <<'SQL'
+    SELECT
+      h.id,
+      h.change_type,
+      h.old_value,
+      h.new_value,
+      h.recorded_at
+    FROM listing_history h
+    JOIN listings l ON l.id = h.listing_id
+    WHERE l.pararius_id = '5104ad06'
+       OR l.listing_url ILIKE '%5104ad06%'
+    ORDER BY h.recorded_at DESC
+    LIMIT 20;
+SQL
 REMOTE
 ```
+
+Sentinel `5104ad06` audit criterion: the sentinel is healthy only when the
+mirror has a row for that source ID/URL and the row has a fresh
+`last_seen_at`, or a terminal `status` (`rented`, `withdrawn`, or `not_found`)
+with a matching recent `listing_history` status change and `last_changed_at`.
+If it remains `available` while `last_seen_at` is older than the configured
+update interval and `refresh_backoff_count` is nonzero, treat the repair drain
+as incomplete.
 
 Main app ingest state:
 
@@ -256,8 +319,175 @@ SQL
       )
     ORDER BY updated_at DESC;
 SQL
+  docker exec -i "$postgres_container" psql -U huishype -d huishype <<'SQL'
+    SELECT
+      id,
+      source_name,
+      primary_source_listing_id,
+      canonical_url,
+      display_url,
+      status,
+      status_source,
+      verification_state,
+      last_mirror_seen_at,
+      updated_at
+    FROM canonical_listings
+    WHERE id = 'fe190439-443e-49c1-a69c-026092f9055a';
+SQL
+  docker exec -i "$postgres_container" psql -U huishype -d huishype <<'SQL'
+    SELECT
+      id,
+      canonical_listing_id,
+      source_name,
+      source_status,
+      observed_at,
+      stale_for_projection,
+      source_url_raw,
+      source_url_canonical
+    FROM listing_observations
+    WHERE canonical_listing_id = 'fe190439-443e-49c1-a69c-026092f9055a'
+    ORDER BY observed_at DESC
+    LIMIT 20;
+SQL
 REMOTE
 ```
+
+Canonical listing `fe190439-443e-49c1-a69c-026092f9055a` verification
+criterion: the canonical row should point at Pararius source identity
+`5104ad06` in `primary_source_listing_id`, `canonical_url`, or `display_url`;
+`status`, `status_source`, `verification_state`, and `last_mirror_seen_at` must
+match the latest non-stale Pararius observation. A terminal mirror result should
+be visible in `listing_observations` with `stale_for_projection = false` before
+the canonical row is considered repaired.
+
+## Pararius Repair Drain
+
+Use this flow when Pararius available listings are stale or the source-service
+status shows refresh backlog/backoff. These runtime knobs belong to the
+Pararius scraper VM `.env`, not to the HuisHype app/prod environment.
+
+1. Pause automatic expansion so repair work drains predictably:
+
+```bash
+ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" bash -s <<'REMOTE'
+  cd /opt/huishype-scrapers/huishype-pararius-scraper
+  cp .env ".env.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+  python3 - <<'PY'
+from pathlib import Path
+
+path = Path(".env")
+lines = path.read_text().splitlines()
+updates = {
+    "BOOTSTRAP_MODE": "false",
+    "REQUEST_DELAY_SECONDS": "8",
+    "REQUEST_DELAY_JITTER_SECONDS": "8",
+    "WORKER_CONCURRENCY": "1",
+}
+seen = set()
+out = []
+for line in lines:
+    key = line.split("=", 1)[0] if "=" in line and not line.lstrip().startswith("#") else None
+    if key in updates:
+        out.append(f"{key}={updates[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f"{key}={value}")
+path.write_text("\n".join(out) + "\n")
+PY
+  docker compose up -d scheduler worker sync api
+REMOTE
+```
+
+`REQUEST_DELAY_SECONDS=8` and `REQUEST_DELAY_JITTER_SECONDS=8` are the safe
+repair-drain target values. If the deployed Pararius scraper build does not yet
+read `REQUEST_DELAY_JITTER_SECONDS`, keeping it in `.env` is harmless but it
+will not affect behavior until the scraper repo supports that setting. Do not
+increase worker concurrency while upstream throttle evidence is present.
+
+2. Enqueue a controlled Eindhoven full-sync:
+
+```bash
+ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" bash -s <<'REMOTE'
+  cd /opt/huishype-scrapers/huishype-pararius-scraper
+  docker compose exec -T worker python - <<'PY'
+from scraper.queue import create_full_sync_job
+
+print(create_full_sync_job("eindhoven", priority="low"))
+PY
+REMOTE
+```
+
+Keep the scope to Eindhoven for the first repair pass. Do not enqueue all-city
+or all-country full-sync work until `refresh_backlog_count`, queue lengths, and
+terminal transitions show the Eindhoven drain completed without renewed
+backoff.
+
+3. Force-refresh the sentinel listing if the full-sync does not settle it:
+
+```bash
+ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" bash -s <<'REMOTE'
+  set -a
+  source /opt/huishype-scrapers/huishype-pararius-scraper/.env
+  set +a
+  curl -fsS -X POST \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Content-Type: application/json" \
+    "http://${API_HOST_BIND}:8101/api/v1/fetch" \
+    -d '{"pararius_id":"5104ad06","listing_url":"https://www.pararius.com/apartment-for-rent/eindhoven/5104ad06","priority":"high"}'
+REMOTE
+```
+
+4. Watch the drain:
+
+```bash
+ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" bash -s <<'REMOTE'
+  cd /opt/huishype-scrapers/huishype-pararius-scraper
+  docker compose logs --tail=200 -f worker sync api
+REMOTE
+```
+
+Re-run the authenticated Pararius `/api/v1/status`, Pararius queue/data checks,
+and main app ingest checks above. The repair is complete only when the sentinel
+`5104ad06` and canonical listing `fe190439-443e-49c1-a69c-026092f9055a` meet
+their criteria, queue lengths stop growing, `refresh_backoff_count` is stable or
+falling, and the sync service has projected the newest mirror observation into
+HuisHype.
+
+## Pararius-Only VM/IP Migration Fallback
+
+Use this only if Pararius remains throttled or blocked after the repair drain.
+Do not move Funda unless Funda has independent upstream/IP evidence.
+
+1. Provision a replacement Hetzner VM in the same private network
+   (`huishype-private`) with UFW and Hetzner firewall rules equivalent to the
+   current scraper VM, but expose only Pararius port `8101` to
+   `10.42.0.10/32`.
+2. Sync only `/opt/huishype-scrapers/huishype-pararius-scraper` and its
+   `.env` to the new VM. Preserve secrets out of tracked docs. Keep
+   `BOOTSTRAP_MODE=false`, `REQUEST_DELAY_SECONDS=8`,
+   `REQUEST_DELAY_JITTER_SECONDS=8`, and `WORKER_CONCURRENCY=1` for the initial
+   drain on the new IP.
+3. Restore or migrate the Pararius Postgres volume before starting sync, or run
+   a narrowly scoped Eindhoven full-sync first and treat the mirror as degraded
+   until coverage is rebuilt.
+4. Update app/prod Coolify `PARARIUS_SOURCE_SERVICE_URL` to the new private
+   `http://<new-private-ip>:8101` value. Leave
+   `FUNDA_SOURCE_SERVICE_URL=http://10.42.0.2:8100` unchanged.
+5. Update `.env.scraper-deploy` locally with the new Pararius VM/IP facts, then
+   update this runbook's Current Infrastructure and Services tables in a tracked
+   commit. Do not commit actual API keys or VM-local `.env` contents.
+6. Verify from the app/prod VM:
+
+```bash
+ssh root@94.130.105.129 'curl -fsS http://<new-private-ip>:8101/api/v1/health'
+```
+
+Then re-run the authenticated Pararius status checks and the main app ingest
+checks above. Roll back by restoring the old `PARARIUS_SOURCE_SERVICE_URL` only
+if the old VM still has healthier status/backlog behavior.
 
 ## Deploy
 
