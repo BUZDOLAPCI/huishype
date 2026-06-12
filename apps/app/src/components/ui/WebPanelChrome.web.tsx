@@ -132,6 +132,9 @@ if (typeof document !== 'undefined') {
       z-index: 3;
       background: var(--web-panel-surface, white);
     }
+    .web-property-panel--portrait .web-property-panel-header.overlay {
+      top: 14px;
+    }
     .web-property-panel-title {
       font-size: 16px;
       font-weight: 600;

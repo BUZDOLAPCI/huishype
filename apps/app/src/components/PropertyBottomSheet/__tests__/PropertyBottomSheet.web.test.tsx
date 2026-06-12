@@ -304,6 +304,10 @@ describe('PropertyBottomSheet.web', () => {
 
     await waitFor(() => expect(screen.getByText('Webstraat 1')).toBeTruthy());
     expect(queryWebPanelHeader()?.props.className).toContain('overlay');
+    expect(document.getElementById('web-panel-chrome-css')?.textContent).toContain(
+      '.web-property-panel--portrait .web-property-panel-header.overlay'
+    );
+    expect(document.getElementById('web-panel-chrome-css')?.textContent).toContain('top: 14px;');
 
     act(() => {
       fireEvent.scroll(scrollView as Parameters<typeof fireEvent.scroll>[0], {
