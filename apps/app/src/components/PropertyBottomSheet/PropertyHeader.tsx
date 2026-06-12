@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Image, Linking, Pressable, Text, View, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MetricPills } from '../MetricPills';
 import type { PropertyDetailsData } from './types';
 import {
@@ -240,7 +241,17 @@ export function PropertyHeader({
         }}
         testID="property-header-summary-card"
       >
-        <View style={styles.summaryBlock}>
+        <LinearGradient
+          colors={['#FFFFFF', '#FFFDFC', '#FFFDFB', '#FFFCF8', '#FFFBF5']}
+          locations={[0, 0.52, 0.74, 0.9, 1]}
+          style={styles.summaryBlock}
+        >
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(255, 253, 251, 0)', '#FFFDFB', '#FFFCF8', '#FFFBF5']}
+            locations={[0, 0.38, 0.76, 1]}
+            style={styles.summaryGradientTail}
+          />
           <Pressable
             onPress={onHalfExpandedBodyPress}
             pointerEvents="box-only"
@@ -303,7 +314,7 @@ export function PropertyHeader({
               </Pressable>
             </View>
           </View>
-        </View>
+        </LinearGradient>
       </View>
     </View>
   );
@@ -390,6 +401,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 18,
     paddingBottom: 10,
+  },
+  summaryGradientTail: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -18,
+    height: 42,
   },
   copyRow: {
     flexDirection: 'row',
