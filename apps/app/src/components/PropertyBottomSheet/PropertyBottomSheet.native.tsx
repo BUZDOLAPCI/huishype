@@ -221,6 +221,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         backdropComponent={renderBackdrop}
         onChange={handleSheetChange}
         backgroundStyle={{ backgroundColor: 'white' }}
+        handleStyle={styles.handle}
         handleIndicatorStyle={{ backgroundColor: '#E8E0D4', width: 40 }}
         style={{ zIndex: 1000 }}
       >
@@ -279,6 +280,10 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 );
 
 const styles = StyleSheet.create({
+  handle: {
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
   compactHeaderShell: {
     position: 'absolute',
     top: 0,

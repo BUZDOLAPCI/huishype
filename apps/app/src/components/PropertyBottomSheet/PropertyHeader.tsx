@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Image, Linking, Pressable, Text, View, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { MetricPills } from '../MetricPills';
 import type { PropertyDetailsData } from './types';
 import {
@@ -9,9 +8,9 @@ import {
   toPropertyImageSource,
 } from '../../utils/property-image';
 import { PropertyImageSurface } from '../PropertyImageSurface';
-import { Card } from '../ui/Card';
 import { useT } from '@/src/i18n';
 import { ActivityPill, ListingPill, StatusPillRow } from '../PropertyStatusPills';
+import { Icon } from '../ui/Icon';
 
 // Import the placeholder image as a static asset
 const placeholderImage = require('../../../assets/images/property-placeholder.png');
@@ -73,6 +72,8 @@ interface PropertyHeaderProps {
   onHalfExpandedBodyPress?: () => void;
   onSummaryCardBottomLayout?: (bottomY: number) => void;
   onHeaderClose?: () => void;
+  onShare?: () => void;
+  onLike?: () => void;
 }
 
 function normalizePropertyText(value: string | null | undefined): string {
@@ -147,6 +148,8 @@ export function PropertyHeader({
   onHalfExpandedBodyPress,
   onSummaryCardBottomLayout,
   onHeaderClose,
+  onShare,
+  onLike,
 }: PropertyHeaderProps) {
   const t = useT();
   const activity = ACTIVITY_CONFIG[property.activityLevel];
@@ -185,9 +188,49 @@ export function PropertyHeader({
             ]}
             testID="property-header-close"
           >
-            <Ionicons name="close" size={20} color="#9C958A" />
+            <Icon name="CaretLeft" size={20} weight="bold" color="#FFFFFF" />
           </Pressable>
         ) : null}
+        <View style={styles.headerActionCluster} pointerEvents="box-none">
+          {onShare ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Share property"
+              onPress={onShare}
+              style={({ pressed }) => [
+                styles.headerActionButton,
+                pressed && styles.headerActionButtonPressed,
+              ]}
+              testID="property-header-share"
+            >
+              <Icon name="ShareNetwork" size={18} weight="bold" color="#FFFFFF" />
+            </Pressable>
+          ) : null}
+          {onLike ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={property.isLiked ? 'Unlike property' : 'Like property'}
+              onPress={onLike}
+              style={({ pressed }) => [
+                styles.headerActionButton,
+                property.isLiked && styles.headerLikeButtonActive,
+                pressed && styles.headerActionButtonPressed,
+              ]}
+              testID="property-header-like"
+            >
+              <View
+                testID={property.isLiked ? 'property-header-like-icon-filled' : 'property-header-like-icon'}
+              >
+                <Icon
+                  name="Heart"
+                  size={19}
+                  weight={property.isLiked ? 'fill' : 'bold'}
+                  color={property.isLiked ? '#FF6B35' : '#FFFFFF'}
+                />
+              </View>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
 
       <View
@@ -197,7 +240,7 @@ export function PropertyHeader({
         }}
         testID="property-header-summary-card"
       >
-        <Card shadow="card" style={styles.summaryCard}>
+        <View style={styles.summaryBlock}>
           <Pressable
             onPress={onHalfExpandedBodyPress}
             pointerEvents="box-only"
@@ -205,7 +248,6 @@ export function PropertyHeader({
           >
             <View style={styles.copyRow}>
               <View style={styles.addressColumn}>
-                <Text style={styles.kicker}>Property Detail</Text>
                 <Text style={styles.address} numberOfLines={2}>
                   {addressTitle}
                 </Text>
@@ -229,7 +271,15 @@ export function PropertyHeader({
               </View>
             </View>
 
-            <View style={styles.metricWrap}>
+          </Pressable>
+
+          <View style={styles.infoActionRow}>
+            <Pressable
+              onPress={onHalfExpandedBodyPress}
+              pointerEvents="box-only"
+              style={styles.metricWrap}
+              testID="property-header-passive-metrics"
+            >
               <MetricPills
                 info={{
                   yearBuilt: property.yearBuilt,
@@ -238,22 +288,22 @@ export function PropertyHeader({
                 }}
                 variant="info"
               />
-            </View>
-          </Pressable>
-
-          <View style={styles.mapLinkRow}>
-            <Pressable
-              accessibilityRole="link"
-              accessibilityLabel={t('property.map.openPropertyInGoogleMaps')}
-              onPress={handleOpenGoogleMaps}
-              style={({ pressed }) => [styles.mapLinkButton, pressed && styles.mapLinkButtonPressed]}
-            >
-              <Ionicons name="map-outline" size={14} color="#8C8479" />
-              <Text style={styles.mapLinkText}>{t('property.map.openInGoogleMaps')}</Text>
-              <Ionicons name="open-outline" size={13} color="#B8AFA3" />
             </Pressable>
+
+            <View style={styles.mapLinkRow}>
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel={t('property.map.openPropertyInGoogleMaps')}
+                onPress={handleOpenGoogleMaps}
+                style={({ pressed }) => [styles.mapLinkButton, pressed && styles.mapLinkButtonPressed]}
+              >
+                <Icon name="MapTrifold" size={14} color="#8C8479" />
+                <Text style={styles.mapLinkText}>{t('property.map.openInGoogleMaps')}</Text>
+                <Icon name="ArrowSquareOut" size={13} color="#B8AFA3" />
+              </Pressable>
+            </View>
           </View>
-        </Card>
+        </View>
       </View>
     </View>
   );
@@ -263,7 +313,6 @@ const styles = StyleSheet.create({
   imageContainer: {
     width: '100%',
     height: '100%',
-    borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: '#FFF7EB',
   },
@@ -277,45 +326,70 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   root: {
-    paddingTop: 16,
+    paddingTop: 0,
   },
   carouselContainer: {
     width: '100%',
   },
   singleImageSlide: {
     height: 238,
-    paddingHorizontal: 16,
   },
   headerCloseButton: {
     position: 'absolute',
-    top: 12,
-    right: 28,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    top: 14,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFF8F0',
+    backgroundColor: 'rgba(45, 41, 38, 0.42)',
     borderWidth: 1,
-    borderColor: '#F5EBDD',
+    borderColor: 'rgba(255, 255, 255, 0.42)',
     shadowColor: '#000000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
     zIndex: 2,
   },
   headerCloseButtonPressed: {
-    backgroundColor: '#F5F0E8',
+    backgroundColor: 'rgba(45, 41, 38, 0.58)',
   },
-  summaryCard: {
-    marginHorizontal: 16,
-    marginTop: -28,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 18,
+  headerActionCluster: {
+    position: 'absolute',
+    top: 14,
+    right: 16,
+    flexDirection: 'row',
+    gap: 10,
+    zIndex: 2,
+  },
+  headerActionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(45, 41, 38, 0.42)',
     borderWidth: 1,
-    borderColor: '#F5EBDD',
+    borderColor: 'rgba(255, 255, 255, 0.42)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  headerActionButtonPressed: {
+    backgroundColor: 'rgba(45, 41, 38, 0.58)',
+  },
+  headerLikeButtonActive: {
+    backgroundColor: 'rgba(255, 251, 245, 0.94)',
+    borderColor: 'rgba(255, 255, 255, 0.76)',
+  },
+  summaryBlock: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 10,
   },
   copyRow: {
     flexDirection: 'row',
@@ -325,18 +399,11 @@ const styles = StyleSheet.create({
   },
   addressColumn: {
     flex: 1,
-  },
-  kicker: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: '#CFA257',
-    marginBottom: 8,
+    minWidth: 0,
   },
   address: {
-    fontSize: 31,
-    lineHeight: 36,
+    fontSize: 30,
+    lineHeight: 35,
     fontWeight: '700',
     color: '#2D2926',
   },
@@ -348,9 +415,12 @@ const styles = StyleSheet.create({
   },
   activityColumn: {
     alignItems: 'flex-end',
-    maxWidth: 210,
+    flexShrink: 0,
+    maxWidth: 122,
   },
   statusPills: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
     justifyContent: 'flex-end',
   },
   activityDescription: {
@@ -360,13 +430,21 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     color: '#C7BFB3',
   },
-  metricWrap: {
+  infoActionRow: {
     marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  metricWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   mapLinkRow: {
-    marginTop: 10,
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    flexShrink: 0,
   },
   mapLinkButton: {
     flexDirection: 'row',

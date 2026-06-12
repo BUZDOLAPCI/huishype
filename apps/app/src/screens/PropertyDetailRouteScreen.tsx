@@ -76,7 +76,6 @@ export function PropertyDetailRouteScreen({
   returnTo,
   onNavigate,
 }: PropertyDetailRouteScreenProps) {
-  const t = useT();
   const insets = useSafeAreaInsets();
   const { data: property, isLoading, isSuccess } = useProperty(propertyId ?? null);
   const normalizedReturnTarget = normalizePropertyReturnTarget(returnTo);
@@ -338,24 +337,9 @@ export function PropertyDetailRouteScreen({
             onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
             scrollViewport={scrollViewport}
             deferSocialSectionsUntilActionsVisible
+            onHeaderClose={triggerBack}
           />
         </ScrollView>
-
-        <View
-          style={[styles.floatingBackRow, { top: topInset + 8 }]}
-          pointerEvents="box-none"
-        >
-          <TouchableOpacity
-            onPress={triggerBack}
-            style={styles.floatingButton}
-            testID="property-back-button"
-            accessibilityRole="button"
-            accessibilityLabel={t('common.back')}
-            activeOpacity={0.8}
-          >
-            <Icon name="CaretLeft" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
       </View>
 
       <AuthModal

@@ -71,6 +71,12 @@ jest.mock('@/src/components/PropertyBottomSheet/PropertyContent', () => ({
       <>
         <Text>{props.property?.address ?? ''}</Text>
         <Pressable
+          testID="mock-property-header-close"
+          onPress={props.onHeaderClose}
+        >
+          <Text>Close property header</Text>
+        </Pressable>
+        <Pressable
           onPress={() => props.onAuthRequired?.('Sign in to submit your guess')}
         >
           <Text>Trigger auth required</Text>
@@ -147,7 +153,7 @@ describe('PropertyDetailRouteScreen', () => {
       <PropertyDetailRouteScreen propertyId="route-property-1" returnTo="/feed" />,
     );
 
-    fireEvent.press(screen.getByTestId('property-back-button'));
+    fireEvent.press(screen.getByTestId('mock-property-header-close'));
 
     expect(mockDismissTo).toHaveBeenCalledWith('/feed');
     expect(mockBack).not.toHaveBeenCalled();
@@ -156,7 +162,7 @@ describe('PropertyDetailRouteScreen', () => {
   it('falls back to the canonical map preview when no explicit origin exists', () => {
     render(<PropertyDetailRouteScreen propertyId="route-property-1" />);
 
-    fireEvent.press(screen.getByTestId('property-back-button'));
+    fireEvent.press(screen.getByTestId('mock-property-header-close'));
 
     expect(mockDismissTo).toHaveBeenCalledWith('/map/eindhoven/5600aa/routelaan/12');
     expect(mockBack).not.toHaveBeenCalled();

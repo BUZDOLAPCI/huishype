@@ -194,7 +194,7 @@ if (typeof document !== 'undefined') {
     .web-property-panel-handle {
       display: flex;
       justify-content: center;
-      padding: 10px 0 2px;
+      padding: 12px 0 10px;
       cursor: grab;
       flex-shrink: 0;
       touch-action: none;

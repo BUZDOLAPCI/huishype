@@ -114,7 +114,32 @@ describe('PropertyHeader', () => {
     expect(screen.getByTestId('property-header-placeholder')).toBeTruthy();
   });
 
-  it('renders activity and listing pills beside each other for active listings', () => {
+  it('renders the flat summary with address, location, metrics, status pills, and map link', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          activityLevel: 'hot',
+          marketState: 'for-rent',
+        }}
+      />
+    );
+
+    expect(screen.queryByText('Property Detail')).toBeNull();
+    expect(screen.getByText('Teststraat 12')).toBeTruthy();
+    expect(screen.getByText('Eindhoven, 5611 AA')).toBeTruthy();
+    expect(screen.getByText('1998')).toBeTruthy();
+    expect(screen.getByText('120 m\u00B2')).toBeTruthy();
+    expect(screen.getByText('42')).toBeTruthy();
+    expect(screen.getByTestId('property-header-status-pills')).toBeTruthy();
+    expect(screen.getByTestId('property-header-activity-pill')).toBeTruthy();
+    expect(screen.getByTestId('property-header-listing-pill')).toBeTruthy();
+    expect(screen.getByText('Hot')).toBeTruthy();
+    expect(screen.getByText('For rent')).toBeTruthy();
+    expect(screen.getByText('Open in Google Maps')).toBeTruthy();
+  });
+
+  it('renders activity and listing pills for active listings', () => {
     render(
       <PropertyHeader
         property={{
@@ -228,6 +253,36 @@ describe('PropertyHeader', () => {
     fireEvent.press(screen.getByTestId('property-header-close'));
 
     expect(onHeaderClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders optional hero share and like buttons and calls their handlers', () => {
+    const onShare = jest.fn();
+    const onLike = jest.fn();
+    const { rerender } = render(<PropertyHeader property={baseProperty} />);
+
+    expect(screen.queryByTestId('property-header-share')).toBeNull();
+    expect(screen.queryByTestId('property-header-like')).toBeNull();
+
+    rerender(<PropertyHeader property={baseProperty} onShare={onShare} onLike={onLike} />);
+
+    fireEvent.press(screen.getByTestId('property-header-share'));
+    fireEvent.press(screen.getByTestId('property-header-like'));
+
+    expect(onShare).toHaveBeenCalledTimes(1);
+    expect(onLike).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the filled heart variant when the property is liked', () => {
+    render(
+      <PropertyHeader
+        property={{ ...baseProperty, isLiked: true }}
+        onLike={jest.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText('Unlike property')).toBeTruthy();
+    expect(screen.getByTestId('property-header-like-icon-filled')).toBeTruthy();
+    expect(screen.queryByTestId('property-header-like-icon')).toBeNull();
   });
 
   it('uses compact Dutch postcodes in Google Maps queries', () => {

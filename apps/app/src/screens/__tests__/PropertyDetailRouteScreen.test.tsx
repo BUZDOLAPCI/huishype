@@ -106,6 +106,7 @@ describe('PropertyDetailRouteScreen', () => {
     expect(lastProps).toEqual(
       expect.objectContaining({
         onGuessPress: expect.any(Function),
+        onHeaderClose: expect.any(Function),
       }),
     );
 

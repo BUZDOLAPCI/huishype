@@ -18,7 +18,14 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { Pressable, View, StyleSheet, type LayoutChangeEvent } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  Share,
+  View,
+  StyleSheet,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import type { PropertyListingsResponse } from '@huishype/shared';
 
@@ -44,6 +51,12 @@ import { ListingLinks } from './ListingLinks';
 import { ListingSubmissionSheet } from './ListingSubmissionSheet';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { ReportModal } from '../ReportModal';
+import { SharePropertyModal } from './SharePropertyModal';
+import { useWebDismissibleLayer } from '../../providers/WebDismissibleLayerProvider';
+import {
+  buildPropertySharePayload,
+  isUnsupportedWebShareError,
+} from '../../utils/property-share';
 
 export interface PropertyContentProps {
   property: PropertyContentData | null;
@@ -175,6 +188,7 @@ function PropertyContentSections({
   const queryClient = useQueryClient();
   const [showSubmission, setShowSubmission] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [isHeaderShareModalVisible, setIsHeaderShareModalVisible] = useState(false);
   const [sectionStackOffsetY, setSectionStackOffsetY] = useState(0);
   const [quickActionsLayout, setQuickActionsLayout] = useState<MeasuredLayout | null>(null);
   const [shouldMountSocialSections, setShouldMountSocialSections] = useState(
@@ -183,6 +197,17 @@ function PropertyContentSections({
   const pendingSocialScrollRef = useRef<'guess' | 'comments' | null>(null);
   const guessSectionLocalY = useRef<number | null>(null);
   const commentsSectionLocalY = useRef<number | null>(null);
+  const closeHeaderShareModal = useCallback(() => {
+    setIsHeaderShareModalVisible(false);
+  }, []);
+
+  useWebDismissibleLayer({
+    id: `property-header-share-modal:${property?.id ?? 'empty'}`,
+    active: isHeaderShareModalVisible,
+    onDismiss: closeHeaderShareModal,
+    stateKey: property?.id,
+    enabled: Platform.OS === 'web',
+  });
 
   useEffect(() => {
     setQuickActionsLayout(null);
@@ -323,9 +348,29 @@ function PropertyContentSections({
     setShouldMountSocialSections(true);
   }, [deferSocialSectionsUntilActionsVisible, onScrollToComments, shouldMountSocialSections]);
 
+  const handleHeaderShare = useCallback(async () => {
+    if (!property) {
+      return;
+    }
+
+    try {
+      await Share.share(buildPropertySharePayload(property));
+      onShare?.();
+    } catch (error) {
+      if (isUnsupportedWebShareError(error)) {
+        setIsHeaderShareModalVisible(true);
+        return;
+      }
+
+      console.error('Error sharing:', error);
+    }
+  }, [onShare, property]);
+
   if (!property) {
     return null;
   }
+
+  const headerSharePayload = buildPropertySharePayload(property);
 
   return (
     <>
@@ -336,6 +381,8 @@ function PropertyContentSections({
           onHalfExpandedBodyPress={onHalfExpandedBodyPress}
           onSummaryCardBottomLayout={onSummaryCardBottomLayout}
           onHeaderClose={onHeaderClose}
+          onShare={handleHeaderShare}
+          onLike={onLike}
         />
 
         <View
@@ -427,6 +474,12 @@ function PropertyContentSections({
           onClose={() => setShowReport(false)}
         />
       ) : null}
+      <SharePropertyModal
+        property={property}
+        visible={isHeaderShareModalVisible}
+        payload={headerSharePayload}
+        onClose={closeHeaderShareModal}
+      />
     </>
   );
 }
