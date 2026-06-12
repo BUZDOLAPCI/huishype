@@ -1,9 +1,9 @@
 import React from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams, usePathname } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AuthModal } from '@/src/components';
-import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
@@ -24,13 +24,78 @@ import {
   useUnfollowUser,
 } from '@/src/hooks/useUserProfile';
 import { useT } from '@/src/i18n';
-import { normalizeUserProfileHandle, parseUserProfileRouteParam } from '@/src/utils/user-route';
+import {
+  buildUserProfileRoute,
+  normalizeUserProfileHandle,
+  parseUserProfileRouteParam,
+} from '@/src/utils/user-route';
 
-import type { AchievementDefinition } from '@huishype/shared';
+import type { AchievementDefinition, PublicUserProfile } from '@huishype/shared';
+
+const DEFAULT_SHARE_ORIGIN = 'https://huishype.nl';
+
+function buildPublicProfileSharePayload(profile: Pick<PublicUserProfile, 'displayName' | 'handle'>) {
+  const origin =
+    Platform.OS === 'web' && typeof window !== 'undefined' && window.location.origin
+      ? window.location.origin.replace(/\/+$/, '')
+      : DEFAULT_SHARE_ORIGIN;
+  const url = `${origin}${buildUserProfileRoute(profile.handle)}`;
+
+  return {
+    title: `${profile.displayName} - HuisHype`,
+    message: `Check out ${profile.displayName} (@${profile.handle}) on HuisHype: ${url}`,
+    url,
+  };
+}
+
+function PublicProfileActionsHeader({
+  topInset,
+  onBackPress,
+  onShareProfile,
+}: {
+  topInset: number;
+  onBackPress: () => void;
+  onShareProfile?: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <View
+      style={[styles.profileActionsHeader, { paddingTop: topInset }]}
+      testID="public-profile-actions-header"
+    >
+      <Pressable
+        onPress={onBackPress}
+        hitSlop={8}
+        testID="public-profile-back-button"
+        accessibilityRole="button"
+        accessibilityLabel={t('common.goBack')}
+        style={styles.headerIconButton}
+      >
+        <Icon name="ArrowLeft" size={25} weight="bold" color="#504A42" />
+      </Pressable>
+      {onShareProfile ? (
+        <Pressable
+          onPress={onShareProfile}
+          hitSlop={8}
+          testID="public-profile-share-button"
+          accessibilityRole="button"
+          accessibilityLabel={t('profile.share')}
+          style={styles.headerIconButton}
+        >
+          <Icon name="ShareFat" size={25} weight="bold" color="#504A42" />
+        </Pressable>
+      ) : (
+        <View style={styles.headerIconButton} />
+      )}
+    </View>
+  );
+}
 
 export default function PublicProfileScreen() {
   const t = useT();
   const { isAuthenticated, user } = useAuthContext();
+  const insets = useSafeAreaInsets();
   const { handle } = useLocalSearchParams<{ handle: string }>();
   const pathname = usePathname();
   const browserPathname =
@@ -60,6 +125,7 @@ export default function PublicProfileScreen() {
   const isOwnProfile = profile?.id != null && profile.id === user?.id;
   const isFollowing = profile?.relationship === 'following' || profile?.relationship === 'mutual';
   const isFollowPending = followMutation.isPending || unfollowMutation.isPending;
+  const profileHeaderTopInset = Platform.OS === 'web' ? 16 : insets.top + 8;
   const handleBackPress = React.useCallback(() => {
     if (router.canGoBack()) {
       router.back();
@@ -68,6 +134,13 @@ export default function PublicProfileScreen() {
 
     router.replace('/');
   }, []);
+  const handleShareProfile = React.useCallback(() => {
+    if (!profile) {
+      return;
+    }
+
+    void Share.share(buildPublicProfileSharePayload(profile));
+  }, [profile]);
 
   const recentActivities = React.useMemo(() => {
     if (!activityData?.pages) return [];
@@ -135,11 +208,9 @@ export default function PublicProfileScreen() {
       <>
         <Stack.Screen options={{ headerShown: false, title: t('profile.header') }} />
         <ScreenBackground>
-          <ScreenHeader
-            title={t('profile.header')}
-            showBackButton
+          <PublicProfileActionsHeader
+            topInset={profileHeaderTopInset}
             onBackPress={handleBackPress}
-            showNotificationBell={false}
           />
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="User" size={32} color="#DE911D" />
@@ -155,11 +226,9 @@ export default function PublicProfileScreen() {
       <>
         <Stack.Screen options={{ headerShown: false, title: t('profile.header') }} />
         <ScreenBackground>
-          <ScreenHeader
-            title={t('profile.header')}
-            showBackButton
+          <PublicProfileActionsHeader
+            topInset={profileHeaderTopInset}
             onBackPress={handleBackPress}
-            showNotificationBell={false}
           />
           <View style={styles.centeredState}>
             <Icon name="WarningCircle" size={48} color="#C7BFB3" />
@@ -176,14 +245,13 @@ export default function PublicProfileScreen() {
     <>
       <Stack.Screen options={{ headerShown: false, title: profile.displayName }} />
       <ScreenBackground style={styles.screen}>
-        <ScreenHeader
-          title={profile.displayName}
-          showBackButton
-          onBackPress={handleBackPress}
-          showNotificationBell={false}
-        />
         <ScrollView style={styles.contentFrame} className="flex-1" testID="public-profile-screen">
           <View style={styles.profileHeader}>
+            <PublicProfileActionsHeader
+              topInset={profileHeaderTopInset}
+              onBackPress={handleBackPress}
+              onShareProfile={handleShareProfile}
+            />
             <ProfilePublicIdentity
               profile={profile}
               action={
@@ -260,9 +328,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
+  profileActionsHeader: {
+    width: '100%',
+    maxWidth: 768,
+    alignSelf: 'center',
+    minHeight: 62,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    overflow: 'visible',
+    zIndex: 20,
+    elevation: 20,
+  },
+  headerIconButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   profileHeader: {
     marginTop: 0,
-    paddingTop: 24,
     paddingBottom: 20,
     alignItems: 'center',
     overflow: 'visible',
