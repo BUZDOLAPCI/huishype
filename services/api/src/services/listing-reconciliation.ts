@@ -225,6 +225,13 @@ function mergeOriginSummary(current: OriginSummary | null, origin: ListingObserv
   return 'user_and_mirror';
 }
 
+function observationSourceProvenance(
+  observation: Pick<ListingObservation | NewListingObservation, 'payload'>,
+): string | null {
+  const payload = observation.payload;
+  return payload && typeof payload.sourceProvenance === 'string' ? payload.sourceProvenance : null;
+}
+
 function priceDateFromObservation(observation: ListingObservation): string {
   const source = observation.observedAt ?? observation.createdAt;
   return source.toISOString().slice(0, 10);
@@ -618,6 +625,7 @@ async function refreshCompatibleObservationMetadata(
   const set: Partial<NewListingObservation> = {};
   const incomingStale = incoming.staleForProjection ?? false;
   const madeFreshForProjection = existing.staleForProjection && !incomingStale;
+  const incomingRefreshesSourceFreshness = observationSourceProvenance(incoming) !== 'replay';
 
   if (madeFreshForProjection) {
     set.staleForProjection = false;
@@ -626,6 +634,7 @@ async function refreshCompatibleObservationMetadata(
     existing.origin === 'replay'
     && incoming.origin === 'mirror'
     && !incomingStale
+    && incomingRefreshesSourceFreshness
     && !(await sourceObservationOriginExists(existing, 'mirror', executor))
   ) {
     set.origin = 'mirror';
@@ -633,11 +642,12 @@ async function refreshCompatibleObservationMetadata(
   if (
     incoming.sourceHighWatermark
     && dateKey(existing.sourceHighWatermark) !== dateKey(incoming.sourceHighWatermark)
+    && incomingRefreshesSourceFreshness
     && (!incomingStale || !existing.sourceHighWatermark)
   ) {
     set.sourceHighWatermark = incoming.sourceHighWatermark;
   }
-  if (incomingDateIsNewer(existing.lastSeenAt, incoming.lastSeenAt)) {
+  if (incomingRefreshesSourceFreshness && incomingDateIsNewer(existing.lastSeenAt, incoming.lastSeenAt)) {
     set.lastSeenAt = incoming.lastSeenAt;
   }
   if (

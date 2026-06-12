@@ -2772,6 +2772,152 @@ describe('Durable ingest API contract', () => {
     });
   });
 
+  it('projects Pararius lifecycleStatus terminal evidence onto existing active listings', async () => {
+    const sourceName = 'pararius';
+    const createdMirrorListingIds: string[] = [];
+    const createdBatchIds: string[] = [];
+
+    try {
+      for (const terminalLifecycleStatus of ['withdrawn', 'rented', 'not_found'] as const) {
+        const stamp = `${Date.now()}-${terminalLifecycleStatus}`;
+        const street = `Pararius Lifecycle Terminal ${stamp}`;
+        const propertyId = await seedProperty({ street, houseNumber: 59 });
+        const mirrorListingId = `pararius-terminal-${stamp}`;
+        createdMirrorListingIds.push(mirrorListingId);
+        const sourceUrl = `https://www.pararius.com/apartment-for-rent/eindhoven/${mirrorListingId}`;
+        const runKey = `pararius-terminal-run-${stamp}`;
+        const activeCursor = encodeOpaqueIngestCursor({
+          changedAt: '2026-04-06T20:00:00.000Z',
+          listingKey: `${mirrorListingId}-active`,
+        });
+
+        const activeAccepted = await acceptIngestBatch({
+          sourceName,
+          idempotencyKey: `pararius-terminal-active-${stamp}`,
+          batchSequence: 0,
+          cursorStart: null,
+          cursorEnd: activeCursor,
+          upstreamRunKey: runKey,
+          sourceHighWatermark: '2026-04-06T20:00:00.000Z',
+          scopeKey: 'candidate',
+          listings: [
+            {
+              sourceUrl,
+              mirrorListingId,
+              sourceListingId: mirrorListingId,
+              askingPrice: 1850,
+              priceType: 'rent',
+              status: 'active',
+              sourceStatus: 'available',
+              mirrorFirstSeenAt: '2026-04-05T20:00:00.000Z',
+              mirrorLastChangedAt: '2026-04-06T20:00:00.000Z',
+              mirrorLastSeenAt: '2026-04-06T20:05:00.000Z',
+              address: {
+                countryCode: 'NL',
+                street,
+                postalCode: '1234 AB',
+                houseNumber: 59,
+                city: 'Eindhoven',
+              },
+            },
+          ],
+        });
+        createdBatchIds.push(activeAccepted.batchId);
+        await processIngestBatch({ batchId: activeAccepted.batchId, enqueueMaintenanceRefresh: async () => {} });
+
+        const terminalAccepted = await acceptIngestBatch({
+          sourceName,
+          idempotencyKey: `pararius-terminal-${terminalLifecycleStatus}-${stamp}`,
+          batchSequence: 1,
+          cursorStart: activeCursor,
+          cursorEnd: encodeOpaqueIngestCursor({
+            changedAt: '2026-04-06T20:10:00.000Z',
+            listingKey: `${mirrorListingId}-${terminalLifecycleStatus}`,
+          }),
+          upstreamRunKey: runKey,
+          sourceHighWatermark: '2026-04-06T20:10:00.000Z',
+          scopeKey: 'candidate',
+          listings: [
+            {
+              sourceUrl,
+              canonicalUrl: sourceUrl,
+              mirrorListingId,
+              sourceListingId: mirrorListingId,
+              reasonCode: `pararius_${terminalLifecycleStatus}`,
+              matchEvidence: { sourceListingId: mirrorListingId, previousPropertyId: propertyId },
+              askingPrice: null,
+              priceType: 'unknown',
+              status: 'active',
+              lifecycleStatus: terminalLifecycleStatus,
+              observedAt: '2026-04-06T20:10:00.000Z',
+              sourceHighWatermark: '2026-04-06T20:10:00.000Z',
+            },
+          ],
+        });
+        createdBatchIds.push(terminalAccepted.batchId);
+
+        await expect(
+          processIngestBatch({ batchId: terminalAccepted.batchId, enqueueMaintenanceRefresh: async () => {} }),
+        ).resolves.toEqual({
+          status: 'completed',
+          ingested: 1,
+          updated: 0,
+          skipped: 0,
+        });
+
+        const [canonical] = await db
+          .select()
+          .from(canonicalListings)
+          .where(
+            and(
+              eq(canonicalListings.sourceName, sourceName),
+              eq(canonicalListings.primarySourceListingId, mirrorListingId),
+            ),
+          )
+          .limit(1);
+        expect(canonical).toMatchObject({
+          propertyId,
+          status: terminalLifecycleStatus === 'rented' ? 'rented' : 'withdrawn',
+          statusSource: 'mirror',
+        });
+
+        const [terminalObservation] = await db
+          .select()
+          .from(listingObservations)
+          .where(eq(listingObservations.ingestBatchId, terminalAccepted.batchId))
+          .limit(1);
+        expect(terminalObservation).toMatchObject({
+          sourceName,
+          propertyId: null,
+          sourceStatus: terminalLifecycleStatus,
+          diagnosticStatus: null,
+          payload: expect.objectContaining({
+            sourceEvidenceOnly: true,
+            reasonCode: `pararius_${terminalLifecycleStatus}`,
+          }),
+        });
+      }
+    } finally {
+      if (createdMirrorListingIds.length > 0) {
+        await db.delete(listings).where(and(
+          eq(listings.sourceName, sourceName),
+          inArray(listings.mirrorListingId, createdMirrorListingIds),
+        ));
+        await db.delete(listingObservations).where(and(
+          eq(listingObservations.sourceName, sourceName),
+          inArray(listingObservations.sourceListingId, createdMirrorListingIds),
+        ));
+        await db.delete(canonicalListings).where(and(
+          eq(canonicalListings.sourceName, sourceName),
+          inArray(canonicalListings.primarySourceListingId, createdMirrorListingIds),
+        ));
+      }
+      if (createdBatchIds.length > 0) {
+        await db.delete(ingestBatches).where(inArray(ingestBatches.id, createdBatchIds));
+      }
+    }
+  });
+
   it('retires legacy active mirror canonical rows from source-wide full-mirror completion absence', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
@@ -3793,6 +3939,105 @@ describe('Durable ingest API contract', () => {
       propertyId,
       propertyMatchKind: 'source_exact',
       ingestBatchId: replayBatchId,
+    });
+  });
+
+  it('does not make replayed source observations look freshly seen without a new source observation', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `Replay Freshness Guard Street ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 48 });
+    const mirrorListingId = `fotocasa-replay-freshness-${stamp}`;
+    const sourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/eindhoven/replay-freshness-${stamp}`;
+    const observedAt = '2026-04-06T16:42:00.000Z';
+    const replaySeenAt = '2026-05-06T16:42:00.000Z';
+    const firstBatchId = await seedCompletedBatchRecord({
+      sourceName,
+      stamp,
+      suffix: 'replay-freshness-first',
+      completedAt: observedAt,
+    });
+    const replayBatchId = await seedCompletedBatchRecord({
+      sourceName,
+      stamp,
+      suffix: 'replay-freshness-replay',
+      completedAt: replaySeenAt,
+    });
+    const address = {
+      countryCode: 'NL',
+      street,
+      postalCode: '1234 AB',
+      houseNumber: 48,
+      city: 'Eindhoven',
+    };
+
+    const first = await persistMirrorObservationForIngest(db, {
+      batchId: firstBatchId,
+      sourceName,
+      sourceUrl,
+      sourceListingId: mirrorListingId,
+      sourceListingIdKind: 'unknown',
+      propertyId,
+      propertyMatchKind: 'source_exact',
+      sourceStatus: 'available',
+      askingPrice: 405000,
+      priceCurrency: 'EUR',
+      address,
+      observedAt,
+      lastSeenAt: observedAt,
+      sourceUpdatedAt: observedAt,
+      sourceProvenance: 'replay',
+      payload: { priceType: 'sale' },
+    });
+    const replay = await persistMirrorObservationForIngest(db, {
+      batchId: replayBatchId,
+      sourceName,
+      sourceUrl,
+      sourceListingId: mirrorListingId,
+      sourceListingIdKind: 'unknown',
+      propertyId,
+      propertyMatchKind: 'source_exact',
+      sourceStatus: 'available',
+      askingPrice: 405000,
+      priceCurrency: 'EUR',
+      address,
+      observedAt,
+      lastSeenAt: replaySeenAt,
+      sourceUpdatedAt: observedAt,
+      sourceHighWatermark: replaySeenAt,
+      sourceProvenance: 'replay',
+      payload: { priceType: 'sale' },
+    });
+
+    expect(replay).toMatchObject({
+      observationId: first.observationId,
+      changed: false,
+    });
+
+    const [observation] = await db
+      .select()
+      .from(listingObservations)
+      .where(eq(listingObservations.id, first.observationId))
+      .limit(1);
+    expect(observation).toMatchObject({
+      ingestBatchId: replayBatchId,
+      lastSeenAt: new Date(observedAt),
+      sourceHighWatermark: null,
+    });
+
+    const [canonical] = await db
+      .select()
+      .from(canonicalListings)
+      .where(
+        and(
+          eq(canonicalListings.sourceName, sourceName),
+          eq(canonicalListings.primarySourceListingId, mirrorListingId),
+        ),
+      )
+      .limit(1);
+    expect(canonical).toMatchObject({
+      lastSeenAt: new Date(observedAt),
+      lastMirrorSeenAt: new Date(observedAt),
     });
   });
 
