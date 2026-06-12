@@ -524,9 +524,6 @@ describe('ListingSubmissionSheet', () => {
       act(() => {
         window.dispatchEvent(new PopStateEvent('popstate'));
       });
-      act(() => {
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      });
 
       await screen.findByText('Confirm & Add Listing');
       expect(screen.queryByText('Something went wrong')).toBeNull();

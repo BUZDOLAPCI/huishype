@@ -441,7 +441,7 @@ test.describe('Reference Expectation: Swipeable Clustered Nodes', () => {
       .click();
     await page.waitForTimeout(1000);
 
-    const panel = page.locator('[data-testid="web-property-panel"]');
+    const panel = page.locator('[data-testid="web-property-panel"]').first();
     await expect(panel).toBeVisible({ timeout: 10000 });
     await expect(panel.getByText('Property Details').first()).toBeVisible();
 

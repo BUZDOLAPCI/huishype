@@ -75,11 +75,10 @@ test.use({ trace: 'off', video: 'off' });
 // Configuration
 const EXPECTATION_NAME = '0021-map-property-preview';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
-// Center on location with actual properties from the database
-// Eindhoven properties are concentrated around [5.47-5.50, 51.40-51.44] area
-// Using a coordinate closer to actual seeded data
-const CENTER_COORDINATES: [number, number] = [5.746, 51.400]; // Asten area where seeded data exists
+// Center on the stable Playwright fixture cluster near Eindhoven.
+const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 const ZOOM_LEVEL = 17;
 
 // Known acceptable console errors - MINIMAL list
@@ -178,6 +177,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     // Reset console collections
     consoleErrors = [];
     consoleWarnings = [];
+
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
 
     // Setup API mocking to return property data with prices
     await setupPropertyMocking(page);

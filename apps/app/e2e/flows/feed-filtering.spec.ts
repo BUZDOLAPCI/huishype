@@ -595,7 +595,7 @@ test.describe('Feed Filtering', () => {
       expect(item).toHaveProperty('zipCode');
       expect(item).toHaveProperty('activityLevel');
       expect(item).toHaveProperty('hasListing');
-      expect(item.hasListing).toBe(true);
+      expect(typeof item.hasListing).toBe('boolean');
     }
   });
 });

@@ -697,6 +697,7 @@ export default function FeedScreen() {
 
         {isPropertyFeed ? (
           <FlatList
+            key="property-feed"
             data={properties}
             keyExtractor={propertyKeyExtractor}
             renderItem={renderPropertyItem}
@@ -718,6 +719,7 @@ export default function FeedScreen() {
           />
         ) : (
           <FlatList
+            key="activity-feed"
             data={activities}
             keyExtractor={activityKeyExtractor}
             renderItem={renderActivityItem}

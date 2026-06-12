@@ -18,7 +18,7 @@ test.use({ trace: 'off', video: 'off' });
 
 const EXPECTATION_NAME = '0025-bottom-sheet-initial-hidden';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
-const CENTER_COORDINATES: [number, number] = [5.746, 51.400];
+const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 const ZOOM_LEVEL = 17;
 const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 

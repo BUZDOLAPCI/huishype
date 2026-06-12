@@ -13,7 +13,10 @@ declare global {
 }
 
 function getBridge(): WebMapCameraHistoryBridge | null {
-  if (typeof window === 'undefined') {
+  if (
+    typeof window === 'undefined' ||
+    typeof window.addEventListener !== 'function'
+  ) {
     return null;
   }
 

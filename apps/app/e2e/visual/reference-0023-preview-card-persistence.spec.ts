@@ -72,6 +72,7 @@ test.use({ trace: 'off', video: 'off' });
 // Configuration
 const EXPECTATION_NAME = '0023-preview-card-persistence';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
 // Center coordinates where seeded data exists
 const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
@@ -134,6 +135,11 @@ async function zoomMapTo(page: Page, center: [number, number], zoom: number): Pr
   return result;
 }
 
+async function waitForPreviewVisible(previewCard: ReturnType<Page['locator']>): Promise<boolean> {
+  await previewCard.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  return previewCard.isVisible().catch(() => false);
+}
+
 /**
  * Helper function to perform a pan gesture on the map
  */
@@ -193,6 +199,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     consoleErrors = [];
     consoleWarnings = [];
 
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
+
     await setupPropertyMocking(page);
 
     page.on('console', (msg) => {
@@ -248,8 +258,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewVisible(previewCard);
 
     // Fallback clicks if needed
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -278,8 +287,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -332,8 +340,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewVisible(previewCard);
 
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -362,8 +369,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -409,8 +415,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewVisible(previewCard);
 
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -439,8 +444,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -484,8 +488,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewVisible(previewCard);
 
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -514,8 +517,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -558,8 +560,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewVisible(previewCard);
 
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -588,8 +589,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -818,8 +818,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewVisible(previewCard);
 
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -848,8 +847,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -927,8 +925,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewVisible(previewCard);
 
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -957,8 +954,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewVisible(previewCard);
         if (previewVisible) break;
       }
     }
@@ -1043,8 +1039,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     let previewVisible = false;
 
     const clickResult = await clickOnPropertyMarker(page);
-    await page.waitForTimeout(1000);
-    previewVisible = await previewCard.isVisible().catch(() => false);
+    previewVisible = await waitForPreviewVisible(previewCard);
 
     // Fallback clicks
     if (!previewVisible && clickResult.featureCount > 0) {
@@ -1073,8 +1068,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       for (const pos of markerPositions) {
         if (!pos) continue;
         await page.mouse.click(pos.x, pos.y);
-        await page.waitForTimeout(1000);
-        previewVisible = await previewCard.isVisible().catch(() => false);
+        previewVisible = await waitForPreviewVisible(previewCard);
         if (previewVisible) break;
       }
     }

@@ -247,7 +247,6 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           showsVerticalScrollIndicator={false}
           onLayout={handleScrollViewLayout}
           onScroll={handleScroll}
-          scrollEventThrottle={16}
         >
           <Animated.View style={contentAnimatedStyle}>
             <PropertyContent

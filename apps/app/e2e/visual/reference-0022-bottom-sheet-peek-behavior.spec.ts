@@ -69,9 +69,10 @@ test.use({ trace: 'off', video: 'off' });
 // Configuration
 const EXPECTATION_NAME = '0022-bottom-sheet-peek-behavior';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
+const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 
 // Center coordinates where seeded data exists
-const CENTER_COORDINATES: [number, number] = [5.746, 51.400];
+const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 const ZOOM_LEVEL = 17;
 
 // Known acceptable console errors - MINIMAL list
@@ -216,6 +217,10 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
     consoleWarnings = [];
+
+    await page.addInitScript((storageKey) => {
+      window.localStorage.setItem(storageKey, '1');
+    }, WELCOME_MODAL_DISMISSED_KEY);
 
     await setupPropertyMocking(page);
 
@@ -561,6 +566,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     const webPanelVisible = await page
       .locator('[data-testid="web-property-panel"]')
+      .first()
       .isVisible()
       .catch(() => false);
     const peekStateVisible = previewVisible || webPanelVisible;

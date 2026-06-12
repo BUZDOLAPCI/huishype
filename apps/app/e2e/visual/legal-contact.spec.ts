@@ -41,7 +41,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       fullPage: false,
     });
 
-    await page.getByTestId('settings-help-row').click();
+    await page.getByTestId('settings-help-row').last().click();
     await expect(page.getByTestId('help-screen')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Help Center' })).toBeVisible();
     await expectSettingsTabBarHidden(page);
@@ -119,9 +119,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await expect.poll(() => sourcePage.url()).toBe('https://maplibre.org/');
     await sourcePage.close();
     await page.getByTestId('profile-settings-back').last().click();
-    await expect(page.getByTestId('settings-terms-row')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Terms and Conditions' })).toBeVisible();
 
-    await page.getByTestId('settings-terms-row').click();
+    await page.getByRole('button', { name: 'Terms and Conditions' }).click();
     await expect(page.getByTestId('terms-screen')).toBeVisible();
     await expect(page.getByText('Last updated: May 21, 2026')).toBeVisible();
     await expectSettingsTabBarHidden(page);
@@ -186,9 +186,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   }) => {
     await page.goto('/settings', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('profile-settings-screen')).toBeVisible();
-    await expect(page.getByTestId('settings-language-row')).toBeVisible();
+    await expect(page.getByTestId('settings-language-row').first()).toBeVisible();
 
-    await page.getByTestId('settings-language-row').click();
+    await page.getByTestId('settings-language-row').first().click();
     await expect(page.getByTestId('settings-language-subview')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Language' })).toBeVisible();
 
@@ -200,16 +200,16 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     await page.getByTestId('profile-settings-back').last().click();
     await expect(page.getByRole('heading', { name: 'Profiel' })).toBeVisible();
-    await expect(page.getByTestId('settings-language-row')).toContainText('Taal');
-    await expect(page.getByTestId('settings-help-row')).toContainText('Hulp nodig?');
-    await expect(page.getByTestId('settings-legal-row')).toContainText('Juridisch');
+    await expect(page.getByTestId('settings-language-row').first()).toContainText('Taal');
+    await expect(page.getByRole('button', { name: 'Hulp nodig?' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Juridisch' })).toBeVisible();
     await expectSettingsTabBarHidden(page);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/settings-main-nl-current.png`,
       fullPage: false,
     });
 
-    await page.getByTestId('settings-help-row').click();
+    await page.getByTestId('settings-help-row').last().click();
     await expect(page.getByTestId('help-screen')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Helpcentrum' })).toBeVisible();
     await expect(page.getByPlaceholder('Zoek in hulp')).toBeVisible();
@@ -223,14 +223,14 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
     await page.goto('/settings', { waitUntil: 'domcontentloaded' });
     await page.getByTestId('settings-legal-row').click();
     await expect(page.getByTestId('settings-legal-submenu')).toBeVisible();
-    await expect(page.getByTestId('settings-terms-row')).toContainText('Algemene voorwaarden');
-    await expect(page.getByTestId('settings-privacy-row')).toContainText('Privacybeleid');
+    await expect(page.getByRole('button', { name: 'Algemene voorwaarden' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Privacybeleid' })).toBeVisible();
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/settings-legal-nl-current.png`,
       fullPage: false,
     });
 
-    await page.getByTestId('settings-terms-row').click();
+    await page.getByRole('button', { name: 'Algemene voorwaarden' }).click();
     await expect(page.getByTestId('terms-screen')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Algemene voorwaarden' })).toBeVisible();
     await expect(page.getByText('Laatst bijgewerkt: 21 mei 2026')).toBeVisible();

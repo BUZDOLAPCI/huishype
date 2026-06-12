@@ -15,7 +15,7 @@ import { waitForMapStyleLoaded, waitForMapIdle } from '../visual/helpers/visual-
 import { clickOnPropertyMarker } from '../visual/helpers/screenshot-harness';
 import { getPlaywrightApiUrl, getPlaywrightArtifactPath } from '../helpers/runtime';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
-import { clickRenderedPropertyMarkerById, type WindowWithMapInstance } from '../helpers/map-instance';
+import { type WindowWithMapInstance } from '../helpers/map-instance';
 
 const API_BASE_URL = getPlaywrightApiUrl();
 
@@ -477,16 +477,16 @@ test.describe('Map to Property Flow', () => {
 
     const initialText = await readSettledPreviewText(page, previewCard);
     expect(initialText.length).toBeGreaterThan(5);
-    const propertyId = firstClick.propertyId;
-    if (!propertyId) {
-      throw new Error('Expected clicked marker to provide a propertyId');
+    if (firstClick.screenX == null || firstClick.screenY == null) {
+      throw new Error('Expected clicked marker to provide screen coordinates');
     }
 
     await closeButton.click({ force: true });
     await expect(previewCard).toHaveCount(0);
+    await page.waitForTimeout(700);
 
-    const reopenResult = await clickRenderedPropertyMarkerById(page, propertyId);
-    expect(reopenResult.success).toBe(true);
+    const reopenClick = await clickOnPropertyMarker(page);
+    expect(reopenClick.success, 'Should find and click the property feature after closing').toBe(true);
     await expect(previewCard).toBeVisible({ timeout: 10000 });
     const reopenedText = await readSettledPreviewText(page, previewCard);
     expect(reopenedText).toBe(initialText);

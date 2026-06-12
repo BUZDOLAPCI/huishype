@@ -20,7 +20,7 @@ describe('property tile pyramid rollback CLI guards', () => {
       'utf8',
     );
 
-    expect(source).toContain('playwright_property_tile_pyramid_fixture');
+    expect(source).toContain('PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID');
     expect(source).toContain('default previous_version_id is a Playwright fixture version');
     expect(source).toContain('targetSelectedFromPreviousPointer && targetIsPlaywrightFixture');
     expect(source).toContain('pass --to-version with the intended real promoted target');
@@ -35,7 +35,7 @@ describe('Playwright property tile pyramid fixture script guards', () => {
       'utf8',
     );
 
-    expect(source).toContain('playwright_property_tile_pyramid_fixture');
+    expect(source).toContain('PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID');
     expect(source).toContain(
       'PLAYWRIGHT_I_UNDERSTAND_THIS_WILL_OVERWRITE_PUBLIC_PROPERTY_TILE_PYRAMID_SLOT',
     );

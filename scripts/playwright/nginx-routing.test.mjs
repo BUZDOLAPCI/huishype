@@ -26,7 +26,7 @@ test('production nginx routes direct loads to exported Expo dynamic HTML templat
 
   assertOrderedContains(nginxConfig, [
     'location ~ ^/user/[^/]+/?$',
-    'try_files $uri $uri.html $uri/ /user/[id].html /index.html;',
+    'try_files $uri $uri.html $uri/ /user/[handle].html /index.html;',
   ]);
 
   assertOrderedContains(nginxConfig, [

@@ -178,7 +178,7 @@ async function mockLocationSearch(page: Page, property: TestProperty): Promise<v
             postalCode: '9999ZZ',
             houseNumber: '10',
             houseNumberAddition: null,
-            coordinates: [5.49, 51.45],
+            coordinates: [5.56, 51.49],
           },
         ]),
       });

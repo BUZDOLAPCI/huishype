@@ -14,7 +14,7 @@ import {
   Camera,
   Marker,
   LogManager,
-  NetworkManager,
+  TransformRequestManager,
   type CameraRef,
   type MapRef,
   type PixelPointBounds,
@@ -24,8 +24,6 @@ import {
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
-LogManager.setLogLevel('warn');
 import {
   PropertyBottomSheet,
   AuthModal,
@@ -99,6 +97,9 @@ import { PROPERTY_QUERY_LAYER_IDS } from '@/src/lib/propertyQueryLayers';
 import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared/config';
 import type { LocationFilterToken } from '@huishype/shared';
 
+// Suppress MapLibre native error toasts in dev (e.g. RenderThread errors in emulator)
+LogManager.setLogLevel('warn');
+
 // Semantic color constants for inline styles (warm palette)
 const COLORS = {
   white: '#FFFFFF',
@@ -120,6 +121,8 @@ const NATIVE_PREVIEW_TOP_CHROME_CLEARANCE = 148;
 const AMBIENT_BUBBLE_SETTLE_DELAY_MS = 900;
 const FOLLOWING_FEATURE_HIT_SLOP_PX = 28;
 const HOUSE_NUMBER_LAYER_ID = 'housenumber';
+const FOLLOWING_TILE_AUTH_HEADER_ID = 'following-tile-auth-header';
+const READ_TILE_AUTH_HEADER_ID = 'read-tile-auth-header';
 
 type InlineMapStyle = Exclude<Parameters<typeof Map>[0]['mapStyle'], string>;
 
@@ -520,19 +523,20 @@ export default function MapScreen() {
   ]);
 
   useEffect(() => {
-    NetworkManager.removeRequestHeader('Authorization');
-    NetworkManager.removeRequestHeader('x-session-id');
+    TransformRequestManager.removeHeader(FOLLOWING_TILE_AUTH_HEADER_ID);
+    TransformRequestManager.removeHeader(READ_TILE_AUTH_HEADER_ID);
 
     if (
       socialScope === 'following' &&
       followingTileAuthToken &&
       followingTileSource.data?.tileUrl
     ) {
-      NetworkManager.addRequestHeader(
-        'Authorization',
-        `Bearer ${followingTileAuthToken}`,
-        buildFollowingTileRequestMatchPattern(followingTileSource.data.tileUrl)
-      );
+      TransformRequestManager.addHeader({
+        id: FOLLOWING_TILE_AUTH_HEADER_ID,
+        name: 'Authorization',
+        value: `Bearer ${followingTileAuthToken}`,
+        match: buildFollowingTileRequestMatchPattern(followingTileSource.data.tileUrl),
+      });
     }
 
     if (
@@ -540,16 +544,17 @@ export default function MapScreen() {
       readTileSource.data?.tileUrl &&
       readTileSource.data.headerValue
     ) {
-      NetworkManager.addRequestHeader(
-        readTileSource.data.headerName,
-        readTileSource.data.headerValue,
-        buildReadTileRequestMatchPattern(readTileSource.data.tileUrl)
-      );
+      TransformRequestManager.addHeader({
+        id: READ_TILE_AUTH_HEADER_ID,
+        name: readTileSource.data.headerName,
+        value: readTileSource.data.headerValue,
+        match: buildReadTileRequestMatchPattern(readTileSource.data.tileUrl),
+      });
     }
 
     return () => {
-      NetworkManager.removeRequestHeader('Authorization');
-      NetworkManager.removeRequestHeader('x-session-id');
+      TransformRequestManager.removeHeader(FOLLOWING_TILE_AUTH_HEADER_ID);
+      TransformRequestManager.removeHeader(READ_TILE_AUTH_HEADER_ID);
     };
   }, [
     followingTileAuthToken,

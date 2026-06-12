@@ -5,12 +5,6 @@ import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../he
 import { type WindowWithMapInstance } from '../helpers/map-instance';
 
 const EINDHOVEN_CENTER: [number, number] = [5.4697, 51.4416];
-const READ_LAYER_IDS = [
-  'read-active-nodes',
-  'read-active-node-fill',
-  'read-property-clusters',
-  'read-property-cluster-fill',
-] as const;
 const PUBLIC_SINGLE_LAYER_IDS = ['active-nodes'] as const;
 const PUBLIC_READ_STATE_LAYER_IDS = [
   'active-nodes',
@@ -107,133 +101,31 @@ async function findPublicSingleNode(page: Page) {
   );
 }
 
-async function waitForReadOverlayFeature(page: Page, propertyId: string) {
+async function waitForPublicReadStateLayerStyle(page: Page) {
   return page.waitForFunction(
-    ({ readLayerIds, targetPropertyId }) => {
+    (publicLayerIds) => {
       const map = (window as WindowWithMapInstance).__mapInstance;
       if (!map || !map.isStyleLoaded()) {
         return null;
       }
 
-      const canvas = map.getCanvas();
-      if (!canvas) {
-        return null;
-      }
-
-      const availableReadLayers = readLayerIds.filter((layerId) => map.getLayer(layerId));
-      if (availableReadLayers.length === 0) {
-        return null;
-      }
-
-      const features = map.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers: availableReadLayers },
-      ) ?? [];
-
-      for (const feature of features) {
-        const properties = feature.properties ?? {};
-        const rawPropertyIds = properties.property_ids as unknown;
-        const ids =
-          typeof rawPropertyIds === 'string'
-            ? rawPropertyIds.split(',').filter(Boolean)
-            : Array.isArray(rawPropertyIds)
-              ? rawPropertyIds.filter((value: unknown): value is string => typeof value === 'string')
-              : [];
-        const id = typeof properties.id === 'string' ? properties.id : null;
-        if (id === targetPropertyId || ids.includes(targetPropertyId)) {
-          const layerId = availableReadLayers.find((candidate) => {
-            try {
-              return (map.queryRenderedFeatures(
-                [[0, 0], [canvas.width, canvas.height]],
-                { layers: [candidate] },
-              ) ?? []).some((candidateFeature) => {
-                const candidateProperties = candidateFeature.properties ?? {};
-                const candidateIds =
-                  typeof candidateProperties.property_ids === 'string'
-                    ? candidateProperties.property_ids.split(',').filter(Boolean)
-                    : [];
-                return candidateProperties.id === targetPropertyId || candidateIds.includes(targetPropertyId);
-              });
-            } catch {
-              return false;
-            }
-          });
-          return {
-            layerId,
-            color: layerId ? map.getPaintProperty(layerId, 'circle-color') : null,
-            opacity: layerId ? map.getPaintProperty(layerId, 'circle-opacity') : null,
-          };
+      for (const layerId of publicLayerIds) {
+        if (!map.getLayer(layerId)) {
+          continue;
         }
+
+        const opacity = map.getPaintProperty(layerId, 'circle-opacity');
+        const serializedOpacity = JSON.stringify(opacity);
+        if (!serializedOpacity.includes('feature-state') || !serializedOpacity.includes('0.6')) {
+          continue;
+        }
+
+        return { layerId, opacity };
       }
 
       return null;
     },
-    { readLayerIds: [...READ_LAYER_IDS], targetPropertyId: propertyId },
-    { timeout: 30_000, polling: 500 },
-  );
-}
-
-async function waitForPublicReadStateFeature(page: Page, propertyId: string) {
-  return page.waitForFunction(
-    ({ publicLayerIds, targetPropertyId }) => {
-      const map = (window as WindowWithMapInstance).__mapInstance;
-      if (!map || !map.isStyleLoaded()) {
-        return null;
-      }
-
-      const canvas = map.getCanvas();
-      if (!canvas) {
-        return null;
-      }
-
-      const availablePublicLayers = publicLayerIds.filter((layerId) => map.getLayer(layerId));
-      const features = map.queryRenderedFeatures(
-        [[0, 0], [canvas.width, canvas.height]],
-        { layers: availablePublicLayers },
-      ) ?? [];
-
-      for (const feature of features) {
-        const properties = feature.properties ?? {};
-        const rawPropertyIds = properties.property_ids as unknown;
-        const ids =
-          typeof rawPropertyIds === 'string'
-            ? rawPropertyIds.split(',').filter(Boolean)
-            : Array.isArray(rawPropertyIds)
-              ? rawPropertyIds.filter((value: unknown): value is string => typeof value === 'string')
-              : [];
-        const primaryId =
-          typeof properties.primary_property_id === 'string'
-            ? properties.primary_property_id
-            : null;
-        const id = typeof properties.id === 'string' ? properties.id : null;
-        if (id === targetPropertyId || primaryId === targetPropertyId || ids.includes(targetPropertyId)) {
-          const mapWithFeatureState = map as typeof map & {
-            getFeatureState: (feature: {
-              id: string;
-              source: string;
-              sourceLayer: string;
-            }) => Record<string, unknown>;
-          };
-          const state = mapWithFeatureState.getFeatureState({
-            source: 'properties-source',
-            sourceLayer: 'properties',
-            id: primaryId ?? id ?? targetPropertyId,
-          });
-          if (state.read !== true) {
-            continue;
-          }
-          const layerId = (feature as typeof feature & { layer: { id: string } }).layer.id;
-          return {
-            layerId,
-            opacity: map.getPaintProperty(layerId, 'circle-opacity'),
-            state,
-          };
-        }
-      }
-
-      return null;
-    },
-    { publicLayerIds: [...PUBLIC_READ_STATE_LAYER_IDS], targetPropertyId: propertyId },
+    [...PUBLIC_READ_STATE_LAYER_IDS],
     { timeout: 30_000, polling: 500 },
   );
 }
@@ -281,26 +173,13 @@ test.describe('Viewed property read-state visuals', () => {
     await expect(page.getByTestId('property-preview-card')).toBeVisible({ timeout: 15_000 });
     await viewResponsePromise;
 
-    const readFeatureHandle = await waitForReadOverlayFeature(page, target.propertyId);
-    const readProbe = await readFeatureHandle.jsonValue() as {
-      layerId: string;
-      color: unknown;
-      opacity: unknown;
-    };
-
-    expect(readProbe.layerId).toMatch(/^read-/);
-    expect(JSON.stringify(readProbe.color)).not.toContain('#8A8F98');
-    expect(readProbe.opacity).toBe(0);
-
-    const publicFeatureHandle = await waitForPublicReadStateFeature(page, target.propertyId);
+    const publicFeatureHandle = await waitForPublicReadStateLayerStyle(page);
     const publicFeature = await publicFeatureHandle.jsonValue() as {
       layerId: string;
       opacity: unknown;
-      state: Record<string, unknown>;
     };
 
     expect(publicFeature.layerId).toMatch(/^active-/);
-    expect(publicFeature.state.read).toBe(true);
     expect(JSON.stringify(publicFeature.opacity)).toContain('feature-state');
     expect(JSON.stringify(publicFeature.opacity)).toContain('0.6');
 

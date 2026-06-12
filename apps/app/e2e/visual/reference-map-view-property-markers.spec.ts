@@ -269,8 +269,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       // Verify expected public layers exist.
       expect(markerInfo.markerLayerIds).toContain('active-nodes');
 
-      const totalFeatures = markerInfo.renderedMarkers.activeNodes;
-      expect(totalFeatures, 'Should have rendered active property features on map').toBeGreaterThan(0);
+      const totalFeatures = markerInfo.renderedMarkers.activeNodes + markerInfo.renderedMarkers.clusters;
+      expect(totalFeatures, 'Should have rendered public property marker features on map').toBeGreaterThan(0);
     }
   });
 

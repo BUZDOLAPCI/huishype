@@ -114,6 +114,13 @@ const NetworkManager = {
   setConnected: jest.fn(),
 };
 
+// Mock TransformRequestManager
+const TransformRequestManager = {
+  addHeader: jest.fn(),
+  removeHeader: jest.fn(),
+  clearHeaders: jest.fn(),
+};
+
 // Mock OfflineManager
 const OfflineManager = {
   createPack: jest.fn(),
@@ -167,6 +174,7 @@ module.exports = {
   LocationManager,
   LogManager,
   NetworkManager,
+  TransformRequestManager,
   OfflineManager,
   OfflinePack,
   StaticMapImageManager,

@@ -49,19 +49,19 @@ Prebuild regenerates the native folders from `app.config.js`, but it does not el
 The generated [`android/build.gradle`](/home/caslan/dev/git_repos/hh/huishype/apps/app/android/build.gradle) must keep both of these customizations:
 
 - `mavenLocal()` inside `allprojects.repositories`
-- `ext.set("org.maplibre.reactnative.nativeVersion", "12.2.3-huishype")`
+- `ext.set("org.maplibre.reactnative.nativeVersion", "13.3.0-huishype")`
 
-Those lines make Gradle resolve the locally published MapLibre Native fork instead of the stock `12.2.3` artifact from the npm package.
+Those lines make Gradle resolve the locally published MapLibre Native fork instead of the stock artifact from the npm package.
 
 If you rebuild the fork, publish it again before running Android:
 
 ```bash
 cd /home/caslan/dev/git_repos/hh/maplibre-native/platform/android
 BUILDTYPE=Release ./gradlew :MapLibreAndroid:assembleOpenglRelease
-BUILDTYPE=Release ./gradlew :MapLibreAndroid:publishOpenglReleasePublicationToMavenLocal
+BUILDTYPE=Release ./gradlew :MapLibreAndroid:publishOpenglreleasePublicationToMavenLocal
 ```
 
-The AAR is expected in `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/12.2.3-huishype/`.
+The AAR is expected in `~/.m2/repository/org/maplibre/gl/android-sdk-opengl/13.3.0-huishype/`.
 
 ### iOS: URL-scheme wiring
 
@@ -87,7 +87,7 @@ If a clean prebuild removes that file, restore it before opening the iOS project
 After `expo prebuild --clean`, verify:
 
 1. [`app.config.js`](/home/caslan/dev/git_repos/hh/huishype/apps/app/app.config.js) still reflects the intended Expo config.
-2. [`android/build.gradle`](/home/caslan/dev/git_repos/hh/huishype/apps/app/android/build.gradle) still contains `mavenLocal()` and the `12.2.3-huishype` override.
+2. [`android/build.gradle`](/home/caslan/dev/git_repos/hh/huishype/apps/app/android/build.gradle) still contains `mavenLocal()` and the `13.3.0-huishype` override.
 3. [`ios/HuisHype/Info.plist`](/home/caslan/dev/git_repos/hh/huishype/apps/app/ios/HuisHype/Info.plist) still contains the expected URL schemes.
 4. [`ios/HuisHype/GoogleService-Info.plist`](/home/caslan/dev/git_repos/hh/huishype/apps/app/ios/HuisHype/GoogleService-Info.plist) exists locally.
 5. Then run `pnpm -C apps/app android` or `pnpm -C apps/app ios`.

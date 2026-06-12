@@ -10,8 +10,8 @@ const mockGetBounds = jest.fn(async () => [4.8, 52.3, 5.0, 52.4]);
 const mockGetCenter = jest.fn(async () => [4.9, 52.37]);
 const mockProject = jest.fn(async () => [0, 0]);
 const mockQueryRenderedFeatures = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
-const mockNetworkManagerAddRequestHeader = jest.fn();
-const mockNetworkManagerRemoveRequestHeader = jest.fn();
+const mockTransformRequestManagerAddHeader = jest.fn();
+const mockTransformRequestManagerRemoveHeader = jest.fn();
 
 const globalWithDev = globalThis as typeof globalThis & { __DEV__?: boolean };
 const originalFetch = globalThis.fetch;
@@ -405,9 +405,9 @@ jest.mock('@maplibre/maplibre-react-native', () => {
     Marker,
     UserLocation: () => null,
     LogManager: { setLogLevel: jest.fn() },
-    NetworkManager: {
-      addRequestHeader: (...args: unknown[]) => mockNetworkManagerAddRequestHeader(...args),
-      removeRequestHeader: (...args: unknown[]) => mockNetworkManagerRemoveRequestHeader(...args),
+    TransformRequestManager: {
+      addHeader: (...args: unknown[]) => mockTransformRequestManagerAddHeader(...args),
+      removeHeader: (...args: unknown[]) => mockTransformRequestManagerRemoveHeader(...args),
     },
   };
 });
@@ -562,11 +562,12 @@ describe('MapScreen native grouped Following mode', () => {
       'all-time',
       true
     );
-    expect(mockNetworkManagerAddRequestHeader).toHaveBeenCalledWith(
-      'Authorization',
-      'Bearer viewer-token',
-      expect.any(RegExp)
-    );
+    expect(mockTransformRequestManagerAddHeader).toHaveBeenCalledWith({
+      id: 'following-tile-auth-header',
+      name: 'Authorization',
+      value: 'Bearer viewer-token',
+      match: expect.any(RegExp),
+    });
   });
 
   it('configures native read overlay session headers only for the read tile pattern', async () => {
@@ -588,16 +589,21 @@ describe('MapScreen native grouped Following mode', () => {
       );
     });
 
-    expect(mockNetworkManagerAddRequestHeader).toHaveBeenCalledWith(
-      'x-session-id',
-      'session-123',
-      expect.any(RegExp)
-    );
+    expect(mockTransformRequestManagerAddHeader).toHaveBeenCalledWith({
+      id: 'read-tile-auth-header',
+      name: 'x-session-id',
+      value: 'session-123',
+      match: expect.any(RegExp),
+    });
 
-    const addCall = mockNetworkManagerAddRequestHeader.mock.calls.find(
-      ([headerName]) => headerName === 'x-session-id',
+    const addCall = mockTransformRequestManagerAddHeader.mock.calls.find(
+      ([options]) =>
+        typeof options === 'object' &&
+        options !== null &&
+        'name' in options &&
+        options.name === 'x-session-id',
     );
-    const pattern = addCall?.[2] as RegExp;
+    const pattern = addCall?.[0].match as RegExp;
     expect(pattern.test('https://tiles.test/properties/read/12/2048/1363.pbf')).toBe(true);
     expect(pattern.test('https://tiles.test/properties/12/2048/1363.pbf')).toBe(false);
   });
