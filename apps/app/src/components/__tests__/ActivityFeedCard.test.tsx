@@ -1,6 +1,13 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { router } from 'expo-router';
 import { ActivityFeedCard } from '../ActivityFeedCard';
+
+jest.mock('expo-router', () => ({
+  router: {
+    push: jest.fn(),
+  },
+}));
 
 const baseProps = {
   property: {
@@ -50,6 +57,10 @@ const baseProps = {
 };
 
 describe('ActivityFeedCard', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('renders a placeholder when no property thumbnail is available', () => {
     render(<ActivityFeedCard {...baseProps} />);
 
@@ -119,5 +130,34 @@ describe('ActivityFeedCard', () => {
 
     fireEvent.press(screen.getByTestId('property-activity-card'));
     expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('navigates to the primary actor profile from the actor row', () => {
+    render(<ActivityFeedCard {...baseProps} onPress={jest.fn()} />);
+
+    fireEvent.press(screen.getByTestId('property-activity-primary-actor-link'));
+
+    expect(router.push).toHaveBeenCalledWith('/user/@ada');
+  });
+
+  it('does not call the property press handler when the actor row is pressed', () => {
+    const onPress = jest.fn();
+    const stopPropagation = jest.fn();
+
+    render(<ActivityFeedCard {...baseProps} onPress={onPress} />);
+
+    fireEvent.press(screen.getByTestId('property-activity-primary-actor-link'), {
+      stopPropagation,
+    });
+
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it('renders the actor row as non-interactive when there are no actors', () => {
+    render(<ActivityFeedCard {...baseProps} recentActors={[]} />);
+
+    expect(screen.queryByTestId('property-activity-primary-actor-link')).toBeNull();
+    expect(screen.getByText('Recent activity')).toBeTruthy();
   });
 });

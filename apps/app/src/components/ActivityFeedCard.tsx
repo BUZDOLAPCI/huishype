@@ -1,11 +1,13 @@
 import React, { memo, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { Card } from './ui/Card';
 import { Icon, type IconName } from './ui/Icon';
 import { PropertyImageSurface } from './PropertyImageSurface';
 import { UserAvatar } from './ui/UserAvatar';
 import { toPropertyImageSource, withDerivedPropertyImageData } from '../utils/property-image';
 import { useT } from '@/src/i18n';
+import { buildUserProfileRoute } from '@/src/utils/user-route';
 import type {
   GroupedActivityPreview,
   GroupedPropertyActivityItem,
@@ -121,6 +123,34 @@ function ActivityFeedCardComponent({
   const relativeTime = useMemo(() => formatRelativeTime(lastActivityAt), [lastActivityAt]);
   const actorHeadline = useMemo(() => formatActorHeadline(recentActors), [recentActors]);
   const previewText = useMemo(() => renderPreviewText(preview), [preview]);
+  const primaryActor = recentActors[0];
+  const actorRowContent = (
+    <>
+      <View style={styles.facepile} testID="property-activity-facepile">
+        {recentActors.map((actor, index) => (
+          <View
+            key={actor.id}
+            style={[
+              styles.facepileItem,
+              index > 0 ? { marginLeft: -10 } : null,
+              { zIndex: recentActors.length - index },
+            ]}
+          >
+            <UserAvatar
+              username={actor.handle}
+              displayName={actor.displayName}
+              profilePhotoUrl={actor.profilePhotoUrl}
+              size="xs"
+              testID={`property-activity-actor-${index}`}
+            />
+          </View>
+        ))}
+      </View>
+      <Text style={styles.actorText} numberOfLines={1}>
+        {actorHeadline}
+      </Text>
+    </>
+  );
 
   return (
     <Pressable
@@ -160,31 +190,22 @@ function ActivityFeedCardComponent({
             <Text style={styles.timestamp}>{relativeTime}</Text>
           </View>
 
-          <View style={styles.actorRow}>
-            <View style={styles.facepile} testID="property-activity-facepile">
-              {recentActors.map((actor, index) => (
-                <View
-                  key={actor.id}
-                  style={[
-                    styles.facepileItem,
-                    index > 0 ? { marginLeft: -10 } : null,
-                    { zIndex: recentActors.length - index },
-                  ]}
-                >
-                  <UserAvatar
-                    username={actor.handle}
-                    displayName={actor.displayName}
-                    profilePhotoUrl={actor.profilePhotoUrl}
-                    size="xs"
-                    testID={`property-activity-actor-${index}`}
-                  />
-                </View>
-              ))}
-            </View>
-            <Text style={styles.actorText} numberOfLines={1}>
-              {actorHeadline}
-            </Text>
-          </View>
+          {primaryActor ? (
+            <Pressable
+              style={styles.actorRow}
+              testID="property-activity-primary-actor-link"
+              accessibilityRole="link"
+              accessibilityLabel={`Open ${primaryActor.displayName}'s profile`}
+              onPress={(event) => {
+                event?.stopPropagation?.();
+                router.push(buildUserProfileRoute(primaryActor.handle));
+              }}
+            >
+              {actorRowContent}
+            </Pressable>
+          ) : (
+            <View style={styles.actorRow}>{actorRowContent}</View>
+          )}
 
           <View style={styles.previewBlock}>
             <Text style={styles.previewLabel}>
