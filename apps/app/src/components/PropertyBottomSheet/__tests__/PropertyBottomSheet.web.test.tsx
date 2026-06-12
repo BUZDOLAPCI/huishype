@@ -1,6 +1,8 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
+import { ScrollView } from 'react-native';
+
 import { PropertyBottomSheet } from '../PropertyBottomSheet.web';
 import type { PropertyBottomSheetRef, PropertyContentProps } from '../index';
 import type { PropertyDetails } from '../../../hooks/useProperties';
@@ -74,6 +76,17 @@ type HostTestNode = { props: Record<string, unknown> };
 
 const getHostNodesByType = (type: string): HostTestNode[] =>
   (screen.UNSAFE_getAllByType as unknown as (hostType: string) => HostTestNode[])(type);
+
+const getScrollViews = (): HostTestNode[] =>
+  (
+    screen.UNSAFE_getAllByType as unknown as (
+      hostType: typeof ScrollView
+    ) => HostTestNode[]
+  )(ScrollView);
+
+const queryWebPanelHeader = () =>
+  getHostNodesByType('div')
+    .find((node) => String(node.props.className).includes('web-property-panel-header')) ?? null;
 
 describe('PropertyBottomSheet.web', () => {
   beforeEach(() => {
@@ -228,10 +241,13 @@ describe('PropertyBottomSheet.web', () => {
 
     await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(1));
 
-    const closeButton = getHostNodesByType('button')
-      .find((node) => node.props['aria-label'] === 'Close panel');
-    expect(closeButton).toBeTruthy();
-    fireEvent(closeButton as Parameters<typeof fireEvent>[0], 'click');
+    const lastProps =
+      mockPropertyContent.mock.calls[mockPropertyContent.mock.calls.length - 1]?.[0];
+    expect(lastProps?.onHeaderClose).toEqual(expect.any(Function));
+
+    act(() => {
+      lastProps?.onHeaderClose?.();
+    });
     await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(0));
 
     act(() => {
@@ -244,5 +260,58 @@ describe('PropertyBottomSheet.web', () => {
     expect(backdrop).toBeTruthy();
     fireEvent(backdrop as Parameters<typeof fireEvent>[0], 'click');
     await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(0));
+  });
+
+  it('shows only the compact address title after scrolling past the measured summary card', async () => {
+    setWindowSize(390, 844);
+
+    render(
+      <PropertyBottomSheet
+        property={property}
+        isPreviewCardVisible
+      />
+    );
+
+    expect(screen.queryByText('Property Details')).toBeNull();
+    expect(screen.queryByText('Webstraat 1')).toBeNull();
+    expect(queryWebPanelHeader()).toBeNull();
+
+    const lastProps =
+      mockPropertyContent.mock.calls[mockPropertyContent.mock.calls.length - 1]?.[0];
+
+    expect(lastProps.onHeaderClose).toEqual(expect.any(Function));
+
+    act(() => {
+      lastProps.onSummaryCardBottomLayout?.(120);
+    });
+
+    const scrollView = getScrollViews()[0];
+
+    act(() => {
+      fireEvent.scroll(scrollView as Parameters<typeof fireEvent.scroll>[0], {
+        nativeEvent: { contentOffset: { y: 119 } },
+      });
+    });
+
+    expect(screen.queryByText('Webstraat 1')).toBeNull();
+    expect(queryWebPanelHeader()).toBeNull();
+
+    act(() => {
+      fireEvent.scroll(scrollView as Parameters<typeof fireEvent.scroll>[0], {
+        nativeEvent: { contentOffset: { y: 120 } },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('Webstraat 1')).toBeTruthy());
+    expect(queryWebPanelHeader()?.props.className).toContain('overlay');
+
+    act(() => {
+      fireEvent.scroll(scrollView as Parameters<typeof fireEvent.scroll>[0], {
+        nativeEvent: { contentOffset: { y: 24 } },
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByText('Webstraat 1')).toBeNull());
+    expect(queryWebPanelHeader()).toBeNull();
   });
 });

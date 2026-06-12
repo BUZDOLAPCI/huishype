@@ -1,5 +1,15 @@
-import { forwardRef, useCallback, useMemo, useRef, useImperativeHandle, useState } from 'react';
 import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useImperativeHandle,
+  useState,
+} from 'react';
+import {
+  StyleSheet,
+  View,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -19,6 +29,7 @@ import Animated, {
 
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
 import { PropertyContent } from './PropertyContent';
+import { CompactPropertyHeader } from './CompactPropertyHeader';
 import {
   getPanelScrollDelay,
   getPreviewOpenTargetIndex,
@@ -48,6 +59,10 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     const scrollViewRef = useRef<BottomSheetScrollViewMethods | null>(null);
     const animatedIndex = useSharedValue(-1);
     const [scrollViewport, setScrollViewport] = useState({ offsetY: 0, height: 0 });
+    const [summaryCardBottomY, setSummaryCardBottomY] = useState<number | null>(null);
+    const [showCompactHeader, setShowCompactHeader] = useState(false);
+    const scrollOffsetYRef = useRef(0);
+    const compactHeaderVisibleRef = useRef(false);
 
     // Section layout positions for scroll-to
     const sectionPositions = useRef<{ guess: number; comments: number }>({
@@ -56,6 +71,23 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     });
 
     const snapPoints = useMemo(() => ['4%', '48.5%', '100%'], []);
+
+    const updateCompactHeaderVisibility = useCallback((offsetY: number, summaryBottomY: number | null) => {
+      const shouldShow = summaryBottomY !== null && offsetY >= summaryBottomY;
+      if (compactHeaderVisibleRef.current === shouldShow) {
+        return;
+      }
+
+      compactHeaderVisibleRef.current = shouldShow;
+      setShowCompactHeader(shouldShow);
+    }, []);
+
+    useEffect(() => {
+      setSummaryCardBottomY(null);
+      compactHeaderVisibleRef.current = false;
+      setShowCompactHeader(false);
+      scrollOffsetYRef.current = 0;
+    }, [property?.id]);
 
     const handleGuessSectionLayout = useCallback((y: number) => {
       sectionPositions.current.guess = y;
@@ -82,8 +114,10 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
       bottomSheetRef.current?.snapToIndex(targetIndex);
       setTimeout(() => {
         scrollViewRef.current?.scrollTo?.({ y: 0, animated: false });
+        scrollOffsetYRef.current = 0;
+        updateCompactHeaderVisibility(0, summaryCardBottomY);
       }, delay);
-    }, [animatedIndex]);
+    }, [animatedIndex, summaryCardBottomY, updateCompactHeaderVisibility]);
 
     useImperativeHandle(ref, () => ({
       expand: () => bottomSheetRef.current?.expand(),
@@ -141,6 +175,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
     const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const nextOffsetY = event.nativeEvent.contentOffset.y;
+      scrollOffsetYRef.current = nextOffsetY;
+      updateCompactHeaderVisibility(nextOffsetY, summaryCardBottomY);
       setScrollViewport((current) => {
         if (Math.abs(current.offsetY - nextOffsetY) < 48) {
           return current;
@@ -151,7 +187,12 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           offsetY: nextOffsetY,
         };
       });
-    }, []);
+    }, [summaryCardBottomY, updateCompactHeaderVisibility]);
+
+    const handleSummaryCardBottomLayout = useCallback((bottomY: number) => {
+      setSummaryCardBottomY(bottomY);
+      updateCompactHeaderVisibility(scrollOffsetYRef.current, bottomY);
+    }, [updateCompactHeaderVisibility]);
 
     const contentAnimatedStyle = useAnimatedStyle(() => {
       const opacity = interpolate(
@@ -180,6 +221,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         handleIndicatorStyle={{ backgroundColor: '#E8E0D4', width: 40 }}
         style={{ zIndex: 1000 }}
       >
+        {showCompactHeader && property ? (
+          <View style={styles.compactHeaderShell} testID="property-compact-header-shell">
+            <CompactPropertyHeader property={property} />
+          </View>
+        ) : null}
         <BottomSheetScrollView
           ref={scrollViewRef}
           contentContainerStyle={{ paddingBottom: 40 }}
@@ -205,6 +251,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onAuthRequired={onAuthRequired}
               onGuessSectionLayout={handleGuessSectionLayout}
               onCommentsSectionLayout={handleCommentsSectionLayout}
+              onSummaryCardBottomLayout={handleSummaryCardBottomLayout}
               onHalfExpandedBodyPress={handleHalfExpandedBodyPress}
               scrollViewport={scrollViewport}
               deferSocialSectionsUntilActionsVisible
@@ -215,3 +262,18 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     );
   }
 );
+
+const styles = StyleSheet.create({
+  compactHeaderShell: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 2,
+    elevation: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5EBDD',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+  },
+});

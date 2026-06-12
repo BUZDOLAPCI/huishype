@@ -28,6 +28,7 @@ import {
 
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
 import { PropertyContent } from './PropertyContent';
+import { CompactPropertyHeader } from './CompactPropertyHeader';
 import {
   getPanelScrollDelay,
   getPreviewOpenTargetIndex,
@@ -39,7 +40,6 @@ import {
   type WebPanelState,
   webPanelStateToIndex,
 } from '../ui/WebPanelChrome.web';
-import { useT } from '@/src/i18n';
 
 export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBottomSheetProps>(
   function PropertyBottomSheet(
@@ -62,10 +62,13 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     },
     ref
   ) {
-    const t = useT();
     const [sheetState, setSheetState] = useState<WebPanelState>('closed');
     const [scrollViewport, setScrollViewport] = useState({ offsetY: 0, height: 0 });
+    const [summaryCardBottomY, setSummaryCardBottomY] = useState<number | null>(null);
+    const [showCompactHeader, setShowCompactHeader] = useState(false);
     const scrollRef = useRef<ScrollView>(null);
+    const scrollOffsetYRef = useRef(0);
+    const compactHeaderVisibleRef = useRef(false);
     const isLandscape = useIsLandscape();
 
     // Section position refs for scroll-to
@@ -87,6 +90,23 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
     // The minimum resting state: peek when preview card is open, closed when not
     const minState: WebPanelState = (!isLandscape && isPreviewCardVisible) ? 'peek' : 'closed';
+
+    const updateCompactHeaderVisibility = useCallback((offsetY: number, summaryBottomY: number | null) => {
+      const shouldShow = summaryBottomY !== null && offsetY >= summaryBottomY;
+      if (compactHeaderVisibleRef.current === shouldShow) {
+        return;
+      }
+
+      compactHeaderVisibleRef.current = shouldShow;
+      setShowCompactHeader(shouldShow);
+    }, []);
+
+    useEffect(() => {
+      setSummaryCardBottomY(null);
+      compactHeaderVisibleRef.current = false;
+      setShowCompactHeader(false);
+      scrollOffsetYRef.current = 0;
+    }, [property?.id]);
 
     // Dismiss = go to minimum resting state (peek if preview card open, closed if not)
     const handleDismiss = useCallback(() => {
@@ -127,8 +147,10 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
 
       setTimeout(() => {
         scrollRef.current?.scrollTo({ y: 0, animated: false });
+        scrollOffsetYRef.current = 0;
+        updateCompactHeaderVisibility(0, summaryCardBottomY);
       }, delay);
-    }, [isLandscape, sheetState, updateState]);
+    }, [isLandscape, sheetState, summaryCardBottomY, updateCompactHeaderVisibility, updateState]);
 
     const handleHalfExpandedBodyPress = useCallback(() => {
       if (isLandscape || sheetState !== 'partial') return;
@@ -155,6 +177,8 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     ) => {
       const nextOffsetY = event.nativeEvent.contentOffset.y;
       scrollTopRef.current = nextOffsetY;
+      scrollOffsetYRef.current = nextOffsetY;
+      updateCompactHeaderVisibility(nextOffsetY, summaryCardBottomY);
       setScrollViewport((current) => {
         if (Math.abs(current.offsetY - nextOffsetY) < 48) {
           return current;
@@ -165,7 +189,12 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
           offsetY: nextOffsetY,
         };
       });
-    }, []);
+    }, [summaryCardBottomY, updateCompactHeaderVisibility]);
+
+    const handleSummaryCardBottomLayout = useCallback((bottomY: number) => {
+      setSummaryCardBottomY(bottomY);
+      updateCompactHeaderVisibility(scrollOffsetYRef.current, bottomY);
+    }, [updateCompactHeaderVisibility]);
 
     // Expose ref methods matching native @gorhom/bottom-sheet behavior
     useImperativeHandle(ref, () => ({
@@ -196,7 +225,11 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     return (
       <WebPanelChrome
         state={sheetState}
-        title={t('property.details.title')}
+        titleNode={
+          showCompactHeader && property ? <CompactPropertyHeader property={property} /> : null
+        }
+        showHeader={showCompactHeader}
+        headerOverlay
         onStateChange={updateState}
         onClose={handleDismiss}
         showBackdrop={showBackdrop}
@@ -231,7 +264,9 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
               onAuthRequired={onAuthRequired}
               onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
               onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
+              onSummaryCardBottomLayout={handleSummaryCardBottomLayout}
               onHalfExpandedBodyPress={handleHalfExpandedBodyPress}
+              onHeaderClose={handleDismiss}
               isVisible={sheetState !== 'closed'}
               scrollViewport={scrollViewport}
               deferSocialSectionsUntilActionsVisible

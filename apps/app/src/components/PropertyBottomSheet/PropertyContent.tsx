@@ -77,10 +77,12 @@ export interface PropertyContentProps {
   // (native sheet, web panel) provide these; detail page omits them.
   onGuessSectionLayout?: (y: number) => void;
   onCommentsSectionLayout?: (y: number) => void;
+  onSummaryCardBottomLayout?: (bottomY: number) => void;
 
   // Internal sheet-only affordance: passive content taps can expand a
   // half-open sheet without changing buttons, links, or drag behavior.
   onHalfExpandedBodyPress?: () => void;
+  onHeaderClose?: () => void;
 
   // Visibility flag for view recording.
   // Native sheet: omit (component unmounts when invisible).
@@ -141,7 +143,9 @@ interface PropertyContentSectionsProps {
   onSocialSectionsMountChange?: (propertyId: string, mounted: boolean) => void;
   onGuessSectionLayout?: (y: number) => void;
   onCommentsSectionLayout?: (y: number) => void;
+  onSummaryCardBottomLayout?: (bottomY: number) => void;
   onHalfExpandedBodyPress?: () => void;
+  onHeaderClose?: () => void;
 }
 
 function PropertyContentSections({
@@ -161,7 +165,9 @@ function PropertyContentSections({
   onSocialSectionsMountChange,
   onGuessSectionLayout,
   onCommentsSectionLayout,
+  onSummaryCardBottomLayout,
   onHalfExpandedBodyPress,
+  onHeaderClose,
 }: PropertyContentSectionsProps) {
   const queryClient = useQueryClient();
   const [showSubmission, setShowSubmission] = useState(false);
@@ -325,6 +331,8 @@ function PropertyContentSections({
           property={property}
           containerWidth={contentWidth}
           onHalfExpandedBodyPress={onHalfExpandedBodyPress}
+          onSummaryCardBottomLayout={onSummaryCardBottomLayout}
+          onHeaderClose={onHeaderClose}
         />
 
         <View
@@ -481,7 +489,9 @@ export function PropertyContent({
   onSocialSectionsMountChange,
   onGuessSectionLayout,
   onCommentsSectionLayout,
+  onSummaryCardBottomLayout,
   onHalfExpandedBodyPress,
+  onHeaderClose,
   isVisible = true,
 }: PropertyContentProps) {
   const shouldFetchDetails = !!property && !hasPropertyDetails(property);
@@ -535,7 +545,9 @@ export function PropertyContent({
         onSocialSectionsMountChange={onSocialSectionsMountChange}
         onGuessSectionLayout={onGuessSectionLayout}
         onCommentsSectionLayout={onCommentsSectionLayout}
+        onSummaryCardBottomLayout={onSummaryCardBottomLayout}
         onHalfExpandedBodyPress={onHalfExpandedBodyPress}
+        onHeaderClose={onHeaderClose}
       />
     );
   };

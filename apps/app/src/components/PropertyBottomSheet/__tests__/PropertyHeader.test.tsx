@@ -1,7 +1,7 @@
 import React from 'react';
 import { Linking } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { PropertyHeader } from '../PropertyHeader';
+import { PropertyHeader, getPropertyAddressTitle } from '../PropertyHeader';
 import type { PropertyDetailsData } from '../types';
 
 jest.mock('react-native', () => {
@@ -175,6 +175,44 @@ describe('PropertyHeader', () => {
     expect(screen.getByText('Beeldbuisring 41')).toBeTruthy();
     expect(screen.queryByText('Beeldbuisring 41, 5651 HA Eindhoven')).toBeNull();
     expect(screen.getByText('Eindhoven, 5651 HA')).toBeTruthy();
+  });
+
+  it('exports the same street-only address title formatting for compact headers', () => {
+    expect(getPropertyAddressTitle({
+      address: 'Beeldbuisring 41, 5651 HA Eindhoven',
+    } as PropertyDetailsData)).toBe('Beeldbuisring 41');
+    expect(getPropertyAddressTitle({
+      address: '  Standalone Address  ',
+    } as PropertyDetailsData)).toBe('Standalone Address');
+  });
+
+  it('reports the measured summary card bottom', () => {
+    const onSummaryCardBottomLayout = jest.fn();
+    render(
+      <PropertyHeader
+        property={baseProperty}
+        onSummaryCardBottomLayout={onSummaryCardBottomLayout}
+      />
+    );
+
+    fireEvent(screen.getByTestId('property-header-summary-card'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 210, width: 360, height: 168 } },
+    });
+
+    expect(onSummaryCardBottomLayout).toHaveBeenCalledWith(378);
+  });
+
+  it('renders the optional hero close button and calls its handler', () => {
+    const onHeaderClose = jest.fn();
+    const { rerender } = render(<PropertyHeader property={baseProperty} />);
+
+    expect(screen.queryByTestId('property-header-close')).toBeNull();
+
+    rerender(<PropertyHeader property={baseProperty} onHeaderClose={onHeaderClose} />);
+
+    fireEvent.press(screen.getByTestId('property-header-close'));
+
+    expect(onHeaderClose).toHaveBeenCalledTimes(1);
   });
 
   it('uses compact Dutch postcodes in Google Maps queries', () => {

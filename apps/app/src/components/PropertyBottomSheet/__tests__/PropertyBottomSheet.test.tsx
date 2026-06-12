@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PropertyBottomSheet } from '../PropertyBottomSheet.native';
 import type { PropertyBottomSheetRef } from '../index';
@@ -21,6 +22,9 @@ type BottomSheetScrollViewProps = React.PropsWithChildren<{
   testID?: string;
   onLayout?: (event: {
     nativeEvent: { layout: { x: number; y: number; width: number; height: number } };
+  }) => void;
+  onScroll?: (event: {
+    nativeEvent: { contentOffset: { y: number } };
   }) => void;
 }>;
 
@@ -99,7 +103,7 @@ jest.mock('@gorhom/bottom-sheet', () => {
     BottomSheetScrollView: React.forwardRef<
       BottomSheetScrollViewHandle,
       BottomSheetScrollViewProps
-    >(({ children, onLayout }, ref: React.ForwardedRef<BottomSheetScrollViewHandle>) => {
+    >(({ children, onLayout, onScroll }, ref: React.ForwardedRef<BottomSheetScrollViewHandle>) => {
       React.useImperativeHandle(ref, () => ({
         scrollTo: mockBottomSheetScrollTo,
       }));
@@ -111,7 +115,7 @@ jest.mock('@gorhom/bottom-sheet', () => {
         });
       }, [onLayout]);
 
-      return <ScrollView testID="bottom-sheet-scroll">{children}</ScrollView>;
+      return <ScrollView testID="bottom-sheet-scroll" onScroll={onScroll}>{children}</ScrollView>;
       },
     ),
     BottomSheetBackdrop: () => null,
@@ -410,6 +414,45 @@ describe('PropertyBottomSheet', () => {
 
     expect(onSave).toHaveBeenCalledWith('test-property-123');
     expect(mockBottomSheetHandle.snapToIndex).not.toHaveBeenCalledWith(2);
+  });
+
+  it('shows the sticky compact address only after scrolling past the measured summary card', async () => {
+    renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
+
+    expect(screen.queryByTestId('property-compact-header')).toBeNull();
+
+    fireEvent(screen.getByTestId('property-header-summary-card'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 80, width: 360, height: 120 } },
+    });
+
+    fireEvent.scroll(screen.getByTestId('bottom-sheet-scroll'), {
+      nativeEvent: { contentOffset: { y: 199 } },
+    });
+
+    expect(screen.queryByTestId('property-compact-header')).toBeNull();
+
+    fireEvent.scroll(screen.getByTestId('bottom-sheet-scroll'), {
+      nativeEvent: { contentOffset: { y: 200 } },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('property-compact-header')).toBeTruthy();
+    });
+    expect(StyleSheet.flatten(screen.getByTestId('property-compact-header-shell').props.style))
+      .toEqual(expect.objectContaining({
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+      }));
+
+    fireEvent.scroll(screen.getByTestId('bottom-sheet-scroll'), {
+      nativeEvent: { contentOffset: { y: 40 } },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('property-compact-header')).toBeNull();
+    });
   });
 
   it('calls onLike when Like button is pressed', () => {

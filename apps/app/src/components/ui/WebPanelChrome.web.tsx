@@ -124,10 +124,22 @@ if (typeof document !== 'undefined') {
       border-bottom: 1px solid #F5F0E8;
       flex-shrink: 0;
     }
+    .web-property-panel-header.overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 3;
+      background: var(--web-panel-surface, white);
+    }
     .web-property-panel-title {
       font-size: 16px;
       font-weight: 600;
       color: #2D2926;
+    }
+    .web-property-panel-title-node {
+      min-width: 0;
+      flex: 1;
     }
     .web-property-panel-close {
       width: 36px;
@@ -194,6 +206,9 @@ interface WebPanelChromeProps {
   children: ReactNode | ((args: WebPanelRenderArgs) => ReactNode);
   state: WebPanelState;
   title?: ReactNode;
+  titleNode?: ReactNode;
+  showHeader?: boolean;
+  headerOverlay?: boolean;
   onStateChange: (state: WebPanelState) => void;
   onClose: () => void;
   showBackdrop?: boolean;
@@ -213,6 +228,9 @@ export function WebPanelChrome({
   children,
   state,
   title,
+  titleNode,
+  showHeader = true,
+  headerOverlay = false,
   onStateChange,
   onClose,
   showBackdrop,
@@ -495,17 +513,23 @@ export function WebPanelChrome({
           </div>
         ) : null}
 
-        <div className="web-property-panel-header">
-          <span className="web-property-panel-title">{title ?? ''}</span>
-          <button
-            className="web-property-panel-close"
-            onClick={onClose}
-            data-testid="web-panel-close"
-            aria-label={t('common.closePanel')}
-          >
-            <Icon name="X" size="md" color="#9C958A" />
-          </button>
-        </div>
+        {showHeader ? (
+          <div className={`web-property-panel-header${headerOverlay ? ' overlay' : ''}`}>
+            {titleNode ? (
+              <div className="web-property-panel-title-node">{titleNode}</div>
+            ) : (
+              <span className="web-property-panel-title">{title ?? ''}</span>
+            )}
+            <button
+              className="web-property-panel-close"
+              onClick={onClose}
+              data-testid="web-panel-close"
+              aria-label={t('common.closePanel')}
+            >
+              <Icon name="X" size="md" color="#9C958A" />
+            </button>
+          </div>
+        ) : null}
 
         {renderedChildren}
       </div>
