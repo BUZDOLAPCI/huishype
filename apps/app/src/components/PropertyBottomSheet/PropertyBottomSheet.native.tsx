@@ -9,7 +9,6 @@ import {
 } from 'react';
 import {
   StyleSheet,
-  View,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -25,6 +24,8 @@ import Animated, {
   useSharedValue,
   interpolate,
   Extrapolation,
+  SlideInDown,
+  SlideOutUp,
 } from 'react-native-reanimated';
 
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
@@ -222,9 +223,14 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         style={{ zIndex: 1000 }}
       >
         {showCompactHeader && property ? (
-          <View style={styles.compactHeaderShell} testID="property-compact-header-shell">
+          <Animated.View
+            entering={SlideInDown.duration(180)}
+            exiting={SlideOutUp.duration(140)}
+            style={styles.compactHeaderShell}
+            testID="property-compact-header-shell"
+          >
             <CompactPropertyHeader property={property} />
-          </View>
+          </Animated.View>
         ) : null}
         <BottomSheetScrollView
           ref={scrollViewRef}

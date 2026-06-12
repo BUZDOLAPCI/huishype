@@ -133,6 +133,14 @@ export function getPropertyAddressTitle(
   return streetAddress || address;
 }
 
+export function getPropertySecondaryLocation(
+  property: Pick<PropertyDetailsData, 'city' | 'postalCode'>
+): string {
+  const city = normalizePropertyText(property.city);
+  const postalCode = normalizePropertyText(property.postalCode);
+  return [city, postalCode].filter(Boolean).join(', ');
+}
+
 export function PropertyHeader({
   property,
   containerWidth: _containerWidth,
@@ -142,9 +150,7 @@ export function PropertyHeader({
 }: PropertyHeaderProps) {
   const t = useT();
   const activity = ACTIVITY_CONFIG[property.activityLevel];
-  const city = normalizePropertyText(property.city);
-  const postalCode = normalizePropertyText(property.postalCode);
-  const secondaryLocation = [city, postalCode].filter(Boolean).join(', ');
+  const secondaryLocation = getPropertySecondaryLocation(property);
   const hasSecondaryLocation = secondaryLocation.length > 0;
   const googleMapsUrl = getGoogleMapsUrl(property);
   const addressTitle = getPropertyAddressTitle(property);

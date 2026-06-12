@@ -225,9 +225,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
     return (
       <WebPanelChrome
         state={sheetState}
-        titleNode={
-          showCompactHeader && property ? <CompactPropertyHeader property={property} /> : null
-        }
+        titleNode={property ? <CompactPropertyHeader property={property} /> : null}
         showHeader={showCompactHeader}
         headerOverlay
         onStateChange={updateState}

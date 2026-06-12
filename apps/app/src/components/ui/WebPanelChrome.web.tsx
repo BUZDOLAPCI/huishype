@@ -16,6 +16,7 @@ import { useT } from '@/src/i18n';
 
 export type WebPanelState = 'closed' | 'peek' | 'partial' | 'full';
 export const WEB_PANEL_TRANSITION_MS = 300;
+const WEB_PANEL_HEADER_TRANSITION_MS = 180;
 
 /** Portrait snap points as translateY percentages. */
 export const WEB_PANEL_SNAP_POINTS: Record<Exclude<WebPanelState, 'closed'>, number> = {
@@ -131,6 +132,17 @@ if (typeof document !== 'undefined') {
       right: 0;
       z-index: 3;
       background: var(--web-panel-surface, white);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-12px);
+      transition:
+        opacity ${WEB_PANEL_HEADER_TRANSITION_MS}ms ease,
+        transform ${WEB_PANEL_HEADER_TRANSITION_MS}ms cubic-bezier(0.2, 0, 0, 1);
+    }
+    .web-property-panel-header.overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
     }
     .web-property-panel--portrait .web-property-panel-header.overlay {
       top: 14px;
@@ -253,12 +265,35 @@ export function WebPanelChrome({
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollTopRef = useRef(0);
   const [panelWidth, setPanelWidth] = useState<number | null>(null);
+  const [shouldRenderHeader, setShouldRenderHeader] = useState(showHeader);
+  const [isHeaderVisible, setIsHeaderVisible] = useState(showHeader);
   const stateRef = useRef(state);
   stateRef.current = state;
 
   const isOpen = state !== 'closed';
   const shouldShowBackdrop =
     showBackdrop ?? (isLandscape ? isOpen : state === 'partial' || state === 'full');
+
+  useEffect(() => {
+    if (showHeader) {
+      setShouldRenderHeader(true);
+
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        const frame = window.requestAnimationFrame(() => setIsHeaderVisible(true));
+        return () => window.cancelAnimationFrame(frame);
+      }
+
+      const timeout = globalThis.setTimeout(() => setIsHeaderVisible(true), 16);
+      return () => globalThis.clearTimeout(timeout);
+    }
+
+    setIsHeaderVisible(false);
+    const timeout = globalThis.setTimeout(
+      () => setShouldRenderHeader(false),
+      WEB_PANEL_HEADER_TRANSITION_MS
+    );
+    return () => globalThis.clearTimeout(timeout);
+  }, [showHeader]);
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -516,8 +551,12 @@ export function WebPanelChrome({
           </div>
         ) : null}
 
-        {showHeader ? (
-          <div className={`web-property-panel-header${headerOverlay ? ' overlay' : ''}`}>
+        {shouldRenderHeader ? (
+          <div
+            className={`web-property-panel-header${headerOverlay ? ' overlay' : ''}${
+              headerOverlay && isHeaderVisible ? ' visible' : ''
+            }`}
+          >
             {titleNode ? (
               <div className="web-property-panel-title-node">{titleNode}</div>
             ) : (

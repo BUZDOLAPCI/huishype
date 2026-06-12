@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { PropertyContentData } from './types';
-import { getPropertyAddressTitle } from './PropertyHeader';
+import { getPropertyAddressTitle, getPropertySecondaryLocation } from './PropertyHeader';
 
 interface CompactPropertyHeaderProps {
   property: PropertyContentData;
@@ -9,6 +9,7 @@ interface CompactPropertyHeaderProps {
 
 export function CompactPropertyHeader({ property }: CompactPropertyHeaderProps) {
   const title = getPropertyAddressTitle(property);
+  const secondaryLocation = getPropertySecondaryLocation(property);
 
   if (!title) {
     return null;
@@ -19,6 +20,11 @@ export function CompactPropertyHeader({ property }: CompactPropertyHeaderProps) 
       <Text style={styles.title} numberOfLines={1}>
         {title}
       </Text>
+      {secondaryLocation ? (
+        <Text style={styles.secondaryLocation} numberOfLines={1}>
+          {secondaryLocation}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -33,6 +39,12 @@ const styles = StyleSheet.create({
     color: '#2D2926',
     fontSize: 15,
     fontWeight: '700',
-    lineHeight: 20,
+    lineHeight: 18,
+  },
+  secondaryLocation: {
+    color: '#8C8479',
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 15,
   },
 });

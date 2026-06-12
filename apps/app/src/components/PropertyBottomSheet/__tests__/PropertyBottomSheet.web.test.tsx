@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 
 import { ScrollView } from 'react-native';
 
@@ -262,7 +262,7 @@ describe('PropertyBottomSheet.web', () => {
     await waitFor(() => expect(ref.current?.getCurrentIndex()).toBe(0));
   });
 
-  it('shows only the compact address title after scrolling past the measured summary card', async () => {
+  it('shows only the compact location header after scrolling past the measured summary card', async () => {
     setWindowSize(390, 844);
 
     render(
@@ -303,11 +303,18 @@ describe('PropertyBottomSheet.web', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Webstraat 1')).toBeTruthy());
+    const compactHeader = screen.getByTestId('property-compact-header');
+    expect(within(compactHeader).getByText('Webstraat 1')).toBeTruthy();
+    expect(within(compactHeader).getByText('Eindhoven, 5600 AA')).toBeTruthy();
+    await waitFor(() => expect(queryWebPanelHeader()?.props.className).toContain('visible'));
     expect(queryWebPanelHeader()?.props.className).toContain('overlay');
     expect(document.getElementById('web-panel-chrome-css')?.textContent).toContain(
       '.web-property-panel--portrait .web-property-panel-header.overlay'
     );
     expect(document.getElementById('web-panel-chrome-css')?.textContent).toContain('top: 14px;');
+    expect(document.getElementById('web-panel-chrome-css')?.textContent).toContain(
+      'transform: translateY(-12px);'
+    );
 
     act(() => {
       fireEvent.scroll(scrollView as Parameters<typeof fireEvent.scroll>[0], {
@@ -315,7 +322,6 @@ describe('PropertyBottomSheet.web', () => {
       });
     });
 
-    await waitFor(() => expect(screen.queryByText('Webstraat 1')).toBeNull());
-    expect(queryWebPanelHeader()).toBeNull();
+    await waitFor(() => expect(queryWebPanelHeader()?.props.className).not.toContain('visible'));
   });
 });

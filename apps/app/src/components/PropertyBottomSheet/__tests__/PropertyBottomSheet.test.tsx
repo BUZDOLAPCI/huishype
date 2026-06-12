@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PropertyBottomSheet } from '../PropertyBottomSheet.native';
@@ -125,6 +125,13 @@ jest.mock('@gorhom/bottom-sheet', () => {
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {
   const { View, Text } = require('react-native');
+  const makeAnimationPreset = () => {
+    const preset = {
+      duration: jest.fn(),
+    };
+    preset.duration.mockImplementation(() => preset);
+    return preset;
+  };
   return {
     __esModule: true,
     default: {
@@ -133,6 +140,8 @@ jest.mock('react-native-reanimated', () => {
     },
     useSharedValue: (value: unknown) => ({ value }),
     useAnimatedStyle: (fn: () => unknown) => fn(),
+    SlideInDown: makeAnimationPreset(),
+    SlideOutUp: makeAnimationPreset(),
     cancelAnimation: jest.fn(),
     withSpring: (value: unknown) => value,
     withTiming: (value: unknown) => value,
@@ -416,7 +425,7 @@ describe('PropertyBottomSheet', () => {
     expect(mockBottomSheetHandle.snapToIndex).not.toHaveBeenCalledWith(2);
   });
 
-  it('shows the sticky compact address only after scrolling past the measured summary card', async () => {
+  it('shows the sticky compact location header only after scrolling past the measured summary card', async () => {
     renderWithProviders(<PropertyBottomSheet property={mockProperty} isPreviewCardVisible />);
 
     expect(screen.queryByTestId('property-compact-header')).toBeNull();
@@ -438,7 +447,13 @@ describe('PropertyBottomSheet', () => {
     await waitFor(() => {
       expect(screen.getByTestId('property-compact-header')).toBeTruthy();
     });
-    expect(StyleSheet.flatten(screen.getByTestId('property-compact-header-shell').props.style))
+    const compactHeader = screen.getByTestId('property-compact-header');
+    expect(within(compactHeader).getByText('Teststraat 42')).toBeTruthy();
+    expect(within(compactHeader).getByText('Eindhoven, 5600 AA')).toBeTruthy();
+    const compactHeaderShell = screen.getByTestId('property-compact-header-shell');
+    expect(compactHeaderShell.props.entering).toBeTruthy();
+    expect(compactHeaderShell.props.exiting).toBeTruthy();
+    expect(StyleSheet.flatten(compactHeaderShell.props.style))
       .toEqual(expect.objectContaining({
         position: 'absolute',
         top: 0,

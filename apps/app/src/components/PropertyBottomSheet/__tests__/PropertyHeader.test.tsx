@@ -1,7 +1,11 @@
 import React from 'react';
 import { Linking } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { PropertyHeader, getPropertyAddressTitle } from '../PropertyHeader';
+import {
+  PropertyHeader,
+  getPropertyAddressTitle,
+  getPropertySecondaryLocation,
+} from '../PropertyHeader';
 import type { PropertyDetailsData } from '../types';
 
 jest.mock('react-native', () => {
@@ -184,6 +188,17 @@ describe('PropertyHeader', () => {
     expect(getPropertyAddressTitle({
       address: '  Standalone Address  ',
     } as PropertyDetailsData)).toBe('Standalone Address');
+  });
+
+  it('exports the same secondary location formatting for compact headers', () => {
+    expect(getPropertySecondaryLocation({
+      city: 'Eindhoven',
+      postalCode: '5651 HA',
+    } as PropertyDetailsData)).toBe('Eindhoven, 5651 HA');
+    expect(getPropertySecondaryLocation({
+      city: undefined as unknown as string,
+      postalCode: '5651 HA',
+    } as PropertyDetailsData)).toBe('5651 HA');
   });
 
   it('reports the measured summary card bottom', () => {
