@@ -102,7 +102,7 @@ export function PropertyImageSurface({
           style={[styles.markerContainer, styles.markerPointerEvents]}
           testID={markerTestID}
         >
-          <View style={styles.markerShadow}>
+          <View style={styles.markerShapeShadow}>
             <View
               style={[
                 styles.markerOffset,
@@ -140,9 +140,9 @@ const styles = StyleSheet.create({
   markerPointerEvents: {
     pointerEvents: 'none',
   },
-  markerShadow: Platform.select({
+  markerShapeShadow: Platform.select({
     web: {
-      boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.28)',
+      filter: 'drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.32))',
     },
     default: {
       shadowColor: '#000000',
