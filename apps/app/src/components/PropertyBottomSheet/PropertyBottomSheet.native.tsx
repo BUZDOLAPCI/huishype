@@ -9,10 +9,12 @@ import {
 } from 'react';
 import {
   StyleSheet,
+  View,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import BottomSheetLib, {
   BottomSheetBackdrop,
   BottomSheetScrollView,
@@ -222,6 +224,12 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         handleIndicatorStyle={{ backgroundColor: '#E8E0D4', width: 40 }}
         style={{ zIndex: 1000 }}
       >
+        <View pointerEvents="none" style={styles.fixedContentBackground}>
+          <LinearGradient
+            colors={['#FFFFFF', '#FFFBF5']}
+            style={styles.fixedTopFade}
+          />
+        </View>
         {showCompactHeader && property ? (
           <Animated.View
             entering={SlideInDown.duration(180)}
@@ -244,6 +252,7 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
             <PropertyContent
               property={property}
               isLoading={isLoading}
+              contentBackgroundColor="transparent"
               isLiked={isLiked}
               isSaved={isSaved}
               onSave={onSave}
@@ -281,5 +290,16 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F5EBDD',
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
+  },
+  fixedContentBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#FFFBF5',
+  },
+  fixedTopFade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 56,
   },
 });

@@ -21,10 +21,13 @@ import {
 } from 'react';
 import {
   ScrollView,
+  StyleSheet,
+  View,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import type { PropertyBottomSheetProps, PropertyBottomSheetRef } from './types';
 import { PropertyContent } from './PropertyContent';
@@ -236,42 +239,74 @@ export const PropertyBottomSheet = forwardRef<PropertyBottomSheetRef, PropertyBo
         enableBodyPressExpand
       >
         {({ contentWidth, scrollTopRef }) => (
-          <ScrollView
-            ref={scrollRef}
-            style={{ flex: 1, width: '100%' }}
-            showsVerticalScrollIndicator
-            contentContainerStyle={{ paddingBottom: 40, width: '100%' }}
-            onLayout={handleScrollViewLayout}
-            onScroll={(e) => handleScroll(e, scrollTopRef)}
-            scrollEventThrottle={16}
-          >
-            <PropertyContent
-              property={property}
-              isLoading={isLoading}
-              contentWidth={contentWidth}
-              isLiked={isLikedProp}
-              isSaved={isSavedProp}
-              onSave={onSave}
-              onShare={onShare}
-              onLike={onLike}
-              onScrollToComments={() => scrollToSection(commentsSectionY.current)}
-              onScrollToGuess={() => scrollToSection(guessSectionY.current)}
-              onGuessPress={onGuessPress}
-              onViewAllComments={onCommentPress}
-              onSocialSectionsMountChange={onSocialSectionsMountChange}
-              onAuthRequired={onAuthRequired}
-              onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
-              onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
-              onSummaryCardBottomLayout={handleSummaryCardBottomLayout}
-              onHalfExpandedBodyPress={handleHalfExpandedBodyPress}
-              onHeaderClose={handleDismiss}
-              isVisible={sheetState !== 'closed'}
-              scrollViewport={scrollViewport}
-              deferSocialSectionsUntilActionsVisible
+          <View style={styles.scrollShell}>
+            <LinearGradient
+              pointerEvents="none"
+              colors={['#FFFFFF', '#FFFBF5']}
+              style={styles.fixedTopFade}
             />
-          </ScrollView>
+            <ScrollView
+              ref={scrollRef}
+              style={styles.scrollView}
+              showsVerticalScrollIndicator
+              contentContainerStyle={styles.scrollContent}
+              onLayout={handleScrollViewLayout}
+              onScroll={(e) => handleScroll(e, scrollTopRef)}
+              scrollEventThrottle={16}
+            >
+              <PropertyContent
+                property={property}
+                isLoading={isLoading}
+                contentWidth={contentWidth}
+                contentBackgroundColor="transparent"
+                isLiked={isLikedProp}
+                isSaved={isSavedProp}
+                onSave={onSave}
+                onShare={onShare}
+                onLike={onLike}
+                onScrollToComments={() => scrollToSection(commentsSectionY.current)}
+                onScrollToGuess={() => scrollToSection(guessSectionY.current)}
+                onGuessPress={onGuessPress}
+                onViewAllComments={onCommentPress}
+                onSocialSectionsMountChange={onSocialSectionsMountChange}
+                onAuthRequired={onAuthRequired}
+                onGuessSectionLayout={(y) => { guessSectionY.current = y; }}
+                onCommentsSectionLayout={(y) => { commentsSectionY.current = y; }}
+                onSummaryCardBottomLayout={handleSummaryCardBottomLayout}
+                onHalfExpandedBodyPress={handleHalfExpandedBodyPress}
+                onHeaderClose={handleDismiss}
+                isVisible={sheetState !== 'closed'}
+                scrollViewport={scrollViewport}
+                deferSocialSectionsUntilActionsVisible
+              />
+            </ScrollView>
+          </View>
         )}
       </WebPanelChrome>
     );
   }
 );
+
+const styles = StyleSheet.create({
+  scrollShell: {
+    flex: 1,
+    width: '100%',
+    position: 'relative',
+    backgroundColor: '#FFFBF5',
+  },
+  fixedTopFade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 56,
+  },
+  scrollView: {
+    flex: 1,
+    width: '100%',
+  },
+  scrollContent: {
+    paddingBottom: 40,
+    width: '100%',
+  },
+});

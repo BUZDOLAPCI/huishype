@@ -49,6 +49,7 @@ export interface PropertyContentProps {
   property: PropertyContentData | null;
   isLoading?: boolean;
   contentWidth?: number;
+  contentBackgroundColor?: string;
   scrollViewport?: PropertyContentScrollViewport;
   deferSocialSectionsUntilActionsVisible?: boolean;
 
@@ -130,6 +131,7 @@ interface PropertyContentSectionsProps {
   property: PropertyDetailsData | null;
   listings: ListingData[];
   contentWidth?: number;
+  contentBackgroundColor?: string;
   scrollViewport?: PropertyContentScrollViewport;
   deferSocialSectionsUntilActionsVisible?: boolean;
   onShare?: () => void;
@@ -152,6 +154,7 @@ function PropertyContentSections({
   property,
   listings,
   contentWidth,
+  contentBackgroundColor = '#FFFBF5',
   scrollViewport,
   deferSocialSectionsUntilActionsVisible = false,
   onShare,
@@ -326,7 +329,7 @@ function PropertyContentSections({
 
   return (
     <>
-      <View style={styles.contentShell}>
+      <View style={{ backgroundColor: contentBackgroundColor }}>
         <PropertyHeader
           property={property}
           containerWidth={contentWidth}
@@ -429,9 +432,6 @@ function PropertyContentSections({
 }
 
 const styles = StyleSheet.create({
-  contentShell: {
-    backgroundColor: '#FFFBF5',
-  },
   sectionStack: {
     paddingHorizontal: 16,
     paddingTop: 18,
@@ -472,6 +472,7 @@ export function PropertyContent({
   property,
   isLoading = false,
   contentWidth,
+  contentBackgroundColor,
   scrollViewport,
   deferSocialSectionsUntilActionsVisible = false,
   manageInteractionsInternally,
@@ -532,6 +533,7 @@ export function PropertyContent({
         property={propertyDetails}
         listings={listings}
         contentWidth={contentWidth}
+        contentBackgroundColor={contentBackgroundColor}
         scrollViewport={scrollViewport}
         deferSocialSectionsUntilActionsVisible={deferSocialSectionsUntilActionsVisible}
         onSave={interactionState?.onSave ?? (propertyDetails ? () => onSave?.(propertyDetails.id) : undefined)}
