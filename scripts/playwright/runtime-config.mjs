@@ -1,6 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID,
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
+} from './property-tile-fixture.mjs';
+
+export {
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID,
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
+} from './property-tile-fixture.mjs';
 
 export const DEFAULT_PLAYWRIGHT_API_PORT = 3101;
 export const DEFAULT_PLAYWRIGHT_WEB_PORT = 8082;
@@ -17,10 +26,6 @@ export const PLAYWRIGHT_TEST_DIR = path.join(PLAYWRIGHT_APP_ROOT, 'e2e');
 export const PLAYWRIGHT_FLOW_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'flows');
 export const PLAYWRIGHT_INTEGRATION_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'integration');
 export const PLAYWRIGHT_VISUAL_TEST_DIR = path.join(PLAYWRIGHT_TEST_DIR, 'visual');
-export const PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID =
-  'playwright_property_tile_pyramid_fixture';
-export const PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV =
-  'PLAYWRIGHT_ALLOW_PROPERTY_TILE_PYRAMID_FIXTURE';
 export const DEFAULT_LOCAL_DATABASE_URL =
   'postgresql://huishype:huishype_dev@localhost:5440/huishype';
 

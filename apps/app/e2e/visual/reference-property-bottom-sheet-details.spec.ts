@@ -13,15 +13,22 @@ import path from 'path';
 import { waitForMapStyleLoaded, waitForMapIdle } from './helpers/visual-test-helpers';
 import { clickOnPropertyMarker } from './helpers/screenshot-harness';
 import { NETWORK_ALLOWED_CONSOLE_PATTERNS, isAllowedConsoleMessage } from '../helpers/console';
+import { PLAYWRIGHT_PROPERTY_TILE_FIXTURE_CENTER } from '../../../../scripts/playwright/property-tile-fixture.mjs';
 
 test.use({ trace: 'off', video: 'off' });
 
 const EXPECTATION_NAME = 'property-bottom-sheet-details';
 const SCREENSHOT_DIR = `test-results/reference-expectations/${EXPECTATION_NAME}`;
-const CENTER_COORDINATES: [number, number] = [5.4880, 51.4307];
+const CENTER_COORDINATES: [number, number] = [
+  PLAYWRIGHT_PROPERTY_TILE_FIXTURE_CENTER[0],
+  PLAYWRIGHT_PROPERTY_TILE_FIXTURE_CENTER[1],
+];
 const ZOOM_LEVEL = 17;
 const WELCOME_MODAL_DISMISSED_KEY = 'huishype_welcome_modal_dismissed_v1';
 const PREVIEWABLE_PROPERTY_LAYERS = ['active-nodes', 'property-clusters'] as const;
+const OPEN_PROPERTY_PANEL_SELECTOR =
+  '[data-testid="web-property-panel"].open, [data-testid="web-property-panel"].partial, [data-testid="web-property-panel"].full';
+const OPEN_PANEL_BACKDROP_SELECTOR = '[data-testid="web-panel-backdrop"].open';
 const PROPERTY_DETAIL_ROUTE =
   /\/properties\/(?!batch(?:$|[/?#])|nearby(?:$|[/?#])|resolve(?:$|[/?#]))[^/?#]+(?:\?.*)?$/;
 
@@ -338,24 +345,33 @@ async function openPreviewCard(page: Page): Promise<void> {
 
 async function waitForPanelOpen(page: Page, timeout = 10000): Promise<boolean> {
   try {
-    await page.waitForFunction(() => {
-      const panelElement = document.querySelector('[data-testid="web-property-panel"]');
-      const backdropElement = document.querySelector('[data-testid="web-panel-backdrop"]');
-      if (!panelElement || !backdropElement) return false;
+    await page.waitForFunction(
+      ({ panelSelector, backdropSelector }) => {
+        const panelElement = document.querySelector(panelSelector);
+        const backdropElement = document.querySelector(backdropSelector);
+        if (!panelElement || !backdropElement) return false;
 
-      const backdropStyle = window.getComputedStyle(backdropElement);
-      return (
-        (panelElement.className.includes('partial') ||
-          panelElement.className.includes('full') ||
-          panelElement.className.includes('open')) &&
-        backdropElement.classList.contains('open') &&
-        parseFloat(backdropStyle.opacity || '0') > 0.1
-      );
-    }, { timeout });
+        const backdropStyle = window.getComputedStyle(backdropElement);
+        return parseFloat(backdropStyle.opacity || '0') > 0.1;
+      },
+      {
+        panelSelector: OPEN_PROPERTY_PANEL_SELECTOR,
+        backdropSelector: OPEN_PANEL_BACKDROP_SELECTOR,
+      },
+      { timeout }
+    );
     return true;
   } catch {
     return false;
   }
+}
+
+function openPropertyPanel(page: Page) {
+  return page.locator(OPEN_PROPERTY_PANEL_SELECTOR).first();
+}
+
+function openPanelBackdrop(page: Page) {
+  return page.locator(OPEN_PANEL_BACKDROP_SELECTOR).first();
 }
 
 async function openExpandedPanelFromPreview(page: Page): Promise<void> {
@@ -415,12 +431,12 @@ async function openExpandedPropertyPanel(page: Page): Promise<void> {
   await page.waitForTimeout(800);
   await openExpandedPanelFromPreview(page);
 
-  const panel = page.locator('[data-testid="web-property-panel"]');
-  const backdrop = page.locator('[data-testid="web-panel-backdrop"]');
+  const panel = openPropertyPanel(page);
+  const backdrop = openPanelBackdrop(page);
 
   expect(await waitForPanelOpen(page, 10000), 'Expected the property panel to be open').toBe(true);
   await expect(panel).toBeVisible({ timeout: 10000 });
-  await expect(backdrop).toHaveClass(/open/, { timeout: 10000 });
+  await expect(backdrop).toBeVisible({ timeout: 10000 });
   await expect(panel.getByText('Property Details').first()).toBeVisible({ timeout: 10000 });
   await expect(panel.getByText('Guess the Price').first()).toBeVisible({ timeout: 15000 });
 }
@@ -485,13 +501,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     await openExpandedPropertyPanel(page);
 
-    const panel = page.locator('[data-testid="web-property-panel"]');
-    const heroImage = page.getByTestId('property-header-image');
-    const marker = page.getByTestId('property-header-marker');
+    const panel = openPropertyPanel(page);
+    const heroImage = panel.getByTestId('property-header-image');
+    const marker = panel.getByTestId('property-header-marker');
     await expect(panel.getByText('Save').first()).toBeVisible();
     await expect(panel.getByText('Share').first()).toBeVisible();
     await expect(panel.getByText('Like').first()).toBeVisible();
-    await expect(page.locator('[data-testid="web-panel-backdrop"]')).toHaveClass(/open/);
+    await expect(openPanelBackdrop(page)).toBeVisible();
     await expect(heroImage).toBeVisible({ timeout: 10000 });
     await expect(marker).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(300);
@@ -513,9 +529,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     await openExpandedPropertyPanel(page);
 
-    const panel = page.locator('[data-testid="web-property-panel"]');
-    await expect(page.getByTestId('property-header-image')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId('property-header-marker')).toBeVisible({ timeout: 10000 });
+    const panel = openPropertyPanel(page);
+    await expect(panel.getByTestId('property-header-image')).toBeVisible({ timeout: 10000 });
+    await expect(panel.getByTestId('property-header-marker')).toBeVisible({ timeout: 10000 });
     await expect(panel.getByText('Property Details').first()).toBeVisible();
     await expect(panel.getByText('Guess the Price').first()).toBeVisible();
     await expect(panel.getByText('Save').first()).toBeVisible();

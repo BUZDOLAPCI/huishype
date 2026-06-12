@@ -7,24 +7,17 @@ import {
   getDefaultPropertyTilePyramidSlot,
   type PropertyTilePyramidSlot,
 } from '../src/services/property-tile-pyramid.js';
+import {
+  PLAYWRIGHT_PROPERTY_TILE_FIXTURE_BOUNDS as FIXTURE_BOUNDS,
+  PLAYWRIGHT_PROPERTY_TILE_FIXTURE_CLUSTER as FIXTURE_CLUSTER,
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID,
+  PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV,
+} from '../../../scripts/playwright/property-tile-fixture.mjs';
 
 type TileCoord = { z: number; x: number; y: number };
 
-const FIXTURE_BOUNDS = {
-  minLon: 3.0,
-  minLat: 50.6,
-  maxLon: 6.4,
-  maxLat: 53.8,
-};
-const FIXTURE_CLUSTER = {
-  lon: 5.4697,
-  lat: 51.4416,
-  nodeId: 'playwright:eindhoven:cluster',
-  pointCount: 80,
-};
-const PLAYWRIGHT_PROPERTY_TILE_PYRAMID_COVERAGE_ID = 'playwright_property_tile_pyramid_fixture';
 const FIXTURE_LOCK_KEY = 'playwright-property-tile-pyramid-fixture';
-const FIXTURE_ALLOW_ENV = 'PLAYWRIGHT_ALLOW_PROPERTY_TILE_PYRAMID_FIXTURE';
+const FIXTURE_ALLOW_ENV = PLAYWRIGHT_PROPERTY_TILE_PYRAMID_FIXTURE_ALLOW_ENV;
 const FIXTURE_ALLOW_PUBLIC_SLOT_ENV =
   'PLAYWRIGHT_I_UNDERSTAND_THIS_WILL_OVERWRITE_PUBLIC_PROPERTY_TILE_PYRAMID_SLOT';
 const FIXTURE_ALLOW_PUBLIC_SLOT_VALUE = 'overwrite-public-property-tile-pyramid-slot';
