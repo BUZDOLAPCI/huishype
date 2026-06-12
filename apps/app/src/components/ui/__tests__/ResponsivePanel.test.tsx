@@ -25,6 +25,9 @@ let root: Root;
 let animationFrameCallbacks: FrameRequestCallback[];
 let originalRequestAnimationFrame: typeof window.requestAnimationFrame;
 let originalCancelAnimationFrame: typeof window.cancelAnimationFrame;
+let originalVisualViewportDescriptor: PropertyDescriptor | undefined;
+
+type MockVisualViewport = EventTarget & { height: number };
 
 function setWindowSize(width: number, height: number) {
   Object.defineProperty(window, 'innerWidth', {
@@ -59,6 +62,18 @@ function flushAnimationFrame() {
   });
 }
 
+function mockVisualViewport(height: number): MockVisualViewport {
+  const visualViewport = new EventTarget() as MockVisualViewport;
+  visualViewport.height = height;
+
+  Object.defineProperty(window, 'visualViewport', {
+    configurable: true,
+    value: visualViewport,
+  });
+
+  return visualViewport;
+}
+
 function dispatchPointerEvent(target: HTMLElement, type: string, clientY: number) {
   const event = new Event(type, { bubbles: true }) as PointerEvent;
   Object.defineProperty(event, 'clientY', { value: clientY });
@@ -71,6 +86,7 @@ describe('ResponsivePanel.web', () => {
     jest.clearAllMocks();
     originalRequestAnimationFrame = window.requestAnimationFrame;
     originalCancelAnimationFrame = window.cancelAnimationFrame;
+    originalVisualViewportDescriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport');
     animationFrameCallbacks = [];
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,
@@ -108,6 +124,14 @@ describe('ResponsivePanel.web', () => {
       writable: true,
       value: originalCancelAnimationFrame,
     });
+    if (originalVisualViewportDescriptor) {
+      Object.defineProperty(window, 'visualViewport', originalVisualViewportDescriptor);
+    } else {
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: undefined,
+      });
+    }
   });
 
   it('renders children as full-screen passthrough in portrait mode', () => {
@@ -247,6 +271,48 @@ describe('ResponsivePanel.web', () => {
     expect(panel?.className).toContain('full');
     expect(backdrop?.className).toContain('open');
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('sizes portrait map sheets from visualViewport when browser chrome reduces visible height', () => {
+    setWindowSize(390, 844);
+    mockVisualViewport(700);
+
+    renderToDOM(
+      <ResponsivePanel title="Comments" presentation="map-sheet" open={false}>
+        <span>Map sheet content</span>
+      </ResponsivePanel>
+    );
+
+    const panel = queryDom('web-property-panel');
+    const chromeCss = document.getElementById('web-panel-chrome-css')?.textContent;
+
+    expect(panel).not.toBeNull();
+    expect(panel?.style.getPropertyValue('--web-panel-portrait-viewport-height')).toBe('644px');
+    expect(chromeCss).toContain(
+      'height: max(0px, calc(var(--web-panel-portrait-viewport-height, 92dvh) - var(--web-panel-portrait-bottom-offset, 82px)));'
+    );
+  });
+
+  it('updates portrait map sheet height when visualViewport resizes', () => {
+    setWindowSize(390, 844);
+    const visualViewport = mockVisualViewport(700);
+
+    renderToDOM(
+      <ResponsivePanel title="Comments" presentation="map-sheet" open={false}>
+        <span>Map sheet content</span>
+      </ResponsivePanel>
+    );
+
+    const panel = queryDom('web-property-panel');
+    expect(panel?.style.getPropertyValue('--web-panel-portrait-viewport-height')).toBe('644px');
+
+    act(() => {
+      visualViewport.height = 620;
+      visualViewport.dispatchEvent(new Event('resize'));
+    });
+    flushAnimationFrame();
+
+    expect(panel?.style.getPropertyValue('--web-panel-portrait-viewport-height')).toBe('570px');
   });
 
   it('opens an already mounted closed map-sheet in the same render', () => {

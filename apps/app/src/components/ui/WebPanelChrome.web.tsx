@@ -17,6 +17,7 @@ import { useT } from '@/src/i18n';
 export type WebPanelState = 'closed' | 'peek' | 'partial' | 'full';
 export const WEB_PANEL_TRANSITION_MS = 300;
 const WEB_PANEL_HEADER_TRANSITION_MS = 180;
+const PORTRAIT_PANEL_VIEWPORT_RATIO = 0.92;
 
 /** Portrait snap points as translateY percentages. */
 export const WEB_PANEL_SNAP_POINTS: Record<Exclude<WebPanelState, 'closed'>, number> = {
@@ -36,6 +37,24 @@ export function webPanelStateToIndex(state: WebPanelState): number {
     case 'full':
       return 2;
   }
+}
+
+function getPortraitPanelViewportHeight(): number | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const visualViewportHeight = window.visualViewport?.height;
+  const viewportHeight =
+    typeof visualViewportHeight === 'number' && Number.isFinite(visualViewportHeight)
+      ? visualViewportHeight
+      : window.innerHeight;
+
+  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
+    return null;
+  }
+
+  return Math.round(viewportHeight * PORTRAIT_PANEL_VIEWPORT_RATIO);
 }
 
 const PANEL_CSS_ID = 'web-panel-chrome-css';
@@ -96,7 +115,7 @@ if (typeof document !== 'undefined') {
       left: 0;
       right: 0;
       bottom: var(--web-panel-portrait-bottom-offset, ${TAB_BAR_DOCK_HEIGHT}px);
-      height: calc(92vh - var(--web-panel-portrait-bottom-offset, ${TAB_BAR_DOCK_HEIGHT}px));
+      height: max(0px, calc(var(--web-panel-portrait-viewport-height, 92dvh) - var(--web-panel-portrait-bottom-offset, ${TAB_BAR_DOCK_HEIGHT}px)));
       background: var(--web-panel-surface, white);
       z-index: var(--web-panel-z-index, 2001);
       border-radius: 16px 16px 0 0;
@@ -265,6 +284,9 @@ export function WebPanelChrome({
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollTopRef = useRef(0);
   const [panelWidth, setPanelWidth] = useState<number | null>(null);
+  const [portraitViewportHeight, setPortraitViewportHeight] = useState<number | null>(
+    () => getPortraitPanelViewportHeight()
+  );
   const [shouldRenderHeader, setShouldRenderHeader] = useState(showHeader);
   const [isHeaderVisible, setIsHeaderVisible] = useState(showHeader);
   const stateRef = useRef(state);
@@ -273,6 +295,53 @@ export function WebPanelChrome({
   const isOpen = state !== 'closed';
   const shouldShowBackdrop =
     showBackdrop ?? (isLandscape ? isOpen : state === 'partial' || state === 'full');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let frame: number | null = null;
+    const updatePortraitViewportHeight = () => {
+      frame = null;
+      const nextHeight = getPortraitPanelViewportHeight();
+      setPortraitViewportHeight((currentHeight) => {
+        if (currentHeight === nextHeight) {
+          return currentHeight;
+        }
+        if (
+          typeof currentHeight === 'number' &&
+          typeof nextHeight === 'number' &&
+          Math.abs(currentHeight - nextHeight) < 1
+        ) {
+          return currentHeight;
+        }
+        return nextHeight;
+      });
+    };
+
+    const schedulePortraitViewportHeightUpdate = () => {
+      if (frame !== null) return;
+      if (typeof window.requestAnimationFrame === 'function') {
+        frame = window.requestAnimationFrame(updatePortraitViewportHeight);
+        return;
+      }
+      updatePortraitViewportHeight();
+    };
+
+    const visualViewport = window.visualViewport;
+    window.addEventListener('resize', schedulePortraitViewportHeightUpdate);
+    visualViewport?.addEventListener('resize', schedulePortraitViewportHeightUpdate);
+    visualViewport?.addEventListener('scroll', schedulePortraitViewportHeightUpdate);
+    schedulePortraitViewportHeightUpdate();
+
+    return () => {
+      if (frame !== null && typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(frame);
+      }
+      window.removeEventListener('resize', schedulePortraitViewportHeightUpdate);
+      visualViewport?.removeEventListener('resize', schedulePortraitViewportHeightUpdate);
+      visualViewport?.removeEventListener('scroll', schedulePortraitViewportHeightUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     if (showHeader) {
@@ -517,6 +586,8 @@ export function WebPanelChrome({
       landscapeRightOffset === undefined ? undefined : `${landscapeRightOffset}px`,
     '--web-panel-portrait-bottom-offset':
       portraitBottomOffset === undefined ? undefined : `${portraitBottomOffset}px`,
+    '--web-panel-portrait-viewport-height':
+      portraitViewportHeight === null ? undefined : `${portraitViewportHeight}px`,
   } as CSSProperties;
   const renderedChildren =
     typeof children === 'function'
