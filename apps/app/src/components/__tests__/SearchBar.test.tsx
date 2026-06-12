@@ -195,6 +195,31 @@ describe('SearchBar', () => {
     expect(screen.getByTestId('search-bar-input')).toBeTruthy();
   });
 
+  it('reports active search state while focused and inactive after dismissal', () => {
+    const onActiveChange = jest.fn();
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        onActiveChange={onActiveChange}
+      />
+    );
+
+    expect(onActiveChange).toHaveBeenLastCalledWith(false);
+
+    fireEvent.press(screen.getByTestId('search-bar-focus-target'));
+    expect(onActiveChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent(screen.getByTestId('search-bar-input'), 'blur');
+    expect(onActiveChange).toHaveBeenLastCalledWith(false);
+
+    fireEvent.press(screen.getByTestId('search-bar-focus-target'));
+    expect(onActiveChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.press(screen.getByTestId('search-overlay-backdrop'));
+    expect(onActiveChange).toHaveBeenLastCalledWith(false);
+  });
+
   it('debounces input - does not call search immediately', () => {
     render(
       <SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />

@@ -3,8 +3,8 @@
  *
  * Tests the feed view with filter interactions:
  * - Feed loads with property cards or grouped property-post cards
- * - Filter chips are visible and interactive
- * - Clicking filter chips changes the active filter
+ * - Feed tabs are visible and interactive
+ * - Clicking feed tabs changes the active filter
  * - Clicking a property card navigates to property detail
  */
 
@@ -89,7 +89,7 @@ test.describe('Feed Filtering', () => {
     ).toHaveLength(0);
   });
 
-  test('feed loads with filter chips and content', async ({ page }) => {
+  test('feed loads with tabs and content', async ({ page }) => {
     await page.goto('/feed');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(3000);
@@ -100,9 +100,7 @@ test.describe('Feed Filtering', () => {
       page.waitForSelector('[data-testid="feed-loading"]', { timeout: 10000 }).catch(() => null),
       page.waitForSelector('[data-testid="feed-empty"]', { timeout: 10000 }).catch(() => null),
       page.waitForSelector('[data-testid="feed-error"]', { timeout: 10000 }).catch(() => null),
-      page
-        .waitForSelector('[data-testid="filter-chip-trending"]', { timeout: 10000 })
-        .catch(() => null),
+      page.waitForSelector('[data-testid="feed-tab-trending"]', { timeout: 10000 }).catch(() => null),
     ]);
 
     // Additional wait for content to settle
@@ -110,27 +108,27 @@ test.describe('Feed Filtering', () => {
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-loaded.png` });
 
-    // Filter chips should always be visible (they show even in loading/empty/error states)
-    const trendingFilter = page.locator('[data-testid="filter-chip-trending"]');
-    await expect(trendingFilter, '"Trending" filter chip should be visible').toBeVisible({
+    // Feed tabs should always be visible (they show even in loading/empty/error states)
+    const trendingFilter = page.locator('[data-testid="feed-tab-trending"]');
+    await expect(trendingFilter, '"Trending" tab should be visible').toBeVisible({
       timeout: 5000,
     });
 
-    // Check for other filter chips
-    const latestFilter = page.locator('[data-testid="filter-chip-latest"]');
-    const activityFilter = page.locator('[data-testid="filter-chip-recent-activity"]');
+    // Check for other tabs
+    const latestFilter = page.locator('[data-testid="feed-tab-latest"]');
+    const activityFilter = page.locator('[data-testid="feed-tab-recent-activity"]');
 
-    const chipVisibility = {
+    const tabVisibility = {
       trending: await trendingFilter.isVisible().catch(() => false),
       latest: await latestFilter.isVisible().catch(() => false),
       activity: await activityFilter.isVisible().catch(() => false),
     };
-    console.log('Filter chip visibility:', chipVisibility);
+    console.log('Feed tab visibility:', tabVisibility);
 
-    // All 3 filter chips should be visible
-    expect(chipVisibility.trending).toBe(true);
-    expect(chipVisibility.latest).toBe(true);
-    expect(chipVisibility.activity).toBe(true);
+    // All 3 primary tabs should be visible
+    expect(tabVisibility.trending).toBe(true);
+    expect(tabVisibility.latest).toBe(true);
+    expect(tabVisibility.activity).toBe(true);
 
     // Check how many property cards loaded
     const propertyCards = page.locator('[data-testid="property-feed-card"]');
@@ -147,21 +145,21 @@ test.describe('Feed Filtering', () => {
     expect(isErrorVisible, 'Feed should not show error state').toBe(false);
   });
 
-  test('filter chips change active filter', async ({ page }) => {
+  test('feed tabs change active filter', async ({ page }) => {
     await page.goto('/feed');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(3000);
 
-    // Wait for filter chips to appear
-    const trendingFilter = page.locator('[data-testid="filter-chip-trending"]');
+    // Wait for feed tabs to appear
+    const trendingFilter = page.locator('[data-testid="feed-tab-trending"]');
     await expect(trendingFilter).toBeVisible({ timeout: 10000 });
 
     // Take initial screenshot
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-trending.png` });
 
     // Click "Latest" filter — assert it exists before interacting
-    const latestFilter = page.locator('[data-testid="filter-chip-latest"]');
-    await expect(latestFilter, '"Latest" filter chip should be visible').toBeVisible({
+    const latestFilter = page.locator('[data-testid="feed-tab-latest"]');
+    await expect(latestFilter, '"Latest" tab should be visible').toBeVisible({
       timeout: 5000,
     });
     await latestFilter.click();
@@ -169,8 +167,8 @@ test.describe('Feed Filtering', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-latest.png` });
 
     // Click "Recent Activity" filter — assert it exists before interacting
-    const activityFilter = page.locator('[data-testid="filter-chip-recent-activity"]');
-    await expect(activityFilter, '"Recent Activity" filter chip should be visible').toBeVisible({
+    const activityFilter = page.locator('[data-testid="feed-tab-recent-activity"]');
+    await expect(activityFilter, '"Recent Activity" tab should be visible').toBeVisible({
       timeout: 5000,
     });
     await activityFilter.click();
@@ -194,7 +192,7 @@ test.describe('Feed Filtering', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-back-to-trending.png` });
   });
 
-  test('direct feed filter URL hydrates chips, query params, and canonicalizes interactions', async ({
+  test('direct feed filter URL hydrates tabs, query params, and canonicalizes interactions', async ({
     page,
   }) => {
     const feedRequests: URL[] = [];
@@ -209,7 +207,7 @@ test.describe('Feed Filtering', () => {
       waitUntil: 'domcontentloaded',
     });
 
-    await expect(page.getByTestId('filter-chip-latest')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('feed-tab-latest')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('search-area-chip').filter({ hasText: 'Eindhoven' })).toBeVisible(
       { timeout: 15_000 }
     );
@@ -246,7 +244,7 @@ test.describe('Feed Filtering', () => {
       .poll(() => page.evaluate(() => window.location.pathname + window.location.search))
       .toBe('/feed?feedTab=latest&marketState=for-sale%2Cfor-rent&area=city%3ANL%3Aeindhoven');
 
-    await page.getByTestId('filter-chip-trending').click();
+    await page.getByTestId('feed-tab-trending').click();
     await expect
       .poll(() => page.evaluate(() => new URLSearchParams(window.location.search).get('feedTab')))
       .toBeNull();
@@ -447,7 +445,7 @@ test.describe('Feed Filtering', () => {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(3000);
 
-    const activityFilter = page.locator('[data-testid="filter-chip-recent-activity"]');
+    const activityFilter = page.locator('[data-testid="feed-tab-recent-activity"]');
     await expect(activityFilter).toBeVisible({ timeout: 10000 });
     await activityFilter.click();
     await page.waitForTimeout(2000);

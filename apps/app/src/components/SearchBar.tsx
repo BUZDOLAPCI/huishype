@@ -77,6 +77,7 @@ export interface SearchBarProps {
   onAreaRemoved?: (area: LocationFilterToken) => void;
   onClearAreas?: () => void;
   onCurrentLocationSelected?: () => void | Promise<void>;
+  onActiveChange?: (active: boolean) => void;
   layout?: 'overlay' | 'inline';
 }
 
@@ -102,6 +103,7 @@ export function SearchBar({
   onAreaRemoved,
   onClearAreas,
   onCurrentLocationSelected,
+  onActiveChange,
   layout = 'overlay',
 }: SearchBarProps) {
   const [inputValue, setInputValue] = useState('');
@@ -376,6 +378,10 @@ export function SearchBar({
     enabled: Platform.OS === 'web',
   });
 
+  useEffect(() => {
+    onActiveChange?.(isFocused || showResults);
+  }, [isFocused, onActiveChange, showResults]);
+
   const clearTransientSearchState = useCallback(() => {
     invalidatePendingSearch();
     if (debounceTimer.current) {
@@ -416,8 +422,7 @@ export function SearchBar({
   }, []);
 
   const handleBlur = useCallback(() => {
-    // Don't immediately clear focus — let result press handler fire first.
-    // The backdrop press handler handles dismissal.
+    setIsFocused(false);
   }, []);
 
   const handleInputChangeText = useCallback((value: string) => {
@@ -809,25 +814,25 @@ const styles = StyleSheet.create({
   },
   inlineContainer: {
     position: 'relative',
-    zIndex: 100,
-    elevation: 12,
+    zIndex: 1001,
+    elevation: 100,
   },
   inlineBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.dimOverlay,
-    zIndex: 99,
+    zIndex: 1000,
   },
   inputStack: {
     position: 'relative',
-    zIndex: 101,
+    zIndex: 1002,
   },
   resultsOverlay: {
     position: 'absolute',
     top: 52,
     left: 0,
     right: 0,
-    zIndex: 102,
-    elevation: 12,
+    zIndex: 1003,
+    elevation: 101,
   },
   blurInputWrapper: {
     borderRadius: 16,

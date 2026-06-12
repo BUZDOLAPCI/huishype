@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Animated, FlatList, StyleSheet } from 'react-native';
 import type { QueryObserverSuccessResult } from '@tanstack/react-query';
 import { router } from 'expo-router';
 
@@ -102,42 +102,12 @@ jest.mock('@/src/components', () => ({
     return <ReactNative.Text>Feed empty</ReactNative.Text>;
   },
   FeedErrorState: () => null,
-  FeedFilterChips: ({
-    activeFilter,
-    onFilterChange,
-  }: {
-    activeFilter: string;
-    onFilterChange: (filter: 'trending' | 'latest' | 'recent-activity' | 'following') => void;
-  }) => {
-    const ReactNative = require('react-native');
-    return (
-      <ReactNative.View>
-        <ReactNative.Pressable testID="chip-trending" onPress={() => onFilterChange('trending')}>
-          <ReactNative.Text>
-            Trending {activeFilter === 'trending' ? 'active' : ''}
-          </ReactNative.Text>
-        </ReactNative.Pressable>
-        <ReactNative.Pressable testID="chip-latest" onPress={() => onFilterChange('latest')}>
-          <ReactNative.Text>Latest {activeFilter === 'latest' ? 'active' : ''}</ReactNative.Text>
-        </ReactNative.Pressable>
-        <ReactNative.Pressable
-          testID="chip-recent-activity"
-          onPress={() => onFilterChange('recent-activity')}
-        >
-          <ReactNative.Text>
-            Recent {activeFilter === 'recent-activity' ? 'active' : ''}
-          </ReactNative.Text>
-        </ReactNative.Pressable>
-        <ReactNative.Pressable testID="chip-following" onPress={() => onFilterChange('following')}>
-          <ReactNative.Text>
-            Following {activeFilter === 'following' ? 'active' : ''}
-          </ReactNative.Text>
-        </ReactNative.Pressable>
-      </ReactNative.View>
-    );
-  },
   FeedLoadingState: () => null,
   FeedLoadingMore: () => null,
+  HuisHypeLogo: ({ variant }: { variant?: string }) => {
+    const ReactNative = require('react-native');
+    return <ReactNative.Text>HuisHype {variant}</ReactNative.Text>;
+  },
   PropertyFeedCard: ({ id }: { id: string }) => {
     const ReactNative = require('react-native');
     return <ReactNative.Text>Property {id}</ReactNative.Text>;
@@ -149,6 +119,7 @@ jest.mock('@/src/components', () => ({
     onAreaRemoved,
     onClearAreas,
     onLocationResolved,
+    onActiveChange,
   }: {
     searchBias?: {
       countryCode?: string | null;
@@ -178,6 +149,7 @@ jest.mock('@/src/components', () => ({
     }) => void;
     onClearAreas: () => void;
     onLocationResolved: (coordinates: { lon: number; lat: number }, address: string) => void;
+    onActiveChange?: (active: boolean) => void;
   }) => {
     const ReactNative = require('react-native');
     capturedSearchBarProps = {
@@ -190,6 +162,18 @@ jest.mock('@/src/components', () => ({
     return (
       <ReactNative.View testID="feed-search-bar">
         <ReactNative.Text>Areas {selectedAreas.length}</ReactNative.Text>
+        <ReactNative.Pressable
+          testID="feed-search-active"
+          onPress={() => onActiveChange?.(true)}
+        >
+          <ReactNative.Text>Search active</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID="feed-search-inactive"
+          onPress={() => onActiveChange?.(false)}
+        >
+          <ReactNative.Text>Search inactive</ReactNative.Text>
+        </ReactNative.Pressable>
         <ReactNative.Pressable
           testID="feed-select-area"
           onPress={() =>
@@ -251,6 +235,7 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
     controller,
     showActivityFilter,
     showFollowingFilter,
+    onPanelOpenChange,
   }: {
     controller: {
       appliedFilters: { salePriceFrom?: number | null };
@@ -262,6 +247,7 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
     };
     showActivityFilter?: boolean;
     showFollowingFilter?: boolean;
+    onPanelOpenChange?: (open: boolean) => void;
   }) => {
     const ReactNative = require('react-native');
     return (
@@ -274,6 +260,18 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
         </ReactNative.Pressable>
         <ReactNative.Pressable testID="feed-price-draft-sale-from">
           <ReactNative.Text>Draft sale price</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID="feed-open-filter-panel"
+          onPress={() => onPanelOpenChange?.(true)}
+        >
+          <ReactNative.Text>Open filter panel</ReactNative.Text>
+        </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID="feed-close-filter-panel"
+          onPress={() => onPanelOpenChange?.(false)}
+        >
+          <ReactNative.Text>Close filter panel</ReactNative.Text>
         </ReactNative.Pressable>
         <ReactNative.Pressable
           testID="feed-price-commit-sale-from"
@@ -582,7 +580,7 @@ describe('FeedScreen following surface', () => {
       expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
     );
 
-    fireEvent.press(getByTestId('chip-following'));
+    fireEvent.press(getByTestId('feed-tab-following'));
 
     await waitFor(() => {
       expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
@@ -772,7 +770,11 @@ describe('FeedScreen following surface', () => {
 
     const { getByTestId, queryByTestId } = render(<FeedScreen />);
 
-    expect(getByTestId('chip-trending')).toBeTruthy();
+    expect(getByTestId('feed-brand-header')).toBeTruthy();
+    expect(getByTestId('feed-tab-trending')).toBeTruthy();
+    expect(getByTestId('feed-tab-trending').props.accessibilityState).toEqual({
+      selected: true,
+    });
     expect(StyleSheet.flatten(getByTestId('feed-shared-filter-section').props.style)).toEqual(
       expect.objectContaining({
         position: 'relative',
@@ -783,6 +785,97 @@ describe('FeedScreen following surface', () => {
     expect(getByTestId('feed-shared-map-filter-bar')).toBeTruthy();
     expect(queryByTestId('feed-map-activity-control')).toBeNull();
     expect(queryByTestId('feed-map-following-control')).toBeNull();
+  });
+
+  it('auto-hides shared filters on downward feed scroll and reveals them on upward scroll', () => {
+    const timingSpy = jest.spyOn(Animated, 'timing');
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { UNSAFE_getByType } = render(<FeedScreen />);
+    const feedList = UNSAFE_getByType(FlatList);
+
+    fireEvent.scroll(feedList, {
+      nativeEvent: {
+        contentOffset: { y: 80 },
+      },
+    });
+
+    expect(timingSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: false,
+      })
+    );
+
+    fireEvent.scroll(feedList, {
+      nativeEvent: {
+        contentOffset: { y: 70 },
+      },
+    });
+
+    expect(timingSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: false,
+      })
+    );
+
+    timingSpy.mockRestore();
+  });
+
+  it('keeps shared filters visible while feed search is active', () => {
+    const timingSpy = jest.spyOn(Animated, 'timing');
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId, UNSAFE_getByType } = render(<FeedScreen />);
+    const feedList = UNSAFE_getByType(FlatList);
+
+    fireEvent.press(getByTestId('feed-search-active'));
+    const activeShellStyle = getByTestId('feed-collapsible-filter-shell').props.style;
+    expect(activeShellStyle).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          overflow: 'visible',
+          zIndex: 1000,
+        }),
+        expect.objectContaining({
+          transform: [],
+        }),
+      ])
+    );
+
+    fireEvent.scroll(feedList, {
+      nativeEvent: {
+        contentOffset: { y: 80 },
+      },
+    });
+
+    expect(timingSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        toValue: 0,
+      })
+    );
+
+    timingSpy.mockRestore();
   });
 
   it('passes area filters to property feed queries without the default location scope', async () => {
@@ -907,10 +1000,12 @@ describe('FeedScreen following surface', () => {
         ]) as unknown as ReturnType<typeof useActivityFeed>
     );
 
-    const { getByText } = render(<FeedScreen />);
+    const { getByTestId } = render(<FeedScreen />);
 
     await waitFor(() => {
-      expect(getByText('Latest active')).toBeTruthy();
+      expect(getByTestId('feed-tab-latest').props.accessibilityState).toEqual({
+        selected: true,
+      });
       expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
         'latest',
         undefined,
@@ -945,10 +1040,12 @@ describe('FeedScreen following surface', () => {
         ]) as unknown as ReturnType<typeof useActivityFeed>
     );
 
-    const { getByText } = render(<FeedScreen />);
+    const { getByTestId } = render(<FeedScreen />);
 
     await waitFor(() => {
-      expect(getByText('Trending active')).toBeTruthy();
+      expect(getByTestId('feed-tab-trending').props.accessibilityState).toEqual({
+        selected: true,
+      });
     });
     expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
       'public',
@@ -971,7 +1068,7 @@ describe('FeedScreen following surface', () => {
     const { getByTestId } = render(<FeedScreen />);
     const pushStateSpy = jest.spyOn(window.history, 'pushState');
 
-    fireEvent.press(getByTestId('chip-latest'));
+    fireEvent.press(getByTestId('feed-tab-latest'));
     await waitFor(() => {
       expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=latest');
     });
@@ -989,7 +1086,7 @@ describe('FeedScreen following surface', () => {
       '/feed?feedTab=latest&marketState=for-sale'
     );
 
-    fireEvent.press(getByTestId('chip-trending'));
+    fireEvent.press(getByTestId('feed-tab-trending'));
     await waitFor(() => {
       expect(window.location.pathname + window.location.search).toBe('/feed?marketState=for-sale');
     });
@@ -1094,7 +1191,7 @@ describe('FeedScreen following surface', () => {
     window.history.replaceState({}, '', '/feed');
     mockIsFeedFocused = true;
     rerender(<FeedScreen />);
-    fireEvent.press(getByTestId('chip-latest'));
+    fireEvent.press(getByTestId('feed-tab-latest'));
 
     await waitFor(() => {
       expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=latest');
@@ -1198,7 +1295,7 @@ describe('FeedScreen following surface', () => {
 
     const { getByTestId } = render(<FeedScreen />);
 
-    fireEvent.press(getByTestId('chip-following'));
+    fireEvent.press(getByTestId('feed-tab-following'));
     fireEvent.press(getByTestId('activity-card-property-9'));
 
     const analyticsEvents = (

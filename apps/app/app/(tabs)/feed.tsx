@@ -8,13 +8,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   FlatList,
+  PanResponder,
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   type ViewToken,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { serializeCanonicalCameraPath } from '@huishype/shared';
@@ -25,9 +31,9 @@ import {
   AuthModal,
   FeedEmptyState,
   FeedErrorState,
-  FeedFilterChips,
   FeedLoadingState,
   FeedLoadingMore,
+  HuisHypeLogo,
   PropertyFeedCard,
   SearchBar,
 } from '@/src/components';
@@ -41,13 +47,13 @@ import {
   type FeedProperty,
   type GroupedPropertyActivityItem,
 } from '@/src/hooks';
-import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
+import { FeedTabBar } from '@/src/components/FeedTabBar';
 import { Icon } from '@/src/components/ui/Icon';
 import { NotificationBell } from '@/src/components/ui/NotificationBell';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
 import { useUnreadNotificationCount } from '@/src/hooks/useNotifications';
 import { emitSocialFollowAnalyticsEvent } from '@/src/hooks/useUserProfile';
-import { useT, type TranslationKey } from '@/src/i18n';
+import { useT } from '@/src/i18n';
 import { useAuthContext } from '@/src/providers/AuthProvider';
 import { getDefaultCenter } from '@/src/lib/mapDefaults';
 import { useBenchmarkRenderProbe } from '@/src/lib/benchmarkRenderProbe';
@@ -92,15 +98,11 @@ const FEED_LIST_INITIAL_NUM_TO_RENDER = 3;
 const FEED_LIST_MAX_TO_RENDER_PER_BATCH = 2;
 const FEED_LIST_BATCHING_PERIOD_MS = 100;
 const FEED_DIRECT_ADDRESS_MAP_ZOOM = 17;
-
-// --- Header title per filter ---
-
-const FILTER_TITLE_KEYS: Record<FeedTab, TranslationKey> = {
-  trending: 'feed.header.trending',
-  latest: 'feed.header.latest',
-  'recent-activity': 'feed.header.recentActivity',
-  following: 'feed.header.following',
-};
+const FILTER_HIDE_SCROLL_Y = 48;
+const FILTER_SHOW_SCROLL_DELTA_Y = 8;
+const FEED_SWIPE_TRAVEL_THRESHOLD = 64;
+const FEED_SWIPE_VELOCITY_THRESHOLD = 0.65;
+const FEED_TAB_ORDER: FeedTab[] = ['trending', 'latest', 'recent-activity', 'following'];
 
 function FeedHeaderActions() {
   const { data: unreadCount } = useUnreadNotificationCount();
@@ -128,6 +130,32 @@ function FeedHeaderActions() {
         unreadCount={unreadCount ?? 0}
         onPress={() => router.push('/notifications')}
       />
+    </View>
+  );
+}
+
+function FeedBrandHeader({ rightAction }: { rightAction: React.ReactNode }) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View
+      testID="feed-brand-header"
+      style={[
+        styles.brandHeader,
+        {
+          paddingTop: Platform.OS === 'web' ? 12 : insets.top + 8,
+        },
+      ]}
+      accessibilityRole="header"
+    >
+      <HuisHypeLogo
+        variant="lockup"
+        size={28}
+        wordmarkSize={22}
+        style={styles.brandLogo}
+        textStyle={styles.brandText}
+      />
+      {rightAction}
     </View>
   );
 }
@@ -283,6 +311,37 @@ export default function FeedScreen() {
   const feedSearchBias = mapSearchBias ?? countryDefaultSearchBias;
 
   const headerRightAction = useMemo(() => <FeedHeaderActions />, []);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [sharedFilterHeight, setSharedFilterHeight] = useState(0);
+  const [areFiltersVisible, setAreFiltersVisible] = useState(true);
+  const filtersVisibleRef = useRef(true);
+  const lastScrollYRef = useRef(0);
+  const upwardScrollStartYRef = useRef<number | null>(null);
+  const filterVisibilityAnim = useRef(new Animated.Value(1)).current;
+
+  const showSharedFilters = useCallback(
+    (visible: boolean) => {
+      if (visible === filtersVisibleRef.current) {
+        return;
+      }
+
+      filtersVisibleRef.current = visible;
+      setAreFiltersVisible(visible);
+      Animated.timing(filterVisibilityAnim, {
+        toValue: visible ? 1 : 0,
+        duration: 180,
+        useNativeDriver: false,
+      }).start();
+    },
+    [filterVisibilityAnim]
+  );
+
+  useEffect(() => {
+    if (isFilterPanelOpen || isSearchActive) {
+      showSharedFilters(true);
+    }
+  }, [isFilterPanelOpen, isSearchActive, showSharedFilters]);
 
   // Property feed (trending/latest)
   const isPropertyFeed = activeFilter === 'trending' || activeFilter === 'latest';
@@ -370,10 +429,11 @@ export default function FeedScreen() {
   const activeQuery = isPropertyFeed ? feedQuery : activityQuery;
 
   const onRefresh = useCallback(async () => {
+    showSharedFilters(true);
     setIsRefreshing(true);
     await activeQuery.refetch();
     setIsRefreshing(false);
-  }, [activeQuery]);
+  }, [activeQuery, showSharedFilters]);
 
   const handleFilterChange = useCallback(
     (filter: FeedTab) => {
@@ -382,10 +442,48 @@ export default function FeedScreen() {
         return;
       }
 
+      showSharedFilters(true);
       setActiveFilter(filter);
       pushFeedBrowserPath(filterController.appliedFilters, filter);
     },
-    [filterController.appliedFilters, isAuthenticated, pushFeedBrowserPath]
+    [filterController.appliedFilters, isAuthenticated, pushFeedBrowserPath, showSharedFilters]
+  );
+  const switchFeedTabByOffset = useCallback(
+    (offset: 1 | -1) => {
+      const currentIndex = FEED_TAB_ORDER.indexOf(activeFilterRef.current);
+      const nextFilter = FEED_TAB_ORDER[currentIndex + offset];
+      if (!nextFilter) {
+        return;
+      }
+
+      handleFilterChange(nextFilter);
+    },
+    [handleFilterChange]
+  );
+  const feedPanResponder = useMemo(
+    () =>
+      PanResponder?.create({
+        onMoveShouldSetPanResponder: (_event, gestureState) => {
+          const absDx = Math.abs(gestureState.dx);
+          const absDy = Math.abs(gestureState.dy);
+          return absDx > 12 && absDx > absDy;
+        },
+        onPanResponderRelease: (_event, gestureState) => {
+          const absDx = Math.abs(gestureState.dx);
+          const absDy = Math.abs(gestureState.dy);
+          const absVx = Math.abs(gestureState.vx);
+          if (absDy >= absDx) {
+            return;
+          }
+
+          if (absDx < FEED_SWIPE_TRAVEL_THRESHOLD && absVx < FEED_SWIPE_VELOCITY_THRESHOLD) {
+            return;
+          }
+
+          switchFeedTabByOffset(gestureState.dx < 0 ? 1 : -1);
+        },
+      }) ?? { panHandlers: {} },
+    [switchFeedTabByOffset]
   );
 
   const handlePropertyPress = useCallback((property: PropertyRouteAddressLike) => {
@@ -474,6 +572,40 @@ export default function FeedScreen() {
   const handleListInteraction = useCallback(() => {
     hasInteractedWithListRef.current = true;
   }, []);
+  const handleFeedScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const nextY = Math.max(0, event.nativeEvent.contentOffset.y);
+      const previousY = lastScrollYRef.current;
+      const deltaY = nextY - previousY;
+      lastScrollYRef.current = nextY;
+
+      if (isFilterPanelOpen || isSearchActive) {
+        showSharedFilters(true);
+        return;
+      }
+
+      if (nextY <= FILTER_HIDE_SCROLL_Y) {
+        upwardScrollStartYRef.current = null;
+        showSharedFilters(true);
+        return;
+      }
+
+      if (deltaY > 0) {
+        upwardScrollStartYRef.current = null;
+        showSharedFilters(false);
+        return;
+      }
+
+      if (deltaY < 0) {
+        upwardScrollStartYRef.current ??= previousY;
+        if (upwardScrollStartYRef.current - nextY >= FILTER_SHOW_SCROLL_DELTA_Y) {
+          upwardScrollStartYRef.current = null;
+          showSharedFilters(true);
+        }
+      }
+    },
+    [isFilterPanelOpen, isSearchActive, showSharedFilters]
+  );
   const handleViewablePropertyItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<FeedProperty>[] }) => {
       if (viewableItems.length === 0) {
@@ -593,6 +725,7 @@ export default function FeedScreen() {
       message={t('feed.auth.following')}
       onSuccess={() => {
         setShowAuth(false);
+        showSharedFilters(true);
         setActiveFilter('following');
         pushFeedBrowserPath(filterController.appliedFilters, 'following');
       }}
@@ -611,13 +744,72 @@ export default function FeedScreen() {
         onAreaRemoved={handleFeedAreaRemoved}
         onClearAreas={handleClearFeedAreas}
         onCurrentLocationSelected={handleFeedCurrentLocation}
+        onActiveChange={setIsSearchActive}
       />
       <MapFilterBar
         controller={filterController}
         layout="inline"
         showActivityFilter={false}
         showFollowingFilter={false}
+        onPanelOpenChange={setIsFilterPanelOpen}
       />
+    </View>
+  );
+  const canInterpolateFilterVisibility =
+    typeof (filterVisibilityAnim as { interpolate?: unknown }).interpolate === 'function';
+  const collapsibleFilterHeight =
+    sharedFilterHeight > 0 && canInterpolateFilterVisibility
+      ? filterVisibilityAnim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, sharedFilterHeight],
+        })
+      : undefined;
+  const collapsibleFilterTranslateY = canInterpolateFilterVisibility
+    ? filterVisibilityAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [-12, 0],
+      })
+    : 0;
+  const collapsibleFilterStyle = [
+    styles.collapsibleFilterShell,
+    isSearchActive && styles.collapsibleFilterShellSearchActive,
+    {
+      height: collapsibleFilterHeight,
+      opacity: filterVisibilityAnim,
+      transform: isSearchActive
+        ? []
+        : [
+            {
+              translateY: collapsibleFilterTranslateY,
+            },
+          ],
+    },
+  ];
+  const feedHeader = (
+    <>
+      <FeedBrandHeader rightAction={headerRightAction} />
+      <FeedTabBar activeFilter={activeFilter} onFilterChange={handleFilterChange} />
+      <Animated.View
+        testID="feed-collapsible-filter-shell"
+        style={collapsibleFilterStyle}
+        pointerEvents={areFiltersVisible ? 'auto' : 'none'}
+      >
+        <View
+          onLayout={(event) => {
+            const nextHeight = event.nativeEvent.layout.height;
+            if (nextHeight > 0 && Math.abs(nextHeight - sharedFilterHeight) > 1) {
+              setSharedFilterHeight(nextHeight);
+            }
+          }}
+        >
+          {sharedFilterSection}
+        </View>
+      </Animated.View>
+    </>
+  );
+  const renderBody = (children: React.ReactNode) => (
+    <View style={styles.feedBody} testID="feed-body" {...feedPanResponder.panHandlers}>
+      {children}
     </View>
   );
 
@@ -626,10 +818,8 @@ export default function FeedScreen() {
     return (
       <ScreenBackground style={styles.screen}>
         <View style={FEED_LIST_CONTAINER_STYLE}>
-          <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
-          <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
-          {sharedFilterSection}
-          <FeedLoadingState />
+          {feedHeader}
+          {renderBody(<FeedLoadingState />)}
         </View>
         {authModal}
       </ScreenBackground>
@@ -641,13 +831,13 @@ export default function FeedScreen() {
     return (
       <ScreenBackground style={styles.screen}>
         <View style={FEED_LIST_CONTAINER_STYLE}>
-          <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
-          <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
-          {sharedFilterSection}
-          <FeedErrorState
-            message={activeQuery.error?.message || t('feed.error.default')}
-            onRetry={activeQuery.refetch}
-          />
+          {feedHeader}
+          {renderBody(
+            <FeedErrorState
+              message={activeQuery.error?.message || t('feed.error.default')}
+              onRetry={activeQuery.refetch}
+            />
+          )}
         </View>
         {authModal}
       </ScreenBackground>
@@ -662,26 +852,27 @@ export default function FeedScreen() {
     return (
       <ScreenBackground style={styles.screen}>
         <View style={FEED_LIST_CONTAINER_STYLE}>
-          <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
-          <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
-          {sharedFilterSection}
-          <FeedEmptyState
-            filter={activeFilter}
-            signedIn={signedInFollowing}
-            onPrimaryAction={
-              activeFilter === 'following'
-                ? () => {
-                    if (signedInFollowing) {
-                      setActiveFilter('recent-activity');
-                      pushFeedBrowserPath(filterController.appliedFilters, 'recent-activity');
-                      return;
-                    }
+          {feedHeader}
+          {renderBody(
+            <FeedEmptyState
+              filter={activeFilter}
+              signedIn={signedInFollowing}
+              onPrimaryAction={
+                activeFilter === 'following'
+                  ? () => {
+                      if (signedInFollowing) {
+                        showSharedFilters(true);
+                        setActiveFilter('recent-activity');
+                        pushFeedBrowserPath(filterController.appliedFilters, 'recent-activity');
+                        return;
+                      }
 
-                    setShowAuth(true);
-                  }
-                : undefined
-            }
-          />
+                      setShowAuth(true);
+                    }
+                  : undefined
+              }
+            />
+          )}
         </View>
         {authModal}
       </ScreenBackground>
@@ -691,52 +882,56 @@ export default function FeedScreen() {
   return (
     <ScreenBackground style={styles.screen} testID="feed-screen">
       <View style={FEED_LIST_CONTAINER_STYLE}>
-        <ScreenHeader title={t(FILTER_TITLE_KEYS[activeFilter])} rightAction={headerRightAction} />
-        <FeedFilterChips activeFilter={activeFilter} onFilterChange={handleFilterChange} />
-        {sharedFilterSection}
+        {feedHeader}
 
-        {isPropertyFeed ? (
-          <FlatList
-            key="property-feed"
-            data={properties}
-            keyExtractor={propertyKeyExtractor}
-            renderItem={renderPropertyItem}
-            contentContainerStyle={FEED_LIST_CONTENT_CONTAINER_STYLE}
-            refreshControl={refreshControl}
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.5}
-            onScrollBeginDrag={handleListInteraction}
-            onMomentumScrollBegin={handleListInteraction}
-            onViewableItemsChanged={handleViewablePropertyItemsChanged}
-            viewabilityConfig={propertyViewabilityConfig}
-            ListFooterComponent={ListFooterComponent}
-            showsVerticalScrollIndicator={false}
-            initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}
-            maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
-            updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
-            windowSize={FEED_LIST_WINDOW_SIZE}
-            testID="feed-list"
-          />
-        ) : (
-          <FlatList
-            key="activity-feed"
-            data={activities}
-            keyExtractor={activityKeyExtractor}
-            renderItem={renderActivityItem}
-            contentContainerStyle={FEED_LIST_CONTENT_CONTAINER_STYLE}
-            refreshControl={refreshControl}
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.5}
-            onScrollBeginDrag={handleListInteraction}
-            onMomentumScrollBegin={handleListInteraction}
-            ListFooterComponent={ListFooterComponent}
-            showsVerticalScrollIndicator={false}
-            initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}
-            maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
-            updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
-            windowSize={FEED_LIST_WINDOW_SIZE}
-            testID="activity-feed-list"
-          />
+        {renderBody(
+          isPropertyFeed ? (
+            <FlatList
+              key="property-feed"
+              data={properties}
+              keyExtractor={propertyKeyExtractor}
+              renderItem={renderPropertyItem}
+              contentContainerStyle={FEED_LIST_CONTENT_CONTAINER_STYLE}
+              refreshControl={refreshControl}
+              onEndReached={handleLoadMore}
+              onEndReachedThreshold={0.5}
+              onScroll={handleFeedScroll}
+              scrollEventThrottle={16}
+              onScrollBeginDrag={handleListInteraction}
+              onMomentumScrollBegin={handleListInteraction}
+              onViewableItemsChanged={handleViewablePropertyItemsChanged}
+              viewabilityConfig={propertyViewabilityConfig}
+              ListFooterComponent={ListFooterComponent}
+              showsVerticalScrollIndicator={false}
+              initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}
+              maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
+              updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
+              windowSize={FEED_LIST_WINDOW_SIZE}
+              testID="feed-list"
+            />
+          ) : (
+            <FlatList
+              key="activity-feed"
+              data={activities}
+              keyExtractor={activityKeyExtractor}
+              renderItem={renderActivityItem}
+              contentContainerStyle={FEED_LIST_CONTENT_CONTAINER_STYLE}
+              refreshControl={refreshControl}
+              onEndReached={handleLoadMore}
+              onEndReachedThreshold={0.5}
+              onScroll={handleFeedScroll}
+              scrollEventThrottle={16}
+              onScrollBeginDrag={handleListInteraction}
+              onMomentumScrollBegin={handleListInteraction}
+              ListFooterComponent={ListFooterComponent}
+              showsVerticalScrollIndicator={false}
+              initialNumToRender={FEED_LIST_INITIAL_NUM_TO_RENDER}
+              maxToRenderPerBatch={FEED_LIST_MAX_TO_RENDER_PER_BATCH}
+              updateCellsBatchingPeriod={FEED_LIST_BATCHING_PERIOD_MS}
+              windowSize={FEED_LIST_WINDOW_SIZE}
+              testID="activity-feed-list"
+            />
+          )
         )}
       </View>
       {authModal}
@@ -747,6 +942,38 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   screen: {
     alignItems: 'center',
+  },
+  brandHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+  brandLogo: {
+    flexShrink: 1,
+  },
+  brandText: {
+    fontSize: 22,
+    fontFamily: 'Inter_700Bold',
+    color: '#F5A623',
+    letterSpacing: 0,
+    lineHeight: 28,
+  },
+  feedBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  collapsibleFilterShell: {
+    overflow: 'hidden',
+    position: 'relative',
+    zIndex: 200,
+    elevation: 20,
+  },
+  collapsibleFilterShellSearchActive: {
+    overflow: 'visible',
+    zIndex: 1000,
+    elevation: 100,
   },
   sharedFilterSection: {
     position: 'relative',
