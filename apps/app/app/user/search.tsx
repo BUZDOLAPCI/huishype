@@ -8,7 +8,7 @@ export default function UserSearchRoute() {
 
   return (
     <>
-      <Stack.Screen options={{ title: t('profile.searchUser') }} />
+      <Stack.Screen options={{ headerShown: false, title: t('profile.searchUser') }} />
       <UserSearchScreen />
     </>
   );

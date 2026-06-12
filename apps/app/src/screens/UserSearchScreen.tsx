@@ -12,6 +12,7 @@ import {
 import { router } from 'expo-router';
 
 import { AuthModal } from '@/src/components';
+import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
@@ -57,6 +58,14 @@ export function UserSearchScreen() {
     (followMutation.isPending ? followMutation.variables : null) ??
     (unfollowMutation.isPending ? unfollowMutation.variables : null) ??
     null;
+  const handleBackPress = React.useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/profile');
+  }, []);
 
   const results = React.useMemo(
     () =>
@@ -208,6 +217,12 @@ export function UserSearchScreen() {
 
   return (
     <ScreenBackground style={styles.screen} testID="user-search-screen">
+      <ScreenHeader
+        title={t('profile.searchUser')}
+        showBackButton
+        onBackPress={handleBackPress}
+        showNotificationBell={false}
+      />
       <View style={styles.searchBox}>
         <Icon name="MagnifyingGlass" size="md" color="#9C958A" />
         <TextInput

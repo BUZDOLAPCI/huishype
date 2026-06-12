@@ -51,7 +51,6 @@ export function ScreenHeader({
 }: ScreenHeaderProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
-  const { data: unreadCount } = useUnreadNotificationCount();
 
   return (
     <View
@@ -86,13 +85,19 @@ export function ScreenHeader({
         {title}
       </Text>
 
-      {rightAction ?? (showNotificationBell ? (
-        <NotificationBell
-          unreadCount={unreadCount ?? 0}
-          onPress={() => router.push('/notifications')}
-        />
-      ) : null)}
+      {rightAction ?? (showNotificationBell ? <HeaderNotificationBell /> : null)}
     </View>
+  );
+}
+
+function HeaderNotificationBell() {
+  const { data: unreadCount } = useUnreadNotificationCount();
+
+  return (
+    <NotificationBell
+      unreadCount={unreadCount ?? 0}
+      onPress={() => router.push('/notifications')}
+    />
   );
 }
 

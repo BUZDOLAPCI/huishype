@@ -1,8 +1,9 @@
 import React from 'react';
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Stack, useLocalSearchParams, usePathname } from 'expo-router';
+import { Stack, router, useLocalSearchParams, usePathname } from 'expo-router';
 
 import { AuthModal } from '@/src/components';
+import { ScreenHeader } from '@/src/components/navigation/ScreenHeader';
 import { Button } from '@/src/components/ui/Button';
 import { Icon } from '@/src/components/ui/Icon';
 import { ScreenBackground } from '@/src/components/ui/ScreenBackground';
@@ -59,6 +60,14 @@ export default function PublicProfileScreen() {
   const isOwnProfile = profile?.id != null && profile.id === user?.id;
   const isFollowing = profile?.relationship === 'following' || profile?.relationship === 'mutual';
   const isFollowPending = followMutation.isPending || unfollowMutation.isPending;
+  const handleBackPress = React.useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/');
+  }, []);
 
   const recentActivities = React.useMemo(() => {
     if (!activityData?.pages) return [];
@@ -124,10 +133,18 @@ export default function PublicProfileScreen() {
   if (normalizedHandle && isLoading) {
     return (
       <>
-        <Stack.Screen options={{ title: t('profile.header') }} />
-        <ScreenBackground style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="User" size={32} color="#DE911D" />
-          <Text className="text-warm-500 mt-4">{t('profile.public.loading')}</Text>
+        <Stack.Screen options={{ headerShown: false, title: t('profile.header') }} />
+        <ScreenBackground>
+          <ScreenHeader
+            title={t('profile.header')}
+            showBackButton
+            onBackPress={handleBackPress}
+            showNotificationBell={false}
+          />
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="User" size={32} color="#DE911D" />
+            <Text className="text-warm-500 mt-4">{t('profile.public.loading')}</Text>
+          </View>
         </ScreenBackground>
       </>
     );
@@ -136,14 +153,20 @@ export default function PublicProfileScreen() {
   if (!normalizedHandle || isError || !profile) {
     return (
       <>
-        <Stack.Screen options={{ title: t('profile.header') }} />
-        <ScreenBackground
-          style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}
-        >
-          <Icon name="WarningCircle" size={48} color="#C7BFB3" />
-          <Text className="text-lg font-semibold text-warm-900 mt-4">
-            {t('profile.public.notFound')}
-          </Text>
+        <Stack.Screen options={{ headerShown: false, title: t('profile.header') }} />
+        <ScreenBackground>
+          <ScreenHeader
+            title={t('profile.header')}
+            showBackButton
+            onBackPress={handleBackPress}
+            showNotificationBell={false}
+          />
+          <View style={styles.centeredState}>
+            <Icon name="WarningCircle" size={48} color="#C7BFB3" />
+            <Text className="text-lg font-semibold text-warm-900 mt-4">
+              {t('profile.public.notFound')}
+            </Text>
+          </View>
         </ScreenBackground>
       </>
     );
@@ -151,8 +174,14 @@ export default function PublicProfileScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: profile.displayName }} />
+      <Stack.Screen options={{ headerShown: false, title: profile.displayName }} />
       <ScreenBackground style={styles.screen}>
+        <ScreenHeader
+          title={profile.displayName}
+          showBackButton
+          onBackPress={handleBackPress}
+          showNotificationBell={false}
+        />
         <ScrollView style={styles.contentFrame} className="flex-1" testID="public-profile-screen">
           <View style={styles.profileHeader}>
             <ProfilePublicIdentity
@@ -224,6 +253,12 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 768,
     flex: 1,
+  },
+  centeredState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   profileHeader: {
     marginTop: 0,
