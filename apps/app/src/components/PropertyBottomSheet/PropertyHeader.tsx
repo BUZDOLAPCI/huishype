@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Image, Linking, Pressable, Text, View, StyleSheet } from 'react-native';
+import {
+  Image,
+  Linking,
+  Pressable,
+  Text,
+  View,
+  StyleSheet,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MetricPills } from '../MetricPills';
 import type { PropertyDetailsData } from './types';
@@ -66,6 +74,9 @@ const ACTIVITY_CONFIG = {
   warm: { desc: 'Some recent activity' },
   cold: { desc: 'No recent activity' },
 } as const;
+
+const ADDRESS_LINE_HEIGHT = 35;
+const ADDRESS_WRAP_HEIGHT = ADDRESS_LINE_HEIGHT * 1.3;
 
 interface PropertyHeaderProps {
   property: PropertyDetailsData;
@@ -145,19 +156,32 @@ export function getPropertySecondaryLocation(
 
 export function PropertyHeader({
   property,
-  containerWidth: _containerWidth,
+  containerWidth,
   onHalfExpandedBodyPress,
   onSummaryCardBottomLayout,
   onHeaderClose,
   onShare,
   onLike,
 }: PropertyHeaderProps) {
+  const [useInlineStatusPills, setUseInlineStatusPills] = useState(true);
   const t = useT();
   const activity = ACTIVITY_CONFIG[property.activityLevel];
   const secondaryLocation = getPropertySecondaryLocation(property);
   const hasSecondaryLocation = secondaryLocation.length > 0;
   const googleMapsUrl = getGoogleMapsUrl(property);
   const addressTitle = getPropertyAddressTitle(property);
+
+  useEffect(() => {
+    setUseInlineStatusPills(true);
+  }, [addressTitle, containerWidth]);
+
+  const handleAddressLayout = (event: LayoutChangeEvent) => {
+    const { height } = event.nativeEvent.layout;
+
+    if (height > ADDRESS_WRAP_HEIGHT) {
+      setUseInlineStatusPills(false);
+    }
+  };
 
   const handleOpenGoogleMaps = async () => {
     try {
@@ -259,14 +283,29 @@ export function PropertyHeader({
           >
             <View style={styles.copyRow}>
               <View style={styles.addressColumn}>
-                <Text style={styles.address} numberOfLines={2}>
+                <Text style={styles.address} numberOfLines={2} onLayout={handleAddressLayout}>
                   {addressTitle}
                 </Text>
                 {hasSecondaryLocation && <Text style={styles.location}>{secondaryLocation}</Text>}
               </View>
 
-              <View style={styles.activityColumn}>
-                <StatusPillRow style={styles.statusPills} testID="property-header-status-pills">
+              <View
+                style={[
+                  styles.activityColumn,
+                  useInlineStatusPills
+                    ? styles.activityColumnInline
+                    : styles.activityColumnStacked,
+                ]}
+              >
+                <StatusPillRow
+                  style={[
+                    styles.statusPills,
+                    useInlineStatusPills
+                      ? styles.statusPillsInline
+                      : styles.statusPillsStacked,
+                  ]}
+                  testID="property-header-status-pills"
+                >
                   <ActivityPill
                     level={property.activityLevel}
                     size="md"
@@ -421,7 +460,7 @@ const styles = StyleSheet.create({
   },
   address: {
     fontSize: 30,
-    lineHeight: 35,
+    lineHeight: ADDRESS_LINE_HEIGHT,
     fontWeight: '700',
     color: '#2D2926',
   },
@@ -434,12 +473,22 @@ const styles = StyleSheet.create({
   activityColumn: {
     alignItems: 'flex-end',
     flexShrink: 0,
+  },
+  activityColumnInline: {
+    maxWidth: 176,
+  },
+  activityColumnStacked: {
     maxWidth: 122,
   },
   statusPills: {
-    flexDirection: 'column',
     alignItems: 'flex-end',
     justifyContent: 'flex-end',
+  },
+  statusPillsInline: {
+    flexDirection: 'row',
+  },
+  statusPillsStacked: {
+    flexDirection: 'column',
   },
   activityDescription: {
     marginTop: 6,

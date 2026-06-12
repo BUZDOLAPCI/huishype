@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Icon } from './ui/Icon';
 
 export type ActivityLevel = 'hot' | 'warm' | 'cold';
@@ -149,11 +149,11 @@ export function StatusPillRow({
   testID,
 }: {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   testID?: string;
 }) {
   return (
-    <View style={[styles.row, style]} testID={testID}>
+    <View style={StyleSheet.flatten([styles.row, style])} testID={testID}>
       {children}
     </View>
   );

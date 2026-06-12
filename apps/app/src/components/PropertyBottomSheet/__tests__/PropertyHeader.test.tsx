@@ -1,5 +1,5 @@
 import React from 'react';
-import { Linking } from 'react-native';
+import { Linking, type StyleProp, type ViewStyle } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import {
   PropertyHeader,
@@ -45,6 +45,19 @@ const baseProperty: PropertyDetailsData = {
   createdAt: '2026-04-01T00:00:00.000Z',
   updatedAt: '2026-04-06T00:00:00.000Z',
 };
+
+function flattenDeepStyle(style: StyleProp<ViewStyle>): ViewStyle {
+  const flatten = (value: unknown): unknown[] =>
+    Array.isArray(value) ? value.flatMap(flatten) : [value];
+
+  return flatten(style).reduce<ViewStyle>((merged, value) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return { ...merged, ...(value as ViewStyle) };
+    }
+
+    return merged;
+  }, {});
+}
 
 describe('PropertyHeader', () => {
   beforeEach(() => {
@@ -155,6 +168,48 @@ describe('PropertyHeader', () => {
     expect(screen.getByTestId('property-header-listing-pill')).toBeTruthy();
     expect(screen.getByText('Hot')).toBeTruthy();
     expect(screen.getByText('For rent')).toBeTruthy();
+  });
+
+  it('lays out status pills horizontally while the title fits on one line', () => {
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          address: 'Short 1',
+          activityLevel: 'hot',
+          marketState: 'for-sale',
+        }}
+      />
+    );
+
+    fireEvent(screen.getByText('Short 1'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 180, height: 35 } },
+    });
+
+    expect(flattenDeepStyle(screen.getByTestId('property-header-status-pills').props.style))
+      .toMatchObject({ flexDirection: 'row' });
+  });
+
+  it('stacks status pills when the inline layout makes the title wrap', () => {
+    const longAddress = 'Very Long Teststraat Address Name 123';
+
+    render(
+      <PropertyHeader
+        property={{
+          ...baseProperty,
+          address: longAddress,
+          activityLevel: 'hot',
+          marketState: 'for-sale',
+        }}
+      />
+    );
+
+    fireEvent(screen.getByText(longAddress), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 180, height: 70 } },
+    });
+
+    expect(flattenDeepStyle(screen.getByTestId('property-header-status-pills').props.style))
+      .toMatchObject({ flexDirection: 'column' });
   });
 
   it('renders listing pills for terminal listing states and hides unlisted properties', () => {
