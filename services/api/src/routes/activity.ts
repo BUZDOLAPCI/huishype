@@ -30,6 +30,19 @@ const coordinateSchema = z.object({
   coordinates: z.tuple([z.number(), z.number()]),
 });
 
+const marketStateSchema = z.enum(['for-sale', 'for-rent', 'sold', 'rented', 'not-listed']);
+
+const officialValuationSourceFetchSchema = z
+  .object({
+    source: z.literal('woz'),
+    expectedValuationYear: z.number(),
+    supportsClientFetch: z.object({
+      web: z.boolean(),
+      native: z.boolean(),
+    }),
+  })
+  .nullable();
+
 const propertyPayloadSchema = z.object({
   id: z.string().uuid(),
   address: z.string(),
@@ -41,6 +54,19 @@ const propertyPayloadSchema = z.object({
   countryCode: z.string(),
   geometry: coordinateSchema.nullable(),
   thumbnailUrl: z.string().nullable(),
+});
+
+const groupedPropertyPayloadSchema = propertyPayloadSchema.extend({
+  askingPrice: z.number().nullable(),
+  officialValuation: z.number().nullable(),
+  officialValuationYear: z.number().nullable(),
+  officialValuationSourceFetch: officialValuationSourceFetchSchema,
+  marketState: marketStateSchema,
+  hasListing: z.boolean(),
+  yearBuilt: z.number().nullable(),
+  floorAreaM2: z.number().nullable(),
+  isLiked: z.boolean(),
+  isSaved: z.boolean(),
 });
 
 function createActivityResponseSchema<TEventTypes extends readonly [string, ...string[]]>(
@@ -79,6 +105,8 @@ const groupedActivityCommentPreviewSchema = z.object({
   createdAt: z.string().datetime(),
   actor: actorSchema,
   contentPreview: z.string(),
+  likeCount: z.number(),
+  isLiked: z.boolean(),
 });
 
 const groupedActivitySummaryPreviewSchema = z.object({
@@ -92,7 +120,7 @@ const groupedActivitySummaryPreviewSchema = z.object({
 const groupedActivityResponseSchema = z.object({
   items: z.array(
     z.object({
-      property: propertyPayloadSchema,
+      property: groupedPropertyPayloadSchema,
       lastActivityAt: z.string().datetime(),
       counts: groupedActivityCountsSchema,
       recentActors: z.array(actorSchema),

@@ -10,6 +10,7 @@ import {
   useSubmitComment,
   type Comment,
 } from '../useComments';
+import { activityFeedKeys } from '../useActivityFeed';
 
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
 let mockAuthUser: typeof mockUser | null = mockUser;
@@ -87,6 +88,88 @@ function getCommentFromCache(queryClient: QueryClient, commentId: string) {
     ?? comments
       .flatMap((comment) => comment.replies ?? [])
       .find((reply) => reply.id === commentId);
+}
+
+function seedActivityPreviewComment(
+  queryClient: QueryClient,
+  propertyId: string,
+  commentId: string,
+  state: { isLiked: boolean; likeCount: number }
+) {
+  queryClient.setQueryData(activityFeedKeys.infinite('public', 'public'), {
+    pages: [
+      {
+        items: [
+          {
+            property: {
+              id: propertyId,
+              address: 'Main 1',
+              streetName: 'Main',
+              houseNumber: 1,
+              houseNumberAddition: null,
+              city: 'Eindhoven',
+              postalCode: '5611 AA',
+              countryCode: 'NL',
+              geometry: null,
+              thumbnailUrl: null,
+            },
+            lastActivityAt: '2026-04-07T12:00:00.000Z',
+            counts: {
+              likeCount: 3,
+              commentCount: 2,
+              guessCount: 1,
+            },
+            recentActors: [],
+            preview: {
+              kind: 'comment',
+              commentId,
+              createdAt: '2026-04-07T12:00:00.000Z',
+              actor: {
+                id: 'user-2',
+                displayName: 'Cache User',
+                handle: 'cacheuser',
+                profilePhotoUrl: null,
+              },
+              contentPreview: 'Preview comment',
+              isLiked: state.isLiked,
+              likeCount: state.likeCount,
+            },
+          },
+        ],
+        pagination: {
+          limit: 20,
+          offset: 0,
+          hasMore: false,
+        },
+      },
+    ],
+    pageParams: [0],
+  });
+}
+
+function getActivityPreviewComment(
+  queryClient: QueryClient,
+  propertyId: string,
+  commentId: string
+) {
+  const data = queryClient.getQueryData<{
+    pages: Array<{
+      items: Array<{
+        property: { id: string };
+        preview: {
+          kind: string;
+          commentId?: string;
+          isLiked?: boolean;
+          likeCount?: number;
+        };
+      }>;
+    }>;
+  }>(activityFeedKeys.infinite('public', 'public'));
+
+  return data?.pages
+    .flatMap((page) => page.items)
+    .find((item) => item.property.id === propertyId && item.preview.commentId === commentId)
+    ?.preview;
 }
 
 describe('useComments', () => {
@@ -419,6 +502,67 @@ describe('useLikeComment', () => {
         isLiked: true,
         likeCount: 3,
       });
+    });
+  });
+
+  it('patches matching grouped activity preview comment state', async () => {
+    seedActivityPreviewComment(queryClient, 'property-123', 'comment-preview-1', {
+      isLiked: false,
+      likeCount: 2,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ liked: true, likeCount: 8 }),
+    });
+
+    const { result } = renderHook(() => useLikeComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        commentId: 'comment-preview-1',
+        isCurrentlyLiked: false,
+      });
+    });
+
+    await waitFor(() => {
+      expect(getActivityPreviewComment(queryClient, 'property-123', 'comment-preview-1')).toMatchObject({
+        isLiked: true,
+        likeCount: 8,
+      });
+    });
+  });
+
+  it('rolls back grouped activity preview comment state when liking fails', async () => {
+    seedActivityPreviewComment(queryClient, 'property-123', 'comment-preview-2', {
+      isLiked: true,
+      likeCount: 4,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ message: 'Failed to update like' }),
+    });
+
+    const { result } = renderHook(() => useLikeComment('property-123'), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({
+          commentId: 'comment-preview-2',
+          isCurrentlyLiked: true,
+        })
+      ).rejects.toThrow('Failed to update like');
+    });
+
+    expect(getActivityPreviewComment(queryClient, 'property-123', 'comment-preview-2')).toMatchObject({
+      isLiked: true,
+      likeCount: 4,
     });
   });
 

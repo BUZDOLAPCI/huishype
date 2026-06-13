@@ -5,6 +5,7 @@ import type { PropsWithChildren } from 'react';
 import { usePropertySave } from '../usePropertySave';
 import { propertyKeys } from '../useProperties';
 import { savedPropertyKeys } from '../useSavedProperties';
+import { activityFeedKeys } from '../useActivityFeed';
 
 // Mock the AuthProvider context
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
@@ -57,6 +58,69 @@ function createQueryClient() {
       mutations: { retry: false },
     },
   });
+}
+
+function seedActivityFeed(queryClient: QueryClient, propertyId: string, isSaved = false) {
+  queryClient.setQueryData(activityFeedKeys.infinite('public', 'public'), {
+    pages: [
+      {
+        items: [
+          {
+            property: {
+              id: propertyId,
+              address: '456 Oak Ave',
+              streetName: 'Oak Ave',
+              houseNumber: 456,
+              houseNumberAddition: null,
+              city: 'Amsterdam',
+              postalCode: '1011 AA',
+              countryCode: 'NL',
+              geometry: null,
+              thumbnailUrl: null,
+              isSaved,
+            },
+            lastActivityAt: '2026-04-07T12:00:00.000Z',
+            counts: {
+              likeCount: 3,
+              commentCount: 2,
+              guessCount: 1,
+            },
+            recentActors: [],
+            preview: {
+              kind: 'summary',
+              eventType: 'property_like',
+              createdAt: '2026-04-07T12:00:00.000Z',
+              actor: {
+                id: 'user-1',
+                displayName: 'Ada',
+                handle: 'ada',
+                profilePhotoUrl: null,
+              },
+              summary: 'Ada liked this property',
+            },
+          },
+        ],
+        pagination: {
+          limit: 20,
+          offset: 0,
+          hasMore: false,
+        },
+      },
+    ],
+    pageParams: [0],
+  });
+}
+
+function getActivityFeedProperty(queryClient: QueryClient, propertyId: string) {
+  const data = queryClient.getQueryData<{
+    pages: Array<{
+      items: Array<{
+        property: { id: string; isSaved?: boolean };
+      }>;
+    }>;
+  }>(activityFeedKeys.infinite('public', 'public'));
+
+  return data?.pages.flatMap((page) => page.items).find((item) => item.property.id === propertyId);
 }
 
 describe('usePropertySave', () => {
@@ -141,6 +205,19 @@ describe('usePropertySave', () => {
         queryKey: propertyKeys.detail('missing-prop', 'auth:user-123'),
       })
     ).toBeUndefined();
+  });
+
+  it('returns feed initial saved state when property detail is not in cache', () => {
+    const { result } = renderHook(
+      () =>
+        usePropertySave({
+          propertyId: 'feed-prop',
+          initialIsSaved: true,
+        }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    expect(result.current.isSaved).toBe(true);
   });
 
   it('returns defaults when propertyId is null', () => {
@@ -254,6 +331,39 @@ describe('usePropertySave', () => {
     expect(invalidateQueriesSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: savedPropertyKeys.all })
     );
+  });
+
+  it('patches matching activity feed caches during optimistic and authoritative save updates', async () => {
+    const propertyId = 'prop-feed-save';
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
+    seedActivityFeed(queryClient, propertyId, false);
+
+    queryClient.setQueryData(queryKey, {
+      id: propertyId,
+      address: '456 Oak Ave',
+      city: 'Amsterdam',
+      isSaved: false,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ saved: true }),
+    });
+
+    const { result } = renderHook(
+      () => usePropertySave({ propertyId }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    await act(async () => {
+      await result.current.toggleSave();
+    });
+
+    await waitFor(() => {
+      expect(getActivityFeedProperty(queryClient, propertyId)?.property).toMatchObject({
+        isSaved: true,
+      });
+    });
   });
 
   it('toggleSave fires unsave mutation when already saved', async () => {

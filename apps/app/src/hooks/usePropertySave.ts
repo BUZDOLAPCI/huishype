@@ -14,10 +14,17 @@ import { getViewerCacheKey, propertyKeys } from './useProperties';
 import { savedPropertyKeys } from './useSavedProperties';
 import { useExactQueryCacheValue } from './useExactQueryCacheValue';
 import type { EnrichedProperty } from './usePropertyLike';
+import {
+  getActivityFeedCacheSnapshots,
+  patchActivityFeedPropertyState,
+  restoreActivityFeedCacheSnapshots,
+  type ActivityFeedCacheSnapshot,
+} from '../utils/activity-feed-cache';
 
 export interface UsePropertySaveOptions {
   propertyId: string | null;
   onAuthRequired?: () => void;
+  initialIsSaved?: boolean;
 }
 
 export interface UsePropertySaveReturn {
@@ -42,6 +49,8 @@ interface SaveMutationContext {
   key: ReturnType<typeof propertyKeys.detail>;
   previous?: EnrichedProperty;
   optimistic?: EnrichedProperty;
+  optimisticState: { isSaved: boolean };
+  previousActivityFeedData: ActivityFeedCacheSnapshot[];
 }
 
 function isRecoverableSaveConflict(error: unknown, nextSaved: boolean): boolean {
@@ -66,6 +75,7 @@ function reconcileSavedState(
   const current = queryClient.getQueryData<EnrichedProperty>(key);
 
   if (!current) {
+    patchActivityFeedPropertyState(queryClient, propertyId, { isSaved });
     return;
   }
 
@@ -73,6 +83,7 @@ function reconcileSavedState(
     ...current,
     isSaved,
   });
+  patchActivityFeedPropertyState(queryClient, propertyId, { isSaved });
 }
 
 async function saveProperty(propertyId: string, accessToken: string): Promise<{ saved: boolean }> {
@@ -118,6 +129,7 @@ async function unsaveProperty(propertyId: string, accessToken: string): Promise<
 export function usePropertySave({
   propertyId,
   onAuthRequired,
+  initialIsSaved,
 }: UsePropertySaveOptions): UsePropertySaveReturn {
   const queryClient = useQueryClient();
   const { user, getAccessToken, isAuthenticated } = useAuthContext();
@@ -126,7 +138,7 @@ export function usePropertySave({
   const queryKey = propertyId ? propertyKeys.detail(propertyId, viewerKey) : null;
   const cachedProperty = useExactQueryCacheValue<EnrichedProperty>(queryClient, queryKey);
 
-  const isSaved = cachedProperty?.isSaved ?? false;
+  const isSaved = cachedProperty?.isSaved ?? initialIsSaved ?? false;
 
   // Save mutation
   const saveMutation = useMutation({
@@ -136,6 +148,8 @@ export function usePropertySave({
       const key = propertyKeys.detail(propId, viewerKey);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
+      const previousActivityFeedData = getActivityFeedCacheSnapshots(queryClient);
+      const optimisticState = { isSaved: true };
       const optimistic = previous
         ? {
             ...previous,
@@ -147,22 +161,27 @@ export function usePropertySave({
       if (optimistic) {
         queryClient.setQueryData<EnrichedProperty>(key, optimistic);
       }
+      patchActivityFeedPropertyState(queryClient, propId, optimisticState);
 
-      return { previous, key, optimistic };
+      return { previous, key, optimistic, optimisticState, previousActivityFeedData };
     },
     onError: (error, _vars, context?: SaveMutationContext) => {
       if (!context?.key) {
         return;
       }
 
-      if (context.optimistic && isRecoverableSaveConflict(error, true)) {
-        queryClient.setQueryData(context.key, context.optimistic);
+      if (isRecoverableSaveConflict(error, true)) {
+        if (context.optimistic) {
+          queryClient.setQueryData(context.key, context.optimistic);
+        }
+        patchActivityFeedPropertyState(queryClient, context.key[2] as string, context.optimisticState);
         return;
       }
 
       if (context.previous) {
         queryClient.setQueryData(context.key, context.previous);
       }
+      restoreActivityFeedCacheSnapshots(queryClient, context.previousActivityFeedData);
     },
     onSuccess: (data, { propId }) => {
       reconcileSavedState(queryClient, propId, viewerKey, data.saved);
@@ -183,6 +202,8 @@ export function usePropertySave({
       const key = propertyKeys.detail(propId, viewerKey);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
+      const previousActivityFeedData = getActivityFeedCacheSnapshots(queryClient);
+      const optimisticState = { isSaved: false };
       const optimistic = previous
         ? {
             ...previous,
@@ -194,22 +215,27 @@ export function usePropertySave({
       if (optimistic) {
         queryClient.setQueryData<EnrichedProperty>(key, optimistic);
       }
+      patchActivityFeedPropertyState(queryClient, propId, optimisticState);
 
-      return { previous, key, optimistic };
+      return { previous, key, optimistic, optimisticState, previousActivityFeedData };
     },
     onError: (error, _vars, context?: SaveMutationContext) => {
       if (!context?.key) {
         return;
       }
 
-      if (context.optimistic && isRecoverableSaveConflict(error, false)) {
-        queryClient.setQueryData(context.key, context.optimistic);
+      if (isRecoverableSaveConflict(error, false)) {
+        if (context.optimistic) {
+          queryClient.setQueryData(context.key, context.optimistic);
+        }
+        patchActivityFeedPropertyState(queryClient, context.key[2] as string, context.optimisticState);
         return;
       }
 
       if (context.previous) {
         queryClient.setQueryData(context.key, context.previous);
       }
+      restoreActivityFeedCacheSnapshots(queryClient, context.previousActivityFeedData);
     },
     onSuccess: (data, { propId }) => {
       reconcileSavedState(queryClient, propId, viewerKey, data.saved);

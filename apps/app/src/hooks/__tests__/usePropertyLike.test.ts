@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren } from 'react';
 import { usePropertyLike } from '../usePropertyLike';
 import { propertyKeys } from '../useProperties';
+import { activityFeedKeys } from '../useActivityFeed';
 
 // Mock the AuthProvider context
 const mockUser = { id: 'user-123', email: 'test@test.com', displayName: 'Test User' };
@@ -56,6 +57,70 @@ function createQueryClient() {
       mutations: { retry: false },
     },
   });
+}
+
+function seedActivityFeed(queryClient: QueryClient, propertyId: string, likeCount = 3) {
+  queryClient.setQueryData(activityFeedKeys.infinite('public', 'public'), {
+    pages: [
+      {
+        items: [
+          {
+            property: {
+              id: propertyId,
+              address: '456 Oak Ave',
+              streetName: 'Oak Ave',
+              houseNumber: 456,
+              houseNumberAddition: null,
+              city: 'Amsterdam',
+              postalCode: '1011 AA',
+              countryCode: 'NL',
+              geometry: null,
+              thumbnailUrl: null,
+              isLiked: false,
+            },
+            lastActivityAt: '2026-04-07T12:00:00.000Z',
+            counts: {
+              likeCount,
+              commentCount: 2,
+              guessCount: 1,
+            },
+            recentActors: [],
+            preview: {
+              kind: 'summary',
+              eventType: 'property_like',
+              createdAt: '2026-04-07T12:00:00.000Z',
+              actor: {
+                id: 'user-1',
+                displayName: 'Ada',
+                handle: 'ada',
+                profilePhotoUrl: null,
+              },
+              summary: 'Ada liked this property',
+            },
+          },
+        ],
+        pagination: {
+          limit: 20,
+          offset: 0,
+          hasMore: false,
+        },
+      },
+    ],
+    pageParams: [0],
+  });
+}
+
+function getActivityFeedProperty(queryClient: QueryClient, propertyId: string) {
+  const data = queryClient.getQueryData<{
+    pages: Array<{
+      items: Array<{
+        property: { id: string; isLiked?: boolean; likeCount?: number };
+        counts: { likeCount: number };
+      }>;
+    }>;
+  }>(activityFeedKeys.infinite('public', 'public'));
+
+  return data?.pages.flatMap((page) => page.items).find((item) => item.property.id === propertyId);
 }
 
 describe('usePropertyLike', () => {
@@ -146,6 +211,21 @@ describe('usePropertyLike', () => {
     ).toBeUndefined();
   });
 
+  it('returns feed initial state when property detail is not in cache', () => {
+    const { result } = renderHook(
+      () =>
+        usePropertyLike({
+          propertyId: 'feed-prop',
+          initialIsLiked: true,
+          initialLikeCount: 12,
+        }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    expect(result.current.isLiked).toBe(true);
+    expect(result.current.likeCount).toBe(12);
+  });
+
   it('returns defaults when propertyId is null', () => {
     const { result } = renderHook(
       () => usePropertyLike({ propertyId: null }),
@@ -217,6 +297,46 @@ describe('usePropertyLike', () => {
         headers: { Authorization: 'Bearer mock-token' },
       })
     );
+  });
+
+  it('patches matching activity feed caches during optimistic and authoritative like updates', async () => {
+    const propertyId = 'prop-feed-like';
+    const queryKey = propertyKeys.detail(propertyId, 'auth:user-123');
+    seedActivityFeed(queryClient, propertyId, 3);
+
+    queryClient.setQueryData(queryKey, {
+      id: propertyId,
+      address: '456 Oak Ave',
+      city: 'Amsterdam',
+      isLiked: false,
+      likeCount: 3,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ liked: true, likeCount: 9 }),
+    });
+
+    const { result } = renderHook(
+      () => usePropertyLike({ propertyId }),
+      { wrapper: createWrapper(queryClient) }
+    );
+
+    await act(async () => {
+      result.current.toggleLike();
+    });
+
+    await waitFor(() => {
+      expect(getActivityFeedProperty(queryClient, propertyId)).toMatchObject({
+        property: expect.objectContaining({
+          isLiked: true,
+          likeCount: 9,
+        }),
+        counts: expect.objectContaining({
+          likeCount: 9,
+        }),
+      });
+    });
   });
 
   it('toggleLike fires unlike mutation when already liked', async () => {

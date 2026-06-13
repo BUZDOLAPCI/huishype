@@ -11,6 +11,13 @@ import {
 } from '@tanstack/react-query';
 import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
+import {
+  getActivityFeedCacheSnapshots,
+  getActivityFeedPreviewCommentState,
+  patchActivityFeedPreviewCommentState,
+  restoreActivityFeedCacheSnapshots,
+  type ActivityFeedCacheSnapshot,
+} from '../utils/activity-feed-cache';
 
 // Types
 export interface CommentUser {
@@ -323,6 +330,12 @@ export function useLikeComment(propertyId: string) {
       const previousData = queryClient.getQueriesData<CommentListQueryData>(
         getCommentQueryFilter(propertyId, viewerKey)
       );
+      const previousActivityFeedData = getActivityFeedCacheSnapshots(queryClient);
+      const previewState = getActivityFeedPreviewCommentState(queryClient, propertyId, commentId);
+      const nextPreviewLikeCount =
+        previewState == null
+          ? undefined
+          : previewState.likeCount + (isCurrentlyLiked ? -1 : 1);
 
       // Optimistically update to the new value
       updateCommentLikeState(
@@ -335,12 +348,20 @@ export function useLikeComment(propertyId: string) {
           likeCount: comment.likeCount + (isCurrentlyLiked ? -1 : 1),
         })
       );
+      patchActivityFeedPreviewCommentState(queryClient, propertyId, commentId, {
+        isLiked: !isCurrentlyLiked,
+        ...(nextPreviewLikeCount === undefined ? {} : { likeCount: nextPreviewLikeCount }),
+      });
 
       // Return context with the previous value for rollback
-      return { previousData };
+      return { previousData, previousActivityFeedData };
     },
     onSuccess: (data, variables) => {
       applyAuthoritativeCommentLikeState(queryClient, propertyId, viewerKey, variables.commentId, data);
+      patchActivityFeedPreviewCommentState(queryClient, propertyId, variables.commentId, {
+        isLiked: data.liked,
+        likeCount: data.likeCount,
+      });
     },
     onError: (_err, _variables, context) => {
       // Rollback to previous state on error
@@ -349,6 +370,10 @@ export function useLikeComment(propertyId: string) {
           queryClient.setQueryData(queryKey, data);
         });
       }
+      restoreActivityFeedCacheSnapshots(
+        queryClient,
+        context?.previousActivityFeedData as ActivityFeedCacheSnapshot[] | undefined,
+      );
     },
     onSettled: () => {
       // Always refetch after error or success to ensure we're in sync

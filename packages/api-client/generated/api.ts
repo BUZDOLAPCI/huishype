@@ -594,7 +594,7 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: {
+            requestBody: {
                 content: {
                     "application/json": {
                         refreshToken?: string;
@@ -1875,7 +1875,7 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: {
+            requestBody: {
                 content: {
                     "application/json": {
                         /**
@@ -5184,7 +5184,7 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: {
+            requestBody: {
                 content: {
                     "application/json": {
                         displayName?: string;
@@ -6296,6 +6296,25 @@ export interface paths {
                                         ];
                                     } | null;
                                     thumbnailUrl: string | null;
+                                    askingPrice: number | null;
+                                    officialValuation: number | null;
+                                    officialValuationYear: number | null;
+                                    officialValuationSourceFetch: {
+                                        /** @enum {string} */
+                                        source: "woz";
+                                        expectedValuationYear: number;
+                                        supportsClientFetch: {
+                                            web: boolean;
+                                            native: boolean;
+                                        };
+                                    } | null;
+                                    /** @enum {string} */
+                                    marketState: "for-sale" | "for-rent" | "sold" | "rented" | "not-listed";
+                                    hasListing: boolean;
+                                    yearBuilt: number | null;
+                                    floorAreaM2: number | null;
+                                    isLiked: boolean;
+                                    isSaved: boolean;
                                 };
                                 /** Format: date-time */
                                 lastActivityAt: string;
@@ -6326,6 +6345,8 @@ export interface paths {
                                         profilePhotoUrl: string | null;
                                     };
                                     contentPreview: string;
+                                    likeCount: number;
+                                    isLiked: boolean;
                                 } | {
                                     /** @enum {string} */
                                     kind: "summary";
@@ -8230,7 +8251,7 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: {
+            requestBody: {
                 content: {
                     "application/json": {
                         reason?: string;
@@ -8333,7 +8354,7 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: {
+            requestBody: {
                 content: {
                     "application/json": {
                         reason?: string;

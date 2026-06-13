@@ -175,6 +175,7 @@ export type {
   ActivityResponse,
   PublicActivityResponse,
   GroupedActivityCounts,
+  GroupedActivityProperty,
   GroupedActivityCommentPreview,
   GroupedActivitySummaryPreview,
   GroupedActivityPreview,

@@ -86,17 +86,52 @@ jest.mock('@/src/lib/currentLocation', () => ({
 }));
 
 jest.mock('@/src/components', () => ({
-  ActivityFeedCard: ({ property, onPress }: { property: { id: string }; onPress: () => void }) => {
+  ActivityFeedCard: ({
+    property,
+    onPress,
+    onAuthRequired,
+  }: {
+    property: { id: string };
+    onPress: () => void;
+    onAuthRequired?: () => void;
+  }) => {
     const ReactNative = require('react-native');
     return (
       <ReactNative.View>
         <ReactNative.Pressable testID={`activity-card-${property.id}`} onPress={onPress}>
           <ReactNative.Text>Open property {property.id}</ReactNative.Text>
         </ReactNative.Pressable>
+        <ReactNative.Pressable
+          testID={`activity-auth-${property.id}`}
+          onPress={onAuthRequired}
+        >
+          <ReactNative.Text>Auth property {property.id}</ReactNative.Text>
+        </ReactNative.Pressable>
       </ReactNative.View>
     );
   },
-  AuthModal: () => null,
+  AuthModal: ({
+    visible,
+    message,
+    onSuccess,
+  }: {
+    visible: boolean;
+    message?: string;
+    onSuccess?: () => void;
+  }) => {
+    const ReactNative = require('react-native');
+    if (!visible) {
+      return null;
+    }
+    return (
+      <ReactNative.View testID="feed-auth-modal">
+        <ReactNative.Text>{message}</ReactNative.Text>
+        <ReactNative.Pressable testID="feed-auth-success" onPress={onSuccess}>
+          <ReactNative.Text>Auth success</ReactNative.Text>
+        </ReactNative.Pressable>
+      </ReactNative.View>
+    );
+  },
   FeedEmptyState: () => {
     const ReactNative = require('react-native');
     return <ReactNative.Text>Feed empty</ReactNative.Text>;
@@ -1195,6 +1230,89 @@ describe('FeedScreen following surface', () => {
 
     await waitFor(() => {
       expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=latest');
+    });
+  });
+
+  it('uses the unified activity card for recent activity and keeps interaction auth on the same tab', async () => {
+    seedUnauth();
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items:
+              scope === 'public'
+                ? [
+                    {
+                      property: {
+                        id: 'property-recent-1',
+                        address: 'Recent 1',
+                        streetName: 'Recent',
+                        houseNumber: 1,
+                        houseNumberAddition: null,
+                        city: 'Eindhoven',
+                        postalCode: '5611 AA',
+                        countryCode: 'NL',
+                        geometry: null,
+                        thumbnailUrl: null,
+                      },
+                      lastActivityAt: '2026-04-19T10:00:00.000Z',
+                      recentActors: [
+                        {
+                          id: 'actor-1',
+                          displayName: 'Actor 1',
+                          handle: 'actor-1',
+                          profilePhotoUrl: null,
+                        },
+                      ],
+                      preview: {
+                        kind: 'summary',
+                        eventType: 'property_like',
+                        createdAt: '2026-04-19T09:30:00.000Z',
+                        actor: {
+                          id: 'actor-1',
+                          displayName: 'Actor 1',
+                          handle: 'actor-1',
+                          profilePhotoUrl: null,
+                        },
+                        summary: 'Actor 1 liked this property',
+                      },
+                      counts: {
+                        likeCount: 4,
+                        commentCount: 2,
+                        guessCount: 1,
+                      },
+                    },
+                  ]
+                : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId, getByText } = render(<FeedScreen />);
+
+    fireEvent.press(getByTestId('feed-tab-recent-activity'));
+
+    await waitFor(() => {
+      expect(getByTestId('activity-card-property-recent-1')).toBeTruthy();
+      expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
+        'public',
+        true,
+        expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+      );
+    });
+
+    fireEvent.press(getByTestId('activity-auth-property-recent-1'));
+
+    expect(getByTestId('feed-auth-modal')).toBeTruthy();
+    expect(getByText('Sign in to like, comment, or save properties')).toBeTruthy();
+
+    fireEvent.press(getByTestId('feed-auth-success'));
+
+    expect(getByTestId('feed-tab-recent-activity').props.accessibilityState).toEqual({
+      selected: true,
+    });
+    expect(getByTestId('feed-tab-following').props.accessibilityState).toEqual({
+      selected: false,
     });
   });
 

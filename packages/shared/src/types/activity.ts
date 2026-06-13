@@ -1,3 +1,6 @@
+import type { OfficialValuationSourceFetch } from './api.js';
+import type { MapMarketState } from './property.js';
+
 /**
  * Activity event types for HuisHype
  *
@@ -26,6 +29,19 @@ export interface ActivityProperty {
   countryCode: string;
   geometry: { type: 'Point'; coordinates: [number, number] } | null;
   thumbnailUrl: string | null;
+}
+
+export interface GroupedActivityProperty extends ActivityProperty {
+  askingPrice: number | null;
+  officialValuation: number | null;
+  officialValuationYear: number | null;
+  officialValuationSourceFetch: OfficialValuationSourceFetch | null;
+  marketState: MapMarketState;
+  hasListing: boolean;
+  yearBuilt: number | null;
+  floorAreaM2: number | null;
+  isLiked: boolean;
+  isSaved: boolean;
 }
 
 export interface ActivityItem<TEventType extends ActivityEventType = ActivityEventType> {
@@ -60,6 +76,8 @@ export interface GroupedActivityCommentPreview {
   createdAt: string;
   actor: ActivityActor;
   contentPreview: string;
+  likeCount: number;
+  isLiked: boolean;
 }
 
 export interface GroupedActivitySummaryPreview {
@@ -75,7 +93,7 @@ export type GroupedActivityPreview =
   | GroupedActivitySummaryPreview;
 
 export interface GroupedPropertyActivityItem {
-  property: ActivityProperty;
+  property: GroupedActivityProperty;
   lastActivityAt: string;
   counts: GroupedActivityCounts;
   recentActors: ActivityActor[];

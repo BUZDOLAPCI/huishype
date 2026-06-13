@@ -1493,6 +1493,7 @@
         ],
         "description": "Validate Google ID token, create or find user, return JWT tokens",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -1508,8 +1509,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -1661,6 +1661,7 @@
         ],
         "description": "Validate Apple ID token, create or find user, return JWT tokens",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -1676,8 +1677,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -1829,6 +1829,7 @@
         ],
         "description": "Exchange a refresh token for a new access token",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -1844,8 +1845,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -1905,6 +1905,7 @@
         ],
         "description": "Invalidate refresh token (client should also clear tokens)",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -7002,6 +7003,7 @@
           "properties"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -8533,6 +8535,7 @@
         ],
         "description": "Submit or update a price guess for a property.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -8549,8 +8552,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "parameters": [
           {
@@ -9135,6 +9137,7 @@
         ],
         "description": "Add a comment to a property. Set parentId to reply to another comment (1 level deep only).",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -9158,8 +9161,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "parameters": [
           {
@@ -11554,6 +11556,7 @@
         ],
         "description": "Validates a listing URL against source services and enriches display metadata from caller input or Open Graph fallback.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -11605,8 +11608,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -11874,6 +11876,7 @@
         ],
         "description": "Creates a listing from a validated preview token. Requires authentication.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -11889,8 +11892,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -12205,6 +12207,7 @@
         ],
         "description": "Internal endpoint for mirror sync workers. Requires API key authentication.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -12759,8 +12762,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {
@@ -14393,6 +14395,7 @@
           "Users"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -14412,8 +14415,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -14832,6 +14834,7 @@
           "Users"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -16971,6 +16974,7 @@
           "notifications"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -17000,8 +17004,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -17945,6 +17948,118 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "askingPrice": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "officialValuation": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "officialValuationYear": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "officialValuationSourceFetch": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "source": {
+                                        "type": "string",
+                                        "enum": [
+                                          "woz"
+                                        ]
+                                      },
+                                      "expectedValuationYear": {
+                                        "type": "number"
+                                      },
+                                      "supportsClientFetch": {
+                                        "type": "object",
+                                        "properties": {
+                                          "web": {
+                                            "type": "boolean"
+                                          },
+                                          "native": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "web",
+                                          "native"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    "required": [
+                                      "source",
+                                      "expectedValuationYear",
+                                      "supportsClientFetch"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "marketState": {
+                                "type": "string",
+                                "enum": [
+                                  "for-sale",
+                                  "for-rent",
+                                  "sold",
+                                  "rented",
+                                  "not-listed"
+                                ]
+                              },
+                              "hasListing": {
+                                "type": "boolean"
+                              },
+                              "yearBuilt": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "floorAreaM2": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "isLiked": {
+                                "type": "boolean"
+                              },
+                              "isSaved": {
+                                "type": "boolean"
                               }
                             },
                             "required": [
@@ -17957,7 +18072,17 @@
                               "postalCode",
                               "countryCode",
                               "geometry",
-                              "thumbnailUrl"
+                              "thumbnailUrl",
+                              "askingPrice",
+                              "officialValuation",
+                              "officialValuationYear",
+                              "officialValuationSourceFetch",
+                              "marketState",
+                              "hasListing",
+                              "yearBuilt",
+                              "floorAreaM2",
+                              "isLiked",
+                              "isSaved"
                             ],
                             "additionalProperties": false
                           },
@@ -18078,6 +18203,12 @@
                                   },
                                   "contentPreview": {
                                     "type": "string"
+                                  },
+                                  "likeCount": {
+                                    "type": "number"
+                                  },
+                                  "isLiked": {
+                                    "type": "boolean"
                                   }
                                 },
                                 "required": [
@@ -18085,7 +18216,9 @@
                                   "commentId",
                                   "createdAt",
                                   "actor",
-                                  "contentPreview"
+                                  "contentPreview",
+                                  "likeCount",
+                                  "isLiked"
                                 ],
                                 "additionalProperties": false
                               },
@@ -19137,6 +19270,7 @@
         ],
         "description": "Generates a magic link token for the given email. In production, delivers via email. In dev mode, returns the token and code in the response.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -19153,8 +19287,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -19239,6 +19372,7 @@
         ],
         "description": "Validates the token, creates or finds the user, returns a session.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -19255,8 +19389,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -19408,6 +19541,7 @@
         ],
         "description": "Validates the one-time email code, creates or finds the user, returns a session.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -19429,8 +19563,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -19605,6 +19738,7 @@
         ],
         "description": "Public endpoint for sending a contact form message to HuisHype support.",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -19642,8 +19776,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -19744,6 +19877,7 @@
           "reports"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -19775,8 +19909,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "parameters": [
           {
@@ -20250,6 +20383,7 @@
           "reports"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -20281,8 +20415,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "parameters": [
           {
@@ -23205,6 +23338,7 @@
           "reports"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -23229,8 +23363,7 @@
                 ]
               }
             }
-          },
-          "required": true
+          }
         },
         "parameters": [
           {
@@ -23986,6 +24119,7 @@
           "properties"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -24254,6 +24388,7 @@
           "properties"
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {

@@ -32,6 +32,8 @@ describe('Activity routes', () => {
     followedComment: crypto.randomUUID(),
     otherComment: crypto.randomUUID(),
     hiddenComment: crypto.randomUUID(),
+    viewerFollowedCommentLike: crypto.randomUUID(),
+    viewerOtherCommentLike: crypto.randomUUID(),
     followedGuess: crypto.randomUUID(),
     followedSave: crypto.randomUUID(),
     otherLike: crypto.randomUUID(),
@@ -71,6 +73,10 @@ describe('Activity routes', () => {
       postalCode: '9020AA',
       lon: 5.4702,
       lat: 51.4402,
+      officialValuation: 312000,
+      officialValuationYear: 2024,
+      yearBuilt: 1984,
+      floorAreaM2: 91,
     });
     propertyId = property.id;
     await createIntegrationListing({
@@ -121,6 +127,25 @@ describe('Activity routes', () => {
         hiddenAt: new Date('2035-01-01T11:50:00.000Z'),
         createdAt: timeline.hiddenCommentCreatedAt,
         updatedAt: timeline.hiddenCommentCreatedAt,
+      },
+    ]);
+
+    await db.insert(reactions).values([
+      {
+        id: activityEventIds.viewerFollowedCommentLike,
+        targetType: 'comment',
+        targetId: activityEventIds.followedComment,
+        userId: viewerUserId,
+        reactionType: 'like',
+        createdAt: new Date('2035-01-01T11:10:00.000Z'),
+      },
+      {
+        id: activityEventIds.viewerOtherCommentLike,
+        targetType: 'comment',
+        targetId: activityEventIds.otherComment,
+        userId: viewerUserId,
+        reactionType: 'like',
+        createdAt: new Date('2035-01-01T11:40:00.000Z'),
       },
     ]);
 
@@ -373,6 +398,23 @@ describe('Activity routes', () => {
           property: expect.objectContaining({
             id: propertyId,
             streetName: 'Activity Fixture Street',
+            askingPrice: 350000,
+            officialValuation: 312000,
+            officialValuationYear: 2024,
+            officialValuationSourceFetch: {
+              source: 'woz',
+              expectedValuationYear: expect.any(Number),
+              supportsClientFetch: {
+                web: expect.any(Boolean),
+                native: expect.any(Boolean),
+              },
+            },
+            marketState: 'for-sale',
+            hasListing: true,
+            yearBuilt: 1984,
+            floorAreaM2: 91,
+            isLiked: false,
+            isSaved: false,
           }),
           lastActivityAt: timeline.otherLikeCreatedAt.toISOString(),
           counts: {
@@ -396,7 +438,57 @@ describe('Activity routes', () => {
           displayName: expect.any(String),
         }),
         contentPreview: 'Unfollowed user comment',
+        likeCount: 1,
+        isLiked: false,
       });
+    });
+
+    it('returns authenticated public grouped property posts with viewer-specific property and preview state', async () => {
+      const viewerSaveId = crypto.randomUUID();
+
+      await db.insert(savedProperties).values({
+        id: viewerSaveId,
+        userId: viewerUserId,
+        propertyId,
+        createdAt: new Date('2035-01-01T14:30:00.000Z'),
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/activity/properties?limit=10',
+          headers: { authorization: `Bearer ${viewerAccessToken}` },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['cache-control']).toBe('private, no-store');
+        const body = JSON.parse(response.body);
+        const groupedItem = body.items.find(
+          (item: { property: { id: string } }) => item.property.id === propertyId
+        );
+
+        expect(groupedItem).toBeDefined();
+        expect(groupedItem.property).toEqual(
+          expect.objectContaining({
+            id: propertyId,
+            askingPrice: 350000,
+            marketState: 'for-sale',
+            hasListing: true,
+            isLiked: true,
+            isSaved: true,
+          })
+        );
+        expect(groupedItem.preview).toEqual(
+          expect.objectContaining({
+            kind: 'comment',
+            commentId: activityEventIds.otherComment,
+            likeCount: 1,
+            isLiked: true,
+          })
+        );
+      } finally {
+        await db.delete(savedProperties).where(eq(savedProperties.id, viewerSaveId));
+      }
     });
 
     it('returns 401 for following scope without authentication', async () => {
@@ -429,6 +521,13 @@ describe('Activity routes', () => {
         commentCount: 1,
         guessCount: 1,
       });
+      expect(body.items[0].property).toEqual(
+        expect.objectContaining({
+          id: propertyId,
+          isLiked: true,
+          isSaved: false,
+        })
+      );
       expect(body.items[0].recentActors).toEqual([
         expect.objectContaining({
           id: followedUserId,
@@ -442,6 +541,8 @@ describe('Activity routes', () => {
           id: followedUserId,
         }),
         contentPreview: 'Followed user comment',
+        likeCount: 1,
+        isLiked: true,
       });
     });
 

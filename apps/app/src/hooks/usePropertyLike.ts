@@ -12,10 +12,18 @@ import { API_URL } from '../utils/api';
 import { useAuthContext } from '../providers/AuthProvider';
 import { getViewerCacheKey, propertyKeys, type Property } from './useProperties';
 import { useExactQueryCacheValue } from './useExactQueryCacheValue';
+import {
+  getActivityFeedCacheSnapshots,
+  patchActivityFeedPropertyState,
+  restoreActivityFeedCacheSnapshots,
+  type ActivityFeedCacheSnapshot,
+} from '../utils/activity-feed-cache';
 
 export interface UsePropertyLikeOptions {
   propertyId: string | null;
   onAuthRequired?: () => void;
+  initialIsLiked?: boolean;
+  initialLikeCount?: number;
 }
 
 export interface UsePropertyLikeReturn {
@@ -48,6 +56,8 @@ interface LikeMutationContext {
   key: ReturnType<typeof propertyKeys.detail>;
   previous?: EnrichedProperty;
   optimistic?: EnrichedProperty;
+  optimisticState: { isLiked: boolean; likeCount: number };
+  previousActivityFeedData: ActivityFeedCacheSnapshot[];
 }
 
 function isRecoverableLikeConflict(error: unknown, nextLiked: boolean): boolean {
@@ -60,6 +70,29 @@ function isRecoverableLikeConflict(error: unknown, nextLiked: boolean): boolean 
   }
 
   return error.status === 404 || error.code === 'NOT_FOUND';
+}
+
+function reconcileLikedState(
+  queryClient: ReturnType<typeof useQueryClient>,
+  propertyId: string,
+  viewerKey: string,
+  state: { isLiked: boolean; likeCount: number },
+): void {
+  const key = propertyKeys.detail(propertyId, viewerKey);
+  const current = queryClient.getQueryData<EnrichedProperty>(key);
+
+  if (current) {
+    queryClient.setQueryData<EnrichedProperty>(key, {
+      ...current,
+      isLiked: state.isLiked,
+      likeCount: Math.max(0, state.likeCount),
+    });
+  }
+
+  patchActivityFeedPropertyState(queryClient, propertyId, {
+    isLiked: state.isLiked,
+    likeCount: state.likeCount,
+  });
 }
 
 async function likeProperty(propertyId: string, accessToken: string): Promise<{ liked: boolean; likeCount: number }> {
@@ -105,6 +138,8 @@ async function unlikeProperty(propertyId: string, accessToken: string): Promise<
 export function usePropertyLike({
   propertyId,
   onAuthRequired,
+  initialIsLiked,
+  initialLikeCount,
 }: UsePropertyLikeOptions): UsePropertyLikeReturn {
   const queryClient = useQueryClient();
   const { user, getAccessToken, isAuthenticated } = useAuthContext();
@@ -113,8 +148,8 @@ export function usePropertyLike({
   const queryKey = propertyId ? propertyKeys.detail(propertyId, viewerKey) : null;
   const cachedProperty = useExactQueryCacheValue<EnrichedProperty>(queryClient, queryKey);
 
-  const isLiked = cachedProperty?.isLiked ?? false;
-  const likeCount = cachedProperty?.likeCount ?? 0;
+  const isLiked = cachedProperty?.isLiked ?? initialIsLiked ?? false;
+  const likeCount = cachedProperty?.likeCount ?? initialLikeCount ?? 0;
 
   // Like mutation
   const likeMutation = useMutation({
@@ -124,11 +159,17 @@ export function usePropertyLike({
       const key = propertyKeys.detail(propId, viewerKey);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
+      const previousActivityFeedData = getActivityFeedCacheSnapshots(queryClient);
+      const nextLikeCount = (previous?.likeCount ?? initialLikeCount ?? 0) + 1;
+      const optimisticState = {
+        isLiked: true,
+        likeCount: nextLikeCount,
+      };
       const optimistic = previous
         ? {
             ...previous,
             isLiked: true,
-            likeCount: (previous.likeCount ?? 0) + 1,
+            likeCount: nextLikeCount,
           }
         : undefined;
 
@@ -136,22 +177,33 @@ export function usePropertyLike({
       if (optimistic) {
         queryClient.setQueryData<EnrichedProperty>(key, optimistic);
       }
+      patchActivityFeedPropertyState(queryClient, propId, optimisticState);
 
-      return { previous, key, optimistic };
+      return { previous, key, optimistic, optimisticState, previousActivityFeedData };
     },
     onError: (error, _vars, context?: LikeMutationContext) => {
       if (!context?.key) {
         return;
       }
 
-      if (context.optimistic && isRecoverableLikeConflict(error, true)) {
-        queryClient.setQueryData(context.key, context.optimistic);
+      if (isRecoverableLikeConflict(error, true)) {
+        if (context.optimistic) {
+          queryClient.setQueryData(context.key, context.optimistic);
+        }
+        patchActivityFeedPropertyState(queryClient, context.key[2] as string, context.optimisticState);
         return;
       }
 
       if (context.previous) {
         queryClient.setQueryData(context.key, context.previous);
       }
+      restoreActivityFeedCacheSnapshots(queryClient, context.previousActivityFeedData);
+    },
+    onSuccess: (data, { propId }) => {
+      reconcileLikedState(queryClient, propId, viewerKey, {
+        isLiked: data.liked,
+        likeCount: data.likeCount,
+      });
     },
     onSettled: (_data, _error, { propId }) => {
       queryClient.invalidateQueries({ queryKey: propertyKeys.detailBase(propId) });
@@ -166,11 +218,17 @@ export function usePropertyLike({
       const key = propertyKeys.detail(propId, viewerKey);
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<EnrichedProperty>(key);
+      const previousActivityFeedData = getActivityFeedCacheSnapshots(queryClient);
+      const nextLikeCount = Math.max((previous?.likeCount ?? initialLikeCount ?? 0) - 1, 0);
+      const optimisticState = {
+        isLiked: false,
+        likeCount: nextLikeCount,
+      };
       const optimistic = previous
         ? {
             ...previous,
             isLiked: false,
-            likeCount: Math.max((previous.likeCount ?? 0) - 1, 0),
+            likeCount: nextLikeCount,
           }
         : undefined;
 
@@ -178,22 +236,33 @@ export function usePropertyLike({
       if (optimistic) {
         queryClient.setQueryData<EnrichedProperty>(key, optimistic);
       }
+      patchActivityFeedPropertyState(queryClient, propId, optimisticState);
 
-      return { previous, key, optimistic };
+      return { previous, key, optimistic, optimisticState, previousActivityFeedData };
     },
     onError: (error, _vars, context?: LikeMutationContext) => {
       if (!context?.key) {
         return;
       }
 
-      if (context.optimistic && isRecoverableLikeConflict(error, false)) {
-        queryClient.setQueryData(context.key, context.optimistic);
+      if (isRecoverableLikeConflict(error, false)) {
+        if (context.optimistic) {
+          queryClient.setQueryData(context.key, context.optimistic);
+        }
+        patchActivityFeedPropertyState(queryClient, context.key[2] as string, context.optimisticState);
         return;
       }
 
       if (context.previous) {
         queryClient.setQueryData(context.key, context.previous);
       }
+      restoreActivityFeedCacheSnapshots(queryClient, context.previousActivityFeedData);
+    },
+    onSuccess: (data, { propId }) => {
+      reconcileLikedState(queryClient, propId, viewerKey, {
+        isLiked: data.liked,
+        likeCount: data.likeCount,
+      });
     },
     onSettled: (_data, _error, { propId }) => {
       queryClient.invalidateQueries({ queryKey: propertyKeys.detailBase(propId) });

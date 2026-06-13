@@ -2,22 +2,27 @@ import { sql } from 'drizzle-orm';
 import {
   isValidCountryCode,
   type ActivityActor,
-  type ActivityProperty,
+  type GroupedActivityProperty,
   type GroupedActivityPreview,
   type GroupedPropertyActivityItem,
   type GroupedPropertyActivityResponse,
+  type MapMarketState,
   type PublicActivityEventType,
 } from '@huishype/shared';
 import { db } from '../db/index.js';
 import { formatDisplayAddress } from '../utils/address.js';
 import { activityActorPredicate } from './activity-feed.js';
-import { buildPropertyThumbnailLateralJoin } from './property-queries.js';
+import {
+  buildPropertyListingFactsJoin,
+  buildPropertyThumbnailLateralJoin,
+} from './property-queries.js';
 import {
   buildLocationAreaFilterPredicate,
   buildPropertyMarketFilterQuery,
   createDefaultMapFilters,
   type MapFilters,
 } from './map-filters.js';
+import { getOfficialValuationSourceFetchHint } from './official-valuations/index.js';
 
 export type GroupedPropertyActivityFeedScope = 'public' | 'following';
 
@@ -39,6 +44,15 @@ interface GroupedPropertyActivityRow extends Record<string, unknown> {
   lon: number | null;
   lat: number | null;
   thumbnail_url: string | null;
+  asking_price: number | null;
+  official_valuation: number | null;
+  official_valuation_year: number | null;
+  market_state: MapMarketState;
+  has_listing: boolean;
+  year_built: number | null;
+  floor_area_m2: number | null;
+  is_liked: boolean;
+  is_saved: boolean;
   last_activity_at: string;
   like_count: number;
   comment_count: number;
@@ -53,10 +67,12 @@ interface GroupedPropertyActivityRow extends Record<string, unknown> {
   preview_actor_handle: string;
   preview_actor_photo_url: string | null;
   preview_content_preview: string | null;
+  preview_like_count: number | null;
+  preview_is_liked: boolean | null;
   preview_summary: string | null;
 }
 
-function mapActivityProperty(row: GroupedPropertyActivityRow): ActivityProperty {
+function mapActivityProperty(row: GroupedPropertyActivityRow): GroupedActivityProperty {
   return {
     id: row.property_id,
     streetName: row.street,
@@ -83,6 +99,17 @@ function mapActivityProperty(row: GroupedPropertyActivityRow): ActivityProperty 
           }
         : null,
     thumbnailUrl: row.thumbnail_url,
+    askingPrice: row.asking_price != null ? Number(row.asking_price) : null,
+    officialValuation: row.official_valuation != null ? Number(row.official_valuation) : null,
+    officialValuationYear:
+      row.official_valuation_year != null ? Number(row.official_valuation_year) : null,
+    officialValuationSourceFetch: getOfficialValuationSourceFetchHint(row.country_code),
+    marketState: row.market_state,
+    hasListing: row.has_listing,
+    yearBuilt: row.year_built != null ? Number(row.year_built) : null,
+    floorAreaM2: row.floor_area_m2 != null ? Number(row.floor_area_m2) : null,
+    isLiked: row.is_liked,
+    isSaved: row.is_saved,
   };
 }
 
@@ -117,6 +144,8 @@ function mapPreview(row: GroupedPropertyActivityRow): GroupedActivityPreview {
       createdAt: new Date(row.preview_created_at).toISOString(),
       actor,
       contentPreview: row.preview_content_preview ?? '',
+      likeCount: row.preview_like_count ?? 0,
+      isLiked: row.preview_is_liked ?? false,
     };
   }
 
@@ -349,7 +378,25 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         ae.actor_display_name,
         ae.actor_handle,
         ae.actor_photo_url,
-        ae.content_preview
+        ae.content_preview,
+        (
+          SELECT COUNT(*)::int
+          FROM reactions cr
+          WHERE cr.target_type = 'comment'
+            AND cr.target_id = ae.event_id::uuid
+            AND cr.reaction_type = 'like'
+        ) AS like_count,
+        CASE
+          WHEN ${params.viewerId}::uuid IS NULL THEN FALSE
+          ELSE EXISTS (
+            SELECT 1
+            FROM reactions cr
+            WHERE cr.target_type = 'comment'
+              AND cr.target_id = ae.event_id::uuid
+              AND cr.user_id = ${params.viewerId}
+              AND cr.reaction_type = 'like'
+          )
+        END AS is_liked
       FROM activity_events ae
       INNER JOIN paged_groups pg ON pg.property_id = ae.property_id
       WHERE ae.event_type = 'comment'
@@ -379,7 +426,34 @@ export async function fetchGroupedPropertyActivityFeed(params: {
       lpr.city,
       lpr.lon,
       lpr.lat,
-      lpr.thumbnail_url,
+      COALESCE(lpr.thumbnail_url, plf.thumbnail_url) AS thumbnail_url,
+      plf.asking_price,
+      psel.official_valuation,
+      psel.official_valuation_year,
+      plf.market_state,
+      plf.has_listing,
+      psel.year_built,
+      psel.floor_area_m2,
+      CASE
+        WHEN ${params.viewerId}::uuid IS NULL THEN FALSE
+        ELSE EXISTS (
+          SELECT 1
+          FROM reactions vr
+          WHERE vr.target_type = 'property'
+            AND vr.target_id = pg.property_id
+            AND vr.user_id = ${params.viewerId}
+            AND vr.reaction_type = 'like'
+        )
+      END AS is_liked,
+      CASE
+        WHEN ${params.viewerId}::uuid IS NULL THEN FALSE
+        ELSE EXISTS (
+          SELECT 1
+          FROM saved_properties sp
+          WHERE sp.property_id = pg.property_id
+            AND sp.user_id = ${params.viewerId}
+        )
+      END AS is_saved,
       pg.last_activity_at::text AS last_activity_at,
       pg.like_count,
       pg.comment_count,
@@ -394,6 +468,8 @@ export async function fetchGroupedPropertyActivityFeed(params: {
       COALESCE(cpr.actor_photo_url, ler.actor_photo_url) AS preview_actor_photo_url,
       COALESCE(ler.event_type, 'comment') AS preview_event_type,
       cpr.content_preview AS preview_content_preview,
+      cpr.like_count AS preview_like_count,
+      cpr.is_liked AS preview_is_liked,
       CASE
         WHEN cpr.comment_id IS NULL THEN
           CASE ler.event_type
@@ -405,6 +481,8 @@ export async function fetchGroupedPropertyActivityFeed(params: {
       END AS preview_summary
     FROM paged_groups pg
     INNER JOIN latest_property_rows lpr ON lpr.property_id = pg.property_id
+    INNER JOIN properties psel ON psel.id = pg.property_id
+    ${buildPropertyListingFactsJoin('psel', 'plf')}
     INNER JOIN latest_event_rows ler ON ler.property_id = pg.property_id
     LEFT JOIN recent_actor_agg raa ON raa.property_id = pg.property_id
     LEFT JOIN comment_preview_rows cpr ON cpr.property_id = pg.property_id

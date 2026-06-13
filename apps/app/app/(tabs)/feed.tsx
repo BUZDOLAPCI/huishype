@@ -103,6 +103,7 @@ const FILTER_SHOW_SCROLL_DELTA_Y = 8;
 const FEED_SWIPE_TRAVEL_THRESHOLD = 64;
 const FEED_SWIPE_VELOCITY_THRESHOLD = 0.65;
 const FEED_TAB_ORDER: FeedTab[] = ['trending', 'latest', 'recent-activity', 'following'];
+type FeedAuthMode = 'following' | 'interaction';
 
 function FeedHeaderActions() {
   const { data: unreadCount } = useUnreadNotificationCount();
@@ -169,7 +170,7 @@ export default function FeedScreen() {
   const { data: profile, isLoading: isProfileLoading } = useMyProfile();
   const [activeFilter, setActiveFilter] = useState<FeedTab>('trending');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<FeedAuthMode | null>(null);
   const activeFilterRef = useRef(activeFilter);
   activeFilterRef.current = activeFilter;
   const isFeedTabActiveRef = useRef(isFeedTabActive);
@@ -438,7 +439,7 @@ export default function FeedScreen() {
   const handleFilterChange = useCallback(
     (filter: FeedTab) => {
       if (filter === 'following' && !isAuthenticated) {
-        setShowAuth(true);
+        setAuthMode('following');
         return;
       }
 
@@ -674,6 +675,7 @@ export default function FeedScreen() {
         recentActors={item.recentActors}
         preview={item.preview}
         counts={item.counts}
+        onAuthRequired={() => setAuthMode('interaction')}
         onPress={() => {
           if (activeFilter === 'following') {
             emitSocialFollowAnalyticsEvent('following_feed_post_clicked', {
@@ -720,14 +722,22 @@ export default function FeedScreen() {
 
   const authModal = (
     <AuthModal
-      visible={showAuth}
-      onClose={() => setShowAuth(false)}
-      message={t('feed.auth.following')}
+      visible={authMode !== null}
+      onClose={() => setAuthMode(null)}
+      message={
+        authMode === 'interaction'
+          ? t('activityFeed.auth.interaction')
+          : t('feed.auth.following')
+      }
       onSuccess={() => {
-        setShowAuth(false);
-        showSharedFilters(true);
-        setActiveFilter('following');
-        pushFeedBrowserPath(filterController.appliedFilters, 'following');
+        const completedAuthMode = authMode;
+        setAuthMode(null);
+
+        if (completedAuthMode === 'following') {
+          showSharedFilters(true);
+          setActiveFilter('following');
+          pushFeedBrowserPath(filterController.appliedFilters, 'following');
+        }
       }}
     />
   );
@@ -867,7 +877,7 @@ export default function FeedScreen() {
                         return;
                       }
 
-                      setShowAuth(true);
+                      setAuthMode('following');
                     }
                   : undefined
               }
