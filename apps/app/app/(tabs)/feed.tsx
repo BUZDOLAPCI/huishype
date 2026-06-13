@@ -320,6 +320,10 @@ export default function FeedScreen() {
   const [areFiltersVisible, setAreFiltersVisible] = useState(true);
   const filtersVisibleRef = useRef(true);
   const lastScrollYRef = useRef(0);
+  const lastScrollMetricsRef = useRef<{
+    viewportHeight?: number;
+    contentHeight?: number;
+  }>({});
   const upwardScrollStartYRef = useRef<number | null>(null);
   const filterVisibilityAnim = useRef(new Animated.Value(1)).current;
   const propertyFeedListRef = useRef<FlatList<FeedProperty> | null>(null);
@@ -580,6 +584,7 @@ export default function FeedScreen() {
   }, []);
   const handleFeedBackToTop = useCallback(() => {
     lastScrollYRef.current = 0;
+    lastScrollMetricsRef.current = {};
     upwardScrollStartYRef.current = null;
     showSharedFilters(true);
 
@@ -597,6 +602,17 @@ export default function FeedScreen() {
       const deltaY = nextY - previousY;
       const viewportHeight = event.nativeEvent.layoutMeasurement?.height;
       const contentHeight = event.nativeEvent.contentSize?.height;
+      const previousScrollMetrics = lastScrollMetricsRef.current;
+      const didViewportHeightChange =
+        typeof viewportHeight === 'number' &&
+        typeof previousScrollMetrics.viewportHeight === 'number' &&
+        Math.abs(viewportHeight - previousScrollMetrics.viewportHeight) > 1;
+      const didContentHeightStayStable =
+        typeof contentHeight === 'number' &&
+        typeof previousScrollMetrics.contentHeight === 'number' &&
+        Math.abs(contentHeight - previousScrollMetrics.contentHeight) <= 1;
+      const isLayoutCompensationScroll =
+        deltaY !== 0 && didViewportHeightChange && didContentHeightStayStable;
       const scrollableDistance =
         typeof viewportHeight === 'number' && typeof contentHeight === 'number'
           ? Math.max(0, contentHeight - viewportHeight)
@@ -607,9 +623,15 @@ export default function FeedScreen() {
           scrollableDistance >
             FILTER_HIDE_SCROLL_Y + sharedFilterHeight + FILTER_SHOW_SCROLL_DELTA_Y);
       lastScrollYRef.current = nextY;
+      lastScrollMetricsRef.current = { viewportHeight, contentHeight };
 
       if (isFilterPanelOpen || isSearchActive) {
         showSharedFilters(true);
+        return;
+      }
+
+      if (isLayoutCompensationScroll) {
+        upwardScrollStartYRef.current = null;
         return;
       }
 

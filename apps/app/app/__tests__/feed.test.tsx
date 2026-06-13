@@ -822,6 +822,95 @@ describe('FeedScreen following surface', () => {
     expect(queryByTestId('feed-map-following-control')).toBeNull();
   });
 
+  it('keeps the original filter layout and ignores viewport compensation scrolls', () => {
+    const timingSpy = jest.spyOn(Animated, 'timing');
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items: scope === 'following' ? [] : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId, UNSAFE_getByType } = render(<FeedScreen />);
+    const feedList = UNSAFE_getByType(FlatList);
+    const filterShellStyle = getByTestId('feed-collapsible-filter-shell').props.style;
+
+    expect(filterShellStyle).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          position: 'relative',
+        }),
+      ])
+    );
+    expect(
+      filterShellStyle.some(
+        (style: unknown) =>
+          style != null &&
+          typeof style === 'object' &&
+          Object.prototype.hasOwnProperty.call(style, 'height')
+      )
+    ).toBe(true);
+    expect(feedList.props.contentContainerStyle).toEqual(
+      expect.objectContaining({
+        paddingBottom: 96,
+        paddingTop: 8,
+      })
+    );
+
+    fireEvent(getByTestId('feed-shared-filter-section').parent!, 'layout', {
+      nativeEvent: { layout: { height: 120 } },
+    });
+    fireEvent.scroll(feedList, {
+      nativeEvent: {
+        contentOffset: { y: 80 },
+        contentSize: { height: 1200 },
+        layoutMeasurement: { height: 560 },
+      },
+    });
+
+    expect(timingSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        toValue: 0,
+      })
+    );
+
+    timingSpy.mockClear();
+    fireEvent.scroll(feedList, {
+      nativeEvent: {
+        contentOffset: { y: 70 },
+        contentSize: { height: 1200 },
+        layoutMeasurement: { height: 570 },
+      },
+    });
+
+    expect(timingSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        toValue: 1,
+      })
+    );
+
+    fireEvent.scroll(feedList, {
+      nativeEvent: {
+        contentOffset: { y: 60 },
+        contentSize: { height: 1200 },
+        layoutMeasurement: { height: 570 },
+      },
+    });
+
+    expect(timingSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        toValue: 1,
+      })
+    );
+
+    timingSpy.mockRestore();
+  });
+
   it('auto-hides shared filters on downward feed scroll and reveals them on upward scroll', () => {
     const timingSpy = jest.spyOn(Animated, 'timing');
     mockUseActivityFeed.mockImplementation(
