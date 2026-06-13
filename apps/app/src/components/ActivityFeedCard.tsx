@@ -7,7 +7,12 @@ import {
   type GestureResponderEvent,
 } from 'react-native';
 import { router } from 'expo-router';
-import { formatPropertyPrice, getValuationLabel, type CountryCode } from '@huishype/shared';
+import {
+  formatAddress,
+  formatPropertyPrice,
+  getValuationLabel,
+  type CountryCode,
+} from '@huishype/shared';
 
 import { Card } from './ui/Card';
 import { Icon, type IconName } from './ui/Icon';
@@ -181,6 +186,22 @@ function getPropertyFacts(
   return facts;
 }
 
+function getPropertyTitleAddress(property: ActivityFeedProperty): string {
+  const streetName = property.streetName?.trim();
+  const houseNumber = property.houseNumber != null ? String(property.houseNumber).trim() : '';
+
+  if (!streetName || !houseNumber) {
+    return property.address;
+  }
+
+  return formatAddress({
+    streetName,
+    houseNumber,
+    houseNumberAddition: property.houseNumberAddition ?? undefined,
+    countryCode: property.countryCode as CountryCode,
+  });
+}
+
 function EngagementSummary({
   likeCount,
   summaryText,
@@ -276,6 +297,7 @@ function ActivityFeedCardComponent({
   const marketStateLabel = getMarketStateLabel(property.marketState, t);
   const priceLine = getPriceLine(property, t);
   const propertyFacts = getPropertyFacts(property, t);
+  const titleAddress = getPropertyTitleAddress(property);
   const engagementSummaryText = t('activityFeed.engagement.summary', {
     comments: counts.commentCount,
     guesses: counts.guessCount,
@@ -492,7 +514,7 @@ function ActivityFeedCardComponent({
           </View>
           <View style={styles.attachmentContent}>
             <Text style={styles.address} numberOfLines={1}>
-              {property.address}
+              {titleAddress}
             </Text>
             {cityLine ? (
               <Text style={styles.city} numberOfLines={1}>

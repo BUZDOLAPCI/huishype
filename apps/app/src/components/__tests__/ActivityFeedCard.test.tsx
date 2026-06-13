@@ -125,7 +125,8 @@ describe('ActivityFeedCard', () => {
     expect(screen.getByTestId('property-activity-facepile')).toBeTruthy();
     expect(screen.getByText('Ada Lovelace and Grace Hopper')).toBeTruthy();
     expect(screen.getByText('This facade is surprisingly clean.')).toBeTruthy();
-    expect(screen.getByText('Keizersgracht 42, 1015 CZ Amsterdam')).toBeTruthy();
+    expect(screen.getByText('Keizersgracht 42')).toBeTruthy();
+    expect(screen.queryByText('Keizersgracht 42, 1015 CZ Amsterdam')).toBeNull();
     expect(screen.getByText('Amsterdam · 1015 CZ')).toBeTruthy();
     expect(screen.getByTestId('property-activity-market-state')).toBeTruthy();
     expect(screen.getByTestId('property-activity-price')).toBeTruthy();
