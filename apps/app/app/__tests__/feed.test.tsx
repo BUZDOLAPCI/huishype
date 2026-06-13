@@ -833,12 +833,17 @@ describe('FeedScreen following surface', () => {
         ]) as unknown as ReturnType<typeof useActivityFeed>
     );
 
-    const { UNSAFE_getByType } = render(<FeedScreen />);
+    const { getByTestId, UNSAFE_getByType } = render(<FeedScreen />);
     const feedList = UNSAFE_getByType(FlatList);
 
+    fireEvent(getByTestId('feed-shared-filter-section').parent!, 'layout', {
+      nativeEvent: { layout: { height: 120 } },
+    });
     fireEvent.scroll(feedList, {
       nativeEvent: {
         contentOffset: { y: 80 },
+        contentSize: { height: 1200 },
+        layoutMeasurement: { height: 560 },
       },
     });
 
@@ -854,6 +859,8 @@ describe('FeedScreen following surface', () => {
     fireEvent.scroll(feedList, {
       nativeEvent: {
         contentOffset: { y: 70 },
+        contentSize: { height: 1200 },
+        layoutMeasurement: { height: 560 },
       },
     });
 
@@ -861,6 +868,112 @@ describe('FeedScreen following surface', () => {
       expect.anything(),
       expect.objectContaining({
         toValue: 1,
+        duration: 180,
+        useNativeDriver: false,
+      })
+    );
+
+    timingSpy.mockRestore();
+  });
+
+  it('adds a caught-up footer to short following feeds so shared filters can fully collapse', async () => {
+    const timingSpy = jest.spyOn(Animated, 'timing');
+    mockUseActivityFeed.mockImplementation(
+      (scope) =>
+        createQueryResult([
+          {
+            items:
+              scope === 'following'
+                ? [
+                    {
+                      property: {
+                        id: 'property-short-1',
+                        address: 'Short 1',
+                        streetName: 'Short',
+                        houseNumber: 1,
+                        houseNumberAddition: null,
+                        city: 'Eindhoven',
+                        postalCode: '5611 AA',
+                        countryCode: 'NL',
+                        geometry: null,
+                        thumbnailUrl: null,
+                      },
+                      lastActivityAt: '2026-04-19T10:00:00.000Z',
+                      recentActors: [],
+                      preview: {
+                        kind: 'summary',
+                        eventType: 'property_like',
+                        createdAt: '2026-04-19T09:30:00.000Z',
+                        actor: null,
+                        summary: 'Someone liked this property',
+                      },
+                      counts: {
+                        likeCount: 1,
+                        commentCount: 0,
+                        guessCount: 0,
+                      },
+                    },
+                  ]
+                : [],
+          },
+        ]) as unknown as ReturnType<typeof useActivityFeed>
+    );
+
+    const { getByTestId, UNSAFE_getByType } = render(<FeedScreen />);
+
+    fireEvent(getByTestId('feed-shared-filter-section').parent!, 'layout', {
+      nativeEvent: { layout: { height: 120 } },
+    });
+    fireEvent.press(getByTestId('feed-tab-following'));
+
+    await waitFor(() => {
+      expect(getByTestId('feed-tab-following').props.accessibilityState).toEqual({
+        selected: true,
+      });
+    });
+
+    const followingList = UNSAFE_getByType(FlatList);
+    const footerElement = followingList.props.ListFooterComponent();
+    expect(footerElement.props.testID).toBe('feed-following-caught-up-footer');
+    expect(footerElement.props.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          minHeight: 356,
+        }),
+      ])
+    );
+    const footerChildren = React.Children.toArray(footerElement.props.children) as Array<
+      React.ReactElement<{
+        name?: string;
+        style?: unknown;
+        testID?: string;
+      }>
+    >;
+    const footerIcon = footerChildren.find(
+      (child) => child.props?.testID === 'feed-following-caught-up-icon'
+    );
+    const footerTitleRow = footerChildren.find(
+      (child) => child.props?.testID === 'feed-following-caught-up-title-row'
+    );
+    expect(footerIcon?.props.name).toBe('CheckCircle');
+    expect(footerTitleRow?.props.style).toEqual(
+      expect.objectContaining({
+        flexDirection: 'row',
+      })
+    );
+
+    fireEvent.scroll(followingList, {
+      nativeEvent: {
+        contentOffset: { y: 80 },
+        contentSize: { height: 920 },
+        layoutMeasurement: { height: 560 },
+      },
+    });
+
+    expect(timingSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        toValue: 0,
         duration: 180,
         useNativeDriver: false,
       })

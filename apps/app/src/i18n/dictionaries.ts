@@ -53,6 +53,8 @@ export const en = {
   'feed.empty.followingSignedIn': 'Follow people from their profiles to build a personal feed.',
   'feed.empty.followingSignedOut': 'Follow people from profiles to build a personal feed.',
   'feed.empty.exploreActivity': 'Explore Activity',
+  'feed.followingCaughtUp.title': "You're all caught up",
+  'feed.followingCaughtUp.body': 'Follow more people or check back later for new activity.',
   'activityFeed.actor.recentActivity': 'Recent activity',
   'activityFeed.actor.two': '{first} and {second}',
   'activityFeed.actor.threePlus': '{first}, {second} and {count} others',
@@ -671,6 +673,9 @@ const nl: Dictionary = {
   'feed.empty.followingSignedIn': 'Volg mensen vanuit hun profiel om een persoonlijke feed te bouwen.',
   'feed.empty.followingSignedOut': 'Volg mensen vanuit profielen om een persoonlijke feed te bouwen.',
   'feed.empty.exploreActivity': 'Activiteit bekijken',
+  'feed.followingCaughtUp.title': 'Je bent helemaal bij',
+  'feed.followingCaughtUp.body':
+    'Volg meer mensen of kom later terug voor nieuwe activiteit.',
   'activityFeed.actor.recentActivity': 'Recente activiteit',
   'activityFeed.actor.two': '{first} en {second}',
   'activityFeed.actor.threePlus': '{first}, {second} en {count} anderen',

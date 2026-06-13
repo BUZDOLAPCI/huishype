@@ -15,6 +15,7 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
+  Text,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -100,6 +101,7 @@ const FEED_LIST_BATCHING_PERIOD_MS = 100;
 const FEED_DIRECT_ADDRESS_MAP_ZOOM = 17;
 const FILTER_HIDE_SCROLL_Y = 48;
 const FILTER_SHOW_SCROLL_DELTA_Y = 8;
+const FOLLOWING_CAUGHT_UP_FOOTER_EXTRA_HEIGHT = 180;
 const FEED_SWIPE_TRAVEL_THRESHOLD = 64;
 const FEED_SWIPE_VELOCITY_THRESHOLD = 0.65;
 const FEED_TAB_ORDER: FeedTab[] = ['trending', 'latest', 'recent-activity', 'following'];
@@ -578,6 +580,17 @@ export default function FeedScreen() {
       const nextY = Math.max(0, event.nativeEvent.contentOffset.y);
       const previousY = lastScrollYRef.current;
       const deltaY = nextY - previousY;
+      const viewportHeight = event.nativeEvent.layoutMeasurement?.height;
+      const contentHeight = event.nativeEvent.contentSize?.height;
+      const scrollableDistance =
+        typeof viewportHeight === 'number' && typeof contentHeight === 'number'
+          ? Math.max(0, contentHeight - viewportHeight)
+          : null;
+      const hasEnoughScrollableContentToCollapse =
+        sharedFilterHeight > 0 &&
+        (scrollableDistance == null ||
+          scrollableDistance >
+            FILTER_HIDE_SCROLL_Y + sharedFilterHeight + FILTER_SHOW_SCROLL_DELTA_Y);
       lastScrollYRef.current = nextY;
 
       if (isFilterPanelOpen || isSearchActive) {
@@ -592,6 +605,12 @@ export default function FeedScreen() {
       }
 
       if (deltaY > 0) {
+        if (!hasEnoughScrollableContentToCollapse) {
+          upwardScrollStartYRef.current = null;
+          showSharedFilters(true);
+          return;
+        }
+
         upwardScrollStartYRef.current = null;
         showSharedFilters(false);
         return;
@@ -605,7 +624,7 @@ export default function FeedScreen() {
         }
       }
     },
-    [isFilterPanelOpen, isSearchActive, showSharedFilters]
+    [isFilterPanelOpen, isSearchActive, sharedFilterHeight, showSharedFilters]
   );
   const handleViewablePropertyItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<FeedProperty>[] }) => {
@@ -705,8 +724,48 @@ export default function FeedScreen() {
     if (activeQuery.isFetchingNextPage) {
       return <FeedLoadingMore />;
     }
-    return null;
-  }, [activeQuery.isFetchingNextPage]);
+
+    if (activeFilter !== 'following' || activeQuery.hasNextPage || activities.length === 0) {
+      return null;
+    }
+
+    return (
+      <View
+        testID="feed-following-caught-up-footer"
+        style={[
+          styles.followingCaughtUpFooter,
+          {
+            minHeight:
+              sharedFilterHeight +
+              FILTER_HIDE_SCROLL_Y +
+              FILTER_SHOW_SCROLL_DELTA_Y +
+              FOLLOWING_CAUGHT_UP_FOOTER_EXTRA_HEIGHT,
+          },
+        ]}
+      >
+        <Icon
+          name="CheckCircle"
+          size={40}
+          weight="duotone"
+          color="#C7BFB3"
+          testID="feed-following-caught-up-icon"
+        />
+        <View style={styles.followingCaughtUpTitleRow} testID="feed-following-caught-up-title-row">
+          <View style={styles.followingCaughtUpTitleLine} />
+          <Text style={styles.followingCaughtUpTitle}>{t('feed.followingCaughtUp.title')}</Text>
+          <View style={styles.followingCaughtUpTitleLine} />
+        </View>
+        <Text style={styles.followingCaughtUpBody}>{t('feed.followingCaughtUp.body')}</Text>
+      </View>
+    );
+  }, [
+    activeFilter,
+    activeQuery.hasNextPage,
+    activeQuery.isFetchingNextPage,
+    activities.length,
+    sharedFilterHeight,
+    t,
+  ]);
 
   const refreshControl = useMemo(
     () => (
@@ -993,5 +1052,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 8,
     paddingBottom: 6,
+  },
+  followingCaughtUpFooter: {
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 32,
+    paddingTop: 28,
+    paddingBottom: 96,
+  },
+  followingCaughtUpTitleRow: {
+    width: '100%',
+    maxWidth: 320,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 14,
+  },
+  followingCaughtUpTitleLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(122, 112, 102, 0.16)',
+  },
+  followingCaughtUpTitle: {
+    color: '#4B443D',
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    lineHeight: 21,
+    letterSpacing: 0,
+    textAlign: 'center',
+    flexShrink: 0,
+  },
+  followingCaughtUpBody: {
+    marginTop: 6,
+    color: '#8A8177',
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: 0,
+    textAlign: 'center',
   },
 });
