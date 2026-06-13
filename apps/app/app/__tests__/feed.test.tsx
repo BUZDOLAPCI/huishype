@@ -338,9 +338,9 @@ jest.mock('@/src/components/navigation/ScreenHeader', () => ({
 }));
 
 jest.mock('@/src/components/ui/Icon', () => ({
-  Icon: ({ name }: { name: string }) => {
+  Icon: ({ name, testID }: { name: string; testID?: string }) => {
     const ReactNative = require('react-native');
-    return <ReactNative.Text>{name}</ReactNative.Text>;
+    return <ReactNative.Text testID={testID}>{name}</ReactNative.Text>;
   },
 }));
 
@@ -934,7 +934,7 @@ describe('FeedScreen following surface', () => {
 
     const followingList = UNSAFE_getByType(FlatList);
     const footerElement = followingList.props.ListFooterComponent();
-    expect(footerElement.props.testID).toBe('feed-following-caught-up-footer');
+    expect(footerElement.props.testID).toBe('feed-caught-up-footer');
     expect(footerElement.props.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -942,26 +942,6 @@ describe('FeedScreen following surface', () => {
         }),
       ])
     );
-    const footerChildren = React.Children.toArray(footerElement.props.children) as Array<
-      React.ReactElement<{
-        name?: string;
-        style?: unknown;
-        testID?: string;
-      }>
-    >;
-    const footerIcon = footerChildren.find(
-      (child) => child.props?.testID === 'feed-following-caught-up-icon'
-    );
-    const footerTitleRow = footerChildren.find(
-      (child) => child.props?.testID === 'feed-following-caught-up-title-row'
-    );
-    expect(footerIcon?.props.name).toBe('CheckCircle');
-    expect(footerTitleRow?.props.style).toEqual(
-      expect.objectContaining({
-        flexDirection: 'row',
-      })
-    );
-
     fireEvent.scroll(followingList, {
       nativeEvent: {
         contentOffset: { y: 80 },
@@ -979,7 +959,32 @@ describe('FeedScreen following surface', () => {
       })
     );
 
+    const footerRender = render(footerElement);
+    expect(footerRender.getByTestId('feed-caught-up-card')).toBeTruthy();
+    expect(footerRender.getByTestId('feed-caught-up-icon').props.children).toBe('CheckCircle');
+    expect(footerRender.getByTestId('feed-caught-up-title-row').props.style).toEqual(
+      expect.objectContaining({
+        flexDirection: 'row',
+      })
+    );
+    expect(footerRender.getByTestId('feed-back-to-top')).toBeTruthy();
+    expect(footerRender.getByText('Back to top')).toBeTruthy();
+
     timingSpy.mockRestore();
+  });
+
+  it('adds the caught-up footer to populated property feed tabs after the final page', () => {
+    const { UNSAFE_getByType } = render(<FeedScreen />);
+
+    const propertyList = UNSAFE_getByType(FlatList);
+    const footerElement = propertyList.props.ListFooterComponent();
+
+    expect(footerElement.props.testID).toBe('feed-caught-up-footer');
+    const footerRender = render(footerElement);
+    expect(footerRender.getByText("You're all caught up")).toBeTruthy();
+    expect(
+      footerRender.getByText('Follow more people or check back later for new activity.')
+    ).toBeTruthy();
   });
 
   it('keeps shared filters visible while feed search is active', () => {

@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
+  ArrowUp,
   Bell,
   BookmarkSimple,
   Buildings,
@@ -94,6 +95,7 @@ export type IconName =
   | 'ArrowLeft'
   | 'ArrowRight'
   | 'ArrowSquareOut'
+  | 'ArrowUp'
   | 'Bell'
   | 'BookmarkSimple'
   | 'Buildings'
@@ -155,6 +157,7 @@ const ICON_MAP: Record<IconName, ComponentType<any>> = {
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
+  ArrowUp,
   Bell,
   BookmarkSimple,
   Buildings,

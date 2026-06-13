@@ -101,7 +101,7 @@ const FEED_LIST_BATCHING_PERIOD_MS = 100;
 const FEED_DIRECT_ADDRESS_MAP_ZOOM = 17;
 const FILTER_HIDE_SCROLL_Y = 48;
 const FILTER_SHOW_SCROLL_DELTA_Y = 8;
-const FOLLOWING_CAUGHT_UP_FOOTER_EXTRA_HEIGHT = 180;
+const CAUGHT_UP_FOOTER_EXTRA_HEIGHT = 180;
 const FEED_SWIPE_TRAVEL_THRESHOLD = 64;
 const FEED_SWIPE_VELOCITY_THRESHOLD = 0.65;
 const FEED_TAB_ORDER: FeedTab[] = ['trending', 'latest', 'recent-activity', 'following'];
@@ -322,6 +322,8 @@ export default function FeedScreen() {
   const lastScrollYRef = useRef(0);
   const upwardScrollStartYRef = useRef<number | null>(null);
   const filterVisibilityAnim = useRef(new Animated.Value(1)).current;
+  const propertyFeedListRef = useRef<FlatList<FeedProperty> | null>(null);
+  const activityFeedListRef = useRef<FlatList<GroupedPropertyActivityItem> | null>(null);
 
   const showSharedFilters = useCallback(
     (visible: boolean) => {
@@ -392,6 +394,7 @@ export default function FeedScreen() {
     if (!activityQuery.data?.pages) return [];
     return activityQuery.data.pages.flatMap((page) => page.items);
   }, [activityQuery.data, isPropertyFeed]);
+  const activeItemCount = isPropertyFeed ? properties.length : activities.length;
 
   useEffect(() => {
     if (activeFilter !== 'following' || !isAuthenticated) {
@@ -575,6 +578,18 @@ export default function FeedScreen() {
   const handleListInteraction = useCallback(() => {
     hasInteractedWithListRef.current = true;
   }, []);
+  const handleFeedBackToTop = useCallback(() => {
+    lastScrollYRef.current = 0;
+    upwardScrollStartYRef.current = null;
+    showSharedFilters(true);
+
+    if (activeFilterRef.current === 'trending' || activeFilterRef.current === 'latest') {
+      propertyFeedListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      return;
+    }
+
+    activityFeedListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [showSharedFilters]);
   const handleFeedScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const nextY = Math.max(0, event.nativeEvent.contentOffset.y);
@@ -725,44 +740,61 @@ export default function FeedScreen() {
       return <FeedLoadingMore />;
     }
 
-    if (activeFilter !== 'following' || activeQuery.hasNextPage || activities.length === 0) {
+    if (activeQuery.hasNextPage || activeItemCount === 0) {
       return null;
     }
 
     return (
       <View
-        testID="feed-following-caught-up-footer"
+        testID="feed-caught-up-footer"
         style={[
-          styles.followingCaughtUpFooter,
+          styles.caughtUpFooter,
           {
             minHeight:
               sharedFilterHeight +
               FILTER_HIDE_SCROLL_Y +
               FILTER_SHOW_SCROLL_DELTA_Y +
-              FOLLOWING_CAUGHT_UP_FOOTER_EXTRA_HEIGHT,
+              CAUGHT_UP_FOOTER_EXTRA_HEIGHT,
           },
         ]}
       >
-        <Icon
-          name="CheckCircle"
-          size={40}
-          weight="duotone"
-          color="#C7BFB3"
-          testID="feed-following-caught-up-icon"
-        />
-        <View style={styles.followingCaughtUpTitleRow} testID="feed-following-caught-up-title-row">
-          <View style={styles.followingCaughtUpTitleLine} />
-          <Text style={styles.followingCaughtUpTitle}>{t('feed.followingCaughtUp.title')}</Text>
-          <View style={styles.followingCaughtUpTitleLine} />
+        <View style={styles.caughtUpCard} testID="feed-caught-up-card">
+          <View style={styles.caughtUpIconBadge}>
+            <Icon
+              name="CheckCircle"
+              size={40}
+              weight="duotone"
+              color="#0D8C6F"
+              testID="feed-caught-up-icon"
+            />
+          </View>
+          <View style={styles.caughtUpTitleRow} testID="feed-caught-up-title-row">
+            <View style={styles.caughtUpTitleLine} />
+            <Text style={styles.caughtUpTitle}>{t('feed.caughtUp.title')}</Text>
+            <View style={styles.caughtUpTitleLine} />
+          </View>
+          <Text style={styles.caughtUpBody}>{t('feed.caughtUp.body')}</Text>
+          <Pressable
+            onPress={handleFeedBackToTop}
+            testID="feed-back-to-top"
+            accessibilityRole="button"
+            accessibilityLabel={t('feed.caughtUp.backToTop')}
+            style={({ pressed }) => [
+              styles.caughtUpBackTop,
+              pressed && styles.caughtUpBackTopPressed,
+            ]}
+          >
+            <Icon name="ArrowUp" size={18} weight="bold" color="#5F574F" />
+            <Text style={styles.caughtUpBackTopText}>{t('feed.caughtUp.backToTop')}</Text>
+          </Pressable>
         </View>
-        <Text style={styles.followingCaughtUpBody}>{t('feed.followingCaughtUp.body')}</Text>
       </View>
     );
   }, [
-    activeFilter,
     activeQuery.hasNextPage,
     activeQuery.isFetchingNextPage,
-    activities.length,
+    activeItemCount,
+    handleFeedBackToTop,
     sharedFilterHeight,
     t,
   ]);
@@ -956,6 +988,7 @@ export default function FeedScreen() {
         {renderBody(
           isPropertyFeed ? (
             <FlatList
+              ref={propertyFeedListRef}
               key="property-feed"
               data={properties}
               keyExtractor={propertyKeyExtractor}
@@ -980,6 +1013,7 @@ export default function FeedScreen() {
             />
           ) : (
             <FlatList
+              ref={activityFeedListRef}
               key="activity-feed"
               data={activities}
               keyExtractor={activityKeyExtractor}
@@ -1053,14 +1087,41 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 6,
   },
-  followingCaughtUpFooter: {
+  caughtUpFooter: {
     alignItems: 'center',
     justifyContent: 'flex-start',
-    paddingHorizontal: 32,
-    paddingTop: 28,
+    paddingHorizontal: 18,
+    paddingTop: 24,
     paddingBottom: 96,
   },
-  followingCaughtUpTitleRow: {
+  caughtUpCard: {
+    width: '100%',
+    maxWidth: 448,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(222, 145, 29, 0.14)',
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 253, 249, 0.92)',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 20,
+    shadowColor: '#3F3020',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 22,
+    elevation: 2,
+  },
+  caughtUpIconBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(222, 145, 29, 0.16)',
+    backgroundColor: 'rgba(255, 244, 213, 0.72)',
+  },
+  caughtUpTitleRow: {
     width: '100%',
     maxWidth: 320,
     flexDirection: 'row',
@@ -1068,12 +1129,12 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 14,
   },
-  followingCaughtUpTitleLine: {
+  caughtUpTitleLine: {
     flex: 1,
     height: 1,
     backgroundColor: 'rgba(122, 112, 102, 0.16)',
   },
-  followingCaughtUpTitle: {
+  caughtUpTitle: {
     color: '#4B443D',
     fontFamily: 'Inter_600SemiBold',
     fontSize: 15,
@@ -1082,7 +1143,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     flexShrink: 0,
   },
-  followingCaughtUpBody: {
+  caughtUpBody: {
     marginTop: 6,
     color: '#8A8177',
     fontFamily: 'Inter_400Regular',
@@ -1090,5 +1151,28 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     letterSpacing: 0,
     textAlign: 'center',
+  },
+  caughtUpBackTop: {
+    marginTop: 16,
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(122, 112, 102, 0.14)',
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.74)',
+    paddingHorizontal: 16,
+  },
+  caughtUpBackTopPressed: {
+    opacity: 0.72,
+  },
+  caughtUpBackTopText: {
+    color: '#5F574F',
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: 0,
   },
 });
