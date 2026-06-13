@@ -399,6 +399,8 @@ describe('fetchNearbyGroup', () => {
       rentPriceTo: null,
       marketState: ['for-sale'],
       activity: 'today',
+      listedSince: 'all',
+      scope: 'public',
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -519,6 +521,8 @@ describe('fetchFollowingNearbyGroup', () => {
         rentPriceTo: null,
         marketState: ['for-sale'],
         activity: '30d',
+        listedSince: 'all',
+        scope: 'public',
       },
       '10d'
     );

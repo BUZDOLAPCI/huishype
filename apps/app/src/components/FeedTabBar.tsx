@@ -11,9 +11,7 @@ interface FeedTabDef {
 
 const FEED_TABS: FeedTabDef[] = [
   { key: 'trending', labelKey: 'feed.filter.trending' },
-  { key: 'latest', labelKey: 'feed.filter.latest' },
-  { key: 'recent-activity', labelKey: 'feed.filter.recentActivity' },
-  { key: 'following', labelKey: 'feed.filter.following' },
+  { key: 'activity', labelKey: 'feed.filter.activity' },
 ];
 
 const MIN_TAB_WIDTH = 112;

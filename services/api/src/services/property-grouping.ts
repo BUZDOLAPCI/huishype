@@ -1359,7 +1359,7 @@ function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target
         cl.status::text AS status,
         ${buildTileListingPriceTypeExpression('cl')} AS normalized_price_type,
         cl.asking_price,
-        COALESCE(cl.listed_at, cl.first_seen_at) AS listed_at,
+        COALESCE(cl.listed_at, cl.first_seen_at, cl.created_at) AS listed_at,
         cl.living_area_m2,
         cl.thumbnail_url,
         cl.verification_state,
@@ -1408,6 +1408,7 @@ function buildTileListingFactsProjectionCte(
           COALESCE(cp.has_active_listing, FALSE) AS has_active_listing,
           COALESCE(cp.has_completed_listing, FALSE) AS has_completed_listing,
           COALESCE(cp.market_state, 'not-listed') AS market_state,
+          cp.displayed_listing_lifecycle_at,
           NULL::bigint AS sale_effective_price,
           NULL::bigint AS rent_effective_price
         FROM candidate_properties cp
@@ -1420,7 +1421,8 @@ function buildTileListingFactsProjectionCte(
       latest_listing AS MATERIALIZED (
         SELECT DISTINCT ON (cl.property_id)
           cl.property_id,
-          cl.status::text AS status
+          cl.status::text AS status,
+          COALESCE(cl.listed_at, cl.first_seen_at, cl.created_at) AS listed_at
         FROM canonical_listings cl
         INNER JOIN candidate_properties cp ON cp.id = cl.property_id
         WHERE cl.verification_state <> 'invalid'
@@ -1440,6 +1442,7 @@ function buildTileListingFactsProjectionCte(
       active_listing AS MATERIALIZED (
         SELECT DISTINCT ON (cl.property_id)
           cl.property_id,
+          COALESCE(cl.listed_at, cl.first_seen_at, cl.created_at) AS listed_at,
           ${buildTileListingPriceTypeExpression('cl')} AS price_type
         FROM canonical_listings cl
         INNER JOIN candidate_properties cp ON cp.id = cl.property_id
@@ -1477,6 +1480,13 @@ function buildTileListingFactsProjectionCte(
               THEN 'rented'
             ELSE 'not-listed'
           END AS market_state,
+          CASE
+            WHEN active_listing.property_id IS NOT NULL
+              THEN active_listing.listed_at
+            WHEN latest_listing.status IN ('sold', 'rented')
+              THEN latest_listing.listed_at
+            ELSE NULL
+          END AS displayed_listing_lifecycle_at,
           NULL::bigint AS sale_effective_price,
           NULL::bigint AS rent_effective_price
         FROM candidate_properties cp
@@ -1491,9 +1501,10 @@ function buildTileListingFactsProjectionCte(
       SELECT
         cp.id AS property_id,
         COALESCE(ptlf.has_active_listing, FALSE) AS has_active_listing,
-        COALESCE(ptlf.has_completed_listing, FALSE) AS has_completed_listing,
-        COALESCE(ptlf.market_state, 'not-listed') AS market_state,
-        NULL::bigint AS sale_effective_price,
+          COALESCE(ptlf.has_completed_listing, FALSE) AS has_completed_listing,
+          COALESCE(ptlf.market_state, 'not-listed') AS market_state,
+          ptlf.displayed_listing_lifecycle_at,
+          NULL::bigint AS sale_effective_price,
         NULL::bigint AS rent_effective_price
       FROM candidate_properties cp
       LEFT JOIN property_tile_listing_facts ptlf
@@ -1879,7 +1890,8 @@ async function fetchGroupingCandidatesInBBoxes(
         latest_listing AS MATERIALIZED (
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
-            l.status
+            l.status,
+            l.listed_at
           FROM tile_listing_facts l
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
         ),
@@ -1887,7 +1899,8 @@ async function fetchGroupingCandidatesInBBoxes(
           SELECT DISTINCT ON (l.property_id)
             l.property_id,
             l.asking_price,
-            l.normalized_price_type AS price_type
+            l.normalized_price_type AS price_type,
+            l.listed_at
           FROM tile_listing_facts l
           WHERE l.status = 'active'
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
@@ -1973,6 +1986,13 @@ async function fetchGroupingCandidatesInBBoxes(
                 THEN 'rented'
               ELSE 'not-listed'
             END AS market_state,
+            CASE
+              WHEN active_listing.property_id IS NOT NULL
+                THEN active_listing.listed_at
+              WHEN latest_listing.status IN ('sold', 'rented')
+                THEN latest_listing.listed_at
+              ELSE NULL
+            END AS displayed_listing_lifecycle_at,
             COALESCE(
               CASE
                 WHEN active_listing.property_id IS NOT NULL

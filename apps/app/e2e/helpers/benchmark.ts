@@ -20,10 +20,9 @@ export const BENCHMARK_ROUTES = {
   highZoom16: { route: '/@51.4416000,5.4697000,16z?hhBenchmark=1', surface: 'map' },
   highZoom17: { route: '/@51.4416000,5.4697000,17z?hhBenchmark=1', surface: 'map' },
   feedTrending: { route: '/feed?hhBenchmark=1', surface: 'feed' },
-  feedLatest: { route: '/feed?feedTab=latest&hhBenchmark=1', surface: 'feed' },
-  feedRecentActivity: { route: '/feed?feedTab=recent-activity&hhBenchmark=1', surface: 'feed' },
+  feedActivity: { route: '/feed?feedTab=activity&hhBenchmark=1', surface: 'feed' },
   feedFilteredEindhovenSale: {
-    route: '/feed?feedTab=latest&marketState=for-sale&area=city%3ANL%3Aeindhoven&hhBenchmark=1',
+    route: '/feed?feedTab=activity&marketState=for-sale&area=city%3ANL%3Aeindhoven&hhBenchmark=1',
     surface: 'feed',
   },
 } as const;

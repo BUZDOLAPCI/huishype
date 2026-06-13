@@ -189,6 +189,13 @@ export function buildPropertyListingFactsJoin(
         active_listing.asking_price AS asking_price,
         active_listing.sort_at AS active_listing_sort_at,
         latest_listing.sort_at AS latest_listing_sort_at,
+        CASE
+          WHEN active_listing.id IS NOT NULL
+            THEN active_listing.listed_at
+          WHEN latest_listing.status IN ('sold', 'rented')
+            THEN latest_listing.listed_at
+          ELSE NULL
+        END AS displayed_listing_lifecycle_at,
         listing_thumbnail.thumbnail_url AS thumbnail_url,
         CASE
           WHEN active_listing.id IS NOT NULL AND active_listing.normalized_price_type = 'rent'
@@ -209,6 +216,7 @@ export function buildPropertyListingFactsJoin(
           l.listing_id AS id,
           l.asking_price,
           l.normalized_price_type,
+          l.listed_at,
           l.sort_at
         FROM v_canonical_listing_facts l
         WHERE l.property_id = ${idColumn}
@@ -219,6 +227,7 @@ export function buildPropertyListingFactsJoin(
       LEFT JOIN LATERAL (
         SELECT
           l.status,
+          l.listed_at,
           l.sort_at
         FROM v_canonical_listing_facts l
         WHERE l.property_id = ${idColumn}

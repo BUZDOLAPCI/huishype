@@ -561,7 +561,7 @@ describe('Feed routes', () => {
     it('keeps zero-engagement active listings cold while exposing listing market state', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: buildFeedUrl({ filter: 'latest', limit: 5 }),
+        url: buildFeedUrl({ filter: 'trending', limit: 5 }),
       });
 
       expect(response.statusCode).toBe(200);
@@ -817,7 +817,7 @@ describe('Feed routes', () => {
 
         const response = await app.inject({
           method: 'GET',
-          url: `/feed?filter=latest&lat=${slice.lat + 0.015}&lon=${slice.lon + 0.015}&country=${slice.country}&limit=10`,
+          url: `/feed?filter=trending&lat=${slice.lat + 0.015}&lon=${slice.lon + 0.015}&country=${slice.country}&limit=10`,
         });
 
         expect(response.statusCode).toBe(200);
@@ -875,7 +875,7 @@ describe('Feed routes', () => {
 
         const response = await app.inject({
           method: 'GET',
-          url: `/feed?filter=latest&lat=${slice.lat + 0.017}&lon=${slice.lon + 0.017}&country=${slice.country}&limit=10`,
+          url: `/feed?filter=trending&lat=${slice.lat + 0.017}&lon=${slice.lon + 0.017}&country=${slice.country}&limit=10`,
         });
 
         expect(response.statusCode).toBe(200);
@@ -899,18 +899,18 @@ describe('Feed routes', () => {
       }
     });
 
-    it('applies latest ordering and deterministic pagination without overlap', async () => {
+    it('applies trending ordering and deterministic pagination without overlap', async () => {
       const page1Res = await app.inject({
         method: 'GET',
-        url: buildFeedUrl({ filter: 'latest', page: 1, limit: 2 }),
+        url: buildFeedUrl({ filter: 'trending', page: 1, limit: 2 }),
       });
       const page2Res = await app.inject({
         method: 'GET',
-        url: buildFeedUrl({ filter: 'latest', page: 2, limit: 2 }),
+        url: buildFeedUrl({ filter: 'trending', page: 2, limit: 2 }),
       });
       const page3Res = await app.inject({
         method: 'GET',
-        url: buildFeedUrl({ filter: 'latest', page: 3, limit: 2 }),
+        url: buildFeedUrl({ filter: 'trending', page: 3, limit: 2 }),
       });
 
       expect(page1Res.statusCode).toBe(200);
@@ -926,22 +926,22 @@ describe('Feed routes', () => {
       expect(page3.pagination).toEqual({ page: 3, limit: 2, hasMore: false });
 
       expect(page1.items.map((item: { id: string }) => item.id)).toEqual([
-        feedFixtures.recent.propertyId,
         feedFixtures.hot.propertyId,
+        feedFixtures.warm.propertyId,
       ]);
       expect(page2.items.map((item: { id: string }) => item.id)).toEqual([
-        feedFixtures.warm.propertyId,
         feedFixtures.like.propertyId,
+        feedFixtures.recent.propertyId,
       ]);
       expect(page3.items.map((item: { id: string }) => item.id)).toEqual([
         feedFixtures.cold.propertyId,
       ]);
     });
 
-    it('respects limit while staying inside the owned listing-backed slice', async () => {
+    it('respects limit while staying inside the owned trending listing-backed slice', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: buildFeedUrl({ filter: 'latest', limit: 3 }),
+        url: buildFeedUrl({ filter: 'trending', limit: 3 }),
       });
 
       expect(response.statusCode).toBe(200);
@@ -949,16 +949,16 @@ describe('Feed routes', () => {
 
       expect(body.pagination).toEqual({ page: 1, limit: 3, hasMore: true });
       expect(body.items.map((item: { id: string }) => item.id)).toEqual([
-        feedFixtures.recent.propertyId,
         feedFixtures.hot.propertyId,
         feedFixtures.warm.propertyId,
+        feedFixtures.like.propertyId,
       ]);
     });
 
     it('applies spatial and country filtering and excludes inactive non-listing properties', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: buildFeedUrl({ filter: 'latest', limit: 10 }),
+        url: buildFeedUrl({ limit: 10 }),
       });
 
       expect(response.statusCode).toBe(200);
@@ -966,10 +966,10 @@ describe('Feed routes', () => {
       const returnedIds = body.items.map((item: { id: string }) => item.id);
 
       expect(returnedIds).toEqual([
-        feedFixtures.recent.propertyId,
         feedFixtures.hot.propertyId,
         feedFixtures.warm.propertyId,
         feedFixtures.like.propertyId,
+        feedFixtures.recent.propertyId,
         feedFixtures.cold.propertyId,
       ]);
       expect(returnedIds).not.toContain(feedFixtures.outsideRadius.propertyId);
@@ -1008,7 +1008,7 @@ describe('Feed routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: `/feed?filter=latest&lat=${slice.lat + 0.12}&lon=${slice.lon + 0.12}&country=${slice.country}&limit=10`,
+        url: `/feed?filter=trending&lat=${slice.lat + 0.12}&lon=${slice.lon + 0.12}&country=${slice.country}&limit=10`,
       });
 
       expect(response.statusCode).toBe(200);
@@ -1025,13 +1025,26 @@ describe('Feed routes', () => {
     });
 
     it('returns 400 for obsolete filter values', async () => {
-      for (const filter of ['recent', 'controversial', 'price-mismatch']) {
+      for (const filter of ['latest', 'recent', 'controversial', 'price-mismatch']) {
         const response = await app.inject({
           method: 'GET',
           url: `/feed?filter=${filter}`,
         });
         expect(response.statusCode).toBe(400);
       }
+    });
+
+    it('requires authentication for following-scoped feed queries', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: buildFeedUrl({ scope: 'following' }),
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      });
     });
 
     it('falls back to any listing thumbnail while keeping the latest active asking price', async () => {
@@ -1069,7 +1082,7 @@ describe('Feed routes', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: `/feed?filter=latest&lat=${slice.lat + 0.2}&lon=${slice.lon + 0.2}&country=${slice.country}&limit=10`,
+        url: `/feed?filter=trending&lat=${slice.lat + 0.2}&lon=${slice.lon + 0.2}&country=${slice.country}&limit=10`,
       });
 
       expect(response.statusCode).toBe(200);

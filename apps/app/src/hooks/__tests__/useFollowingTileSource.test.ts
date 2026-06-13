@@ -16,6 +16,8 @@ const filters: MapFilters = {
   rentPriceTo: null,
   marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
   activity: 'all',
+  listedSince: 'all',
+  scope: 'public',
   areas: [],
 };
 

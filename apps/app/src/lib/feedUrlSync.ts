@@ -9,7 +9,7 @@ import {
 export const DEFAULT_FEED_TAB: FeedTab = 'trending';
 export const FEED_TAB_QUERY_PARAM = 'feedTab';
 
-const FEED_TABS = ['trending', 'latest', 'recent-activity', 'following'] as const;
+const FEED_TABS = ['trending', 'activity'] as const;
 const FEED_TAB_SET = new Set<string>(FEED_TABS);
 
 export function isFeedBrowserPathname(pathname: string): boolean {
@@ -19,14 +19,10 @@ export function isFeedBrowserPathname(pathname: string): boolean {
 
 export function parseFeedTabFromSearchParams(
   params: URLSearchParams,
-  options: { isAuthenticated: boolean }
+  _options: { isAuthenticated: boolean }
 ): FeedTab {
   const candidate = params.get(FEED_TAB_QUERY_PARAM);
   if (!candidate || !FEED_TAB_SET.has(candidate)) {
-    return DEFAULT_FEED_TAB;
-  }
-
-  if (candidate === 'following' && !options.isAuthenticated) {
     return DEFAULT_FEED_TAB;
   }
 

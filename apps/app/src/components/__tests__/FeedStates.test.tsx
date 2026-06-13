@@ -109,27 +109,21 @@ describe('FeedEmptyState', () => {
     expect(getByText('No properties to show.')).toBeTruthy();
   });
 
-  it('shows filter-specific message for "latest" filter', () => {
-    const { getByText } = render(<FeedEmptyState filter="latest" />);
-
-    expect(getByText('No recent properties found. Check back later!')).toBeTruthy();
-  });
-
   it('shows filter-specific message for "trending" filter', () => {
     const { getByText } = render(<FeedEmptyState filter="trending" />);
 
     expect(getByText('No trending properties at the moment.')).toBeTruthy();
   });
 
-  it('shows filter-specific message for "recent-activity" filter', () => {
-    const { getByText } = render(<FeedEmptyState filter="recent-activity" />);
+  it('shows filter-specific message for "activity" filter', () => {
+    const { getByText } = render(<FeedEmptyState filter="activity" />);
 
     expect(getByText('No property posts yet. Be the first to like, comment, or guess.')).toBeTruthy();
   });
 
   it('renders Dutch following empty state for signed-out users', async () => {
     const { getByText, queryByText } = renderInDutch(
-      <FeedEmptyState filter="following" signedIn={false} />
+      <FeedEmptyState filter="activity" signedIn={false} />
     );
 
     await waitFor(() => {

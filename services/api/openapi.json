@@ -2149,6 +2149,36 @@
           },
           {
             "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
+            "required": false
+          },
+          {
+            "schema": {
               "anyOf": [
                 {
                   "type": "string"
@@ -4857,6 +4887,36 @@
           },
           {
             "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
+            "required": false
+          },
+          {
+            "schema": {
               "anyOf": [
                 {
                   "type": "string"
@@ -5901,6 +5961,36 @@
             },
             "in": "query",
             "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
             "required": false
           },
           {
@@ -10132,6 +10222,36 @@
           },
           {
             "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
+            "required": false
+          },
+          {
+            "schema": {
               "anyOf": [
                 {
                   "type": "string"
@@ -10285,6 +10405,36 @@
             },
             "in": "query",
             "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
             "required": false
           },
           {
@@ -10467,6 +10617,36 @@
           },
           {
             "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
+            "required": false
+          },
+          {
+            "schema": {
               "anyOf": [
                 {
                   "type": "string"
@@ -10645,6 +10825,36 @@
           },
           {
             "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
+            "required": false
+          },
+          {
+            "schema": {
               "anyOf": [
                 {
                   "type": "string"
@@ -10769,6 +10979,36 @@
             },
             "in": "query",
             "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
             "required": false
           },
           {
@@ -10899,6 +11139,36 @@
             },
             "in": "query",
             "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
             "required": false
           },
           {
@@ -15246,15 +15516,14 @@
         "tags": [
           "feed"
         ],
-        "description": "Get a paginated activity feed of listing-backed and socially active properties. Filters: trending (weighted 7-day activity) and latest (most recent activity). Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.",
+        "description": "Get a paginated activity feed of listing-backed and socially active properties. Trending is ranked with weighted activity and freshness. Shared market, price, area, activity, listed-since, and scope filters are supported.",
         "parameters": [
           {
             "schema": {
               "default": "trending",
               "type": "string",
               "enum": [
-                "trending",
-                "latest"
+                "trending"
               ]
             },
             "in": "query",
@@ -15351,6 +15620,52 @@
             },
             "in": "query",
             "name": "rentPriceTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "10d",
+                "30d",
+                "all-time"
+              ]
+            },
+            "in": "query",
+            "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "public",
+              "type": "string",
+              "enum": [
+                "public",
+                "following"
+              ]
+            },
+            "in": "query",
+            "name": "scope",
             "required": false
           },
           {
@@ -17474,6 +17789,39 @@
           },
           {
             "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "10d",
+                "30d",
+                "all-time"
+              ]
+            },
+            "in": "query",
+            "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
+            "required": false
+          },
+          {
+            "schema": {
               "default": 20,
               "type": "integer",
               "minimum": 1,
@@ -17518,7 +17866,8 @@
                             "enum": [
                               "property_like",
                               "comment",
-                              "price_guess"
+                              "price_guess",
+                              "just_listed"
                             ]
                           },
                           "actor": {
@@ -17755,6 +18104,39 @@
             },
             "in": "query",
             "name": "scope",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "10d",
+                "30d",
+                "all-time"
+              ]
+            },
+            "in": "query",
+            "name": "activity",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "today",
+                "3d",
+                "5d",
+                "10d",
+                "30d"
+              ]
+            },
+            "in": "query",
+            "name": "listedSince",
             "required": false
           },
           {
@@ -18236,7 +18618,8 @@
                                     "enum": [
                                       "property_like",
                                       "comment",
-                                      "price_guess"
+                                      "price_guess",
+                                      "just_listed"
                                     ]
                                   },
                                   "createdAt": {
@@ -18414,6 +18797,7 @@
                               "property_like",
                               "comment",
                               "price_guess",
+                              "just_listed",
                               "save"
                             ]
                           },
@@ -18696,7 +19080,8 @@
                             "enum": [
                               "property_like",
                               "comment",
-                              "price_guess"
+                              "price_guess",
+                              "just_listed"
                             ]
                           },
                           "actor": {

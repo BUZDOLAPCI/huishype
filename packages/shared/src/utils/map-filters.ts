@@ -6,7 +6,9 @@ import type {
   MapActivityTimeFilter,
   MapFilterCategory,
   MapFilters,
+  MapListedSinceFilter,
   MapMarketState,
+  MapScopeFilter,
   LocationFilterToken,
   LocationFilterTokenType,
   PropertyMarketFilters,
@@ -19,6 +21,7 @@ export const MAP_FILTER_CATEGORIES = [
   'price',
   'marketState',
   'activity',
+  'listedSince',
 ] as const satisfies readonly MapFilterCategory[];
 
 export const MAP_MARKET_STATES = [
@@ -36,6 +39,8 @@ export const MAP_FILTER_QUERY_KEYS = [
   'rentPriceTo',
   'marketState',
   'activity',
+  'listedSince',
+  'scope',
   'area',
 ] as const;
 
@@ -73,6 +78,14 @@ const MAP_ACTIVITY_LABELS: Record<MapActivityFilter, string> = {
   '10d': '10 Days',
   '30d': '30 Days',
   'all-time': 'All Time',
+};
+const MAP_LISTED_SINCE_LABELS: Record<MapListedSinceFilter, string> = {
+  all: 'Any time',
+  today: 'Today',
+  '3d': 'Last 3 days',
+  '5d': 'Last 5 days',
+  '10d': 'Last 10 days',
+  '30d': 'Last 30 days',
 };
 
 export const MAP_ACTIVITY_TIME_FILTERS = [
@@ -160,6 +173,8 @@ export function createDefaultMapFilters(): MapFilters {
     rentPriceTo: null,
     marketState: [...MAP_MARKET_STATES],
     activity: 'all',
+    listedSince: 'all',
+    scope: 'public',
     areas: [],
   };
 }
@@ -226,6 +241,10 @@ export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
     rentPriceTo,
     marketState: marketState.length > 0 ? marketState : [...MAP_MARKET_STATES],
     activity: isMapActivityFilter(filters.activity) ? filters.activity : defaultFilters.activity,
+    listedSince: isMapListedSinceFilter(filters.listedSince)
+      ? filters.listedSince
+      : defaultFilters.listedSince,
+    scope: isMapScopeFilter(filters.scope) ? filters.scope : defaultFilters.scope,
     areas: normalizeLocationFilterTokens(filters.areas ?? defaultFilters.areas),
   };
 }
@@ -441,12 +460,30 @@ export function isMapActivityFilter(value: string | null | undefined): value is 
   );
 }
 
+export function isMapListedSinceFilter(
+  value: string | null | undefined
+): value is MapListedSinceFilter {
+  return (
+    value === 'all' ||
+    value === 'today' ||
+    value === '3d' ||
+    value === '5d' ||
+    value === '10d' ||
+    value === '30d'
+  );
+}
+
+export function isMapScopeFilter(value: string | null | undefined): value is MapScopeFilter {
+  return value === 'public' || value === 'following';
+}
+
 export function normalizePropertyMarketFilters(
   filters: PropertyMarketFilters
 ): Required<PropertyMarketFilters> {
   const normalized = normalizeMapFilters({
     ...filters,
     activity: 'all',
+    scope: 'public',
   });
 
   return {
@@ -455,6 +492,7 @@ export function normalizePropertyMarketFilters(
     rentPriceFrom: normalized.rentPriceFrom,
     rentPriceTo: normalized.rentPriceTo,
     marketState: normalized.marketState,
+    listedSince: normalized.listedSince,
   };
 }
 
@@ -468,6 +506,8 @@ export function areMapFiltersEqual(left: MapFilters, right: MapFilters): boolean
     normalizedLeft.rentPriceFrom === normalizedRight.rentPriceFrom &&
     normalizedLeft.rentPriceTo === normalizedRight.rentPriceTo &&
     normalizedLeft.activity === normalizedRight.activity &&
+    normalizedLeft.listedSince === normalizedRight.listedSince &&
+    normalizedLeft.scope === normalizedRight.scope &&
     (normalizedLeft.areas ?? []).length === (normalizedRight.areas ?? []).length &&
     (normalizedLeft.areas ?? []).every(
       (value, index) =>
@@ -495,6 +535,8 @@ export function isMapFilterCategoryActive(
       return normalized.marketState.length !== MAP_MARKET_STATES.length;
     case 'activity':
       return normalized.activity !== 'all';
+    case 'listedSince':
+      return normalized.listedSince !== 'all';
   }
 }
 
@@ -556,6 +598,9 @@ export function getMapFilterPillLabel(category: MapFilterCategory): string {
   if (category === 'activity') {
     return 'Activity';
   }
+  if (category === 'listedSince') {
+    return 'Listed since';
+  }
 
   return 'Price';
 }
@@ -593,6 +638,10 @@ export function getMapFilterPillSummary(
         : `${normalized.marketState.length} selected`;
     case 'activity':
       return normalized.activity === 'all' ? null : MAP_ACTIVITY_LABELS[normalized.activity];
+    case 'listedSince':
+      return normalized.listedSince === 'all'
+        ? null
+        : MAP_LISTED_SINCE_LABELS[normalized.listedSince];
   }
 }
 
@@ -615,6 +664,8 @@ export function resetMapFilterCategory(
       return { ...normalized, marketState: [...MAP_MARKET_STATES] };
     case 'activity':
       return { ...normalized, activity: 'all' };
+    case 'listedSince':
+      return { ...normalized, listedSince: 'all' };
   }
 }
 
@@ -643,6 +694,8 @@ export const mapFiltersQuerySchema = z.object({
       );
     }),
   activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all'),
+  listedSince: z.enum(['all', 'today', '3d', '5d', '10d', '30d']).optional().default('all'),
+  scope: z.enum(['public', 'following']).optional().default('public'),
   area: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
@@ -684,6 +737,10 @@ export function parseMapFiltersFromSearchParams(params: URLSearchParams): MapFil
     activity: isMapActivityFilter(params.get('activity'))
       ? (params.get('activity') as MapActivityFilter)
       : 'all',
+    listedSince: isMapListedSinceFilter(params.get('listedSince'))
+      ? (params.get('listedSince') as MapListedSinceFilter)
+      : filters.listedSince,
+    scope: isMapScopeFilter(params.get('scope')) ? (params.get('scope') as MapScopeFilter) : filters.scope,
     areas: params
       .getAll('area')
       .map(parseLocationFilterToken)
@@ -708,6 +765,8 @@ export function updatePropertyMarketFilterSearchParams(
   next.delete('rentPriceTo');
   next.delete('marketState');
   next.delete('activity');
+  next.delete('listedSince');
+  next.delete('scope');
   next.delete('area');
 
   if (normalized.salePriceFrom != null) {
@@ -725,6 +784,9 @@ export function updatePropertyMarketFilterSearchParams(
   if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
     next.set('marketState', normalized.marketState.join(','));
   }
+  if (normalized.listedSince !== 'all') {
+    next.set('listedSince', normalized.listedSince);
+  }
   return next;
 }
 
@@ -734,10 +796,15 @@ export function updateFollowingPropertyFilterSearchParams(
 ): URLSearchParams {
   const next = updatePropertyMarketFilterSearchParams(params, filters);
   const activity = isMapActivityFilter(filters.activity) ? filters.activity : 'all-time';
+  const scope = isMapScopeFilter(filters.scope) ? filters.scope : 'following';
 
   next.delete('activity');
+  next.delete('scope');
   if (activity !== 'all') {
     next.set('activity', activity);
+  }
+  if (scope !== 'public') {
+    next.set('scope', scope);
   }
   for (const area of normalizeLocationFilterTokens(filters.areas)) {
     const serialized = serializeLocationFilterToken(area);
@@ -783,6 +850,12 @@ export function updateMapFilterSearchParams(
   }
   if (normalized.activity !== 'all') {
     next.set('activity', normalized.activity);
+  }
+  if (normalized.listedSince !== 'all') {
+    next.set('listedSince', normalized.listedSince);
+  }
+  if (normalized.scope !== 'public') {
+    next.set('scope', normalized.scope);
   }
   for (const area of normalized.areas ?? []) {
     const serialized = serializeLocationFilterToken(area);

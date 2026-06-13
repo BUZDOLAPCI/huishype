@@ -246,73 +246,51 @@ describe('map social scope search params', () => {
     window.sessionStorage.clear();
   });
 
-  it('ignores deprecated socialScope query params', () => {
+  it('parses following from shared scope query params', () => {
     expect(
       parseMapSocialScopeFromSearchParams(
-        new URLSearchParams('socialScope=following'),
+        new URLSearchParams('scope=following'),
       ),
-    ).toBe('all');
+    ).toBe('following');
   });
 
   it('defaults unknown values back to all', () => {
     expect(
       parseMapSocialScopeFromSearchParams(
-        new URLSearchParams('socialScope=something-else'),
+        new URLSearchParams('scope=something-else'),
       ),
     ).toBe('all');
   });
 
-  it('persists following in private browser app state without touching the URL', () => {
+  it('does not persist following in private browser app state', () => {
     window.history.replaceState({ keep: 'value' }, '', '/?returnTo=%2Ffeed');
 
     persistMapSocialScope('following');
 
     expect(window.location.search).toBe('?returnTo=%2Ffeed');
-    expect(window.history.state).toEqual({
-      keep: 'value',
-      huishypeMapView: {
-        socialScope: 'following',
-      },
-    });
-    expect(window.sessionStorage.getItem('huishype.map.socialScope')).toBe('following');
+    expect(window.history.state).toEqual({ keep: 'value' });
   });
 
-  it('reads persisted state before falling back to legacy query params', () => {
-    window.history.replaceState(
-      {
-        huishypeMapView: {
-          socialScope: 'following',
-        },
-      },
-      '',
-      '/?socialScope=all',
+  it('reads shared scope query params instead of private app state', () => {
+    window.history.replaceState({}, '', '/?scope=following');
+
+    expect(getPersistedMapSocialScope(new URLSearchParams(window.location.search))).toBe(
+      'following',
     );
-
-    expect(
-      getPersistedMapSocialScope(new URLSearchParams(window.location.search)),
-    ).toBe('following');
   });
 
-  it('does not fall back to deprecated socialScope query params without private app state', () => {
+  it('does not fall back to deprecated socialScope query params', () => {
     expect(getPersistedMapSocialScope(new URLSearchParams('socialScope=following'))).toBe('all');
   });
 
-  it('clears persisted app state when returning to all', () => {
-    window.history.replaceState(
-      {
-        huishypeMapView: {
-          socialScope: 'following',
-        },
-      },
-      '',
-      '/?returnTo=%2Ffeed',
-    );
+  it('leaves browser state untouched when returning to all', () => {
+    window.history.replaceState({ keep: 'value' }, '', '/?returnTo=%2Ffeed');
     window.sessionStorage.setItem('huishype.map.socialScope', 'following');
 
     persistMapSocialScope('all');
 
     expect(window.location.search).toBe('?returnTo=%2Ffeed');
-    expect(window.history.state).toEqual({});
-    expect(window.sessionStorage.getItem('huishype.map.socialScope')).toBeNull();
+    expect(window.history.state).toEqual({ keep: 'value' });
+    expect(window.sessionStorage.getItem('huishype.map.socialScope')).toBe('following');
   });
 });

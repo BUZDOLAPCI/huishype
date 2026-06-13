@@ -20,6 +20,7 @@ import {
   buildLocationAreaFilterPredicate,
   buildPropertyMarketFilterQuery,
   createDefaultMapFilters,
+  type MapActivityFilter,
   type MapFilters,
 } from './map-filters.js';
 import { getOfficialValuationSourceFetchHint } from './official-valuations/index.js';
@@ -128,9 +129,28 @@ function buildActivitySummary(eventType: PublicActivityEventType, actorName: str
       return `${actorName} liked this property`;
     case 'price_guess':
       return `${actorName} made a price guess`;
+    case 'just_listed':
+      return 'This property was just listed';
     case 'comment':
     default:
       return `${actorName} commented on this property`;
+  }
+}
+
+function buildActivityWindowPredicate(activity: MapActivityFilter, alias = 'ae') {
+  const createdAtColumn = sql.raw(`${alias}.created_at`);
+
+  switch (activity) {
+    case 'today':
+      return sql`${createdAtColumn} >= NOW() - INTERVAL '24 hours'`;
+    case '10d':
+      return sql`${createdAtColumn} >= NOW() - INTERVAL '10 days'`;
+    case '30d':
+      return sql`${createdAtColumn} >= NOW() - INTERVAL '30 days'`;
+    case 'all':
+    case 'all-time':
+    default:
+      return sql`TRUE`;
   }
 }
 
@@ -186,6 +206,8 @@ export async function fetchGroupedPropertyActivityFeed(params: {
   const filters = params.filters ?? createDefaultMapFilters();
   const marketFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
   const areaFilterPredicate = buildLocationAreaFilterPredicate(filters.areas, 'p');
+  const activityWindowPredicate = buildActivityWindowPredicate(filters.activity, 'ae');
+  const includeJustListedEvents = params.scope === 'public' && filters.activity === 'all';
   const propertyLikeActorPredicate = activityActorPredicate(
     params.scope,
     'r.user_id',
@@ -292,6 +314,43 @@ export async function fetchGroupedPropertyActivityFeed(params: {
           AND ${marketFilterQuery.predicate}
           AND ${areaFilterPredicate}
       )
+      ${includeJustListedEvents ? sql`
+      UNION ALL
+      (
+        SELECT
+          CONCAT('just-listed-', p.id::text) AS event_id,
+          'just_listed'::text AS event_type,
+          '00000000-0000-4000-8000-000000000000'::uuid AS actor_id,
+          'HuisHype' AS actor_display_name,
+          'huishype' AS actor_handle,
+          NULL::text AS actor_photo_url,
+          p.id AS property_id,
+          p.country_code,
+          p.street,
+          p.house_number,
+          p.house_number_addition,
+          p.postal_code,
+          p.city,
+          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_X(p.geometry) END AS lon,
+          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_Y(p.geometry) END AS lat,
+          jlf.thumbnail_url,
+          jlf.displayed_listing_lifecycle_at AS created_at,
+          NULL::text AS content_preview
+        FROM properties p
+        ${marketFilterQuery.join}
+        ${buildPropertyListingFactsJoin('p', 'jlf')}
+        WHERE p.status = 'active'
+          AND p.geometry IS NOT NULL
+          AND jlf.displayed_listing_lifecycle_at IS NOT NULL
+          AND ${marketFilterQuery.predicate}
+          AND ${areaFilterPredicate}
+      )
+      ` : sql``}
+    ),
+    filtered_activity_events AS MATERIALIZED (
+      SELECT *
+      FROM activity_events ae
+      WHERE ${activityWindowPredicate}
     ),
     grouped_events AS (
       SELECT
@@ -300,7 +359,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         COUNT(*) FILTER (WHERE ae.event_type = 'property_like')::int AS like_count,
         COUNT(*) FILTER (WHERE ae.event_type = 'comment')::int AS comment_count,
         COUNT(*) FILTER (WHERE ae.event_type = 'price_guess')::int AS guess_count
-      FROM activity_events ae
+      FROM filtered_activity_events ae
       GROUP BY ae.property_id
     ),
     ordered_groups AS (
@@ -327,7 +386,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         ae.lon,
         ae.lat,
         ae.thumbnail_url
-      FROM activity_events ae
+      FROM filtered_activity_events ae
       INNER JOIN paged_groups pg ON pg.property_id = ae.property_id
       ORDER BY ae.property_id, ae.created_at DESC, ae.event_id DESC
     ),
@@ -340,7 +399,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         ae.actor_photo_url,
         ae.created_at,
         ae.event_id
-      FROM activity_events ae
+      FROM filtered_activity_events ae
       INNER JOIN paged_groups pg ON pg.property_id = ae.property_id
       ORDER BY ae.property_id, ae.actor_id, ae.created_at DESC, ae.event_id DESC
     ),
@@ -397,7 +456,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
               AND cr.reaction_type = 'like'
           )
         END AS is_liked
-      FROM activity_events ae
+      FROM filtered_activity_events ae
       INNER JOIN paged_groups pg ON pg.property_id = ae.property_id
       WHERE ae.event_type = 'comment'
       ORDER BY ae.property_id, ae.created_at DESC, ae.event_id DESC
@@ -412,7 +471,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
         ae.actor_handle,
         ae.actor_photo_url,
         ae.event_id
-      FROM activity_events ae
+      FROM filtered_activity_events ae
       INNER JOIN paged_groups pg ON pg.property_id = ae.property_id
       ORDER BY ae.property_id, ae.created_at DESC, ae.event_id DESC
     )
@@ -475,6 +534,7 @@ export async function fetchGroupedPropertyActivityFeed(params: {
           CASE ler.event_type
             WHEN 'property_like' THEN CONCAT(ler.actor_display_name, ' liked this property')
             WHEN 'price_guess' THEN CONCAT(ler.actor_display_name, ' made a price guess')
+            WHEN 'just_listed' THEN 'This property was just listed'
             ELSE CONCAT(ler.actor_display_name, ' commented on this property')
           END
         ELSE NULL

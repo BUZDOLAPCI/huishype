@@ -702,6 +702,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                     /** @description Bounding box as "minLon,minLat,maxLon,maxLat" */
                     bbox?: string;
@@ -1318,6 +1320,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                 };
                 header?: never;
@@ -1577,6 +1581,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                 };
                 header?: never;
@@ -3229,6 +3235,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                 };
                 header?: never;
@@ -3289,6 +3297,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                 };
                 header?: never;
@@ -3361,6 +3371,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                 };
                 header?: never;
@@ -3433,6 +3445,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                 };
                 header?: never;
@@ -3482,6 +3496,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string;
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                 };
                 header?: never;
@@ -3531,6 +3547,8 @@ export interface paths {
                     rentPriceTo?: number;
                     marketState?: string | string[];
                     activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     area?: string | string[];
                 };
                 header?: never;
@@ -5355,12 +5373,12 @@ export interface paths {
         };
         /**
          * Get property feed
-         * @description Get a paginated activity feed of listing-backed and socially active properties. Filters: trending (weighted 7-day activity) and latest (most recent activity). Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.
+         * @description Get a paginated activity feed of listing-backed and socially active properties. Trending is ranked with weighted activity and freshness. Shared market, price, area, activity, listed-since, and scope filters are supported.
          */
         get: {
             parameters: {
                 query?: {
-                    filter?: "trending" | "latest";
+                    filter?: "trending";
                     page?: number;
                     limit?: number;
                     lat?: number;
@@ -5370,6 +5388,9 @@ export interface paths {
                     salePriceTo?: number;
                     rentPriceFrom?: number;
                     rentPriceTo?: number;
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
+                    scope?: "public" | "following";
                     marketState?: string | string[];
                     area?: string | string[];
                 };
@@ -6155,6 +6176,8 @@ export interface paths {
             parameters: {
                 query?: {
                     scope?: "public" | "following";
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
                     limit?: number;
                     offset?: number;
                 };
@@ -6175,7 +6198,7 @@ export interface paths {
                                 /** Format: uuid */
                                 id: string;
                                 /** @enum {string} */
-                                eventType: "property_like" | "comment" | "price_guess";
+                                eventType: "property_like" | "comment" | "price_guess" | "just_listed";
                                 actor: {
                                     /** Format: uuid */
                                     id: string;
@@ -6254,6 +6277,8 @@ export interface paths {
             parameters: {
                 query?: {
                     scope?: "public" | "following";
+                    activity?: "all" | "today" | "10d" | "30d" | "all-time";
+                    listedSince?: "all" | "today" | "3d" | "5d" | "10d" | "30d";
                     limit?: number;
                     offset?: number;
                     salePriceFrom?: number;
@@ -6351,7 +6376,7 @@ export interface paths {
                                     /** @enum {string} */
                                     kind: "summary";
                                     /** @enum {string} */
-                                    eventType: "property_like" | "comment" | "price_guess";
+                                    eventType: "property_like" | "comment" | "price_guess" | "just_listed";
                                     /** Format: date-time */
                                     createdAt: string;
                                     actor: {
@@ -6428,7 +6453,7 @@ export interface paths {
                                 /** Format: uuid */
                                 id: string;
                                 /** @enum {string} */
-                                eventType: "property_like" | "comment" | "price_guess" | "save";
+                                eventType: "property_like" | "comment" | "price_guess" | "just_listed" | "save";
                                 actor: {
                                     /** Format: uuid */
                                     id: string;
@@ -6528,7 +6553,7 @@ export interface paths {
                                 /** Format: uuid */
                                 id: string;
                                 /** @enum {string} */
-                                eventType: "property_like" | "comment" | "price_guess";
+                                eventType: "property_like" | "comment" | "price_guess" | "just_listed";
                                 actor: {
                                     /** Format: uuid */
                                     id: string;

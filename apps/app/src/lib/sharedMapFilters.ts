@@ -4,7 +4,9 @@ import type {
   MapActivityTimeFilter,
   MapFilterCategory,
   MapFilters,
+  MapListedSinceFilter,
   MapMarketState,
+  MapScopeFilter,
   LocationFilterToken,
   LocationFilterTokenType,
   RentEffectivePriceInput,
@@ -16,7 +18,9 @@ export type {
   MapActivityTimeFilter,
   MapFilterCategory,
   MapFilters,
+  MapListedSinceFilter,
   MapMarketState,
+  MapScopeFilter,
   LocationFilterToken,
   LocationFilterTokenType,
 };
@@ -25,6 +29,7 @@ export const MAP_FILTER_CATEGORIES = [
   'price',
   'marketState',
   'activity',
+  'listedSince',
 ] as const satisfies readonly MapFilterCategory[];
 
 export const MAP_MARKET_STATES = [
@@ -49,9 +54,10 @@ const MAP_FILTER_QUERY_KEYS = [
   'rentPriceTo',
   'marketState',
   'activity',
+  'listedSince',
+  'scope',
   'area',
 ] as const;
-const PRIVATE_MAP_STATE_QUERY_KEYS = ['socialScope'] as const;
 
 type MapFilterQueryKey = (typeof MAP_FILTER_QUERY_KEYS)[number];
 
@@ -89,6 +95,14 @@ const MAP_ACTIVITY_FILTER_LABELS: Record<MapActivityFilter, string> = {
   '10d': '10 Days',
   '30d': '30 Days',
   'all-time': 'All Time',
+};
+const MAP_LISTED_SINCE_FILTER_LABELS: Record<MapListedSinceFilter, string> = {
+  all: 'Any time',
+  today: 'Today',
+  '3d': 'Last 3 days',
+  '5d': 'Last 5 days',
+  '10d': 'Last 10 days',
+  '30d': 'Last 30 days',
 };
 
 const SALE_PRICE_MARKET_STATES = ['for-sale', 'sold', 'not-listed'] as const;
@@ -232,6 +246,23 @@ export function isMapActivityFilter(value: string | null | undefined): value is 
   );
 }
 
+export function isMapListedSinceFilter(
+  value: string | null | undefined
+): value is MapListedSinceFilter {
+  return (
+    value === 'all' ||
+    value === 'today' ||
+    value === '3d' ||
+    value === '5d' ||
+    value === '10d' ||
+    value === '30d'
+  );
+}
+
+export function isMapScopeFilter(value: string | null | undefined): value is MapScopeFilter {
+  return value === 'public' || value === 'following';
+}
+
 export function createDefaultMapFilters(): MapFilters {
   return {
     salePriceFrom: null,
@@ -240,6 +271,8 @@ export function createDefaultMapFilters(): MapFilters {
     rentPriceTo: null,
     marketState: [...MAP_MARKET_STATES],
     activity: 'all',
+    listedSince: 'all',
+    scope: 'public',
     areas: [],
   };
 }
@@ -669,6 +702,8 @@ export function normalizeMapFilters(filters: MapFilters): MapFilters {
     rentPriceTo,
     marketState: normalizeMapMarketState(filters.marketState),
     activity: isMapActivityFilter(filters.activity) ? filters.activity : 'all',
+    listedSince: isMapListedSinceFilter(filters.listedSince) ? filters.listedSince : 'all',
+    scope: isMapScopeFilter(filters.scope) ? filters.scope : 'public',
     areas: normalizeLocationFilterTokens(filters.areas),
   };
 }
@@ -683,6 +718,8 @@ export function areMapFiltersEqual(left: MapFilters, right: MapFilters): boolean
     normalizedLeft.rentPriceFrom === normalizedRight.rentPriceFrom &&
     normalizedLeft.rentPriceTo === normalizedRight.rentPriceTo &&
     normalizedLeft.activity === normalizedRight.activity &&
+    normalizedLeft.listedSince === normalizedRight.listedSince &&
+    normalizedLeft.scope === normalizedRight.scope &&
     (normalizedLeft.areas ?? []).length === (normalizedRight.areas ?? []).length &&
     (normalizedLeft.areas ?? []).every(
       (value, index) =>
@@ -710,6 +747,8 @@ export function isMapFilterCategoryActive(
       return normalized.marketState.length !== MAP_MARKET_STATES.length;
     case 'activity':
       return normalized.activity !== 'all';
+    case 'listedSince':
+      return normalized.listedSince !== 'all';
   }
 }
 
@@ -728,6 +767,10 @@ export function getMapMarketStateLabel(state: MapMarketState): string {
 
 export function getMapActivityFilterLabel(activity: MapActivityFilter): string {
   return MAP_ACTIVITY_FILTER_LABELS[activity];
+}
+
+export function getMapListedSinceFilterLabel(listedSince: MapListedSinceFilter): string {
+  return MAP_LISTED_SINCE_FILTER_LABELS[listedSince];
 }
 
 export function isMapStatusPillActive(filters: MapFilters, state: MapStatusPillState): boolean {
@@ -795,6 +838,9 @@ export function getMapFilterPillLabel(category: MapFilterCategory): string {
   if (category === 'activity') {
     return 'Activity';
   }
+  if (category === 'listedSince') {
+    return 'Listed since';
+  }
 
   return 'Price';
 }
@@ -834,6 +880,10 @@ export function getMapFilterPillSummary(
       return `${normalized.marketState.length} selected`;
     case 'activity':
       return normalized.activity === 'all' ? null : getMapActivityFilterLabel(normalized.activity);
+    case 'listedSince':
+      return normalized.listedSince === 'all'
+        ? null
+        : getMapListedSinceFilterLabel(normalized.listedSince);
   }
 }
 
@@ -856,6 +906,8 @@ export function resetMapFilterCategory(
       return { ...normalized, marketState: [...MAP_MARKET_STATES] };
     case 'activity':
       return { ...normalized, activity: 'all' };
+    case 'listedSince':
+      return { ...normalized, listedSince: 'all' };
   }
 }
 
@@ -881,6 +933,12 @@ export function serializeMapFiltersToSearchParams(filters: MapFilters): URLSearc
   if (normalized.activity !== 'all') {
     params.set('activity', normalized.activity);
   }
+  if (normalized.listedSince !== 'all') {
+    params.set('listedSince', normalized.listedSince);
+  }
+  if (normalized.scope !== 'public') {
+    params.set('scope', normalized.scope);
+  }
   for (const area of normalized.areas ?? []) {
     const serialized = serializeLocationFilterToken(area);
     if (serialized) {
@@ -898,9 +956,6 @@ export function updateMapFilterSearchParams(
   const next = new URLSearchParams(params.toString());
 
   for (const key of MAP_FILTER_QUERY_KEYS) {
-    next.delete(key);
-  }
-  for (const key of PRIVATE_MAP_STATE_QUERY_KEYS) {
     next.delete(key);
   }
 
@@ -941,6 +996,10 @@ export function parseMapFiltersFromSearchParams(params: URLSearchParams): MapFil
     activity: isMapActivityFilter(params.get('activity'))
       ? (params.get('activity') as MapActivityFilter)
       : defaults.activity,
+    listedSince: isMapListedSinceFilter(params.get('listedSince'))
+      ? (params.get('listedSince') as MapListedSinceFilter)
+      : defaults.listedSince,
+    scope: isMapScopeFilter(params.get('scope')) ? (params.get('scope') as MapScopeFilter) : defaults.scope,
     areas: params
       .getAll('area')
       .map(parseLocationFilterToken)

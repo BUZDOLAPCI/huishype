@@ -15,7 +15,7 @@ import { fetchActivityFeed } from '../services/activity-feed.js';
 import { fetchGroupedPropertyActivityFeed } from '../services/grouped-property-activity-feed.js';
 import { parsePropertyMarketFiltersQuery } from '../services/map-filters.js';
 
-const publicActivityEventTypes = ['property_like', 'comment', 'price_guess'] as const;
+const publicActivityEventTypes = ['property_like', 'comment', 'price_guess', 'just_listed'] as const;
 const selfActivityEventTypes = [...publicActivityEventTypes, 'save'] as const;
 
 const actorSchema = z.object({
@@ -139,6 +139,8 @@ const groupedActivityResponseSchema = z.object({
 
 const activityQuerySchema = z.object({
   scope: z.enum(['public', 'following']).default('public'),
+  activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all'),
+  listedSince: z.enum(['all', 'today', '3d', '5d', '10d', '30d']).optional().default('all'),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   offset: z.coerce.number().int().min(0).default(0),
 });

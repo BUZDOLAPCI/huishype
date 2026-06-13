@@ -1,8 +1,7 @@
 /**
- * Feed Screen — Browse properties with Trending, Latest, and grouped activity tabs.
+ * Feed Screen — Browse properties with Trending and Activity tabs.
  *
- * Trending and Latest use the /feed endpoint via useInfiniteFeed.
- * Recent Activity and Following use grouped property posts from /activity/properties.
+ * Trending uses /feed. Activity uses grouped property posts from /activity/properties.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -104,7 +103,7 @@ const FILTER_SHOW_SCROLL_DELTA_Y = 8;
 const CAUGHT_UP_FOOTER_EXTRA_HEIGHT = 180;
 const FEED_SWIPE_TRAVEL_THRESHOLD = 64;
 const FEED_SWIPE_VELOCITY_THRESHOLD = 0.65;
-const FEED_TAB_ORDER: FeedTab[] = ['trending', 'latest', 'recent-activity', 'following'];
+const FEED_TAB_ORDER: FeedTab[] = ['trending', 'activity'];
 type FeedAuthMode = 'following' | 'interaction';
 
 function FeedHeaderActions() {
@@ -352,10 +351,11 @@ export default function FeedScreen() {
     }
   }, [isFilterPanelOpen, isSearchActive, showSharedFilters]);
 
-  // Property feed (trending/latest)
-  const isPropertyFeed = activeFilter === 'trending' || activeFilter === 'latest';
-  const activityScope = activeFilter === 'following' ? 'following' : 'public';
-  const propertyFeedFilter: PropertyFeedFilter = activeFilter === 'latest' ? 'latest' : 'trending';
+  // Property feed (trending)
+  const isPropertyFeed = activeFilter === 'trending';
+  const activityScope = filterController.appliedFilters.scope;
+  const isFollowingScoped = activityScope === 'following';
+  const propertyFeedFilter: PropertyFeedFilter = 'trending';
   const hasAppliedAreaFilters = (filterController.appliedFilters.areas ?? []).length > 0;
   const propertyFeedScope = useMemo(() => {
     if (hasAppliedAreaFilters) {
@@ -370,7 +370,7 @@ export default function FeedScreen() {
     [hydrationPropertyIds]
   );
   const feedQuery = useInfiniteFeed(
-    isPropertyFeed ? propertyFeedFilter : 'trending',
+    propertyFeedFilter,
     propertyFeedScope,
     isPropertyFeed && (hasAppliedAreaFilters || !!feedScope),
     filterController.appliedFilters,
@@ -401,17 +401,18 @@ export default function FeedScreen() {
   const activeItemCount = isPropertyFeed ? properties.length : activities.length;
 
   useEffect(() => {
-    if (activeFilter !== 'following' || !isAuthenticated) {
+    if (activeFilter !== 'activity' || !isFollowingScoped || !isAuthenticated) {
       trackedFollowingEmptyViewRef.current = false;
       return;
     }
 
     emitSocialFollowAnalyticsEvent('following_feed_opened', {});
-  }, [activeFilter, isAuthenticated]);
+  }, [activeFilter, isAuthenticated, isFollowingScoped]);
 
   useEffect(() => {
     const shouldTrackFollowingEmpty =
-      activeFilter === 'following' &&
+      activeFilter === 'activity' &&
+      isFollowingScoped &&
       isAuthenticated &&
       !activityQuery.isLoading &&
       !activityQuery.isError &&
@@ -434,6 +435,7 @@ export default function FeedScreen() {
     activityQuery.isError,
     activityQuery.isLoading,
     isAuthenticated,
+    isFollowingScoped,
   ]);
 
   const activeQuery = isPropertyFeed ? feedQuery : activityQuery;
@@ -447,16 +449,11 @@ export default function FeedScreen() {
 
   const handleFilterChange = useCallback(
     (filter: FeedTab) => {
-      if (filter === 'following' && !isAuthenticated) {
-        setAuthMode('following');
-        return;
-      }
-
       showSharedFilters(true);
       setActiveFilter(filter);
       pushFeedBrowserPath(filterController.appliedFilters, filter);
     },
-    [filterController.appliedFilters, isAuthenticated, pushFeedBrowserPath, showSharedFilters]
+    [filterController.appliedFilters, pushFeedBrowserPath, showSharedFilters]
   );
   const switchFeedTabByOffset = useCallback(
     (offset: 1 | -1) => {
@@ -588,7 +585,7 @@ export default function FeedScreen() {
     upwardScrollStartYRef.current = null;
     showSharedFilters(true);
 
-    if (activeFilterRef.current === 'trending' || activeFilterRef.current === 'latest') {
+    if (activeFilterRef.current === 'trending') {
       propertyFeedListRef.current?.scrollToOffset({ offset: 0, animated: true });
       return;
     }
@@ -733,7 +730,7 @@ export default function FeedScreen() {
         counts={item.counts}
         onAuthRequired={() => setAuthMode('interaction')}
         onPress={() => {
-          if (activeFilter === 'following') {
+          if (activeFilter === 'activity' && isFollowingScoped) {
             emitSocialFollowAnalyticsEvent('following_feed_post_clicked', {
               propertyId: item.property.id,
               likeCount: item.counts.likeCount,
@@ -748,7 +745,7 @@ export default function FeedScreen() {
         }}
       />
     ),
-    [activeFilter, handlePropertyPress]
+    [activeFilter, handlePropertyPress, isFollowingScoped]
   );
 
   const propertyKeyExtractor = useCallback((item: FeedProperty) => item.id, []);
@@ -848,8 +845,10 @@ export default function FeedScreen() {
 
         if (completedAuthMode === 'following') {
           showSharedFilters(true);
-          setActiveFilter('following');
-          pushFeedBrowserPath(filterController.appliedFilters, 'following');
+          pushFeedBrowserPath(
+            { ...filterController.appliedFilters, scope: 'following' },
+            activeFilterRef.current
+          );
         }
       }}
     />
@@ -872,8 +871,6 @@ export default function FeedScreen() {
       <MapFilterBar
         controller={filterController}
         layout="inline"
-        showActivityFilter={false}
-        showFollowingFilter={false}
         onPanelOpenChange={setIsFilterPanelOpen}
       />
     </View>
@@ -936,6 +933,24 @@ export default function FeedScreen() {
     </View>
   );
 
+  if (isFollowingScoped && !isAuthenticated) {
+    return (
+      <ScreenBackground style={styles.screen}>
+        <View style={FEED_LIST_CONTAINER_STYLE}>
+          {feedHeader}
+          {renderBody(
+            <FeedEmptyState
+              filter={activeFilter}
+              signedIn={false}
+              onPrimaryAction={() => setAuthMode('following')}
+            />
+          )}
+        </View>
+        {authModal}
+      </ScreenBackground>
+    );
+  }
+
   // Loading state
   if ((isBootstrappingPropertyFeed || activeQuery.isLoading) && !isRefreshing) {
     return (
@@ -971,7 +986,7 @@ export default function FeedScreen() {
   const isEmpty = isPropertyFeed ? properties.length === 0 : activities.length === 0;
 
   if (isEmpty) {
-    const signedInFollowing = activeFilter !== 'following' || isAuthenticated;
+    const signedInFollowing = !isFollowingScoped || isAuthenticated;
     return (
       <ScreenBackground style={styles.screen}>
         <View style={FEED_LIST_CONTAINER_STYLE}>
@@ -981,12 +996,14 @@ export default function FeedScreen() {
               filter={activeFilter}
               signedIn={signedInFollowing}
               onPrimaryAction={
-                activeFilter === 'following'
+                activeFilter === 'activity' && isFollowingScoped
                   ? () => {
                       if (signedInFollowing) {
                         showSharedFilters(true);
-                        setActiveFilter('recent-activity');
-                        pushFeedBrowserPath(filterController.appliedFilters, 'recent-activity');
+                        pushFeedBrowserPath(
+                          { ...filterController.appliedFilters, scope: 'public' },
+                          'activity'
+                        );
                         return;
                       }
 

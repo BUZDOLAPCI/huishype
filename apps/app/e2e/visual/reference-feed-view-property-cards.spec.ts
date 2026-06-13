@@ -128,15 +128,13 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Check for filter chips
     const trendingFilter = page.getByText('Trending');
-    const latestFilter = page.getByText('Latest');
-    const activityFilter = page.getByText('Recent Activity');
+    const activityFilter = page.getByText('Activity');
 
-    const latestVisible = await latestFilter.isVisible().catch(() => false);
     const activityVisible = await activityFilter.isVisible().catch(() => false);
     const trendingVisible = await trendingFilter.isVisible().catch(() => false);
 
     console.log(
-      `Filter chips visible: Latest=${latestVisible}, Recent Activity=${activityVisible}, Trending=${trendingVisible}`
+      `Filter chips visible: Activity=${activityVisible}, Trending=${trendingVisible}`
     );
   });
 
@@ -286,13 +284,11 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     // Try to find filter chips
     const trendingFilter = page.getByText('Trending');
-    const latestFilter = page.getByText('Latest');
-    const activityFilter = page.getByText('Recent Activity');
+    const activityFilter = page.getByText('Activity');
 
     // Check filter visibility
     const filtersVisible = {
       trending: await trendingFilter.isVisible().catch(() => false),
-      latest: await latestFilter.isVisible().catch(() => false),
       activity: await activityFilter.isVisible().catch(() => false),
     };
 
@@ -309,31 +305,21 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       });
     }
 
-    // If latest filter is visible, click it
-    if (filtersVisible.latest) {
-      await latestFilter.click();
-      await page.waitForTimeout(1000);
-
-      await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-latest-filter.png`,
-        fullPage: false,
-      });
-    }
-
+    // If activity filter is visible, click it
     if (filtersVisible.activity) {
       await activityFilter.click();
       await page.waitForTimeout(1000);
 
-      const groupedCard = page.locator('[data-testid="property-activity-card"]').first();
-      const groupedCardVisible = await groupedCard.isVisible({ timeout: 5000 }).catch(() => false);
-      if (groupedCardVisible) {
-        await expect(groupedCard.locator('[data-testid="property-activity-stats"]')).toBeVisible();
-      }
-
       await page.screenshot({
-        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-recent-activity-filter.png`,
+        path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-activity-filter.png`,
         fullPage: false,
       });
+    }
+
+    const groupedCard = page.locator('[data-testid="property-activity-card"]').first();
+    const groupedCardVisible = await groupedCard.isVisible({ timeout: 5000 }).catch(() => false);
+    if (groupedCardVisible) {
+      await expect(groupedCard.locator('[data-testid="property-activity-stats"]')).toBeVisible();
     }
   });
 });

@@ -1180,6 +1180,9 @@ export const propertyTileListingFacts = pgTable(
     hasActiveListing: boolean('has_active_listing').notNull(),
     hasCompletedListing: boolean('has_completed_listing').notNull(),
     marketState: varchar('market_state', { length: 20 }).notNull(),
+    displayedListingLifecycleAt: timestamp('displayed_listing_lifecycle_at', {
+      withTimezone: true,
+    }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -1191,6 +1194,9 @@ export const propertyTileListingFacts = pgTable(
       table.snapshotId,
       table.marketState,
     ),
+    index('property_tile_listing_facts_snapshot_market_lifecycle_idx')
+      .on(table.snapshotId, table.marketState, table.displayedListingLifecycleAt)
+      .where(sql`${table.displayedListingLifecycleAt} IS NOT NULL`),
     index('property_tile_listing_facts_property_id_idx').on(table.propertyId),
     check(
       'property_tile_listing_facts_market_state_check',
@@ -1272,6 +1278,9 @@ export const propertyTileGroupingFacts = pgTable(
     hasActiveListing: boolean('has_active_listing').notNull().default(false),
     hasCompletedListing: boolean('has_completed_listing').notNull().default(false),
     marketState: varchar('market_state', { length: 20 }).notNull().default('not-listed'),
+    displayedListingLifecycleAt: timestamp('displayed_listing_lifecycle_at', {
+      withTimezone: true,
+    }),
     commentCount: integer('comment_count').notNull().default(0),
     socialScore: doublePrecision('social_score').notNull().default(0),
     recentSocialScore: doublePrecision('recent_social_score').notNull().default(0),
@@ -1323,6 +1332,11 @@ export const propertyTileGroupingFacts = pgTable(
       .on(table.snapshotId, table.marketState, table.rentEffectivePrice)
       .where(
         sql`(${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75) AND ${table.rentEffectivePrice} IS NOT NULL`,
+      ),
+    index('property_tile_grouping_facts_vis_lifecycle_idx')
+      .on(table.snapshotId, table.marketState, table.displayedListingLifecycleAt)
+      .where(
+        sql`(${table.hasActiveListing} OR ${table.hasCompletedListing} OR ${table.socialScore} >= 0.75) AND ${table.displayedListingLifecycleAt} IS NOT NULL`,
       ),
     index('property_tile_grouping_facts_snapshot_market_state_idx').on(
       table.snapshotId,

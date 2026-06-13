@@ -24,6 +24,7 @@ import {
   type MapFilterCategory,
   type MapFilterDraftState,
   type MapFilters,
+  type MapListedSinceFilter,
   type MapMarketState,
   type MapPriceMode,
   type MapPriceSuggestion,
@@ -220,6 +221,24 @@ const ACTIVITY_LABEL_KEYS: Record<MapActivityFilter, TranslationKey> = {
   'all-time': 'filter.activity.allTime',
 };
 
+const LISTED_SINCE_FILTERS = [
+  'all',
+  'today',
+  '3d',
+  '5d',
+  '10d',
+  '30d',
+] as const satisfies readonly MapListedSinceFilter[];
+
+const LISTED_SINCE_LABEL_KEYS: Record<MapListedSinceFilter, TranslationKey> = {
+  all: 'filter.listedSince.any',
+  today: 'filter.listedSince.today',
+  '3d': 'filter.listedSince.3d',
+  '5d': 'filter.listedSince.5d',
+  '10d': 'filter.listedSince.10d',
+  '30d': 'filter.listedSince.30d',
+};
+
 function parseDraftInputValue(value: string): number | null {
   const digits = value.replace(/[^\d]/g, '');
   if (!digits) {
@@ -296,6 +315,13 @@ function getMapActivityFilterLabel(
   return t(ACTIVITY_LABEL_KEYS[activity]);
 }
 
+function getMapListedSinceFilterLabel(
+  listedSince: MapListedSinceFilter,
+  t: ReturnType<typeof useT>
+): string {
+  return t(LISTED_SINCE_LABEL_KEYS[listedSince]);
+}
+
 function getMapMarketStateLabel(state: MapMarketState, t: ReturnType<typeof useT>): string {
   return t(MARKET_STATE_LABEL_KEYS[state]);
 }
@@ -334,7 +360,13 @@ function getMapFilterPillSummary(
       : null;
   }
 
-  return filters.activity === 'all' ? null : getMapActivityFilterLabel(filters.activity, t);
+  if (category === 'activity') {
+    return filters.activity === 'all' ? null : getMapActivityFilterLabel(filters.activity, t);
+  }
+
+  return filters.listedSince === 'all'
+    ? null
+    : getMapListedSinceFilterLabel(filters.listedSince, t);
 }
 
 export function MapFilterBar({
@@ -355,7 +387,9 @@ export function MapFilterBar({
     createMapFilterDraftState(controller.appliedFilters)
   );
   const [openCategory, setOpenCategory] = useState<MapFilterCategory | null>(null);
-  const [openOptionsPanel, setOpenOptionsPanel] = useState<'activity' | 'following' | null>(null);
+  const [openOptionsPanel, setOpenOptionsPanel] = useState<
+    'activity' | 'listedSince' | 'following' | null
+  >(null);
   const priceInputBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webSuggestionPressKeyRef = useRef<string | null>(null);
   const {
@@ -372,6 +406,7 @@ export function MapFilterBar({
   const isInline = layout === 'inline';
   const isPricePanelOpen = openCategory === 'price';
   const isActivityPanelOpen = showActivityFilter && openOptionsPanel === 'activity';
+  const isListedSincePanelOpen = openOptionsPanel === 'listedSince';
   const isFollowingPanelOpen = showFollowingFilter && openOptionsPanel === 'following';
   const isAnyPanelOpen = isPricePanelOpen || openOptionsPanel != null;
 
@@ -459,6 +494,8 @@ export function MapFilterBar({
     }),
     [draftFilters, t]
   );
+  const isFollowingScopeActive =
+    appliedFilters.scope === 'following' || socialScope === 'following';
   const hasPriceRangeError = visiblePriceModes.some((mode) => priceErrors[mode] != null);
 
   const getDraftValue = useCallback(
@@ -586,6 +623,14 @@ export function MapFilterBar({
     setOpenOptionsPanel((current) => (current === 'activity' ? null : 'activity'));
   }, [closeCategoryPanel, commitPriceDraft, hasPriceRangeError, openCategory]);
 
+  const openListedSincePanel = useCallback(() => {
+    if (openCategory === 'price' && !hasPriceRangeError) {
+      commitPriceDraft();
+    }
+    closeCategoryPanel();
+    setOpenOptionsPanel((current) => (current === 'listedSince' ? null : 'listedSince'));
+  }, [closeCategoryPanel, commitPriceDraft, hasPriceRangeError, openCategory]);
+
   const openFollowingPanel = useCallback(() => {
     if (openCategory === 'price' && !hasPriceRangeError) {
       commitPriceDraft();
@@ -607,27 +652,75 @@ export function MapFilterBar({
     [setActivity]
   );
 
+  const handleListedSinceBodyPress = useCallback(() => {
+    setOpenOptionsPanel(null);
+    commitAppliedFilters({
+      ...appliedFilters,
+      listedSince: appliedFilters.listedSince === '30d' ? 'all' : '30d',
+    });
+  }, [appliedFilters, commitAppliedFilters]);
+
+  const handleListedSinceOptionPress = useCallback(
+    (listedSince: MapListedSinceFilter) => {
+      commitAppliedFilters({
+        ...appliedFilters,
+        listedSince,
+      });
+      setOpenOptionsPanel(null);
+    },
+    [appliedFilters, commitAppliedFilters]
+  );
+
   const handleFollowingBodyPress = useCallback(() => {
     setOpenOptionsPanel(null);
-    if (socialScope === 'following' && followingActivity === 'all-time') {
-      onToggleFollowing?.();
+    if (isFollowingScopeActive && followingActivity === 'all-time') {
+      commitAppliedFilters({
+        ...appliedFilters,
+        scope: 'public',
+      });
+      if (socialScope === 'following') {
+        onToggleFollowing?.();
+      }
       return;
     }
     onFollowingActivityChange?.('all-time');
-    if (socialScope !== 'following') {
+    commitAppliedFilters({
+      ...appliedFilters,
+      scope: 'following',
+    });
+    if (!isFollowingScopeActive) {
       onToggleFollowing?.();
     }
-  }, [followingActivity, onFollowingActivityChange, onToggleFollowing, socialScope]);
+  }, [
+    appliedFilters,
+    commitAppliedFilters,
+    followingActivity,
+    isFollowingScopeActive,
+    onFollowingActivityChange,
+    onToggleFollowing,
+    socialScope,
+  ]);
 
   const handleFollowingOptionPress = useCallback(
     (activity: MapActivityTimeFilter) => {
       onFollowingActivityChange?.(activity);
-      if (socialScope !== 'following') {
+      commitAppliedFilters({
+        ...appliedFilters,
+        activity,
+        scope: 'following',
+      });
+      if (!isFollowingScopeActive) {
         onToggleFollowing?.();
       }
       setOpenOptionsPanel(null);
     },
-    [onFollowingActivityChange, onToggleFollowing, socialScope]
+    [
+      appliedFilters,
+      commitAppliedFilters,
+      isFollowingScopeActive,
+      onFollowingActivityChange,
+      onToggleFollowing,
+    ]
   );
 
   const panelTitle = isPricePanelOpen ? t('filter.price') : null;
@@ -931,14 +1024,23 @@ export function MapFilterBar({
             />
           ) : null}
 
-          {showFollowingFilter && onToggleFollowing ? (
+          <OptionedFilterPill
+            active={appliedFilters.listedSince !== 'all'}
+            label={
+              appliedFilters.listedSince === 'all'
+                ? t('filter.listedSince')
+                : `${t('filter.listedSince')}: ${getMapListedSinceFilterLabel(appliedFilters.listedSince, t)}`
+            }
+            onArrowPress={openListedSincePanel}
+            onBodyPress={handleListedSinceBodyPress}
+            open={isListedSincePanelOpen}
+            testID="map-filter-pill-listed-since"
+          />
+
+          {showFollowingFilter ? (
             <OptionedFilterPill
-              active={socialScope === 'following'}
-              label={
-                socialScope === 'following'
-                  ? `${t('filter.following')}: ${getMapActivityFilterLabel(followingActivity, t)}`
-                  : t('filter.following')
-              }
+              active={isFollowingScopeActive}
+              label={t('filter.following')}
               onArrowPress={openFollowingPanel}
               onBodyPress={handleFollowingBodyPress}
               open={isFollowingPanelOpen}
@@ -1209,6 +1311,51 @@ export function MapFilterBar({
                   >
                     <Text style={[styles.optionRowText, selected && styles.optionRowTextSelected]}>
                       {getMapActivityFilterLabel(activity, t)}
+                    </Text>
+                    {selected ? <Icon name="Check" size="sm" color={COLORS.gold600} /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
+        {isListedSincePanelOpen ? (
+          <View
+            style={[styles.panel, isInline ? null : styles.overlayPanel]}
+            testID="map-filter-panel-listed-since"
+          >
+            <View style={styles.panelHeader}>
+              <Text style={styles.panelTitle}>{t('filter.listedSince')}</Text>
+              <Pressable
+                accessibilityLabel={t('filter.closeListedSince')}
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={handlePanelBackdropPress}
+                testID="map-filter-panel-listed-since-close"
+              >
+                <Icon name="X" size="sm" color={COLORS.warm700} />
+              </Pressable>
+            </View>
+
+            <View style={styles.optionList}>
+              {LISTED_SINCE_FILTERS.map((listedSince) => {
+                const selected = appliedFilters.listedSince === listedSince;
+                return (
+                  <Pressable
+                    key={listedSince}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => handleListedSinceOptionPress(listedSince)}
+                    style={({ pressed }) => [
+                      styles.optionRow,
+                      selected && styles.optionRowSelected,
+                      pressed && styles.optionRowPressed,
+                    ]}
+                    testID={`map-filter-option-listed-since-${listedSince}`}
+                  >
+                    <Text style={[styles.optionRowText, selected && styles.optionRowTextSelected]}>
+                      {getMapListedSinceFilterLabel(listedSince, t)}
                     </Text>
                     {selected ? <Icon name="Check" size="sm" color={COLORS.gold600} /> : null}
                   </Pressable>

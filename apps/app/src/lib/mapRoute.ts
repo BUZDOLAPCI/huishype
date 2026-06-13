@@ -119,42 +119,6 @@ export interface RoutePropertyLike {
 
 export type MapSocialScope = 'all' | 'following';
 
-const MAP_VIEW_STATE_HISTORY_KEY = 'huishypeMapView';
-const MAP_SOCIAL_SCOPE_SESSION_KEY = 'huishype.map.socialScope';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function normalizeMapSocialScope(value: unknown): MapSocialScope | null {
-  return value === 'following' ? 'following' : value === 'all' ? 'all' : null;
-}
-
-function readMapSocialScopeFromHistoryState(state: unknown): MapSocialScope | null {
-  if (!isRecord(state)) {
-    return null;
-  }
-
-  const mapViewState = state[MAP_VIEW_STATE_HISTORY_KEY];
-  if (!isRecord(mapViewState)) {
-    return null;
-  }
-
-  return normalizeMapSocialScope(mapViewState.socialScope);
-}
-
-function readMapSocialScopeFromSessionStorage(): MapSocialScope | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    return normalizeMapSocialScope(window.sessionStorage.getItem(MAP_SOCIAL_SCOPE_SESSION_KEY));
-  } catch {
-    return null;
-  }
-}
-
 const localPreviewRouteCache = new Map<string, LocalPreviewResolvedMapRoute>();
 
 function normalizePathname(pathname: string): string {
@@ -691,9 +655,9 @@ export function buildMapPreviewPathname(
 }
 
 export function parseMapSocialScopeFromSearchParams(
-  _params: URLSearchParams,
+  params: URLSearchParams,
 ): MapSocialScope {
-  return 'all';
+  return params.get('scope') === 'following' ? 'following' : 'all';
 }
 
 export function getPersistedMapSocialScope(
@@ -703,42 +667,9 @@ export function getPersistedMapSocialScope(
     return params ? parseMapSocialScopeFromSearchParams(params) : 'all';
   }
 
-  return (
-    readMapSocialScopeFromHistoryState(window.history.state) ??
-    readMapSocialScopeFromSessionStorage() ??
-    'all'
-  );
+  return parseMapSocialScopeFromSearchParams(params ?? new URLSearchParams(window.location.search));
 }
 
-export function persistMapSocialScope(socialScope: MapSocialScope): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const currentHistoryState = isRecord(window.history.state) ? window.history.state : {};
-  const nextHistoryState: Record<string, unknown> = { ...currentHistoryState };
-
-  if (socialScope === 'following') {
-    nextHistoryState[MAP_VIEW_STATE_HISTORY_KEY] = {
-      socialScope,
-    };
-  } else {
-    delete nextHistoryState[MAP_VIEW_STATE_HISTORY_KEY];
-  }
-
-  window.history.replaceState(
-    nextHistoryState,
-    '',
-    `${window.location.pathname}${window.location.search}`,
-  );
-
-  try {
-    if (socialScope === 'following') {
-      window.sessionStorage.setItem(MAP_SOCIAL_SCOPE_SESSION_KEY, socialScope);
-    } else {
-      window.sessionStorage.removeItem(MAP_SOCIAL_SCOPE_SESSION_KEY);
-    }
-  } catch {
-    // Best-effort browser persistence only.
-  }
+export function persistMapSocialScope(_socialScope: MapSocialScope): void {
+  // Following scope is serialized through the shared `scope` URL filter.
 }

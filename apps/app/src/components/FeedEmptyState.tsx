@@ -19,25 +19,19 @@ interface FeedEmptyStateProps {
 
 export function FeedEmptyState({ filter, signedIn = true, onPrimaryAction }: FeedEmptyStateProps) {
   const t = useT();
-  const isFollowing = filter === 'following';
-  const title = isFollowing
-    ? signedIn
-      ? t('feed.empty.title.followingSignedIn')
-      : t('feed.empty.title.followingSignedOut')
-    : t('feed.empty.title.default');
+  const requiresAuth = !signedIn;
+  const title = requiresAuth ? t('feed.empty.title.followingSignedOut') : t('feed.empty.title.default');
 
   const getMessage = () => {
+    if (requiresAuth) {
+      return t('feed.empty.followingSignedOut');
+    }
+
     switch (filter) {
-      case 'latest':
-        return t('feed.empty.latest');
       case 'trending':
         return t('feed.empty.trending');
-      case 'recent-activity':
+      case 'activity':
         return t('feed.empty.recentActivity');
-      case 'following':
-        return signedIn
-          ? t('feed.empty.followingSignedIn')
-          : t('feed.empty.followingSignedOut');
       default:
         return t('feed.empty.default');
     }
@@ -53,9 +47,9 @@ export function FeedEmptyState({ filter, signedIn = true, onPrimaryAction }: Fee
       </View>
       <Text className="text-lg font-semibold text-warm-900 text-center mb-2">{title}</Text>
       <Text className="text-warm-500 text-center">{getMessage()}</Text>
-      {isFollowing && onPrimaryAction ? (
+      {requiresAuth && onPrimaryAction ? (
         <Button
-          label={signedIn ? t('feed.empty.exploreActivity') : t('common.signIn')}
+          label={t('common.signIn')}
           onPress={onPrimaryAction}
           style={{ alignSelf: 'stretch', marginTop: 24 }}
           testID="feed-empty-primary-action"

@@ -84,6 +84,8 @@ describe('Following tile source helpers', () => {
         rentPriceTo: null,
         marketState: ['for-sale'],
         activity: '30d',
+        listedSince: 'all',
+        scope: 'public',
       }),
     ).toEqual([
       `http://localhost:3100${FOLLOWING_TILEJSON_PATH}?salePriceFrom=500000&salePriceTo=800000&marketState=for-sale&activity=all-time`,
@@ -101,6 +103,8 @@ describe('Following tile source helpers', () => {
           rentPriceTo: null,
           marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
           activity: '30d',
+          listedSince: 'all',
+          scope: 'public',
         },
         'today',
       ),
@@ -125,6 +129,8 @@ describe('Read tile source helpers', () => {
     rentPriceTo: null,
     marketState: ['for-sale'],
     activity: 'today' as const,
+    listedSince: 'all',
+    scope: 'public',
   };
 
   it('builds the private read TileJSON URL with map filters and read version', () => {

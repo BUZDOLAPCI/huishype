@@ -273,10 +273,18 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
     onPanelOpenChange,
   }: {
     controller: {
-      appliedFilters: { salePriceFrom?: number | null };
+      appliedFilters: {
+        activity?: string;
+        listedSince?: string;
+        salePriceFrom?: number | null;
+        scope?: string;
+      };
       commitAppliedFilters: (filters: {
+        activity?: string;
+        listedSince?: string;
         salePriceFrom?: number | null;
         marketState?: string[];
+        scope?: string;
       }) => void;
       toggleStatusPill: (state: 'for-sale') => void;
     };
@@ -319,11 +327,46 @@ jest.mock('@/src/components/map/MapFilterBar', () => ({
         >
           <ReactNative.Text>Commit sale price</ReactNative.Text>
         </ReactNative.Pressable>
-        {showActivityFilter ? (
-          <ReactNative.Text testID="feed-map-activity-control">Activity</ReactNative.Text>
+        {showActivityFilter !== false ? (
+          <ReactNative.Pressable
+            testID="feed-map-activity-control"
+            onPress={() =>
+              controller.commitAppliedFilters({
+                ...controller.appliedFilters,
+                activity: controller.appliedFilters.activity === 'all-time' ? 'all' : 'all-time',
+              })
+            }
+          >
+            <ReactNative.Text>Activity</ReactNative.Text>
+          </ReactNative.Pressable>
         ) : null}
-        {showFollowingFilter ? (
-          <ReactNative.Text testID="feed-map-following-control">Following</ReactNative.Text>
+        {showActivityFilter !== false ? (
+          <ReactNative.Pressable
+            testID="feed-map-listed-since-control"
+            onPress={() =>
+              controller.commitAppliedFilters({
+                ...controller.appliedFilters,
+                listedSince:
+                  controller.appliedFilters.listedSince === '30d' ? 'all' : '30d',
+              })
+            }
+          >
+            <ReactNative.Text>Listed since</ReactNative.Text>
+          </ReactNative.Pressable>
+        ) : null}
+        {showFollowingFilter !== false ? (
+          <ReactNative.Pressable
+            testID="feed-map-following-control"
+            onPress={() =>
+              controller.commitAppliedFilters({
+                ...controller.appliedFilters,
+                activity: 'all-time',
+                scope: controller.appliedFilters.scope === 'following' ? 'public' : 'following',
+              })
+            }
+          >
+            <ReactNative.Text>Following</ReactNative.Text>
+          </ReactNative.Pressable>
         ) : null}
       </ReactNative.View>
     );
@@ -615,7 +658,8 @@ describe('FeedScreen following surface', () => {
       expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
     );
 
-    fireEvent.press(getByTestId('feed-tab-following'));
+    fireEvent.press(getByTestId('feed-tab-activity'));
+    fireEvent.press(getByTestId('feed-map-following-control'));
 
     await waitFor(() => {
       expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
@@ -632,7 +676,11 @@ describe('FeedScreen following surface', () => {
       expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
         'following',
         true,
-        expect.objectContaining({ marketState: DEFAULT_MARKET_STATES })
+        expect.objectContaining({
+          activity: 'all-time',
+          marketState: DEFAULT_MARKET_STATES,
+          scope: 'following',
+        })
       );
     });
 
@@ -793,7 +841,7 @@ describe('FeedScreen following surface', () => {
     );
   });
 
-  it('renders feed tabs separately from shared map/feed filters without map social controls', () => {
+  it('renders feed tabs separately from shared map/feed filters with shared social controls', () => {
     mockUseActivityFeed.mockImplementation(
       (scope) =>
         createQueryResult([
@@ -818,8 +866,9 @@ describe('FeedScreen following surface', () => {
     );
     expect(getByTestId('feed-search-bar')).toBeTruthy();
     expect(getByTestId('feed-shared-map-filter-bar')).toBeTruthy();
-    expect(queryByTestId('feed-map-activity-control')).toBeNull();
-    expect(queryByTestId('feed-map-following-control')).toBeNull();
+    expect(queryByTestId('feed-map-activity-control')).toBeTruthy();
+    expect(queryByTestId('feed-map-listed-since-control')).toBeTruthy();
+    expect(queryByTestId('feed-map-following-control')).toBeTruthy();
   });
 
   it('keeps the original filter layout and ignores viewport compensation scrolls', () => {
@@ -1013,10 +1062,11 @@ describe('FeedScreen following surface', () => {
     fireEvent(getByTestId('feed-shared-filter-section').parent!, 'layout', {
       nativeEvent: { layout: { height: 120 } },
     });
-    fireEvent.press(getByTestId('feed-tab-following'));
+    fireEvent.press(getByTestId('feed-tab-activity'));
+    fireEvent.press(getByTestId('feed-map-following-control'));
 
     await waitFor(() => {
-      expect(getByTestId('feed-tab-following').props.accessibilityState).toEqual({
+      expect(getByTestId('feed-tab-activity').props.accessibilityState).toEqual({
         selected: true,
       });
     });
@@ -1231,7 +1281,7 @@ describe('FeedScreen following surface', () => {
     window.history.replaceState(
       {},
       '',
-      '/feed?marketState=for-sale&area=street:NL:beeldbuisring:city=eindhoven&feedTab=latest'
+      '/feed?marketState=for-sale&area=street:NL:beeldbuisring:city=eindhoven&feedTab=activity'
     );
     mockUseActivityFeed.mockImplementation(
       (scope) =>
@@ -1245,12 +1295,11 @@ describe('FeedScreen following surface', () => {
     const { getByTestId } = render(<FeedScreen />);
 
     await waitFor(() => {
-      expect(getByTestId('feed-tab-latest').props.accessibilityState).toEqual({
+      expect(getByTestId('feed-tab-activity').props.accessibilityState).toEqual({
         selected: true,
       });
-      expect(mockUseInfiniteFeed).toHaveBeenLastCalledWith(
-        'latest',
-        undefined,
+      expect(mockUseActivityFeed).toHaveBeenLastCalledWith(
+        'public',
         true,
         expect.objectContaining({
           marketState: ['for-sale'],
@@ -1261,12 +1310,11 @@ describe('FeedScreen following surface', () => {
               city: 'Eindhoven',
             }),
           ],
-        }),
-        expect.objectContaining({ hydrationPropertyIds: [], initialHydrationItemCount: 3 })
+        })
       );
     });
     expect(window.location.pathname + window.location.search).toBe(
-      '/feed?feedTab=latest&marketState=for-sale&area=street%3ANL%3Abeeldbuisring%3Acity%3Deindhoven'
+      '/feed?feedTab=activity&marketState=for-sale&area=street%3ANL%3Abeeldbuisring%3Acity%3Deindhoven'
     );
   });
 
@@ -1310,22 +1358,22 @@ describe('FeedScreen following surface', () => {
     const { getByTestId } = render(<FeedScreen />);
     const pushStateSpy = jest.spyOn(window.history, 'pushState');
 
-    fireEvent.press(getByTestId('feed-tab-latest'));
+    fireEvent.press(getByTestId('feed-tab-activity'));
     await waitFor(() => {
-      expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=latest');
+      expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=activity');
     });
-    expect(pushStateSpy).toHaveBeenLastCalledWith({}, '', '/feed?feedTab=latest');
+    expect(pushStateSpy).toHaveBeenLastCalledWith({}, '', '/feed?feedTab=activity');
 
     fireEvent.press(getByTestId('feed-toggle-for-sale'));
     await waitFor(() => {
       expect(window.location.pathname + window.location.search).toBe(
-        '/feed?feedTab=latest&marketState=for-sale'
+        '/feed?feedTab=activity&marketState=for-sale'
       );
     });
     expect(pushStateSpy).toHaveBeenLastCalledWith(
       {},
       '',
-      '/feed?feedTab=latest&marketState=for-sale'
+      '/feed?feedTab=activity&marketState=for-sale'
     );
 
     fireEvent.press(getByTestId('feed-tab-trending'));
@@ -1433,10 +1481,10 @@ describe('FeedScreen following surface', () => {
     window.history.replaceState({}, '', '/feed');
     mockIsFeedFocused = true;
     rerender(<FeedScreen />);
-    fireEvent.press(getByTestId('feed-tab-latest'));
+    fireEvent.press(getByTestId('feed-tab-activity'));
 
     await waitFor(() => {
-      expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=latest');
+      expect(window.location.pathname + window.location.search).toBe('/feed?feedTab=activity');
     });
   });
 
@@ -1497,7 +1545,7 @@ describe('FeedScreen following surface', () => {
 
     const { getByTestId, getByText } = render(<FeedScreen />);
 
-    fireEvent.press(getByTestId('feed-tab-recent-activity'));
+    fireEvent.press(getByTestId('feed-tab-activity'));
 
     await waitFor(() => {
       expect(getByTestId('activity-card-property-recent-1')).toBeTruthy();
@@ -1515,10 +1563,10 @@ describe('FeedScreen following surface', () => {
 
     fireEvent.press(getByTestId('feed-auth-success'));
 
-    expect(getByTestId('feed-tab-recent-activity').props.accessibilityState).toEqual({
+    expect(getByTestId('feed-tab-activity').props.accessibilityState).toEqual({
       selected: true,
     });
-    expect(getByTestId('feed-tab-following').props.accessibilityState).toEqual({
+    expect(getByTestId('feed-tab-trending').props.accessibilityState).toEqual({
       selected: false,
     });
   });
@@ -1544,7 +1592,7 @@ describe('FeedScreen following surface', () => {
   });
 
   it('carries shared filters but not feedTab when unresolved direct feed addresses navigate to map', async () => {
-    window.history.replaceState({}, '', '/feed?feedTab=latest&marketState=for-sale');
+    window.history.replaceState({}, '', '/feed?feedTab=activity&marketState=for-sale');
     mockUseActivityFeed.mockImplementation(
       (scope) =>
         createQueryResult([
@@ -1620,7 +1668,8 @@ describe('FeedScreen following surface', () => {
 
     const { getByTestId } = render(<FeedScreen />);
 
-    fireEvent.press(getByTestId('feed-tab-following'));
+    fireEvent.press(getByTestId('feed-tab-activity'));
+    fireEvent.press(getByTestId('feed-map-following-control'));
     fireEvent.press(getByTestId('activity-card-property-9'));
 
     const analyticsEvents = (

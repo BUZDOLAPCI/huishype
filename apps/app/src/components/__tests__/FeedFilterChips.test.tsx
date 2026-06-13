@@ -16,8 +16,7 @@ describe('FeedFilterChips', () => {
     );
 
     expect(getByText('Trending')).toBeTruthy();
-    expect(getByText('Latest')).toBeTruthy();
-    expect(getByText('Recent Activity')).toBeTruthy();
+    expect(getByText('Activity')).toBeTruthy();
   });
 
   it('calls onFilterChange when a chip is pressed', () => {
@@ -25,17 +24,8 @@ describe('FeedFilterChips', () => {
       <FeedFilterChips activeFilter="trending" onFilterChange={mockOnFilterChange} />
     );
 
-    fireEvent.press(getByTestId('filter-chip-latest'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('latest');
-  });
-
-  it('calls onFilterChange with activity filter value', () => {
-    const { getByTestId } = render(
-      <FeedFilterChips activeFilter="trending" onFilterChange={mockOnFilterChange} />
-    );
-
-    fireEvent.press(getByTestId('filter-chip-recent-activity'));
-    expect(mockOnFilterChange).toHaveBeenCalledWith('recent-activity');
+    fireEvent.press(getByTestId('filter-chip-activity'));
+    expect(mockOnFilterChange).toHaveBeenCalledWith('activity');
   });
 
   it('renders with trending filter active', () => {

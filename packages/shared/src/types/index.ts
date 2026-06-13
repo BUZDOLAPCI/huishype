@@ -50,6 +50,8 @@ export type {
   PhysicalTapResolveResult,
   MapActivityFilter,
   MapActivityTimeFilter,
+  MapListedSinceFilter,
+  MapScopeFilter,
   MapFilterCategory,
   MapMarketState,
   LocationFilterToken,

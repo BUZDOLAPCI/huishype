@@ -19,10 +19,14 @@ export interface MapFilters {
   rentPriceTo: number | null;
   marketState: MapMarketState[];
   activity: MapActivityFilter;
+  listedSince: MapListedSinceFilter;
+  scope: MapScopeFilter;
   areas: LocationFilterToken[];
 }
 
 export type MapActivityFilter = 'all' | 'today' | '10d' | '30d' | 'all-time';
+export type MapListedSinceFilter = 'all' | 'today' | '3d' | '5d' | '10d' | '30d';
+export type MapScopeFilter = 'public' | 'following';
 
 type MapFilterQueryInput = {
   salePriceFrom?: number;
@@ -31,6 +35,8 @@ type MapFilterQueryInput = {
   rentPriceTo?: number;
   marketState?: string | string[];
   activity?: MapActivityFilter;
+  listedSince?: MapListedSinceFilter;
+  scope?: MapScopeFilter;
   area?: string | string[];
 };
 
@@ -41,12 +47,12 @@ export const mapFiltersQuerySchema = z.object({
   rentPriceTo: z.coerce.number().optional(),
   marketState: z.union([z.string(), z.array(z.string())]).optional(),
   activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all'),
+  listedSince: z.enum(['all', 'today', '3d', '5d', '10d', '30d']).optional().default('all'),
+  scope: z.enum(['public', 'following']).optional().default('public'),
   area: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
-export const propertyMarketFiltersQuerySchema = mapFiltersQuerySchema.omit({
-  activity: true,
-});
+export const propertyMarketFiltersQuerySchema = mapFiltersQuerySchema;
 
 export const followingMapFiltersQuerySchema = mapFiltersQuerySchema.extend({
   activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all-time'),
@@ -77,6 +83,8 @@ export function createDefaultMapFilters(): MapFilters {
     rentPriceTo: null,
     marketState: [...DEFAULT_MARKET_STATE_ORDER],
     activity: 'all',
+    listedSince: 'all',
+    scope: 'public',
     areas: [],
   };
 }
@@ -330,6 +338,8 @@ export function normalizeMapFilters(filters: Partial<MapFilters>): MapFilters {
         : rentPriceTo,
     marketState: marketState.length > 0 ? marketState : [...DEFAULT_MARKET_STATE_ORDER],
     activity: isMapActivityFilter(filters.activity) ? filters.activity : 'all',
+    listedSince: isMapListedSinceFilter(filters.listedSince) ? filters.listedSince : 'all',
+    scope: isMapScopeFilter(filters.scope) ? filters.scope : 'public',
     areas: normalizeLocationFilterTokens(filters.areas),
   };
 }
@@ -344,6 +354,23 @@ function isMapActivityFilter(value: string | null | undefined): value is MapActi
   );
 }
 
+function isMapListedSinceFilter(
+  value: string | null | undefined
+): value is MapListedSinceFilter {
+  return (
+    value === 'all' ||
+    value === 'today' ||
+    value === '3d' ||
+    value === '5d' ||
+    value === '10d' ||
+    value === '30d'
+  );
+}
+
+function isMapScopeFilter(value: string | null | undefined): value is MapScopeFilter {
+  return value === 'public' || value === 'following';
+}
+
 export function parseMapFiltersQuery(query: unknown): MapFilters {
   const parsed = mapFiltersQuerySchema.parse(query) as MapFilterQueryInput;
 
@@ -354,15 +381,14 @@ export function parseMapFiltersQuery(query: unknown): MapFilters {
     rentPriceTo: parsed.rentPriceTo ?? null,
     marketState: parseMarketStateInput(parsed.marketState),
     activity: parsed.activity ?? 'all',
+    listedSince: parsed.listedSince ?? 'all',
+    scope: parsed.scope ?? 'public',
     areas: parseAreaInput(parsed.area),
   });
 }
 
 export function parsePropertyMarketFiltersQuery(query: unknown): MapFilters {
-  const parsed = propertyMarketFiltersQuerySchema.parse(query) as Omit<
-    MapFilterQueryInput,
-    'activity'
-  >;
+  const parsed = propertyMarketFiltersQuerySchema.parse(query) as MapFilterQueryInput;
 
   return normalizeMapFilters({
     salePriceFrom: parsed.salePriceFrom ?? null,
@@ -370,7 +396,9 @@ export function parsePropertyMarketFiltersQuery(query: unknown): MapFilters {
     rentPriceFrom: parsed.rentPriceFrom ?? null,
     rentPriceTo: parsed.rentPriceTo ?? null,
     marketState: parseMarketStateInput(parsed.marketState),
-    activity: 'all',
+    activity: parsed.activity ?? 'all',
+    listedSince: parsed.listedSince ?? 'all',
+    scope: parsed.scope ?? 'public',
     areas: parseAreaInput(parsed.area),
   });
 }
@@ -386,6 +414,8 @@ export function parseFollowingMapFiltersQuery(query: unknown): MapFilters {
     rentPriceTo: parsed.rentPriceTo ?? null,
     marketState: parseMarketStateInput(parsed.marketState),
     activity,
+    listedSince: parsed.listedSince ?? 'all',
+    scope: parsed.scope ?? 'following',
     areas: parseAreaInput(parsed.area),
   });
 }
@@ -397,6 +427,8 @@ export function areMapFiltersDefault(filters: MapFilters): boolean {
     filters.rentPriceFrom == null &&
     filters.rentPriceTo == null &&
     filters.activity === 'all' &&
+    filters.listedSince === 'all' &&
+    filters.scope === 'public' &&
     filters.areas.length === 0 &&
     filters.marketState.length === DEFAULT_MARKET_STATE_ORDER.length &&
     filters.marketState.every((value, index) => value === DEFAULT_MARKET_STATE_ORDER[index])
@@ -416,6 +448,8 @@ function applyMapFiltersToSearchParams(
   next.delete('rentPriceTo');
   next.delete('marketState');
   next.delete('activity');
+  next.delete('listedSince');
+  next.delete('scope');
   next.delete('area');
 
   if (normalized.salePriceFrom != null) {
@@ -435,6 +469,12 @@ function applyMapFiltersToSearchParams(
   }
   if (normalized.activity !== 'all') {
     next.set('activity', normalized.activity);
+  }
+  if (normalized.listedSince !== 'all') {
+    next.set('listedSince', normalized.listedSince);
+  }
+  if (normalized.scope !== 'public') {
+    next.set('scope', normalized.scope);
   }
   for (const area of normalized.areas) {
     const serialized = serializeLocationFilterToken(area);
@@ -715,6 +755,7 @@ export function buildPropertyMarketFilterQuery(
   const normalized = normalizeMapFilters({
     ...filters,
     activity: 'all',
+    scope: 'public',
     areas: [],
   });
 
@@ -739,6 +780,7 @@ export function buildPropertyMarketFilterQuery(
   const marketStateColumn = sql.raw('lf.market_state');
   const saleEffectivePriceColumn = sql.raw('lf.sale_effective_price');
   const rentEffectivePriceColumn = sql.raw('lf.rent_effective_price');
+  const listedLifecycleColumn = sql.raw('lf.displayed_listing_lifecycle_at');
 
   if (normalized.marketState.length !== DEFAULT_MARKET_STATE_ORDER.length) {
     predicates.push(sql`${marketStateColumn} IN ${buildStateList(normalized.marketState)}`);
@@ -794,6 +836,26 @@ export function buildPropertyMarketFilterQuery(
         normalized.rentPriceTo
       )
     );
+  }
+
+  switch (normalized.listedSince) {
+    case 'today':
+      predicates.push(sql`${listedLifecycleColumn} >= NOW() - INTERVAL '24 hours'`);
+      break;
+    case '3d':
+      predicates.push(sql`${listedLifecycleColumn} >= NOW() - INTERVAL '3 days'`);
+      break;
+    case '5d':
+      predicates.push(sql`${listedLifecycleColumn} >= NOW() - INTERVAL '5 days'`);
+      break;
+    case '10d':
+      predicates.push(sql`${listedLifecycleColumn} >= NOW() - INTERVAL '10 days'`);
+      break;
+    case '30d':
+      predicates.push(sql`${listedLifecycleColumn} >= NOW() - INTERVAL '30 days'`);
+      break;
+    case 'all':
+      break;
   }
 
   return {

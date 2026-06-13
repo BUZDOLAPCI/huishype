@@ -508,6 +508,8 @@ type SharedMarketAreaQueryKeys =
   | 'rentPriceFrom'
   | 'rentPriceTo'
   | 'marketState'
+  | 'activity'
+  | 'listedSince'
   | 'area';
 const feedContractAssertions = [
   true as Assert<IsExact<FeedQueryFromOpenApi, GetFeedRequest>>,
@@ -527,15 +529,14 @@ const feedContractAssertions = [
       | 'lat'
       | 'lon'
       | 'country'
+      | 'scope'
       | SharedMarketAreaQueryKeys
     >
   >,
-  true as Expect<Equal<Extract<keyof FeedQuery, 'activity'>, never>>,
   true as Expect<
     Equal<keyof GroupedPropertyActivityQuery, 'scope' | 'limit' | 'offset' | SharedMarketAreaQueryKeys>
   >,
-  true as Expect<Equal<Extract<keyof GroupedPropertyActivityQuery, 'activity'>, never>>,
-  true as Expect<Equal<FeedQuery['filter'], 'trending' | 'latest' | undefined>>,
+  true as Expect<Equal<FeedQuery['filter'], 'trending' | undefined>>,
   true as Expect<
     Equal<FeedResponseFromOpenApi['items'][number]['activityLevel'], 'hot' | 'warm' | 'cold'>
   >,
@@ -561,19 +562,19 @@ const feedContractAssertions = [
   true as Expect<
     Equal<
       ActivityResponseFromOpenApi['items'][number]['eventType'],
-      'comment' | 'property_like' | 'price_guess'
+      'comment' | 'property_like' | 'price_guess' | 'just_listed'
     >
   >,
   true as Expect<
     Equal<
       SelfActivityResponseFromOpenApi['items'][number]['eventType'],
-      'comment' | 'property_like' | 'price_guess' | 'save'
+      'comment' | 'property_like' | 'price_guess' | 'just_listed' | 'save'
     >
   >,
   true as Expect<
     Equal<
       PublicUserActivityResponseFromOpenApi['items'][number]['eventType'],
-      'comment' | 'property_like' | 'price_guess'
+      'comment' | 'property_like' | 'price_guess' | 'just_listed'
     >
   >,
   true as Expect<Equal<keyof PublicUserAchievementsResponseFromOpenApi, 'earned'>>,
@@ -1241,15 +1242,17 @@ describe('HuisHypeApiClient', () => {
     try {
       await expect(
         client.getFeed({
-          filter: 'latest',
+          filter: 'trending',
           salePriceFrom: 450000,
           marketState: ['for-sale', 'sold'],
+          activity: '10d',
+          listedSince: '3d',
           area: ['city:NL:eindhoven', 'current-location:52.370216:4.895168:7500'],
         })
       ).resolves.toHaveProperty('items');
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3100/feed?filter=latest&salePriceFrom=450000&marketState=for-sale%2Csold&area=city%3ANL%3Aeindhoven&area=current-location%3A52.370216%3A4.895168%3A7500',
+        'http://localhost:3100/feed?filter=trending&salePriceFrom=450000&marketState=for-sale%2Csold&activity=10d&listedSince=3d&area=city%3ANL%3Aeindhoven&area=current-location%3A52.370216%3A4.895168%3A7500',
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({
@@ -1262,7 +1265,7 @@ describe('HuisHypeApiClient', () => {
     }
   });
 
-  it('serializes grouped property activity shared filters without activity time filters', async () => {
+  it('serializes grouped property activity shared filters including activity time filters', async () => {
     const client = createApiClient({
       baseUrl: 'http://localhost:3100',
       accessToken: 'mock-token',
@@ -1292,12 +1295,14 @@ describe('HuisHypeApiClient', () => {
           offset: 0,
           rentPriceTo: 2500,
           marketState: ['for-rent', 'rented'],
+          activity: '30d',
+          listedSince: '10d',
           area: ['city:NL:eindhoven'],
         })
       ).resolves.toHaveProperty('items');
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:3100/activity/properties?scope=following&limit=20&offset=0&rentPriceTo=2500&marketState=for-rent%2Crented&area=city%3ANL%3Aeindhoven',
+        'http://localhost:3100/activity/properties?scope=following&limit=20&offset=0&rentPriceTo=2500&marketState=for-rent%2Crented&activity=30d&listedSince=10d&area=city%3ANL%3Aeindhoven',
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({

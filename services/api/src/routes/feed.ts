@@ -12,8 +12,11 @@ import {
   buildPropertyMarketFilterQuery,
   getMapFilterSignature,
   parsePropertyMarketFiltersQuery,
+  type MapActivityFilter,
   type MapFilters,
+  type MapListedSinceFilter,
 } from '../services/map-filters.js';
+import { activityActorPredicate } from '../services/activity-feed.js';
 
 // --- Zod schemas ---
 
@@ -68,6 +71,9 @@ const feedRouteQuerySchema = feedQuerySchema.extend({
   salePriceTo: z.coerce.number().int().positive().optional(),
   rentPriceFrom: z.coerce.number().int().positive().optional(),
   rentPriceTo: z.coerce.number().int().positive().optional(),
+  activity: z.enum(['all', 'today', '10d', '30d', 'all-time']).optional().default('all'),
+  listedSince: z.enum(['all', 'today', '3d', '5d', '10d', '30d']).optional().default('all'),
+  scope: z.enum(['public', 'following']).optional().default('public'),
   marketState: z.union([z.string(), z.array(z.string())]).optional(),
   area: z.union([z.string(), z.array(z.string())]).optional(),
 });
@@ -128,7 +134,8 @@ function buildFeedCacheKey(query: FeedRouteQuery, filters: MapFilters): string {
     query.country ?? '',
     query.lat ?? '',
     query.lon ?? '',
-    getMapFilterSignature({ ...filters, activity: 'all' }),
+    query.scope ?? 'public',
+    getMapFilterSignature(filters),
   ].join('|');
 }
 
@@ -175,16 +182,56 @@ function setCachedFeedResponse(cacheKey: string, response: FeedResponse): void {
   });
 }
 
-function buildFeedOrderExpression(scoreAlias: string, filter: FeedRouteQuery['filter']) {
+function buildFeedOrderExpression(scoreAlias: string) {
+  return sql`${sql.raw(`${scoreAlias}.trending_score`)} DESC, ${sql.raw(
+    `${scoreAlias}.last_activity_at`
+  )} DESC, ${sql.raw(`${scoreAlias}.id`)}`;
+}
+
+function buildListedSinceFilterPredicate(filter: MapListedSinceFilter, alias = 'lf') {
+  const lifecycleColumn = sql.raw(`${alias}.displayed_listing_lifecycle_at`);
+
   switch (filter) {
-    case 'latest':
-      return sql`${sql.raw(`${scoreAlias}.last_activity_at`)} DESC, ${sql.raw(`${scoreAlias}.id`)}`;
-    case 'trending':
+    case 'today':
+      return sql`${lifecycleColumn} >= NOW() - INTERVAL '24 hours'`;
+    case '3d':
+      return sql`${lifecycleColumn} >= NOW() - INTERVAL '3 days'`;
+    case '5d':
+      return sql`${lifecycleColumn} >= NOW() - INTERVAL '5 days'`;
+    case '10d':
+      return sql`${lifecycleColumn} >= NOW() - INTERVAL '10 days'`;
+    case '30d':
+      return sql`${lifecycleColumn} >= NOW() - INTERVAL '30 days'`;
+    case 'all':
     default:
-      return sql`${sql.raw(`${scoreAlias}.trending_score`)} DESC, ${sql.raw(
-        `${scoreAlias}.last_activity_at`
-      )} DESC, ${sql.raw(`${scoreAlias}.id`)}`;
+      return sql`TRUE`;
   }
+}
+
+function buildFeedActivityPredicate(activity: MapActivityFilter, requireSocialActivity: boolean) {
+  const lastSocialAt = sql.raw('cfr.qualifying_social_last_activity_at');
+
+  if (activity === 'all') {
+    return requireSocialActivity ? sql`${lastSocialAt} IS NOT NULL` : sql`TRUE`;
+  }
+
+  if (activity === 'all-time') {
+    return sql`${lastSocialAt} IS NOT NULL`;
+  }
+
+  if (activity === 'today') {
+    return sql`${lastSocialAt} >= NOW() - INTERVAL '24 hours'`;
+  }
+
+  if (activity === '10d') {
+    return sql`${lastSocialAt} >= NOW() - INTERVAL '10 days'`;
+  }
+
+  return sql`${lastSocialAt} >= NOW() - INTERVAL '30 days'`;
+}
+
+function feedCacheControl(scope: FeedRouteQuery['scope']) {
+  return scope === 'following' ? 'private, no-store' : FEED_CACHE_CONTROL;
 }
 
 function buildFeedListingSortExpression(alias: string) {
@@ -242,6 +289,13 @@ function buildFeedListingFactsJoin(propertyAlias = 'p', alias = 'lf') {
         active_listing.asking_price AS asking_price,
         active_listing.sort_at AS active_listing_sort_at,
         latest_listing.sort_at AS latest_listing_sort_at,
+        CASE
+          WHEN active_listing.id IS NOT NULL
+            THEN active_listing.listed_at
+          WHEN latest_listing.status IN ('sold', 'rented')
+            THEN latest_listing.listed_at
+          ELSE NULL
+        END AS displayed_listing_lifecycle_at,
         listing_thumbnail.thumbnail_url AS thumbnail_url,
         CASE
           WHEN active_listing.id IS NOT NULL AND active_listing.normalized_price_type = 'rent'
@@ -260,6 +314,7 @@ function buildFeedListingFactsJoin(propertyAlias = 'p', alias = 'lf') {
           cl.id,
           cl.asking_price,
           ${buildFeedListingPriceTypeExpression('cl')} AS normalized_price_type,
+          COALESCE(cl.listed_at, cl.first_seen_at, cl.created_at) AS listed_at,
           ${buildFeedListingSortValue('cl')} AS sort_at
         FROM canonical_listings cl
         WHERE cl.property_id = ${idColumn}
@@ -271,6 +326,7 @@ function buildFeedListingFactsJoin(propertyAlias = 'p', alias = 'lf') {
       LEFT JOIN LATERAL (
         SELECT
           cl.status::text AS status,
+          COALESCE(cl.listed_at, cl.first_seen_at, cl.created_at) AS listed_at,
           ${buildFeedListingSortValue('cl')} AS sort_at
         FROM canonical_listings cl
         WHERE cl.property_id = ${idColumn}
@@ -308,26 +364,62 @@ export async function feedRoutes(app: FastifyInstance) {
         summary: 'Get property feed',
         description:
           'Get a paginated activity feed of listing-backed and socially active properties. ' +
-          'Filters: trending (weighted 7-day activity) and latest (most recent activity). ' +
-          'Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.',
+          'Trending is ranked with weighted activity and freshness. Shared market, price, area, activity, listed-since, and scope filters are supported.',
         querystring: feedRouteQuerySchema,
         response: {
           200: feedResponseSchema,
         },
       },
+      onRequest: [app.optionalAuth],
     },
     async (request, reply) => {
-      const { filter, page, limit, lat, lon, country } = request.query;
+      const { page, limit, lat, lon, country, scope } = request.query;
       const offset = (page - 1) * limit;
       const sharedFilters = parsePropertyMarketFiltersQuery(request.query);
       const marketFilterQuery = buildPropertyMarketFilterQuery(sharedFilters, 'p');
       const areaFilterPredicate = buildLocationAreaFilterPredicate(sharedFilters.areas, 'p');
+      const listedSincePredicate = buildListedSinceFilterPredicate(
+        sharedFilters.listedSince,
+        'cfr'
+      );
+      const requireSocialActivity = scope === 'following' || sharedFilters.activity !== 'all';
+      const feedActivityPredicate = buildFeedActivityPredicate(
+        sharedFilters.activity,
+        requireSocialActivity
+      );
+      const propertyLikeActorPredicate = activityActorPredicate(
+        scope,
+        'r.user_id',
+        request.userId ?? null
+      );
+      const commentActorPredicate = activityActorPredicate(
+        scope,
+        'c.user_id',
+        request.userId ?? null
+      );
+      const priceGuessActorPredicate = activityActorPredicate(
+        scope,
+        'pg.user_id',
+        request.userId ?? null
+      );
+      const commentLikeActorPredicate = activityActorPredicate(
+        scope,
+        'r.user_id',
+        request.userId ?? null
+      );
+      if (scope === 'following' && !request.userId) {
+        return reply.status(401).send({
+          error: 'UNAUTHORIZED',
+          message: 'Authentication required',
+        });
+      }
+
       const cacheKey = buildFeedCacheKey(request.query, sharedFilters);
-      const cached = getCachedFeedResponse(cacheKey);
+      const cached = scope === 'public' ? getCachedFeedResponse(cacheKey) : null;
 
       if (cached) {
         return reply
-          .header('Cache-Control', FEED_CACHE_CONTROL)
+          .header('Cache-Control', feedCacheControl(scope))
           .header('X-Feed-Cache', 'hit')
           .send(cached);
       }
@@ -354,7 +446,7 @@ export async function feedRoutes(app: FastifyInstance) {
       // Country filter condition
       const countryCondition = country ? sql`AND p.country_code = ${country}` : sql``;
 
-      const feedOrderExpression = buildFeedOrderExpression('cfr', filter);
+      const feedOrderExpression = buildFeedOrderExpression('cfr');
 
       const rows = await db.transaction(async (tx) => {
         await tx.execute(sql`SET LOCAL jit = off`);
@@ -421,6 +513,7 @@ export async function feedRoutes(app: FastifyInstance) {
             GREATEST(pg.created_at, pg.updated_at) AS effective_at
           FROM price_guesses pg
           INNER JOIN candidate_properties cp ON cp.property_id = pg.property_id
+          WHERE ${priceGuessActorPredicate}
           ORDER BY
             pg.property_id,
             pg.user_id,
@@ -458,6 +551,7 @@ export async function feedRoutes(app: FastifyInstance) {
           INNER JOIN candidate_properties cp ON cp.property_id = c.property_id
           WHERE cp.comments_disabled_at IS NULL
             AND c.hidden_at IS NULL
+            AND ${commentActorPredicate}
           GROUP BY c.property_id
         ),
         ordering_property_like_facts AS MATERIALIZED (
@@ -472,6 +566,7 @@ export async function feedRoutes(app: FastifyInstance) {
           INNER JOIN candidate_properties cp ON cp.property_id = r.target_id
           WHERE r.target_type = 'property'
             AND r.reaction_type = 'like'
+            AND ${propertyLikeActorPredicate}
           GROUP BY r.target_id
         ),
         ordering_comment_like_facts AS MATERIALIZED (
@@ -485,6 +580,7 @@ export async function feedRoutes(app: FastifyInstance) {
             AND r.reaction_type = 'like'
             AND cp.comments_disabled_at IS NULL
             AND c.hidden_at IS NULL
+            AND ${commentLikeActorPredicate}
           GROUP BY c.property_id
         ),
         ordering_view_facts AS MATERIALIZED (
@@ -513,6 +609,7 @@ export async function feedRoutes(app: FastifyInstance) {
             lf.thumbnail_url,
             lf.has_listing,
             lf.market_state,
+            lf.displayed_listing_lifecycle_at,
             COALESCE(ocf.comment_count, 0)::int AS comment_count,
             COALESCE(ogf.guess_count, 0)::int AS guess_count,
             COALESCE(oplf.property_like_count, 0)::int AS like_count,
@@ -526,6 +623,13 @@ export async function feedRoutes(app: FastifyInstance) {
               + COALESCE(ogf.recent_guess_count, 0)::numeric * 2.0
               + COALESCE(oplf.recent_property_like_count, 0)::numeric * 0.5
             ) AS trending_score,
+            GREATEST(
+              ocf.latest_top_level_comment_at,
+              ocf.latest_reply_at,
+              oplf.latest_property_like_at,
+              oclf.latest_comment_like_at,
+              ogf.latest_guess_at
+            ) AS qualifying_social_last_activity_at,
             GREATEST(
               ocf.latest_top_level_comment_at,
               ocf.latest_reply_at,
@@ -579,6 +683,8 @@ export async function feedRoutes(app: FastifyInstance) {
           cfr.social_last_activity_at,
           cfr.last_activity_at
         FROM candidate_feed_rows cfr
+        WHERE ${listedSincePredicate}
+          AND ${feedActivityPredicate}
         ORDER BY ${feedOrderExpression}
         LIMIT ${limit + 1}
         OFFSET ${offset}
@@ -638,10 +744,12 @@ export async function feedRoutes(app: FastifyInstance) {
         },
       };
 
-      setCachedFeedResponse(cacheKey, response);
+      if (scope === 'public') {
+        setCachedFeedResponse(cacheKey, response);
+      }
 
       return reply
-        .header('Cache-Control', FEED_CACHE_CONTROL)
+        .header('Cache-Control', feedCacheControl(scope))
         .header('X-Feed-Cache', 'miss')
         .send(response);
     }

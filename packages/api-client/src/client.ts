@@ -21,6 +21,7 @@ import type {
   CreateCommentRequest,
   CreateCommentResponse,
   GetFeedRequest,
+  GetActivityRequest,
   GetGroupedPropertyActivityRequest,
   GetGroupedPropertyActivityResponse,
   GetFollowingNearbyPropertyRequest,
@@ -62,10 +63,7 @@ type FollowListResponse =
   paths['/users/me/followers']['get']['responses'][200]['content']['application/json'];
 type FollowActionResponse =
   paths['/users/{id}/follow']['put']['responses'][200]['content']['application/json'];
-type ActivityQuery = NonNullable<paths['/activity']['get']['parameters']['query']>;
 type ActivityResponse = paths['/activity']['get']['responses'][200]['content']['application/json'];
-type GroupedPropertyActivityQuery =
-  NonNullable<paths['/activity/properties']['get']['parameters']['query']>;
 type GroupedPropertyActivityResponseFromOpenApi =
   paths['/activity/properties']['get']['responses'][200]['content']['application/json'];
 type MyActivityQuery = NonNullable<paths['/users/me/activity']['get']['parameters']['query']>;
@@ -666,8 +664,12 @@ export class HuisHypeApiClient {
         rentPriceFrom: params.rentPriceFrom,
         rentPriceTo: params.rentPriceTo,
         marketState,
+        activity: params.activity,
+        listedSince: params.listedSince,
+        scope: params.scope,
         area: params.area,
       },
+      requiresAuth: params.scope === 'following',
     });
   }
 
@@ -693,13 +695,22 @@ export class HuisHypeApiClient {
   // Activity Endpoints  (paths: /activity, /users/me/activity, /users/:id/activity)
   // ============================================
 
-  async getActivity(params: ActivityQuery = {}): Promise<ActivityResponse> {
+  async getActivity(params: GetActivityRequest = {}): Promise<ActivityResponse> {
     return this.request<ActivityResponse>('GET', '/activity', {
       query: {
         scope: params.scope,
+        activity: params.activity,
+        listedSince: params.listedSince,
+        salePriceFrom: params.salePriceFrom,
+        salePriceTo: params.salePriceTo,
+        rentPriceFrom: params.rentPriceFrom,
+        rentPriceTo: params.rentPriceTo,
+        marketState: serializeMarketStateQuery(params.marketState),
+        area: params.area,
         limit: params.limit,
         offset: params.offset,
       },
+      requiresAuth: params.scope === 'following',
     });
   }
 
@@ -716,8 +727,10 @@ export class HuisHypeApiClient {
       rentPriceFrom: params.rentPriceFrom,
       rentPriceTo: params.rentPriceTo,
       marketState,
+      activity: params.activity,
+      listedSince: params.listedSince,
       area: params.area,
-    } satisfies GroupedPropertyActivityQuery;
+    };
 
     return this.request<GroupedPropertyActivityResponseFromOpenApi>('GET', '/activity/properties', {
       query,

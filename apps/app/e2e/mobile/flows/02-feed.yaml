@@ -21,7 +21,7 @@ appId: nl.huishype.app
 - assertVisible:
     id: 'filter-chip-trending'
 - assertVisible:
-    id: 'filter-chip-latest'
+    id: 'filter-chip-activity'
 
 - takeScreenshot: test-results/visual-overhaul/feed-trending/android/feed-trending-filter.png
 

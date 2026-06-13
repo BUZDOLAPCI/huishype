@@ -8,6 +8,7 @@ import { useCallback, useMemo } from 'react';
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Platform } from 'react-native';
 import { API_URL, type OfficialValuationSourceFetch } from '../utils/api';
+import { useAuthContext } from '../providers/AuthProvider';
 import type { CountryCode, MapMarketState, PropertyFeedFilter } from '@huishype/shared';
 import { getPropertyThumbnailFromGeometry } from '../lib/propertyThumbnail';
 import {
@@ -146,6 +147,15 @@ function appendSharedFeedFilterParams(params: URLSearchParams, filters?: MapFilt
   if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
     params.set('marketState', normalized.marketState.join(','));
   }
+  if (normalized.activity !== 'all') {
+    params.set('activity', normalized.activity);
+  }
+  if (normalized.listedSince !== 'all') {
+    params.set('listedSince', normalized.listedSince);
+  }
+  if (normalized.scope !== 'public') {
+    params.set('scope', normalized.scope);
+  }
   for (const area of normalized.areas ?? []) {
     const serialized = serializeLocationFilterToken(area);
     if (serialized) {
@@ -246,7 +256,8 @@ async function fetchFeed(
   limit: number = 20,
   filter: PropertyFeedFilter = 'trending',
   scope?: FeedScope,
-  sharedFilters?: MapFilters
+  sharedFilters?: MapFilters,
+  accessToken?: string | null
 ): Promise<{
   properties: FeedProperty[];
   meta: { page: number; limit: number; hasMore: boolean };
@@ -270,7 +281,12 @@ async function fetchFeed(
   }
   appendSharedFeedFilterParams(params, sharedFilters);
 
-  const response = await fetch(`${API_URL}/feed?${params.toString()}`);
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  const response = await fetch(`${API_URL}/feed?${params.toString()}`, { headers });
 
   if (!response.ok) {
     throw new Error(`Failed to fetch feed: ${response.status}`);
@@ -298,10 +314,15 @@ export function useFeed(
   sharedFilters?: MapFilters
 ) {
   const queryClient = useQueryClient();
+  const { getAccessToken, isAuthenticated } = useAuthContext();
+  const effectiveScope = sharedFilters ? normalizeMapFilters(sharedFilters).scope : 'public';
   const query = useQuery({
     queryKey: feedKeys.list(filter, scope, sharedFilters),
-    queryFn: () => fetchFeed(1, FEED_PAGE_SIZE, filter, scope, sharedFilters),
-    enabled,
+    queryFn: async () => {
+      const accessToken = effectiveScope === 'following' ? await getAccessToken() : null;
+      return fetchFeed(1, FEED_PAGE_SIZE, filter, scope, sharedFilters, accessToken);
+    },
+    enabled: enabled && (effectiveScope === 'public' || isAuthenticated),
     staleTime: 30 * 1000, // 30 seconds
     refetchOnWindowFocus: false,
   });
@@ -368,15 +389,19 @@ export function useInfiniteFeed(
   }
 ) {
   const queryClient = useQueryClient();
+  const { getAccessToken, isAuthenticated } = useAuthContext();
+  const effectiveScope = sharedFilters ? normalizeMapFilters(sharedFilters).scope : 'public';
   const query = useInfiniteQuery({
     queryKey: feedKeys.infinite(filter, scope, sharedFilters),
-    queryFn: ({ pageParam = 1 }) =>
-      fetchFeed(pageParam, FEED_PAGE_SIZE, filter, scope, sharedFilters),
+    queryFn: async ({ pageParam = 1 }) => {
+      const accessToken = effectiveScope === 'following' ? await getAccessToken() : null;
+      return fetchFeed(pageParam, FEED_PAGE_SIZE, filter, scope, sharedFilters, accessToken);
+    },
     initialPageParam: 1,
     getNextPageParam: (lastPage) => {
       return lastPage.meta.hasMore ? lastPage.meta.page + 1 : undefined;
     },
-    enabled,
+    enabled: enabled && (effectiveScope === 'public' || isAuthenticated),
     staleTime: 30 * 1000, // 30 seconds
     refetchOnWindowFocus: false,
   });

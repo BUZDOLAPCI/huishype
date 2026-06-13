@@ -201,28 +201,35 @@ describe('profile identity schemas', () => {
 describe('feedQuerySchema', () => {
   it('accepts the canonical property feed query shape', () => {
     const parsed = feedQuerySchema.safeParse({
-      filter: 'latest',
+      filter: 'trending',
       page: '2',
       limit: '10',
       lat: '52.37',
       lon: '4.89',
       country: 'nl',
+      activity: '10d',
+      listedSince: '3d',
+      scope: 'following',
     });
 
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data).toEqual({
-        filter: 'latest',
+        filter: 'trending',
         page: 2,
         limit: 10,
         lat: 52.37,
         lon: 4.89,
         country: 'NL',
+        activity: '10d',
+        listedSince: '3d',
+        scope: 'following',
       });
     }
   });
 
   it('rejects obsolete feed filters', () => {
+    expect(feedQuerySchema.safeParse({ filter: 'latest' }).success).toBe(false);
     expect(feedQuerySchema.safeParse({ filter: 'new' }).success).toBe(false);
     expect(feedQuerySchema.safeParse({ filter: 'controversial' }).success).toBe(false);
     expect(feedQuerySchema.safeParse({ filter: 'overpriced' }).success).toBe(false);
@@ -230,6 +237,6 @@ describe('feedQuerySchema', () => {
   });
 
   it('exports the canonical property feed filter enum', () => {
-    expect(propertyFeedFilterSchema.options).toEqual(['trending', 'latest']);
+    expect(propertyFeedFilterSchema.options).toEqual(['trending']);
   });
 });

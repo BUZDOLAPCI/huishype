@@ -9,6 +9,8 @@ import type {
   MapMarketState,
   PropertyMarketFilters,
   MapActivityFilter,
+  MapListedSinceFilter,
+  MapScopeFilter,
 } from './property.js';
 import type {
   ListingSummary,
@@ -483,11 +485,10 @@ export interface LikeCommentResponse {
 // ============================================
 
 // Feed tabs shown in the app UI.
-// Property feed tabs are derived from the canonical /feed contract.
-export type FeedTab = PropertyFeedFilter | 'recent-activity' | 'following';
+export type FeedTab = 'trending' | 'activity';
 
 // Filters accepted by the property-only /feed endpoint.
-export type PropertyFeedFilter = 'trending' | 'latest';
+export type PropertyFeedFilter = 'trending';
 
 export interface FeedItem {
   id: string;
@@ -524,6 +525,9 @@ export interface GetFeedRequest {
   rentPriceFrom?: number;
   rentPriceTo?: number;
   marketState?: string | string[];
+  activity?: MapActivityFilter;
+  listedSince?: MapListedSinceFilter;
+  scope?: MapScopeFilter;
   area?: string | string[];
 }
 
@@ -614,6 +618,7 @@ export interface PropertyTileJson {
 export interface FollowingPropertyTileRequest extends Omit<PropertyMarketFilters, 'marketState'> {
   marketState?: MapMarketState | MapMarketState[];
   activity?: MapActivityFilter;
+  scope?: MapScopeFilter;
   area?: string | string[];
 }
 
@@ -750,6 +755,14 @@ export type GetLeaderboardResponse = LeaderboardResponse;
 
 export interface GetActivityRequest {
   scope?: 'public' | 'following';
+  activity?: MapActivityFilter;
+  listedSince?: MapListedSinceFilter;
+  salePriceFrom?: number;
+  salePriceTo?: number;
+  rentPriceFrom?: number;
+  rentPriceTo?: number;
+  marketState?: string | string[];
+  area?: string | string[];
   limit?: number;
   offset?: number;
 }
@@ -763,6 +776,8 @@ export interface GetGroupedPropertyActivityRequest {
   rentPriceFrom?: number;
   rentPriceTo?: number;
   marketState?: string | string[];
+  activity?: MapActivityFilter;
+  listedSince?: MapListedSinceFilter;
   area?: string | string[];
 }
 

@@ -230,8 +230,11 @@ export const reactionTypeSchema = z.enum(['like', 'share']);
 // Feed Schemas
 // ============================================
 
-export const propertyFeedFilterSchema = z.enum(['trending', 'latest']);
+export const propertyFeedFilterSchema = z.enum(['trending']);
 const feedMarketStateSchema = z.enum(['for-sale', 'for-rent', 'sold', 'rented', 'not-listed']);
+const sharedActivityFilterSchema = z.enum(['all', 'today', '10d', '30d', 'all-time']);
+const listedSinceFilterSchema = z.enum(['all', 'today', '3d', '5d', '10d', '30d']);
+const sharedScopeFilterSchema = z.enum(['public', 'following']);
 
 export const feedQuerySchema = z.object({
   filter: propertyFeedFilterSchema.default('trending'),
@@ -249,6 +252,9 @@ export const feedQuerySchema = z.object({
   salePriceTo: z.coerce.number().int().positive().optional(),
   rentPriceFrom: z.coerce.number().int().positive().optional(),
   rentPriceTo: z.coerce.number().int().positive().optional(),
+  activity: sharedActivityFilterSchema.optional().default('all'),
+  listedSince: listedSinceFilterSchema.optional().default('all'),
+  scope: sharedScopeFilterSchema.optional().default('public'),
   marketState: z
     .string()
     .refine(

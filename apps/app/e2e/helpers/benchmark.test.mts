@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import benchmarkModule from './benchmark.ts';
+import * as benchmarkModule from './benchmark.ts';
 import type { BenchmarkRun, RequestMetric, RouteBenchmarkSample } from './benchmark.ts';
 
 const {
@@ -16,7 +16,7 @@ const {
   summarizeRequests,
   summarizeTileRequests,
   writeBenchmarkArtifacts,
-} = benchmarkModule as typeof import('./benchmark.ts');
+} = benchmarkModule;
 
 const baseHeaders: RequestMetric['headers'] = {
   age: null,
@@ -92,8 +92,7 @@ test('BENCHMARK_ROUTES covers low, transition, high zoom, and feed benchmark sur
     'highZoom16',
     'highZoom17',
     'feedTrending',
-    'feedLatest',
-    'feedRecentActivity',
+    'feedActivity',
     'feedFilteredEindhovenSale',
   ]);
 
@@ -120,10 +119,10 @@ test('getBenchmarkRoutes filters benchmark route keys from BENCHMARK_ROUTE_KEYS'
       Object.keys(BENCHMARK_ROUTES),
     );
 
-    process.env.BENCHMARK_ROUTE_KEYS = 'feedTrending, feedRecentActivity';
+    process.env.BENCHMARK_ROUTE_KEYS = 'feedTrending, feedActivity';
     assert.deepEqual(
       getBenchmarkRoutes().map(([routeKey]) => routeKey),
-      ['feedTrending', 'feedRecentActivity'],
+      ['feedTrending', 'feedActivity'],
     );
   } finally {
     if (previousRouteKeys === undefined) {

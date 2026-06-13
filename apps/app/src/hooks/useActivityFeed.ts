@@ -65,6 +65,12 @@ function appendSharedActivityFilterParams(params: URLSearchParams, filters?: Map
   if (normalized.marketState.length !== MAP_MARKET_STATES.length) {
     params.set('marketState', normalized.marketState.join(','));
   }
+  if (normalized.activity !== 'all') {
+    params.set('activity', normalized.activity);
+  }
+  if (normalized.listedSince !== 'all') {
+    params.set('listedSince', normalized.listedSince);
+  }
   for (const area of normalized.areas ?? []) {
     const serialized = serializeLocationFilterToken(area);
     if (serialized) {
@@ -130,25 +136,27 @@ export function useActivityFeed(
   filters?: MapFilters
 ) {
   const { getAccessToken, isAuthenticated, user } = useAuthContext();
-  const viewerKey = scope === 'following' ? (user?.id ?? 'anon') : 'public';
+  const normalizedFilters = filters ? normalizeMapFilters(filters) : null;
+  const effectiveScope = normalizedFilters?.scope ?? scope;
+  const viewerKey = effectiveScope === 'following' ? (user?.id ?? 'anon') : 'public';
 
   return useInfiniteQuery({
-    queryKey: activityFeedKeys.infinite(scope, viewerKey, filters),
+    queryKey: activityFeedKeys.infinite(effectiveScope, viewerKey, filters),
     queryFn: async ({ pageParam = 0 }) => {
-      const accessToken = scope === 'following' ? await getAccessToken() : null;
+      const accessToken = effectiveScope === 'following' ? await getAccessToken() : null;
 
-      if (scope === 'following' && !accessToken) {
+      if (effectiveScope === 'following' && !accessToken) {
         throw new Error('Not authenticated');
       }
 
-      return fetchActivityFeed(scope, PAGE_SIZE, pageParam, accessToken, filters);
+      return fetchActivityFeed(effectiveScope, PAGE_SIZE, pageParam, accessToken, filters);
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       if (!lastPage.pagination.hasMore) return undefined;
       return lastPageParam + PAGE_SIZE;
     },
-    enabled: enabled && (scope === 'public' || (isAuthenticated && !!user)),
+    enabled: enabled && (effectiveScope === 'public' || (isAuthenticated && !!user)),
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   });

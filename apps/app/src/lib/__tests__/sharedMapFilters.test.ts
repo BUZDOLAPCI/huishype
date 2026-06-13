@@ -159,6 +159,9 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceTo: 2000,
           marketState: ['for-rent'],
           activity: 'all',
+          listedSince: 'all',
+          scope: 'public',
+          areas: [],
         },
       ),
     ).toBe(true);
@@ -179,6 +182,9 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceTo: null,
           marketState: ['for-sale'],
           activity: 'all-time',
+          listedSince: 'all',
+          scope: 'public',
+          areas: [],
         },
       ),
     ).toBe(true);
@@ -197,6 +203,9 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceTo: null,
           marketState: ['for-sale'],
           activity: 'today',
+          listedSince: 'all',
+          scope: 'public',
+          areas: [],
         },
       ),
     ).toBe(false);
@@ -212,6 +221,9 @@ describe('sharedMapFilters price suggestions', () => {
           rentPriceTo: null,
           marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
           activity: 'all',
+          listedSince: 'all',
+          scope: 'public',
+          areas: [],
         },
         'for-sale',
       ),
@@ -227,6 +239,9 @@ describe('sharedMapFilters price suggestions', () => {
         rentPriceTo: null,
         marketState: ['for-sale', 'for-rent', 'sold', 'rented', 'not-listed'],
         activity: 'all',
+        listedSince: 'all',
+        scope: 'public',
+        areas: [],
       },
       'sold',
     );
@@ -243,21 +258,21 @@ describe('sharedMapFilters price suggestions', () => {
     expect(reset.activity).toBe('all');
   });
 
-  it('removes deprecated socialScope from public search serialization', () => {
+  it('serializes following scope as normal shared filter state', () => {
     const params = updateMapFilterSearchParams(
-      new URLSearchParams('socialScope=following&foo=bar'),
-      createDefaultMapFilters(),
+      new URLSearchParams('foo=bar'),
+      { ...createDefaultMapFilters(), scope: 'following' },
     );
 
-    expect(params.get('socialScope')).toBeNull();
+    expect(params.get('scope')).toBe('following');
     expect(params.get('foo')).toBe('bar');
   });
 
-  it('keeps app-local socialScope out of public tile and nearby URLs', () => {
-    const filters = createDefaultMapFilters();
+  it('keeps following scope in public tile and nearby URLs', () => {
+    const filters = { ...createDefaultMapFilters(), scope: 'following' as const };
 
-    expect(buildPropertyTileTemplateUrl('http://api.test', filters)).not.toContain('socialScope');
-    expect(buildNearbyGroupPath(5.47, 51.44, 14, filters)).not.toContain('socialScope');
+    expect(buildPropertyTileTemplateUrl('http://api.test', filters)).toContain('scope=following');
+    expect(buildNearbyGroupPath(5.47, 51.44, 14, filters)).toContain('scope=following');
   });
 
   it('serializes and restores selected area chips as repeated URL params', () => {

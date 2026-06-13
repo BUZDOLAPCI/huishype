@@ -15,12 +15,12 @@ describe('feedUrlSync', () => {
     expect(isFeedBrowserPathname('/@51.441642,5.469722,17z')).toBe(false);
   });
 
-  it('parses valid feed tabs and falls back for invalid or unauthorized following tabs', () => {
+  it('parses valid feed tabs and falls back for invalid legacy tabs', () => {
     expect(
-      parseFeedTabFromSearchParams(new URLSearchParams('feedTab=latest'), {
+      parseFeedTabFromSearchParams(new URLSearchParams('feedTab=activity'), {
         isAuthenticated: false,
       })
-    ).toBe('latest');
+    ).toBe('activity');
     expect(
       parseFeedTabFromSearchParams(new URLSearchParams('feedTab=following'), {
         isAuthenticated: false,
@@ -30,7 +30,7 @@ describe('feedUrlSync', () => {
       parseFeedTabFromSearchParams(new URLSearchParams('feedTab=following'), {
         isAuthenticated: true,
       })
-    ).toBe('following');
+    ).toBe('trending');
     expect(
       parseFeedTabFromSearchParams(new URLSearchParams('feedTab=unknown'), {
         isAuthenticated: true,
@@ -41,12 +41,12 @@ describe('feedUrlSync', () => {
   it('builds feed URLs with canonical shared filters and omits the default feed tab', () => {
     const filters = parseMapFiltersFromSearchParams(
       new URLSearchParams(
-        'feedTab=latest&marketState=for-sale&area=street:NL:beeldbuisring:city=eindhoven'
+        'feedTab=activity&scope=following&marketState=for-sale&area=street:NL:beeldbuisring:city=eindhoven'
       )
     );
 
-    expect(buildFeedPath(filters, 'latest')).toBe(
-      '/feed?feedTab=latest&marketState=for-sale&area=street%3ANL%3Abeeldbuisring%3Acity%3Deindhoven'
+    expect(buildFeedPath(filters, 'activity')).toBe(
+      '/feed?feedTab=activity&marketState=for-sale&scope=following&area=street%3ANL%3Abeeldbuisring%3Acity%3Deindhoven'
     );
     expect(buildFeedPath(createDefaultMapFilters(), 'trending')).toBe('/feed');
   });
@@ -54,8 +54,8 @@ describe('feedUrlSync', () => {
   it('preserves unrelated params through the shared filter helper and strips old feedTab', () => {
     const filters = parseMapFiltersFromSearchParams(new URLSearchParams('marketState=for-rent'));
 
-    expect(getFeedSearchString(filters, 'recent-activity', '?feedTab=latest&debug=1')).toBe(
-      '?feedTab=recent-activity&debug=1&marketState=for-rent'
+    expect(getFeedSearchString(filters, 'activity', '?feedTab=latest&debug=1')).toBe(
+      '?feedTab=activity&debug=1&marketState=for-rent'
     );
   });
 

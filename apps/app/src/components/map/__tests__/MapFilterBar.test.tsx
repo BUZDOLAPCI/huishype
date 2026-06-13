@@ -386,14 +386,44 @@ describe('MapFilterBar', () => {
     expect(getByTestId('applied-state').props.children).toContain('"activity":"all"');
   });
 
-  it('toggles Following all-time as app-local state and opens independent options', () => {
+  it('applies listed-since from the shared filter rail and exposes all options', () => {
+    const { getByTestId } = render(<MapFilterBarHarness />);
+
+    fireEvent.press(getByTestId('map-filter-pill-listed-since'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"listedSince":"30d"');
+
+    fireEvent.press(getByTestId('map-filter-pill-listed-since-arrow'));
+
+    expect(getByTestId('map-filter-panel-listed-since')).toBeTruthy();
+    expect(getByTestId('map-filter-option-listed-since-all')).toBeTruthy();
+    expect(getByTestId('map-filter-option-listed-since-today')).toBeTruthy();
+    expect(getByTestId('map-filter-option-listed-since-3d')).toBeTruthy();
+    expect(getByTestId('map-filter-option-listed-since-5d')).toBeTruthy();
+    expect(getByTestId('map-filter-option-listed-since-10d')).toBeTruthy();
+    expect(getByTestId('map-filter-option-listed-since-30d')).toBeTruthy();
+
+    fireEvent.press(getByTestId('map-filter-option-listed-since-3d'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"listedSince":"3d"');
+
+    fireEvent.press(getByTestId('map-filter-pill-listed-since'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"listedSince":"30d"');
+
+    fireEvent.press(getByTestId('map-filter-pill-listed-since'));
+
+    expect(getByTestId('applied-state').props.children).toContain('"listedSince":"all"');
+  });
+
+  it('toggles Following through shared scope and opens independent options', () => {
     const { getByTestId } = render(<MapFilterBarHarness />);
 
     fireEvent.press(getByTestId('map-filter-pill-following'));
 
     expect(getByTestId('social-scope-state').props.children).toBe('following');
     expect(getByTestId('following-activity-state').props.children).toBe('all-time');
-    expect(getByTestId('applied-state').props.children).not.toContain('following');
+    expect(getByTestId('applied-state').props.children).toContain('"scope":"following"');
     expect(getByTestId('applied-state').props.children).not.toContain('socialScope');
 
     fireEvent.press(getByTestId('map-filter-pill-following-arrow'));
@@ -408,7 +438,8 @@ describe('MapFilterBar', () => {
 
     expect(getByTestId('social-scope-state').props.children).toBe('following');
     expect(getByTestId('following-activity-state').props.children).toBe('today');
-    expect(getByTestId('applied-state').props.children).toContain('"activity":"all"');
+    expect(getByTestId('applied-state').props.children).toContain('"activity":"today"');
+    expect(getByTestId('applied-state').props.children).toContain('"scope":"following"');
 
     fireEvent.press(getByTestId('map-filter-pill-following'));
 
@@ -418,5 +449,6 @@ describe('MapFilterBar', () => {
     fireEvent.press(getByTestId('map-filter-pill-following'));
 
     expect(getByTestId('social-scope-state').props.children).toBe('all');
+    expect(getByTestId('applied-state').props.children).toContain('"scope":"public"');
   });
 });

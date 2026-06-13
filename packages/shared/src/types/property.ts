@@ -25,6 +25,8 @@ export type PropertyGroupKind = 'single' | 'cluster';
 
 export type MapActivityFilter = 'all' | 'today' | '10d' | '30d' | 'all-time';
 export type MapActivityTimeFilter = Exclude<MapActivityFilter, 'all'>;
+export type MapListedSinceFilter = 'all' | 'today' | '3d' | '5d' | '10d' | '30d';
+export type MapScopeFilter = 'public' | 'following';
 
 export interface PropertyMarketFilters {
   salePriceFrom?: number | null;
@@ -32,10 +34,12 @@ export interface PropertyMarketFilters {
   rentPriceFrom?: number | null;
   rentPriceTo?: number | null;
   marketState?: MapMarketState[];
+  listedSince?: MapListedSinceFilter;
 }
 
 export interface FollowingPropertyFilters extends PropertyMarketFilters {
   activity?: MapActivityFilter;
+  scope?: MapScopeFilter;
   areas?: LocationFilterToken[];
 }
 
@@ -369,7 +373,7 @@ export type PhysicalTapResolveResult =
 /**
  * Canonical filter categories for map state.
  */
-export type MapFilterCategory = 'price' | 'marketState' | 'activity';
+export type MapFilterCategory = 'price' | 'marketState' | 'activity' | 'listedSince';
 
 /**
  * Exclusive market-state taxonomy for map filtering.
@@ -440,6 +444,8 @@ export interface MapFilters {
   rentPriceTo: number | null;
   marketState: MapMarketState[];
   activity: MapActivityFilter;
+  listedSince: MapListedSinceFilter;
+  scope: MapScopeFilter;
   areas?: LocationFilterToken[];
 }
 

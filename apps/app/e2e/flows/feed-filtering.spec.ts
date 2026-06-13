@@ -114,20 +114,17 @@ test.describe('Feed Filtering', () => {
       timeout: 5000,
     });
 
-    // Check for other tabs
-    const latestFilter = page.locator('[data-testid="feed-tab-latest"]');
-    const activityFilter = page.locator('[data-testid="feed-tab-recent-activity"]');
+    // Check for the Activity tab
+    const activityFilter = page.locator('[data-testid="feed-tab-activity"]');
 
     const tabVisibility = {
       trending: await trendingFilter.isVisible().catch(() => false),
-      latest: await latestFilter.isVisible().catch(() => false),
       activity: await activityFilter.isVisible().catch(() => false),
     };
     console.log('Feed tab visibility:', tabVisibility);
 
-    // All 3 primary tabs should be visible
+    // Both feed tabs should be visible
     expect(tabVisibility.trending).toBe(true);
-    expect(tabVisibility.latest).toBe(true);
     expect(tabVisibility.activity).toBe(true);
 
     // Check how many property cards loaded
@@ -157,22 +154,15 @@ test.describe('Feed Filtering', () => {
     // Take initial screenshot
     await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-trending.png` });
 
-    // Click "Latest" filter — assert it exists before interacting
-    const latestFilter = page.locator('[data-testid="feed-tab-latest"]');
-    await expect(latestFilter, '"Latest" tab should be visible').toBeVisible({
-      timeout: 5000,
-    });
-    await latestFilter.click();
-    await page.waitForTimeout(2000);
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-latest.png` });
-
-    // Click "Recent Activity" filter — assert it exists before interacting
-    const activityFilter = page.locator('[data-testid="feed-tab-recent-activity"]');
-    await expect(activityFilter, '"Recent Activity" tab should be visible').toBeVisible({
+    // Click "Activity" filter — assert it exists before interacting
+    const activityFilter = page.locator('[data-testid="feed-tab-activity"]');
+    await expect(activityFilter, '"Activity" tab should be visible').toBeVisible({
       timeout: 5000,
     });
     await activityFilter.click();
     await page.waitForTimeout(2000);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/feed-filter-activity.png` });
+
     await Promise.race([
       page
         .locator('[data-testid="property-activity-card"]')
@@ -203,11 +193,11 @@ test.describe('Feed Filtering', () => {
       }
     });
 
-    await page.goto('/feed?marketState=for-sale&area=city:NL:eindhoven&feedTab=latest', {
+    await page.goto('/feed?marketState=for-sale&area=city:NL:eindhoven&feedTab=activity', {
       waitUntil: 'domcontentloaded',
     });
 
-    await expect(page.getByTestId('feed-tab-latest')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('feed-tab-activity')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('search-area-chip').filter({ hasText: 'Eindhoven' })).toBeVisible(
       { timeout: 15_000 }
     );
@@ -217,7 +207,7 @@ test.describe('Feed Filtering', () => {
         () =>
           feedRequests.some(
             (url) =>
-              url.searchParams.get('filter') === 'latest' &&
+              url.searchParams.get('filter') === 'trending' &&
               url.searchParams.get('marketState') === 'for-sale' &&
               url.searchParams.getAll('area').includes('city:NL:eindhoven')
           ),
@@ -234,7 +224,7 @@ test.describe('Feed Filtering', () => {
         }))
       )
       .toEqual({
-        feedTab: 'latest',
+        feedTab: 'activity',
         marketState: 'for-sale',
         area: ['city:NL:eindhoven'],
       });
@@ -242,7 +232,7 @@ test.describe('Feed Filtering', () => {
     await page.getByTestId('map-filter-pill-market-state-for-rent').click();
     await expect
       .poll(() => page.evaluate(() => window.location.pathname + window.location.search))
-      .toBe('/feed?feedTab=latest&marketState=for-sale%2Cfor-rent&area=city%3ANL%3Aeindhoven');
+      .toBe('/feed?feedTab=activity&marketState=for-sale%2Cfor-rent&area=city%3ANL%3Aeindhoven');
 
     await page.getByTestId('feed-tab-trending').click();
     await expect
@@ -440,12 +430,12 @@ test.describe('Feed Filtering', () => {
     }
   });
 
-  test('recent activity uses grouped property-post cards', async ({ page }) => {
+  test('activity uses grouped property-post cards', async ({ page }) => {
     await page.goto('/feed');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(3000);
 
-    const activityFilter = page.locator('[data-testid="feed-tab-recent-activity"]');
+    const activityFilter = page.locator('[data-testid="feed-tab-activity"]');
     await expect(activityFilter).toBeVisible({ timeout: 10000 });
     await activityFilter.click();
     await page.waitForTimeout(2000);

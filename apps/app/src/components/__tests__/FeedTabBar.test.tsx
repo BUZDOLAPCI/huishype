@@ -15,13 +15,11 @@ function renderTabBar(activeFilter: React.ComponentProps<typeof FeedTabBar>['act
 
 describe('FeedTabBar', () => {
   it('renders ordered feed tabs with selectable state', () => {
-    renderTabBar('recent-activity');
+    renderTabBar('activity');
 
     expect(screen.getByTestId('feed-tab-trending')).toBeTruthy();
-    expect(screen.getByTestId('feed-tab-latest')).toBeTruthy();
-    expect(screen.getByTestId('feed-tab-recent-activity')).toBeTruthy();
-    expect(screen.getByTestId('feed-tab-following')).toBeTruthy();
-    expect(screen.getByTestId('feed-tab-recent-activity').props.accessibilityState).toEqual({
+    expect(screen.getByTestId('feed-tab-activity')).toBeTruthy();
+    expect(screen.getByTestId('feed-tab-activity').props.accessibilityState).toEqual({
       selected: true,
     });
     expect(screen.getByTestId('feed-tab-trending').props.accessibilityState).toEqual({
@@ -32,8 +30,8 @@ describe('FeedTabBar', () => {
   it('calls onFilterChange with the selected tab', () => {
     const { onFilterChange } = renderTabBar('trending');
 
-    fireEvent.press(screen.getByTestId('feed-tab-latest'));
+    fireEvent.press(screen.getByTestId('feed-tab-activity'));
 
-    expect(onFilterChange).toHaveBeenCalledWith('latest');
+    expect(onFilterChange).toHaveBeenCalledWith('activity');
   });
 });
