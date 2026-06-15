@@ -6198,7 +6198,7 @@ export interface paths {
                                 /** Format: uuid */
                                 id: string;
                                 /** @enum {string} */
-                                eventType: "property_like" | "comment" | "price_guess" | "just_listed";
+                                eventType: "property_like" | "comment" | "price_guess";
                                 actor: {
                                     /** Format: uuid */
                                     id: string;
@@ -6271,7 +6271,7 @@ export interface paths {
         };
         /**
          * Get grouped property activity feed
-         * @description Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users. Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.
+         * @description Returns newest-first social activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users. Shared market, price, area, listed-since, and activity query filters are supported.
          */
         get: {
             parameters: {
@@ -6376,7 +6376,7 @@ export interface paths {
                                     /** @enum {string} */
                                     kind: "summary";
                                     /** @enum {string} */
-                                    eventType: "property_like" | "comment" | "price_guess" | "just_listed";
+                                    eventType: "property_like" | "comment" | "price_guess";
                                     /** Format: date-time */
                                     createdAt: string;
                                     actor: {
@@ -6453,7 +6453,7 @@ export interface paths {
                                 /** Format: uuid */
                                 id: string;
                                 /** @enum {string} */
-                                eventType: "property_like" | "comment" | "price_guess" | "just_listed" | "save";
+                                eventType: "property_like" | "comment" | "price_guess" | "save";
                                 actor: {
                                     /** Format: uuid */
                                     id: string;
@@ -6553,7 +6553,7 @@ export interface paths {
                                 /** Format: uuid */
                                 id: string;
                                 /** @enum {string} */
-                                eventType: "property_like" | "comment" | "price_guess" | "just_listed";
+                                eventType: "property_like" | "comment" | "price_guess";
                                 actor: {
                                     /** Format: uuid */
                                     id: string;

@@ -15,7 +15,7 @@ import { fetchActivityFeed } from '../services/activity-feed.js';
 import { fetchGroupedPropertyActivityFeed } from '../services/grouped-property-activity-feed.js';
 import { parsePropertyMarketFiltersQuery } from '../services/map-filters.js';
 
-const publicActivityEventTypes = ['property_like', 'comment', 'price_guess', 'just_listed'] as const;
+const publicActivityEventTypes = ['property_like', 'comment', 'price_guess'] as const;
 const selfActivityEventTypes = [...publicActivityEventTypes, 'save'] as const;
 
 const actorSchema = z.object({
@@ -228,7 +228,7 @@ export async function activityRoutes(fastify: FastifyInstance) {
         tags: ['activity'],
         summary: 'Get grouped property activity feed',
         description:
-          'Returns newest-first property activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users. Shared market, price, and area query filters are supported; activity time filtering is intentionally not part of this endpoint.',
+          'Returns newest-first social activity posts grouped by property. `scope=public` is public, while `scope=following` requires authentication and only includes activity from followed users. Shared market, price, area, listed-since, and activity query filters are supported.',
         querystring: groupedActivityQuerySchema,
         response: {
           200: groupedActivityResponseSchema,

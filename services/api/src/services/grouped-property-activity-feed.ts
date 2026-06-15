@@ -129,8 +129,6 @@ function buildActivitySummary(eventType: PublicActivityEventType, actorName: str
       return `${actorName} liked this property`;
     case 'price_guess':
       return `${actorName} made a price guess`;
-    case 'just_listed':
-      return 'This property was just listed';
     case 'comment':
     default:
       return `${actorName} commented on this property`;
@@ -207,7 +205,6 @@ export async function fetchGroupedPropertyActivityFeed(params: {
   const marketFilterQuery = buildPropertyMarketFilterQuery(filters, 'p');
   const areaFilterPredicate = buildLocationAreaFilterPredicate(filters.areas, 'p');
   const activityWindowPredicate = buildActivityWindowPredicate(filters.activity, 'ae');
-  const includeJustListedEvents = params.scope === 'public' && filters.activity === 'all';
   const propertyLikeActorPredicate = activityActorPredicate(
     params.scope,
     'r.user_id',
@@ -314,38 +311,6 @@ export async function fetchGroupedPropertyActivityFeed(params: {
           AND ${marketFilterQuery.predicate}
           AND ${areaFilterPredicate}
       )
-      ${includeJustListedEvents ? sql`
-      UNION ALL
-      (
-        SELECT
-          CONCAT('just-listed-', p.id::text) AS event_id,
-          'just_listed'::text AS event_type,
-          '00000000-0000-4000-8000-000000000000'::uuid AS actor_id,
-          'HuisHype' AS actor_display_name,
-          'huishype' AS actor_handle,
-          NULL::text AS actor_photo_url,
-          p.id AS property_id,
-          p.country_code,
-          p.street,
-          p.house_number,
-          p.house_number_addition,
-          p.postal_code,
-          p.city,
-          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_X(p.geometry) END AS lon,
-          CASE WHEN p.geometry IS NULL THEN NULL ELSE ST_Y(p.geometry) END AS lat,
-          jlf.thumbnail_url,
-          jlf.displayed_listing_lifecycle_at AS created_at,
-          NULL::text AS content_preview
-        FROM properties p
-        ${marketFilterQuery.join}
-        ${buildPropertyListingFactsJoin('p', 'jlf')}
-        WHERE p.status = 'active'
-          AND p.geometry IS NOT NULL
-          AND jlf.displayed_listing_lifecycle_at IS NOT NULL
-          AND ${marketFilterQuery.predicate}
-          AND ${areaFilterPredicate}
-      )
-      ` : sql``}
     ),
     filtered_activity_events AS MATERIALIZED (
       SELECT *
@@ -534,7 +499,6 @@ export async function fetchGroupedPropertyActivityFeed(params: {
           CASE ler.event_type
             WHEN 'property_like' THEN CONCAT(ler.actor_display_name, ' liked this property')
             WHEN 'price_guess' THEN CONCAT(ler.actor_display_name, ' made a price guess')
-            WHEN 'just_listed' THEN 'This property was just listed'
             ELSE CONCAT(ler.actor_display_name, ' commented on this property')
           END
         ELSE NULL

@@ -546,6 +546,36 @@ describe('Activity routes', () => {
       });
     });
 
+    it('does not synthesize listing lifecycle grouped property posts for listing-only properties', async () => {
+      const listedOnlyProperty = await createIntegrationProperty({
+        street: 'Activity Listing Only Street',
+        houseNumber: 7,
+        city: 'Activity Listing Only City',
+        postalCode: '9040ZZ',
+        lon: 5.581,
+        lat: 51.561,
+      });
+
+      await createIntegrationListing({
+        propertyId: listedOnlyProperty.id,
+        askingPrice: 375000,
+        priceType: 'sale',
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/activity/properties?scope=public&limit=10&marketState=for-sale&listedSince=30d&area=postcode:NL:9040zz',
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body.items).toHaveLength(0);
+      } finally {
+        await db.execute(sql`DELETE FROM properties WHERE id = ${listedOnlyProperty.id}`);
+      }
+    });
+
     it('applies shared price, status, and area filters to public grouped property posts', async () => {
       const matchingResponse = await app.inject({
         method: 'GET',

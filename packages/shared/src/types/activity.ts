@@ -8,7 +8,7 @@ import type { MapMarketState } from './property.js';
  * Private events (save) only in personal activity
  */
 
-export type PublicActivityEventType = 'property_like' | 'comment' | 'price_guess' | 'just_listed';
+export type PublicActivityEventType = 'property_like' | 'comment' | 'price_guess';
 export type ActivityEventType = PublicActivityEventType | 'save';
 
 export interface ActivityActor {

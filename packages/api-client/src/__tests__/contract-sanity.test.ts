@@ -562,19 +562,19 @@ const feedContractAssertions = [
   true as Expect<
     Equal<
       ActivityResponseFromOpenApi['items'][number]['eventType'],
-      'comment' | 'property_like' | 'price_guess' | 'just_listed'
+      'comment' | 'property_like' | 'price_guess'
     >
   >,
   true as Expect<
     Equal<
       SelfActivityResponseFromOpenApi['items'][number]['eventType'],
-      'comment' | 'property_like' | 'price_guess' | 'just_listed' | 'save'
+      'comment' | 'property_like' | 'price_guess' | 'save'
     >
   >,
   true as Expect<
     Equal<
       PublicUserActivityResponseFromOpenApi['items'][number]['eventType'],
-      'comment' | 'property_like' | 'price_guess' | 'just_listed'
+      'comment' | 'property_like' | 'price_guess'
     >
   >,
   true as Expect<Equal<keyof PublicUserAchievementsResponseFromOpenApi, 'earned'>>,
