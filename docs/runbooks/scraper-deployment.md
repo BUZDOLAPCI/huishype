@@ -70,12 +70,16 @@ Expected containers:
 - `huishype-funda-scraper-sync-1`
 - `huishype-funda-scraper-scheduler-1`
 - `huishype-funda-scraper-worker-1`
+- `huishype-funda-scraper-candidates-1`
+- `huishype-funda-scraper-probe-1`
 - `huishype-funda-scraper-postgres-1`
 - `huishype-funda-scraper-redis-1`
 - `huishype-pararius-scraper-api-1`
 - `huishype-pararius-scraper-sync-1`
 - `huishype-pararius-scraper-scheduler-1`
 - `huishype-pararius-scraper-worker-1`
+- `huishype-pararius-scraper-candidates-1`
+- `huishype-pararius-scraper-probe-1`
 - `huishype-pararius-scraper-postgres-1`
 - `huishype-pararius-scraper-redis-1`
 
@@ -127,6 +131,12 @@ repos, not by the HuisHype app API. The app API currently only consumes source
 observations and exposes app health under `/health`; do not add a compatibility
 breaking app route for scraper diagnostics here. The Pararius source-service
 status must expose operator-visible throttle/refresh health fields:
+
+Both status responses also expose `operationalStatus`, `services`, `freshness`,
+`upstream.capabilities`, and priority-level `queue` counts. Treat top-level
+`status=degraded` as authoritative when a producer heartbeat is missing, a
+capability is open/recovering, or available mirror observations are stale. The
+unauthenticated health routes remain shallow infrastructure liveness only.
 
 - `upstream_throttle.active`
 - `upstream_throttle.blocked`
@@ -489,6 +499,125 @@ Then re-run the authenticated Pararius status checks and the main app ingest
 checks above. Roll back by restoring the old `PARARIUS_SOURCE_SERVICE_URL` only
 if the old VM still has healthier status/backlog behavior.
 
+## Access-Circuit Recovery
+
+The scrapers use persistent Redis circuits: Funda has separate `search` and
+`detail` capabilities and Pararius has one `web` capability. Access blocks use
+30-minute, 1-hour, 2-hour, 4-hour, 8-hour, then 24-hour cooldowns. When due,
+only the `probe` container can obtain the Redis canary lease. Ten consecutive
+successful probes are required before a capability becomes healthy. Never use
+these controls to bypass App Check, CAPTCHA, Cloudflare, or another WAF.
+
+Pause only upstream-producing Funda roles while preserving APIs, sync, queues,
+Redis, Postgres, and mirror data:
+
+```bash
+cd /opt/huishype-scrapers/huishype-funda-scraper
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  stop scheduler worker candidates
+```
+
+Guard capabilities before a deploy or rollback, then start only API and sync.
+Start the continuous probe after the explicit one-shot canary so it cannot race
+the operator command:
+
+```bash
+# Funda
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm \
+  probe python -m scraper.probe --guard all --reason deployment_guard
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  up -d api sync
+
+# Pararius
+docker compose run --rm probe python -m scraper.probe \
+  --guard --reason deployment_guard
+docker compose up -d api sync
+```
+
+Run one due canary manually. A command reporting `"attempted": false` means a
+cooldown or another probe lease is active; do not force another request.
+
+```bash
+# Funda search and detail are independent
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm probe \
+  python -m scraper.probe --once search
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm probe \
+  python -m scraper.probe --once detail
+
+# Pararius Eindhoven search canary
+docker compose run --rm probe python -m scraper.probe --once
+
+# Then start the continuous leased probe loops.
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d probe
+docker compose up -d probe
+```
+
+Workers move blocked work to `jobs:deferred:<capability>` without consuming an
+attempt or releasing a Funda scheduler uniqueness reservation. The probe loop
+returns at most 25 deferred jobs per capability per minute after the circuit is
+healthy. Inspect the sets without clearing them:
+
+```bash
+redis-cli ZCARD jobs:deferred:search
+redis-cli ZCARD jobs:deferred:detail
+redis-cli ZCARD jobs:deferred:web
+redis-cli ZCARD jobs:failed:index
+```
+
+Funda retained access failures must always be previewed before execution. The
+execute token binds the action to exactly the jobs shown by the dry run:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api \
+  python manage_jobs.py recover-access --since 2026-08-20
+
+# Copy DRY_RUN_TOKEN from the unchanged dry-run output.
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api \
+  python manage_jobs.py recover-access --since 2026-08-20 \
+  --execute --dry-run-token '<token>'
+```
+
+Filters can be narrowed with repeated `--type` arguments and `--error`. This
+command only recovers classified 401/403/429, App Check, CAPTCHA, Cloudflare,
+WAF, or access-denied failures and deduplicates by stable job signature. Every
+retained match enters the seven-day failed index; only one job per signature is
+deferred, and duplicates remain failed and visible in status. It never clears
+or bulk-recreates a queue.
+
+After the first canary has recorded circuit state, start the guarded producers
+at concurrency one. An open or recovering circuit causes workers to defer jobs
+without contacting the source; the scheduler does not advance its timestamps.
+Funda's normal delay after recovery is five seconds; Pararius uses an
+eight-second delay plus up to eight seconds of jitter:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  up -d scheduler worker candidates
+docker compose up -d scheduler worker candidates
+```
+
+Before deploy, save `pg_dump -Fc --no-owner --no-acl` backups of both mirror
+databases and tag the currently running image IDs. For rollback, guard all
+capabilities, stop producers, retag the recorded `pre-recovery-*` images to the
+compose image names, and start API/sync/probe first. Do not restore a database
+unless the deployment changed data incompatibly. Return Funda deferred jobs to
+their original priority queues in bounded batches. This also requires an exact
+dry-run token and never releases more than 25 jobs per command:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api \
+  python manage_jobs.py release-deferred --capability search --limit 25
+
+# Copy DRY_RUN_TOKEN from the unchanged dry-run output.
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api \
+  python manage_jobs.py release-deferred --capability search --limit 25 \
+  --execute --dry-run-token '<token>'
+```
+
+Repeat for `detail` only when the prior batch is safely queued. Retained failed
+access jobs still use `recover-access`; its execute mode moves them to the
+deferred set rather than directly flooding a priority queue.
+
 ## Deploy
 
 The live VM runtime directories are not Git working trees. Source changes are
@@ -498,13 +627,18 @@ preserving each VM-local env file.
 Funda:
 
 ```bash
+set -a
+source /home/caslan/dev/git_repos/hh/huishype/.env.scraper-deploy
+set +a
+
 rsync -az --delete \
+  -e "ssh -J root@${APP_VM_PUBLIC_IP}" \
   --exclude .git --exclude .venv --exclude .pytest_cache --exclude .ruff_cache \
   --exclude .env --exclude .env.production \
   /home/caslan/dev/git_repos/hh/huishype-funda-scraper/ \
-  root@178.104.119.167:/opt/huishype-scrapers/huishype-funda-scraper/
+  "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}:/opt/huishype-scrapers/huishype-funda-scraper/"
 
-ssh root@178.104.119.167 '
+ssh -J "root@${APP_VM_PUBLIC_IP}" "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
   cd /opt/huishype-scrapers/huishype-funda-scraper
   docker compose --env-file .env.production -f docker-compose.prod.yml build
   docker compose --env-file .env.production -f docker-compose.prod.yml up -d
@@ -515,13 +649,18 @@ ssh root@178.104.119.167 '
 Pararius:
 
 ```bash
+set -a
+source /home/caslan/dev/git_repos/hh/huishype/.env.scraper-deploy
+set +a
+
 rsync -az --delete \
+  -e "ssh -J root@${APP_VM_PUBLIC_IP}" \
   --exclude .git --exclude .venv --exclude .pytest_cache --exclude .ruff_cache \
   --exclude .env \
   /home/caslan/dev/git_repos/hh/huishype-pararius-scraper/ \
-  root@178.104.119.167:/opt/huishype-scrapers/huishype-pararius-scraper/
+  "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}:/opt/huishype-scrapers/huishype-pararius-scraper/"
 
-ssh root@178.104.119.167 '
+ssh -J "root@${APP_VM_PUBLIC_IP}" "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
   cd /opt/huishype-scrapers/huishype-pararius-scraper
   docker compose build
   docker compose up -d
