@@ -599,10 +599,11 @@ docker compose up -d scheduler worker candidates
 Before deploy, save `pg_dump -Fc --no-owner --no-acl` backups of both mirror
 databases and tag the currently running image IDs. For rollback, guard all
 capabilities, stop producers, retag the recorded `pre-recovery-*` images to the
-compose image names, and start API/sync/probe first. Do not restore a database
-unless the deployment changed data incompatibly. Return Funda deferred jobs to
-their original priority queues in bounded batches. This also requires an exact
-dry-run token and never releases more than 25 jobs per command:
+compose image names, start API and sync, run the explicit one-shot canaries, and
+only then start the continuous probe. Do not restore a database unless the
+deployment changed data incompatibly. Return Funda deferred jobs to their
+original priority queues in bounded batches. This also requires an exact dry-run
+token and never releases more than 25 jobs per command:
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api \
