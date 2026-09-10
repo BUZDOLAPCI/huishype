@@ -192,6 +192,72 @@ supersede that initial search result. Pararius was unchanged and remained in
 its HTTP 403 cooldown, with its next probe due on 2026-09-11 at
 `06:25:15.990 UTC`.
 
+### 2026-09-10 Funda Freshness And Scheduling Follow-Up
+
+Funda scraper revision `daf9be2` was committed and pushed to `main`. Validation
+passed: 548 tests, Ruff checks for the new modules, and Compose API/scheduler
+configuration parity with non-default overrides. A separate PostgreSQL 16
+check migrated from the old head to the new head, downgraded, and upgraded
+again; a populated fixed-cohort check reported two members, one checked, and
+50% progress, including a withdrawn listing. Its temporary database/container
+was removed afterward.
+
+Before this change, the live scheduler used `UPDATE_INTERVAL_HOURS=8`, while
+the API's stale count used its default four-hour window. That mismatch meant
+the reported stale count did not use the scheduler's actual refresh deadline.
+The implementation now shares the tiered policy described below between API
+status and scheduling. Earlier stale-count snapshots in this runbook use the
+old definition and should not be compared directly with the new policy.
+
+The deployed image is
+`sha256:fb41c5204529adb46624624528323edc7ba618beb40ac40e0a4835e3c6f1d012`.
+Rollback tag `huishype/funda-scraper:pre-freshness-20260910` retains the preceding
+`c6c4643109f58d33690aa3aa7bfecdb50b2e5a88a68783ad45ae695b350a1824` image.
+Verified backups are stored remotely at
+`/opt/huishype-scrapers/pre-freshness-20260910-0dBSju` and locally at
+`/home/caslan/dev/backups/huishype/funda-freshness-20260910-h1AbTv/`. They contain
+the Funda PostgreSQL dump, Redis RDB, and source/env archive. All remote/local
+SHA-256 checks passed, and the PostgreSQL archive listing was validated.
+
+Production migrated to additive revision `e8c2a1f6b930`, creating
+`refresh_recovery_runs` and `refresh_recovery_items`. The explicitly initialized
+cohort `freshness-recovery-20260910` started at
+`2026-09-10T16:37:08.106792Z` with 74,058 available listings and zero initially
+checked. This is a new baseline; it does not reconstruct membership or progress
+at the beginning of the original outage.
+
+All six Funda application roles restarted, and both source circuits remained
+healthy. API and scheduler runtime settings matched: 24-hour recent refresh,
+168-hour stable refresh, seven-day recent window, 15-minute top-up interval,
+100-job batch, and 1,000-job outstanding threshold. Production env settings
+were explicit, and obsolete `UPDATE_INTERVAL_HOURS=8` was removed. Discovery
+remained every three hours and polling every 15 minutes.
+
+At `16:37:14 UTC`, the scheduler correctly paused top-ups with 18,285
+outstanding jobs against the 1,000-job threshold while existing work continued.
+At `16:37:38 UTC`, status reported one cohort member checked and 69,940 stale
+listings under the new tiered criteria. Recovery subsequently advanced through
+five to ten checked members. At `16:40 UTC`, the fixed total remained 74,058,
+with ten checked, 74,048 remaining, and 0.01% progress. There were zero daily
+listings due and 69,940 weekly listings due. Normal detail jobs continued
+completing, and both source circuits remained healthy. The 110 pre-existing
+location-name failures were unchanged.
+
+All six Funda application roles were verified healthy on the new image; all
+16 scraper containers were healthy. The private Funda `/health` endpoint
+returned HTTP 200 from the app VM, and production Alembic reported
+`e8c2a1f6b930` as current.
+
+App Postgres confirmed completed ingest batches, beyond initial acceptance:
+`645f8887-50ab-441b-b77e-252debec5264` completed at `16:37:15.749 UTC` with two
+ingested and five skipped records; `0e35b572-1964-4bf1-bbcf-eebcce2ad3dd`
+completed at `16:39:19.389 UTC` with two skipped records. Both had null errors.
+The latter contained redundant/legacy rows; no new app observations since the
+cohort start were present at this check. Status reported
+`latestSuccessfulIngest=2026-09-10T16:38:45.703698+00:00`. These checks establish
+continued worker processing, fixed-cohort progress, and completed ingest
+delivery without claiming that the existing backlog has finished.
+
 ## Services
 
 | Source   | Local repo                                                | VM path                                            | Compose file              | Private API             |
@@ -264,14 +330,64 @@ ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
 The `/api/v1/status` responses are owned by the individual scraper/source-service
 repos, not by the HuisHype app API. The app API currently only consumes source
 observations and exposes app health under `/health`; do not add a compatibility
-breaking app route for scraper diagnostics here. The Pararius source-service
-status must expose operator-visible throttle/refresh health fields:
+breaking app route for scraper diagnostics here.
 
 Both status responses also expose `operationalStatus`, `services`, `freshness`,
 `upstream.capabilities`, and priority-level `queue` counts. Treat top-level
 `status=degraded` as authoritative when a producer heartbeat is missing, a
 capability is open/recovering, or available mirror observations are stale. The
 unauthenticated health routes remain shallow infrastructure liveness only.
+
+### Funda Freshness Policy And Recovery Progress
+
+New-listing discovery and polling retain their independent intervals. Existing
+available listings first seen or changed within the last seven days are due
+after 24 hours without a source observation; older unchanged listings are due
+after 168 hours. `freshness.staleCount` and the scheduler use the same policy,
+and `freshness.policy` exposes its effective settings:
+
+| Setting | Value | Purpose |
+| --- | --- | --- |
+| `RECENT_LISTING_WINDOW_DAYS` | `7` | Window for recently added or changed listings |
+| `RECENT_LISTING_REFRESH_HOURS` | `24` | Recent-listing refresh deadline |
+| `STABLE_LISTING_REFRESH_HOURS` | `168` | Older unchanged listing refresh deadline |
+| `UPDATE_SCHEDULE_INTERVAL_MINUTES` | `15` | Interval between update queue top-ups |
+| `UPDATE_BATCH_SIZE` | `100` | Maximum jobs added or reused per top-up |
+| `UPDATE_MAX_OUTSTANDING_JOBS` | `1000` | Outstanding-job threshold for new update additions |
+
+`UPDATE_INTERVAL_HOURS` is deprecated and ignored. The 15-minute scheduling
+interval is distinct from the daily/weekly refresh deadlines. Each top-up uses
+global oldest-first selection across all towns, including towns outside the
+discovery list, reserving up to a quarter of the batch for recently added or
+changed due listings. New update additions pause when pending + processing +
+deferred jobs reach the configured threshold. Other producers are not capped
+by this update limit. Existing jobs, reservations, worker pacing, and upstream
+circuits remain intact.
+
+Rolling freshness counts can rise again as listings age. For cumulative checks
+against a fixed population, initialize a named recovery cohort explicitly after
+applying migrations:
+
+```bash
+cd /opt/huishype-scrapers/huishype-funda-scraper
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api \
+  python -m scraper.refresh_recovery --name recovery-YYYYMMDD
+```
+
+Reusing a name is idempotent. A new name captures a new baseline from listings
+available at that moment. The status endpoint's separate `recovery` object
+reports the latest cohort's `totalListings`, `checkedListings`,
+`remainingListings`, and `progressPercent`. A member counts as checked once
+its persisted `last_seen_at` is at or after the fixed `startedAt`, including
+unchanged listings and those subsequently marked sold or withdrawn. New
+discoveries do not change the denominator, and aging does not undo a completed
+check. Status reads never create or reset a cohort. Cohorts persist in Postgres;
+restore cohort and listing tables together if a database rollback is needed.
+A code-only rollback can leave these additive tables in place.
+
+### Pararius Throttle And Refresh Fields
+
+The Pararius source-service status must expose these operator-visible fields:
 
 - `upstream_throttle.active`
 - `upstream_throttle.blocked`
