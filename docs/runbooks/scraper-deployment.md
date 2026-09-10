@@ -33,7 +33,8 @@ The app/prod Coolify env must use the scraper API keys from
 | Hetzner server ID     | `127989278`                                               |
 | Plan                  | `CX23`                                                    |
 | Datacenter            | `nbg1-dc3`                                                |
-| Public IPv4           | `178.104.119.167`                                         |
+| Public IPv4           | `46.225.56.31`                                           |
+| Primary IPv4 ID       | `148932647`                                              |
 | Private IPv4          | `10.42.0.2`                                               |
 | SSH user              | `root`                                                    |
 | Runtime root          | `/opt/huishype-scrapers`                                  |
@@ -54,8 +55,77 @@ source-service ports. When operator SSH access changes, keep the Hetzner
 firewall and the VM-local UFW `22/tcp` allow list in sync.
 
 No third-party outbound proxy is configured in the checked env files. Scraper
-upstream egress currently leaves through `178.104.119.167`, not through the
+upstream egress currently leaves through `46.225.56.31`, not through the
 HuisHype app/prod public IP.
+
+### 2026-09-10 Upstream Sync And IPv4 Refresh
+
+Funda revision `40aa1d3` includes pyfunda revision `09f3286`, merging upstream
+`8c7cfce`: release `v3.1.5` (tag commit `58bd8f6`) plus a README update. Both
+fork revisions were pushed, and both scraper forks are clean and synchronized
+with their origins. Validation passed: 525 Funda tests, 183 Pararius tests,
+46 pyfunda tests with 9 subtests, and offline HTTP 401/403 and Nuxt parsing
+smoke checks. Both deployed runtime directories checksum-match tracked local
+source. All 16 containers are healthy; all six Funda application roles use the
+same image (`sha256:45b84bf14e7a53dce925cbda192e3c9a839097c4b9cb1016db648887f4cd613d`)
+with pyfunda `3.1.5`.
+
+Primary IPv4 `148932647` (`46.225.56.31`) is assigned to the existing scraper
+VM. Its server ID and private IPv4 are unchanged, so app source-service URLs
+remain unchanged. The host IPv6 allocation `2a01:4f8:c0c:55a7::/64` (primary IP
+ID `128143021`) is unchanged; both scraper Docker networks have IPv6 disabled.
+The previous IPv4 `178.104.119.167` (primary IP ID `128143020`) remains reserved
+and unassigned for rollback. The SSH host key was verified unchanged; the host
+route and an egress check inside the Funda API container confirm `46.225.56.31`.
+Both databases accept connections, and both private health endpoints return
+HTTP 200 from the app VM.
+
+Pre-change backups are stored on the VM at
+`/opt/huishype-scrapers/pre-sync-20260910-2EeGV0` and locally at
+`/home/caslan/dev/backups/huishype/scraper-sync-20260910-lhOWU9/`. The local copy
+contains both mirror database dumps, Redis snapshots, and a source/env archive;
+all checksums were verified, including matching remote/local Redis snapshot
+hashes. Treat these backups as sensitive because they include runtime
+credentials and listing data.
+
+The old Funda image digests were unavailable in Docker's image store. Rollback
+images were recovered through container filesystem export/import under
+`pre-sync-20260910-<role>` tags and smoke tested. These imported snapshots rely
+on Compose to reapply runtime settings.
+
+Post-rotation controlled probes on 2026-09-10 found:
+
+- Funda detail first succeeded at `06:25:11 UTC` and reached ten consecutive
+  recovery successes at `06:30:10 UTC`, becoming healthy. Normal detail jobs
+  then completed approximately every five seconds, including status changes
+  and withdrawals. The first 25 deferred detail jobs were released; before
+  the drain, 800 search jobs and 13,138 detail jobs were deferred.
+- Funda search received HTTP 401 from the mobile API and activated the new
+  `3.1.5` web fallback. That fallback failed with curl error 92
+  (`HTTP/2 INTERNAL_ERROR`). One leased HTTP/1.1 diagnostic timed out after
+  30 seconds (curl error 28); its process-only patch was not retained. Search
+  was guarded for 86,400 seconds with reason
+  `web_search_transport_error_curl92` while detail processing resumed.
+- Pararius still returned HTTP 403 at `06:25:15 UTC`, reaching 20 consecutive
+  blocks. Its next circuit probe is due on 2026-09-11 at `06:25:15 UTC`.
+
+All services resumed under these persistent circuit guards. Restarting Funda
+sync triggered its normal 300-second sync cycle at `06:31:14 UTC`: 12 listings
+were accepted in batch `276208d8-7a9e-4906-9f47-26e5194ce9f0`. Production app
+Postgres confirmed 11 fresh Funda observations (latest source observation
+`06:31:03.677 UTC`) and canonical updates after `06:31:14 UTC`. No fresh
+Pararius observations were found. No queues were cleared.
+
+At `06:32:30 UTC`, Funda status still reported detail healthy with HTTP 200,
+`latestSuccessfulIngest=2026-09-10T06:31:14.056619+00:00`, and a newest available
+observation at `06:32:30 UTC`. Stale available observations decreased from
+74,144 to 74,120. Scheduling had resumed too: 6,299 normal detail jobs were
+pending alongside 13,863 deferred jobs. This confirms processing and bounded
+deferred release resumed, not that the total queue is shrinking.
+
+Recovery is partial: Funda detail updates and ingest are working; Funda search
+and Pararius remain in cooldown. Their future leased probes must establish
+recovery before normal source work resumes for those capabilities.
 
 ## Services
 
