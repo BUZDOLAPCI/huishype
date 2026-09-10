@@ -58,15 +58,15 @@ No third-party outbound proxy is configured in the checked env files. Scraper
 upstream egress currently leaves through `46.225.56.31`, not through the
 HuisHype app/prod public IP.
 
-### 2026-09-10 Upstream Sync And IPv4 Refresh
+### 2026-09-10 Initial Upstream Sync And IPv4 Refresh
 
 Funda revision `40aa1d3` includes pyfunda revision `09f3286`, merging upstream
 `8c7cfce`: release `v3.1.5` (tag commit `58bd8f6`) plus a README update. Both
-fork revisions were pushed, and both scraper forks are clean and synchronized
-with their origins. Validation passed: 525 Funda tests, 183 Pararius tests,
+fork revisions were pushed, and both scraper forks were clean and synchronized
+with their origins. Initial validation passed: 525 Funda tests, 183 Pararius tests,
 46 pyfunda tests with 9 subtests, and offline HTTP 401/403 and Nuxt parsing
-smoke checks. Both deployed runtime directories checksum-match tracked local
-source. All 16 containers are healthy; all six Funda application roles use the
+smoke checks. Both deployed runtime directories checksum-matched tracked local
+source. All 16 containers were healthy; all six Funda application roles used the
 same image (`sha256:45b84bf14e7a53dce925cbda192e3c9a839097c4b9cb1016db648887f4cd613d`)
 with pyfunda `3.1.5`.
 
@@ -123,9 +123,74 @@ observation at `06:32:30 UTC`. Stale available observations decreased from
 pending alongside 13,863 deferred jobs. This confirms processing and bounded
 deferred release resumed, not that the total queue is shrinking.
 
-Recovery is partial: Funda detail updates and ingest are working; Funda search
-and Pararius remain in cooldown. Their future leased probes must establish
-recovery before normal source work resumes for those capabilities.
+At the initial `06:32:30 UTC` check, recovery was partial: Funda detail updates
+and ingest were working while Funda search and Pararius remained in cooldown.
+The Funda search follow-up below supersedes that initial search outcome.
+
+### 2026-09-10 Funda Web-Search Fingerprint Follow-Up
+
+[Upstream pyfunda PR #16](https://github.com/0xMH/pyfunda/pull/16) changes the
+web-search browser fingerprint from fixed `chrome124` to a configurable
+`chrome` alias. Its commit `52d9e4657216760ad3b1b5fa3d8429b60198802f` was
+cherry-picked with provenance into the pyfunda fork as `38a117c`, consumed by
+Funda scraper revision `a16cfba`; both fork revisions were pushed. This applies
+the unmerged upstream change rather than waiting for another pyfunda release.
+The production `curl_cffi 0.15.0` resolves `chrome` to `chrome146`.
+
+Validation passed: 50 pyfunda tests with 9 subtests, 525 scraper tests, mocked
+session constructor/cache/cleanup smoke checks, and Compose configuration
+validation. All Funda application roles were deployed with image
+`sha256:c6c4643109f58d33690aa3aa7bfecdb50b2e5a88a68783ad45ae695b350a1824`.
+
+Verified pre-change backups are stored on the VM at
+`/opt/huishype-scrapers/pre-pr16-20260910-himwrn` and locally at
+`/home/caslan/dev/backups/huishype/funda-pr16-20260910-RcyCtc/`. They include
+both mirror database dumps, the Funda Redis snapshot, and a source/env archive.
+Rollback tag `huishype/funda-scraper:pre-pr16-20260910` points to the prior
+`45b84bf14e7a53dce925cbda192e3c9a839097c4b9cb1016db648887f4cd613d` image.
+
+From the unchanged Hetzner egress `46.225.56.31`, a leased search probe at
+`06:44:11 UTC` succeeded with 15 parsed Eindhoven buy listings using the new
+fingerprint. Sample IDs `44598239`, `44598890`, and `44597361` were absent from
+the mirror before the pipeline check. A detail probe also succeeded at
+`06:44:26 UTC`. Continuous probes subsequently recorded all ten required
+recovery successes: search became healthy at `06:49:11 UTC`, and detail at
+`06:49:16 UTC`. Both consecutive block counts reset to zero. Released discovery
+jobs successfully stored new listings. All six Funda application roles were
+verified healthy on the new image, and all 16 scraper containers were healthy.
+
+Sync batch `2e24fcb0-a879-487b-991d-03a60d354693` accepted 123 records at
+`06:50:46.771 UTC`. Main app Postgres confirmed 119 Funda observations since
+`06:44 UTC`, with a latest observation at `06:50:33.669 UTC`; source IDs
+`44580964`, `80914409`, and `44589912` had active canonical listings updated
+at `06:50:46.849883 UTC`.
+
+One bounded high-priority Eindhoven buy page 0 verification job
+(`a77ade0d-3673-4faf-ad88-842a0140efaa`) completed on its first attempt without
+error at `06:51:44.168 UTC`. The three sample IDs above became newly available
+in the mirror at `06:51:41 UTC`. Only this verification job was atomically
+promoted within the high-priority queue; other jobs retained their relative
+order, and no queues were cleared.
+
+Follow-up sync batch `6d0a4048-eb01-44b2-8ad4-2d62daebf2b1` accepted 107
+records at `06:52:21.806 UTC`. Production canonical listings for all three
+sample source IDs (`44597361`, `44598239`, and `44598890`) were active, updated
+at `06:52:21.858019 UTC`, with `last_mirror_seen_at=06:52:01.493 UTC`.
+Production had 224 fresh Funda observations since `06:44 UTC`, with a latest
+observation at `06:52:01.493 UTC`. This verifies the targeted worker search,
+mirror write, sync delivery, and app canonical update end to end.
+
+At `06:51:54 UTC`, both Funda capabilities remained healthy with HTTP 200.
+Overall Funda status remained degraded/stale because the backlog persisted:
+73,974 stale listings, 430 pending jobs, 19,924 deferred jobs, and zero failed
+jobs. Both private health endpoints returned HTTP 200 from the app VM. Working
+source access and ingest do not mean the historical backlog has caught up.
+
+The earlier curl error 92 described the pre-PR #16 deployment. The successful
+search probes and discovery jobs on the same IP after the fingerprint change
+supersede that initial search result. Pararius was unchanged and remained in
+its HTTP 403 cooldown, with its next probe due on 2026-09-11 at
+`06:25:15.990 UTC`.
 
 ## Services
 
