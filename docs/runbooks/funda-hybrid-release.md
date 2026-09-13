@@ -136,6 +136,21 @@ normalization used for that historical measurement.
    disabled during the full elapsed-time acceptance collection so documentation
    commits cannot inadvertently restart the measured runtime.
 
+Create the build context from the frozen full source SHA, including its pinned
+`pyfunda` gitlink, using committed Git objects rather than copying a worktree:
+
+```bash
+python3 tools/ops/archive-funda-release.py --repository /home/caslan/dev/git_repos/hh/.milestone-worktrees/funda-hybrid --revision "$SOURCE_SHA" --output-dir /private/release-archive
+```
+
+Verify the archive SHA-256 after upload and extract into a new
+`/opt/huishype-scrapers/releases/<source SHA>/` directory. Build with
+`--target production --build-arg SOURCE_REVISION=<source SHA>` and tag
+`huishype/funda-scraper:<source SHA>`. The archive helper never includes dirty or
+untracked files and refuses to overwrite existing artifacts. Record the image ID
+and OCI source revision after the build. Never copy operator env files or secrets
+into the Docker build context.
+
 The independent authority can be provisioned before the maintenance window using
 only `ledger-postgres`, `ledger-migrate` and `dispatcher` from the final Compose
 project and immutable image. Geography calibration waits for the final migrated
@@ -143,7 +158,14 @@ source planner during maintenance; it does not use a parallel calibration
 database or an independent collector. Initialize with the explicitly approved
 1,000-credit useful-calibration ceiling and keep ordinary work disabled until the
 complete essential workload forecast fits. Initial full inventory needs its own
-measured bounded authorization after geographic first-page sizing.
+measured bounded authorization after geographic first-page sizing. Keep normal
+planner/worker loops stopped during the bounded geography/sizing one-shot CLI
+steps, with direct acquisition disabled. After a reviewed finite inventory
+measurement grant, run the final loops: measurement inventory stays assigned to
+RealtyAPI while eligible direct detail, status and probes may run normally.
+Ordinary paid operation still requires activation against the whole forecast.
+After activation and initial queue drain, disable direct eligibility for the
+actual paid-only acceptance cycle.
 
 The image runs as UID/GID 1000. Standalone Compose file secrets preserve host
 ownership, so use a root-owned mode-0700 secrets directory with the individually
