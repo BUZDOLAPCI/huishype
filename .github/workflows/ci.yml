@@ -18,6 +18,19 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      # Integration maintenance and submission paths await real BullMQ queues.
+      REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
