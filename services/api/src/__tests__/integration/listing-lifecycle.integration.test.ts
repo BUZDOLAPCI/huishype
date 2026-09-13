@@ -86,7 +86,9 @@ describe('availability evidence and published listing projections', () => {
 
   it('updates materialized asking projections without any incoming event and preserves history on restoration', async () => {
     const expired = await fixture(daysAgo(31));
-    await runListingLifecycleMaintenance();
+    await fixture(daysAgo(32));
+    const maintenance = await runListingLifecycleMaintenance(1);
+    expect(maintenance.expiredCount).toBeGreaterThanOrEqual(2);
     const rows = await db.execute(sql`SELECT * FROM mv_latest_active_listings WHERE property_id = ${expired.propertyId}`);
     expect(Array.from(rows)).toHaveLength(0);
     const projection = projectListingAvailability(expired.listing, { kind: 'positive', observedAt: now }, now);

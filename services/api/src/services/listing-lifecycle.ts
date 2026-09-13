@@ -68,7 +68,7 @@ export function isListingActiveEligible(
   listing: { status: ListingStatus; activeEligible: boolean; availabilityExpiresAt: Date | null },
   now = new Date(),
 ): boolean {
-  return listing.status === 'active' && listing.activeEligible
-    && listing.availabilityExpiresAt !== null
+  return listing.status === 'active' && listing.activeEligible === true
+    && listing.availabilityExpiresAt != null
     && listing.availabilityExpiresAt.getTime() > now.getTime();
 }

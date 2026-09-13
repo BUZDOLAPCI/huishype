@@ -1,3 +1,4 @@
+import { comparableAskingPriceSql } from './listing-price-units.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { sql, type SQL } from 'drizzle-orm';
 import {
@@ -1499,7 +1500,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           END AS price_type
         FROM canonical_listings cl
         WHERE cl.verification_state <> 'invalid'
-          AND cl.status = 'active'
+          AND cl.status = 'active' AND cl.active_eligible AND cl.availability_expires_at > now()
         ORDER BY
           cl.property_id,
           COALESCE(
@@ -1790,6 +1791,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
             cl.id AS listing_id,
             cl.property_id,
             cl.status::text AS status,
+        (cl.active_eligible AND cl.availability_expires_at > now()) AS active_eligible,
             CASE
               WHEN lower(cl.source_name) = 'funda'
                 AND lower(btrim(cl.price_type)) = 'buy'
@@ -1800,7 +1802,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
                 THEN 'rent'
               ELSE 'sale'
             END AS normalized_price_type,
-            cl.asking_price,
+            ${comparableAskingPriceSql('cl')} AS asking_price,
             cl.thumbnail_url,
             COALESCE(
               cl.last_reconciled_at,
@@ -1822,7 +1824,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           FROM tile_listing_facts l
           ORDER BY
             l.property_id,
-            (l.status = 'active') DESC,
+            l.active_eligible DESC,
             l.sort_at DESC,
             l.listing_created_at DESC,
             l.listing_id DESC
@@ -1833,10 +1835,10 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
             l.asking_price,
             l.normalized_price_type AS price_type
           FROM tile_listing_facts l
-          WHERE l.status = 'active'
+          WHERE l.status = 'active' AND l.active_eligible
           ORDER BY
             l.property_id,
-            (l.status = 'active') DESC,
+            l.active_eligible DESC,
             l.sort_at DESC,
             l.listing_created_at DESC,
             l.listing_id DESC
@@ -1849,7 +1851,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           WHERE l.thumbnail_url IS NOT NULL
           ORDER BY
             l.property_id,
-            (l.status = 'active') DESC,
+            l.active_eligible DESC,
             l.sort_at DESC,
             l.listing_created_at DESC,
             l.listing_id DESC
@@ -1860,7 +1862,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
             ph.price AS last_sold_price
           FROM price_history ph
           INNER JOIN candidate_batch cb ON cb.property_id = ph.property_id
-          WHERE ph.event_type = 'sold'
+          WHERE ph.event_type = 'sold' AND ph.price_kind = 'achieved'
           ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
         ),
         rented_history AS MATERIALIZED (
@@ -1869,7 +1871,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
             ph.price AS last_rented_price
           FROM price_history ph
           INNER JOIN candidate_batch cb ON cb.property_id = ph.property_id
-          WHERE ph.event_type = 'rented'
+          WHERE ph.event_type = 'rented' AND ph.price_kind = 'achieved'
           ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
         ),
         latest_public_guesses AS MATERIALIZED (
@@ -2129,6 +2131,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           cl.id AS listing_id,
           cl.property_id,
           cl.status::text AS status,
+        (cl.active_eligible AND cl.availability_expires_at > now()) AS active_eligible,
           CASE
             WHEN lower(cl.source_name) = 'funda'
               AND lower(btrim(cl.price_type)) = 'buy'
@@ -2139,7 +2142,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
               THEN 'rent'
             ELSE 'sale'
           END AS normalized_price_type,
-          cl.asking_price,
+          ${comparableAskingPriceSql('cl')} AS asking_price,
           cl.thumbnail_url,
           COALESCE(
             cl.last_reconciled_at,
@@ -2161,7 +2164,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         FROM tile_listing_facts l
         ORDER BY
           l.property_id,
-          (l.status = 'active') DESC,
+          l.active_eligible DESC,
           l.sort_at DESC,
           l.listing_created_at DESC,
           l.listing_id DESC
@@ -2172,10 +2175,10 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           l.asking_price,
           l.normalized_price_type AS price_type
         FROM tile_listing_facts l
-        WHERE l.status = 'active'
+        WHERE l.status = 'active' AND l.active_eligible
         ORDER BY
           l.property_id,
-          (l.status = 'active') DESC,
+          l.active_eligible DESC,
           l.sort_at DESC,
           l.listing_created_at DESC,
           l.listing_id DESC
@@ -2188,7 +2191,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
         WHERE l.thumbnail_url IS NOT NULL
         ORDER BY
           l.property_id,
-          (l.status = 'active') DESC,
+          l.active_eligible DESC,
           l.sort_at DESC,
           l.listing_created_at DESC,
           l.listing_id DESC
@@ -2199,7 +2202,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           ph.price AS last_sold_price
         FROM price_history ph
         INNER JOIN social_only_candidates soc ON soc.property_id = ph.property_id
-        WHERE ph.event_type = 'sold'
+        WHERE ph.event_type = 'sold' AND ph.price_kind = 'achieved'
         ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
       ),
       rented_history AS MATERIALIZED (
@@ -2208,7 +2211,7 @@ async function rebuildPropertyTileCandidateSourceSnapshot(input: {
           ph.price AS last_rented_price
         FROM price_history ph
         INNER JOIN social_only_candidates soc ON soc.property_id = ph.property_id
-        WHERE ph.event_type = 'rented'
+        WHERE ph.event_type = 'rented' AND ph.price_kind = 'achieved'
         ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
       ),
       latest_public_guesses AS MATERIALIZED (
@@ -3557,13 +3560,15 @@ export async function lookupPromotedPropertyTilePyramidTile(input: {
       node_count: number | string | null;
       tile_status: string | null;
       validation_status: string | null;
+      listing_revision: string;
     }>(sql`
       SELECT
         payload,
         etag,
         node_count,
         tile_status,
-        validation_status
+        validation_status,
+        listing_revision::text
       FROM property_tile_pyramid_tiles
       WHERE version_id = ${input.version.versionId}::uuid
         AND z = ${input.z}
@@ -3635,14 +3640,14 @@ export async function lookupPromotedPropertyTilePyramidTile(input: {
       };
     }
 
-    const regenerated = await encodePropertyTilePyramidTileFromPromotedNodes(input);
+    const regenerated = await encodePropertyTilePyramidTileFromPromotedNodes({ ...input, expectedListingRevision: row.listing_revision });
     return {
       state: 'hit',
       versionId: input.version.versionId,
       payload: regenerated.payload,
       statusCode: regenerated.statusCode,
       etag: regenerated.etag,
-      nodeCount,
+      nodeCount: regenerated.nodeCount ?? nodeCount,
       encodedFromNodes: true,
     };
   } catch (error) {
@@ -3663,8 +3668,9 @@ export async function encodePropertyTilePyramidTileFromPromotedNodes(input: {
   x: number;
   y: number;
   lease?: PropertyTilePyramidBuildLease;
-}): Promise<{ payload: Buffer | null; statusCode: 200 | 204; etag: string }> {
-  const result = await db.execute<{ mvt: unknown }>(sql`
+  expectedListingRevision?: string;
+}, executor: Pick<typeof db, 'execute'> = db): Promise<{ payload: Buffer | null; statusCode: 200 | 204; etag: string; nodeCount?: number }> {
+  const result = await executor.execute<{ mvt: unknown }>(sql`
     WITH node_rows AS (
       SELECT
         ST_AsMVTGeom(
@@ -3756,7 +3762,7 @@ export async function encodePropertyTilePyramidTileFromPromotedNodes(input: {
   const leaseCondition = input.lease
     ? sql`AND EXISTS (${buildLeasePredicate(input.lease)})`
     : sql``;
-  const updateResult = await db.execute<{ affected: number | string }>(sql`
+  const updateResult = await executor.execute<{ affected: number | string }>(sql`
     WITH updated AS (
       UPDATE property_tile_pyramid_tiles
       SET
@@ -3770,12 +3776,24 @@ export async function encodePropertyTilePyramidTileFromPromotedNodes(input: {
         AND x = ${input.x}
         AND y = ${input.y}
         ${leaseCondition}
+        ${input.expectedListingRevision != null ? sql`AND listing_revision = ${input.expectedListingRevision}::bigint` : sql``}
       RETURNING 1
     )
     SELECT count(*)::int AS affected FROM updated
   `);
-  if (input.lease && Number(Array.from(updateResult)[0]?.affected ?? 0) !== 1) {
-    throw new PropertyTilePyramidLeaseLostError(input.version.versionId);
+  if ((input.lease || input.expectedListingRevision != null) && Number(Array.from(updateResult)[0]?.affected ?? 0) !== 1) {
+    if (input.lease) throw new PropertyTilePyramidLeaseLostError(input.version.versionId);
+    // A concurrent listing publisher replaced the node generation after this
+    // request read its manifest. Its eagerly encoded payload is authoritative.
+    const newer = await executor.execute<{ payload: unknown; etag: string; node_count: number }>(sql`
+      SELECT payload, etag, node_count FROM property_tile_pyramid_tiles
+      WHERE version_id = ${input.version.versionId}::uuid
+        AND z = ${input.z} AND x = ${input.x} AND y = ${input.y}
+    `);
+    const row = Array.from(newer)[0];
+    if (!row) throw new Error('Property tile disappeared during listing publication');
+    const latestPayload = maybeBuffer(row.payload);
+    return { payload: latestPayload, statusCode: latestPayload?.length ? 200 : 204, etag: row.etag, nodeCount: row.node_count };
   }
 
   return { payload: normalizedPayload, statusCode, etag };
@@ -5812,6 +5830,7 @@ function buildPyramidNodeId(input: {
   y: number;
   ordinal: number;
   group: CanonicalPropertyGroup;
+  listingRevision?: string;
 }): string {
   const hash = createHash('sha1');
   hash.update(`${input.z}/${input.x}/${input.y}`);
@@ -5823,6 +5842,7 @@ function buildPyramidNodeId(input: {
   hash.update(input.group.primaryPropertyId);
   hash.update(':');
   hash.update(String(input.ordinal));
+  if (input.listingRevision) hash.update(`:listing:${input.listingRevision}`);
   return `${input.z}:${input.x}:${input.y}:${hash.digest('hex').slice(0, 16)}`;
 }
 
@@ -5832,8 +5852,9 @@ async function insertPropertyTilePyramidNodes(input: {
   x: number;
   y: number;
   groups: CanonicalPropertyGroup[];
-  lease: PropertyTilePyramidBuildLease;
-}): Promise<void> {
+  lease?: PropertyTilePyramidBuildLease;
+  listingRevision?: string;
+}, executor: Pick<typeof db, 'execute'> = db): Promise<void> {
   if (input.groups.length === 0) {
     return;
   }
@@ -5861,7 +5882,8 @@ async function insertPropertyTilePyramidNodes(input: {
       ${jsonSql({
         primaryPropertyId: group.primaryPropertyId,
         pointCount: group.pointCount,
-        propertyIdsOmitted: group.groupKind === 'cluster',
+        propertyIdsOmitted: input.listingRevision == null && group.groupKind === 'cluster',
+        ...(input.listingRevision != null ? { propertyIds: group.propertyIds, listingRevision: input.listingRevision } : {}),
       })},
       ${jsonSql([])},
       ${bbox?.[0] ?? null}::double precision,
@@ -5891,9 +5913,13 @@ async function insertPropertyTilePyramidNodes(input: {
     )`;
   });
 
-  const result = await db.execute<{ inserted_count: number | string }>(sql`
+  // A dense higher-zoom tile can contain thousands of nodes. Bound each
+  // statement's parameters while preserving the complete sorted node identity.
+  for (let offset = 0; offset < rows.length; offset += 500) {
+    const chunk = rows.slice(offset, offset + 500);
+    const result = await executor.execute<{ inserted_count: number | string }>(sql`
     WITH lease AS (
-      ${buildLeasePredicate(input.lease)}
+      ${input.lease ? buildLeasePredicate(input.lease) : sql`SELECT 1`}
     ),
     rows (
       version_id,
@@ -5935,7 +5961,7 @@ async function insertPropertyTilePyramidNodes(input: {
       tap_radius_px,
       tap_priority_score
     ) AS (
-      VALUES ${sql.join(rows, sql`, `)}
+      VALUES ${sql.join(chunk, sql`, `)}
     ),
     inserted AS (
       INSERT INTO property_tile_pyramid_nodes (
@@ -5985,9 +6011,69 @@ async function insertPropertyTilePyramidNodes(input: {
     )
     SELECT count(*)::int AS inserted_count FROM inserted
   `);
-  if (Number(Array.from(result)[0]?.inserted_count ?? 0) !== rows.length) {
-    throw new PropertyTilePyramidLeaseLostError(input.versionId);
+    if (Number(Array.from(result)[0]?.inserted_count ?? 0) !== chunk.length) {
+      throw new PropertyTilePyramidLeaseLostError(input.versionId);
+    }
   }
+}
+
+/** The caller holds the current-pointer and dirty-tile generation/lease locks. */
+export async function publishListingUpdatedPyramidTile(
+  tx: DbTransaction,
+  input: {
+    versionId: string;
+    tile: { z: number; x: number; y: number };
+    groups: CanonicalPropertyGroup[];
+    revision: string;
+  },
+): Promise<void> {
+  if (input.groups.some(group => group.propertyIds.length !== group.pointCount)) {
+    throw new Error('Listing tile publication requires complete cluster membership');
+  }
+  const initialEtag = buildPropertyTilePyramidEtag({
+    versionId: input.versionId, ...input.tile, payload: null,
+  });
+  await tx.execute(sql`
+    INSERT INTO property_tile_pyramid_tiles
+      (version_id, z, x, y, tile_status, validation_status, node_count, listing_revision, etag, validated_at)
+    VALUES (${input.versionId}::uuid, ${input.tile.z}, ${input.tile.x}, ${input.tile.y},
+      ${input.groups.length > 0 ? 'valid_nodes' : 'valid_empty'}::property_tile_pyramid_tile_status,
+      'validated', ${input.groups.length}, ${input.revision}::bigint, ${initialEtag}, now())
+    ON CONFLICT (version_id, z, x, y) DO UPDATE SET
+      tile_status = EXCLUDED.tile_status, validation_status = EXCLUDED.validation_status,
+      node_count = EXCLUDED.node_count, listing_revision = EXCLUDED.listing_revision,
+      payload = NULL, payload_sha256 = NULL, payload_generated_at = NULL,
+      etag = EXCLUDED.etag, last_error = NULL, validated_at = now(), updated_at = now()
+  `);
+  await tx.execute(sql`
+    DELETE FROM property_tile_pyramid_nodes
+    WHERE version_id = ${input.versionId}::uuid
+      AND z = ${input.tile.z} AND x = ${input.tile.x} AND y = ${input.tile.y}
+  `);
+  await insertPropertyTilePyramidNodes({
+    versionId: input.versionId, ...input.tile, groups: input.groups, listingRevision: input.revision,
+  }, tx);
+  await encodePropertyTilePyramidTileFromPromotedNodes({
+    version: { versionId: input.versionId } as CurrentPropertyTilePyramidVersion,
+    ...input.tile, expectedListingRevision: input.revision,
+  }, tx);
+  // Lazy encoding may have changed byte totals since the base build. Read the
+  // small version manifest rather than carrying inaccurate byte deltas forward.
+  await tx.execute(sql`
+    WITH totals AS (
+      SELECT COALESCE(sum(node_count), 0)::int AS nodes,
+        count(*) FILTER (WHERE node_count > 0)::int AS nonempty,
+        count(*)::int AS tiles,
+        count(*) FILTER (WHERE validation_status = 'validated')::int AS validated,
+        COALESCE(sum(octet_length(payload)), 0)::bigint AS bytes
+      FROM property_tile_pyramid_tiles WHERE version_id = ${input.versionId}::uuid
+    )
+    UPDATE property_tile_pyramid_versions v SET
+      node_count = totals.nodes, non_empty_tile_count = totals.nonempty,
+      encoded_payload_bytes = totals.bytes, validated_tile_count = totals.validated,
+      expected_tile_count = GREATEST(v.expected_tile_count, totals.tiles)
+    FROM totals WHERE v.id = ${input.versionId}::uuid
+  `);
 }
 
 async function upsertPropertyTilePyramidTileManifest(input: {
@@ -8039,6 +8125,8 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
             UNION
+            SELECT published_version_id AS id FROM listing_tile_updates WHERE published_version_id IS NOT NULL
+            UNION
             SELECT previous_version_id AS id
             FROM property_tile_pyramid_current
             WHERE previous_version_id IS NOT NULL
@@ -8083,6 +8171,8 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
             UNION
+            SELECT published_version_id AS id FROM listing_tile_updates WHERE published_version_id IS NOT NULL
+            UNION
             SELECT previous_version_id AS id
             FROM property_tile_pyramid_current
             WHERE previous_version_id IS NOT NULL
@@ -8122,6 +8212,8 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           sql: sql`
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
+            UNION
+            SELECT published_version_id AS id FROM listing_tile_updates WHERE published_version_id IS NOT NULL
             UNION
             SELECT previous_version_id AS id
             FROM property_tile_pyramid_current
@@ -8163,6 +8255,8 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
             UNION
+            SELECT published_version_id AS id FROM listing_tile_updates WHERE published_version_id IS NOT NULL
+            UNION
             SELECT previous_version_id AS id
             FROM property_tile_pyramid_current
             WHERE previous_version_id IS NOT NULL
@@ -8202,6 +8296,8 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
           sql: sql`
           WITH retained AS (
             SELECT current_version_id AS id FROM property_tile_pyramid_current
+            UNION
+            SELECT published_version_id AS id FROM listing_tile_updates WHERE published_version_id IS NOT NULL
             UNION
             SELECT previous_version_id AS id
             FROM property_tile_pyramid_current
@@ -8256,6 +8352,12 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	            SELECT s.id
 	            FROM property_tile_candidate_source_snapshots s
 		            WHERE NOT EXISTS (
+                  SELECT 1 FROM property_tile_pyramid_versions retained_version
+                  INNER JOIN listing_tile_updates retained_overlay
+                    ON retained_overlay.published_version_id = retained_version.id
+                  WHERE retained_version.candidate_snapshot_id = s.id
+                )
+                AND NOT EXISTS (
 		              SELECT 1
 		              FROM property_tile_candidate_source_current c
 		              WHERE c.snapshot_id = s.id
@@ -8321,6 +8423,12 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	            SELECT s.id
 	            FROM property_tile_candidate_source_snapshots s
 		            WHERE NOT EXISTS (
+                  SELECT 1 FROM property_tile_pyramid_versions retained_version
+                  INNER JOIN listing_tile_updates retained_overlay
+                    ON retained_overlay.published_version_id = retained_version.id
+                  WHERE retained_version.candidate_snapshot_id = s.id
+                )
+                AND NOT EXISTS (
 		              SELECT 1
 		              FROM property_tile_candidate_source_current c
 		              WHERE c.snapshot_id = s.id
@@ -8386,6 +8494,12 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	            SELECT s.id
 	            FROM property_tile_candidate_source_snapshots s
 		            WHERE NOT EXISTS (
+                  SELECT 1 FROM property_tile_pyramid_versions retained_version
+                  INNER JOIN listing_tile_updates retained_overlay
+                    ON retained_overlay.published_version_id = retained_version.id
+                  WHERE retained_version.candidate_snapshot_id = s.id
+                )
+                AND NOT EXISTS (
 		              SELECT 1
 		              FROM property_tile_candidate_source_current c
 		              WHERE c.snapshot_id = s.id
@@ -8451,6 +8565,12 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	            SELECT s.id
 	            FROM property_tile_candidate_source_snapshots s
 		            WHERE NOT EXISTS (
+                  SELECT 1 FROM property_tile_pyramid_versions retained_version
+                  INNER JOIN listing_tile_updates retained_overlay
+                    ON retained_overlay.published_version_id = retained_version.id
+                  WHERE retained_version.candidate_snapshot_id = s.id
+                )
+                AND NOT EXISTS (
 		              SELECT 1
 		              FROM property_tile_candidate_source_current c
 		              WHERE c.snapshot_id = s.id
@@ -8516,6 +8636,12 @@ export async function runPropertyTilePyramidRetention(): Promise<Record<string, 
 	            SELECT s.id
 	            FROM property_tile_candidate_source_snapshots s
 	            WHERE NOT EXISTS (
+                  SELECT 1 FROM property_tile_pyramid_versions retained_version
+                  INNER JOIN listing_tile_updates retained_overlay
+                    ON retained_overlay.published_version_id = retained_version.id
+                  WHERE retained_version.candidate_snapshot_id = s.id
+                )
+                AND NOT EXISTS (
 	              SELECT 1
 	              FROM property_tile_candidate_source_current c
 	              WHERE c.snapshot_id = s.id

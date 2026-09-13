@@ -12,6 +12,9 @@ import {
   loadIngestQueueModule,
   loadIngestStoreModule,
   loadListingsViewModule,
+  loadListingLifecycleModule,
+  loadListingTileUpdatesModule,
+  loadPriceEvidenceRepairModule,
   loadOfficialValuationJobsModule,
   loadOfficialValuationProcessorModule,
   loadOfficialValuationQueueModule,
@@ -58,6 +61,9 @@ export type WorkerRuntimeModuleLoaders = {
   loadIngestQueueModule: typeof loadIngestQueueModule;
   loadIngestStoreModule: typeof loadIngestStoreModule;
   loadListingsViewModule: typeof loadListingsViewModule;
+  loadListingLifecycleModule: typeof loadListingLifecycleModule;
+  loadListingTileUpdatesModule: typeof loadListingTileUpdatesModule;
+  loadPriceEvidenceRepairModule: typeof loadPriceEvidenceRepairModule;
   loadOfficialValuationJobsModule: typeof loadOfficialValuationJobsModule;
   loadOfficialValuationProcessorModule: typeof loadOfficialValuationProcessorModule;
   loadOfficialValuationQueueModule: typeof loadOfficialValuationQueueModule;
@@ -77,6 +83,9 @@ const DEFAULT_MODULE_LOADERS: WorkerRuntimeModuleLoaders = {
   loadIngestQueueModule,
   loadIngestStoreModule,
   loadListingsViewModule,
+  loadListingLifecycleModule,
+  loadListingTileUpdatesModule,
+  loadPriceEvidenceRepairModule,
   loadOfficialValuationJobsModule,
   loadOfficialValuationProcessorModule,
   loadOfficialValuationQueueModule,
@@ -527,6 +536,30 @@ export class WorkerRuntime {
         this.moduleLoaders.loadOfficialValuationQueueModule(),
         this.moduleLoaders.loadPropertyTilePyramidModule(),
       ]);
+
+    // These jobs have durable database demand and run even when no ingest arrives.
+    // A failed pass is retried on the next sweep; it must not block ingestion.
+    for (const [name, run] of [
+      ['listing-availability', async () => (await this.moduleLoaders.loadListingLifecycleModule())
+        .runListingLifecycleMaintenance()],
+      ['price-evidence', async () => (await this.moduleLoaders.loadPriceEvidenceRepairModule())
+        .runPriceEvidenceRepair()],
+      ['listing-tiles', async () => (await this.moduleLoaders.loadListingTileUpdatesModule())
+        .runListingTileUpdates()],
+    ] as const) {
+      try {
+        const result = await run();
+        if ('failedTiles' in result && Number(result.failedTiles) > 0) {
+          this.logger.error('Listing tile publication failed; durable demand remains pending', { trigger, name, ...result });
+        } else {
+          this.logger.info('Listing maintenance completed', { trigger, name, ...result });
+        }
+      } catch (error) {
+        this.logger.error('Listing maintenance failed; durable demand remains pending', {
+          trigger, name, error: serializeError(error),
+        });
+      }
+    }
 
     const staleProcessingBefore = new Date(Date.now() - this.config.staleProcessingAfterMs);
     const dispatchWork = await store.collectRecoveryDispatchWork(

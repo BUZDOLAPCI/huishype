@@ -101,6 +101,15 @@ function createModuleLoaders(
       }),
       markBatchQueued: async () => undefined,
     }),
+    loadListingTileUpdatesModule: async () => ({
+      runListingTileUpdates: async () => ({ publishedCount: 0 }),
+    }),
+    loadListingLifecycleModule: async () => ({
+      runListingLifecycleMaintenance: async () => ({ expiredCount: 0, projectionsRefreshed: false }),
+    }),
+    loadPriceEvidenceRepairModule: async () => ({
+      runPriceEvidenceRepair: async () => ({ repairedCount: 0 }),
+    }),
     loadListingsViewModule: async () => ({
       refreshLatestListingsView: async () => undefined,
       refreshPriceGuessStartMarketSummaries: async () => undefined,
@@ -434,4 +443,45 @@ test('property tile pyramid worker job delegates to durable pyramid build lease'
   assert.equal(buildInput.leaseOwner, `worker:${process.pid}:job-1`);
   assert.equal(buildInput.versionId, 'version-1');
   assert.ok(buildInput.logger);
+});
+
+
+test('recovery sweep expires listing eligibility and repairs price evidence without incoming ingest', async () => {
+  const calls: string[] = [];
+  const runtime = createRuntime(createModuleLoaders({
+    loadListingLifecycleModule: async () => ({
+      runListingLifecycleMaintenance: async () => {
+        calls.push('expiry');
+        return { expiredCount: 1, projectionsRefreshed: true };
+      },
+    }),
+    loadPriceEvidenceRepairModule: async () => ({
+      runPriceEvidenceRepair: async () => {
+        calls.push('repair');
+        return { repairedCount: 1 };
+      },
+    }),
+  }));
+  await (runtime as unknown as RuntimeInternals).performRecoverySweep('test');
+  assert.deepEqual(calls, ['expiry', 'repair']);
+});
+
+test('failed lifecycle maintenance is retried by the next sweep and does not prevent other recovery', async () => {
+  let attempts = 0;
+  let repairs = 0;
+  const runtime = createRuntime(createModuleLoaders({
+    loadListingLifecycleModule: async () => ({
+      runListingLifecycleMaintenance: async () => {
+        attempts += 1;
+        throw new Error('refresh interrupted');
+      },
+    }),
+    loadPriceEvidenceRepairModule: async () => ({
+      runPriceEvidenceRepair: async () => { repairs += 1; return {}; },
+    }),
+  }));
+  await (runtime as unknown as RuntimeInternals).performRecoverySweep('first');
+  await (runtime as unknown as RuntimeInternals).performRecoverySweep('second');
+  assert.equal(attempts, 2);
+  assert.equal(repairs, 2);
 });

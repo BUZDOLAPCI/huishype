@@ -2842,6 +2842,36 @@ describe('property tile pyramid build lifecycle', () => {
     expect(result.state === 'hit' ? result.etag : null).not.toBe('"pyramid-old-empty-seed"');
   });
 
+  it('returns the published listing generation when lazy encoding loses its revision fence', async () => {
+    executeMock
+      .mockResolvedValueOnce([{
+        payload: null, etag: '"old"', node_count: 1,
+        tile_status: 'valid_nodes', validation_status: 'validated', listing_revision: '41',
+      }])
+      .mockResolvedValueOnce([{ mvt: Buffer.from('old-node-generation') }])
+      .mockResolvedValueOnce([{ affected: 0 }])
+      .mockResolvedValueOnce([{ payload: Buffer.from('new-listing-generation'), etag: '"new"', node_count: 2 }]);
+
+    const { lookupPromotedPropertyTilePyramidTile } = await import('./property-tile-pyramid.js');
+    const result = await lookupPromotedPropertyTilePyramidTile({
+      version: {
+        versionId: '00000000-0000-0000-0000-000000000001',
+        coverageId: 'public_default_low_zoom', filterSignature: 'default', maxZoom: 0,
+        pyramidKind: 'public_default_low_zoom', buildInputsHash: 'inputs',
+        sourceWatermarkHash: 'watermarks', status: 'promoted',
+        promotedAt: null, degradedAt: null, degradedReason: null,
+        coverage: { minLon: -180, minLat: -85, maxLon: 180, maxLat: 85, maxZoom: 0 },
+      },
+      z: 0, x: 0, y: 0,
+    });
+
+    expect(result).toMatchObject({
+      state: 'hit', payload: Buffer.from('new-listing-generation'), etag: '"new"', statusCode: 200, nodeCount: 2,
+    });
+    expect(JSON.stringify(executeMock.mock.calls[2]?.[0])).toContain('listing_revision = ');
+    expect(JSON.stringify(executeMock.mock.calls[2]?.[0])).toContain('41');
+  });
+
   it('does not serve promoted tile manifests unless their validation status is validated', async () => {
     executeMock.mockResolvedValueOnce([
       {

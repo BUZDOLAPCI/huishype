@@ -254,3 +254,30 @@ export function loadApiDbModule(): Promise<ApiDbModule> {
 export function loadApiRedisModule(): Promise<ApiRedisModule> {
   return importApiModule<ApiRedisModule>('lib/redis.js');
 }
+
+export interface ListingLifecycleModule {
+  runListingLifecycleMaintenance(limit?: number): Promise<{
+    expiredCount: number;
+    projectionsRefreshed: boolean;
+  }>;
+}
+
+export interface PriceEvidenceRepairModule {
+  runPriceEvidenceRepair(limit?: number): Promise<Record<string, unknown>>;
+}
+
+export function loadListingLifecycleModule(): Promise<ListingLifecycleModule> {
+  return importApiModule<ListingLifecycleModule>('services/listing-lifecycle-maintenance.js');
+}
+
+export function loadPriceEvidenceRepairModule(): Promise<PriceEvidenceRepairModule> {
+  return importApiModule<PriceEvidenceRepairModule>('services/price-evidence-repair.js');
+}
+
+export interface ListingTileUpdatesModule {
+  runListingTileUpdates(limit?: number): Promise<Record<string, unknown>>;
+}
+
+export function loadListingTileUpdatesModule(): Promise<ListingTileUpdatesModule> {
+  return importApiModule<ListingTileUpdatesModule>('services/listing-tile-updates.js');
+}

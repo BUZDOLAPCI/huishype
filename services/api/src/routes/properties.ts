@@ -465,11 +465,13 @@ type NearbyGroupedContractResult = Awaited<ReturnType<typeof resolveNearbyGroupe
 
 type PyramidNearbyNodeRow = {
   node_id: string;
+  version_id?: string;
   primary_property_id: string | null;
   node_class: 'active';
   group_kind: 'single' | 'cluster';
   point_count: number | string;
   preview_property_ids: string[] | null;
+  complete_property_ids?: string[] | null;
   render_lon: number | string;
   render_lat: number | string;
   distance_meters: number | string;
@@ -924,12 +926,12 @@ function mapPyramidNearbyNodeRow(
     nodeClass: row.node_class,
     primaryPropertyId,
     pointCount: Number(row.point_count),
-    propertyIds: row.group_kind === 'single' ? [primaryPropertyId] : [],
+    propertyIds: row.complete_property_ids ?? (row.group_kind === 'single' ? [primaryPropertyId] : []),
     previewPropertyIds: row.preview_property_ids ?? [],
     pyramidVersionId: versionId,
     pyramidNodeId: row.node_id,
-    membershipComplete: row.group_kind === 'single',
-    readStateCoverage: row.group_kind === 'single' ? ('complete' as const) : ('partial' as const),
+    membershipComplete: row.group_kind === 'single' || row.complete_property_ids != null,
+    readStateCoverage: row.group_kind === 'single' || row.complete_property_ids != null ? ('complete' as const) : ('partial' as const),
     coordinate: [Number(row.render_lon), Number(row.render_lat)] as [number, number],
     distanceMeters: Number(row.distance_meters),
     bbox,
@@ -1000,7 +1002,10 @@ async function hasServeablePyramidTileManifest(input: {
   }>(sql`
     SELECT t.tile_status, t.validation_status
     FROM property_tile_pyramid_tiles t
-    WHERE t.version_id = ${input.versionId}::uuid
+    WHERE t.version_id = COALESCE((
+      SELECT u.published_version_id FROM listing_tile_updates u
+      WHERE u.z = ${input.tile.z} AND u.x = ${input.tile.x} AND u.y = ${input.tile.y}
+    ), ${input.versionId}::uuid)
       AND t.z = ${input.tile.z}
       AND t.x = ${input.tile.x}
       AND t.y = ${input.tile.y}
@@ -1024,9 +1029,6 @@ async function resolvePyramidNearbyNodeById(input: {
   if (current.state !== 'current') {
     return { result: null, status: 'pyramid-unavailable' };
   }
-  if (current.version.versionId !== input.pyramidVersionId) {
-    return { result: null, status: 'pyramid-stale', versionId: current.version.versionId };
-  }
 
   const rows = await db.execute<PyramidNearbyNodeRow>(sql`
     WITH tap AS (
@@ -1034,11 +1036,15 @@ async function resolvePyramidNearbyNodeById(input: {
     )
     SELECT
       n.node_id,
+      n.version_id::text,
       COALESCE(n.representative_property_id::text, n.preview_property_ids[1]::text) AS primary_property_id,
       n.node_class,
       n.group_kind,
       n.point_count,
       ARRAY(SELECT unnest(n.preview_property_ids)::text) AS preview_property_ids,
+      CASE WHEN n.node_summary_json ? 'propertyIds' THEN
+        ARRAY(SELECT jsonb_array_elements_text(n.node_summary_json->'propertyIds'))
+      ELSE NULL END AS complete_property_ids,
       n.render_lon,
       n.render_lat,
       ST_Distance(
@@ -1079,12 +1085,16 @@ async function resolvePyramidNearbyNodeById(input: {
      AND t.y = n.y
     WHERE n.version_id = ${input.pyramidVersionId}::uuid
       AND n.node_id = ${input.pyramidNodeId}
+      AND n.version_id = COALESCE((
+        SELECT u.published_version_id FROM listing_tile_updates u
+        WHERE u.z = n.z AND u.x = n.x AND u.y = n.y
+      ), ${current.version.versionId}::uuid)
     LIMIT 1
   `);
 
   const row = Array.from(rows)[0] ?? null;
   if (!row) {
-    return { result: null, status: 'pyramid-empty', versionId: current.version.versionId };
+    return { result: null, status: input.pyramidVersionId === current.version.versionId ? 'pyramid-empty' : 'pyramid-stale', versionId: current.version.versionId };
   }
   if (!isServeablePyramidNearbyTile(row)) {
     return { result: null, status: 'pyramid-missing', versionId: current.version.versionId };
@@ -1094,7 +1104,7 @@ async function resolvePyramidNearbyNodeById(input: {
   return {
     result,
     status: result ? 'pyramid-promoted' : 'pyramid-empty',
-    versionId: current.version.versionId,
+    versionId: input.pyramidVersionId,
   };
 }
 
@@ -1204,11 +1214,15 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
     )
     SELECT
       n.node_id,
+      n.version_id::text,
       COALESCE(n.representative_property_id::text, n.preview_property_ids[1]::text) AS primary_property_id,
       n.node_class,
       n.group_kind,
       n.point_count,
       ARRAY(SELECT unnest(n.preview_property_ids)::text) AS preview_property_ids,
+      CASE WHEN n.node_summary_json ? 'propertyIds' THEN
+        ARRAY(SELECT jsonb_array_elements_text(n.node_summary_json->'propertyIds'))
+      ELSE NULL END AS complete_property_ids,
       n.render_lon,
       n.render_lat,
       ST_Distance(n.render_geometry::geography, tap.geom::geography) AS distance_meters,
@@ -1254,7 +1268,10 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
      AND ot.x = n.x
      AND ot.y = n.y
     CROSS JOIN tap
-    WHERE n.version_id = ${current.version.versionId}::uuid
+    WHERE n.version_id = COALESCE((
+        SELECT u.published_version_id FROM listing_tile_updates u
+        WHERE u.z = n.z AND u.x = n.x AND u.y = n.y
+      ), ${current.version.versionId}::uuid)
       AND n.z = ${servingZoom}
       AND ST_DWithin(render_geometry::geography, tap.geom::geography, ${searchRadiusMeters})
       AND ST_Distance(render_geometry::geography, tap.geom::geography) <=
@@ -1267,10 +1284,12 @@ async function resolvePyramidNearbyNodeAtPoint(input: {
     LIMIT 1
   `);
 
+  const row = Array.from(rows)[0] ?? null;
+  const servingVersionId = row?.version_id ?? current.version.versionId;
   return {
-    result: mapPyramidNearbyNodeRow(Array.from(rows)[0] ?? null, current.version.versionId),
+    result: mapPyramidNearbyNodeRow(row, servingVersionId),
     status: 'pyramid-empty',
-    versionId: current.version.versionId,
+    versionId: servingVersionId,
   };
 }
 
