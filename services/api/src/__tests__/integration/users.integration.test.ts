@@ -387,6 +387,7 @@ describe('User profile routes', () => {
         price: 500000,
         priceDate: '2035-01-01',
         eventType: 'sold',
+        priceKind: 'achieved',
         source: 'observed',
       });
 

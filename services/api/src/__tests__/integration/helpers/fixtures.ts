@@ -46,6 +46,10 @@ interface CreateListingOptions {
   priceType?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
+  lastPositiveAvailabilityAt?: Date | null;
+  availabilityEndedAt?: Date | null;
+  availabilityExpiresAt?: Date | null;
+  activeEligible?: boolean;
   verificationState?:
     | 'provisional'
     | 'validated'
@@ -72,6 +76,7 @@ interface CreatePriceHistoryOptions {
   price: number;
   priceDate?: Date;
   eventType: string;
+  priceKind: 'asking' | 'achieved' | 'unknown';
   source: string;
   createdAt?: Date;
 }
@@ -277,6 +282,22 @@ export async function createIntegrationCanonicalListing(options: CreateCanonical
     `https://example.com/canonical-listing-${options.propertyId}-${crypto.randomUUID()}`;
   const statusSource: CanonicalListingStatusSource =
     options.originSummary === 'user' ? 'user' : 'mirror';
+  // Active fixtures model an observed available listing. Production defaults
+  // deliberately require source evidence; tests must provide that evidence.
+  const now = new Date();
+  const status = options.status ?? 'active';
+  const lastPositiveAvailabilityAt = options.lastPositiveAvailabilityAt === undefined
+    ? status === 'active' ? now : null
+    : options.lastPositiveAvailabilityAt;
+  const availabilityExpiresAt = options.availabilityExpiresAt === undefined
+    ? lastPositiveAvailabilityAt == null ? null : new Date(lastPositiveAvailabilityAt.getTime() + 30 * 24 * 60 * 60 * 1000)
+    : options.availabilityExpiresAt;
+  const availabilityEndedAt = options.availabilityEndedAt ?? null;
+  const activeEligible = options.activeEligible ?? (
+    status === 'active' && lastPositiveAvailabilityAt != null && availabilityExpiresAt != null
+    && availabilityExpiresAt > now
+    && (availabilityEndedAt == null || lastPositiveAvailabilityAt > availabilityEndedAt)
+  );
 
   const listing = {
     id: options.id ?? crypto.randomUUID(),
@@ -285,7 +306,11 @@ export async function createIntegrationCanonicalListing(options: CreateCanonical
     primarySourceListingId: options.primarySourceListingId ?? null,
     canonicalUrl,
     displayUrl: options.displayUrl ?? canonicalUrl,
-    status: options.status ?? 'active',
+    status,
+    lastPositiveAvailabilityAt,
+    availabilityExpiresAt,
+    availabilityEndedAt,
+    activeEligible,
     statusSource,
     verificationState: options.verificationState ?? 'provisional',
     originSummary: options.originSummary ?? 'mirror',
@@ -310,6 +335,10 @@ export async function createIntegrationCanonicalListing(options: CreateCanonical
       target: canonicalListings.id,
       set: {
         status: listing.status,
+        lastPositiveAvailabilityAt: listing.lastPositiveAvailabilityAt,
+        availabilityExpiresAt: listing.availabilityExpiresAt,
+        availabilityEndedAt: listing.availabilityEndedAt,
+        activeEligible: listing.activeEligible,
         verificationState: listing.verificationState,
         askingPrice: listing.askingPrice,
         thumbnailUrl: listing.thumbnailUrl,
@@ -339,6 +368,7 @@ export async function createIntegrationPriceHistory(options: CreatePriceHistoryO
     price: options.price,
     priceDate: priceDate.toISOString(),
     eventType: options.eventType,
+    priceKind: options.priceKind,
     source: options.source,
     createdAt: createdAt.toISOString(),
   };
@@ -351,6 +381,7 @@ export async function createIntegrationPriceHistory(options: CreatePriceHistoryO
       price,
       price_date,
       event_type,
+      price_kind,
       source,
       created_at
     )
@@ -361,6 +392,7 @@ export async function createIntegrationPriceHistory(options: CreatePriceHistoryO
       ${priceHistory.price},
       ${priceHistory.priceDate},
       ${priceHistory.eventType},
+      ${priceHistory.priceKind},
       ${priceHistory.source},
       ${priceHistory.createdAt}
     )
