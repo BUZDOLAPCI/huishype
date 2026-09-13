@@ -209,12 +209,6 @@ const TREE_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const DUCK_TILE_CACHE_CONTROL = 'public, max-age=3600';
 const BUILDING_TILE_CACHE_CONTROL = 'public, max-age=86400';
 let loggedMissingWatercoverForDuckTiles = false;
-let treeLandcoverSourceCache:
-  | {
-      tableName: 'tree_landcover' | 'landcover';
-      excludeWatercover: boolean;
-    }
-  | null = null;
 const OPENFREEMAP_VECTOR_SOURCE = {
   type: 'vector',
   tiles: ['https://tiles.openfreemap.org/planet/20260506_001001_pt/{z}/{x}/{y}.pbf'],
@@ -264,7 +258,6 @@ export function resetPropertyTileCacheForTests(): void {
   publicPropertyTileCache.clear();
   propertyTileRuntime.resetForTests();
   propertyTilePyramidRouteService = defaultPropertyTilePyramidRouteService;
-  treeLandcoverSourceCache = null;
 }
 
 export function setPropertyTilePyramidServiceForTests(
@@ -1046,49 +1039,50 @@ function patchShieldRefLengthFilters(layers: Array<Record<string, unknown>>): vo
   });
 }
 
-function isMissingWatercoverTableError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
+function isMissingOptionalTableError(error: unknown, tableNames: readonly string[]): boolean {
+  if (!error || typeof error !== 'object') return false;
 
-  const maybeError = error as { cause?: unknown; code?: unknown; message?: unknown };
-  if (maybeError.code === '42P01') {
+  const databaseError = error as { cause?: unknown; code?: unknown; message?: unknown };
+  if (
+    databaseError.code === '42P01' &&
+    typeof databaseError.message === 'string' &&
+    tableNames.some((tableName) =>
+      databaseError.message === `relation "${tableName}" does not exist` ||
+      databaseError.message === `relation "public.${tableName}" does not exist`
+    )
+  ) {
     return true;
   }
-
-  if (maybeError.cause && isMissingWatercoverTableError(maybeError.cause)) {
-    return true;
-  }
-
-  return (
-    typeof maybeError.message === 'string' &&
-    maybeError.message.includes('relation "watercover" does not exist')
-  );
+  return Boolean(databaseError.cause && isMissingOptionalTableError(databaseError.cause, tableNames));
 }
 
 async function getTreeLandcoverSource(): Promise<{
   tableName: 'tree_landcover' | 'landcover';
   excludeWatercover: boolean;
-}> {
-  if (treeLandcoverSourceCache) {
-    return treeLandcoverSourceCache;
-  }
-
+  excludeBuildings: boolean;
+} | null> {
+  // Imports can finish or rebuild their optional tables while the API is running.
+  // Discover each request so neither missing imports nor a fallback stay cached.
   const result = await db.execute<{
     hasTreeLandcover: boolean;
+    hasLandcover: boolean;
     hasWatercover: boolean;
+    hasTallBuildings: boolean;
   }>(sql`
     SELECT
       to_regclass('public.tree_landcover') IS NOT NULL AS "hasTreeLandcover",
-      to_regclass('public.watercover') IS NOT NULL AS "hasWatercover"
+      to_regclass('public.landcover') IS NOT NULL AS "hasLandcover",
+      to_regclass('public.watercover') IS NOT NULL AS "hasWatercover",
+      to_regclass('public.tall_buildings') IS NOT NULL AS "hasTallBuildings"
   `);
   const state = Array.from(result)[0];
+  if (!state?.hasTreeLandcover && !state?.hasLandcover) return null;
 
-  treeLandcoverSourceCache = state?.hasTreeLandcover
-    ? { tableName: 'tree_landcover', excludeWatercover: false }
-    : { tableName: 'landcover', excludeWatercover: Boolean(state?.hasWatercover) };
-
-  return treeLandcoverSourceCache;
+  return {
+    tableName: state.hasTreeLandcover ? 'tree_landcover' : 'landcover',
+    excludeWatercover: !state.hasTreeLandcover && state.hasWatercover,
+    excludeBuildings: state.hasTallBuildings,
+  };
 }
 
 /**
@@ -3086,6 +3080,15 @@ export async function tileRoutes(app: FastifyInstance) {
         .map((p, i) => `(${i}, ST_SetSRID(ST_MakePoint(${p.lon}, ${p.lat}), 4326), ${p.variant})`)
         .join(',');
       const treeLandcoverSource = await getTreeLandcoverSource();
+      if (!treeLandcoverSource) {
+        return reply.header('Cache-Control', TREE_TILE_CACHE_CONTROL).status(204).send();
+      }
+      const buildingExclusionClause = treeLandcoverSource.excludeBuildings
+        ? `AND NOT EXISTS (
+            SELECT 1 FROM tall_buildings b
+            WHERE ST_Intersects(c.geom, b.exclusion_geom)
+          )`
+        : '';
       const waterExclusionClause = treeLandcoverSource.excludeWatercover
         ? `AND NOT EXISTS (
             SELECT 1 FROM watercover wc
@@ -3104,10 +3107,8 @@ export async function tileRoutes(app: FastifyInstance) {
             c.geom
           FROM candidates c
           INNER JOIN ${treeLandcoverSource.tableName} lc ON ST_Within(c.geom, lc.geometry)
-          WHERE NOT EXISTS (
-            SELECT 1 FROM tall_buildings b
-            WHERE ST_Intersects(c.geom, b.exclusion_geom)
-          )
+          WHERE TRUE
+          ${buildingExclusionClause}
           ${waterExclusionClause}
           ORDER BY c.id
         ),
@@ -3128,7 +3129,16 @@ export async function tileRoutes(app: FastifyInstance) {
         FROM mvt_data
       `;
 
-      const result = await db.execute<{ mvt: Buffer }>(sql.raw(query));
+      let result: Iterable<{ mvt: Buffer }>;
+      try {
+        result = await db.execute<{ mvt: Buffer }>(sql.raw(query));
+      } catch (error) {
+        // An importer may replace an optional table after discovery above.
+        if (isMissingOptionalTableError(error, ['landcover', 'tree_landcover', 'watercover', 'tall_buildings'])) {
+          return reply.header('Cache-Control', TREE_TILE_CACHE_CONTROL).status(204).send();
+        }
+        throw error;
+      }
       const rows = Array.from(result) as { mvt: Buffer }[];
       const mvt = rows[0]?.mvt;
 
@@ -3218,7 +3228,7 @@ export async function tileRoutes(app: FastifyInstance) {
       try {
         result = await db.execute<{ mvt: Buffer }>(sql.raw(query));
       } catch (err) {
-        if (isMissingWatercoverTableError(err)) {
+        if (isMissingOptionalTableError(err, ['watercover'])) {
           if (!loggedMissingWatercoverForDuckTiles) {
             loggedMissingWatercoverForDuckTiles = true;
             request.log.warn(
