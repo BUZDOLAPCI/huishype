@@ -1,3 +1,4 @@
+import { isListingActiveEligible } from '../services/listing-lifecycle.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -83,6 +84,7 @@ const listingResponseSchema = z.object({
   numRooms: z.number().nullable(),
   energyLabel: z.string().nullable(),
   status: z.enum(['active', 'sold', 'rented', 'withdrawn']),
+  activeEligible: z.boolean(),
   verificationState: z.enum([
     'provisional',
     'validated',
@@ -237,6 +239,7 @@ const submitResponseSchema = z.object({
   canonicalUrl: z.string().nullable(),
   sourceListingId: z.string().nullable(),
   status: z.enum(['active', 'sold', 'rented', 'withdrawn']),
+  activeEligible: z.boolean(),
   verificationState: z.enum([
     'provisional',
     'validated',
@@ -455,6 +458,7 @@ export async function listingRoutes(app: FastifyInstance) {
             numRooms: l.numRooms,
             energyLabel: l.energyLabel,
             status,
+            activeEligible: l.activeEligible,
             verificationState: l.verificationState,
             candidateHandoffState: l.candidateHandoffState as
               | 'pending'
@@ -736,6 +740,7 @@ export async function listingRoutes(app: FastifyInstance) {
           canonicalUrl: submission.canonicalListing.canonicalUrl,
           sourceListingId: submission.canonicalListing.primarySourceListingId,
           status: toPublicListingStatus(submission.canonicalListing.status),
+          activeEligible: isListingActiveEligible(submission.canonicalListing),
           verificationState: submission.canonicalListing.verificationState,
           candidateHandoffState: submission.candidateHandoffState as 'pending' | 'queued' | 'delivered' | 'retryable_error' | 'dead_letter',
           candidateId: submission.candidateId,

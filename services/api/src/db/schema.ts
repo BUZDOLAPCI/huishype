@@ -1125,6 +1125,10 @@ export const canonicalListings = pgTable(
     withdrawnAt: timestamp('withdrawn_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    lastPositiveAvailabilityAt: timestamp('last_positive_availability_at', { withTimezone: true }),
+    availabilityEndedAt: timestamp('availability_ended_at', { withTimezone: true }),
+    availabilityExpiresAt: timestamp('availability_expires_at', { withTimezone: true }),
+    activeEligible: boolean('active_eligible').notNull().default(false),
     lastMirrorSeenAt: timestamp('last_mirror_seen_at', { withTimezone: true }),
     lastPositiveAvailabilityAt: timestamp('last_positive_availability_at', { withTimezone: true }),
     availabilityEndedAt: timestamp('availability_ended_at', { withTimezone: true }),
@@ -1149,6 +1153,9 @@ export const canonicalListings = pgTable(
     index('canonical_listings_property_id_idx').on(table.propertyId),
     index('canonical_listings_property_status_idx').on(table.propertyId, table.status),
     index('canonical_listings_verification_state_idx').on(table.verificationState),
+    index('canonical_listings_availability_expiry_idx')
+      .on(table.availabilityExpiresAt, table.id)
+      .where(sql`active_eligible = true`),
     index('canonical_listings_tile_latest_idx')
       .on(
         table.propertyId,
@@ -1179,6 +1186,12 @@ export const canonicalListings = pgTable(
       .where(sql`verification_state <> 'invalid' AND thumbnail_url IS NOT NULL`),
   ]
 );
+
+export const listingLifecycleMaintenance = pgTable('listing_lifecycle_maintenance', {
+  id: text('id').primaryKey(),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull(),
+  refreshedAt: timestamp('refreshed_at', { withTimezone: true }),
+});
 
 export const propertyTileCandidateSourceSnapshots = pgTable(
   'property_tile_candidate_source_snapshots',

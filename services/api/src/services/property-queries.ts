@@ -33,7 +33,7 @@ export function canonicalListingFactOrderExpression(listingAlias: string): SQL {
 }
 
 export function listingThumbnailOrderExpression(listingAlias: string): SQL {
-  return sql`(${sql.raw(`${listingAlias}.status`)} = 'active') DESC, ${canonicalListingFactOrderExpression(listingAlias)}`;
+  return sql`${sql.raw(`${listingAlias}.active_eligible`)} DESC, ${canonicalListingFactOrderExpression(listingAlias)}`;
 }
 
 export function buildPropertyThumbnailLateralJoin(propertyAlias = 'p', alias = 'lt'): SQL {
@@ -95,7 +95,7 @@ export function buildPropertyListingFactsJoin(
           SELECT ph.price AS last_sold_price
           FROM price_history ph
           WHERE ph.property_id = ${idColumn}
-            AND ph.event_type = 'sold'
+            AND ph.event_type = 'sold' AND ph.price_kind = 'achieved'
           ORDER BY ph.price_date DESC, ph.created_at DESC, ph.id DESC
           LIMIT 1
         ) sold_history ON TRUE
@@ -108,7 +108,7 @@ export function buildPropertyListingFactsJoin(
           SELECT ph.price AS last_rented_price
           FROM price_history ph
           WHERE ph.property_id = ${idColumn}
-            AND ph.event_type = 'rented'
+            AND ph.event_type = 'rented' AND ph.price_kind = 'achieved'
           ORDER BY ph.price_date DESC, ph.created_at DESC, ph.id DESC
           LIMIT 1
         ) rented_history ON TRUE
@@ -212,7 +212,7 @@ export function buildPropertyListingFactsJoin(
           l.sort_at
         FROM v_canonical_listing_facts l
         WHERE l.property_id = ${idColumn}
-          AND l.status = 'active'
+          AND l.status = 'active' AND l.active_eligible
         ORDER BY ${canonicalListingFactOrderExpression('l')}
         LIMIT 1
       ) active_listing ON TRUE

@@ -1,3 +1,4 @@
+import { comparableAskingPriceSql } from '../services/listing-price-units.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -258,19 +259,20 @@ function buildFeedListingFactsJoin(propertyAlias = 'p', alias = 'lf') {
       LEFT JOIN LATERAL (
         SELECT
           cl.id,
-          cl.asking_price,
+          ${comparableAskingPriceSql('cl')} AS asking_price,
           ${buildFeedListingPriceTypeExpression('cl')} AS normalized_price_type,
           ${buildFeedListingSortValue('cl')} AS sort_at
         FROM canonical_listings cl
         WHERE cl.property_id = ${idColumn}
           AND cl.verification_state <> 'invalid'
-          AND cl.status = 'active'
+          AND cl.status = 'active' AND cl.active_eligible AND cl.availability_expires_at > now()
         ORDER BY ${buildFeedListingSortExpression('cl')}
         LIMIT 1
       ) active_listing ON TRUE
       LEFT JOIN LATERAL (
         SELECT
           cl.status::text AS status,
+        (cl.active_eligible AND cl.availability_expires_at > now()) AS active_eligible,
           ${buildFeedListingSortValue('cl')} AS sort_at
         FROM canonical_listings cl
         WHERE cl.property_id = ${idColumn}
@@ -287,7 +289,7 @@ function buildFeedListingFactsJoin(propertyAlias = 'p', alias = 'lf') {
           AND cl.verification_state <> 'invalid'
           AND cl.thumbnail_url IS NOT NULL
         ORDER BY
-          (cl.status = 'active') DESC,
+          (cl.active_eligible AND cl.availability_expires_at > now()) DESC,
           ${buildFeedListingSortExpression('cl')}
         LIMIT 1
       ) listing_thumbnail ON TRUE
