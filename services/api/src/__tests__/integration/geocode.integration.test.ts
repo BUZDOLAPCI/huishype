@@ -2004,13 +2004,17 @@ describe('GET /search/locations', () => {
     const body = JSON.parse(response.body);
     expect(body[0]).toEqual(
       expect.objectContaining({
-        type: 'city',
+        type: 'postcode',
         label: 'Aalst',
+        city: 'Waalre',
+        postalCode: '5582',
         countryCode: 'NL',
         filterToken: expect.objectContaining({
-          type: 'city',
+          type: 'postcode',
           countryCode: 'NL',
-          value: 'aalst',
+          value: '5582',
+          city: 'Waalre',
+          postalCode: '5582',
         }),
       })
     );
