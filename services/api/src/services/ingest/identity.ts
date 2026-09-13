@@ -17,7 +17,7 @@ export interface IdentityResolution {
 
 /** A source lock also serializes reconciliation against ordered outbox application. */
 export async function lockIngestSource(tx: DbTransaction, sourceName: string): Promise<void> {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`ingest-source:${sourceName}`}, 0))`);
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${sourceName}))`);
 }
 
 export function normalizeIdentityAliases(aliases: SourceAlias[]): SourceAlias[] {
@@ -34,6 +34,12 @@ export function normalizeIdentityAliases(aliases: SourceAlias[]): SourceAlias[] 
 
 function isStrongAlias(alias: SourceAlias): boolean {
   return !['canonical_path', 'relative_path', 'url_path', 'url', 'canonical_url', 'unknown', 'legacy_row_id'].includes(alias.kind);
+}
+
+export function conflictsWithStablePrimary(primary: SourceAlias, existingAliases: SourceAlias[]): boolean {
+  if (primary.kind !== 'global_id' && primary.kind !== 'stable_id') return false;
+  const sameNamespace = existingAliases.filter(alias => alias.kind === primary.kind);
+  return sameNamespace.length > 0 && !sameNamespace.some(alias => alias.value === primary.value);
 }
 
 async function lockAliases(tx: DbTransaction, sourceName: string, aliases: SourceAlias[]): Promise<void> {
@@ -96,11 +102,15 @@ export async function resolveSourceListingIdentity(tx: DbTransaction, input: {
       eq(sourceListingAliases.kind, alias.kind), eq(sourceListingAliases.value, alias.value),
     )))));
   const strongIncoming = aliases.some(isStrongAlias);
+  const explicitStableConflict = ['global_id', 'stable_id'].some(kind => new Set(aliases.filter(alias => alias.kind === kind).map(alias => alias.value)).size > 1);
   const candidateIds = [...new Set(matches.map(({ identity }) => identity.id))];
   const existingAliases = candidateIds.length ? await tx.select().from(sourceListingAliases)
     .where(inArray(sourceListingAliases.identityId, candidateIds)) : [];
-  const acceptedMatches = matches.filter((match) => !strongIncoming || isStrongAlias({ kind: match.kind, value: '' })
-    || !existingAliases.some((alias) => alias.identityId === match.identity.id && isStrongAlias(alias)));
+  const acceptedMatches = explicitStableConflict ? matches : matches.filter((match) => {
+    const ownerAliases = existingAliases.filter(alias => alias.identityId === match.identity.id);
+    if (conflictsWithStablePrimary({ kind: input.primaryIdType, value: input.primaryId }, ownerAliases)) return false;
+    return !strongIncoming || isStrongAlias({ kind: match.kind, value: '' }) || !ownerAliases.some(isStrongAlias);
+  });
   const identities = [...new Map(acceptedMatches.map(({ identity }) => [identity.id, identity])).values()];
   if (identities.length > 1) {
     const primaryMatch = matches.find((match) => match.kind === input.primaryIdType
@@ -124,6 +134,7 @@ export async function resolveSourceListingIdentity(tx: DbTransaction, input: {
     }).returning();
   }
   if (!identity) throw new Error('Identity insert returned no row');
+  if (explicitStableConflict) return quarantineIdentities(tx, [identity], 'conflicting_source_identities', aliases, [], { incoming: input });
   // A quarantined identity retains all evidence but cannot silently acquire new links.
   if (!identity.quarantinedAt) {
     await tx.insert(sourceListingAliases).values(aliases.map((alias) => ({ ...alias, sourceName: input.sourceName, identityId: identity!.id })))
@@ -169,7 +180,7 @@ export interface LegacyIdentityRow {
 export interface IdentityReconciliationGroup {
   rows: LegacyIdentityRow[];
   aliases: SourceAlias[];
-  conflict: 'conflicting_property_links' | 'conflicting_status_evidence' | null;
+  conflict: 'conflicting_property_links' | 'conflicting_status_evidence' | 'conflicting_source_identities' | null;
   survivor: LegacyIdentityRow | null;
 }
 
@@ -197,7 +208,9 @@ export function planIdentityReconciliation(rows: LegacyIdentityRow[]): IdentityR
     group.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
     const canonical = group.filter((row) => row.listingTable === 'canonical_listings');
     const aliases = normalizeIdentityAliases(group.flatMap((row) => [{ kind: row.primaryIdType, value: row.primaryId }, ...row.aliases]));
+    const stableConflict = ['global_id', 'stable_id'].some(kind => new Set(aliases.filter(alias => alias.kind === kind).map(alias => alias.value)).size > 1);
     const conflict = new Set(group.map((row) => row.propertyId)).size > 1 ? 'conflicting_property_links'
+      : stableConflict ? 'conflicting_source_identities'
       : new Set(canonical.map((row) => row.status)).size > 1 ? 'conflicting_status_evidence' : null;
     return {
       rows: group,

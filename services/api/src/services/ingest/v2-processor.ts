@@ -79,6 +79,7 @@ function canonicalFacts(canonical: CanonicalListing | null): Record<string, unkn
   if (!canonical) return {};
   return {
     sourceUrl: canonical.displayUrl, canonicalUrl: canonical.canonicalUrl,
+    lifecycleStatus: canonical.status === 'active' ? 'available' : canonical.status,
     askingPrice: canonical.askingPrice, priceType: canonical.priceType, currency: canonical.priceCurrency,
     pricePeriod: canonical.pricePeriod, priceUnit: canonical.priceUnit, priceCondition: canonical.priceCondition,
     livingAreaM2: canonical.livingAreaM2, thumbnailUrl: canonical.thumbnailUrl, ogTitle: canonical.title,
@@ -190,7 +191,7 @@ export async function processV2Evidence(tx: DbTransaction, batchId: string, payl
     let canonical = identity.canonicalListingId
       ? (await tx.select().from(canonicalListings).where(eq(canonicalListings.id, identity.canonicalListingId)).for('update'))[0] ?? null : null;
     const seed = { ...canonicalFacts(canonical), ...identity.factsJson };
-    const patch = record.kind === 'facts' ? record.facts : {};
+    const patch = record.kind === 'facts' ? record.facts : record.kind === 'sighting' ? { lifecycleStatus: record.availability } : {};
     const previousFieldEvidence = { ...identity.fieldEvidence };
     if (canonical) {
       const observedAt = canonical.lastMirrorSeenAt ?? canonical.lastSeenAt;

@@ -39,7 +39,13 @@ export function mergeListingFacts(
     evidenceStrength: record.evidenceStrength,
   };
   function apply(path: string, value: unknown, parent: Record<string, unknown>, key: string): void {
-    if (!evidenceCanReplace(fieldEvidence[path], stamp)) return;
+    let canReplace = evidenceCanReplace(fieldEvidence[path], stamp);
+    if (path === 'lifecycleStatus' && fieldEvidence[path]
+      && new Date(fieldEvidence[path].observedAt).getTime() === new Date(stamp.observedAt).getTime()) {
+      const terminal = (status: unknown) => ['sold', 'rented', 'withdrawn', 'unavailable'].includes(String(status));
+      if (terminal(value) !== terminal(parent[key])) canReplace = terminal(value);
+    }
+    if (!canReplace) return;
     if (stableValue(parent[key]) !== stableValue(value)) changedFields.push(path);
     parent[key] = value;
     fieldEvidence[path] = stamp;

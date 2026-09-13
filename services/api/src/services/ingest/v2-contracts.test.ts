@@ -51,6 +51,13 @@ describe('Funda v2 evidence contract', () => {
     expect(evidencePayloadHash(record)).toEqual(evidencePayloadHash({ ...record }));
     expect(evidencePayloadHash(record)).not.toEqual(evidencePayloadHash(ingestEvidenceV2Schema.parse({ ...record, facts: { askingPrice: 100 } })));
   });
+  it('preserves equal-time terminal evidence even against stronger positive facts before an address can resolve', () => {
+    const ended = mergeListingFacts({}, {}, { lifecycleStatus: 'sold' }, evidence);
+    const positive = mergeListingFacts(ended.facts, ended.fieldEvidence, { lifecycleStatus: 'available' }, { ...evidence, eventId: 'zzz', evidenceStrength: 'detail' });
+    expect(positive.facts.lifecycleStatus).toBe('sold');
+    const restored = mergeListingFacts(positive.facts, positive.fieldEvidence, { lifecycleStatus: 'available' }, { ...evidence, eventId: 'next', observedAt: '2026-09-14T10:00:00Z' });
+    expect(restored.facts.lifecycleStatus).toBe('available');
+  });
   it('permanently normalizes Pararius v1 completion as a local export without verified remote absence', () => {
     const parsed = ingestBatchRequestSchema.parse({ sourceName: 'pararius', idempotencyKey: 'v1', batchSequence: 0, cursorEnd: batch.cursorEnd,
       completions: [{ scopeKey: 'all', sourceRunCompletedAt: evidence.observedAt, sourceHighWatermark: evidence.observedAt, coverageStatus: 'complete' }],

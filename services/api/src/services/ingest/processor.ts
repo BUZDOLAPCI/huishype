@@ -538,6 +538,7 @@ async function exactMatchProperties(
   canonicalized: CanonicalizedListing[],
 ): Promise<Map<string, string>> {
   const matchMap = new Map<string, string>();
+  const ambiguousKeys = new Set<string>();
   const uniqueAddresses = new Map<
     string,
     {
@@ -623,63 +624,15 @@ async function exactMatchProperties(
         row.house_number,
         row.house_number_addition,
       );
-      matchMap.set(key, row.id);
+      if (ambiguousKeys.has(key)) continue;
+      if (matchMap.has(key) && matchMap.get(key) !== row.id) {
+        matchMap.delete(key);
+        ambiguousKeys.add(key);
+      } else matchMap.set(key, row.id);
     }
   }
 
   return matchMap;
-}
-
-async function spatialMatchProperties(
-  tx: DbTransaction,
-  canonicalized: CanonicalizedListing[],
-  propertyIdsByListingIndex: Map<number, string>,
-): Promise<void> {
-  const candidates = canonicalized
-    .map((entry, index) => ({ entry, index }))
-    .filter(({ entry, index }) => entry.spatialCandidate !== null && !propertyIdsByListingIndex.has(index));
-
-  const chunkSize = 5_000;
-
-  for (let offset = 0; offset < candidates.length; offset += chunkSize) {
-    const chunk = candidates.slice(offset, offset + chunkSize);
-    const valueFragments = chunk.map(({ entry, index }) => sql`(
-      ${index}::int,
-      ${entry.spatialCandidate!.countryCode}::text,
-      ${entry.spatialCandidate!.longitude}::float8,
-      ${entry.spatialCandidate!.latitude}::float8
-    )`);
-
-    const rows = await tx.execute<{ idx: number; id: string }>(sql`
-      WITH coords AS (
-        SELECT * FROM (
-          VALUES ${sql.join(valueFragments, sql`, `)}
-        ) AS t(idx, country_code, lon, lat)
-      )
-      SELECT DISTINCT ON (c.idx)
-        c.idx,
-        p.id
-      FROM coords c
-      JOIN properties p
-        ON p.country_code = c.country_code
-       AND p.geometry IS NOT NULL
-       AND ST_DWithin(
-         p.geometry,
-         ST_SetSRID(ST_MakePoint(c.lon, c.lat), 4326),
-         0.001
-       )
-      ORDER BY c.idx, ST_Distance(p.geometry, ST_SetSRID(ST_MakePoint(c.lon, c.lat), 4326))
-    `);
-
-    for (const row of rows) {
-      const candidate = chunk.find((value) => value.index === row.idx);
-      if (!candidate) {
-        continue;
-      }
-
-      propertyIdsByListingIndex.set(candidate.index, row.id);
-    }
-  }
 }
 
 async function candidateMatchProperties(
@@ -1665,7 +1618,6 @@ async function recoverSkippedCompletedBatch(
     } = canonicalizeListings(claimed.payload);
     const exactMatches = await exactMatchProperties(tx, canonicalized);
     const propertyIdsByListingIndex = mapExactMatchesToListings(canonicalized, exactMatches);
-    await spatialMatchProperties(tx, canonicalized, propertyIdsByListingIndex);
     await candidateMatchProperties(tx, claimed.sourceName, canonicalized, propertyIdsByListingIndex);
 
     const { matched, skippedCount: unmatchedSkips } = dedupeMatchedListings(
@@ -2038,8 +1990,7 @@ export async function processIngestBatch(
       } = canonicalizeListings(claimed.payload);
       const exactMatches = await exactMatchProperties(tx, canonicalized);
       const propertyIdsByListingIndex = mapExactMatchesToListings(canonicalized, exactMatches);
-      await spatialMatchProperties(tx, canonicalized, propertyIdsByListingIndex);
-      await candidateMatchProperties(tx, claimed.sourceName, canonicalized, propertyIdsByListingIndex);
+        await candidateMatchProperties(tx, claimed.sourceName, canonicalized, propertyIdsByListingIndex);
 
       const {
         matched,

@@ -95,6 +95,22 @@ describe('Funda v2 PostgreSQL evidence ingestion', () => {
     await send({ kind: 'facts', observedAt: new Date().toISOString(), evidenceStrength: 'detail', facts: { address: { houseNumber: 999 } } });
     expect(await canonical()).toMatchObject({ status: 'active', activeEligible: false, verificationState: 'invalid' });
   }));
+  it('retains a terminal fact through deferred address resolution and equal-time positive evidence', async () => fixture(async ({ street, send, canonical }) => {
+    const at = new Date(Date.now() - 3600000).toISOString();
+    await send({ kind: 'facts', observedAt: at, facts: { lifecycleStatus: 'sold', askingPrice: 500000, address: { countryCode: 'NL' } } });
+    await send({ kind: 'facts', observedAt: at, evidenceStrength: 'detail', facts: { lifecycleStatus: 'available' } });
+    await send({ kind: 'facts', observedAt: new Date().toISOString(), facts: { address: { street, houseNumber: 1, postalCode: '1234AB' } } });
+    expect(await canonical()).toMatchObject({ status: 'sold', activeEligible: false });
+  }));
+  it('retains relistings when URLs/public aliases repeat and quarantines explicitly contradictory stable aliases', async () => fixture(async ({ tx, id }) => {
+    const first = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: id, primaryIdType: 'global_id', aliases: [{ kind: 'tiny_id', value: `shared-${id}` }, { kind: 'canonical_url', value: `https://www.funda.nl/${id}` }] });
+    const second = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: `new-${id}`, primaryIdType: 'global_id', aliases: [{ kind: 'tiny_id', value: `shared-${id}` }, { kind: 'canonical_url', value: `https://www.funda.nl/${id}` }] });
+    expect(first.identity.id).not.toBe(second.identity.id);
+    expect(second.quarantined).toBe(false);
+    const conflicted = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: id, primaryIdType: 'global_id', aliases: [{ kind: 'global_id', value: `new-${id}` }] });
+    expect(conflicted.quarantined).toBe(true);
+    expect((await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.id, second.identity.id)))[0].quarantinedAt).not.toBeNull();
+  }));
   it('serializes concurrent typed alias claims to one stable identity', async () => {
     const sourceName = `test-${randomUUID()}`;
     try {

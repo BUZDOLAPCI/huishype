@@ -1239,7 +1239,7 @@ async function retireProvisionalCanonicalFromDiagnostic(
       primarySourceListingId: canonical.primarySourceListingId ?? primarySourceListingId,
       canonicalUrl: observation.sourceUrlCanonical ?? canonical.canonicalUrl,
       displayUrl: observation.sourceUrlCanonical ?? canonical.displayUrl ?? observation.sourceUrlRaw,
-      status: 'withdrawn',
+      activeEligible: false,
       statusSource: 'mirror',
       verificationState: observationVerificationState(observation),
       originSummary: mergeOriginSummary(canonical.originSummary, observation.origin),
@@ -1890,12 +1890,14 @@ export async function persistMirrorObservationForIngest(
     canonicalListing
     && reconciledObservation.diagnosticStatus
     && shouldRetireProvisionalForDiagnostic(reconciledObservation)
-    && canonicalListing.status === 'withdrawn'
+    && canonicalListing.verificationState === 'invalid'
     && canonicalListing.statusSource === 'mirror'
     && canonicalListing.originSummary === 'user_and_mirror'
   );
   const projectedCanonicalFacts = Boolean(
     canonicalListing
+    && reconciledObservation.sourceStatus !== null
+    && reconciledObservation.sourceStatus !== 'not_found'
     && !reconciledObservation.diagnosticStatus
     && !reconciledObservation.staleForProjection,
   );

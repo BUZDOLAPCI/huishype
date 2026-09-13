@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { normalizeIdentityAliases, planIdentityReconciliation, type LegacyIdentityRow } from './identity.js';
+import { conflictsWithStablePrimary, normalizeIdentityAliases, planIdentityReconciliation, type LegacyIdentityRow } from './identity.js';
 
 function row(id: string, overrides: Partial<LegacyIdentityRow> = {}): LegacyIdentityRow {
   return {
@@ -63,6 +63,21 @@ describe('typed listing identity reconciliation', () => {
     const groups = planIdentityReconciliation([row('old', { aliases, status: 'sold' }), row('new', { aliases })]);
     expect(groups).toHaveLength(2);
     expect(groups.every((group) => group.conflict === null)).toBe(true);
+  });
+
+  it('does not collapse different global IDs merely because a public ID or URL is reused', () => {
+    expect(conflictsWithStablePrimary({ kind: 'global_id', value: 'new-global' }, [
+      { kind: 'global_id', value: 'old-global' }, { kind: 'tiny_id', value: 'same-public' },
+    ])).toBe(true);
+    expect(conflictsWithStablePrimary({ kind: 'global_id', value: 'same-global' }, [
+      { kind: 'global_id', value: 'same-global' }, { kind: 'tiny_id', value: 'public-one' }, { kind: 'tiny_id', value: 'public-two' },
+    ])).toBe(false);
+    const [group] = planIdentityReconciliation([
+      row('one', { primaryIdType: 'global_id', aliases: [{ kind: 'tiny_id', value: 'reused' }] }),
+      row('two', { primaryIdType: 'global_id', aliases: [{ kind: 'tiny_id', value: 'reused' }] }),
+    ]);
+    expect(group.conflict).toBe('conflicting_source_identities');
+    expect(group.survivor).toBeNull();
   });
 
   it('retains source-only legacy evidence without inventing a canonical property link', () => {
