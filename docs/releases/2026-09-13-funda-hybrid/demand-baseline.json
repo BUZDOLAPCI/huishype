@@ -117,5 +117,24 @@
     "expired_history": "Rows whose last positive availability confirmation is older than 30 days retain facts and history; do not create a blanket paid detail backlog solely from their legacy available status",
     "recovery": "An actual newer positive inventory observation restores eligibility under normal evidence ordering",
     "forecast": "Replace initial uncertainty estimates with measured final complete inventory, unresolved core evidence and mandatory demand; do not reduce demand merely to fit credit allowance"
+  },
+  "eligible_cohort_followup": {
+    "positive_statuses_in_query": [
+      "available",
+      "under_bid",
+      "under_option",
+      "sold_under_reservation",
+      "inonderhandeling"
+    ],
+    "last_positive_maximum_age_days": 30,
+    "rows": 49523,
+    "global_or_tiny_identities": 49523,
+    "available": 46028,
+    "under_bid": 3495,
+    "incomplete_postcode_or_house_number_rows": 3493,
+    "legacy_under_bid_total": 8286,
+    "legacy_inonderhandeling_total": 103,
+    "qualification": "Point-in-time read-only count; cutover must freeze actual cohort against complete inventory evidence, including typed alias reconciliation. Different publication completeness and acquired coverage prevent interpreting this as full national inventory.",
+    "observed_at": "2026-09-13T20:14:14.299242+00:00"
   }
 }
