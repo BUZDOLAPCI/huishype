@@ -125,6 +125,22 @@ pre-release measurement and limitations are in
    disabled during the full elapsed-time acceptance collection so documentation
    commits cannot inadvertently restart the measured runtime.
 
+The independent authority can be provisioned before the maintenance window using
+only `ledger-postgres`, `ledger-migrate` and `dispatcher` from the final Compose
+project and immutable image. Geography calibration waits for the final migrated
+source planner during maintenance; it does not use a parallel calibration
+database or an independent collector. Initialize with the explicitly approved
+1,000-credit useful-calibration ceiling and keep ordinary work disabled until the
+complete essential workload forecast fits. Initial full inventory needs its own
+measured bounded authorization after geographic first-page sizing.
+
+The image runs as UID/GID 1000. Standalone Compose file secrets preserve host
+ownership, so use a root-owned mode-0700 secrets directory with the individually
+mounted files mode0400 owned by UID/GID1000. This lets the intended nonroot
+containers read their explicit mounts while host directory traversal remains
+root-only. Keep ledger credentials in a distinct root-readable operator env file;
+never mount paid API keys into planner, worker, sync or API containers.
+
 Existing provider keys are migrated into the private dispatcher authority. The
 unused Primary Key is revoked; the maintained production key is stored only in
 the dispatcher secret file. Remove known raw-key copies from manual tool inputs
@@ -171,7 +187,9 @@ samples and full image/schema samples hourly and at the end. The manifest's
 `services` maps canonical roles such as `app.api` or `funda.planner` to full
 `sha256:` image IDs. `completed_services` maps `app.migrate`, `funda.migrate` and
 `funda.ledger-migrate` to their image IDs and requires an exited-zero result.
-`migrations` records the app, Funda and Pararius schema heads. A window check
+`migrations` records the app, Funda, Pararius and independent ledger schema heads.
+The ledger head comes from its `realty_schema_revision` journal, including the
+source-checked schema fingerprint; `create_all` alone is not a migration proof. A window check
 certifies elapsed observation coverage only; inventory, latency and budget
 acceptance require the final planner/ledger evidence described below.
 

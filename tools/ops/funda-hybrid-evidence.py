@@ -10,7 +10,10 @@ Manifest format (all expected services and databases must be specified):
 {"services":{"app.api":"sha256:<64 hex>","funda.worker":"sha256:<64 hex>"},
  "completed_services":{"funda.migrate":"sha256:<64 hex>"},
  "migrations":{"app":["<latest drizzle hash>"],"funda":["<alembic head>"],
-               "pararius":["<alembic head>"]}}
+               "pararius":["<alembic head>"],"ledger":["20260913_credit_v1"]}}
+
+The ledger migration head is optional for legacy snapshots and required when
+the manifest includes funda.dispatcher or funda.ledger-postgres.
 
 Release verification checks exactly the manifest's services, so include every
 release service. Window verification checks observation coverage and records
@@ -202,10 +205,13 @@ def remote_capture(role, light=False):
         return matches[0]
 
     def database(source):
-        container = one(source + ".postgres")
+        container = one("funda.ledger-postgres" if source == "ledger" else source + ".postgres")
         if source == "app":
             query = ("SELECT COALESCE(json_agg(t), '[]'::json) FROM "
                      "(SELECT * FROM drizzle.__drizzle_migrations ORDER BY id DESC LIMIT 5) t;")
+        elif source == "ledger":
+            query = ("SELECT COALESCE(json_agg(t), '[]'::json) FROM "
+                     "(SELECT head, fingerprint, applied_at FROM realty_schema_revision WHERE id = 1) t;")
         else:
             query = "SELECT COALESCE(json_agg(t), '[]'::json) FROM (SELECT version_num FROM alembic_version ORDER BY version_num) t;"
         # Environment stays inside the DB container; SQL is fixed and read-only.
@@ -215,10 +221,16 @@ def remote_capture(role, light=False):
                 container["Id"], "sh", "-c", shell, "evidence"]
         rows = json.loads(run(base + [query]))
         size = int(run(base + ["SELECT pg_database_size(current_database());"]).strip())
-        heads = [rows[0]["hash"]] if source == "app" and rows else [r["version_num"] for r in rows]
+        column = "hash" if source == "app" else "head" if source == "ledger" else "version_num"
+        heads = [r[column] for r in (rows[:1] if source == "app" else rows)]
         if not heads:
             raise ValueError("missing_migration_heads")
-        return {"migration_heads": heads, "recent_migrations": rows, "size_bytes": size}
+        result = {"migration_heads": heads, "recent_migrations": rows, "size_bytes": size}
+        if source == "ledger":
+            if len(heads) != 1 or not isinstance(heads[0], str) or not heads[0]:
+                raise ValueError("invalid_ledger_head")
+            result["head"] = heads[0]
+        return result
 
     for source in (["app"] if role == "app" else ["funda", "pararius"]):
         db = attempt(source + ".database", lambda source=source: database(source)) if not light else None
@@ -253,6 +265,10 @@ def remote_capture(role, light=False):
         body = attempt(source + ".status", status_request)
         if body is not None:
             evidence["endpoints"][source + ".status"] = body
+    if not light and "funda.ledger-postgres" in selected:
+        ledger = attempt("ledger.database", lambda: database("ledger"))
+        if ledger is not None:
+            evidence["databases"]["ledger"] = ledger
     evidence["completed_at"] = utcnow()
     return sanitize(evidence, secrets)
 
@@ -317,6 +333,10 @@ def snapshot_errors(snapshot, require_release=True):
         host = snapshot.get("hosts", {}).get(role, {})
         if host.get("status") != "complete" or host.get("errors"):
             errors.append(role + ":incomplete")
+        if (require_release or snapshot.get("sample_kind", "full") == "full") and any(
+                c.get("service") == "funda.ledger-postgres" for c in host.get("containers", [])):
+            if not host.get("databases", {}).get("ledger", {}).get("migration_heads"):
+                errors.append("ledger:missing_migrations")
         for source in (["app"] if role == "app" else ["funda", "pararius"]):
             if (require_release or snapshot.get("sample_kind", "full") == "full") and not host.get("databases", {}).get(source, {}).get("migration_heads"):
                 errors.append(source + ":missing_migrations")
@@ -334,15 +354,19 @@ def verify_release(manifest, snapshot):
     if not isinstance(services, dict) or not services:
         errors.append("manifest:missing_services")
         services = {}
-    if not isinstance(migrations, dict) or set(migrations) != {"app", "funda", "pararius"}:
-        errors.append("manifest:require_all_database_heads")
-        migrations = migrations if isinstance(migrations, dict) else {}
-    containers = [c for host in snapshot.get("hosts", {}).values() for c in host.get("containers", [])]
-    databases = {k: v for host in snapshot.get("hosts", {}).values() for k, v in host.get("databases", {}).items()}
     completed = manifest.get("completed_services", {})
     if not isinstance(completed, dict):
         errors.append("manifest:invalid_completed_services")
         completed = {}
+    required_databases = {"app", "funda", "pararius"}
+    if (set(services) | set(completed)).intersection({"funda.dispatcher", "funda.ledger-postgres"}):
+        required_databases.add("ledger")
+    if (not isinstance(migrations, dict) or not required_databases.issubset(migrations)
+            or not set(migrations).issubset({"app", "funda", "pararius", "ledger"})):
+        errors.append("manifest:require_all_database_heads")
+        migrations = migrations if isinstance(migrations, dict) else {}
+    containers = [c for host in snapshot.get("hosts", {}).values() for c in host.get("containers", [])]
+    databases = {k: v for host in snapshot.get("hosts", {}).values() for k, v in host.get("databases", {}).items()}
     if set(completed).intersection(services):
         errors.append("manifest:service_cannot_be_running_and_completed")
     for service, image in services.items():

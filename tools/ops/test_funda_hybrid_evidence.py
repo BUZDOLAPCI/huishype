@@ -157,6 +157,58 @@ class EvidenceTests(unittest.TestCase):
         body["hosts"]["app"]["containers"] *= 2
         self.assertFalse(evidence.verify_release(self.manifest(), body)["passed"])
 
+    def test_release_requires_ledger_head_for_dispatcher_and_ledger(self):
+        for service in ["funda.dispatcher", "funda.ledger-postgres"]:
+            body, manifest = snapshot(), self.manifest()
+            manifest["services"][service] = IMAGE
+            body["hosts"]["scraper"]["containers"].append({"service": service, "image_id": IMAGE, "running": True})
+            body["hosts"]["scraper"]["databases"]["ledger"] = {"migration_heads": ["20260913_credit_v1"]}
+            self.assertIn("manifest:require_all_database_heads", evidence.verify_release(manifest, body)["errors"])
+            manifest["migrations"]["ledger"] = ["20260913_credit_v1"]
+            self.assertTrue(evidence.verify_release(manifest, body)["passed"])
+            manifest["migrations"]["ledger"] = ["wrong"]
+            self.assertIn("ledger:migration_mismatch", evidence.verify_release(manifest, body)["errors"])
+
+    def test_release_allows_optional_ledger_head_without_ledger_service(self):
+        body, manifest = snapshot(), self.manifest()
+        manifest["migrations"]["ledger"] = ["20260913_credit_v1"]
+        body["hosts"]["scraper"]["databases"]["ledger"] = {"migration_heads": ["20260913_credit_v1"]}
+        self.assertTrue(evidence.verify_release(manifest, body)["passed"])
+
+    def test_full_capture_ledger_is_optional_and_reads_independent_schema(self):
+        for has_ledger in [False, True]:
+            names = ["huishype-funda-scraper-postgres-1", "huishype-pararius-scraper-postgres-1"]
+            if has_ledger:
+                names.append("huishype-funda-scraper-ledger-postgres-1")
+            containers = [{"Id": name, "Name": "/" + name, "Image": IMAGE,
+                           "Config": {"Labels": {}}, "State": {"Running": True}} for name in names]
+            queries = []
+            def command(args, **kwargs):
+                if args[:3] == ["docker", "ps", "-aq"]:
+                    return " ".join(names)
+                if args[:2] == ["docker", "inspect"]:
+                    return json.dumps(containers)
+                self.assertIn("PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=15000", args)
+                query = args[-1]
+                queries.append(query)
+                if "pg_database_size" in query:
+                    return "1234"
+                if "realty_schema_revision" in query:
+                    self.assertIn("WHERE id = 1", query)
+                    return json.dumps([{"head": "20260913_credit_v1", "fingerprint": "abcd", "applied_at": START.isoformat()}])
+                return json.dumps([{"version_num": "scraper_head"}])
+            with patch.object(evidence, "run", side_effect=command), \
+                 patch.object(evidence, "read_json_url", return_value={"status": "healthy"}), \
+                 patch.object(Path, "read_text", return_value="API_KEY=secret\n"):
+                result = evidence.remote_capture("scraper")
+            self.assertEqual(result["status"], "complete", result["errors"])
+            self.assertEqual("ledger" in result["databases"], has_ledger)
+            self.assertEqual(any("realty_schema_revision" in q for q in queries), has_ledger)
+            if has_ledger:
+                self.assertEqual(result["databases"]["ledger"]["migration_heads"], ["20260913_credit_v1"])
+                self.assertEqual(result["databases"]["ledger"]["head"], "20260913_credit_v1")
+                self.assertEqual(result["databases"]["ledger"]["recent_migrations"][0]["fingerprint"], "abcd")
+
     def test_release_rejects_empty_manifest_mutable_image_and_light(self):
         self.assertFalse(evidence.verify_release({}, snapshot())["passed"])
         manifest = self.manifest()
