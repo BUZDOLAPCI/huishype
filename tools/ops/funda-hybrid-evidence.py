@@ -9,6 +9,7 @@ verify-window --directory /private/evidence --hours 24 --max-gap-minutes 2
 Manifest format (all expected services and databases must be specified):
 {"services":{"app.api":"sha256:<64 hex>","funda.worker":"sha256:<64 hex>"},
  "completed_services":{"funda.migrate":"sha256:<64 hex>"},
+ "code_revisions":{"app.api":"<40 hex commit>"},
  "migrations":{"app":["<latest drizzle hash>"],"funda":["<alembic head>"],
                "pararius":["<alembic head>"],"ledger":["20260913_credit_v1"]}}
 
@@ -118,6 +119,18 @@ def service_key(name, labels, role):
     return None
 
 
+def image_commit(labels, image_reference):
+    """Prefer the OCI revision; otherwise recognize a full commit image tag."""
+    revision = labels.get("org.opencontainers.image.revision")
+    if isinstance(revision, str) and re.fullmatch(r"[0-9a-fA-F]{7,64}", revision):
+        return revision.lower()
+    if isinstance(image_reference, str) and "@" not in image_reference:
+        _, separator, tag = image_reference.rsplit("/", 1)[-1].rpartition(":")
+        if separator and re.fullmatch(r"[0-9a-fA-F]{40}", tag):
+            return tag.lower()
+    return None
+
+
 def read_json_url(url, key=None):
     headers = {"Accept": "application/json"}
     if key:
@@ -174,11 +187,12 @@ def remote_capture(role, light=False):
         if not key:
             continue
         selected.setdefault(key, []).append(container)
-        revision = labels.get("org.opencontainers.image.revision", "")
+        image_reference = container.get("Config", {}).get("Image")
         evidence["containers"].append({
             "service": key, "name": name, "image_id": container["Image"],
+            "image_reference": image_reference if isinstance(image_reference, str) else None,
             "labels": {k: v for k, v in labels.items() if k in SAFE_LABELS},
-            "commit": revision if re.fullmatch(r"[0-9a-fA-F]{7,64}", revision) else None,
+            "commit": image_commit(labels, image_reference),
             "running": container.get("State", {}).get("Running", False),
             "state": container.get("State", {}).get("Status"),
             "exit_code": container.get("State", {}).get("ExitCode"),
@@ -394,6 +408,21 @@ def verify_release(manifest, snapshot):
             errors.append(source + ":invalid_expected_heads")
         elif sorted(heads) != sorted(databases.get(source, {}).get("migration_heads", [])):
             errors.append(source + ":migration_mismatch")
+    revisions = manifest.get("code_revisions", {})
+    if not isinstance(revisions, dict):
+        errors.append("manifest:invalid_code_revisions")
+        revisions = {}
+    for service, expected in revisions.items():
+        if service not in services and service not in completed:
+            errors.append(service + ":revision_requires_manifest_service")
+            continue
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", expected):
+            errors.append(service + ":manifest_requires_full_commit")
+            continue
+        matches = [c for c in containers if c.get("service") == service
+                   and (service in completed or c.get("running") is True)]
+        if len(matches) != 1 or matches[0].get("commit") != expected.lower():
+            errors.append(service + ":code_revision_mismatch")
     return {"passed": not errors, "scope": "manifest_images_and_migrations", "errors": errors}
 
 

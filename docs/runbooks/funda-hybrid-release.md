@@ -185,7 +185,9 @@ python3 tools/ops/funda-hybrid-evidence.py verify-release --manifest release.jso
 `watch` writes an owner-readable sample immediately, then minute status/resource
 samples and full image/schema samples hourly and at the end. The manifest's
 `services` maps canonical roles such as `app.api` or `funda.planner` to full
-`sha256:` image IDs. `completed_services` maps `app.migrate`, `funda.migrate` and
+`sha256:` image IDs. Its `code_revisions` maps deployed app/source roles to their
+full source commit SHA, verified against an OCI revision label or the full-SHA
+Coolify image tag. Digest-only image references cannot establish a source commit. `completed_services` maps `app.migrate`, `funda.migrate` and
 `funda.ledger-migrate` to their image IDs and requires an exited-zero result.
 `migrations` records the app, Funda, Pararius and independent ledger schema heads.
 The ledger head comes from its `realty_schema_revision` journal, including the

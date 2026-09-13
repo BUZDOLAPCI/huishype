@@ -70,6 +70,14 @@ class EvidenceTests(unittest.TestCase):
         for role in ["migrate", "planner", "ledger-migrate", "dispatcher", "ledger-postgres"]:
             self.assertEqual(evidence.service_key("huishype-funda-scraper-" + role + "-1", {}, "scraper"), "funda." + role)
 
+    def test_image_commit_prefers_oci_revision_then_full_commit_tag(self):
+        commit, other = "a" * 40, "b" * 40
+        self.assertEqual(evidence.image_commit({}, "uuid_api:" + commit), commit)
+        self.assertEqual(evidence.image_commit({}, "registry:5000/project/api:" + commit.upper()), commit)
+        self.assertEqual(evidence.image_commit({"org.opencontainers.image.revision": other}, "uuid_api:" + commit), other)
+        for reference in ["api:latest", "api:abcdef0", "api@sha256:" + "a" * 64, "api:" + commit + "@sha256:" + "a" * 64, None]:
+            self.assertIsNone(evidence.image_commit({}, reference))
+
     def test_partial_capture_persists_without_exception_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             env = Path(directory) / "env"
@@ -157,6 +165,25 @@ class EvidenceTests(unittest.TestCase):
         body["hosts"]["app"]["containers"] *= 2
         self.assertFalse(evidence.verify_release(self.manifest(), body)["passed"])
 
+    def test_release_checks_running_and_completed_code_revisions(self):
+        body, manifest = snapshot(), self.manifest()
+        commit = "a" * 40
+        manifest["completed_services"] = {"funda.migrate": IMAGE}
+        job = {"service": "funda.migrate", "image_id": IMAGE, "running": False,
+               "state": "exited", "exit_code": 0, "finished_at": START.isoformat(), "commit": commit}
+        body["hosts"]["scraper"]["containers"].append(job)
+        body["hosts"]["app"]["containers"][0]["commit"] = commit
+        manifest["code_revisions"] = {"app.api": commit, "funda.migrate": commit}
+        self.assertTrue(evidence.verify_release(manifest, body)["passed"])
+        for service in ["app.api", "funda.migrate"]:
+            manifest["code_revisions"][service] = "b" * 40
+            self.assertIn(service + ":code_revision_mismatch", evidence.verify_release(manifest, body)["errors"])
+            manifest["code_revisions"][service] = commit
+        manifest["code_revisions"]["app.api"] = "abcdef0"
+        self.assertIn("app.api:manifest_requires_full_commit", evidence.verify_release(manifest, body)["errors"])
+        manifest["code_revisions"]["unknown"] = commit
+        self.assertIn("unknown:revision_requires_manifest_service", evidence.verify_release(manifest, body)["errors"])
+
     def test_release_requires_ledger_head_for_dispatcher_and_ledger(self):
         for service in ["funda.dispatcher", "funda.ledger-postgres"]:
             body, manifest = snapshot(), self.manifest()
@@ -181,7 +208,7 @@ class EvidenceTests(unittest.TestCase):
             if has_ledger:
                 names.append("huishype-funda-scraper-ledger-postgres-1")
             containers = [{"Id": name, "Name": "/" + name, "Image": IMAGE,
-                           "Config": {"Labels": {}}, "State": {"Running": True}} for name in names]
+                           "Config": {"Labels": {}, "Image": "repo:" + "a" * 40}, "State": {"Running": True}} for name in names]
             queries = []
             def command(args, **kwargs):
                 if args[:3] == ["docker", "ps", "-aq"]:
@@ -202,6 +229,8 @@ class EvidenceTests(unittest.TestCase):
                  patch.object(Path, "read_text", return_value="API_KEY=secret\n"):
                 result = evidence.remote_capture("scraper")
             self.assertEqual(result["status"], "complete", result["errors"])
+            self.assertEqual(result["containers"][0]["image_reference"], "repo:" + "a" * 40)
+            self.assertEqual(result["containers"][0]["commit"], "a" * 40)
             self.assertEqual("ledger" in result["databases"], has_ledger)
             self.assertEqual(any("realty_schema_revision" in q for q in queries), has_ledger)
             if has_ledger:
