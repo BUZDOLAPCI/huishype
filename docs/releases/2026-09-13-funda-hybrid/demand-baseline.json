@@ -109,5 +109,13 @@
     "Stored terminal status events classify legacy listing_history values; legacy evidence has no per-event v2 collector provenance, so these counts do not independently establish explicit source confirmation for every withdrawn event.",
     "Legacy price-history/full-sync/backward-scan jobs are removed by the milestone. Their queue length is not an essential-detail demand estimate.",
     "The initial final inventory must measure missing identities and essential unresolved address demand before the remaining-cycle paid-only forecast can be accepted."
-  ]
+  ],
+  "approved_bootstrap_policy": {
+    "authority": "Milestone lead coordination, 2026-09-13; applies the product 30-day availability eligibility policy",
+    "confirmation_cohort": "Current-eligible unique listing identities absent from a completed national sale-and-rent inventory union",
+    "cohort_evidence_rule": "Union observations must be newer than the cohort positive evidence; migration time is never confirmation time",
+    "expired_history": "Rows whose last positive availability confirmation is older than 30 days retain facts and history; do not create a blanket paid detail backlog solely from their legacy available status",
+    "recovery": "An actual newer positive inventory observation restores eligibility under normal evidence ordering",
+    "forecast": "Replace initial uncertainty estimates with measured final complete inventory, unresolved core evidence and mandatory demand; do not reduce demand merely to fit credit allowance"
+  }
 }

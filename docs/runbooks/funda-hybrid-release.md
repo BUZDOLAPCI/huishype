@@ -69,6 +69,25 @@ app rollback must never restore an older accounting snapshot: uncertain paid
 requests remain charged. A disaster recovery of accounting requires provider
 allowance reconciliation before dispatch resumes.
 
+## Bootstrap evidence cohort
+
+Use current-eligible unique listing identities as the initial missing-confirmation
+cohort. Only a completed national sale-and-rent inventory union whose observations
+are newer than the cohort's positive evidence may establish a missing identity.
+Rows with positive evidence older than the 30-day availability eligibility limit
+retain their facts and history but do not become a blanket paid detail backlog
+solely because the legacy mirror still calls them available. Actual newer
+positive inventory observations restore eligibility under normal ordering rules.
+Migration timestamps never refresh a listing.
+
+This is an application of the product's evidence and display policy, not a cost
+adjustment. Record initial cohort size, expired historical rows, the completed
+inventory union and the resulting missing/essential-address work in the release
+manifest. Replace preliminary demand uncertainty with measured final workload;
+never lower an unmeasured turnover estimate just to fit the allowance. The
+pre-release measurement and limitations are in
+[`demand-baseline.json`](../releases/2026-09-13-funda-hybrid/demand-baseline.json).
+
 ## Coordinated release order
 
 1. Complete implementation tests, real PostgreSQL concurrency checks, Compose
