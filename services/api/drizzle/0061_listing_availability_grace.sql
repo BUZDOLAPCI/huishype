@@ -25,7 +25,7 @@ WITH evidence AS (
       FILTER (WHERE lo.source_status IN ('sold', 'rented', 'withdrawn')) AS ended_at
   FROM listing_observation_links lol
   JOIN listing_observations lo ON lo.id = lol.listing_observation_id
-  WHERE lo.stale_for_projection = false
+  WHERE lo.stale_for_projection = false AND lo.origin <> 'user'
   GROUP BY lol.canonical_listing_id
 )
 UPDATE canonical_listings cl
@@ -46,7 +46,7 @@ WITH evidence AS (
       FILTER (WHERE lo.source_status = 'not_found' OR lo.diagnostic_status IS NOT NULL) AS diagnostic_at
   FROM listing_observation_links lol
   JOIN listing_observations lo ON lo.id = lol.listing_observation_id
-  WHERE lo.stale_for_projection = false
+  WHERE lo.stale_for_projection = false AND lo.origin <> 'user'
   GROUP BY lol.canonical_listing_id
 )
 UPDATE canonical_listings cl
@@ -56,11 +56,18 @@ WHERE cl.id = e.canonical_listing_id AND cl.status = 'withdrawn'
   AND e.positive_at IS NOT NULL AND e.diagnostic_at >= e.positive_at
   AND (e.ended_at IS NULL OR e.ended_at < e.positive_at);--> statement-breakpoint
 
--- Legacy canonical rows without linked observations retain only their recorded
--- source-seen time; old rows do not receive a new grace period at cutover.
-UPDATE canonical_listings
-SET last_positive_availability_at = last_seen_at
-WHERE status = 'active' AND last_positive_availability_at IS NULL;--> statement-breakpoint
+-- Legacy mirror-backed rows without source observations retain only their
+-- recorded source-seen time. User preview creation and diagnostic-only source
+-- histories cannot invent positive availability at cutover.
+UPDATE canonical_listings cl
+SET last_positive_availability_at = COALESCE(last_mirror_seen_at, last_seen_at)
+WHERE status = 'active' AND last_positive_availability_at IS NULL
+  AND origin_summary IN ('mirror', 'user_and_mirror')
+  AND NOT EXISTS (
+    SELECT 1 FROM listing_observation_links lol
+    JOIN listing_observations lo ON lo.id = lol.listing_observation_id
+    WHERE lol.canonical_listing_id = cl.id AND lo.origin <> 'user'
+  );--> statement-breakpoint
 
 UPDATE canonical_listings
 SET availability_ended_at = COALESCE(sold_at, rented_at, withdrawn_at, last_seen_at)
@@ -68,10 +75,10 @@ WHERE status IN ('sold', 'rented', 'withdrawn') AND availability_ended_at IS NUL
 
 UPDATE canonical_listings
 SET availability_expires_at = last_positive_availability_at + interval '720 hours',
-    active_eligible = status = 'active'
+    active_eligible = COALESCE(status = 'active'
       AND verification_state <> 'invalid'
       AND last_positive_availability_at + interval '720 hours' > now()
-      AND (availability_ended_at IS NULL OR last_positive_availability_at > availability_ended_at);--> statement-breakpoint
+      AND (availability_ended_at IS NULL OR last_positive_availability_at > availability_ended_at), false);--> statement-breakpoint
 
 DROP MATERIALIZED VIEW mv_price_guess_start_market_summaries;--> statement-breakpoint
 DROP MATERIALIZED VIEW mv_latest_active_listings;--> statement-breakpoint
