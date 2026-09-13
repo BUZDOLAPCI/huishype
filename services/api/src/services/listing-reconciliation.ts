@@ -14,6 +14,7 @@ import {
   listingSourceAliases,
   priceHistory,
   sourceIdentityQuarantines,
+  sourceListingIdentities,
   type CanonicalListing,
   type DbTransaction,
   type ListingObservation,
@@ -1931,7 +1932,8 @@ export async function listCanonicalListingsForProperty(
       priceUnit: canonicalListings.priceUnit,
       priceCondition: canonicalListings.priceCondition,
       livingAreaM2: canonicalListings.livingAreaM2,
-      numRooms: sql<number | null>`(
+      numRooms: sql<number | null>`CASE WHEN ${sourceListingIdentities.factsJson} ? 'numRooms'
+        THEN (${sourceListingIdentities.factsJson}->>'numRooms')::double precision ELSE (
         SELECT CASE
           WHEN jsonb_typeof(lo.payload->'numRooms') = 'number'
             THEN (lo.payload->>'numRooms')::double precision
@@ -1946,8 +1948,9 @@ export async function listCanonicalListingsForProperty(
           lo.created_at DESC,
           lo.id DESC
         LIMIT 1
-      )`,
-      energyLabel: sql<string | null>`(
+      ) END`,
+      energyLabel: sql<string | null>`CASE WHEN ${sourceListingIdentities.factsJson} ? 'energyLabel'
+        THEN ${sourceListingIdentities.factsJson}->>'energyLabel' ELSE (
         SELECT NULLIF(lo.payload->>'energyLabel', '')
         FROM listing_observation_links lol
         JOIN listing_observations lo ON lo.id = lol.listing_observation_id
@@ -1958,7 +1961,7 @@ export async function listCanonicalListingsForProperty(
           lo.created_at DESC,
           lo.id DESC
         LIMIT 1
-      )`,
+      ) END`,
       thumbnailUrl: canonicalListings.thumbnailUrl,
       title: canonicalListings.title,
       description: canonicalListings.description,
@@ -1976,6 +1979,7 @@ export async function listCanonicalListingsForProperty(
       reasonCode: listingPreviewResults.reasonCode,
     })
     .from(canonicalListings)
+    .leftJoin(sourceListingIdentities, eq(sourceListingIdentities.canonicalListingId, canonicalListings.id))
     .leftJoin(
       listingCandidateHandoffs,
       eq(

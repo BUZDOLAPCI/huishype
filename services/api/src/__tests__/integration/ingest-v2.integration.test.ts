@@ -7,6 +7,7 @@ import { ingestBatchRequestSchema, type IngestBatchRequest } from '../../service
 import { encodeOpaqueIngestCursor } from '../../services/ingest/cursor.js';
 import { processV2Evidence } from '../../services/ingest/v2-processor.js';
 import { resolveSourceListingIdentity } from '../../services/ingest/identity.js';
+import { listCanonicalListingsForProperty } from '../../services/listing-reconciliation.js';
 import { assertIngestWriter } from '../../services/ingest/v2-writer.js';
 
 const rollback = new Error('fixture rollback');
@@ -110,6 +111,13 @@ describe('Funda v2 PostgreSQL evidence ingestion', () => {
     const conflicted = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: id, primaryIdType: 'global_id', aliases: [{ kind: 'global_id', value: `new-${id}` }] });
     expect(conflicted.quarantined).toBe(true);
     expect((await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.id, second.identity.id)))[0].quarantinedAt).not.toBeNull();
+  }));
+  it('reads merged fractional rooms and explicit clears even when enrichment arrives behind a newer price observation', async () => fixture(async ({ tx, propertyId, street, send }) => {
+    await send({ kind: 'facts', observedAt: new Date(Date.now() - 3600000).toISOString(), facts: { ...facts(street), numRooms: 1, energyLabel: 'A' } });
+    await send({ kind: 'facts', observedAt: new Date(Date.now() - 1800000).toISOString(), facts: { askingPrice: 505000 } });
+    await send({ kind: 'facts', observedAt: new Date(Date.now() - 2700000).toISOString(), evidenceStrength: 'detail', facts: { numRooms: 2.5, energyLabel: null } });
+    const [listing] = await listCanonicalListingsForProperty(propertyId, tx);
+    expect(listing).toMatchObject({ askingPrice: 505000, numRooms: 2.5, energyLabel: null });
   }));
   it('serializes concurrent typed alias claims to one stable identity', async () => {
     const sourceName = `test-${randomUUID()}`;
