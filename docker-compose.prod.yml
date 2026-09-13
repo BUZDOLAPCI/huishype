@@ -18,7 +18,8 @@
 ##
 
 services:
-  # Schema migrations must finish before either writer starts. Coolify excludes
+  # Schema migrations and versioned identity reconciliation must finish before
+  # either writer starts. Coolify excludes
   # restart: "no" services from aggregate health while
   # Docker Compose preserves service_completed_successfully as a startup gate.
   migrate:
@@ -26,7 +27,7 @@ services:
       context: .
       dockerfile: services/api/Dockerfile
     restart: "no"
-    command: ["true"]
+    command: ["node", "services/api/dist/scripts/reconcile-source-identities.js", "--source", "funda", "--execute", "--once"]
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${DB_USER:-huishype}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-huishype}

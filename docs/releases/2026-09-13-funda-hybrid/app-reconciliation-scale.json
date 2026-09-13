@@ -1,0 +1,51 @@
+{
+  "api_memory_limit_bytes": 0,
+  "counts": {
+    "canonical_listings": 269938,
+    "listing_observation_links": 602700,
+    "listing_observations": 616994,
+    "listing_source_aliases": 1009961,
+    "listings": 144000
+  },
+  "evidence_written_at": "2026-09-13T21:29:12.491195+00:00",
+  "linked_observation_distribution": {
+    "linked_canonical_groups": 269938,
+    "max_linked_observations": 211,
+    "p99_linked_observations": 15,
+    "total_links": 602700
+  },
+  "measurement": "Read-only production aggregate queries, 10-second statement and 1-second lock limits; no listing payloads exported.",
+  "scope": {
+    "api_memory_limit_bytes": "Docker HostConfig.Memory; zero means no explicit container limit",
+    "counts": "Funda only, through listing source association",
+    "linked_observation_distribution": "Funda linked observations grouped by canonical listing",
+    "table_sizes": "Entire tables across all sources; not Funda-only storage"
+  },
+  "table_sizes": {
+    "canonical_listings": {
+      "estimated_rows": 281959,
+      "heap_bytes": 264806400,
+      "total_bytes": 668180480
+    },
+    "listing_observation_links": {
+      "estimated_rows": 582536,
+      "heap_bytes": 58769408,
+      "total_bytes": 126869504
+    },
+    "listing_observations": {
+      "estimated_rows": 640364,
+      "heap_bytes": 694206464,
+      "total_bytes": 1196285952
+    },
+    "listing_source_aliases": {
+      "estimated_rows": 1039969,
+      "heap_bytes": 135675904,
+      "total_bytes": 399499264
+    },
+    "listings": {
+      "estimated_rows": 148000,
+      "heap_bytes": 49152000,
+      "total_bytes": 83853312
+    }
+  }
+}

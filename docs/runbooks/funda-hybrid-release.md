@@ -114,12 +114,15 @@ normalization used for that historical measurement.
    writer generation and outbox state. Never timestamp retained listing evidence
    with migration time.
 5. Apply app and source migrations successfully before starting their workers.
+   The app migration role also completes the versioned legacy Funda identity
+   reconciliation before either API or worker can start.
    App and source Compose dependency gates must enforce migration success on
    every subsequent deployment too. Retire the old Funda writer generation;
    legacy Redis queue entries cannot become new planner work or deliver v1 Funda
    writes after cutover.
-6. Deploy app API, worker and web and the final Funda API/planner/runtime/outbox
-   services using the recorded immutable images. Keep ordinary paid work disabled
+6. After the app migration/reconciliation gate succeeds, start the app API,
+   worker/web and final Funda API/sync roles using the
+   recorded immutable images. Keep ordinary paid work disabled
    while the final planner performs bounded geographic mapping and first-page
    sizing through the private dispatcher. Review the measured full essential-work
    forecast before granting bounded initial inventory or activating normal paid
@@ -135,6 +138,59 @@ normalization used for that historical measurement.
    complete. Record the final setting in the manifest. Keep automatic deployment
    disabled during the full elapsed-time acceptance collection so documentation
    commits cannot inadvertently restart the measured runtime.
+
+### Legacy identity reconciliation and source replay
+
+Drizzle migrations create the identity, audit and reconciliation checkpoint
+tables. The Compose migration role then runs the compiled operator script using
+only its production `DATABASE_URL`:
+
+```bash
+node services/api/dist/scripts/reconcile-source-identities.js --source funda --execute --once
+```
+
+Both API and worker depend on the successful completion of this role. A failed
+schema migration or reconciliation prevents startup. The reconciliation and its
+versioned completion checkpoint commit atomically under the source lock; later
+deployments no-op against that completed version. The startup report contains
+aggregate counts and checkpoint state. Preserve that execution report privately.
+For an explicit read-only plan after migrations, run the same script with
+`--source funda` and without `--execute`; preserve any conflict samples privately.
+Complete reconciliation audit details remain in the database.
+
+Create the evidence directory with mode0700 and use umask077 before saving
+reports. Record aggregate canonical/legacy row counts,
+identity groups, duplicate groups, survivors, quarantines by reason, observation
+links and audit rows before and after execution. Require successful exit and
+verify that safe aliases share their surviving identity, conflicting property
+links remain quarantined, and original observation times/history are preserved.
+Do not continue to replay after an incomplete or failed reconciliation.
+
+Start the app worker and final source API/sync roles after reconciliation. The
+source sync role enumerates replay members in bounded pages and advances its
+ordered outbox only after app processing receipts. Replay does not require the
+acquisition planner/worker loops or any provider request.
+
+Use the supported operator CLI from the finalized app checkout; the production
+API image does not package `services/api/scripts/seed-listings.ts`. Load the
+operator environment as data, including `FUNDA_SOURCE_SERVICE_URL` and
+`FUNDA_SOURCE_SERVICE_API_KEY`, and independently verify the production app
+export target against deployment configuration. Persist one UUID for the entire
+handoff, including any retry:
+
+```bash
+pnpm --filter @huishype/api db:seed-listings -- --source funda --app-api-url "$EXPECTED_APP_API_URL" --request-id "$REPLAY_REQUEST_ID" --dry-run > "$PRIVATE_EVIDENCE/funda-replay-plan.json"
+pnpm --filter @huishype/api db:seed-listings -- --source funda --app-api-url "$EXPECTED_APP_API_URL" --request-id "$REPLAY_REQUEST_ID" > "$PRIVATE_EVIDENCE/funda-replay-submission.json"
+```
+
+The CLI validates the source's export target and writer generation, submits a
+durable v2 replay, and reads it back. It does not copy Funda mirror rows into app
+tables. Submission is not completion: monitor the authenticated
+`GET /source/replays/<request ID>` until `status=completed`, and record eligible,
+processed, queued and delivered counts plus the final sequence and generation.
+Require every replay record to have a completed app receipt and retain original
+evidence timestamps. Drain app price repair, expiry and property/tile queues
+before starting the acquisition acceptance window.
 
 Create the build context from the frozen full source SHA, including its pinned
 `pyfunda` gitlink, using committed Git objects rather than copying a worktree:
@@ -204,7 +260,8 @@ Coolify `4.0.0-beta.470` was inspected before release: its Compose parser preser
 `depends_on`, assigns commit-based image tags to services with build directives,
 and its status calculator excludes services with `restart: "no"`. The migrate
 role builds exactly the API image and has no inherited long-running healthcheck.
-It receives only the database settings needed for schema migration. The API
+It receives only the database settings needed for schema migration and versioned
+identity reconciliation. The API
 retains its existing search-area rebuild before reporting healthy.
 
 Collect the elapsed cycle and verify immutable runtime identity:

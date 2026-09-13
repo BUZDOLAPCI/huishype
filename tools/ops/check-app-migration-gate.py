@@ -45,6 +45,10 @@ def main() -> None:
     assert source["migrate"]["restart"] == "no"
     assert source["migrate"]["healthcheck"]["disable"] is True
     assert source["migrate"]["environment"]["RUN_MIGRATIONS"] == "true"
+    assert source["migrate"]["command"] == [
+        "node", "services/api/dist/scripts/reconcile-source-identities.js",
+        "--source", "funda", "--execute", "--once",
+    ]
     assert source["api"]["environment"]["RUN_MIGRATIONS"] == "false"
     assert source["migrate"]["build"] == source["api"]["build"]
     for role in ("api", "worker"):
