@@ -35,7 +35,78 @@ def snapshot(minute=0, light=False):
     return body
 
 
+def queue_values():
+    return {name: {"count": 2, "oldest_age_seconds": 12.5} for name in evidence.APP_QUEUE_METRICS}
+
+
 class EvidenceTests(unittest.TestCase):
+    def test_app_queue_query_is_one_bounded_readonly_numeric_aggregate(self):
+        values = queue_values()
+        values["dirty_tile_errors"] = {"count": 0, "oldest_age_seconds": None, "last_error": "private-detail"}
+        values["listing_rows"] = ["private-address"]
+        with patch.object(evidence, "run", return_value=json.dumps(values)) as run:
+            result = evidence.app_queue_telemetry({"Id": "postgres-id"})
+        run.assert_called_once()
+        args, kwargs = run.call_args
+        self.assertIn("PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000", args[0])
+        self.assertEqual(kwargs["timeout"], 8)
+        self.assertEqual(result["status"], "available")
+        self.assertEqual(result["values"]["dirty_tile_errors"], {"count": 0, "oldest_age_seconds": None})
+        self.assertEqual(result["values"]["pending_price_repairs"]["count"], 2)
+        self.assertNotIn("private", json.dumps(result))
+
+    def test_app_queue_unavailable_or_malformed_response_has_no_error_body(self):
+        with patch.object(evidence, "run", side_effect=RuntimeError("private SQL detail")):
+            result = evidence.app_queue_telemetry({"Id": "postgres-id"})
+        self.assertEqual(result, {"status": "unavailable", "reason": "RuntimeError"})
+        for invalid in [{}, {**queue_values(), "dirty_tile_errors": {"count": -1, "oldest_age_seconds": 0}}]:
+            with patch.object(evidence, "run", return_value=json.dumps(invalid)):
+                self.assertEqual(evidence.app_queue_telemetry({"Id": "postgres-id"})["status"], "unavailable")
+
+    def test_light_app_samples_query_queues_without_migration_queries(self):
+        containers = [{"Id": service, "Name": "/" + service + "-cop1e1822hijj6g3zmxhrs0k", "Image": IMAGE,
+                       "Config": {"Labels": {}}, "State": {"Running": True},
+                       "NetworkSettings": {"Networks": {"app": {"IPAddress": "192.0.2.10"}}}}
+                      for service in ["api", "postgres"]]
+        for available in [True, False]:
+            requests = []
+            def command(args, **kwargs):
+                if args[:3] == ["docker", "ps", "-aq"]:
+                    self.assertIn("name=postgres-cop1e1822hijj6g3zmxhrs0k", args)
+                    return "api postgres"
+                if args[:2] == ["docker", "inspect"]:
+                    return json.dumps(containers)
+                requests.append(args)
+                self.assertIn("price_evidence_repair_queue", args[-1])
+                self.assertNotIn("drizzle", args[-1])
+                if not available:
+                    raise RuntimeError("legacy missing tables")
+                return json.dumps(queue_values())
+            with patch.object(evidence, "run", side_effect=command), \
+                 patch.object(evidence, "read_json_url", return_value={"status": "ok"}):
+                result = evidence.remote_capture("app", light=True)
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(result["status"], "complete", result["errors"])
+            self.assertEqual(result["metrics"]["app_queues"]["status"], "available" if available else "unavailable")
+            self.assertNotIn("legacy missing tables", json.dumps(result))
+
+    def test_release_required_app_queue_metrics_fail_missing_evidence(self):
+        body, manifest = snapshot(), self.manifest()
+        self.assertTrue(evidence.verify_release(manifest, body)["passed"])
+        manifest["required_metrics"] = ["app.queues"]
+        self.assertIn("app.queues:required_metric_unavailable", evidence.verify_release(manifest, body)["errors"])
+        body["hosts"]["app"]["metrics"] = {"app_queues": {"status": "available", "values": queue_values()}}
+        self.assertTrue(evidence.verify_release(manifest, body)["passed"])
+        body["hosts"]["app"]["metrics"]["app_queues"]["status"] = "unavailable"
+        self.assertFalse(evidence.verify_release(manifest, body)["passed"])
+        body["hosts"]["app"]["metrics"]["app_queues"] = {
+            "status": "available", "values": {"dirty_tile_updates": {"count": 0, "oldest_age_seconds": None}}}
+        self.assertFalse(evidence.verify_release(manifest, body)["passed"])
+        manifest["required_metrics"] = ["app.queues.dirty_tile_updates"]
+        self.assertTrue(evidence.verify_release(manifest, body)["passed"])
+        manifest["required_metrics"] = ["app.queues.misspelled"]
+        self.assertIn("manifest:unknown_required_metric", evidence.verify_release(manifest, body)["errors"])
+
     def test_dotenv_never_executes_or_expands(self):
         parsed = evidence.parse_env('export APP_VM_PUBLIC_IP="192.0.2.1" # comment\nAPI_KEY=\'$(touch /tmp/not-created)\'\nBAD LINE\nVALUE=${HOME}\n')
         self.assertEqual(parsed["API_KEY"], "$(touch /tmp/not-created)")
@@ -138,13 +209,18 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(evidence.verify_release(self.manifest(), body)["passed"])
 
     def test_light_scraper_has_no_docker_or_database_calls(self):
+        status = {"status": "ok", "API_KEY": "hidden", "hybrid": {"planner": {"status": "ready"}},
+                  "recovery": {"catalog": {"remaining": 123}, "planner": {"status": "ready"}, "outbox": {"pending": 4}},
+                  "upstream": {"creditDispatcher": {"availableCredits": 150, "API_KEY": "hidden"}}}
         with patch.object(evidence, "run", side_effect=AssertionError("must not run")) as command, \
-             patch.object(evidence, "read_json_url", return_value={"status": "ok", "API_KEY": "hidden", "hybrid": {"planner": {"status": "ready"}}}), \
+             patch.object(evidence, "read_json_url", return_value=status), \
              patch.object(Path, "read_text", return_value="API_KEY=secret\n"):
             result = evidence.remote_capture("scraper", light=True)
         command.assert_not_called()
         self.assertEqual(result["status"], "complete")
         self.assertIn("hybrid", result["endpoints"]["funda.status"])
+        self.assertEqual(result["endpoints"]["funda.status"]["recovery"], status["recovery"])
+        self.assertEqual(result["endpoints"]["funda.status"]["upstream"]["creditDispatcher"], {"availableCredits": 150})
         self.assertNotIn("hidden", json.dumps(result))
 
     def manifest(self):
@@ -164,6 +240,24 @@ class EvidenceTests(unittest.TestCase):
         body = snapshot()
         body["hosts"]["app"]["containers"] *= 2
         self.assertFalse(evidence.verify_release(self.manifest(), body)["passed"])
+
+    def test_release_rejects_legacy_scheduler_running_alongside_declared_planner(self):
+        body, manifest = snapshot(), self.manifest()
+        manifest["services"]["funda.planner"] = IMAGE
+        body["hosts"]["scraper"]["containers"].extend([
+            {"service": "funda.planner", "image_id": IMAGE, "running": True},
+            {"service": "funda.scheduler", "image_id": IMAGE, "running": True},
+        ])
+        result = evidence.verify_release(manifest, body)
+        self.assertFalse(result["passed"])
+        self.assertIn("funda.scheduler:undeclared_running_service", result["errors"])
+        manifest["services"]["funda.scheduler"] = IMAGE
+        self.assertTrue(evidence.verify_release(manifest, body)["passed"])
+
+    def test_release_ignores_undeclared_stopped_legacy_service(self):
+        body = snapshot()
+        body["hosts"]["scraper"]["containers"].append({"service": "funda.scheduler", "image_id": IMAGE, "running": False})
+        self.assertTrue(evidence.verify_release(self.manifest(), body)["passed"])
 
     def test_release_checks_running_and_completed_code_revisions(self):
         body, manifest = snapshot(), self.manifest()
@@ -208,6 +302,8 @@ class EvidenceTests(unittest.TestCase):
             if has_ledger:
                 names.append("huishype-funda-scraper-ledger-postgres-1")
             containers = [{"Id": name, "Name": "/" + name, "Image": IMAGE,
+                           "Mounts": [{"Type": "volume", "Name": "huishype-funda-scraper_postgres_data"},
+                                      {"Type": "bind", "Source": "/private/path"}],
                            "Config": {"Labels": {}, "Image": "repo:" + "a" * 40}, "State": {"Running": True}} for name in names]
             queries = []
             def command(args, **kwargs):
@@ -231,6 +327,8 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(result["status"], "complete", result["errors"])
             self.assertEqual(result["containers"][0]["image_reference"], "repo:" + "a" * 40)
             self.assertEqual(result["containers"][0]["commit"], "a" * 40)
+            self.assertEqual(result["containers"][0]["named_volumes"], ["huishype-funda-scraper_postgres_data"])
+            self.assertNotIn("/private/path", json.dumps(result))
             self.assertEqual("ledger" in result["databases"], has_ledger)
             self.assertEqual(any("realty_schema_revision" in q for q in queries), has_ledger)
             if has_ledger:
@@ -256,10 +354,68 @@ class EvidenceTests(unittest.TestCase):
         del bodies[10]
         self.assertIn("duplicate_or_excessive_snapshot_gap", evidence.verify_window(bodies)["errors"])
 
+    def test_window_manifest_requires_metrics_in_every_light_sample(self):
+        bodies = [snapshot(minute, light=minute not in (0, 1440)) for minute in range(0, 1441, 2)]
+        for body in bodies:
+            body["hosts"]["app"]["metrics"] = {"app_queues": {"status": "available", "values": queue_values()}}
+        manifest = self.manifest()
+        manifest["required_metrics"] = ["app.queues"]
+        result = evidence.verify_window(bodies, manifest=manifest)
+        self.assertTrue(result["passed"], result["errors"])
+        del bodies[360]["hosts"]["app"]["metrics"]["app_queues"]["values"]["dirty_tile_updates"]
+        result = evidence.verify_window(bodies, manifest=manifest)
+        self.assertFalse(result["passed"])
+        self.assertIn("360:app.queues:required_metric_unavailable", result["errors"])
+        self.assertTrue(evidence.verify_window(bodies)["passed"])
+
+    def test_window_manifest_binds_each_full_sample_to_declared_release(self):
+        bodies = [snapshot(minute, light=minute not in (0, 720, 1440)) for minute in range(0, 1441, 2)]
+        manifest = self.manifest()
+        manifest["services"]["app.api"] = "sha256:" + "b" * 64
+        result = evidence.verify_window(bodies, manifest=manifest)
+        self.assertFalse(result["passed"])
+        for index in [0, 360, 720]:
+            self.assertIn(str(index) + ":app.api:running_image_mismatch", result["errors"])
+        self.assertNotIn("release_identity_changed", result["errors"])
+
     def test_window_cannot_lower_24_hour_requirement(self):
         for hours in [0, 1, 23.9, float("nan")]:
             with self.assertRaises(ValueError):
                 evidence.verify_window([], hours=hours)
+
+    def test_window_rejects_image_code_or_migration_changes_in_full_samples(self):
+        for change in ["image_id", "commit", "migration_heads", "removed_service"]:
+            bodies = [snapshot(minute, light=minute not in (0, 720, 1440)) for minute in range(0, 1441, 2)]
+            middle = bodies[360]["hosts"]["app"]
+            if change in ["image_id", "commit"]:
+                middle["containers"][0][change] = "b" * 40
+            elif change == "migration_heads":
+                middle["databases"]["app"]["migration_heads"] = ["new-head"]
+            else:
+                middle["containers"] = []
+            result = evidence.verify_window(bodies)
+            self.assertIn("release_identity_changed", result["errors"], change)
+            self.assertFalse(result["passed"])
+            self.assertIsNone(result["release_identity"])
+
+    def test_window_allows_process_restarts_and_ignores_light_identity(self):
+        bodies = [snapshot(minute, light=minute not in (0, 720, 1440)) for minute in range(0, 1441, 2)]
+        for index in [0, 360, 720]:
+            container = bodies[index]["hosts"]["app"]["containers"][0]
+            container.update({"name": "api-restarted-" + str(index), "id": "container-" + str(index), "pid": index})
+        bodies[1]["hosts"]["app"]["containers"] = [{"service": "app.api", "running": True, "image_id": "partial-light-data"}]
+        result = evidence.verify_window(bodies)
+        self.assertTrue(result["passed"], result["errors"])
+        self.assertEqual(result["full_snapshots"], 3)
+        self.assertRegex(result["release_identity"], r"^[0-9a-f]{64}$")
+
+    def test_release_identity_is_independent_of_container_and_head_order(self):
+        body = snapshot()
+        body["hosts"]["scraper"]["databases"]["funda"]["migration_heads"] = ["b", "a"]
+        before = evidence.release_identity(body)
+        body["hosts"]["scraper"]["containers"].reverse()
+        body["hosts"]["scraper"]["databases"]["funda"]["migration_heads"].reverse()
+        self.assertEqual(evidence.release_identity(body), before)
 
     def test_window_rejects_fake_future_or_naive_timestamps(self):
         body = snapshot()

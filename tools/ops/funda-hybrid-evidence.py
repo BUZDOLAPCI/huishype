@@ -4,20 +4,23 @@
 capture --output-dir /private/evidence
 watch --output-dir /private/evidence --interval 60 --duration-hours 24
 verify-release --manifest release.json --snapshot /private/evidence/snapshot-*.json
-verify-window --directory /private/evidence --hours 24 --max-gap-minutes 2
+verify-window --directory /private/evidence --manifest release.json --hours 24 --max-gap-minutes 2
 
 Manifest format (all expected services and databases must be specified):
 {"services":{"app.api":"sha256:<64 hex>","funda.worker":"sha256:<64 hex>"},
  "completed_services":{"funda.migrate":"sha256:<64 hex>"},
  "code_revisions":{"app.api":"<40 hex commit>"},
+ "required_metrics":["app.queues"],
  "migrations":{"app":["<latest drizzle hash>"],"funda":["<alembic head>"],
                "pararius":["<alembic head>"],"ledger":["20260913_credit_v1"]}}
 
 The ledger migration head is optional for legacy snapshots and required when
 the manifest includes funda.dispatcher or funda.ledger-postgres.
+App queue telemetry is optional for legacy releases. required_metrics can require
+"app.queues" (all aggregate metrics) or "app.queues.<metric_name>" individually.
 
-Release verification checks exactly the manifest's services, so include every
-release service. Window verification checks observation coverage and records
+Release verification requires every recognized running service in the manifest,
+including infrastructure. Window verification checks observation coverage and records
 operational reasons; it NEVER certifies inventory completeness or release
 acceptance. Capture issues produce a partial file and exit 1. No logs, Docker
 environment, response error bodies, or raw exception messages are persisted.
@@ -27,6 +30,7 @@ SSH uses existing trusted host keys and never forwards an agent.
 import argparse
 import collections
 import datetime as dt
+import hashlib
 import ipaddress
 import json
 import math
@@ -41,13 +45,47 @@ import urllib.request
 
 DEFAULT_ENV = "/home/caslan/dev/git_repos/hh/huishype/.env.scraper-deploy"
 STATUS_FIELDS = {"status", "operationalStatus", "services", "freshness", "queue",
-                 "upstream", "stats", "acquisition", "planner", "credits", "inventory", "outbox", "hybrid"}
+                 "upstream", "stats", "acquisition", "planner", "credits", "inventory", "outbox", "hybrid", "recovery"}
 SENSITIVE = re.compile(r"password|passwd|secret|token|api.?key|authorization|cookie|credential|dsn|database.?url", re.I)
 SAFE_LABELS = {"com.docker.compose.project", "com.docker.compose.service",
                "com.docker.compose.version", "org.opencontainers.image.revision"}
 SERVICES = {"api", "web", "worker", "scheduler", "sync", "candidates", "probe", "postgres", "redis", "photon",
             "migrate", "planner", "ledger-migrate", "dispatcher", "ledger-postgres"}
 HEALTHY_STATUSES = {"ok", "healthy"}
+APP_QUEUE_METRICS = {"expired_active_eligible", "pending_price_repairs", "pending_property_tile_updates",
+                     "dirty_tile_updates", "expired_dirty_tile_leases", "dirty_tile_errors"}
+APP_QUEUE_SQL = """
+WITH expired AS (
+  SELECT count(*) AS n, min(availability_expires_at) AS oldest
+  FROM canonical_listings WHERE active_eligible = true AND availability_expires_at <= now()
+), repairs AS (
+  SELECT count(*) AS n, min(enqueued_at) AS oldest
+  FROM price_evidence_repair_queue WHERE derived_recomputed_at IS NULL
+), properties AS (
+  SELECT count(*) AS n, min(requested_at) AS oldest FROM listing_tile_property_updates
+), tiles AS (
+  SELECT count(*) AS n, min(requested_at) AS oldest,
+    count(*) FILTER (WHERE lease_until < now()) AS expired_n,
+    min(lease_until) FILTER (WHERE lease_until < now()) AS expired_oldest,
+    count(*) FILTER (WHERE last_error IS NOT NULL) AS errors_n,
+    min(requested_at) FILTER (WHERE last_error IS NOT NULL) AS errors_oldest
+  FROM listing_tile_updates WHERE requested_revision > published_revision
+)
+SELECT json_build_object(
+  'expired_active_eligible', json_build_object('count', expired.n,
+    'oldest_age_seconds', CASE WHEN expired.n > 0 THEN greatest(0, extract(epoch FROM now()-expired.oldest)) END),
+  'pending_price_repairs', json_build_object('count', repairs.n,
+    'oldest_age_seconds', CASE WHEN repairs.n > 0 THEN greatest(0, extract(epoch FROM now()-repairs.oldest)) END),
+  'pending_property_tile_updates', json_build_object('count', properties.n,
+    'oldest_age_seconds', CASE WHEN properties.n > 0 THEN greatest(0, extract(epoch FROM now()-properties.oldest)) END),
+  'dirty_tile_updates', json_build_object('count', tiles.n,
+    'oldest_age_seconds', CASE WHEN tiles.n > 0 THEN greatest(0, extract(epoch FROM now()-tiles.oldest)) END),
+  'expired_dirty_tile_leases', json_build_object('count', tiles.expired_n,
+    'oldest_age_seconds', CASE WHEN tiles.expired_n > 0 THEN greatest(0, extract(epoch FROM now()-tiles.expired_oldest)) END),
+  'dirty_tile_errors', json_build_object('count', tiles.errors_n,
+    'oldest_age_seconds', CASE WHEN tiles.errors_n > 0 THEN greatest(0, extract(epoch FROM now()-tiles.errors_oldest)) END)
+) FROM expired CROSS JOIN repairs CROSS JOIN properties CROSS JOIN tiles;
+"""
 
 
 def utcnow():
@@ -100,6 +138,53 @@ def run(command, timeout=30, input_text=None):
     if completed.returncode:
         raise RuntimeError("command_failed")
     return completed.stdout
+
+
+def valid_queue_metric(value):
+    if (not isinstance(value, dict) or type(value.get("count")) is not int or value["count"] < 0
+            or "oldest_age_seconds" not in value):
+        return False
+    age = value.get("oldest_age_seconds")
+    return ((value["count"] == 0 and age is None)
+            or (value["count"] > 0 and type(age) in (int, float) and math.isfinite(age) and age >= 0))
+
+
+def app_queue_telemetry(container):
+    """One bounded aggregate request; unavailable legacy schema is not host failure."""
+    try:
+        shell = ('exec psql -X -A -t -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" '
+                 '-d "$POSTGRES_DB" -c "$1"')
+        command = ["docker", "exec", "-e",
+                   "PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000",
+                   container["Id"], "sh", "-c", shell, "evidence", APP_QUEUE_SQL]
+        values = json.loads(run(command, timeout=8))
+        if not isinstance(values, dict) or any(not valid_queue_metric(values.get(key)) for key in APP_QUEUE_METRICS):
+            raise ValueError("invalid_aggregate_response")
+        # Explicit numeric projection, even if a malformed endpoint/fixture adds fields.
+        safe = {key: {field: values[key][field] for field in ("count", "oldest_age_seconds")}
+                for key in sorted(APP_QUEUE_METRICS)}
+        return {"status": "available", "observed_at": utcnow(), "values": safe}
+    except Exception as exc:
+        return {"status": "unavailable", "reason": type(exc).__name__}
+
+
+def required_metric_errors(required, snapshot):
+    if not isinstance(required, list) or any(not isinstance(key, str) for key in required):
+        return ["manifest:invalid_required_metrics"]
+    telemetry = snapshot.get("hosts", {}).get("app", {}).get("metrics", {}).get("app_queues", {})
+    errors = []
+    for key in required:
+        if key == "app.queues":
+            metric_names = APP_QUEUE_METRICS
+        elif key.startswith("app.queues.") and key[len("app.queues."):] in APP_QUEUE_METRICS:
+            metric_names = {key[len("app.queues."):]}
+        else:
+            errors.append("manifest:unknown_required_metric")
+            continue
+        if (telemetry.get("status") != "available" or any(
+                not valid_queue_metric(telemetry.get("values", {}).get(name)) for name in metric_names)):
+            errors.append(key + ":required_metric_unavailable")
+    return errors
 
 
 def service_key(name, labels, role):
@@ -176,7 +261,8 @@ def remote_capture(role, light=False):
     evidence["resources"] = attempt("resources", resources)
     docker_list = ["docker", "ps", "-aq"]
     if light:
-        docker_list += ["--filter", "name=api-cop1e1822hijj6g3zmxhrs0k"]
+        docker_list += ["--filter", "name=api-cop1e1822hijj6g3zmxhrs0k",
+                        "--filter", "name=postgres-cop1e1822hijj6g3zmxhrs0k"]
     ids = attempt("docker_list", lambda: run(docker_list).split()) if not light or role == "app" else []
     inspected = attempt("docker_inspect", lambda: json.loads(run(["docker", "inspect", *ids]))) if ids else []
     selected = {}
@@ -199,6 +285,12 @@ def remote_capture(role, light=False):
             "finished_at": container.get("State", {}).get("FinishedAt"),
             "health": container.get("State", {}).get("Health", {}).get("Status"),
         })
+        if not light:
+            evidence["containers"][-1]["named_volumes"] = sorted({
+                mount["Name"] for mount in container.get("Mounts", [])
+                if mount.get("Type") == "volume" and isinstance(mount.get("Name"), str)
+                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", mount["Name"])
+            })
     if not light and not selected:
         evidence["errors"].append({"check": "containers", "kind": "NoExpectedContainers"})
         evidence["status"] = "partial"
@@ -283,6 +375,12 @@ def remote_capture(role, light=False):
         ledger = attempt("ledger.database", lambda: database("ledger"))
         if ledger is not None:
             evidence["databases"]["ledger"] = ledger
+    if role == "app":
+        try:
+            telemetry = app_queue_telemetry(one("app.postgres"))
+        except Exception as exc:
+            telemetry = {"status": "unavailable", "reason": type(exc).__name__}
+        evidence["metrics"] = {"app_queues": telemetry}
     evidence["completed_at"] = utcnow()
     return sanitize(evidence, secrets)
 
@@ -364,6 +462,7 @@ def snapshot_errors(snapshot, require_release=True):
 
 def verify_release(manifest, snapshot):
     errors = snapshot_errors(snapshot)
+    errors.extend(required_metric_errors(manifest.get("required_metrics", []), snapshot))
     services, migrations = manifest.get("services"), manifest.get("migrations")
     if not isinstance(services, dict) or not services:
         errors.append("manifest:missing_services")
@@ -381,6 +480,12 @@ def verify_release(manifest, snapshot):
         migrations = migrations if isinstance(migrations, dict) else {}
     containers = [c for host in snapshot.get("hosts", {}).values() for c in host.get("containers", [])]
     databases = {k: v for host in snapshot.get("hosts", {}).values() for k, v in host.get("databases", {}).items()}
+    for container in containers:
+        service = container.get("service", "")
+        source, _, role = service.partition(".") if isinstance(service, str) else ("", "", "")
+        if (container.get("running") is True and source in {"app", "funda", "pararius"}
+                and role in SERVICES and service not in services):
+            errors.append(service + ":undeclared_running_service")
     if set(completed).intersection(services):
         errors.append("manifest:service_cannot_be_running_and_completed")
     for service, image in services.items():
@@ -450,11 +555,30 @@ def reason_summary(value, path=""):
     return reasons
 
 
-def verify_window(snapshots, hours=24, max_gap_minutes=2, now=None):
+def release_identity(snapshot):
+    """Ignore process/container identity; preserve running images, code and DB heads."""
+    running = collections.defaultdict(list)
+    migrations = {}
+    for host in snapshot.get("hosts", {}).values():
+        for container in host.get("containers", []):
+            if container.get("running") is True:
+                running[container["service"]].append({
+                    "image_id": container.get("image_id"), "commit": container.get("commit")})
+        for database, state in host.get("databases", {}).items():
+            migrations[database] = sorted(state.get("migration_heads", []))
+    identity = {"running_services": {service: sorted(images, key=lambda v: json.dumps(v, sort_keys=True))
+                                     for service, images in running.items()}, "migration_heads": migrations}
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def verify_window(snapshots, hours=24, max_gap_minutes=2, now=None, manifest=None):
     if not math.isfinite(hours) or hours < 24 or not math.isfinite(max_gap_minutes) or max_gap_minutes <= 0:
         raise ValueError("require_at_least_24_hours_and_positive_gap")
+    if manifest is not None and not isinstance(manifest, dict):
+        raise ValueError("manifest_object_required")
     now = now or dt.datetime.now(dt.timezone.utc)
     ordered, errors, reasons = [], [], collections.Counter()
+    full_identities = []
     for index, snapshot in enumerate(snapshots):
         try:
             start = timestamp(snapshot["captured_at"])
@@ -468,6 +592,13 @@ def verify_window(snapshots, hours=24, max_gap_minutes=2, now=None):
                     errors.append(str(index) + ":remote_clock_or_interval_mismatch")
             ordered.append((start, end))
             errors.extend(str(index) + ":" + error for error in snapshot_errors(snapshot, require_release=False))
+            if manifest is not None:
+                errors.extend(str(index) + ":" + error for error in required_metric_errors(
+                    manifest.get("required_metrics", []), snapshot))
+            if snapshot.get("sample_kind", "full") == "full":
+                full_identities.append(release_identity(snapshot))
+                if manifest is not None:
+                    errors.extend(str(index) + ":" + error for error in verify_release(manifest, snapshot)["errors"])
             for host in snapshot.get("hosts", {}).values():
                 reasons.update(reason_summary(host.get("endpoints", {})))
         except (KeyError, ValueError, TypeError):
@@ -479,13 +610,18 @@ def verify_window(snapshots, hours=24, max_gap_minutes=2, now=None):
     gaps = [(b[0] - a[0]).total_seconds() / 60 for a, b in zip(ordered, ordered[1:])]
     if any(gap <= 0 or gap > max_gap_minutes for gap in gaps):
         errors.append("duplicate_or_excessive_snapshot_gap")
+    if len(set(full_identities)) > 1:
+        errors.append("release_identity_changed")
     if snapshots:
         valid = sorted((s for s in snapshots if isinstance(s.get("captured_at"), str)), key=lambda s: s["captured_at"])
         if not valid or any(s.get("sample_kind", "full") != "full" for s in [valid[0], valid[-1]]):
             errors.append("full_start_and_end_snapshots_required")
+    errors = list(dict.fromkeys(errors))
     return {"passed": not errors, "scope": "observation_coverage_only", "inventory_certified": False,
             "acceptance": "insufficient_evidence", "missing_acceptance_evidence": ["inventory_completeness_and_freshness_contract"],
             "snapshots": len(snapshots), "elapsed_hours": max(0, elapsed), "required_hours": hours,
+            "full_snapshots": len(full_identities),
+            "release_identity": full_identities[0] if len(set(full_identities)) == 1 else None,
             "largest_gap_minutes": max(gaps, default=0), "errors": errors,
             "status_reason_counts": dict(sorted(reasons.items()))}
 
@@ -544,6 +680,7 @@ def main(argv=None):
     release.add_argument("--snapshot", required=True)
     window = sub.add_parser("verify-window")
     window.add_argument("--directory", required=True)
+    window.add_argument("--manifest", help="require manifest metrics in every sample and declared release in every full sample")
     window.add_argument("--hours", "--hours24", type=float, default=24, nargs="?", const=24)
     window.add_argument("--max-gap-minutes", type=float, default=2)
     args = parser.parse_args(argv)
@@ -561,7 +698,8 @@ def main(argv=None):
             result = verify_release(json.loads(Path(args.manifest).read_text()), json.loads(Path(args.snapshot).read_text()))
         elif args.command == "verify-window":
             paths = sorted(Path(args.directory).glob("snapshot-*.json"))
-            result = verify_window([json.loads(p.read_text()) for p in paths], args.hours, args.max_gap_minutes)
+            manifest = json.loads(Path(args.manifest).read_text()) if args.manifest else None
+            result = verify_window([json.loads(p.read_text()) for p in paths], args.hours, args.max_gap_minutes, manifest=manifest)
         else:
             parser.error("a subcommand is required")
         print(json.dumps(sanitize(result), indent=2, allow_nan=False))

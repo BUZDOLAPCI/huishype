@@ -91,14 +91,14 @@ pre-release measurement and limitations are in
 ## Coordinated release order
 
 1. Complete implementation tests, real PostgreSQL concurrency checks, Compose
-   validation, complete geographic coverage verification and bounded paid-only
-   demand/throughput checks through the final private dispatcher. Build immutable
-   images and record their source commits and IDs.
+   validation and offline geographic coverage verification. Build immutable
+   images and record their source commits and IDs. Live mapping, sizing and
+   throughput validation use the final migrated planner later in this sequence.
 2. Disable Coolify automatic deployment and verify the stored application
    setting. Cancel or finish queued deployments before pushing either final main
    branch. The baseline setting was enabled; pushing main without this fence can
    deploy an app image before its coordinated migration window.
-3. Stop the old Funda scheduler, worker, candidates, probe and sync containers.
+3. Stop the old Funda API, scheduler, worker, candidates, probe and sync containers.
    Stop the app API and worker during the maintenance window. Preserve databases,
    Redis, Photon and Pararius infrastructure. Pause Pararius export during the
    app outage if necessary, preserving its durable unsent observations.
@@ -111,10 +111,13 @@ pre-release measurement and limitations are in
    legacy Redis queue entries cannot become new planner work or deliver v1 Funda
    writes after cutover.
 6. Deploy app API, worker and web and the final Funda API/planner/runtime/outbox
-   services using the recorded immutable images. Initialize the final geographic
-   catalog, reconcile existing identities and replay original observation times
-   through the durable ordered outbox. Conflicting property links remain
-   quarantined with explicit operational counts.
+   services using the recorded immutable images. Keep ordinary paid work disabled
+   while the final planner performs bounded geographic mapping and first-page
+   sizing through the private dispatcher. Review the measured full essential-work
+   forecast before granting bounded initial inventory or activating normal paid
+   operation. Initialize the final geographic catalog, reconcile existing
+   identities and replay original observation times through the durable ordered
+   outbox. Conflicting property links remain quarantined with explicit counts.
 7. Verify running commits, image IDs and all migration heads against the release
    manifest. Verify app health, map/feed/listing projections, source API health,
    planner ownership, outbox age and credit reconciliation. Resume Pararius export
@@ -178,7 +181,7 @@ Collect the elapsed cycle and verify immutable runtime identity:
 
 ```bash
 python3 tools/ops/funda-hybrid-evidence.py watch --output-dir /private/release-evidence --interval 60 --duration-hours 24
-python3 tools/ops/funda-hybrid-evidence.py verify-window --directory /private/release-evidence --hours 24 --max-gap-minutes 2
+python3 tools/ops/funda-hybrid-evidence.py verify-window --directory /private/release-evidence --hours 24 --max-gap-minutes 2 --manifest release.json
 python3 tools/ops/funda-hybrid-evidence.py verify-release --manifest release.json --snapshot snapshot.json
 ```
 
@@ -193,7 +196,16 @@ Coolify image tag. Digest-only image references cannot establish a source commit
 The ledger head comes from its `realty_schema_revision` journal, including the
 source-checked schema fingerprint; `create_all` alone is not a migration proof. A window check
 certifies elapsed observation coverage only; inventory, latency and budget
-acceptance require the final planner/ledger evidence described below.
+acceptance require the final planner/ledger evidence described below. Every running
+recognized service, including infrastructure, must appear in `services`; an
+undeclared legacy scheduler fails release verification. Full samples record named
+volumes and require stable running images, source commits and migration heads
+throughout the observation window, including intermediate hourly samples. Set
+`required_metrics: ["app.queues"]` in the final manifest. These aggregate metrics
+are mandatory in every minute sample when `verify-window` receives that manifest;
+legacy baselines can omit the requirement. Full samples are also checked against
+the manifest throughout the window. Unavailable metrics must be investigated,
+including read-only SQL timeouts; they are never zero-length queues.
 
 ## Acceptance evidence
 
@@ -203,6 +215,18 @@ reconciliation every minute. Record actual UTC timestamps and retain sample
 errors. Capture images and migration heads at the beginning, end and after every
 deployment. Missing samples or missing coverage metrics cannot be treated as
 success.
+
+App maintenance must also make measurable progress. Collect the number and oldest
+age of expired `canonical_listings.active_eligible` rows, unrecomputed
+`price_evidence_repair_queue` rows, pending `listing_tile_property_updates` rows,
+and dirty `listing_tile_updates` rows where `requested_revision` exceeds
+`published_revision`. Record expired dirty-tile leases and tile error counts;
+retain aggregate evidence without listing records or error text. A running worker
+with a growing or stalled maintenance backlog is not a healthy final state.
+The normal 30-second recovery sweep drains availability expiry and price repairs,
+then publishes bounded listing tile updates. Confirm that cutover repair queues
+drain and ongoing updates remain within the freshness contract before beginning
+the final acceptance window.
 
 A daily acceptance cycle requires at least 24 actual elapsed hours. Unit-test
 clocks and accelerated schedules cannot substitute for that observation period.
