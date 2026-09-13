@@ -1569,14 +1569,16 @@ export function buildGroupingCandidateScopeCtes(
         SELECT spi.property_id AS id, p.geometry, p.official_valuation
         FROM source_property_ids spi
         INNER JOIN LATERAL (
-          SELECT p.id,p.geometry,p.official_valuation FROM properties p
-          WHERE p.id = spi.property_id AND p.geometry IS NOT NULL AND p.status = 'active'
-            AND (${bboxFilter}) AND ${areaFilter}
-          -- Keep the source-key lookup parameterized at world zoom. Without
-          -- this boundary PostgreSQL can choose a scan of the entire address
-          -- base even though only listing/social properties are candidates.
+          SELECT p.geometry,p.official_valuation,p.status,p.country_code,
+            p.city,p.region,p.postal_code,p.street FROM properties p
+          WHERE p.id = spi.property_id
+          -- Keep the lookup parameterized solely by its primary key. Putting
+          -- spatial filters inside this boundary can instead select a GiST
+          -- scan that repeats the whole tile's addresses for every source ID.
           OFFSET 0
         ) p ON true
+        WHERE p.geometry IS NOT NULL AND p.status = 'active'
+          AND (${bboxFilter}) AND ${areaFilter}
       )
     `;
   }
