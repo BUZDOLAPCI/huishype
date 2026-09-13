@@ -22,6 +22,12 @@ describe('Funda v2 evidence contract', () => {
     expect(value.records?.[0]).toMatchObject({ facts: { askingPrice: null, address: { latitude: 52, longitude: 5 }, numRooms: 2.5 } });
     expect(value.records?.[0]).not.toHaveProperty('facts.thumbnailUrl');
   });
+  it('retains optional durable candidate correlation UUIDs and rejects malformed identifiers', () => {
+    const candidateId = 'b2e81eb3-2471-4c34-b7c8-9c321e61f3a2';
+    expect(ingestEvidenceV2Schema.parse({ ...evidence, kind: 'sighting', sourceCandidateId: candidateId, previewResultId: candidateId }))
+      .toMatchObject({ sourceCandidateId: candidateId, previewResultId: candidateId });
+    expect(ingestEvidenceV2Schema.safeParse({ ...evidence, kind: 'sighting', sourceCandidateId: 'invalid' }).success).toBe(false);
+  });
   it('accepts partial scan references on positive evidence but demands verified complete absence', () => {
     expect(ingestEvidenceV2Schema.parse({ ...evidence, kind: 'sighting', inventoryManifestId: 'partial-scan' })).toHaveProperty('inventoryManifestId', 'partial-scan');
     expect(ingestEvidenceV2Schema.safeParse({ ...evidence, kind: 'absence', inventoryManifestId: 'partial-scan' }).success).toBe(false);

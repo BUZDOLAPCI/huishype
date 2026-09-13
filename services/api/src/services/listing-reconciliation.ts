@@ -15,6 +15,7 @@ import {
   priceHistory,
   sourceIdentityQuarantines,
   sourceListingIdentities,
+  sourceListingAliases,
   type CanonicalListing,
   type DbTransaction,
   type ListingObservation,
@@ -765,13 +766,14 @@ async function resolvePrimarySourceListingIdFromFacts(
   aliases: readonly ListingSourceAlias[],
   executor: ReconciliationDb,
 ): Promise<string | null> {
-  const aliasPredicates = aliases.map((alias) => and(
-    eq(listingSourceAliases.aliasKind, alias.kind),
-    eq(listingSourceAliases.aliasValue, alias.value),
-  ));
   if (sourceListingId) {
-    aliasPredicates.push(eq(listingSourceAliases.aliasValue, sourceListingId));
+    const [known] = await executor.select({ id: canonicalListings.id }).from(canonicalListings)
+      .where(and(eq(canonicalListings.sourceName, sourceName), eq(canonicalListings.primarySourceListingId, sourceListingId))).limit(1);
+    if (known) return sourceListingId;
   }
+  const stablePrimary = aliases.find(alias => alias.kind === 'global_id' && alias.value === sourceListingId);
+  const identityAliases = stablePrimary ? [stablePrimary] : aliases.filter(alias => ['global_id', 'tiny_id', 'detail_id'].includes(alias.kind));
+  const aliasPredicates = identityAliases.map(alias => and(eq(listingSourceAliases.aliasKind, alias.kind), eq(listingSourceAliases.aliasValue, alias.value)));
 
   if (aliasPredicates.length > 0) {
     const [alias] = await executor
@@ -842,14 +844,21 @@ async function findCanonicalListingMatches(
       .orderBy(desc(canonicalListings.updatedAt));
   };
 
-  if (observation.candidateHandoffId) {
-    const rows = await executor
-      .select({ canonical: canonicalListings })
-      .from(listingCandidateHandoffs)
-      .innerJoin(canonicalListings, eq(canonicalListings.id, listingCandidateHandoffs.canonicalListingId))
-      .where(eq(listingCandidateHandoffs.id, observation.candidateHandoffId));
-
-    pushMatches(rows.map((row) => row.canonical));
+  const lookupAliases = sourceIdentityAliasesForCanonicalLookup(observation);
+  const strongAliases = lookupAliases.filter(alias => ['global_id', 'tiny_id', 'detail_id'].includes(alias.kind));
+  // V2 canonical IDs are stable app UUIDs; resolve the source's typed alias before
+  // any legacy URL fallback. A reused public URL cannot join separate global IDs.
+  if (strongAliases.length) {
+    const globalAliases = strongAliases.filter(alias => alias.kind === 'global_id');
+    const authoritative = globalAliases.length ? globalAliases : strongAliases;
+    const rows = await executor.select({ canonical: canonicalListings }).from(sourceListingAliases)
+      .innerJoin(sourceListingIdentities, eq(sourceListingIdentities.id, sourceListingAliases.identityId))
+      .innerJoin(canonicalListings, eq(canonicalListings.id, sourceListingIdentities.canonicalListingId))
+      .where(and(eq(sourceListingAliases.sourceName, observation.sourceName),
+        or(...authoritative.map(alias => and(eq(sourceListingAliases.kind, alias.kind), eq(sourceListingAliases.value, alias.value)))),
+        ...(globalAliases.length ? [] : [sql`${sourceListingIdentities.primaryIdType} <> 'global_id'`])));
+    pushMatches(rows.map(row => row.canonical));
+    if (matches.length) return matches;
   }
 
   if (primarySourceListingId) {
@@ -857,42 +866,25 @@ async function findCanonicalListingMatches(
       eq(canonicalListings.sourceName, observation.sourceName),
       eq(canonicalListings.primarySourceListingId, primarySourceListingId),
     )));
+    if (matches.length) return matches;
   }
 
-  if (observation.sourceUrlCanonical) {
-    pushMatches(await findAll(and(
-      eq(canonicalListings.sourceName, observation.sourceName),
-      eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
-    )));
+  const sourceIdAliases = (strongAliases.some(alias => alias.kind === 'global_id')
+    ? strongAliases.filter(alias => alias.kind === 'global_id') : strongAliases).map(alias => alias.value);
+  if (sourceIdAliases.length) {
+    pushMatches(await findAll(and(eq(canonicalListings.sourceName, observation.sourceName),
+      inArray(canonicalListings.primarySourceListingId, sourceIdAliases))));
+    if (matches.length) return matches;
   }
 
-  const lookupAliases = sourceIdentityAliasesForCanonicalLookup(observation);
-  const sourceIdAliases = lookupAliases
-    .filter((alias) => alias.kind !== 'canonical_url')
-    .map((alias) => alias.value);
-  const canonicalUrlAliases = lookupAliases
-    .filter((alias) => alias.kind === 'canonical_url')
-    .map((alias) => alias.value);
-  if (sourceIdAliases.length > 0) {
-    pushMatches(await findAll(and(
-      eq(canonicalListings.sourceName, observation.sourceName),
-      inArray(canonicalListings.primarySourceListingId, sourceIdAliases),
-    )));
-  }
-
-  if (canonicalUrlAliases.length > 0) {
-    pushMatches(await findAll(and(
-      eq(canonicalListings.sourceName, observation.sourceName),
-      inArray(canonicalListings.canonicalUrl, canonicalUrlAliases),
-    )));
-  }
-
-  if (observation.propertyId && observation.sourceUrlCanonical) {
-    pushMatches(await findAll(and(
-      eq(canonicalListings.sourceName, observation.sourceName),
-      eq(canonicalListings.propertyId, observation.propertyId),
-      eq(canonicalListings.canonicalUrl, observation.sourceUrlCanonical),
-    )));
+  const urls = [...new Set([observation.sourceUrlCanonical,
+    ...lookupAliases.filter(alias => alias.kind === 'canonical_url').map(alias => alias.value),
+  ].filter((value): value is string => Boolean(value)))];
+  if (urls.length && observation.propertyId) {
+    pushMatches(await findAll(and(eq(canonicalListings.sourceName, observation.sourceName),
+      eq(canonicalListings.propertyId, observation.propertyId), inArray(canonicalListings.canonicalUrl, urls),
+      or(sql`${canonicalListings.primarySourceListingId} IS NULL`,
+        and(eq(canonicalListings.originSummary, 'user'), eq(canonicalListings.verificationState, 'provisional'))))));
   }
 
   return matches;
@@ -1021,7 +1013,8 @@ function legacyPriceUnits(observation: ListingObservation): Partial<typeof canon
 }
 
 function availabilityEvidenceForObservation(observation: ListingObservation): ListingAvailabilityEvidence {
-  const kind = observation.diagnosticStatus || observation.staleForProjection || observation.sourceStatus === 'not_found'
+  // A preview is user intent, not a source observation at submission time.
+  const kind = observation.origin === 'user' || observation.diagnosticStatus || observation.staleForProjection || observation.sourceStatus === 'not_found'
     ? 'none' : observation.sourceStatus === 'available' ? 'positive' : observation.sourceStatus ?? 'none';
   return { kind, observedAt: observation.lastSeenAt ?? observation.sourceUpdatedAt ?? observation.observedAt };
 }

@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 import { eq, sql } from 'drizzle-orm';
-import { db, canonicalListings, ingestBatches, ingestEvidence, ingestWriterGenerations, listingPriceObservations,
+import { db, canonicalListings, ingestBatches, ingestEvidence, ingestWriterGenerations, listingCandidateHandoffs, listingPriceObservations,
   sourceListingIdentities, sourceListingAliases, sourceIdentityQuarantines, type DbTransaction } from '../../db/index.js';
 import { ingestBatchRequestSchema, type IngestBatchRequest } from '../../services/ingest/contracts.js';
 import { encodeOpaqueIngestCursor } from '../../services/ingest/cursor.js';
 import { processV2Evidence } from '../../services/ingest/v2-processor.js';
 import { resolveSourceListingIdentity } from '../../services/ingest/identity.js';
-import { listCanonicalListingsForProperty } from '../../services/listing-reconciliation.js';
+import { insertListingObservation, reconcileListingObservation, listCanonicalListingsForProperty } from '../../services/listing-reconciliation.js';
 import { assertIngestWriter } from '../../services/ingest/v2-writer.js';
 
 const rollback = new Error('fixture rollback');
@@ -118,6 +118,114 @@ describe('Funda v2 PostgreSQL evidence ingestion', () => {
     await send({ kind: 'facts', observedAt: new Date(Date.now() - 2700000).toISOString(), evidenceStrength: 'detail', facts: { numRooms: 2.5, energyLabel: null } });
     const [listing] = await listCanonicalListingsForProperty(propertyId, tx);
     expect(listing).toMatchObject({ askingPrice: 505000, numRooms: 2.5, energyLabel: null });
+  }));
+  it('quarantines an explicit unit clear when the resulting full address identifies a different property', async () => fixture(async ({ tx, propertyId, street, send, canonical }) => {
+    await tx.execute(sql`UPDATE properties SET house_number_addition = 'A' WHERE id = ${propertyId}`);
+    const initial = facts(street);
+    await send({ kind: 'facts', facts: { ...initial, address: { ...initial.address, houseNumberAddition: 'A' } } });
+    await tx.execute(sql`INSERT INTO properties(id,country_code,street,house_number,postal_code,city,geometry)
+      VALUES (${randomUUID()},'NL',${street},1,'1234AB','Fixture',ST_SetSRID(ST_MakePoint(5.47,51.44),4326))`);
+    await send({ kind: 'facts', observedAt: new Date().toISOString(), evidenceStrength: 'detail', facts: { address: { houseNumberAddition: null } } });
+    expect(await canonical()).toMatchObject({ propertyId, status: 'active', activeEligible: false, verificationState: 'invalid' });
+  }));
+  it('attaches a pending provisional only after source address and URL proof, and completes unchanged and terminal correlations', async () => fixture(async ({ tx, propertyId, street, send, canonical }) => {
+    const sourceFacts = facts(street);
+    const [provisional] = await tx.insert(canonicalListings).values({ propertyId, sourceName: 'funda',
+      canonicalUrl: sourceFacts.sourceUrl.replace(/\/$/, ''), displayUrl: sourceFacts.sourceUrl,
+      originSummary: 'user', verificationState: 'provisional', status: 'active', activeEligible: false,
+    }).returning();
+    const [handoff] = await tx.insert(listingCandidateHandoffs).values({ propertyId, sourceName: 'funda',
+      canonicalListingId: provisional.id, sourceUrlRaw: sourceFacts.sourceUrl,
+      sourceUrlCanonical: sourceFacts.sourceUrl.replace(/\/$/, ''), state: 'queued' }).returning();
+    await send({ kind: 'facts', facts: sourceFacts, sourceCandidateId: handoff.id });
+    const confirmed = (await canonical())!;
+    expect(confirmed).toMatchObject({ id: provisional.id, activeEligible: true, verificationState: 'validated', originSummary: 'user_and_mirror' });
+    await tx.update(listingCandidateHandoffs).set({ state: 'queued' }).where(eq(listingCandidateHandoffs.id, handoff.id));
+    const priceCount = (await tx.select().from(listingPriceObservations).where(eq(listingPriceObservations.canonicalListingId, provisional.id))).length;
+    const sighting = await send({ kind: 'sighting', sourceCandidateId: handoff.id, observedAt: new Date(Date.now() - 1800000).toISOString() });
+    expect(sighting.result.projectionChanged).toBe(false);
+    expect((await canonical())!.updatedAt).toEqual(confirmed.updatedAt);
+    expect((await tx.select().from(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.id, handoff.id)))[0].state).toBe('delivered');
+    expect((await tx.select().from(listingPriceObservations).where(eq(listingPriceObservations.canonicalListingId, provisional.id))).length).toBe(priceCount);
+    expect(await processV2Evidence(tx, sighting.batchId, sighting.payload)).toMatchObject({ ingestedCount: 0, updatedCount: 0, projectionChanged: false });
+    await tx.update(listingCandidateHandoffs).set({ state: 'queued' }).where(eq(listingCandidateHandoffs.id, handoff.id));
+    const terminalAt = new Date().toISOString();
+    await send({ kind: 'facts', sourceCandidateId: handoff.id, observedAt: terminalAt, facts: { lifecycleStatus: 'sold' } });
+    expect(await canonical()).toMatchObject({ id: provisional.id, propertyId, status: 'sold', activeEligible: false, availabilityEndedAt: new Date(terminalAt) });
+    expect((await tx.select().from(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.id, handoff.id)))[0].state).toBe('delivered');
+  }));
+  it('rejects a candidate property or URL contradiction without hiding separately proven source coverage', async () => fixture(async ({ tx, id, propertyId, street, send }) => {
+    const wrongPropertyId = randomUUID();
+    await tx.execute(sql`INSERT INTO properties(id,country_code,street,house_number,postal_code,city,geometry)
+      VALUES (${wrongPropertyId},'NL',${street},2,'1234AB','Fixture',ST_SetSRID(ST_MakePoint(5.47,51.44),4326))`);
+    const sourceFacts = facts(street);
+    const [provisional] = await tx.insert(canonicalListings).values({ propertyId: wrongPropertyId, sourceName: 'funda',
+      canonicalUrl: sourceFacts.sourceUrl.replace(/\/$/, ''), displayUrl: sourceFacts.sourceUrl,
+      originSummary: 'user', verificationState: 'provisional', status: 'active' }).returning();
+    const [handoff] = await tx.insert(listingCandidateHandoffs).values({ propertyId: wrongPropertyId, sourceName: 'funda',
+      canonicalListingId: provisional.id, sourceUrlRaw: sourceFacts.sourceUrl,
+      sourceUrlCanonical: sourceFacts.sourceUrl.replace(/\/$/, ''), state: 'queued' }).returning();
+    await send({ kind: 'facts', sourceCandidateId: handoff.id, facts: sourceFacts });
+    expect((await tx.select().from(canonicalListings).where(eq(canonicalListings.id, provisional.id)))[0]).toMatchObject({ propertyId: wrongPropertyId, verificationState: 'invalid', activeEligible: false });
+    const [identity] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.primaryId, id));
+    expect(identity.quarantinedAt).toBeNull();
+    expect((await tx.select().from(canonicalListings).where(eq(canonicalListings.id, identity.canonicalListingId!)))[0]).toMatchObject({ propertyId, activeEligible: true, verificationState: 'validated' });
+    expect((await tx.select().from(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.id, handoff.id)))[0].state).toBe('dead_letter');
+    const [badUrl] = await tx.insert(listingCandidateHandoffs).values({ propertyId, sourceName: 'funda', canonicalListingId: identity.canonicalListingId,
+      sourceUrlRaw: 'https://www.funda.nl/detail/koop/wrong/999/', sourceUrlCanonical: 'https://www.funda.nl/detail/koop/wrong/999', state: 'queued' }).returning();
+    await send({ kind: 'sighting', sourceCandidateId: badUrl.id, observedAt: new Date().toISOString() });
+    expect((await tx.select().from(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.id, badUrl.id)))[0].state).toBe('dead_letter');
+    expect((await tx.select().from(canonicalListings).where(eq(canonicalListings.id, identity.canonicalListingId!)))[0].activeEligible).toBe(true);
+  }));
+  it('resolves user submissions through known typed v2 identities and never fabricates positive source time', async () => fixture(async ({ tx, id, propertyId, street, send, canonical }) => {
+    const sourceFacts = facts(street);
+    await send({ kind: 'facts', facts: sourceFacts });
+    const before = (await canonical())!;
+    const observation = await insertListingObservation({ sourceName: 'funda', sourceListingId: id, sourceListingIdKind: 'global_id',
+      sourceListingAliases: [{ kind: 'global_id', value: id }], sourceUrlRaw: sourceFacts.sourceUrl, sourceUrlCanonical: before.canonicalUrl,
+      origin: 'user', propertyId, propertyMatchKind: 'source_exact', sourceStatus: 'available', payload: {} }, tx);
+    const after = await reconcileListingObservation(observation.id, tx);
+    expect(after).toMatchObject({ id: before.id, lastPositiveAvailabilityAt: before.lastPositiveAvailabilityAt, activeEligible: true });
+    expect((await tx.select().from(canonicalListings).where(eq(canonicalListings.propertyId, propertyId))).length).toBe(1);
+    const pending = await insertListingObservation({ sourceName: 'pararius', sourceListingId: randomUUID(),
+      sourceUrlRaw: 'https://www.pararius.nl/huurwoningen/fixture', origin: 'user', propertyId,
+      propertyMatchKind: 'user_selected', sourceStatus: 'available', payload: {} }, tx);
+    expect(await reconcileListingObservation(pending.id, tx)).toMatchObject({ lastPositiveAvailabilityAt: null, activeEligible: false });
+  }));
+  it('does not use a previously delivered candidate URL to collapse a new identified relisting', async () => fixture(async ({ tx, id, propertyId, street, send, canonical }) => {
+    const sourceFacts = facts(street);
+    await send({ kind: 'facts', facts: sourceFacts });
+    const original = (await canonical())!;
+    const [handoff] = await tx.insert(listingCandidateHandoffs).values({ sourceName: 'funda', propertyId,
+      canonicalListingId: original.id, sourceUrlRaw: sourceFacts.sourceUrl,
+      sourceUrlCanonical: original.canonicalUrl!, state: 'queued' }).returning();
+    const nextId = `${id}-relisted`;
+    await send({ kind: 'facts', sourceCandidateId: handoff.id, observedAt: new Date().toISOString(), facts: sourceFacts,
+      identity: { sourceListingId: nextId, sourceListingIdKind: 'global_id', aliases: [] } });
+    const [relisting] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.primaryId, nextId));
+    expect(relisting.canonicalListingId).not.toBe(original.id);
+    expect(relisting.quarantinedAt).toBeNull();
+    expect((await tx.select().from(canonicalListings).where(eq(canonicalListings.id, original.id)))[0].verificationState).toBe('validated');
+    expect((await tx.select().from(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.id, handoff.id)))[0]).toMatchObject({ state: 'delivered', canonicalListingId: relisting.canonicalListingId });
+  }));
+  it('keeps Pararius v1 relistings separate when a canonical URL repeats', async () => fixture(async ({ tx, propertyId }) => {
+    const sourceUrl = `https://www.pararius.nl/huurwoningen/${randomUUID()}`;
+    const firstId = randomUUID();
+    const secondId = randomUUID();
+    const observedAt = new Date(Date.now() - 60000);
+    const submit = async (sourceListingId: string) => {
+      const observation = await insertListingObservation({ sourceName: 'pararius', sourceListingId, sourceListingIdKind: 'global_id',
+        sourceListingAliases: [{ kind: 'global_id', value: sourceListingId }, { kind: 'canonical_url', value: sourceUrl }],
+        sourceUrlRaw: sourceUrl, sourceUrlCanonical: sourceUrl, origin: 'mirror', propertyId, propertyMatchKind: 'source_exact',
+        sourceStatus: 'available', observedAt, lastSeenAt: observedAt, askingPrice: 1250, payload: { priceType: 'rent' } }, tx);
+      return reconcileListingObservation(observation.id, tx);
+    };
+    const first = await submit(firstId);
+    const second = await submit(secondId);
+    expect(first!.id).not.toBe(second!.id);
+    expect(second).toMatchObject({ primarySourceListingId: secondId, pricePeriod: 'month', priceUnit: 'listing', priceCondition: 'asking', activeEligible: true });
+    expect((await tx.select().from(canonicalListings).where(eq(canonicalListings.id, first!.id)))[0]).toMatchObject({ primarySourceListingId: firstId, verificationState: 'validated' });
+    expect((await submit(secondId))!.id).toBe(second!.id);
   }));
   it('serializes concurrent typed alias claims to one stable identity', async () => {
     const sourceName = `test-${randomUUID()}`;

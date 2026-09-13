@@ -47,6 +47,8 @@ export const ingestFactsV2Schema = z.object({
 
 const common = {
   eventId: id,
+  sourceCandidateId: z.string().uuid().optional(),
+  previewResultId: z.string().uuid().optional(),
   sequence: z.number().int().positive().safe(),
   observedAt: timestamp,
   collector: z.enum(['direct', 'realtyapi']),

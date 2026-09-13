@@ -38,6 +38,14 @@ requires the full verified completed manifest, with observation time at completi
 or within five minutes. All evidence clocks are bounded to five minutes ahead of
 the receiver clock.
 
+Records may carry optional UUID `sourceCandidateId` and `previewResultId` to
+complete durable user handoffs, including unchanged sightings and terminal facts.
+These IDs correlate delivery; they do not prove identity or property ownership.
+Attaching a provisional listing requires the exact unambiguous source address and
+an observed source URL matching the handoff. A contradictory user hint is audited
+and rejected without quarantining a separately proven listing. User preview or
+submission time never supplies positive availability evidence.
+
 Source identities and all evidence survive incomplete or unmatched addresses.
 Projection requires exactly one complete address match; coordinates alone never
 link a property. Contradictory address/alias/property evidence is quarantined with

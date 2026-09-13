@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import type { CountryCode } from '@huishype/shared';
 import {
   canonicalListings, ingestEvidence, ingestWriterGenerations, listingCandidateHandoffs,
-  listingObservationLinks, listingObservations, properties, sourceListingIdentities,
+  listingObservationLinks, listingObservations, properties, sourceIdentityQuarantines, sourceListingIdentities,
   type CanonicalListing, type DbTransaction,
 } from '../../db/index.js';
 import { canonicalizeAddressWithDiagnostics, normalizeSourceUrl } from '../../utils/address.js';
@@ -115,7 +115,7 @@ function hasCanonicalChanges(existing: CanonicalListing, patch: Partial<typeof c
 }
 
 async function recordCanonicalChange(tx: DbTransaction, batchId: string, record: IngestEvidenceV2,
-  canonical: CanonicalListing, previousPrice: number | null | undefined, facts: Record<string, unknown>): Promise<void> {
+  canonical: CanonicalListing, previousPrice: number | null | undefined, facts: Record<string, unknown>): Promise<string> {
   // V2's event ledger is authoritative. The compact compatibility observation powers existing detail/history reads.
   const observationId = (await tx.insert(listingObservations).values({
     sourceName: canonical.sourceName, sourceListingId: record.eventId,
@@ -144,11 +144,72 @@ async function recordCanonicalChange(tx: DbTransaction, batchId: string, record:
       VALUES (${canonical.propertyId}, ${canonical.askingPrice}, ${date}::date, 'asking_price', ${canonical.sourceName}, 'asking')
       ON CONFLICT DO NOTHING`);
   }
+  return observationId;
+}
+
+function evidenceUrls(record: IngestEvidenceV2, facts: Record<string, unknown>, canonical?: CanonicalListing): string[] {
+  return [...new Set([
+    facts.sourceUrl, facts.canonicalUrl, canonical?.canonicalUrl, canonical?.displayUrl,
+    ...record.identity.aliases.filter(alias => alias.kind === 'canonical_url').map(alias => alias.value),
+  ].filter((value): value is string => typeof value === 'string').map(normalizeSourceUrl))];
+}
+
+async function findCandidateCanonicals(tx: DbTransaction, sourceName: string, propertyId: string,
+  record: IngestEvidenceV2, facts: Record<string, unknown>): Promise<{ listings: CanonicalListing[]; rejectedPropertyIds: string[] }> {
+  const identifiers = [];
+  if (record.sourceCandidateId) identifiers.push(eq(listingCandidateHandoffs.id, record.sourceCandidateId));
+  if (record.previewResultId) identifiers.push(eq(listingCandidateHandoffs.previewResultId, record.previewResultId));
+  const explicit = identifiers.length ? await tx.select({ handoff: listingCandidateHandoffs, listing: canonicalListings }).from(listingCandidateHandoffs)
+    .leftJoin(canonicalListings, eq(canonicalListings.id, listingCandidateHandoffs.canonicalListingId))
+    .where(or(...identifiers)) : [];
+  const urls = evidenceUrls(record, facts);
+  const accepted: CanonicalListing[] = [];
+  const rejectedPropertyIds: string[] = [];
+  for (const { handoff, listing } of explicit) {
+    const valid = handoff.sourceName === sourceName && handoff.propertyId === propertyId
+      && urls.includes(normalizeSourceUrl(handoff.sourceUrlCanonical))
+      && (!listing || (listing.sourceName === sourceName && listing.propertyId === propertyId));
+    if (valid) {
+      if (listing?.originSummary === 'user' && listing.verificationState === 'provisional') accepted.push(listing);
+      continue;
+    }
+    // A user hint is not source identity evidence. Reject its association while retaining proven listing coverage.
+    await tx.insert(sourceIdentityQuarantines).values({ sourceName, reason: 'candidate_association_conflict', identityIds: [],
+      listingIds: listing ? [listing.id] : [], aliasesJson: record.identity.aliases,
+      detailsJson: { candidateBefore: handoff, canonicalBefore: listing, observedPropertyId: propertyId, observedUrls: urls, eventId: record.eventId },
+    });
+    await tx.update(listingCandidateHandoffs).set({ state: 'dead_letter', nextAttemptAt: null,
+      lastError: 'Source evidence does not match the requested property or URL', updatedAt: new Date() })
+      .where(eq(listingCandidateHandoffs.id, handoff.id));
+    if (listing?.originSummary === 'user' && listing.verificationState === 'provisional') {
+      await tx.update(canonicalListings).set({ verificationState: 'invalid', activeEligible: false }).where(eq(canonicalListings.id, listing.id));
+      rejectedPropertyIds.push(listing.propertyId);
+    }
+  }
+  if (identifiers.length) return { listings: [...new Map(accepted.map(listing => [listing.id, listing])).values()], rejectedPropertyIds };
+  const candidates = await tx.select().from(canonicalListings).where(and(
+    eq(canonicalListings.sourceName, sourceName), eq(canonicalListings.propertyId, propertyId),
+    eq(canonicalListings.verificationState, 'provisional'), eq(canonicalListings.originSummary, 'user'),
+    ...(urls.length ? [inArray(canonicalListings.canonicalUrl, urls)] : [sql`false`]),
+  ));
+  return { listings: candidates, rejectedPropertyIds };
+}
+
+async function completeCandidateHandoffs(tx: DbTransaction, record: IngestEvidenceV2,
+  canonical: CanonicalListing, facts: Record<string, unknown>, observationId?: string): Promise<void> {
+  if (evidenceKind(record) === 'none') return;
+  const identifiers = [];
+  if (record.sourceCandidateId) identifiers.push(eq(listingCandidateHandoffs.id, record.sourceCandidateId));
+  if (record.previewResultId) identifiers.push(eq(listingCandidateHandoffs.previewResultId, record.previewResultId));
+  const urls = evidenceUrls(record, facts, canonical);
+  if (urls.length) identifiers.push(inArray(listingCandidateHandoffs.sourceUrlCanonical, urls));
+  if (!identifiers.length) return;
   await tx.update(listingCandidateHandoffs).set({
-    canonicalListingId: canonical.id, observationId, state: 'delivered', nextAttemptAt: null, lastError: null, updatedAt: new Date(),
-  }).where(and(eq(listingCandidateHandoffs.sourceName, canonical.sourceName), eq(listingCandidateHandoffs.propertyId, canonical.propertyId),
-    eq(listingCandidateHandoffs.sourceUrlCanonical, canonical.canonicalUrl ?? ''),
-    sql`${listingCandidateHandoffs.state} IN ('pending', 'queued', 'retryable_error')`));
+    canonicalListingId: canonical.id, ...(observationId ? { observationId } : {}),
+    state: 'delivered', nextAttemptAt: null, lastError: null, updatedAt: new Date(),
+  }).where(and(eq(listingCandidateHandoffs.sourceName, canonical.sourceName),
+    eq(listingCandidateHandoffs.propertyId, canonical.propertyId), or(...identifiers),
+    sql`${listingCandidateHandoffs.state} IN ('pending', 'queued', 'retryable_error', 'delivered')`));
 }
 
 export interface V2ProjectionResult {
@@ -211,13 +272,38 @@ export async function processV2Evidence(tx: DbTransaction, batchId: string, payl
     }).where(eq(sourceListingIdentities.id, identity.id)).returning();
     if (record.kind === 'absence') { result.updatedCount += 1; continue; }
     const propertyMatches = await matchProperty(tx, merged.facts);
-    if (propertyMatches.length > 1 || (canonical && (await contradictsLinkedAddress(tx, canonical.propertyId, merged.facts)))) {
+    if (propertyMatches.length === 1 && (!canonical || record.sourceCandidateId || record.previewResultId)) {
+      const candidateResolution = await findCandidateCanonicals(tx, payload.sourceName, propertyMatches[0], record, merged.facts);
+      result.changedPropertyIds.push(...candidateResolution.rejectedPropertyIds);
+      result.projectionChanged ||= candidateResolution.rejectedPropertyIds.length > 0;
+      const candidates = candidateResolution.listings;
+      if (!canonical && candidates.length > 1) {
+        const quarantined = await quarantineSourceIdentity(tx, { identityId: identity.id, reason: 'ambiguous_candidate_identity',
+          details: { eventId: record.eventId }, listingIds: candidates.map(candidate => candidate.id) });
+        result.changedPropertyIds.push(...quarantined.affectedPropertyIds ?? []);
+        result.projectionChanged ||= Boolean(quarantined.affectedPropertyIds?.length);
+        result.skippedCount += 1; continue;
+      }
+      if (!canonical) canonical = candidates[0] ?? null;
+    }
+    if (propertyMatches.length > 1 || (canonical && (
+      (propertyMatches.length === 1 && propertyMatches[0] !== canonical.propertyId)
+      || await contradictsLinkedAddress(tx, canonical.propertyId, merged.facts)
+    ))) {
       await quarantineSourceIdentity(tx, { identityId: identity.id, reason: propertyMatches.length > 1 ? 'ambiguous_address' : 'property_link_conflict',
         details: { propertyIds: propertyMatches, facts: merged.facts }, listingIds: canonical ? [canonical.id] : [] });
       if (canonical) { result.changedPropertyIds.push(canonical.propertyId); result.projectionChanged = true; }
       result.skippedCount += 1; continue;
     }
     if (!canonical && propertyMatches.length !== 1) { result.skippedCount += 1; continue; }
+    if (canonical && !identity.canonicalListingId) {
+      const bound = await bindSourceIdentityToListing(tx, identity.id, canonical.id);
+      if (bound.quarantined) {
+        result.changedPropertyIds.push(...bound.affectedPropertyIds ?? []);
+        result.projectionChanged ||= Boolean(bound.affectedPropertyIds?.length);
+        result.skippedCount += 1; continue;
+      }
+    }
     const factsPatch = projectedFacts(merged.facts);
     let availability = projectListingAvailability(canonical ?? {
       status: 'active', lastPositiveAvailabilityAt: lastPositive, availabilityEndedAt: lastEnded,
@@ -230,11 +316,12 @@ export async function processV2Evidence(tx: DbTransaction, batchId: string, payl
       }
       if (lastPositive) availability = projectListingAvailability(availability, { kind: 'positive', observedAt: lastPositive });
     }
-    const displayPatch = { ...factsPatch, status: availability.status, activeEligible: availability.activeEligible };
+    const displayPatch = { ...factsPatch, status: availability.status, activeEligible: availability.activeEligible, verificationState: 'validated' as const };
     const substantiveChanged = !canonical || hasCanonicalChanges(canonical, displayPatch) || merged.changedFields.some(field => ['numRooms', 'energyLabel', 'propertyType'].includes(field));
     const previousPrice = canonical?.askingPrice;
     const now = new Date();
     const writePatch = { ...factsPatch, ...availability, verificationState: 'validated' as const, statusSource: 'mirror' as const,
+      originSummary: canonical?.originSummary === 'user' ? 'user_and_mirror' as const : canonical?.originSummary ?? 'mirror' as const,
       lastSeenAt: maxDate(canonical?.lastSeenAt ?? null, new Date(record.observedAt)),
       lastMirrorSeenAt: maxDate(canonical?.lastMirrorSeenAt ?? null, new Date(record.observedAt)),
       ...(substantiveChanged ? { updatedAt: now, lastReconciledAt: now } : {}),
@@ -250,10 +337,14 @@ export async function processV2Evidence(tx: DbTransaction, batchId: string, payl
     } else {
       [canonical] = await tx.update(canonicalListings).set(writePatch).where(eq(canonicalListings.id, canonical.id)).returning();
     }
+    let observationId: string | undefined;
     if (substantiveChanged) {
-      await recordCanonicalChange(tx, batchId, record, canonical, previousPrice, merged.facts);
+      observationId = await recordCanonicalChange(tx, batchId, record, canonical, previousPrice, merged.facts);
       result.changedPropertyIds.push(canonical.propertyId);
       result.projectionChanged = true;
+    }
+    if (propertyMatches.length === 1 && propertyMatches[0] === canonical.propertyId) {
+      await completeCandidateHandoffs(tx, record, canonical, merged.facts, observationId);
     }
     if (inserted) result.ingestedCount += 1; else result.updatedCount += 1;
   }

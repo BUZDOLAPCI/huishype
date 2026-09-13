@@ -655,6 +655,7 @@ export async function listingRoutes(app: FastifyInstance) {
 
         const { submission, maintenanceRequest, duplicate } = await db.transaction(async (tx) => {
           const preview = await consumeListingPreviewResult(request.body.previewToken, userId, tx);
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${preview.sourceName}))`);
           const duplicatePredicates: ReturnType<typeof sql>[] = [];
           if (preview.sourceListingId) {
             const sourceListingPredicate = and(
@@ -663,10 +664,20 @@ export async function listingRoutes(app: FastifyInstance) {
             );
             if (sourceListingPredicate) duplicatePredicates.push(sourceListingPredicate);
           }
+          const globalAliasIds = preview.sourceListingAliases.filter(alias => alias.kind === 'global_id').map(alias => alias.value);
+          if (preview.sourceListingIdKind === 'global_id' && preview.sourceListingId) globalAliasIds.push(preview.sourceListingId);
+          if (globalAliasIds.length) duplicatePredicates.push(sql`EXISTS (
+            SELECT 1 FROM source_listing_identities si JOIN source_listing_aliases sa ON sa.identity_id = si.id
+            WHERE si.canonical_listing_id = ${canonicalListings.id} AND sa.source_name = ${preview.sourceName}
+              AND sa.kind = 'global_id' AND sa.value IN (${sql.join(globalAliasIds.map(id => sql`${id}`), sql`, `)})
+          )`);
           if (preview.sourceUrlCanonical) {
             const canonicalUrlPredicate = and(
               eq(canonicalListings.sourceName, preview.sourceName),
               eq(canonicalListings.canonicalUrl, preview.sourceUrlCanonical),
+              eq(canonicalListings.propertyId, preview.propertyId),
+              or(sql`${canonicalListings.primarySourceListingId} IS NULL`,
+                and(eq(canonicalListings.originSummary, 'user'), eq(canonicalListings.verificationState, 'provisional'))),
             );
             if (canonicalUrlPredicate) duplicatePredicates.push(canonicalUrlPredicate);
           }
