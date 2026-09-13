@@ -1,0 +1,30 @@
+{
+  "archive_list_verified": true,
+  "backup_kind": "consistent_preflight_snapshot_not_final_maintenance_backup",
+  "bytes": 577527355,
+  "completed_at": "2026-09-13T21:05:50.345358+00:00",
+  "format": "pg_dump custom --no-owner --no-acl",
+  "private_archive_directory": "/home/caslan/dev/backups/huishype/2026-09-13-funda-hybrid-preflight/20260913T210214Z",
+  "production_writers": "continued; pg_dump consistent MVCC snapshot",
+  "purpose": "private real mirror migration preflight; final maintenance backups still required",
+  "restore": {
+    "aggregate": {
+      "addresses": 281641,
+      "database_bytes": 1699680739,
+      "duplicate_global_groups": 10418,
+      "listings": 303465,
+      "schema_heads": [
+        "e8c2a1f6b930"
+      ]
+    },
+    "automation": "No test, seed, source runtime, or dispatcher may target this private snapshot. Verification owns explicit migrations.",
+    "completed_at": "2026-09-13T21:07:33.656510+00:00",
+    "database": "hybrid_funda_preflight_snapshot",
+    "full_restore_verified": true,
+    "started_at": "2026-09-13T21:06:35.038285+00:00",
+    "target_container": "hh-hybrid-test-postgres"
+  },
+  "sensitivity": "Archive and database contain real production source/candidate data. Only aggregate proof is tracked.",
+  "sha256": "71855385bce370e6a79b86aa3963b3fe323712a324de844811f9a32be92b43fe",
+  "started_at": "2026-09-13T21:02:14.341345+00:00"
+}
