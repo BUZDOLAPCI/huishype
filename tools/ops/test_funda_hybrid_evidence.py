@@ -128,6 +128,53 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 evidence.audit_interval(start, finish, now=end)
 
+    def test_explicit_verify_window_requires_paired_valid_completed_minute_bounds(self):
+        now = START + dt.timedelta(days=2)
+        end = START + dt.timedelta(days=1)
+        for start, finish in [
+            (START.isoformat(), None), (None, end.isoformat()),
+            (START.isoformat(), (now + dt.timedelta(minutes=1)).isoformat()),
+            ((START + dt.timedelta(seconds=1)).isoformat(), (end + dt.timedelta(minutes=1)).isoformat()),
+            (START.isoformat(), (end - dt.timedelta(minutes=1)).isoformat()),
+        ]:
+            with self.assertRaises(ValueError):
+                evidence.verify_window([], start=start, end=finish, now=now)
+        for option, value in [("--start", START.isoformat()), ("--end", end.isoformat())]:
+            with contextlib.redirect_stderr(io.StringIO()):
+                code = evidence.main(["verify-window", "--directory", "/nonexistent-test-snapshots", option, value])
+            self.assertEqual(code, 1)
+
+    def test_explicit_verify_window_reports_exact_longer_interval_and_separate_brackets(self):
+        bodies = []
+        for minute in range(-10, 1513, 2):
+            body = snapshot(minute, light=minute not in (-10, 0, 1502, 1512))
+            body["hosts"]["app"]["metrics"] = {"app_queues": {"status": "available", "values": queue_values()}}
+            body["hosts"]["scraper"]["endpoints"]["funda.status"]["recovery"] = {"evidence": source_values()}
+            if minute in (-10, 1512):
+                body["hosts"]["app"]["containers"][0]["image_id"] = "different-release-outside-brackets"
+                body["status"] = "partial"
+            bodies.append(body)
+        start, end = START + dt.timedelta(minutes=1), START + dt.timedelta(minutes=1501)
+        result = evidence.verify_window(bodies, start=start.isoformat(), end=end.isoformat(), manifest=self.manifest())
+        self.assertTrue(result["passed"], result["errors"])
+        self.assertEqual(result["interval_start"], "2026-01-01T00:01:00Z")
+        self.assertEqual(result["interval_end"], "2026-01-02T01:01:00Z")
+        self.assertEqual(result["measured_interval_hours"], 25)
+        self.assertEqual(result["measured_interval_seconds"], 90000)
+        self.assertGreater(result["coverage"]["elapsed_hours"], 25)
+        brackets = result["coverage"]["full_snapshot_brackets"]
+        self.assertLess(evidence.timestamp(brackets["start_completed_at"]), start)
+        self.assertGreater(evidence.timestamp(brackets["end_captured_at"]), end)
+
+    def test_explicit_verify_window_honors_custom_maximum_gap(self):
+        bodies = audit_samples()
+        del bodies[360]
+        kwargs = {"start": START.isoformat(), "end": (START + dt.timedelta(days=1)).isoformat()}
+        self.assertIn("duplicate_or_excessive_snapshot_gap", evidence.verify_window(bodies, **kwargs)["errors"])
+        result = evidence.verify_window(bodies, max_gap_minutes=4, **kwargs)
+        self.assertTrue(result["passed"], result["errors"])
+        self.assertEqual(result["coverage"]["largest_gap_minutes"], 4)
+
     def test_source_audit_query_uses_retained_acquisition_receipts_only(self):
         query = evidence.source_completion_sql(START.isoformat(), (START + dt.timedelta(days=1)).isoformat())
         for fragment in ["e.purpose='acquisition'", "b.state='delivered'", "b.writer_generation=e.writer_generation",

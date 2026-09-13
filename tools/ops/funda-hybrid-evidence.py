@@ -24,9 +24,11 @@ from readiness, so false inventory coverage and empty-queue nulls remain valid.
 "app.publications" requires retained publication aggregates for the last 24 full
 minute buckets. audit-freshness measures an explicit minute-aligned interval and
 its pending-work samples; inventory and budget acceptance remain separate gates.
-For a 24-hour audit, watch for 24.1 hours, set start to the next UTC minute after
-the initial full sample completes, and set end exactly 24 hours later. The audit
-requires a full sample completed at/before start and one captured at/after end.
+Watch indefinitely and use the same explicit UTC-minute start/end for window
+verification, freshness audit, source certificate, and ledger report. The interval
+must be at least 24 hours and may be extended until the useful paid span reaches
+24 hours. Stop watch after end to record a final full sample; a full sample must
+complete at/before start and another must be captured at/after end.
 
 Release verification requires every recognized running service in the manifest,
 including infrastructure. Window verification checks observation coverage and records
@@ -759,7 +761,7 @@ def remote_audit(role, start, end):
         return {"status": "unavailable", "reason": type(exc).__name__}
 
 
-def audit_sample_window(snapshots, start, end, manifest=None):
+def audit_sample_window(snapshots, start, end, manifest=None, max_gap_minutes=2, now=None):
     start, end = timestamp(start), timestamp(end)
     ordered = sorted(snapshots, key=lambda s: timestamp(s["captured_at"]))
     before = [s for s in ordered if s.get("sample_kind", "full") == "full" and timestamp(s["completed_at"]) <= start]
@@ -773,9 +775,16 @@ def audit_sample_window(snapshots, start, end, manifest=None):
     else:
         lower, upper = timestamp(before[-1]["captured_at"]), timestamp(after[0]["captured_at"])
         selected = [s for s in ordered if lower <= timestamp(s["captured_at"]) <= upper]
-    coverage = verify_window(selected, hours=(end-start).total_seconds()/3600, manifest=manifest)
+    coverage = verify_window(selected, hours=(end-start).total_seconds()/3600, manifest=manifest,
+                             max_gap_minutes=max_gap_minutes, now=now)
     errors.extend(coverage["errors"])
     result["coverage"] = {key: coverage[key] for key in ("passed", "snapshots", "elapsed_hours", "largest_gap_minutes", "release_identity")}
+    result["coverage"]["full_snapshot_brackets"] = {
+        "start_captured_at": before[-1]["captured_at"] if before else None,
+        "start_completed_at": before[-1]["completed_at"] if before else None,
+        "end_captured_at": after[0]["captured_at"] if after else None,
+        "end_completed_at": after[0]["completed_at"] if after else None,
+    }
     generations, measured = set(), 0
     for index, snapshot in enumerate(selected):
         missing = required_metric_errors(["funda.evidence", "app.queues"], snapshot)
@@ -920,7 +929,17 @@ def release_identity(snapshot):
     return hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def verify_window(snapshots, hours=24, max_gap_minutes=2, now=None, manifest=None):
+def verify_window(snapshots, hours=24, max_gap_minutes=2, now=None, manifest=None, start=None, end=None):
+    if start is not None or end is not None:
+        if start is None or end is None:
+            raise ValueError("start_and_end_must_be_paired")
+        start, end = audit_interval(start, end, now=now)
+        result = audit_sample_window(snapshots, start, end, manifest, max_gap_minutes=max_gap_minutes, now=now)
+        elapsed = (timestamp(end) - timestamp(start)).total_seconds()
+        result.update({"scope": "explicit_interval_observation_coverage_only", "interval_start": start, "interval_end": end,
+                       "measured_interval_seconds": elapsed, "measured_interval_hours": elapsed / 3600,
+                       "inventory_certified": False, "budget_certified": False})
+        return result
     if not math.isfinite(hours) or hours < 24 or not math.isfinite(max_gap_minutes) or max_gap_minutes <= 0:
         raise ValueError("require_at_least_24_hours_and_positive_gap")
     if manifest is not None and not isinstance(manifest, dict):
@@ -1033,10 +1052,14 @@ def main(argv=None):
     window = sub.add_parser("verify-window")
     window.add_argument("--directory", required=True)
     window.add_argument("--manifest", help="require manifest metrics in every sample and declared release in every full sample")
-    window.add_argument("--hours", "--hours24", type=float, default=24, nargs="?", const=24)
+    window_interval = window.add_mutually_exclusive_group()
+    window_interval.add_argument("--hours", "--hours24", type=float, default=24, nargs="?", const=24,
+                                 help="legacy whole-directory elapsed duration; use paired start/end for exact release intervals")
+    window_interval.add_argument("--start", help="inclusive UTC minute; requires end and full snapshots bracketing the interval")
+    window.add_argument("--end", help="exclusive UTC minute, at least 24 hours after start and no later than now")
     window.add_argument("--max-gap-minutes", type=float, default=2)
     audit = sub.add_parser("audit-freshness", help="audit retained completions and pending samples in an explicit interval",
-                           description="Run watch for 24.1 hours; choose start as the next UTC minute after the initial full sample completes, and end exactly 24 hours later. Full snapshots must bracket the interval. Inventory and budget acceptance require separate checks.")
+                           description="Run watch indefinitely. Use exactly the same UTC-minute start/end as verify-window, the source certificate, and ledger report. The interval must be at least 24 hours and may be extended until the useful paid span reaches 24 hours. Stop watch after end to record a final full snapshot. Full snapshots must bracket the interval; inventory and budget acceptance remain separate checks.")
     audit.add_argument("--start", required=True, help="inclusive UTC minute, e.g. 2026-09-14T00:00:00Z")
     audit.add_argument("--end", required=True, help="exclusive UTC minute, at least 24 hours after start and no later than now")
     audit.add_argument("--directory", required=True, help="minute snapshots including full snapshots bracketing the interval")
@@ -1068,9 +1091,12 @@ def main(argv=None):
         if args.command == "verify-release":
             result = verify_release(json.loads(Path(args.manifest).read_text()), json.loads(Path(args.snapshot).read_text()))
         elif args.command == "verify-window":
+            if (args.start is None) != (args.end is None):
+                raise ValueError("start_and_end_must_be_paired")
             paths = sorted(Path(args.directory).glob("snapshot-*.json"))
             manifest = json.loads(Path(args.manifest).read_text()) if args.manifest else None
-            result = verify_window([json.loads(p.read_text()) for p in paths], args.hours, args.max_gap_minutes, manifest=manifest)
+            result = verify_window([json.loads(p.read_text()) for p in paths], args.hours, args.max_gap_minutes,
+                                   manifest=manifest, start=args.start, end=args.end)
         else:
             parser.error("a subcommand is required")
         print(json.dumps(sanitize(result), indent=2, allow_nan=False))

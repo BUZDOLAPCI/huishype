@@ -267,13 +267,14 @@ retains its existing search-area rebuild before reporting healthy.
 Collect the elapsed cycle and verify immutable runtime identity:
 
 ```bash
-python3 tools/ops/funda-hybrid-evidence.py watch --output-dir /private/release-evidence --interval 60 --duration-hours 24.1
-python3 tools/ops/funda-hybrid-evidence.py verify-window --directory /private/release-evidence --hours 24 --max-gap-minutes 2 --manifest release.json
+python3 tools/ops/funda-hybrid-evidence.py watch --output-dir /private/release-evidence --interval 60
+python3 tools/ops/funda-hybrid-evidence.py verify-window --directory /private/release-evidence --start "$ACCEPTANCE_START_UTC" --end "$ACCEPTANCE_END_UTC" --max-gap-minutes 2 --manifest release.json
 python3 tools/ops/funda-hybrid-evidence.py verify-release --manifest release.json --snapshot snapshot.json
 ```
 
 `watch` writes an owner-readable sample immediately, then minute status/resource
-samples and full image/schema samples hourly and at the end. The manifest's
+samples and full image/schema samples hourly. Keep it running through the chosen
+end; an interrupt captures a final full sample before exiting. The manifest's
 `services` maps canonical roles such as `app.api` or `funda.planner` to full
 `sha256:` image IDs. Its `code_revisions` maps deployed app/source roles to their
 full source commit SHA, verified against an OCI revision label or the full-SHA
@@ -316,11 +317,17 @@ then publishes bounded listing tile updates. Confirm that cutover repair queues
 drain and ongoing updates remain within the freshness contract before beginning
 the final acceptance window.
 
-Start collection after cutover queues drain. Choose the acceptance start as the
-next UTC minute after the initial full sample completes, and its end exactly 24
-hours later. Collect for at least 24.1 hours so full samples bracket that measured
-interval. This aligns the retained tile-publication minute buckets with the
-acceptance interval while preserving the surrounding health evidence.
+Start collection after cutover queues drain and direct acquisition is disabled.
+Choose the acceptance start as the next UTC minute after the initial full sample
+completes. Choose a UTC-minute end at least 24 actual hours later, extending
+collection until useful paid requests inside the interval span at least 24 hours
+and all source, delivery and accounting gates pass. Do not issue requests merely
+to pad this proof. The source cycle certificate, ledger report, `verify-window`
+and `audit-freshness` must use exactly the same start and end. Record the actual
+duration; a longer measured interval must not be described as exactly 24 hours.
+Capture a full sample after the selected end before stopping the collector.
+The surrounding full samples verify runtime identity; the minute-aligned bounds
+define the common evidence interval and retained tile-publication buckets.
 
 A daily acceptance cycle requires at least 24 actual elapsed hours. Unit-test
 clocks and accelerated schedules cannot substitute for that observation period.
