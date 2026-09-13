@@ -48,6 +48,9 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
   });
 
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('huishype_welcome_modal_dismissed_v1', '1');
+    });
     // Reset console collections
     consoleErrors = [];
     consoleWarnings = [];

@@ -327,7 +327,8 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       const groupedCard = page.locator('[data-testid="property-activity-card"]').first();
       const groupedCardVisible = await groupedCard.isVisible({ timeout: 5000 }).catch(() => false);
       if (groupedCardVisible) {
-        await expect(groupedCard.locator('[data-testid="property-activity-stats"]')).toBeVisible();
+        await expect(groupedCard.getByTestId('property-activity-engagement-summary')).toBeVisible();
+        await expect(groupedCard.getByTestId('property-activity-like-count')).toHaveText(/^\d+$/);
       }
 
       await page.screenshot({
