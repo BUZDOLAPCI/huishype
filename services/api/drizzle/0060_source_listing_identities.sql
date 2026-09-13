@@ -88,9 +88,16 @@ CREATE INDEX source_identity_reconciliations_identity_idx ON source_identity_rec
 INSERT INTO ingest_writer_generations(source_name, generation, last_sequence) VALUES ('funda', 1, 0);
 --> statement-breakpoint
 -- Durable retirement prevents queued legacy batches from crossing the writer cutover.
-UPDATE ingest_batches SET status = 'superseded',
-  error_json = COALESCE(error_json, '{}'::jsonb) || '{"retirementReason":"funda_v2_writer_cutover","retiredGeneration":0}'::jsonb
-WHERE source_name = 'funda' AND status IN ('accepted', 'queued', 'retryable', 'processing');
+-- Fresh installs run all migrations in one transaction, including the historical
+-- enum extension. Delay resolving that new enum value unless legacy rows exist.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM ingest_batches WHERE source_name = 'funda'
+      AND status::text IN ('accepted', 'queued', 'retryable', 'processing')) THEN
+    UPDATE ingest_batches SET status = 'superseded',
+      error_json = COALESCE(error_json, '{}'::jsonb) || '{"retirementReason":"funda_v2_writer_cutover","retiredGeneration":0}'::jsonb
+    WHERE source_name = 'funda' AND status::text IN ('accepted', 'queued', 'retryable', 'processing');
+  END IF;
+END $$;
 UPDATE ingest_sources SET last_committed_cursor = NULL, last_committed_changed_at = NULL,
   last_committed_listing_key = NULL, last_batch_id = NULL WHERE source_name = 'funda';
 --> statement-breakpoint
