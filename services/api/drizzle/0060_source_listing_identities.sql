@@ -110,6 +110,14 @@ CREATE INDEX canonical_listings_source_url_lookup_idx ON canonical_listings(sour
 --> statement-breakpoint
 ALTER TABLE canonical_listings ADD COLUMN price_period varchar(10), ADD COLUMN price_unit varchar(10), ADD COLUMN price_condition varchar(20);
 --> statement-breakpoint
+-- The permanent Pararius residential v1 contract defines whole-listing sale
+-- prices and calendar-month rents. User-only hints and Funda legacy amounts do
+-- not establish these units and remain unknown until observed source evidence.
+UPDATE canonical_listings SET price_period = CASE price_type WHEN 'rent' THEN 'month' ELSE 'total' END,
+  price_unit = 'listing', price_condition = CASE WHEN asking_price IS NULL THEN 'on_request' ELSE 'asking' END
+WHERE source_name = 'pararius' AND origin_summary::text IN ('mirror', 'user_and_mirror')
+  AND price_type IN ('sale', 'rent');
+--> statement-breakpoint
 ALTER TABLE canonical_listings ADD CONSTRAINT canonical_listings_price_period_check CHECK (price_period IS NULL OR price_period IN ('month','week','day','year','total','unknown')),
 ADD CONSTRAINT canonical_listings_price_unit_check CHECK (price_unit IS NULL OR price_unit IN ('listing','m2','unknown')),
 ADD CONSTRAINT canonical_listings_price_condition_check CHECK (price_condition IS NULL OR price_condition IN ('asking','on_request','auction','unknown'));
