@@ -45,7 +45,14 @@
     "failed_jobs": 660,
     "search_capability": "healthy",
     "detail_capability": "healthy",
-    "latest_successful_ingest": "2026-09-13T19:37:29.415170Z"
+    "latest_successful_ingest": "2026-09-13T19:37:29.415170Z",
+    "source_commit": "daf9be2cf3fa01bf56c381b4fbeed576104a4576",
+    "source_commit_verification": {
+      "checked_files": 39,
+      "mismatched": [],
+      "recorded_at": "2026-09-13T20:18:35.566278+00:00",
+      "scope": "All Git-tracked scraper/*.py descendants compared with API container /app files; API image ID captured separately"
+    }
   },
   "pararius": {
     "migration_head": "20260612_000001",
@@ -58,7 +65,14 @@
     "upstream_status": 403,
     "consecutive_blocks": 23,
     "next_probe_at": "2026-09-14T06:25:19.838451Z",
-    "latest_successful_ingest": "2026-06-12T12:06:42.911770Z"
+    "latest_successful_ingest": "2026-06-12T12:06:42.911770Z",
+    "source_commit": "59c2f3915f40ee0dc04f97961623f513a3ae2b84",
+    "source_commit_verification": {
+      "checked_files": 33,
+      "mismatched": [],
+      "recorded_at": "2026-09-13T20:18:35.566290+00:00",
+      "scope": "All Git-tracked scraper/*.py descendants compared with API container /app files; API image ID captured separately"
+    }
   },
   "realtyapi": {
     "observed_at": "2026-09-13T19:49:00Z",
