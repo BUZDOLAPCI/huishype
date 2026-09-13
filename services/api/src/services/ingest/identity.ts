@@ -32,12 +32,16 @@ export function normalizeIdentityAliases(aliases: SourceAlias[]): SourceAlias[] 
   return [...normalized.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, value]) => value);
 }
 
+function isStableAlias(alias: SourceAlias): boolean {
+  return alias.kind === 'global_id' || alias.kind === 'stable_id';
+}
+
 function isStrongAlias(alias: SourceAlias): boolean {
   return !['canonical_path', 'relative_path', 'url_path', 'url', 'canonical_url', 'unknown', 'legacy_row_id'].includes(alias.kind);
 }
 
 export function conflictsWithStablePrimary(primary: SourceAlias, existingAliases: SourceAlias[]): boolean {
-  if (primary.kind !== 'global_id' && primary.kind !== 'stable_id') return false;
+  if (!isStableAlias(primary)) return false;
   const sameNamespace = existingAliases.filter(alias => alias.kind === primary.kind);
   return sameNamespace.length > 0 && !sameNamespace.some(alias => alias.value === primary.value);
 }
@@ -96,27 +100,49 @@ export async function resolveSourceListingIdentity(tx: DbTransaction, input: {
   const aliases = normalizeIdentityAliases([{ kind: input.primaryIdType, value: input.primaryId }, ...(input.aliases ?? [])]);
   await lockIngestSource(tx, input.sourceName);
   await lockAliases(tx, input.sourceName, aliases);
-  const matches = await tx.select({ identity: sourceListingIdentities, kind: sourceListingAliases.kind }).from(sourceListingAliases)
+  const matches = await tx.select({ identity: sourceListingIdentities, kind: sourceListingAliases.kind, value: sourceListingAliases.value }).from(sourceListingAliases)
     .innerJoin(sourceListingIdentities, eq(sourceListingIdentities.id, sourceListingAliases.identityId))
     .where(and(eq(sourceListingAliases.sourceName, input.sourceName), or(...aliases.map((alias) => and(
       eq(sourceListingAliases.kind, alias.kind), eq(sourceListingAliases.value, alias.value),
     )))));
   const strongIncoming = aliases.some(isStrongAlias);
-  const explicitStableConflict = ['global_id', 'stable_id'].some(kind => new Set(aliases.filter(alias => alias.kind === kind).map(alias => alias.value)).size > 1);
+  const stableAliases = aliases.filter(isStableAlias);
+  const duplicateStableValues = ['global_id', 'stable_id'].some(kind => new Set(aliases.filter(alias => alias.kind === kind).map(alias => alias.value)).size > 1);
   const candidateIds = [...new Set(matches.map(({ identity }) => identity.id))];
   const existingAliases = candidateIds.length ? await tx.select().from(sourceListingAliases)
     .where(inArray(sourceListingAliases.identityId, candidateIds)) : [];
-  const acceptedMatches = explicitStableConflict ? matches : matches.filter((match) => {
+  // Alias ownership remains historical after a public ID/URL is reused. Without
+  // stable evidence, that ownership cannot identify which listing was observed.
+  if (stableAliases.length === 0 && matches.length > 0) {
+    const [ambiguity] = await tx.select().from(sourceIdentityQuarantines).where(and(
+      eq(sourceIdentityQuarantines.sourceName, input.sourceName),
+      eq(sourceIdentityQuarantines.reason, 'ambiguous_reused_alias'),
+      or(...aliases.map(alias => sql`${sourceIdentityQuarantines.aliasesJson} @> ${JSON.stringify([alias])}::jsonb`)),
+    )).limit(1);
+    if (ambiguity) {
+      const owner = matches.find(match => match.kind === input.primaryIdType && match.value === input.primaryId) ?? matches[0]!;
+      // Quarantine this evidence only; both correctly identified listings stay usable.
+      return { identity: owner.identity, quarantined: true, quarantineId: ambiguity.id, affectedPropertyIds: [] };
+    }
+  }
+  const stableMatches = matches.filter(match => isStableAlias(match));
+  // Supplied global/stable IDs are authoritative. Conflicting established owners
+  // must be handled before a reused public alias can filter those owners out.
+  const explicitStableConflict = duplicateStableValues
+    || new Set(stableMatches.map(match => match.identity.id)).size > 1
+    || stableMatches.some(match => stableAliases.some(alias => conflictsWithStablePrimary(alias,
+      existingAliases.filter(existing => existing.identityId === match.identity.id))));
+  const acceptedMatches = explicitStableConflict ? (stableMatches.length > 0 ? stableMatches : matches) : matches.filter((match) => {
     const ownerAliases = existingAliases.filter(alias => alias.identityId === match.identity.id);
-    if (conflictsWithStablePrimary({ kind: input.primaryIdType, value: input.primaryId }, ownerAliases)) return false;
+    if (stableAliases.some(alias => conflictsWithStablePrimary(alias, ownerAliases))) return false;
     return !strongIncoming || isStrongAlias({ kind: match.kind, value: '' }) || !ownerAliases.some(isStrongAlias);
   });
   const identities = [...new Map(acceptedMatches.map(({ identity }) => [identity.id, identity])).values()];
   if (identities.length > 1) {
-    const primaryMatch = matches.find((match) => match.kind === input.primaryIdType
+    const primaryMatch = acceptedMatches.find((match) => match.kind === input.primaryIdType
       && existingAliases.some((alias) => alias.identityId === match.identity.id
         && alias.kind === input.primaryIdType && alias.value === input.primaryId));
-    let primaryIdentity = primaryMatch?.identity;
+    let primaryIdentity = primaryMatch?.identity ?? (explicitStableConflict ? identities[0] : undefined);
     if (!primaryIdentity) {
       [primaryIdentity] = await tx.insert(sourceListingIdentities).values({
         sourceName: input.sourceName, primaryId: input.primaryId.trim(), primaryIdType: input.primaryIdType.trim(),
@@ -129,14 +155,46 @@ export async function resolveSourceListingIdentity(tx: DbTransaction, input: {
   }
   let identity = identities[0];
   if (!identity) {
+    // A reused tiny primary may still be the legacy identity's primary key. Use
+    // the supplied stable identity when creating its independently verified relisting.
+    const creationPrimary = stableAliases.find(alias => alias.kind === input.primaryIdType && alias.value === input.primaryId)
+      ?? stableAliases[0] ?? { kind: input.primaryIdType.trim(), value: input.primaryId.trim() };
     [identity] = await tx.insert(sourceListingIdentities).values({
-      sourceName: input.sourceName, primaryId: input.primaryId.trim(), primaryIdType: input.primaryIdType.trim(),
+      sourceName: input.sourceName, primaryId: creationPrimary.value, primaryIdType: creationPrimary.kind,
     }).returning();
   }
   if (!identity) throw new Error('Identity insert returned no row');
-  if (explicitStableConflict) return quarantineIdentities(tx, [identity], 'conflicting_source_identities', aliases, [], { incoming: input });
+  if (explicitStableConflict) {
+    // Persist only the identity's own primary, so later observations can find its
+    // quarantine without assigning any of the contradictory aliases to it.
+    await tx.insert(sourceListingAliases).values({ sourceName: input.sourceName,
+      kind: identity.primaryIdType, value: identity.primaryId, identityId: identity.id }).onConflictDoNothing();
+    return quarantineIdentities(tx, [identity], 'conflicting_source_identities', aliases, [], { incoming: input });
+  }
   // A quarantined identity retains all evidence but cannot silently acquire new links.
   if (!identity.quarantinedAt) {
+    const reused = existingAliases.filter(existing => existing.identityId !== identity!.id && !isStableAlias(existing)
+      && aliases.some(alias => alias.kind === existing.kind && alias.value === existing.value));
+    if (reused.length > 0) {
+      const reusedAliases = normalizeIdentityAliases(reused);
+      const identityIds = [...new Set([identity.id, ...reused.map(alias => alias.identityId)])].sort();
+      const [previousAmbiguity] = await tx.select().from(sourceIdentityQuarantines).where(and(
+        eq(sourceIdentityQuarantines.sourceName, input.sourceName),
+        eq(sourceIdentityQuarantines.reason, 'ambiguous_reused_alias'),
+        sql`${sourceIdentityQuarantines.identityIds} @> ${JSON.stringify(identityIds)}::jsonb`,
+        sql`${sourceIdentityQuarantines.aliasesJson} @> ${JSON.stringify(reusedAliases)}::jsonb`,
+      )).limit(1);
+      if (!previousAmbiguity) {
+        await tx.insert(sourceIdentityQuarantines).values({ sourceName: input.sourceName,
+          reason: 'ambiguous_reused_alias', identityIds,
+          listingIds: [...new Set([identity, ...matches.map(match => match.identity)]
+            .flatMap(owner => owner.canonicalListingId ? [owner.canonicalListingId] : []))],
+          aliasesJson: reusedAliases,
+          detailsJson: { incoming: input, disposition: 'require_stable_identity_evidence', aliasOwners: reused },
+        });
+      }
+    }
+
     await tx.insert(sourceListingAliases).values(aliases.map((alias) => ({ ...alias, sourceName: input.sourceName, identityId: identity!.id })))
       .onConflictDoNothing();
   }

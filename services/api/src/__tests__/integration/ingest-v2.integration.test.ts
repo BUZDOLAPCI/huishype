@@ -108,6 +108,16 @@ describe('Funda v2 PostgreSQL evidence ingestion', () => {
     const second = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: `new-${id}`, primaryIdType: 'global_id', aliases: [{ kind: 'tiny_id', value: `shared-${id}` }, { kind: 'canonical_url', value: `https://www.funda.nl/${id}` }] });
     expect(first.identity.id).not.toBe(second.identity.id);
     expect(second.quarantined).toBe(false);
+    const auditCount = (await tx.select().from(sourceIdentityQuarantines).where(eq(sourceIdentityQuarantines.reason, 'ambiguous_reused_alias'))).length;
+    for (const alias of [{ kind: 'tiny_id', value: `shared-${id}` }, { kind: 'canonical_url', value: `https://www.funda.nl/${id}` }]) {
+      const ambiguous = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: alias.value, primaryIdType: alias.kind });
+      expect(ambiguous).toMatchObject({ quarantined: true, affectedPropertyIds: [] });
+    }
+    for (const original of [first, second]) {
+      const continued = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: original.identity.primaryId, primaryIdType: 'global_id', aliases: [{ kind: 'tiny_id', value: `shared-${id}` }] });
+      expect(continued).toMatchObject({ identity: { id: original.identity.id, quarantinedAt: null }, quarantined: false });
+    }
+    expect((await tx.select().from(sourceIdentityQuarantines).where(eq(sourceIdentityQuarantines.reason, 'ambiguous_reused_alias'))).length).toBe(auditCount);
     const conflicted = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: id, primaryIdType: 'global_id', aliases: [{ kind: 'global_id', value: `new-${id}` }] });
     expect(conflicted.quarantined).toBe(true);
     expect((await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.id, second.identity.id)))[0].quarantinedAt).not.toBeNull();
@@ -127,6 +137,34 @@ describe('Funda v2 PostgreSQL evidence ingestion', () => {
       VALUES (${randomUUID()},'NL',${street},1,'1234AB','Fixture',ST_SetSRID(ST_MakePoint(5.47,51.44),4326))`);
     await send({ kind: 'facts', observedAt: new Date().toISOString(), evidenceStrength: 'detail', facts: { address: { houseNumberAddition: null } } });
     expect(await canonical()).toMatchObject({ propertyId, status: 'active', activeEligible: false, verificationState: 'invalid' });
+  }));
+  it('quarantines an explicit suffix clear even when the new address is absent from the app database', async () => fixture(async ({ tx, propertyId, street, send, canonical }) => {
+    await tx.execute(sql`UPDATE properties SET house_number_addition = 'A' WHERE id = ${propertyId}`);
+    const initial = facts(street);
+    await send({ kind: 'facts', facts: { ...initial, address: { ...initial.address, houseNumberAddition: 'A' } } });
+    const before = (await canonical())!;
+    await send({ kind: 'facts', observedAt: new Date().toISOString(), facts: { address: { houseNumberAddition: null }, askingPrice: 999999 } });
+    expect(await canonical()).toMatchObject({ propertyId, askingPrice: before.askingPrice, lastPositiveAvailabilityAt: before.lastPositiveAvailabilityAt, status: before.status, verificationState: 'invalid', activeEligible: false });
+  }));
+  it.each(['available', 'sold'] as const)('applies retained %s source evidence when address-only facts first bind a provisional listing', async lifecycleStatus => fixture(async ({ tx, propertyId, street, send, canonical }) => {
+    const sourceFacts = facts(street);
+    const [provisional] = await tx.insert(canonicalListings).values({ propertyId, sourceName: 'funda', canonicalUrl: sourceFacts.sourceUrl.replace(/\/$/, ''),
+      displayUrl: sourceFacts.sourceUrl, originSummary: 'user', verificationState: 'provisional', status: 'active', activeEligible: false }).returning();
+    const [handoff] = await tx.insert(listingCandidateHandoffs).values({ propertyId, sourceName: 'funda', canonicalListingId: provisional.id,
+      sourceUrlRaw: sourceFacts.sourceUrl, sourceUrlCanonical: provisional.canonicalUrl!, state: 'queued' }).returning();
+    const observedAt = new Date(Date.now() - 7200000).toISOString();
+    const earlierPositiveAt = new Date(Date.now() - 10800000).toISOString();
+    if (lifecycleStatus === 'sold') {
+      await send({ kind: 'facts', observedAt: earlierPositiveAt, facts: { ...sourceFacts, address: { countryCode: 'NL' } } });
+    }
+    await send({ kind: 'facts', observedAt, facts: { ...sourceFacts, lifecycleStatus, address: { countryCode: 'NL' } } });
+    expect(await canonical()).toMatchObject({ id: provisional.id, activeEligible: false, verificationState: 'provisional' });
+    const resolved = await send({ kind: 'facts', observedAt: new Date().toISOString(), facts: { address: sourceFacts.address } });
+    expect(await canonical()).toMatchObject({ id: provisional.id, status: lifecycleStatus === 'available' ? 'active' : 'sold', activeEligible: lifecycleStatus === 'available',
+      lastPositiveAvailabilityAt: new Date(lifecycleStatus === 'available' ? observedAt : earlierPositiveAt),
+      availabilityEndedAt: lifecycleStatus === 'sold' ? new Date(observedAt) : null });
+    expect(await processV2Evidence(tx, resolved.batchId, resolved.payload)).toMatchObject({ ingestedCount: 0, updatedCount: 0, projectionChanged: false });
+    expect((await tx.select().from(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.id, handoff.id)))[0].state).toBe('delivered');
   }));
   it('attaches a pending provisional only after source address and URL proof, and completes unchanged and terminal correlations', async () => fixture(async ({ tx, propertyId, street, send, canonical }) => {
     const sourceFacts = facts(street);
@@ -226,6 +264,21 @@ describe('Funda v2 PostgreSQL evidence ingestion', () => {
     expect(second).toMatchObject({ primarySourceListingId: secondId, pricePeriod: 'month', priceUnit: 'listing', priceCondition: 'asking', activeEligible: true });
     expect((await tx.select().from(canonicalListings).where(eq(canonicalListings.id, first!.id)))[0]).toMatchObject({ primarySourceListingId: firstId, verificationState: 'validated' });
     expect((await submit(secondId))!.id).toBe(second!.id);
+  }));
+  it('retains primary identity resolution for repeated evidence after a new stable-identity conflict', async () => fixture(async ({ tx, id }) => {
+    const first = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: id, primaryIdType: 'global_id', aliases: [{ kind: 'global_id', value: `${id}-contradiction` }] });
+    expect(first.quarantined).toBe(true);
+    const repeated = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: id, primaryIdType: 'global_id' });
+    expect(repeated).toMatchObject({ identity: { id: first.identity.id }, quarantined: true });
+  }));
+  it('quarantines conflicting established global and stable alias owners without failing the evidence stream', async () => fixture(async ({ tx, id }) => {
+    const first = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: id, primaryIdType: 'global_id', aliases: [{ kind: 'stable_id', value: `${id}-stable-a` }] });
+    const second = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: `${id}-global-b`, primaryIdType: 'global_id', aliases: [{ kind: 'stable_id', value: `${id}-stable-b` }] });
+    const conflicted = await resolveSourceListingIdentity(tx, { sourceName: 'funda', primaryId: second.identity.primaryId, primaryIdType: 'global_id', aliases: [{ kind: 'stable_id', value: `${id}-stable-a` }] });
+    expect(conflicted.quarantined).toBe(true);
+    for (const identity of [first.identity, second.identity]) {
+      expect((await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.id, identity.id)))[0].quarantinedAt).not.toBeNull();
+    }
   }));
   it('serializes concurrent typed alias claims to one stable identity', async () => {
     const sourceName = `test-${randomUUID()}`;

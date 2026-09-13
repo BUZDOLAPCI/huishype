@@ -70,7 +70,8 @@ async function contradictsLinkedAddress(tx: DbTransaction, propertyId: string, f
       postalCode: property.postalCode ?? '', houseNumberAddition: address.houseNumberAddition,
     }).canonical;
     if (!parsed || parsed.houseNumber !== property.houseNumber) return true;
-    if (parsed.houseNumberAddition && normalized(parsed.houseNumberAddition) !== normalized(property.houseNumberAddition)) return true;
+    if ((Object.hasOwn(address, 'houseNumberAddition') || parsed.houseNumberAddition)
+      && normalized(parsed.houseNumberAddition) !== normalized(property.houseNumberAddition)) return true;
   }
   return false;
 }
@@ -196,8 +197,8 @@ async function findCandidateCanonicals(tx: DbTransaction, sourceName: string, pr
 }
 
 async function completeCandidateHandoffs(tx: DbTransaction, record: IngestEvidenceV2,
-  canonical: CanonicalListing, facts: Record<string, unknown>, observationId?: string): Promise<void> {
-  if (evidenceKind(record) === 'none') return;
+  canonical: CanonicalListing, facts: Record<string, unknown>, hasAvailabilityEvidence: boolean, observationId?: string): Promise<void> {
+  if (!hasAvailabilityEvidence) return;
   const identifiers = [];
   if (record.sourceCandidateId) identifiers.push(eq(listingCandidateHandoffs.id, record.sourceCandidateId));
   if (record.previewResultId) identifiers.push(eq(listingCandidateHandoffs.previewResultId, record.previewResultId));
@@ -308,8 +309,9 @@ export async function processV2Evidence(tx: DbTransaction, batchId: string, payl
     let availability = projectListingAvailability(canonical ?? {
       status: 'active', lastPositiveAvailabilityAt: lastPositive, availabilityEndedAt: lastEnded,
     }, { kind, observedAt: new Date(record.observedAt) });
-    if (!canonical) {
-      // Address resolution may arrive after the evidence that ended availability.
+    if (!identity.canonicalListingId) {
+      // First binding to a provisional listing must replay retained source clocks
+      // just like new insertion when the address arrives after availability.
       const terminal = merged.facts.lifecycleStatus;
       if (lastEnded && ['sold', 'rented', 'withdrawn', 'unavailable'].includes(String(terminal))) {
         availability = projectListingAvailability(availability, { kind: terminal as ListingAvailabilityEvidence['kind'], observedAt: lastEnded });
@@ -344,7 +346,7 @@ export async function processV2Evidence(tx: DbTransaction, batchId: string, payl
       result.projectionChanged = true;
     }
     if (propertyMatches.length === 1 && propertyMatches[0] === canonical.propertyId) {
-      await completeCandidateHandoffs(tx, record, canonical, merged.facts, observationId);
+      await completeCandidateHandoffs(tx, record, canonical, merged.facts, Boolean(lastPositive || lastEnded), observationId);
     }
     if (inserted) result.ingestedCount += 1; else result.updatedCount += 1;
   }
