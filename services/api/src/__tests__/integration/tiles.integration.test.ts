@@ -1238,7 +1238,7 @@ describe('Tile routes', () => {
         expect(response.rawPayload).toEqual(payload);
         expect(response.headers['content-type']).toBe('application/x-protobuf');
         expect(response.headers['cache-control']).toBe(
-          'public, max-age=300, stale-while-revalidate=300'
+          'public, max-age=0, must-revalidate'
         );
         expect(response.headers['x-tile-cache']).toBe('precomputed');
         expect(response.headers['x-huishype-pyramid-version']).toBe(
@@ -1596,7 +1596,7 @@ describe('Tile routes', () => {
         );
         expect(response.headers['x-tile-cache']).toBe('precomputed');
         expect(response.headers['cache-control']).toBe(
-          'public, max-age=300, stale-while-revalidate=300'
+          'public, max-age=0, must-revalidate'
         );
         expect(lookupCurrentVersion).toHaveBeenCalledTimes(1);
         expect(lookupTile).toHaveBeenCalledTimes(1);
@@ -1763,7 +1763,7 @@ describe('Tile routes', () => {
       }
     });
 
-    it('returns a controlled no-store failure for public dynamic tiles without a ready candidate snapshot', async () => {
+    it('serves live public dynamic tiles without a candidate snapshot', async () => {
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
       const previousSnapshotId = await removeDefaultCandidateSnapshotCurrentForTest();
 
@@ -1773,29 +1773,24 @@ describe('Tile routes', () => {
           url: '/tiles/properties/11/0/0.pbf?marketState=for-rent',
         });
 
-        expect(response.statusCode).toBe(503);
-        expect(response.headers['cache-control']).toBe('no-store');
-        expect(response.headers['x-huishype-tile-status']).toBe(
-          'candidate-snapshot-unavailable'
-        );
-        expect(response.headers['x-tile-cache']).toBe('candidate-snapshot-unavailable');
-        expect(JSON.parse(response.body)).toEqual(
-          expect.objectContaining({
-            error: 'CANDIDATE_SNAPSHOT_UNAVAILABLE',
-            reason: 'missing-ready-current',
-          })
-        );
-        expect(runtimeRunSpy).not.toHaveBeenCalled();
+        expect([200, 204]).toContain(response.statusCode);
+        expect(response.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
+        expect(response.headers['x-huishype-candidate-snapshot']).toBeUndefined();
+        expect(response.headers['x-huishype-listing-revision']).toMatch(/^\d+$/);
+        expect(runtimeRunSpy).toHaveBeenCalledTimes(1);
       } finally {
         await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);
         runtimeRunSpy.mockRestore();
       }
     });
 
-    it('keeps snapshot-backed dynamic generation for non-default filters and zooms above the precompute max', async () => {
+    it('uses live revision keys for filtered and high-zoom tiles regardless of base snapshot', async () => {
       const runtimeRunSpy = jest.spyOn(propertyTileRuntime, 'run');
       const previousSnapshotId = await readDefaultCandidateSnapshotCurrentForTest();
-      const snapshotId = await createReadyPropertyTileCandidateSnapshotFixture();
+      await createReadyPropertyTileCandidateSnapshotFixture();
+      setPropertyTilePyramidServiceForTests({
+        lookupListingState: async () => ({ requestedRevision: '42', publishedRevision: '41', publishedVersionId: null, pendingFingerprint: 'none' }),
+      });
 
       try {
         const filteredResponse = await app.inject({
@@ -1809,12 +1804,12 @@ describe('Tile routes', () => {
 
         expect([200, 204]).toContain(filteredResponse.statusCode);
         expect([200, 204]).toContain(abovePrecomputeResponse.statusCode);
-        expect(filteredResponse.headers['x-huishype-candidate-snapshot']).toBe(snapshotId);
-        expect(abovePrecomputeResponse.headers['x-huishype-candidate-snapshot']).toBe(snapshotId);
+        expect(filteredResponse.headers['x-huishype-listing-revision']).toBe('42');
+        expect(abovePrecomputeResponse.headers['x-huishype-listing-revision']).toBe('42');
         expect(runtimeRunSpy).toHaveBeenCalledTimes(2);
         expect(runtimeRunSpy.mock.calls.map(([options]) => options.key)).toEqual([
-          `public:10/0/0:marketState=for-rent:candidate:${snapshotId}`,
-          `public:11/0/0:default:candidate:${snapshotId}`,
+          'public:10/0/0:marketState=for-rent:listing:42:41:base:none',
+          'public:11/0/0:default:listing:42:41:base:none',
         ]);
       } finally {
         await restoreDefaultCandidateSnapshotCurrentForTest(previousSnapshotId);

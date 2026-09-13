@@ -1,5 +1,6 @@
 import {
   pgTable,
+  pgSequence,
   uuid,
   varchar,
   text,
@@ -2240,6 +2241,7 @@ export const propertyTilePyramidTiles = pgTable(
     validationStatus: propertyTilePyramidTileValidationStatusEnum('validation_status')
       .notNull()
       .default('pending'),
+    listingRevision: bigint('listing_revision', { mode: 'bigint' }).notNull().default(0n),
     nodeCount: integer('node_count').notNull().default(0),
     etag: text('etag'),
     payload: bytea('payload'),
@@ -3185,3 +3187,40 @@ export const userAchievementsRelations = relations(userAchievements, ({ one }) =
     references: [users.id],
   }),
 }));
+
+// Durable listing invalidations and published tile overlays survive worker crashes
+// and remain independent of the daily base pyramid's current-version pointer.
+export const listingTileUpdateRevisionSequence = pgSequence('listing_tile_update_revision_seq');
+
+export const listingTilePropertyUpdates = pgTable('listing_tile_property_updates', {
+  propertyId: uuid('property_id').primaryKey(),
+  geometry: geometry('geometry').notNull(),
+  revision: bigint('revision', { mode: 'bigint' }).notNull(),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  index('listing_tile_property_updates_geometry_idx').using('gist', table.geometry),
+  index('listing_tile_property_updates_revision_idx').on(table.revision),
+]);
+
+export const listingTileUpdates = pgTable('listing_tile_updates', {
+  z: integer('z').notNull(),
+  x: integer('x').notNull(),
+  y: integer('y').notNull(),
+  requestedRevision: bigint('requested_revision', { mode: 'bigint' }).notNull(),
+  publishedRevision: bigint('published_revision', { mode: 'bigint' }).notNull().default(0n),
+  publishedVersionId: uuid('published_version_id').references(() => propertyTilePyramidVersions.id, { onDelete: 'restrict' }),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  claimedRevision: bigint('claimed_revision', { mode: 'bigint' }),
+  leaseToken: uuid('lease_token'),
+  leaseUntil: timestamp('lease_until', { withTimezone: true }),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  lastError: text('last_error'),
+}, (table) => [
+  primaryKey({ columns: [table.z, table.x, table.y] }),
+  index('listing_tile_updates_due_idx').on(table.nextAttemptAt, table.requestedAt),
+  index('listing_tile_updates_version_idx').on(table.publishedVersionId),
+  check('listing_tile_updates_coordinates_check', sql`${table.z} BETWEEN 0 AND 22 AND ${table.x} >= 0 AND ${table.y} >= 0 AND ${table.x} < power(2,${table.z}) AND ${table.y} < power(2,${table.z})`),
+  check('listing_tile_updates_revisions_check', sql`${table.requestedRevision} >= ${table.publishedRevision} AND ${table.publishedRevision} >= 0`),
+]);
