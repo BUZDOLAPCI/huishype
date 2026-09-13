@@ -88,6 +88,14 @@ never lower an unmeasured turnover estimate just to fit the allowance. The
 pre-release measurement and limitations are in
 [`demand-baseline.json`](../releases/2026-09-13-funda-hybrid/demand-baseline.json).
 
+The read-only [duplicate address audit](../releases/2026-09-13-funda-hybrid/duplicate-address-audit.json)
+classifies global-ID collisions by complete normalized property address and
+transaction, not legacy address row IDs. It found 3,277 otherwise safe duplicate
+groups split only by the legacy `buy`/`sale` spelling difference; both spellings
+must normalize to sale. Distinct complete addresses and incomplete evidence
+remain separate quarantine cases. The accompanying SQL preserves the exact
+normalization used for that historical measurement.
+
 ## Coordinated release order
 
 1. Complete implementation tests, real PostgreSQL concurrency checks, Compose

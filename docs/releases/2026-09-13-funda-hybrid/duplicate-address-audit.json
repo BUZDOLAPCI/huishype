@@ -1,0 +1,25 @@
+{
+  "different_address_id_groups": 6854,
+  "different_or_unknown_transaction_groups": 2,
+  "distinct_complete_address_groups": 1007,
+  "duplicate_global_id_groups": 10418,
+  "duplicate_rows": 20836,
+  "incomplete_address_groups": 5921,
+  "normalization": {
+    "addition": "uppercase, remove whitespace, remove one leading hyphen; letters plus optional hyphen plus digits normalized to letters-digits; empty optional",
+    "houseNumber": "trim only; no numeric coercion or guessed suffix splitting",
+    "postalCode": "uppercase, remove whitespace; valid NL postcode required",
+    "required_address": "postalCode, houseNumber, nonempty street and city; addition optional",
+    "transaction": "buy and sale both sale; rent remains rent"
+  },
+  "observed_at": "2026-09-13T21:00:27.296466+00:00",
+  "safe_buy_sale_alias_groups": 3277,
+  "safe_different_address_id_groups": 0,
+  "safe_different_address_id_rows": 0,
+  "safe_groups_rejected_by_old_502": 3277,
+  "safe_old_rejected_current_eligible_groups": 2229,
+  "safe_old_rejected_current_eligible_rows": 2229,
+  "safe_same_property_groups": 3488,
+  "safe_same_property_rows": 6976,
+  "scope": "Read-only legacy Funda duplicate global-ID groups; exact complete normalized NL address and normalized sale/rent transaction."
+}
