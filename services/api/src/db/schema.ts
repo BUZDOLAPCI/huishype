@@ -714,14 +714,16 @@ export const priceHistory = pgTable(
     propertyId: uuid('property_id').notNull().references(() => properties.id, { onDelete: 'cascade' }),
     listingId: uuid('listing_id').references(() => listings.id, { onDelete: 'set null' }),
     price: bigint('price', { mode: 'number' }).notNull(), // whole euros
+    priceKind: varchar('price_kind', { length: 10 }).$type<'asking' | 'achieved' | 'unknown'>().notNull().default('unknown'),
     priceDate: date('price_date', { mode: 'string' }).notNull(),
     eventType: varchar('event_type', { length: 20 }).notNull(), // asking_price / sold / rented / price_change
     source: varchar('source', { length: 20 }).notNull(), // funda / pararius / observed
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check('price_history_price_kind_check', sql`${table.priceKind} IN ('asking', 'achieved', 'unknown')`),
     index('price_history_property_date_idx').on(table.propertyId, table.priceDate),
-    uniqueIndex('price_history_dedup_idx').on(table.propertyId, table.priceDate, table.price, table.eventType),
+    uniqueIndex('price_history_dedup_idx').on(table.propertyId, table.priceDate, table.price, table.eventType, table.priceKind),
     index('price_history_listing_idx').on(table.listingId),
     index('price_history_sold_latest_idx')
       .on(table.propertyId, sql`price_date DESC`, sql`created_at DESC`, sql`id DESC`)
@@ -731,6 +733,12 @@ export const priceHistory = pgTable(
       .where(sql`event_type = 'rented'`),
   ]
 );
+
+export const priceEvidenceRepairQueue = pgTable('price_evidence_repair_queue', {
+  propertyId: uuid('property_id').primaryKey().references(() => properties.id, { onDelete: 'cascade' }),
+  enqueuedAt: timestamp('enqueued_at', { withTimezone: true }).notNull().defaultNow(),
+  derivedRecomputedAt: timestamp('derived_recomputed_at', { withTimezone: true }),
+});
 
 export const propertyOfficialValuations = pgTable(
   'property_official_valuations',
@@ -1525,6 +1533,7 @@ export const listingPriceObservations = pgTable(
     sourceListingId: varchar('source_listing_id', { length: 255 }),
     origin: listingObservationOriginEnum('origin').notNull(),
     price: bigint('price', { mode: 'number' }).notNull(),
+    priceKind: varchar('price_kind', { length: 10 }).$type<'asking' | 'achieved' | 'unknown'>().notNull().default('unknown'),
     currency: varchar('currency', { length: 3 }).notNull(),
     eventType: listingPriceObservationEventTypeEnum('event_type').notNull(),
     priceDate: date('price_date', { mode: 'string' }).notNull(),
@@ -1532,8 +1541,9 @@ export const listingPriceObservations = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check('listing_price_observations_price_kind_check', sql`${table.priceKind} IN ('asking', 'achieved', 'unknown')`),
     uniqueIndex('listing_price_observations_source_dedup_idx')
-      .on(table.canonicalListingId, table.sourceName, table.sourceListingId, table.priceDate, table.price, table.eventType)
+      .on(table.canonicalListingId, table.sourceName, table.sourceListingId, table.priceDate, table.price, table.eventType, table.priceKind)
       .where(sql`source_listing_id IS NOT NULL`),
     index('listing_price_observations_property_idx').on(table.propertyId),
     index('listing_price_observations_observation_idx').on(table.listingObservationId),

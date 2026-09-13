@@ -1,4 +1,4 @@
-import { db } from '../db/index.js';
+import { db, type DbTransaction } from '../db/index.js';
 import { users } from '../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { KARMA_TIERS, getKarmaTier } from '@huishype/shared';
@@ -109,13 +109,14 @@ export function calculateKarma(
 
 /**
  * Recalculate karma for a user based on all their resolved guesses.
- * A guess is "resolved" when the property has a 'sold' price_history entry.
+ * Only explicitly achieved sale prices resolve a guess; asking and unknown amounts do not.
  */
 export async function calculateKarmaForUser(
-  userId: string
+  userId: string,
+  executor: typeof db | DbTransaction = db,
 ): Promise<{ karma: number; internalKarma: number }> {
   // Resolve each guess against the latest sold price for that property exactly once.
-  const resolvedRows = await db.execute<{
+  const resolvedRows = await executor.execute<{
     guessed_price: number;
     actual_price: number;
     created_at: Date;
@@ -130,12 +131,14 @@ export async function calculateKarmaForUser(
       FROM price_history ph
       WHERE ph.property_id = pg.property_id
         AND ph.event_type = 'sold'
-      ORDER BY ph.price_date DESC, ph.created_at DESC
+        AND ph.price_kind = 'achieved'
+        AND ph.price > 0
+      ORDER BY ph.price_date DESC, ph.created_at DESC, ph.id DESC
       LIMIT 1
     ) sold ON true
     WHERE pg.user_id = ${userId}
       AND pg.is_meme_guess = false
-    ORDER BY pg.created_at
+    ORDER BY pg.created_at, pg.id
   `);
 
   const resolvedGuesses: ResolvedGuess[] = Array.from(resolvedRows).map((row, index) => ({

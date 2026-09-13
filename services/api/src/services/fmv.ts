@@ -264,7 +264,7 @@ export async function calculateFmvForProperty(propertyId: string): Promise<FmvRe
     SELECT asking_price
     FROM v_canonical_listing_facts
     WHERE property_id = ${propertyId}
-      AND status = 'active'
+      AND is_active_sale = true
       AND asking_price IS NOT NULL
     ORDER BY sort_at DESC, listing_created_at DESC, listing_id DESC
     LIMIT 1

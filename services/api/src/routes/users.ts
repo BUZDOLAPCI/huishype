@@ -171,7 +171,9 @@ async function getPublicProfilePayload(userId: string, viewerId: string | null) 
         FROM price_history sold
         WHERE sold.property_id = pg.property_id
           AND sold.event_type = 'sold'
-        ORDER BY sold.price_date DESC, sold.created_at DESC
+          AND sold.price_kind = 'achieved'
+          AND sold.price > 0
+        ORDER BY sold.price_date DESC, sold.created_at DESC, sold.id DESC
         LIMIT 1
       ) ph ON true
       WHERE pg.user_id = ${userId}
@@ -533,7 +535,9 @@ export async function userRoutes(fastify: FastifyInstance) {
               FROM price_history sold
               WHERE sold.property_id = pg.property_id
                 AND sold.event_type = 'sold'
-              ORDER BY sold.price_date DESC, sold.created_at DESC
+                AND sold.price_kind = 'achieved'
+                AND sold.price > 0
+              ORDER BY sold.price_date DESC, sold.created_at DESC, sold.id DESC
               LIMIT 1
             ) ph ON true
             WHERE pg.user_id = ${userId}
@@ -1018,7 +1022,9 @@ export async function userRoutes(fastify: FastifyInstance) {
             FROM price_history ph
             WHERE ph.property_id = pg.property_id
               AND ph.event_type = 'sold'
-            ORDER BY ph.price_date DESC
+              AND ph.price_kind = 'achieved'
+              AND ph.price > 0
+            ORDER BY ph.price_date DESC, ph.created_at DESC, ph.id DESC
             LIMIT 1
           ) AS sold_price
         FROM price_guesses pg

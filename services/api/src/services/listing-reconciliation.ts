@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
-import { and, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import { IngestIdempotencyConflictError } from './ingest/errors.js';
+import { classifySourcePriceKind, priceHistoryEventForEvidence, type PriceKind } from './price-evidence.js';
 import {
   canonicalListings,
   db,
@@ -76,6 +77,7 @@ type SourcePriceHistoryEntry = {
   price: number;
   priceDate: string;
   eventType: string;
+  priceKind?: PriceKind;
 };
 
 type ListingPriceObservationEventType =
@@ -239,18 +241,9 @@ function priceDateFromObservation(observation: ListingObservation): string {
 
 function priceEventTypeForObservation(
   observation: ListingObservation,
-): 'initial' | 'mirror_refresh' | 'user_submission' | 'status_change' {
+): 'initial' | 'mirror_refresh' | 'user_submission' {
   if (observation.origin === 'user') return 'user_submission';
-  if (observation.sourceStatus === 'sold' || observation.sourceStatus === 'rented') return 'status_change';
   return observation.origin === 'mirror' ? 'mirror_refresh' : 'initial';
-}
-
-function legacyPriceHistoryEventType(
-  observation: ListingObservation,
-  eventType: 'initial' | 'mirror_refresh' | 'user_submission' | 'status_change',
-): string {
-  if (eventType === 'status_change') return observation.sourceStatus === 'rented' ? 'rented' : 'sold';
-  return 'asking_price';
 }
 
 function legacyPriceHistoryEventTypeForPriceObservation(
@@ -274,7 +267,7 @@ function sourcePriceHistoryFromPayload(payload: Record<string, unknown>): Source
     const priceDate = typeof record.priceDate === 'string' ? record.priceDate : null;
     const eventType = typeof record.eventType === 'string' ? record.eventType : null;
     if (price === null || !priceDate || !eventType) return [];
-    return [{ price, priceDate, eventType }];
+    return [{ price, priceDate, eventType, priceKind: classifySourcePriceKind(eventType, record.priceKind) }];
   });
 }
 
@@ -1173,6 +1166,7 @@ async function cleanupCanonicalPriceArtifacts(
       price: listingPriceObservations.price,
       priceDate: listingPriceObservations.priceDate,
       eventType: listingPriceObservations.eventType,
+      priceKind: listingPriceObservations.priceKind,
       sourceName: listingPriceObservations.sourceName,
       sourceStatus: listingObservations.sourceStatus,
     })
@@ -1187,10 +1181,11 @@ async function cleanupCanonicalPriceArtifacts(
         eq(priceHistory.propertyId, projected.propertyId),
         eq(priceHistory.price, projected.price),
         eq(priceHistory.priceDate, projected.priceDate),
-        eq(priceHistory.eventType, legacyPriceHistoryEventTypeForPriceObservation(
-          projected.eventType,
-          projected.sourceStatus,
+        eq(priceHistory.eventType, priceHistoryEventForEvidence(
+          legacyPriceHistoryEventTypeForPriceObservation(projected.eventType, projected.sourceStatus),
+          projected.priceKind,
         )),
+        eq(priceHistory.priceKind, projected.priceKind),
         eq(priceHistory.source, projected.sourceName),
       ));
   }
@@ -1255,26 +1250,43 @@ export async function projectPriceObservation(
     priceDate: string;
     eventType: ListingPriceObservationEventType;
     legacyEventType: string;
+    priceKind: PriceKind;
   }> = [];
 
-  if (observation.askingPrice) {
-    const eventType = priceEventTypeForObservation(observation);
-    rows.push({
-      price: observation.askingPrice,
-      priceDate: priceDateFromObservation(observation),
-      eventType,
-      legacyEventType: legacyPriceHistoryEventType(observation, eventType),
-    });
+  if (observation.askingPrice && observation.askingPrice > 0) {
+    // A repeated sighting keeps its observation but adds no artificial price history.
+    const [previous] = await database
+      .select({ price: listingPriceObservations.price, currency: listingPriceObservations.currency })
+      .from(listingPriceObservations)
+      .where(and(
+        eq(listingPriceObservations.canonicalListingId, canonical.id),
+        eq(listingPriceObservations.priceKind, 'asking'),
+        lte(listingPriceObservations.observedAt, observation.observedAt),
+      ))
+      .orderBy(desc(listingPriceObservations.observedAt), desc(listingPriceObservations.createdAt), desc(listingPriceObservations.id))
+      .limit(1);
+    if (!previous || Number(previous.price) !== observation.askingPrice || previous.currency !== currency) {
+      const eventType = priceEventTypeForObservation(observation);
+      rows.push({
+        price: observation.askingPrice,
+        priceDate: priceDateFromObservation(observation),
+        eventType,
+        legacyEventType: 'asking_price',
+        priceKind: 'asking',
+      });
+    }
   }
 
   for (const entry of sourcePriceHistoryFromPayload(observation.payload)) {
     const eventType = normalizeSourcePriceEventType(entry.eventType);
-    if (!eventType || !timestampFromPriceDate(entry.priceDate)) continue;
+    if (!eventType || !timestampFromPriceDate(entry.priceDate) || !Number.isFinite(entry.price) || entry.price <= 0) continue;
+    const priceKind = classifySourcePriceKind(eventType, entry.priceKind);
     rows.push({
       price: entry.price,
       priceDate: entry.priceDate,
       eventType,
-      legacyEventType: legacyPriceHistoryEventTypeForSourceEvent(eventType),
+      legacyEventType: priceHistoryEventForEvidence(legacyPriceHistoryEventTypeForSourceEvent(eventType), priceKind),
+      priceKind,
     });
   }
 
@@ -1289,6 +1301,7 @@ export async function projectPriceObservation(
         sourceListingId: observation.sourceListingId,
         origin: observation.origin,
         price: row.price,
+        priceKind: row.priceKind,
         currency,
         eventType: row.eventType,
         priceDate: row.priceDate,
@@ -1302,6 +1315,7 @@ export async function projectPriceObservation(
         propertyId: observation.propertyId,
         listingId: null,
         price: row.price,
+        priceKind: row.priceKind,
         priceDate: row.priceDate,
         eventType: row.legacyEventType,
         source: observation.sourceName,
