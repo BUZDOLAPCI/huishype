@@ -1,0 +1,36 @@
+{
+  "generatedAt": "2026-09-13T20:22:03.514Z",
+  "rows": 100000,
+  "backgroundRows": 1000000,
+  "mode": "prepare",
+  "environment": {
+    "host": "caslan-ML-FANLESS",
+    "cpuCount": 32,
+    "hostMemoryBytes": 134953246720,
+    "node": "v25.6.1"
+  },
+  "limitations": [
+    "Synthetic 100k listing source, not literal production 41m addresses.",
+    "No external requests or production data.",
+    "Projected drain time assumes one serial worker and representative measured per-zoom cost."
+  ],
+  "preexistingSyntheticProperties": 100000,
+  "prepareMs": 102507.211321,
+  "tableSizes": [
+    {
+      "relname": "canonical_listings",
+      "total_bytes": "92692480",
+      "n_live_tup": "100000"
+    },
+    {
+      "relname": "listing_tile_property_updates",
+      "total_bytes": "20144128",
+      "n_live_tup": "100000"
+    },
+    {
+      "relname": "properties",
+      "total_bytes": "629776384",
+      "n_live_tup": "1100000"
+    }
+  ]
+}
