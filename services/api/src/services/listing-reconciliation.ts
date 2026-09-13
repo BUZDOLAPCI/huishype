@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { projectListingAvailability, type ListingAvailabilityEvidence } from './listing-lifecycle.js';
 import { and, desc, eq, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import { IngestIdempotencyConflictError } from './ingest/errors.js';
 import { classifySourcePriceKind, priceHistoryEventForEvidence, type PriceKind } from './price-evidence.js';
@@ -12,6 +13,7 @@ import {
   listingPriceObservations,
   listingSourceAliases,
   priceHistory,
+  sourceIdentityQuarantines,
   type CanonicalListing,
   type DbTransaction,
   type ListingObservation,
@@ -46,11 +48,15 @@ export type CanonicalListingReadModel = Omit<Pick<
   | 'askingPrice'
   | 'priceCurrency'
   | 'priceType'
+  | 'pricePeriod'
+  | 'priceUnit'
+  | 'priceCondition'
   | 'livingAreaM2'
   | 'thumbnailUrl'
   | 'title'
   | 'description'
   | 'status'
+  | 'activeEligible'
   | 'verificationState'
   | 'listedAt'
   | 'soldAt'
@@ -897,6 +903,18 @@ async function mergeCanonicalListingMatches(
 ): Promise<CanonicalListing | null> {
   const survivor = matches[0];
   if (!survivor) return null;
+  const distinctProperties = new Set(matches.map(match => match.propertyId));
+  const knownIdentities = new Set(matches.map(match => match.primarySourceListingId).filter(Boolean));
+  if (distinctProperties.size > 1 || knownIdentities.size > 1) {
+    await executor.insert(sourceIdentityQuarantines).values({
+      sourceName: survivor.sourceName, reason: distinctProperties.size > 1 ? 'legacy_property_link_conflict' : 'legacy_identity_conflict',
+      identityIds: [], listingIds: matches.map(match => match.id), aliasesJson: [],
+      detailsJson: { canonicalRows: matches },
+    });
+    await executor.update(canonicalListings).set({ verificationState: 'invalid', activeEligible: false })
+      .where(inArray(canonicalListings.id, matches.map(match => match.id)));
+    return null;
+  }
   const loserIds = matches.slice(1).map((match) => match.id);
   if (loserIds.length === 0) return survivor;
 
@@ -980,9 +998,7 @@ function canProjectObservation(observation: ListingObservation): observation is 
   if (observation.staleForProjection) return false;
   if (observation.diagnosticStatus) return false;
   if (!observation.sourceStatus) return false;
-  if (observation.sourceStatus === 'not_found') {
-    return Boolean(observation.sourceListingId || observation.sourceUrlCanonical || observation.scopeCompletionId);
-  }
+  if (observation.sourceStatus === 'not_found') return false;
   return true;
 }
 
@@ -993,6 +1009,20 @@ function shouldRetireProvisionalForDiagnostic(observation: ListingObservation): 
 
 function diagnosticHandoffState(status: ListingDiagnosticStatus): 'retryable_error' | 'dead_letter' {
   return status === 'invalid' || status === 'unsupported' ? 'dead_letter' : 'retryable_error';
+}
+
+function legacyPriceUnits(observation: ListingObservation): Partial<typeof canonicalListings.$inferInsert> {
+  // Pararius v1's residential exporter expresses rent per calendar month and sale as the whole listing amount.
+  if (observation.sourceName !== 'pararius') return {};
+  const type = observation.payload.priceType;
+  if (type !== 'sale' && type !== 'rent') return {};
+  return { pricePeriod: type === 'rent' ? 'month' : 'total', priceUnit: 'listing', priceCondition: observation.askingPrice === null ? 'on_request' : 'asking' };
+}
+
+function availabilityEvidenceForObservation(observation: ListingObservation): ListingAvailabilityEvidence {
+  const kind = observation.diagnosticStatus || observation.staleForProjection || observation.sourceStatus === 'not_found'
+    ? 'none' : observation.sourceStatus === 'available' ? 'positive' : observation.sourceStatus ?? 'none';
+  return { kind, observedAt: observation.lastSeenAt ?? observation.sourceUpdatedAt ?? observation.observedAt };
 }
 
 async function createCanonicalListing(
@@ -1011,7 +1041,7 @@ async function createCanonicalListing(
       primarySourceListingId,
       canonicalUrl: observation.sourceUrlCanonical,
       displayUrl: observation.sourceUrlCanonical ?? observation.sourceUrlRaw,
-      status: observationStatusToCanonicalStatus(observation.sourceStatus),
+      ...projectListingAvailability({ status: observationStatusToCanonicalStatus(observation.sourceStatus), lastPositiveAvailabilityAt: null, availabilityEndedAt: null }, availabilityEvidenceForObservation(observation)),
       statusSource: observationStatusSource(observation.origin),
       verificationState: observationVerificationState(observation),
       originSummary: mergeOriginSummary(null, observation.origin),
@@ -1021,6 +1051,7 @@ async function createCanonicalListing(
       description: observationDisplayString(observation, 'description'),
       askingPrice: observation.askingPrice,
       priceCurrency: observation.priceCurrency,
+      ...legacyPriceUnits(observation),
       priceType: typeof observation.payload.priceType === 'string' ? observation.payload.priceType : null,
       livingAreaM2: typeof observation.payload.livingAreaM2 === 'number' ? observation.payload.livingAreaM2 : null,
       listedAt: lifecycleDates.listedAt,
@@ -1045,7 +1076,7 @@ function incomingObservationIsNewer(canonical: CanonicalListing, observation: Li
     : canonical.lastMirrorSeenAt ?? new Date(0);
   const incoming = observation.origin === 'user'
     ? observation.sourceUpdatedAt ?? observation.lastSeenAt ?? observation.observedAt
-    : observation.sourceHighWatermark ?? observation.sourceUpdatedAt ?? observation.lastSeenAt ?? observation.observedAt;
+    : observation.sourceUpdatedAt ?? observation.lastSeenAt ?? observation.observedAt;
   return incoming >= current || observation.origin === 'user';
 }
 
@@ -1053,7 +1084,7 @@ function listingSeenAtForCanonicalProjection(observation: ListingObservation): D
   if (observation.origin === 'user') {
     return observation.lastSeenAt ?? observation.observedAt;
   }
-  return observation.sourceHighWatermark ?? observation.lastSeenAt ?? observation.observedAt;
+  return observation.lastSeenAt ?? observation.sourceUpdatedAt ?? observation.observedAt;
 }
 
 async function markObservationStaleForProjection(
@@ -1114,9 +1145,7 @@ async function updateCanonicalListingFromObservation(
       displayUrl: shouldApplySourceFacts
         ? observation.sourceUrlCanonical ?? canonical.displayUrl ?? observation.sourceUrlRaw
         : canonical.displayUrl,
-      status: shouldApplySourceFacts
-        ? observationStatusToCanonicalStatus(observation.sourceStatus)
-        : canonical.status,
+      ...projectListingAvailability(canonical, availabilityEvidenceForObservation(observation)),
       statusSource: preserveMirrorFacts ? canonical.statusSource : (mirrorBacked ? 'mirror' : canonical.statusSource),
       verificationState: preserveMirrorFacts ? canonical.verificationState : observationVerificationState(observation),
       originSummary: mergeOriginSummary(canonical.originSummary, observation.origin),
@@ -1130,6 +1159,7 @@ async function updateCanonicalListingFromObservation(
         : canonical.description,
       askingPrice: shouldApplySourceFacts ? observation.askingPrice ?? canonical.askingPrice : canonical.askingPrice,
       priceCurrency: shouldApplySourceFacts ? observation.priceCurrency ?? canonical.priceCurrency : canonical.priceCurrency,
+      ...(shouldApplySourceFacts ? legacyPriceUnits(observation) : {}),
       priceType: shouldApplySourceFacts && typeof observation.payload.priceType === 'string'
         ? observation.payload.priceType
         : canonical.priceType,
@@ -1441,10 +1471,9 @@ export async function reconcileListingObservation(
   if (!observation) throw new Error(`Listing observation ${observationId} not found`);
 
   const primarySourceListingId = await resolvePrimarySourceListingId(observation, database);
-  const existingCanonical = await mergeCanonicalListingMatches(
-    await findCanonicalListingMatches(observation, primarySourceListingId, database),
-    database,
-  );
+  const matches = await findCanonicalListingMatches(observation, primarySourceListingId, database);
+  const existingCanonical = await mergeCanonicalListingMatches(matches, database);
+  if (matches.length > 1 && !existingCanonical) return null;
 
   if (!canProjectObservation(observation)) {
     if (existingCanonical) {
@@ -1896,11 +1925,14 @@ export async function listCanonicalListingsForProperty(
       askingPrice: canonicalListings.askingPrice,
       priceCurrency: canonicalListings.priceCurrency,
       priceType: canonicalListings.priceType,
+      pricePeriod: canonicalListings.pricePeriod,
+      priceUnit: canonicalListings.priceUnit,
+      priceCondition: canonicalListings.priceCondition,
       livingAreaM2: canonicalListings.livingAreaM2,
       numRooms: sql<number | null>`(
         SELECT CASE
           WHEN jsonb_typeof(lo.payload->'numRooms') = 'number'
-            THEN (lo.payload->>'numRooms')::int
+            THEN (lo.payload->>'numRooms')::double precision
           ELSE NULL
         END
         FROM listing_observation_links lol
@@ -1929,6 +1961,7 @@ export async function listCanonicalListingsForProperty(
       title: canonicalListings.title,
       description: canonicalListings.description,
       status: canonicalListings.status,
+      activeEligible: sql<boolean>`${canonicalListings.activeEligible} AND ${canonicalListings.status} = 'active' AND ${canonicalListings.availabilityExpiresAt} > now()`,
       verificationState: canonicalListings.verificationState,
       listedAt: canonicalListings.listedAt,
       soldAt: canonicalListings.soldAt,

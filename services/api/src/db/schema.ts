@@ -846,6 +846,96 @@ export const officialValuationSourceStates = pgTable(
   }
 );
 
+// Source identities exist independently of address resolution and canonical projection.
+export const ingestWriterGenerations = pgTable('ingest_writer_generations', {
+  sourceName: varchar('source_name', { length: 50 }).primaryKey(),
+  generation: bigint('generation', { mode: 'number' }).notNull(),
+  lastSequence: bigint('last_sequence', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [check('ingest_writer_generations_nonnegative', sql`${table.generation} >= 0 AND ${table.lastSequence} >= 0`)]);
+
+export const sourceListingIdentities = pgTable('source_listing_identities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourceName: varchar('source_name', { length: 50 }).notNull(),
+  primaryId: text('primary_id').notNull(),
+  primaryIdType: varchar('primary_id_type', { length: 50 }).notNull(),
+  canonicalListingId: uuid('canonical_listing_id').references((): AnyPgColumn => canonicalListings.id, { onDelete: 'set null' }),
+  factsJson: jsonb('facts_json').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  fieldEvidence: jsonb('field_evidence').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  lastPositiveObservedAt: timestamp('last_positive_observed_at', { withTimezone: true }),
+  lastStatusObservedAt: timestamp('last_status_observed_at', { withTimezone: true }),
+  quarantinedAt: timestamp('quarantined_at', { withTimezone: true }),
+  quarantineReason: text('quarantine_reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('source_listing_identities_primary_idx').on(table.sourceName, table.primaryIdType, table.primaryId),
+  uniqueIndex('source_listing_identities_id_source_idx').on(table.id, table.sourceName),
+  uniqueIndex('source_listing_identities_canonical_idx').on(table.canonicalListingId).where(sql`canonical_listing_id IS NOT NULL`),
+]);
+
+export const sourceListingAliases = pgTable('source_listing_aliases', {
+  sourceName: varchar('source_name', { length: 50 }).notNull(),
+  kind: varchar('kind', { length: 50 }).notNull(),
+  value: text('value').notNull(),
+  identityId: uuid('identity_id').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.sourceName, table.kind, table.value] }),
+  foreignKey({ columns: [table.identityId, table.sourceName], foreignColumns: [sourceListingIdentities.id, sourceListingIdentities.sourceName], name: 'source_listing_aliases_identity_fk' }).onDelete('cascade'),
+  index('source_listing_aliases_identity_idx').on(table.identityId),
+]);
+
+export const ingestEvidence = pgTable('ingest_evidence', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourceName: varchar('source_name', { length: 50 }).notNull(),
+  eventId: text('event_id').notNull(),
+  generation: bigint('generation', { mode: 'number' }).notNull(),
+  sequence: bigint('sequence', { mode: 'number' }).notNull(),
+  identityId: uuid('identity_id').notNull(),
+  kind: varchar('kind', { length: 20 }).notNull(),
+  observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+  collector: varchar('collector', { length: 50 }).notNull(),
+  manifestRef: jsonb('manifest_ref').$type<Record<string, unknown> | null>(),
+  payloadJson: jsonb('payload_json').$type<Record<string, unknown>>().notNull(),
+  payloadHash: varchar('payload_hash', { length: 64 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('ingest_evidence_event_idx').on(table.sourceName, table.eventId),
+  uniqueIndex('ingest_evidence_sequence_idx').on(table.sourceName, table.generation, table.sequence),
+  foreignKey({ columns: [table.identityId, table.sourceName], foreignColumns: [sourceListingIdentities.id, sourceListingIdentities.sourceName], name: 'ingest_evidence_identity_fk' }).onDelete('restrict'),
+  index('ingest_evidence_identity_observed_idx').on(table.identityId, table.observedAt),
+  check('ingest_evidence_kind_check', sql`${table.kind} IN ('facts', 'sighting', 'absence')`),
+  check('ingest_evidence_sequence_check', sql`${table.generation} >= 0 AND ${table.sequence} > 0`),
+]);
+
+export const sourceIdentityQuarantines = pgTable('source_identity_quarantines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourceName: varchar('source_name', { length: 50 }).notNull(),
+  reason: text('reason').notNull(),
+  identityIds: jsonb('identity_ids').$type<string[]>().notNull(),
+  listingIds: jsonb('listing_ids').$type<string[]>().notNull(),
+  aliasesJson: jsonb('aliases_json').$type<Array<{ kind: string; value: string }>>().notNull(),
+  detailsJson: jsonb('details_json').$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index('source_identity_quarantines_source_idx').on(table.sourceName, table.createdAt)]);
+
+// Historical rows and their facts remain intact; this records projection disposition.
+export const sourceIdentityReconciliations = pgTable('source_identity_reconciliations', {
+  listingTable: varchar('listing_table', { length: 30 }).notNull(),
+  listingId: uuid('listing_id').notNull(),
+  sourceName: varchar('source_name', { length: 50 }).notNull(),
+  survivorListingId: uuid('survivor_listing_id'),
+  identityId: uuid('identity_id').notNull().references(() => sourceListingIdentities.id, { onDelete: 'restrict' }),
+  reason: text('reason').notNull(),
+  detailsJson: jsonb('details_json').$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.listingTable, table.listingId] }),
+  index('source_identity_reconciliations_identity_idx').on(table.identityId),
+  check('source_identity_reconciliations_table_check', sql`${table.listingTable} IN ('canonical_listings', 'listings')`),
+]);
+
 // Durable ingest run ledger (optional when upstream provides a stable run identity)
 export const ingestRuns = pgTable(
   'ingest_runs',
@@ -1025,6 +1115,9 @@ export const canonicalListings = pgTable(
     askingPrice: bigint('asking_price', { mode: 'number' }),
     priceCurrency: varchar('price_currency', { length: 3 }),
     priceType: varchar('price_type', { length: 10 }),
+    pricePeriod: varchar('price_period', { length: 10 }),
+    priceUnit: varchar('price_unit', { length: 10 }),
+    priceCondition: varchar('price_condition', { length: 20 }),
     livingAreaM2: integer('living_area_m2'),
     listedAt: timestamp('listed_at', { withTimezone: true }),
     soldAt: timestamp('sold_at', { withTimezone: true }),
@@ -1033,18 +1126,26 @@ export const canonicalListings = pgTable(
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     lastMirrorSeenAt: timestamp('last_mirror_seen_at', { withTimezone: true }),
+    lastPositiveAvailabilityAt: timestamp('last_positive_availability_at', { withTimezone: true }),
+    availabilityEndedAt: timestamp('availability_ended_at', { withTimezone: true }),
+    activeEligible: boolean('active_eligible').notNull().default(false),
+    availabilityExpiresAt: timestamp('availability_expires_at', { withTimezone: true }),
     lastUserSeenAt: timestamp('last_user_seen_at', { withTimezone: true }),
     lastReconciledAt: timestamp('last_reconciled_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check('canonical_listings_price_period_check', sql`price_period IS NULL OR price_period IN ('month','week','day','year','total','unknown')`),
+    check('canonical_listings_price_unit_check', sql`price_unit IS NULL OR price_unit IN ('listing','m2','unknown')`),
+    check('canonical_listings_price_condition_check', sql`price_condition IS NULL OR price_condition IN ('asking','on_request','auction','unknown')`),
     uniqueIndex('canonical_listings_source_identity_idx')
       .on(table.sourceName, table.primarySourceListingId)
       .where(sql`primary_source_listing_id IS NOT NULL`),
     uniqueIndex('canonical_listings_source_url_idx')
       .on(table.sourceName, table.canonicalUrl)
-      .where(sql`canonical_url IS NOT NULL`),
+      .where(sql`canonical_url IS NOT NULL AND primary_source_listing_id IS NULL`),
+    index('canonical_listings_source_url_lookup_idx').on(table.sourceName, table.canonicalUrl),
     index('canonical_listings_property_id_idx').on(table.propertyId),
     index('canonical_listings_property_status_idx').on(table.propertyId, table.status),
     index('canonical_listings_verification_state_idx').on(table.verificationState),

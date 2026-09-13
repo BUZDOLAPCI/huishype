@@ -18,6 +18,8 @@ import {
   enqueueIngestBatch,
   IngestIdempotencyConflictError,
   getIngestWatermark,
+  getIngestBatchStatus,
+  ingestBatchStatusResponseSchema,
   ingestAcceptedResponseSchema,
   ingestBatchRequestSchema,
   ingestWatermarkResponseSchema,
@@ -804,7 +806,7 @@ export async function listingRoutes(app: FastifyInstance) {
       } catch (err) {
         if (err instanceof IngestIdempotencyConflictError) {
           return reply.status(409).send({
-            error: 'IDEMPOTENCY_CONFLICT',
+            error: err.name === 'IngestWriterFencedError' ? 'WRITER_FENCED' : 'IDEMPOTENCY_CONFLICT',
             message: err.message,
           });
         }
@@ -813,6 +815,18 @@ export async function listingRoutes(app: FastifyInstance) {
       }
     },
   );
+
+  typedApp.get('/api/ingest/batches/:id', {
+    schema: { tags: ['ingest'], params: z.object({ id: z.string().uuid() }),
+      response: { 200: ingestBatchStatusResponseSchema, 401: errorResponseSchema, 404: errorResponseSchema } },
+  }, async (request, reply) => {
+    if (!isValidApiKey(request.headers['x-api-key'] as string | undefined)) {
+      return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid API key' });
+    }
+    const batch = await getIngestBatchStatus(request.params.id);
+    if (!batch) return reply.status(404).send({ error: 'NOT_FOUND', message: 'Ingest batch not found' });
+    return reply.send(batch);
+  });
 
   // =========================================================================
   // 6. GET /api/ingest/watermark

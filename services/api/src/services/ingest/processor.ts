@@ -1,6 +1,5 @@
 import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
-  canonicalListings,
   db,
   type DbTransaction,
   ingestBatches,
@@ -35,6 +34,8 @@ import {
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
   type SkippedBatchRecoveryCandidate,
 } from './store.js';
+import { processV2Evidence } from './v2-processor.js';
+import { assertIngestWriter, IngestWriterFencedError } from './v2-writer.js';
 import { advancePropertyChangeVersion } from '../property-read-state.js';
 import {
   advancePropertyTilePyramidSourceWatermark,
@@ -913,19 +914,6 @@ function normalizedFiltersAreEmpty(filters: Record<string, unknown> | null | und
   return Object.keys(filters ?? {}).length === 0;
 }
 
-function normalizedFiltersAreSourceWideFullMirror(filters: Record<string, unknown> | null | undefined): boolean {
-  const entries = Object.entries(filters ?? {});
-  if (entries.length === 0) return true;
-  return entries.length === 1
-    && entries[0]?.[0] === 'replayScope'
-    && (entries[0][1] === 'full-mirror' || entries[0][1] === 'all');
-}
-
-function isSourceWideCompletion(completion: NonNullable<IngestBatchRequest['completions']>[number]): boolean {
-  return (completion.scopeKey === 'full-mirror' || completion.scopeKey === 'all')
-    && normalizedFiltersAreSourceWideFullMirror(completion.normalizedFilters);
-}
-
 function projectionKey(
   scopeKey: string,
   listingType: ListingType,
@@ -1469,217 +1457,6 @@ async function persistUnmatchedDiagnosticObservations(
   return results;
 }
 
-async function reconcileScopeCompletionAbsence(
-  tx: DbTransaction,
-  sourceName: string,
-  batchId: string,
-  payload: IngestBatchRequest,
-  existingWatermarks: Map<string, Date>,
-  completionIdsByScope: Map<string, string>,
-  sourceProjection: SourceProjectionState,
-): Promise<ListingWriteResult[]> {
-  const results: ListingWriteResult[] = [];
-
-  for (const completion of payload.completions ?? []) {
-    const listingType = completionListingType(completion);
-    const sourceWideCompletion = isSourceWideCompletion(completion);
-    const completionState = completionProjectionState(payload, existingWatermarks, completion, sourceProjection);
-    const completionId = completionIdsByScope.get(
-      projectionKey(completion.scopeKey, listingType, completion.normalizedFilters),
-    );
-    if (
-      !completionId
-      || !completionState.sourceHighWatermark
-      || completionState.staleForProjection
-      || (completion.coverageStatus ?? 'complete') !== 'complete'
-    ) {
-      continue;
-    }
-
-    const presentSourceListingIds = new Set<string>();
-    const presentSourceUrls = new Set<string>();
-
-    const presentRows = await tx
-      .select({
-        sourceListingId: listingObservations.sourceListingId,
-        sourceUrlCanonical: listingObservations.sourceUrlCanonical,
-      })
-      .from(listingObservations)
-      .where(
-        and(
-          eq(listingObservations.sourceName, sourceName),
-          eq(listingObservations.origin, 'mirror'),
-          eq(listingObservations.staleForProjection, false),
-          sql`(
-            ${listingObservations.sourceStatus} IS NOT NULL
-            OR ${listingObservations.diagnosticStatus} IS NOT NULL
-          )`,
-          sql`${listingObservations.sourceHighWatermark} = ${completionState.sourceHighWatermark.toISOString()}::timestamptz`,
-          sql`${listingObservations.sourceRunId} IS NOT DISTINCT FROM ${(completion.sourceRunId ?? payload.upstreamRunKey) ?? null}`,
-          listingType === 'unknown'
-            ? sql`${listingObservations.payload}->>'scopeKey' = ${completion.scopeKey}`
-            : sql`
-                ${listingObservations.payload}->>'scopeKey' = ${completion.scopeKey}
-                AND COALESCE(${listingObservations.payload}->>'priceType', ${listingObservations.payload}->>'listingType') = ${listingType}
-              `,
-        ),
-      );
-
-    for (const row of presentRows) {
-      if (row.sourceListingId) {
-        presentSourceListingIds.add(row.sourceListingId);
-      }
-      if (row.sourceUrlCanonical) {
-        presentSourceUrls.add(row.sourceUrlCanonical);
-      }
-    }
-
-    const listingTypePredicate = listingType === 'unknown'
-      ? sql`TRUE`
-      : sql`${canonicalListings.priceType} = ${listingType}`;
-    const completionHighWatermarkSql = sql`${completionState.sourceHighWatermark.toISOString()}::timestamptz`;
-    const activeEvidenceSourceTime = sql`COALESCE(lo.source_high_watermark, lo.source_updated_at, lo.last_seen_at, lo.observed_at, lo.created_at)`;
-    const noNewerActiveEvidencePredicate = sql`NOT EXISTS (
-      SELECT 1
-      FROM listing_observation_links newer_lol
-      JOIN listing_observations newer_lo ON newer_lo.id = newer_lol.listing_observation_id
-      WHERE newer_lol.canonical_listing_id = ${canonicalListings.id}
-        AND newer_lo.source_name = ${sourceName}
-        AND newer_lo.origin = 'mirror'
-        AND newer_lo.stale_for_projection = false
-        AND newer_lo.diagnostic_status IS NULL
-        AND newer_lo.source_status = 'available'
-        AND COALESCE(
-          newer_lo.source_high_watermark,
-          newer_lo.source_updated_at,
-          newer_lo.last_seen_at,
-          newer_lo.observed_at,
-          newer_lo.created_at
-        ) > ${completionHighWatermarkSql}
-    )`;
-    const priorFilterPredicate = normalizedFiltersAreEmpty(completion.normalizedFilters) || sourceWideCompletion
-      ? sql`(
-          lo.scope_completion_id IS NULL
-          OR EXISTS (
-            SELECT 1
-            FROM listing_scope_completions prior_lsc
-            WHERE prior_lsc.id = lo.scope_completion_id
-              AND prior_lsc.normalized_filters = '{}'::jsonb
-          )
-        )`
-      : sql`EXISTS (
-          SELECT 1
-          FROM listing_scope_completions prior_lsc
-          WHERE prior_lsc.id = lo.scope_completion_id
-            AND prior_lsc.normalized_filters = ${JSON.stringify(completion.normalizedFilters ?? {})}::jsonb
-        )`;
-    const priorScopePredicate = sourceWideCompletion
-      ? sql`TRUE`
-      : listingType === 'unknown'
-        ? sql`lo.payload->>'scopeKey' = ${completion.scopeKey} AND ${priorFilterPredicate}`
-      : sql`
-          lo.payload->>'scopeKey' = ${completion.scopeKey}
-          AND COALESCE(lo.payload->>'priceType', lo.payload->>'listingType') = ${listingType}
-          AND ${priorFilterPredicate}
-        `;
-    const canonicalEvidencePredicate = sourceWideCompletion
-      ? sql`(
-          (
-            ${canonicalListings.originSummary} IN ('mirror', 'user_and_mirror')
-            OR ${canonicalListings.statusSource} = 'mirror'
-            OR ${canonicalListings.verificationState} = 'validated'
-            OR ${canonicalListings.lastMirrorSeenAt} IS NOT NULL
-          )
-          AND COALESCE(
-            ${canonicalListings.lastMirrorSeenAt},
-            ${canonicalListings.lastSeenAt}
-          ) <= ${completionHighWatermarkSql}
-          AND ${noNewerActiveEvidencePredicate}
-        )`
-      : sql`
-          EXISTS (
-            SELECT 1
-            FROM listing_observation_links lol
-            JOIN listing_observations lo ON lo.id = lol.listing_observation_id
-            WHERE lol.canonical_listing_id = ${canonicalListings.id}
-              AND lo.source_name = ${sourceName}
-              AND lo.origin = 'mirror'
-              AND lo.stale_for_projection = false
-              AND lo.diagnostic_status IS NULL
-              AND lo.source_status = 'available'
-              AND ${priorScopePredicate}
-              AND ${activeEvidenceSourceTime} <= ${completionHighWatermarkSql}
-          )
-          AND ${noNewerActiveEvidencePredicate}
-        `;
-
-    const candidates = await tx
-      .select({
-        id: canonicalListings.id,
-        propertyId: canonicalListings.propertyId,
-        primarySourceListingId: canonicalListings.primarySourceListingId,
-        canonicalUrl: canonicalListings.canonicalUrl,
-        displayUrl: canonicalListings.displayUrl,
-        askingPrice: canonicalListings.askingPrice,
-        priceCurrency: canonicalListings.priceCurrency,
-      })
-      .from(canonicalListings)
-      .where(
-        and(
-          eq(canonicalListings.sourceName, sourceName),
-          eq(canonicalListings.status, 'active'),
-          listingTypePredicate,
-          canonicalEvidencePredicate,
-        ),
-      );
-
-    for (const candidate of candidates) {
-      const sourceUrl = candidate.canonicalUrl ?? candidate.displayUrl;
-      if (!sourceUrl) {
-        continue;
-      }
-      const normalizedSourceUrl = normalizeSourceUrl(sourceUrl);
-      if (
-        (candidate.primarySourceListingId && presentSourceListingIds.has(candidate.primarySourceListingId))
-        || presentSourceUrls.has(normalizedSourceUrl)
-      ) {
-        continue;
-      }
-
-      const sourceRunCompletedAt = new Date(completion.sourceRunCompletedAt);
-      const persisted = await persistMirrorObservationForIngest(tx, {
-        batchId,
-        sourceName,
-        sourceUrl: normalizedSourceUrl,
-        sourceListingId: candidate.primarySourceListingId,
-        sourceListingIdKind: candidate.primarySourceListingId ? 'unknown' : null,
-        propertyId: candidate.propertyId,
-        propertyMatchKind: 'source_exact',
-        sourceStatus: 'not_found',
-        diagnosticStatus: null,
-        askingPrice: candidate.askingPrice,
-        priceCurrency: candidate.priceCurrency ?? 'EUR',
-        sourceUpdatedAt: sourceRunCompletedAt,
-        observedAt: sourceRunCompletedAt,
-        sourceRunId: completion.sourceRunId ?? payload.upstreamRunKey ?? null,
-        sourceHighWatermark: completionState.sourceHighWatermark,
-        sourceProvenance: payload.sourceProvenance ?? 'replay',
-        scopeCompletionId: completionId,
-        staleForProjection: completionState.staleForProjection,
-        payload: {
-          scopeKey: completion.scopeKey,
-          priceType: listingType,
-          absenceFromCompletion: true,
-          observedListingCount: completion.observedListingCount ?? 0,
-        },
-      });
-      results.push(persisted);
-    }
-  }
-
-  return results;
-}
-
 function getRecoveryIdentity(match: MatchedListing): RecoveryIdentity {
   const sourceListingId = match.item.sourceListingId ?? match.item.mirrorListingId;
   const sourceUrl = normalizeSourceUrl(match.item.canonicalUrl ?? match.item.sourceUrl);
@@ -1876,6 +1653,11 @@ async function recoverSkippedCompletedBatch(
     }
 
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${claimed.sourceName}))`);
+    try { await assertIngestWriter(tx, claimed.payload); } catch (error) {
+      if (error instanceof IngestWriterFencedError) return { recoveredObservationCount: 0, propertyTilePyramidInvalidated: false };
+      throw error;
+    }
+    if (claimed.payload.ingestVersion === 2) return { recoveredObservationCount: 0, propertyTilePyramidInvalidated: false };
 
     const {
       canonicalized,
@@ -2224,6 +2006,21 @@ export async function processIngestBatch(
         VALUES (${claimed.sourceName})
         ON CONFLICT (source_name) DO NOTHING
       `);
+      await assertIngestWriter(tx, claimed.payload);
+      if (claimed.payload.ingestVersion === 2) {
+        const projected = await processV2Evidence(tx, claimed.id, claimed.payload);
+        if (projected.changedPropertyIds.length) await advancePropertyChangeVersion(projected.changedPropertyIds, tx);
+        if (projected.projectionChanged) {
+          await advancePropertyTilePyramidSourceWatermark(['ingest_source', 'listing_facts', 'property_status'], tx);
+        }
+        await tx.update(ingestBatches).set({
+          status: 'completed', completedAt: new Date(), ingestedCount: projected.ingestedCount,
+          updatedCount: projected.updatedCount, skippedCount: projected.skippedCount,
+          errorJson: null, maintenanceRequestedAt: projected.projectionChanged ? new Date() : null,
+        }).where(eq(ingestBatches.id, claimed.id));
+        await advanceCommittedSourceCursor(tx, claimed.sourceName);
+        return { ...projected, maintenanceRequested: projected.projectionChanged };
+      }
       const existingWatermarks = await loadScopeWatermarks(tx, claimed.payload);
       const sourceProjection = await loadSourceProjectionState(tx, claimed.payload);
       const completionIdsByScope = await persistScopeCompletions(
@@ -2279,16 +2076,7 @@ export async function processIngestBatch(
           sourceProjection,
         },
       );
-      const absenceWrites = await reconcileScopeCompletionAbsence(
-        tx,
-        claimed.sourceName,
-        claimed.id,
-        claimed.payload,
-        existingWatermarks,
-        completionIdsByScope,
-        sourceProjection,
-      );
-      const allListingWrites = [...listingWrites, ...diagnosticWrites, ...absenceWrites];
+      const allListingWrites = [...listingWrites, ...diagnosticWrites];
       await advancePropertyChangeVersion(
         allListingWrites
           .filter((row) => row.inserted || row.changed)
@@ -2355,6 +2143,11 @@ export async function processIngestBatch(
       skipped: result.skippedCount,
     };
   } catch (error) {
+    if (error instanceof IngestWriterFencedError) {
+      await txRetireFencedBatch(claimed.id, error);
+      await finalizeRunLifecycle(claimed, logger);
+      return { status: 'completed', ingested: 0, updated: 0, skipped: (claimed.payload.records ?? claimed.payload.listings ?? []).length };
+    }
     const nextStatus = claimed.attemptCount >= maxAttempts ? 'failed' : 'retryable';
     await markBatchFailure(claimed.id, nextStatus, error);
     if (nextStatus === 'failed') {
@@ -2413,4 +2206,9 @@ export async function refreshLatestListingsMaintenance(
   );
 
   return pendingRows.length;
+}
+
+async function txRetireFencedBatch(batchId: string, error: Error): Promise<void> {
+  await db.update(ingestBatches).set({ status: 'superseded', completedAt: new Date(), errorJson: serializeError(error) })
+    .where(eq(ingestBatches.id, batchId));
 }

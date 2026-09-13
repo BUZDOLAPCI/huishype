@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { db, ingestBatches, ingestRuns, ingestSources, type DbTransaction } from '../../db/index.js';
+import { db, ingestBatches, ingestRuns, ingestSources, ingestWriterGenerations, type DbTransaction } from '../../db/index.js';
 import { ingestBatchRequestSchema, type IngestBatchRequest, type IngestWatermarkResponse } from './contracts.js';
 import {
   encodeOpaqueIngestCursor,
@@ -7,6 +7,7 @@ import {
   opaqueIngestCursorsEqual,
 } from './cursor.js';
 import { IngestIdempotencyConflictError } from './errors.js';
+import { assertIngestWriter } from './v2-writer.js';
 
 type BatchRow = typeof ingestBatches.$inferSelect;
 type BatchStatus = BatchRow['status'];
@@ -209,6 +210,7 @@ function isCursorAtOrBeforeCommittedWatermark(candidate: SupersededBatchCandidat
 
 function hasProjectionEvidencePredicate(alias = sql`b`): ReturnType<typeof sql> {
   return sql`(
+    (${alias}.payload_json->>'ingestVersion' = '2') OR
     (
       jsonb_typeof(${alias}.payload_json->'listings') = 'array'
       AND jsonb_array_length(${alias}.payload_json->'listings') > 0
@@ -582,6 +584,7 @@ export async function acceptIngestBatch(
   request: IngestBatchRequest,
 ): Promise<AcceptedIngestBatchRecord> {
   return db.transaction(async (tx) => {
+    await assertIngestWriter(tx, request);
     const existingRows = await tx
       .select()
       .from(ingestBatches)
@@ -595,8 +598,9 @@ export async function acceptIngestBatch(
 
     const existing = existingRows[0];
     if (existing) {
+      const existingNormalized = ingestBatchRequestSchema.safeParse(existing.payloadJson);
       const payloadMatches =
-        stableJson(existing.payloadJson) === stableJson(request) &&
+        stableJson(existingNormalized.success ? existingNormalized.data : existing.payloadJson) === stableJson(request) &&
         existing.cursorStart === request.cursorStart &&
         existing.cursorEnd === request.cursorEnd &&
         existing.batchSequence === request.batchSequence;
@@ -750,8 +754,11 @@ export async function getIngestWatermark(sourceName: string): Promise<IngestWate
 
   const source = rows[0];
 
+  const [writer] = await db.select().from(ingestWriterGenerations).where(eq(ingestWriterGenerations.sourceName, sourceName));
   return {
     sourceName,
+    writerGeneration: writer?.generation ?? 0,
+    lastSequence: writer?.lastSequence ?? 0,
     cursor: source?.lastCommittedCursor ?? null,
     lastCommittedChangedAt: toIsoString(source?.lastCommittedChangedAt ?? null),
     lastCommittedListingKey: source?.lastCommittedListingKey ?? null,
@@ -1125,4 +1132,13 @@ export async function collectRecoveryDispatchWork(
     ])).slice(0, limit),
     maintenancePending: maintenanceRows.length > 0 || skippedRecoveryPending,
   };
+}
+
+export async function getIngestBatchStatus(batchId: string) {
+  const [batch] = await db.select().from(ingestBatches).where(eq(ingestBatches.id, batchId));
+  return batch ? {
+    batchId: batch.id, sourceName: batch.sourceName, status: batch.status,
+    completedAt: toIsoString(batch.completedAt), ingestedCount: batch.ingestedCount,
+    updatedCount: batch.updatedCount, skippedCount: batch.skippedCount, error: batch.errorJson,
+  } : null;
 }
