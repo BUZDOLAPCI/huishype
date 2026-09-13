@@ -1,3 +1,4 @@
+import { comparableAskingPriceSql } from './listing-price-units.js';
 import { sql, type SQL } from 'drizzle-orm';
 import {
   isValidCountryCode,
@@ -1357,8 +1358,9 @@ function buildTileListingFactsCte(scopeCteName: 'candidate_properties' | 'target
         cl.property_id,
         cl.source_name,
         cl.status::text AS status,
+        (cl.active_eligible AND cl.availability_expires_at > now()) AS active_eligible,
         ${buildTileListingPriceTypeExpression('cl')} AS normalized_price_type,
-        cl.asking_price,
+        ${comparableAskingPriceSql('cl')} AS asking_price,
         COALESCE(cl.listed_at, cl.first_seen_at) AS listed_at,
         cl.living_area_m2,
         cl.thumbnail_url,
@@ -1444,7 +1446,7 @@ function buildTileListingFactsProjectionCte(
         FROM canonical_listings cl
         INNER JOIN candidate_properties cp ON cp.id = cl.property_id
         WHERE cl.verification_state <> 'invalid'
-          AND cl.status = 'active'
+          AND cl.status = 'active' AND cl.active_eligible AND cl.availability_expires_at > now()
         ORDER BY
           cl.property_id,
           COALESCE(
@@ -1543,6 +1545,32 @@ export function buildGroupingCandidateScopeCtes(
     zoom,
     options,
   });
+
+  if (options?.liveListingUpdates && !options.candidateSnapshotId) {
+    // Listing updates start from the small listing/social sources, never the
+    // forty-million-address base. Grouping still reads every member in the
+    // expanded tile bounds and applies the standard lifecycle/social filters.
+    return sql`
+      source_property_ids AS MATERIALIZED (
+        SELECT cl.property_id FROM canonical_listings cl
+        WHERE cl.verification_state <> 'invalid'
+        ${canIncludeSocialOnlyCandidates ? sql`
+          UNION SELECT c.property_id FROM comments c WHERE c.hidden_at IS NULL
+          UNION SELECT r.target_id AS property_id FROM reactions r
+            WHERE r.target_type = 'property' AND r.reaction_type = 'like'
+          UNION SELECT pg.property_id FROM price_guesses pg
+          UNION SELECT pv.property_id FROM property_views pv
+        ` : sql``}
+      ),
+      candidate_properties AS MATERIALIZED (
+        SELECT DISTINCT p.id, p.geometry, p.official_valuation
+        FROM source_property_ids spi
+        INNER JOIN properties p ON p.id = spi.property_id
+        WHERE p.geometry IS NOT NULL AND p.status = 'active'
+          AND (${bboxFilter}) AND ${areaFilter}
+      )
+    `;
+  }
 
   if (useSnapshotGroupingFacts) {
     const snapshotAreaFilter = buildGroupingFactsLocationAreaFilterPredicate(filters.areas, 'pgf');
@@ -1889,7 +1917,7 @@ async function fetchGroupingCandidatesInBBoxes(
             l.asking_price,
             l.normalized_price_type AS price_type
           FROM tile_listing_facts l
-          WHERE l.status = 'active'
+          WHERE l.status = 'active' AND l.active_eligible
           ORDER BY l.property_id, ${buildListingOrderExpression('l')}
         ),
         sold_history AS MATERIALIZED (
@@ -1898,7 +1926,7 @@ async function fetchGroupingCandidatesInBBoxes(
             ph.price AS last_sold_price
           FROM price_history ph
           INNER JOIN candidate_properties cp ON cp.id = ph.property_id
-          WHERE ph.event_type = 'sold'
+          WHERE ph.event_type = 'sold' AND ph.price_kind = 'achieved'
           ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
         ),
         rented_history AS MATERIALIZED (
@@ -1907,7 +1935,7 @@ async function fetchGroupingCandidatesInBBoxes(
             ph.price AS last_rented_price
           FROM price_history ph
           INNER JOIN candidate_properties cp ON cp.id = ph.property_id
-          WHERE ph.event_type = 'rented'
+          WHERE ph.event_type = 'rented' AND ph.price_kind = 'achieved'
           ORDER BY ph.property_id, ph.price_date DESC, ph.created_at DESC, ph.id DESC
         ),
         guess_facts AS MATERIALIZED (
@@ -2468,7 +2496,7 @@ async function fetchSinglePropertyDetails(
         l.asking_price,
         l.normalized_price_type AS price_type
       FROM tile_listing_facts l
-      WHERE l.status = 'active'
+      WHERE l.status = 'active' AND l.active_eligible
       ORDER BY l.property_id, ${buildListingOrderExpression('l')}
     ),
     latest_listing AS MATERIALIZED (
