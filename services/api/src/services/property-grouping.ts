@@ -1552,7 +1552,7 @@ export function buildGroupingCandidateScopeCtes(
     // expanded tile bounds and applies the standard lifecycle/social filters.
     return sql`
       source_property_ids AS MATERIALIZED (
-        SELECT cl.property_id FROM canonical_listings cl
+        SELECT DISTINCT cl.property_id FROM canonical_listings cl
         WHERE cl.verification_state <> 'invalid'
         ${canIncludeSocialOnlyCandidates ? sql`
           UNION SELECT c.property_id FROM comments c WHERE c.hidden_at IS NULL
@@ -1563,11 +1563,20 @@ export function buildGroupingCandidateScopeCtes(
         ` : sql``}
       ),
       candidate_properties AS MATERIALIZED (
-        SELECT DISTINCT p.id, p.geometry, p.official_valuation
+        -- Carry the already-unique source key through. DISTINCT over the
+        -- lateral result makes PostgreSQL estimate a single candidate and
+        -- choose quadratic joins for the subsequent listing/social facts.
+        SELECT spi.property_id AS id, p.geometry, p.official_valuation
         FROM source_property_ids spi
-        INNER JOIN properties p ON p.id = spi.property_id
-        WHERE p.geometry IS NOT NULL AND p.status = 'active'
-          AND (${bboxFilter}) AND ${areaFilter}
+        INNER JOIN LATERAL (
+          SELECT p.id,p.geometry,p.official_valuation FROM properties p
+          WHERE p.id = spi.property_id AND p.geometry IS NOT NULL AND p.status = 'active'
+            AND (${bboxFilter}) AND ${areaFilter}
+          -- Keep the source-key lookup parameterized at world zoom. Without
+          -- this boundary PostgreSQL can choose a scan of the entire address
+          -- base even though only listing/social properties are candidates.
+          OFFSET 0
+        ) p ON true
       )
     `;
   }
