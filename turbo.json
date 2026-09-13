@@ -11,16 +11,18 @@
     },
     "test": {
       "dependsOn": ["^build"],
+      "env": ["DATABASE_URL", "REDIS_URL"],
       "cache": true
     },
     "test:unit": {
       "dependsOn": ["^build"],
+      "env": ["DATABASE_URL", "REDIS_URL"],
       "cache": true
     },
     "test:integration": {
       "dependsOn": ["^build"],
       "cache": false,
-      "env": ["DATABASE_URL"]
+      "env": ["DATABASE_URL", "REDIS_URL"]
     },
     "typecheck": {
       "dependsOn": ["^build"],
