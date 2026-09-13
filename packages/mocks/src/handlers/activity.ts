@@ -8,6 +8,7 @@
 import { http, HttpResponse } from 'msw';
 import type {
   GroupedActivityPreview,
+  GroupedActivityProperty,
   GroupedPropertyActivityItem,
   GroupedPropertyActivityResponse,
 } from '@huishype/shared';
@@ -135,6 +136,29 @@ function toActivityAddress(propertyId: string) {
   };
 }
 
+function toGroupedActivityProperty(
+  propertyId: string,
+  viewerId: string | null
+): GroupedActivityProperty | null {
+  const address = toActivityAddress(propertyId);
+  const property = getMockProperty(propertyId);
+  if (!address || !property) return null;
+
+  return {
+    ...address,
+    askingPrice: property.activeListing?.askingPrice ?? null,
+    officialValuation: property.officialValuation ?? null,
+    officialValuationYear: property.officialValuationYear ?? null,
+    officialValuationSourceFetch: null,
+    marketState: property.activeListing ? 'for-sale' : 'not-listed',
+    hasListing: Boolean(property.activeListing),
+    yearBuilt: property.yearBuilt ?? null,
+    floorAreaM2: property.floorAreaM2 ?? null,
+    isLiked: viewerId !== null && property.isLiked,
+    isSaved: viewerId !== null && property.isSaved,
+  };
+}
+
 export function getMockActivityEvents(): MockActivityEvent[] {
   const commentEvents = mockComments.map<MockActivityEvent>((comment) => ({
     id: comment.id,
@@ -224,7 +248,8 @@ function buildActivitySummary(event: MockActivityEvent, actorName: string) {
 }
 
 function buildGroupedPreview(
-  propertyEvents: Array<MockActivityEvent & { eventType: PublicActivityEventType }>
+  propertyEvents: Array<MockActivityEvent & { eventType: PublicActivityEventType }>,
+  viewerId: string | null
 ): GroupedActivityPreview | null {
   const commentEvent = propertyEvents.find((event) => event.eventType === 'comment');
   if (commentEvent) {
@@ -233,12 +258,15 @@ function buildGroupedPreview(
       return null;
     }
 
+    const comment = mockComments.find((item) => item.id === commentEvent.id);
     return {
       kind: 'comment',
       commentId: commentEvent.id,
       createdAt: new Date(commentEvent.createdAt).toISOString(),
       actor,
       contentPreview: String(commentEvent.meta?.contentPreview ?? ''),
+      likeCount: comment?.likes ?? 0,
+      isLiked: viewerId !== null && Boolean(comment?.isLikedByCurrentUser),
     };
   }
 
@@ -292,8 +320,8 @@ function getGroupedActivityItems(
       return byTime !== 0 ? byTime : right.id.localeCompare(left.id);
     });
 
-    const property = toActivityAddress(propertyId);
-    const preview = buildGroupedPreview(propertyEvents);
+    const property = toGroupedActivityProperty(propertyId, viewerId);
+    const preview = buildGroupedPreview(propertyEvents, viewerId);
     if (!property || !preview) {
       continue;
     }

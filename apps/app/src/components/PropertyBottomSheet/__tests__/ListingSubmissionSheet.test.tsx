@@ -219,7 +219,7 @@ describe('ListingSubmissionSheet', () => {
     });
   });
 
-  it('treats duplicate 409 submit bodies as submitted listings', async () => {
+  it.each([true, false, undefined])('preserves duplicate submit eligibility %s without inventing availability', async (activeEligible) => {
     const onSubmitted = jest.fn();
     mockFetch
       .mockResolvedValueOnce({
@@ -258,6 +258,7 @@ describe('ListingSubmissionSheet', () => {
           canonicalUrl: 'https://www.funda.nl/detail/duplicate',
           sourceListingId: 'duplicate',
           status: 'active',
+          activeEligible,
           verificationState: 'provisional',
           candidateHandoffState: 'queued',
           candidateId: '55555555-5555-4555-8555-555555555555',
@@ -291,6 +292,7 @@ describe('ListingSubmissionSheet', () => {
           id: '44444444-4444-4444-8444-444444444444',
           ogTitle: 'Duplicate Listing',
           askingPrice: 495000,
+          activeEligible: activeEligible ?? false,
           candidateHandoffState: 'queued',
         }));
       },

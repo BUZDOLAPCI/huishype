@@ -397,7 +397,11 @@ function mergeHydratedPreviewProperty(
     selectedProperty.officialValuation ?? currentProperty.officialValuation ?? null;
   const mergedOfficialValuationYear =
     selectedProperty.officialValuationYear ?? currentProperty.officialValuationYear ?? null;
-  const mergedAskingPrice = currentProperty.askingPrice ?? selectedProperty.askingPrice ?? null;
+  // A detail response can explicitly clear a former asking price after expiry.
+  const mergedAskingPrice =
+    selectedProperty.askingPrice !== undefined
+      ? selectedProperty.askingPrice
+      : currentProperty.askingPrice ?? null;
   const mergedFmv =
     getCrowdEstimateValue(currentProperty.fmv, currentProperty.guessCount) ??
     getCrowdEstimateValue(selectedProperty.fmv, selectedProperty.guessCount) ??
@@ -529,7 +533,7 @@ function physicalTapPreviewToGroupPropertyInput(
     officialValuation: property.officialValuation ?? null,
     officialValuationYear: property.officialValuationYear ?? null,
     askingPrice: property.askingPrice ?? null,
-    hasActiveListing: property.hasActiveListing ?? property.hasListing ?? null,
+    hasActiveListing: property.hasActiveListing ?? null,
     marketState: property.marketState ?? null,
     socialScore: property.socialScore ?? null,
     recentSocialScore: property.recentSocialScore ?? null,

@@ -243,6 +243,7 @@ function buildSubmittedListing(
     numRooms: null,
     energyLabel: null,
     status: submit.status,
+    activeEligible: submit.activeEligible ?? false,
     candidateHandoffState: submit.candidateHandoffState,
     verificationState: submit.verificationState,
     reasonCode: submit.reasonCode,

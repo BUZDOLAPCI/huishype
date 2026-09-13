@@ -213,6 +213,8 @@ export interface ListingPreviewResponse {
 }
 
 export interface ListingSubmitResult extends SubmitListingResponse {
+  /** Current display eligibility evaluated by the server, when returned. */
+  activeEligible?: boolean;
   canonicalUrl: string | null;
   sourceListingId: string | null;
   candidateHandoffState: ListingCandidateHandoffState;
@@ -237,7 +239,10 @@ export interface ListingReadItem {
   livingAreaM2: number | null;
   numRooms: number | null;
   energyLabel: string | null;
+  /** Last source-confirmed status; expiry never creates a terminal outcome. */
   status: ListingStatus;
+  /** Server-evaluated eligibility for current sale/rent displays and filters. */
+  activeEligible: boolean;
   candidateHandoffState: ListingCandidateHandoffState | null;
   verificationState: ListingVerificationState;
   reasonCode: ListingReasonCode | string | null;

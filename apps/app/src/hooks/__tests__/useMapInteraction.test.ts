@@ -1888,6 +1888,61 @@ describe('useMapInteraction', () => {
       });
     });
 
+    it('clears an old tile asking price on expiry and restores it from newer detail evidence', async () => {
+      const detail = {
+        id: 'prop-1',
+        address: '123 Main St',
+        city: 'Amsterdam',
+        countryCode: 'NL',
+        hasListing: true,
+        hasActiveListing: false,
+        latestListingStatus: 'active',
+        marketState: 'not-listed',
+        askingPrice: null,
+      };
+      mockUseProperty.mockReturnValue({ data: detail, isLoading: false });
+      const { result, rerender } = renderHook(() => useMapInteraction(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.setPreviewGroup({
+          properties: [{
+            id: 'prop-1',
+            address: '123 Main St',
+            city: 'Amsterdam',
+            askingPrice: 425000,
+            hasActiveListing: true,
+            marketState: 'for-sale',
+          }],
+          coordinate: [4.9, 52.37],
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.previewGroup?.properties[0]).toMatchObject({
+          askingPrice: null,
+          hasActiveListing: false,
+          marketState: 'not-listed',
+        });
+      });
+      expect(result.current.selectedPropertyForSheet?.askingPrice).toBeNull();
+      expect(detail.latestListingStatus).toBe('active');
+
+      mockUseProperty.mockReturnValue({
+        data: { ...detail, hasActiveListing: true, marketState: 'for-sale', askingPrice: 415000 },
+        isLoading: false,
+      });
+      rerender({});
+      await waitFor(() => {
+        expect(result.current.previewGroup?.properties[0]).toMatchObject({
+          askingPrice: 415000,
+          hasActiveListing: true,
+          marketState: 'for-sale',
+        });
+      });
+    });
+
     it('replaces neutral bootstrap activity with hydrated server activity', async () => {
       mockUseProperty.mockReturnValue({
         data: {

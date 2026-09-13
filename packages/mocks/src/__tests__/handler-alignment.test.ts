@@ -599,6 +599,7 @@ describe('Mock handler runtime parity', () => {
     expect(submitBody).toHaveProperty('sourceUrl');
     expect(submitBody).toHaveProperty('sourceName');
     expect(submitBody).toHaveProperty('status');
+    expect(submitBody).toHaveProperty('activeEligible', true);
     expect(submitBody).toHaveProperty('createdAt');
     expect(submitBody).toHaveProperty('canonicalUrl');
     expect(submitBody).toHaveProperty('sourceListingId');
@@ -691,6 +692,7 @@ describe('Mock handler runtime parity', () => {
     expect(body).not.toHaveProperty('listings');
     expect(Array.isArray(body.data)).toBe(true);
     if (body.data.length > 0) {
+      expect(body.data[0]).toHaveProperty('activeEligible', body.data[0].status === 'active');
       expect(body.data[0]).toHaveProperty('thumbnailUrl');
       expect(body.data[0]).toHaveProperty('propertyId');
       expect(body.data[0]).toHaveProperty('sourceUrl');
@@ -1485,6 +1487,24 @@ describe('Mock handler runtime parity', () => {
       })
     );
     expect(publicBody.items[0]).toHaveProperty('property');
+    for (const item of publicBody.items) {
+      const fixture = getMockProperty(item.property.id)!;
+      expect(item.property).toMatchObject({
+        askingPrice: fixture.activeListing?.askingPrice ?? null,
+        officialValuation: fixture.officialValuation ?? null,
+        officialValuationYear: fixture.officialValuationYear ?? null,
+        officialValuationSourceFetch: null,
+        marketState: fixture.activeListing ? 'for-sale' : 'not-listed',
+        hasListing: Boolean(fixture.activeListing),
+        yearBuilt: fixture.yearBuilt ?? null,
+        floorAreaM2: fixture.floorAreaM2 ?? null,
+        isLiked: false,
+        isSaved: false,
+      });
+      if (item.preview.kind === 'comment') {
+        expect(item.preview).toMatchObject({ likeCount: expect.any(Number), isLiked: false });
+      }
+    }
     expect(publicBody.items[0]).toHaveProperty('lastActivityAt');
     expect(publicBody.items[0]).toHaveProperty('counts');
     expect(publicBody.items[0]).toHaveProperty('recentActors');

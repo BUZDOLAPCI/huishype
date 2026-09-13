@@ -1,7 +1,16 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { Linking } from 'react-native';
 import { ListingLinks } from '../ListingLinks';
 import type { ListingData } from '../../../hooks/useListings';
+
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native');
+  return {
+    ...actual,
+    Linking: { ...actual.Linking, canOpenURL: jest.fn(), openURL: jest.fn() },
+  };
+});
 
 jest.mock('../SectionCard', () => ({
   SectionCard: ({ children }: { children: React.ReactNode }) => {
@@ -28,6 +37,7 @@ const baseListing: ListingData = {
   numRooms: null,
   energyLabel: null,
   status: 'active',
+  activeEligible: true,
   candidateHandoffState: null,
   verificationState: 'validated',
   reasonCode: null,
@@ -81,6 +91,76 @@ describe('ListingLinks', () => {
     expect(screen.getByText('Sold')).toBeTruthy();
     expect(screen.getByText('Rented')).toBeTruthy();
     expect(screen.queryByText('Validated')).toBeNull();
+  });
+
+  it('moves an expired factual active listing into history without inventing an outcome', async () => {
+    const onLinkPress = jest.fn();
+    jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(true);
+    const openUrl = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    const expired = { ...baseListing, activeEligible: false };
+
+    render(<ListingLinks listings={[expired]} onLinkPress={onLinkPress} />);
+
+    expect(screen.queryByTestId('current-listings')).toBeNull();
+    const history = within(screen.getByTestId('past-listings'));
+    expect(history.getByText('Past listings (1)')).toBeTruthy();
+    expect(history.getByText(/^Asking price .*425/)).toBeTruthy();
+    expect(history.getByText(/^Listed /)).toBeTruthy();
+    expect(screen.queryByText(/^(For sale|For rent|Sold|Rented|Withdrawn)$/)).toBeNull();
+    expect(screen.queryByText(/stale|checking|freshness|expired/i)).toBeNull();
+
+    fireEvent.press(history.getByTestId(`listing-link-${expired.id}`));
+    await waitFor(() => expect(openUrl).toHaveBeenCalledWith(expired.displayUrl));
+    expect(onLinkPress).toHaveBeenCalledWith('funda');
+    expect(expired.status).toBe('active');
+    jest.restoreAllMocks();
+  });
+
+  it('retains grace-period availability and restores current display after renewed evidence', () => {
+    const { rerender } = render(<ListingLinks listings={[baseListing]} />);
+    expect(within(screen.getByTestId('current-listings')).getByText('For sale')).toBeTruthy();
+    expect(screen.queryByTestId('past-listings')).toBeNull();
+
+    rerender(<ListingLinks listings={[{ ...baseListing, activeEligible: false }]} />);
+    expect(screen.queryByText('For sale')).toBeNull();
+    expect(screen.getByTestId('past-listings')).toBeTruthy();
+
+    rerender(<ListingLinks listings={[{ ...baseListing, activeEligible: true }]} />);
+    expect(screen.getByText('For sale')).toBeTruthy();
+    expect(screen.queryByTestId('past-listings')).toBeNull();
+  });
+
+  it('keeps explicit terminal evidence in history even if an eligibility flag is inconsistent', () => {
+    render(
+      <ListingLinks
+        listings={[
+          { ...baseListing, id: 'sold-listing', status: 'sold', activeEligible: true },
+          { ...baseListing, id: 'rented-listing', status: 'rented', activeEligible: true },
+          { ...baseListing, id: 'withdrawn-listing', status: 'withdrawn', activeEligible: true },
+          baseListing,
+        ]}
+      />
+    );
+
+    const current = within(screen.getByTestId('current-listings'));
+    const history = within(screen.getByTestId('past-listings'));
+    expect(current.getByText('For sale')).toBeTruthy();
+    expect(history.getByText('Past listings (3)')).toBeTruthy();
+    expect(history.getByText('Sold')).toBeTruthy();
+    expect(history.getByText('Rented')).toBeTruthy();
+    expect(history.getByText(/^Withdrawn /)).toBeTruthy();
+    expect(history.queryByText('For sale')).toBeNull();
+    expect(history.getAllByText(/^Asking price /)).toHaveLength(3);
+  });
+
+  it('keeps an unpriced historical rental linked without showing a current rental badge', () => {
+    render(
+      <ListingLinks listings={[{ ...baseListing, activeEligible: false, priceType: 'rent', askingPrice: null }]} />
+    );
+    expect(screen.getByTestId('past-listings')).toBeTruthy();
+    expect(screen.getByText('Funda')).toBeTruthy();
+    expect(screen.queryByText('For rent')).toBeNull();
+    expect(screen.queryByText(/^Asking price /)).toBeNull();
   });
 
   it('prefers source lifecycle dates over lifecycleDate and mirror timestamps', () => {

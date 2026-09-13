@@ -12,7 +12,11 @@ interface ListingLinksProps {
 }
 
 export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLinksProps) {
-  const hasListings = listings && listings.length > 0;
+  const hasListings = listings.length > 0;
+  const isCurrentListing = (listing: ListingData) =>
+    listing.status === 'active' && listing.activeEligible;
+  const currentListings = listings.filter(isCurrentListing);
+  const pastListings = listings.filter((listing) => !isCurrentListing(listing));
 
   const handleOpenLink = async (url: string, source: string) => {
     try {
@@ -59,6 +63,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
   const getListingMarketState = (listing: ListingData): ListingMarketState | null => {
     switch (listing.status) {
       case 'active':
+        if (!listing.activeEligible) return null;
         return listing.priceType === 'rent' ? 'for-rent' : 'for-sale';
       case 'sold':
         return 'sold';
@@ -94,6 +99,47 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
     }).format(date);
   };
 
+  const renderListing = (listing: ListingData) => {
+    const sourceInfo = getSourceInfo(listing.sourceName);
+    const price = formatPrice(listing.askingPrice, listing.priceType);
+    const listingMarketState = getListingMarketState(listing);
+    const sourceUrl = listing.displayUrl ?? listing.canonicalUrl ?? listing.sourceUrl;
+    const lifecycleDate = formatLifecycleDate(getLifecycleDate(listing));
+    const lifecycleText = lifecycleDate
+      ? `${getLifecycleLabel(listing.status)} ${lifecycleDate}`
+      : null;
+
+    return (
+      <Pressable
+        key={listing.id}
+        testID={`listing-link-${listing.id}`}
+        accessibilityRole="link"
+        accessibilityLabel={`View on ${sourceInfo.name}`}
+        onPress={() => handleOpenLink(sourceUrl, listing.sourceName)}
+        style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      >
+        <View style={[styles.iconTile, { backgroundColor: `${sourceInfo.color}18` }]}>
+          <Ionicons name={sourceInfo.icon} size={20} color={sourceInfo.color} />
+        </View>
+
+        <View style={styles.rowCopy}>
+          <View style={styles.rowTop}>
+            <Text style={styles.sourceName}>{sourceInfo.name}</Text>
+            <ListingPill marketState={listingMarketState} />
+          </View>
+          {lifecycleText ? <Text style={styles.rowMeta}>{lifecycleText}</Text> : null}
+          {price ? (
+            <Text style={styles.rowPrice}>
+              {isCurrentListing(listing) ? price : `Asking price ${price}`}
+            </Text>
+          ) : null}
+        </View>
+
+        <Ionicons name="open-outline" size={18} color="#C7BFB3" />
+      </Pressable>
+    );
+  };
+
   return (
     <SectionCard
       title={`Listings${hasListings ? ` (${listings.length})` : ''}`}
@@ -101,40 +147,17 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
       description="Jump to the source listing or add another market reference for this address."
     >
       <View style={styles.stack}>
-        {hasListings &&
-          listings.map((listing) => {
-            const sourceInfo = getSourceInfo(listing.sourceName);
-            const price = formatPrice(listing.askingPrice, listing.priceType);
-            const listingMarketState = getListingMarketState(listing);
-            const sourceUrl = listing.displayUrl ?? listing.canonicalUrl ?? listing.sourceUrl;
-            const lifecycleDate = formatLifecycleDate(getLifecycleDate(listing));
-            const lifecycleText = lifecycleDate
-              ? `${getLifecycleLabel(listing.status)} ${lifecycleDate}`
-              : null;
-
-            return (
-              <Pressable
-                key={listing.id}
-                onPress={() => handleOpenLink(sourceUrl, listing.sourceName)}
-                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-              >
-                <View style={[styles.iconTile, { backgroundColor: `${sourceInfo.color}18` }]}>
-                  <Ionicons name={sourceInfo.icon} size={20} color={sourceInfo.color} />
-                </View>
-
-                <View style={styles.rowCopy}>
-                  <View style={styles.rowTop}>
-                    <Text style={styles.sourceName}>{sourceInfo.name}</Text>
-                    <ListingPill marketState={listingMarketState} />
-                  </View>
-                  {lifecycleText ? <Text style={styles.rowMeta}>{lifecycleText}</Text> : null}
-                  {price ? <Text style={styles.rowPrice}>{price}</Text> : null}
-                </View>
-
-                <Ionicons name="open-outline" size={18} color="#C7BFB3" />
-              </Pressable>
-            );
-          })}
+        {currentListings.length > 0 ? (
+          <View style={styles.stack} testID="current-listings">
+            {currentListings.map(renderListing)}
+          </View>
+        ) : null}
+        {pastListings.length > 0 ? (
+          <View style={styles.stack} testID="past-listings">
+            <Text style={styles.groupTitle}>Past listings ({pastListings.length})</Text>
+            {pastListings.map(renderListing)}
+          </View>
+        ) : null}
 
         {!hasListings ? (
           <View style={styles.emptyState}>
@@ -163,6 +186,12 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
 const styles = StyleSheet.create({
   stack: {
     gap: 10,
+  },
+  groupTitle: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#736C62',
   },
   row: {
     flexDirection: 'row',
