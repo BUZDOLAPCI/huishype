@@ -57,7 +57,54 @@ pnpm --filter @huishype/api exec tsx src/scripts/reconcile-source-identities.ts 
 ```
 
 Add `--execute` to apply the audited plan. Dry run and execution report before and
-after row, duplicate, alias and quarantine counts. Writer generation rotation is
+after row, duplicate and quarantine counts, graph profiling counts, and bounded
+conflict samples. The command opens its own PostgreSQL connection and requires
+only `DATABASE_URL`; it does not initialize API configuration or Redis.
+
+After database migrations, API and worker startup must pass this gate:
+
+```
+pnpm --filter @huishype/api exec tsx src/scripts/reconcile-source-identities.ts --source funda --execute --once
+```
+
+The built runtime equivalent is `node dist/scripts/reconcile-source-identities.js
+--source funda --execute --once` from the API package directory. `--once` requires
+`--execute`. Migration 0065 provides the durable
+`source_identity_reconciliation_checkpoints` table keyed by source and algorithm
+version. Version `source-identities-v1` is checked under the same source advisory
+transaction lock used by ingestion. Reconciliation and its completion checkpoint
+commit together; a failed run exits nonzero and leaves neither partial changes
+nor a checkpoint. Concurrent startup attempts serialize, and later attempts for
+the same version skip graph preparation entirely. An explicit manual `--execute`
+reruns reconciliation and refreshes the checkpoint.
+
+Startup prints bounded JSON with `sourceName`, `reconciliationVersion`, `status`
+(`completed` or `already_completed`), `completedAt`, and aggregate `report` counts.
+The report includes graph parent bytes, edge batch limit, edges read, maximum
+component rows, graph preparation and total reconciliation milliseconds, and
+counts of fresh components and legacy rows processed in bulk; no conflict examples or
+listing payloads are stored in the checkpoint. Dry runs return `dry_run` and do
+not create a checkpoint. Bump the algorithm version only when existing sources
+must be reconciled again.
+
+Reconciliation reduces observation history to distinct identity metadata inside
+PostgreSQL. Graph union keeps four bytes per listing row in Node, reads numeric
+edges and component metadata in pages of 5,000 rows, and retains only the current
+component plus its page. PostgreSQL sorts can spill according to its configured
+`work_mem`; history payloads never enter the application heap. Full before rows
+and observation, price and handoff references are recorded server-side for rows
+being reconciled. Their audit envelope marks `snapshotFormat: "postgres_row_v1"`
+because these snapshots use database column names.
+
+Fresh components with at most one canonical listing can be created in bulk only
+when property and stable identity evidence agree, none of their aliases is shared
+with another component, and no identity, alias owner or prior reconciliation
+already exists. Bulk creation preserves full legacy audit rows and changes no
+canonical facts or history. Every other component uses the same conflict checks
+and audited reference moves as the individual resolver. Both paths run under the
+source advisory lock shared with live ingestion.
+
+Writer generation rotation is
 an operator transaction through `activateIngestWriterGeneration`; generation
 numbers never decrease.
 

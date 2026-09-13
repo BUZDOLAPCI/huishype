@@ -937,6 +937,18 @@ export const sourceIdentityReconciliations = pgTable('source_identity_reconcilia
   check('source_identity_reconciliations_table_check', sql`${table.listingTable} IN ('canonical_listings', 'listings')`),
 ]);
 
+// Completion is committed atomically with its source/version reconciliation.
+export const sourceIdentityReconciliationCheckpoints = pgTable('source_identity_reconciliation_checkpoints', {
+  sourceName: varchar('source_name', { length: 50 }).notNull(),
+  reconciliationVersion: varchar('reconciliation_version', { length: 100 }).notNull(),
+  completedAt: timestamp('completed_at', { withTimezone: true }).notNull().defaultNow(),
+  reportJson: jsonb('report_json').$type<Record<string, unknown>>().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.sourceName, table.reconciliationVersion], name: 'source_identity_reconciliation_checkpoints_pkey' }),
+  check('source_identity_reconciliation_checkpoint_keys', sql`btrim(${table.sourceName}) <> '' AND btrim(${table.reconciliationVersion}) <> ''`),
+  check('source_identity_reconciliation_checkpoint_report', sql`jsonb_typeof(${table.reportJson}) = 'object' AND octet_length(${table.reportJson}::text) <= 4096`),
+]);
+
 // Durable ingest run ledger (optional when upstream provides a stable run identity)
 export const ingestRuns = pgTable(
   'ingest_runs',

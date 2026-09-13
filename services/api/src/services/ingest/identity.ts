@@ -1,10 +1,11 @@
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import type { DbTransaction } from '../../db/index.js';
 import {
-  canonicalListings, listings, listingObservations, listingObservationLinks, listingPriceObservations, listingCandidateHandoffs,
-  listingSourceAliases, sourceListingAliases, sourceListingIdentities,
-  sourceIdentityQuarantines, sourceIdentityReconciliations,
+  canonicalListings, listings, listingObservationLinks, listingCandidateHandoffs,
+  sourceListingAliases, sourceListingIdentities,
+  sourceIdentityQuarantines,
 } from '../../db/schema.js';
+import { applyFreshIdentityComponents } from './identity-reconciliation-fast-path.js';
 
 export interface SourceAlias { kind: string; value: string }
 export type SourceListingIdentity = typeof sourceListingIdentities.$inferSelect;
@@ -59,11 +60,29 @@ async function quarantineIdentities(
   aliases: SourceAlias[],
   listingIds: string[],
   details: Record<string, unknown>,
+  auditMode?: 'server',
 ): Promise<IdentityResolution> {
   const first = identities[0];
   if (!first) throw new Error('Cannot quarantine an absent identity');
   const ids = [...new Set(identities.map((identity) => identity.id))];
   const affectedListings = [...new Set([...listingIds, ...identities.flatMap((identity) => identity.canonicalListingId ? [identity.canonicalListingId] : [])])];
+  if (auditMode === 'server') {
+    const [audit] = Array.from(await tx.execute<{ id: string }>(sql`INSERT INTO source_identity_quarantines
+      (source_name,reason,identity_ids,listing_ids,aliases_json,details_json)
+      SELECT ${first.sourceName},${reason},${JSON.stringify(ids)}::jsonb,${JSON.stringify(affectedListings)}::jsonb,${JSON.stringify(aliases)}::jsonb,
+        ${JSON.stringify(details)}::jsonb || jsonb_build_object('canonicalSnapshotFormat','postgres_row_v1',
+          'canonicalBefore',(SELECT COALESCE(jsonb_agg(to_jsonb(canonical_row)),'[]'::jsonb) FROM canonical_listings canonical_row
+            WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${JSON.stringify(affectedListings)}::jsonb))))
+      RETURNING id`));
+    const affected = Array.from(await tx.execute<{ property_id: string }>(sql`SELECT DISTINCT property_id FROM canonical_listings
+      WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${JSON.stringify(affectedListings)}::jsonb))`));
+    await tx.execute(sql`UPDATE source_listing_identities SET quarantined_at = now(),quarantine_reason = ${reason},updated_at = now()
+      WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb))`);
+    await tx.execute(sql`UPDATE canonical_listings SET verification_state = 'invalid',active_eligible = false
+      WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${JSON.stringify(affectedListings)}::jsonb))`);
+    const [identity] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.id, first.id));
+    return { identity: identity!, quarantined: true, quarantineId: audit!.id, affectedPropertyIds: affected.map(row => row.property_id) };
+  }
   const before = affectedListings.length
     ? await tx.select().from(canonicalListings).where(inArray(canonicalListings.id, affectedListings))
     : [];
@@ -84,22 +103,24 @@ async function quarantineIdentities(
 }
 
 export async function quarantineSourceIdentity(tx: DbTransaction, input: {
-  identityId: string; reason: string; details: Record<string, unknown>; listingIds?: string[];
+  identityId: string; reason: string; details: Record<string, unknown>; listingIds?: string[]; auditMode?: 'server';
 }): Promise<IdentityResolution> {
   const [initial] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.id, input.identityId));
   if (!initial) throw new Error(`Unknown source identity ${input.identityId}`);
   await lockIngestSource(tx, initial.sourceName);
   const [identity] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.id, input.identityId));
   if (!identity) throw new Error(`Unknown source identity ${input.identityId}`);
-  return quarantineIdentities(tx, [identity], input.reason, [], input.listingIds ?? [], input.details);
+  return quarantineIdentities(tx, [identity], input.reason, [], input.listingIds ?? [], input.details, input.auditMode);
 }
 
 export async function resolveSourceListingIdentity(tx: DbTransaction, input: {
-  sourceName: string; primaryId: string; primaryIdType: string; aliases?: SourceAlias[];
+  sourceName: string; primaryId: string; primaryIdType: string; aliases?: SourceAlias[]; auditMode?: 'server';
 }): Promise<IdentityResolution> {
   const aliases = normalizeIdentityAliases([{ kind: input.primaryIdType, value: input.primaryId }, ...(input.aliases ?? [])]);
   await lockIngestSource(tx, input.sourceName);
-  await lockAliases(tx, input.sourceName, aliases);
+  // Whole-source reconciliation already holds the same writer lock. Retaining
+  // a million redundant per-alias xact locks would exhaust PostgreSQL's lock table.
+  if (input.auditMode !== 'server') await lockAliases(tx, input.sourceName, aliases);
   const matches = await tx.select({ identity: sourceListingIdentities, kind: sourceListingAliases.kind, value: sourceListingAliases.value }).from(sourceListingAliases)
     .innerJoin(sourceListingIdentities, eq(sourceListingIdentities.id, sourceListingAliases.identityId))
     .where(and(eq(sourceListingAliases.sourceName, input.sourceName), or(...aliases.map((alias) => and(
@@ -151,7 +172,7 @@ export async function resolveSourceListingIdentity(tx: DbTransaction, input: {
         kind: input.primaryIdType.trim(), value: input.primaryId.trim(), identityId: primaryIdentity!.id }).onConflictDoNothing();
     }
     return quarantineIdentities(tx, [primaryIdentity!, ...identities.filter((identity) => identity.id !== primaryIdentity!.id)],
-      'aliases_resolve_to_multiple_identities', aliases, [], { incoming: input });
+      'aliases_resolve_to_multiple_identities', aliases, [], { incoming: input }, input.auditMode);
   }
   let identity = identities[0];
   if (!identity) {
@@ -169,7 +190,7 @@ export async function resolveSourceListingIdentity(tx: DbTransaction, input: {
     // quarantine without assigning any of the contradictory aliases to it.
     await tx.insert(sourceListingAliases).values({ sourceName: input.sourceName,
       kind: identity.primaryIdType, value: identity.primaryId, identityId: identity.id }).onConflictDoNothing();
-    return quarantineIdentities(tx, [identity], 'conflicting_source_identities', aliases, [], { incoming: input });
+    return quarantineIdentities(tx, [identity], 'conflicting_source_identities', aliases, [], { incoming: input }, input.auditMode);
   }
   // A quarantined identity retains all evidence but cannot silently acquire new links.
   if (!identity.quarantinedAt) {
@@ -201,7 +222,7 @@ export async function resolveSourceListingIdentity(tx: DbTransaction, input: {
   return { identity, quarantined: identity.quarantinedAt !== null };
 }
 
-export async function bindSourceIdentityToListing(tx: DbTransaction, identityId: string, listingId: string): Promise<IdentityResolution> {
+export async function bindSourceIdentityToListing(tx: DbTransaction, identityId: string, listingId: string, auditMode?: 'server'): Promise<IdentityResolution> {
   const [initial] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.id, identityId));
   if (!initial) throw new Error(`Unknown source identity ${identityId}`);
   await lockIngestSource(tx, initial.sourceName);
@@ -217,7 +238,7 @@ export async function bindSourceIdentityToListing(tx: DbTransaction, identityId:
   ));
   if (competing.length || (bound[0] && bound[0].id !== listingId)) {
     return quarantineIdentities(tx, [identity, ...competing], bound[0]?.propertyId !== listing.propertyId
-      ? 'conflicting_property_links' : 'multiple_canonical_links', [], [listingId], {});
+      ? 'conflicting_property_links' : 'multiple_canonical_links', [], [listingId], {}, auditMode);
   }
   const [updated] = await tx.update(sourceListingIdentities).set({ canonicalListingId: listingId, updatedAt: new Date() })
     .where(eq(sourceListingIdentities.id, identityId)).returning();
@@ -233,7 +254,7 @@ export interface LegacyIdentityRow {
   aliases: SourceAlias[];
   status: string;
   createdAt: Date;
-  snapshot: Record<string, unknown>;
+  snapshot?: Record<string, unknown>;
 }
 export interface IdentityReconciliationGroup {
   rows: LegacyIdentityRow[];
@@ -261,7 +282,11 @@ export function planIdentityReconciliation(rows: LegacyIdentityRow[]): IdentityR
     }
   });
   const groups = new Map<number, LegacyIdentityRow[]>();
-  rows.forEach((row, index) => { const key = root(index); groups.set(key, [...(groups.get(key) ?? []), row]); });
+  rows.forEach((row, index) => {
+    const key = root(index);
+    const group = groups.get(key);
+    if (group) group.push(row); else groups.set(key, [row]);
+  });
   return [...groups.values()].map((group) => {
     group.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
     const canonical = group.filter((row) => row.listingTable === 'canonical_listings');
@@ -279,99 +304,297 @@ export function planIdentityReconciliation(rows: LegacyIdentityRow[]): IdentityR
   });
 }
 
-function validAliases(value: unknown): SourceAlias[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is SourceAlias => Boolean(item && typeof item === 'object'
-    && typeof item.kind === 'string' && item.kind.trim() && typeof item.value === 'string' && item.value.trim()));
+/**
+ * Reduce history to distinct identity metadata inside PostgreSQL. Its bounded
+ * work_mem sort can spill to disk; payloads and full history never enter Node.
+ * Both lookup indexes matter: canonical links and legacy payload mirror IDs are
+ * separate, explicitly recorded evidence paths.
+ */
+async function prepareLegacyIdentityMetadata(tx: DbTransaction, sourceName: string): Promise<void> {
+  // ECMAScript String.trim whitespace, kept identical to normalizeIdentityAliases.
+  await tx.execute(sql`CREATE OR REPLACE FUNCTION pg_temp.ingest_identity_trim(value text) RETURNS text
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ SELECT btrim(value,
+      chr(9)||chr(10)||chr(11)||chr(12)||chr(13)||chr(32)||chr(160)||chr(5760)||
+      chr(8192)||chr(8193)||chr(8194)||chr(8195)||chr(8196)||chr(8197)||chr(8198)||chr(8199)||chr(8200)||chr(8201)||chr(8202)||
+      chr(8232)||chr(8233)||chr(8239)||chr(8287)||chr(12288)||chr(65279)) $$`);
+  await tx.execute(sql`DROP TABLE IF EXISTS pg_temp.ingest_identity_observation_metadata`);
+  await tx.execute(sql`CREATE TEMP TABLE ingest_identity_observation_metadata ON COMMIT DROP AS
+    SELECT DISTINCT links.canonical_listing_id,
+      observation.payload->>'mirrorListingId' AS mirror_listing_id,
+      observation.source_listing_id, observation.source_listing_id_kind::text AS source_listing_id_kind,
+      observation.source_listing_aliases
+    FROM listing_observations observation
+    LEFT JOIN listing_observation_links links ON links.listing_observation_id = observation.id
+    WHERE observation.source_name = ${sourceName}
+      AND (links.canonical_listing_id IS NOT NULL OR observation.payload->>'mirrorListingId' IS NOT NULL)`);
+  await tx.execute(sql`CREATE INDEX ON ingest_identity_observation_metadata(canonical_listing_id)`);
+  await tx.execute(sql`CREATE INDEX ON ingest_identity_observation_metadata(mirror_listing_id)`);
+  await tx.execute(sql`ANALYZE ingest_identity_observation_metadata`);
+  await tx.execute(sql`DROP TABLE IF EXISTS pg_temp.ingest_identity_reconciliation_nodes`);
+  await tx.execute(sql`CREATE TEMP TABLE ingest_identity_reconciliation_nodes ON COMMIT DROP AS
+    WITH source_rows AS (
+      SELECT 'canonical_listings'::text AS listing_table, id, property_id,
+        primary_source_listing_id AS source_primary, COALESCE(primary_source_listing_id,id::text) AS primary_id,
+        status::text, created_at
+      FROM canonical_listings WHERE source_name = ${sourceName}
+      UNION ALL
+      SELECT 'listings', id, property_id, mirror_listing_id, COALESCE(mirror_listing_id,id::text), status::text, created_at
+      FROM listings WHERE source_name = ${sourceName}
+    )
+    SELECT (row_number() OVER (ORDER BY row.listing_table,row.id)-1)::integer AS node_id, 0::integer AS component,
+      row.listing_table, row.id, row.property_id, row.primary_id,
+      COALESCE(observed.primary_type, known.primary_type,
+        CASE WHEN row.source_primary IS NULL THEN 'legacy_row_id' ELSE 'unknown' END) AS primary_id_type,
+      evidence.aliases, row.status, row.created_at
+    FROM source_rows row
+    LEFT JOIN LATERAL (
+      SELECT min(observation.source_listing_id_kind) FILTER (
+          WHERE observation.source_listing_id = row.source_primary
+            AND observation.source_listing_id_kind <> 'unknown') AS primary_type,
+        COALESCE(jsonb_agg(DISTINCT alias.value) FILTER (
+          WHERE jsonb_typeof(alias.value->'kind') = 'string' AND jsonb_typeof(alias.value->'value') = 'string'
+            AND pg_temp.ingest_identity_trim(alias.value->>'kind') <> '' AND pg_temp.ingest_identity_trim(alias.value->>'value') <> ''), '[]'::jsonb) AS aliases
+      FROM (
+        SELECT * FROM ingest_identity_observation_metadata
+        WHERE row.listing_table = 'canonical_listings' AND canonical_listing_id = row.id
+        UNION ALL
+        SELECT * FROM ingest_identity_observation_metadata
+        WHERE row.listing_table = 'listings' AND mirror_listing_id = row.source_primary
+      ) observation
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(observation.source_listing_aliases) = 'array'
+          THEN observation.source_listing_aliases ELSE '[]'::jsonb END
+        || jsonb_build_array(jsonb_build_object('kind', observation.source_listing_id_kind, 'value', observation.source_listing_id))
+      ) alias(value)
+    ) observed ON true
+    LEFT JOIN LATERAL (
+      SELECT min(alias_kind::text) AS primary_type FROM listing_source_aliases
+      WHERE source_name = ${sourceName} AND primary_source_listing_id = row.primary_id AND alias_value = row.primary_id
+    ) known ON true
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(jsonb_agg(jsonb_build_object('kind',kind,'value',value) ORDER BY kind,value),'[]'::jsonb) AS aliases
+      FROM (
+        SELECT DISTINCT pg_temp.ingest_identity_trim(candidate->>'kind') AS kind, pg_temp.ingest_identity_trim(candidate->>'value') AS value
+        FROM (
+          SELECT value AS candidate FROM jsonb_array_elements(observed.aliases)
+          UNION ALL
+          SELECT jsonb_build_object('kind',alias_kind,'value',alias_value) FROM listing_source_aliases
+            WHERE source_name = ${sourceName} AND primary_source_listing_id = row.primary_id
+          UNION ALL
+          SELECT jsonb_build_object('kind',alias.kind,'value',alias.value)
+            FROM source_listing_identities identity JOIN source_listing_aliases alias ON alias.identity_id = identity.id
+            WHERE row.listing_table = 'canonical_listings' AND identity.canonical_listing_id = row.id
+              AND identity.source_name = ${sourceName} AND alias.source_name = ${sourceName}
+          UNION ALL
+          SELECT value FROM source_identity_reconciliations previous
+            CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(previous.details_json->'aliases') = 'array'
+              THEN previous.details_json->'aliases' ELSE '[]'::jsonb END)
+            WHERE previous.listing_table = row.listing_table AND previous.listing_id = row.id AND previous.source_name = ${sourceName}
+        ) candidates
+        WHERE jsonb_typeof(candidate->'kind') = 'string' AND jsonb_typeof(candidate->'value') = 'string'
+          AND pg_temp.ingest_identity_trim(candidate->>'kind') <> '' AND pg_temp.ingest_identity_trim(candidate->>'value') <> ''
+      ) distinct_aliases
+    ) evidence ON true
+    ORDER BY row.listing_table,row.id
+  `);
+  await tx.execute(sql`CREATE UNIQUE INDEX ON ingest_identity_reconciliation_nodes(node_id)`);
+  await tx.execute(sql`ANALYZE ingest_identity_reconciliation_nodes`);
 }
 
+type IdentityMetadataRow = {
+  listing_table: LegacyIdentityRow['listingTable']; id: string; property_id: string;
+  primary_id: string; primary_id_type: string; aliases: SourceAlias[]; status: string; created_at: Date;
+};
+function identityMetadataRow(row: IdentityMetadataRow): LegacyIdentityRow {
+  return { listingTable: row.listing_table, id: row.id, propertyId: row.property_id,
+    primaryId: row.primary_id, primaryIdType: row.primary_id_type, aliases: row.aliases,
+    status: row.status, createdAt: new Date(row.created_at) };
+}
+
+/** Convenience metadata reader; the mandatory reconciliation below streams graph components. */
 export async function loadLegacyIdentityRows(tx: DbTransaction, sourceName: string): Promise<LegacyIdentityRow[]> {
-  const canonical = await tx.select().from(canonicalListings).where(eq(canonicalListings.sourceName, sourceName));
-  const legacy = await tx.select().from(listings).where(eq(listings.sourceName, sourceName));
-  const observations = await tx.select({ observation: listingObservations, canonicalId: listingObservationLinks.canonicalListingId })
-    .from(listingObservations).leftJoin(listingObservationLinks, eq(listingObservationLinks.listingObservationId, listingObservations.id))
-    .where(eq(listingObservations.sourceName, sourceName));
-  const oldAliases = await tx.select().from(listingSourceAliases).where(eq(listingSourceAliases.sourceName, sourceName));
-  const currentIdentities = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.sourceName, sourceName));
-  const currentAliases = await tx.select().from(sourceListingAliases).where(eq(sourceListingAliases.sourceName, sourceName));
-  const priorReconciliations = await tx.select().from(sourceIdentityReconciliations).where(eq(sourceIdentityReconciliations.sourceName, sourceName));
-  const currentAliasMap = new Map<string, SourceAlias[]>();
-  for (const alias of currentAliases) currentAliasMap.set(alias.identityId, [...(currentAliasMap.get(alias.identityId) ?? []), alias]);
-  const aliasesByCanonical = new Map(currentIdentities.filter((identity) => identity.canonicalListingId)
-    .map((identity) => [identity.canonicalListingId!, currentAliasMap.get(identity.id) ?? []]));
-  const priorAliasesByRow = new Map(priorReconciliations.map((entry) => [
-    `${entry.listingTable}:${entry.listingId}`, validAliases(entry.detailsJson.aliases),
-  ]));
-  const evidence = new Map<string, typeof observations>();
-  for (const row of observations) {
-    const keys = [row.canonicalId ? `canonical:${row.canonicalId}` : null,
-      typeof row.observation.payload.mirrorListingId === 'string' ? `mirror:${row.observation.payload.mirrorListingId}` : null];
-    for (const key of keys) if (key) evidence.set(key, [...(evidence.get(key) ?? []), row]);
+  await prepareLegacyIdentityMetadata(tx, sourceName);
+  return Array.from(await tx.execute<IdentityMetadataRow>(sql`SELECT * FROM pg_temp.ingest_identity_reconciliation_nodes ORDER BY node_id`), identityMetadataRow);
+}
+
+const IDENTITY_GRAPH_PAGE_SIZE = 5_000;
+async function prepareIdentityComponents(tx: DbTransaction, sourceName: string) {
+  const startedAt = performance.now();
+  await prepareLegacyIdentityMetadata(tx, sourceName);
+  const [counts] = Array.from(await tx.execute<{ rows: number; canonical_rows: number; legacy_rows: number }>(sql`
+    SELECT count(*)::integer AS rows,
+      count(*) FILTER (WHERE listing_table = 'canonical_listings')::integer AS canonical_rows,
+      count(*) FILTER (WHERE listing_table = 'listings')::integer AS legacy_rows
+    FROM pg_temp.ingest_identity_reconciliation_nodes`));
+  const parents = new Int32Array(counts!.rows);
+  for (let index = 0; index < parents.length; index += 1) parents[index] = index;
+  const root = (index: number): number => {
+    while (parents[index] !== index) { parents[index] = parents[parents[index]!]!; index = parents[index]!; }
+    return index;
+  };
+  await tx.execute(sql`DROP TABLE IF EXISTS pg_temp.ingest_identity_reconciliation_edges`);
+  await tx.execute(sql`CREATE TEMP TABLE ingest_identity_reconciliation_edges ON COMMIT DROP AS
+    SELECT DISTINCT node.node_id, pg_temp.ingest_identity_trim(alias->>'kind') AS kind, pg_temp.ingest_identity_trim(alias->>'value') AS value
+    FROM pg_temp.ingest_identity_reconciliation_nodes node
+    CROSS JOIN LATERAL (SELECT node.aliases || jsonb_build_array(jsonb_build_object('kind',node.primary_id_type,'value',node.primary_id)) AS values) aliases
+    CROSS JOIN LATERAL jsonb_array_elements(aliases.values) alias
+    WHERE pg_temp.ingest_identity_trim(alias->>'kind') NOT IN ('canonical_path','relative_path','url_path','url','canonical_url','unknown','legacy_row_id')
+      OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(aliases.values) candidate
+        WHERE pg_temp.ingest_identity_trim(candidate->>'kind') NOT IN ('canonical_path','relative_path','url_path','url','canonical_url','unknown','legacy_row_id'))`);
+  await tx.execute(sql`CREATE INDEX ON ingest_identity_reconciliation_edges(kind,value,node_id)`);
+  await tx.execute(sql`ANALYZE ingest_identity_reconciliation_edges`);
+  await tx.execute(sql`DECLARE ingest_identity_graph_cursor NO SCROLL CURSOR FOR
+    SELECT owner_id,node_id FROM (
+      SELECT min(node_id) OVER (PARTITION BY kind,value) AS owner_id,node_id
+      FROM pg_temp.ingest_identity_reconciliation_edges
+    ) edges WHERE owner_id <> node_id`);
+  let edgesRead = 0;
+  try {
+    for (;;) {
+      const page = Array.from(await tx.execute<{ owner_id: number; node_id: number }>(sql`FETCH FORWARD 5000 FROM ingest_identity_graph_cursor`));
+      if (!page.length) break;
+      for (const edge of page) {
+        const owner = root(edge.owner_id); const member = root(edge.node_id);
+        if (owner !== member) parents[Math.max(owner, member)] = Math.min(owner, member);
+      }
+      edgesRead += page.length;
+    }
+  } finally { await tx.execute(sql`CLOSE ingest_identity_graph_cursor`); }
+  for (let start = 0; start < parents.length; start += IDENTITY_GRAPH_PAGE_SIZE) {
+    const labels = [];
+    for (let index = start; index < Math.min(start + IDENTITY_GRAPH_PAGE_SIZE, parents.length); index += 1) labels.push(sql`(${index}::integer,${root(index)}::integer)`);
+    await tx.execute(sql`UPDATE pg_temp.ingest_identity_reconciliation_nodes node SET component = label.component
+      FROM (VALUES ${sql.join(labels,sql`, `)}) label(node_id,component) WHERE node.node_id = label.node_id`);
   }
-  const aliasByPrimary = new Map<string, SourceAlias[]>();
-  for (const alias of oldAliases) aliasByPrimary.set(alias.primarySourceListingId, [
-    ...(aliasByPrimary.get(alias.primarySourceListingId) ?? []), { kind: alias.aliasKind, value: alias.aliasValue },
-  ]);
-  const result: LegacyIdentityRow[] = [];
-  for (const row of [...canonical.map((listing) => ({ listing, table: 'canonical_listings' as const })),
-    ...legacy.map((listing) => ({ listing, table: 'listings' as const }))]) {
-    const primaryId = 'primarySourceListingId' in row.listing ? row.listing.primarySourceListingId : row.listing.mirrorListingId;
-    const related = evidence.get(row.table === 'canonical_listings' ? `canonical:${row.listing.id}` : `mirror:${primaryId}`) ?? [];
-    // Rows without a source identifier remain independently addressable without guessing a URL ID.
-    const fallback = primaryId ?? row.listing.id;
-    const typed = related.find(({ observation }) => observation.sourceListingId === primaryId && observation.sourceListingIdKind && observation.sourceListingIdKind !== 'unknown');
-    const primaryIdType = typed?.observation.sourceListingIdKind ?? (primaryId ? 'unknown' : 'legacy_row_id');
-    const aliases = related.flatMap(({ observation }) => [
-      ...validAliases(observation.sourceListingAliases),
-      ...(observation.sourceListingId && observation.sourceListingIdKind ? [{ kind: observation.sourceListingIdKind, value: observation.sourceListingId }] : []),
-    ]);
-    // An unknown ID may be assigned a type only by explicit legacy alias evidence.
-    const knownAliases = aliasByPrimary.get(fallback) ?? [];
-    const knownType = knownAliases.find((alias) => alias.value === fallback)?.kind;
-    result.push({ listingTable: row.table, id: row.listing.id, propertyId: row.listing.propertyId,
-      primaryId: fallback, primaryIdType: primaryIdType === 'unknown' && knownType ? knownType : primaryIdType,
-      aliases: [...aliases, ...knownAliases, ...(row.table === 'canonical_listings' ? aliasesByCanonical.get(row.listing.id) ?? [] : []),
-        ...(priorAliasesByRow.get(`${row.table}:${row.listing.id}`) ?? [])], status: row.listing.status, createdAt: row.listing.createdAt,
-      snapshot: { ...row.listing },
-    });
-  }
-  return result;
+  await tx.execute(sql`CREATE INDEX ON ingest_identity_reconciliation_nodes(component,node_id)`);
+  await tx.execute(sql`ANALYZE ingest_identity_reconciliation_nodes`);
+  const [components] = Array.from(await tx.execute<{ groups: number; duplicate_groups: number; maximum_rows: number }>(sql`
+    SELECT count(*)::integer AS groups,count(*) FILTER (WHERE members > 1)::integer AS duplicate_groups,
+      COALESCE(max(members),0)::integer AS maximum_rows
+    FROM (SELECT component,count(*) AS members FROM pg_temp.ingest_identity_reconciliation_nodes GROUP BY component) grouped`));
+  return { rows: counts!.rows, canonicalRows: counts!.canonical_rows, legacyRows: counts!.legacy_rows,
+    groups: components!.groups, duplicateGroups: components!.duplicate_groups,
+    profile: { graphParentBytes: parents.byteLength, graphEdgeBatchLimit: IDENTITY_GRAPH_PAGE_SIZE,
+      edgesRead, maximumComponentRows: components!.maximum_rows, graphPreparationMs: Math.round(performance.now()-startedAt) } };
+}
+
+async function* identityComponents(tx: DbTransaction, skipFresh = false): AsyncGenerator<IdentityReconciliationGroup> {
+  // Read fixed metadata pages rather than one round trip per component. A group
+  // can span pages, so only its metadata plus the current page remains in Node.
+  await tx.execute(sql`DECLARE ingest_identity_components_cursor NO SCROLL CURSOR FOR
+    SELECT node.* FROM pg_temp.ingest_identity_reconciliation_nodes node
+    ${skipFresh ? sql`WHERE NOT EXISTS (SELECT 1 FROM pg_temp.ingest_identity_fast_components fresh WHERE fresh.component = node.component)` : sql``}
+    ORDER BY node.component,node.created_at,node.id`);
+  let currentComponent = -1;
+  let rows: LegacyIdentityRow[] = [];
+  const groupForRows = () => {
+    const [group, ...extra] = planIdentityReconciliation(rows);
+    if (!group || extra.length) throw new Error('Identity component projection disagrees with typed alias graph');
+    return group;
+  };
+  try {
+    for (;;) {
+      const page = Array.from(await tx.execute<IdentityMetadataRow & { component: number }>(sql`FETCH FORWARD 5000 FROM ingest_identity_components_cursor`));
+      if (!page.length) break;
+      for (const row of page) {
+        if (rows.length && row.component !== currentComponent) {
+          yield groupForRows();
+          rows = [];
+        }
+        currentComponent = row.component;
+        rows.push(identityMetadataRow(row));
+      }
+    }
+    if (rows.length) yield groupForRows();
+  } finally { await tx.execute(sql`CLOSE ingest_identity_components_cursor`); }
+}
+
+/** Keep full pre-mutation rows in PostgreSQL for only the currently processed group. */
+async function snapshotReconciliationGroup(tx: DbTransaction, group: IdentityReconciliationGroup): Promise<void> {
+  await tx.execute(sql`TRUNCATE pg_temp.ingest_identity_reconciliation_snapshots`);
+  const canonicalIds = group.rows.filter(row => row.listingTable === 'canonical_listings').map(row => row.id);
+  const legacyIds = group.rows.filter(row => row.listingTable === 'listings').map(row => row.id);
+  if (canonicalIds.length) await tx.execute(sql`INSERT INTO pg_temp.ingest_identity_reconciliation_snapshots
+    SELECT 'canonical_listings',id,to_jsonb(listing) FROM canonical_listings listing
+    WHERE id IN (${sql.join(canonicalIds.map(id => sql`${id}::uuid`),sql`, `)})`);
+  if (legacyIds.length) await tx.execute(sql`INSERT INTO pg_temp.ingest_identity_reconciliation_snapshots
+    SELECT 'listings',id,to_jsonb(listing) FROM listings listing
+    WHERE id IN (${sql.join(legacyIds.map(id => sql`${id}::uuid`),sql`, `)})`);
+}
+
+async function recordReconciliationAudit(tx: DbTransaction, input: {
+  row: LegacyIdentityRow; sourceName: string; survivorId: string | null; identityId: string; reason: string; aliases: SourceAlias[];
+}): Promise<void> {
+  const { row } = input;
+  // JSON aggregates remain server-side, including arbitrarily long history chains.
+  await tx.execute(sql`INSERT INTO source_identity_reconciliations
+    (listing_table,listing_id,source_name,survivor_listing_id,identity_id,reason,details_json)
+    SELECT ${row.listingTable},${row.id}::uuid,${input.sourceName},${input.survivorId}::uuid,${input.identityId}::uuid,${input.reason},
+      jsonb_build_object('snapshotFormat','postgres_row_v1','before',snapshot.before_json,
+        'aliases',${JSON.stringify(input.aliases)}::jsonb,'preservedFactualStatus',${row.status}::text,
+        'observationLinksBefore',CASE WHEN ${row.listingTable} = 'canonical_listings' THEN
+          (SELECT COALESCE(jsonb_agg(to_jsonb(link)),'[]'::jsonb) FROM listing_observation_links link WHERE canonical_listing_id = ${row.id}::uuid) ELSE '[]'::jsonb END,
+        'priceObservationsBefore',CASE WHEN ${row.listingTable} = 'canonical_listings' THEN
+          (SELECT COALESCE(jsonb_agg(to_jsonb(price_row)),'[]'::jsonb) FROM listing_price_observations price_row WHERE canonical_listing_id = ${row.id}::uuid) ELSE '[]'::jsonb END,
+        'candidateHandoffsBefore',CASE WHEN ${row.listingTable} = 'canonical_listings' THEN
+          (SELECT COALESCE(jsonb_agg(to_jsonb(handoff)),'[]'::jsonb) FROM listing_candidate_handoffs handoff WHERE canonical_listing_id = ${row.id}::uuid) ELSE '[]'::jsonb END)
+    FROM pg_temp.ingest_identity_reconciliation_snapshots snapshot
+    WHERE snapshot.listing_table = ${row.listingTable} AND snapshot.listing_id = ${row.id}::uuid
+      AND NOT EXISTS (SELECT 1 FROM source_identity_reconciliations previous
+        WHERE previous.listing_table = ${row.listingTable} AND previous.listing_id = ${row.id}::uuid)
+    ON CONFLICT DO NOTHING`);
 }
 
 export async function reconcileLegacySourceIdentities(tx: DbTransaction, sourceName: string, options: { dryRun?: boolean } = {}) {
+  const startedAt = performance.now();
   await lockIngestSource(tx, sourceName);
-  const rows = await loadLegacyIdentityRows(tx, sourceName);
-  const groups = planIdentityReconciliation(rows);
+  const graph = await prepareIdentityComponents(tx, sourceName);
+  if (!options.dryRun) await tx.execute(sql`CREATE TEMP TABLE IF NOT EXISTS ingest_identity_reconciliation_snapshots
+    (listing_table text NOT NULL, listing_id uuid NOT NULL, before_json jsonb NOT NULL,
+     PRIMARY KEY(listing_table,listing_id)) ON COMMIT DROP`);
   const report = {
-    sourceName, dryRun: Boolean(options.dryRun), rowsBefore: rows.length,
-    canonicalRowsBefore: rows.filter((row) => row.listingTable === 'canonical_listings').length,
-    legacyRowsBefore: rows.filter((row) => row.listingTable === 'listings').length,
-    identityGroups: groups.length, duplicateGroups: groups.filter((group) => group.rows.length > 1).length,
-    quarantinedGroups: groups.filter((group) => group.conflict).length,
+    sourceName, dryRun: Boolean(options.dryRun), rowsBefore: graph.rows,
+    canonicalRowsBefore: graph.canonicalRows, legacyRowsBefore: graph.legacyRows,
+    identityGroups: graph.groups, duplicateGroups: graph.duplicateGroups, quarantinedGroups: 0,
     canonicalDuplicatesSuppressed: 0, legacyDuplicatesRecorded: 0,
-    rowsAfter: rows.length, canonicalRowsAfter: rows.filter((row) => row.listingTable === 'canonical_listings').length,
-    legacyRowsAfter: rows.filter((row) => row.listingTable === 'listings').length,
-    conflicts: groups.filter((group) => group.conflict).map((group) => ({ reason: group.conflict as string, listingIds: group.rows.map((row) => row.id), aliases: group.aliases })),
+    rowsAfter: graph.rows, canonicalRowsAfter: graph.canonicalRows, legacyRowsAfter: graph.legacyRows,
+    conflictSampleLimit: 100, conflictsTruncated: false,
+    conflicts: [] as Array<{ reason: string; listingIds: string[]; aliases: SourceAlias[]; listingCount: number; aliasCount: number }>,
+    profile: { ...graph.profile, fastPathGroups: 0, fastPathLegacyRows: 0, reconciliationMs: 0 },
   };
-  for (const group of groups) {
+  const recordConflict = (reason: string, group: IdentityReconciliationGroup) => {
+    report.quarantinedGroups += 1;
+    if (report.conflicts.length < report.conflictSampleLimit) report.conflicts.push({ reason,
+      listingIds: group.rows.slice(0,32).map(row => row.id), aliases: group.aliases.slice(0,32),
+      listingCount: group.rows.length, aliasCount: group.aliases.length });
+    else report.conflictsTruncated = true;
+  };
+  if (!options.dryRun) {
+    const fresh = await applyFreshIdentityComponents(tx, sourceName);
+    report.profile.fastPathGroups = fresh.groups;
+    report.profile.fastPathLegacyRows = fresh.legacyRows;
+    report.legacyDuplicatesRecorded += fresh.legacyRows;
+  }
+  for await (const group of identityComponents(tx, !options.dryRun)) {
+    if (group.conflict) recordConflict(group.conflict, group);
     const primary = group.survivor ?? group.rows[0]!;
     const canonicalIds = group.rows.filter((row) => row.listingTable === 'canonical_listings').map((row) => row.id);
     let survivor = group.survivor;
     let reason: string | null = group.conflict;
     let identity: SourceListingIdentity | null = null;
     if (!options.dryRun) {
-      let resolution = await resolveSourceListingIdentity(tx, { sourceName, primaryId: primary.primaryId, primaryIdType: primary.primaryIdType, aliases: group.aliases });
+      await snapshotReconciliationGroup(tx, group);
+      let resolution = await resolveSourceListingIdentity(tx, { sourceName, primaryId: primary.primaryId, primaryIdType: primary.primaryIdType, aliases: group.aliases, auditMode: 'server' });
       if (!reason && !resolution.quarantined && survivor) {
-        resolution = await bindSourceIdentityToListing(tx, resolution.identity.id, survivor.id);
+        resolution = await bindSourceIdentityToListing(tx, resolution.identity.id, survivor.id, 'server');
       }
       if (resolution.quarantined) reason = reason ?? resolution.identity.quarantineReason ?? 'existing_identity_quarantine';
       if (reason) {
         resolution = await quarantineSourceIdentity(tx, { identityId: resolution.identity.id, reason,
-          listingIds: canonicalIds, details: { reconciliation: true, before: group.rows.map((row) => row.snapshot) } });
+          listingIds: canonicalIds, auditMode: 'server', details: { reconciliation: true, affectedRows: group.rows.map(row => ({ listingTable: row.listingTable, listingId: row.id })) } });
         survivor = null;
         if (!group.conflict) {
-          report.quarantinedGroups += 1;
-          report.conflicts.push({ reason, listingIds: group.rows.map((row) => row.id), aliases: group.aliases });
+          recordConflict(reason, group);
         }
       }
       identity = resolution.identity;
@@ -381,20 +604,9 @@ export async function reconcileLegacySourceIdentities(tx: DbTransaction, sourceN
     report.legacyDuplicatesRecorded += duplicateRows.filter((row) => row.listingTable === 'listings').length;
     if (options.dryRun) continue;
     for (const row of duplicateRows) {
-      const previousLinks = row.listingTable === 'canonical_listings'
-        ? await tx.select().from(listingObservationLinks).where(eq(listingObservationLinks.canonicalListingId, row.id)) : [];
-      const previousPrices = row.listingTable === 'canonical_listings'
-        ? await tx.select().from(listingPriceObservations).where(eq(listingPriceObservations.canonicalListingId, row.id)) : [];
-      const previousHandoffs = row.listingTable === 'canonical_listings'
-        ? await tx.select().from(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.canonicalListingId, row.id)) : [];
-      await tx.insert(sourceIdentityReconciliations).values({
-        listingTable: row.listingTable, listingId: row.id, sourceName,
-        survivorListingId: survivor?.id ?? null, identityId: identity!.id,
+      await recordReconciliationAudit(tx, { row, sourceName, survivorId: survivor?.id ?? null, identityId: identity!.id,
         reason: reason ?? (row.listingTable === 'listings'
-          ? survivor ? 'legacy_projection_replaced' : 'legacy_identity_preserved' : 'proved_alias_duplicate'),
-        detailsJson: { before: row.snapshot, aliases: group.aliases, preservedFactualStatus: row.status,
-          observationLinksBefore: previousLinks, priceObservationsBefore: previousPrices, candidateHandoffsBefore: previousHandoffs },
-      }).onConflictDoNothing();
+          ? survivor ? 'legacy_projection_replaced' : 'legacy_identity_preserved' : 'proved_alias_duplicate'), aliases: group.aliases });
       if (row.listingTable === 'canonical_listings') {
         await tx.update(canonicalListings).set({ verificationState: 'invalid', activeEligible: false }).where(eq(canonicalListings.id, row.id));
         if (survivor) {
@@ -426,5 +638,6 @@ export async function reconcileLegacySourceIdentities(tx: DbTransaction, sourceN
     report.legacyRowsAfter = legacyAfter!.count;
     report.rowsAfter = report.canonicalRowsAfter + report.legacyRowsAfter;
   }
+  report.profile.reconciliationMs = Math.round(performance.now() - startedAt);
   return report;
 }
