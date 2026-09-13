@@ -1,19 +1,22 @@
 // ---------------------------------------------------------------------------
 // seed-listings.ts
 //
-// Whole-mirror replay entrypoint for Funda and Pararius mirror databases.
-// This script deliberately routes writes through the shared ingest contract and
-// processor; it must not write canonical listing tables directly.
+// Funda initialization uses the source service's durable v2 replay/exporter.
+// Pararius mirror replay uses the shared v1 ingest contract and processor.
+// Neither path writes canonical listing tables directly.
 //
 // Usage:
 //   pnpm --filter @huishype/api db:seed-listings -- --dry-run --source both
-//   pnpm --filter @huishype/api db:seed-listings -- --source funda
+//   pnpm --filter @huishype/api db:seed-listings -- --source funda --app-api-url http://localhost:3100
+//   Add --request-id UUID to resume a handoff, or --wait-ms 60000 to await delivery.
 //   pnpm --filter @huishype/api db:seed-listings -- --source pararius --scope rent --reason "repair rent scope"
 // ---------------------------------------------------------------------------
 
 import dotenv from 'dotenv';
 import postgres from 'postgres';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import { createFundaReplayClient, type FundaReplayJob } from '../src/scripts/funda-listing-replay.js';
 import type { IngestListing, IngestProcessResult } from '../src/services/ingest/index.js';
 import {
   acceptIngestBatch,
@@ -64,6 +67,9 @@ interface CliOptions {
   maxSkipRatio: number;
   maxAffectedCanonical: number;
   maxStaleRows: number;
+  appApiUrl: string;
+  replayRequestId: string;
+  waitMs: number;
 }
 
 interface MirrorListing {
@@ -179,7 +185,6 @@ interface ReplayBatchExecutionContext {
 }
 
 const MAIN_DB_URL = process.env.DATABASE_URL || 'postgresql://huishype:huishype_dev@localhost:5440/huishype';
-const FUNDA_DB_URL = process.env.FUNDA_MIRROR_URL || 'postgresql://scraper:secret@localhost:5441/funda_mirror';
 const PARARIUS_DB_URL = process.env.PARARIUS_MIRROR_URL || 'postgresql://scraper:secret@localhost:5442/pararius_mirror';
 
 function getArgValue(args: string[], flag: string): string | undefined {
@@ -230,6 +235,9 @@ function parseOptions(): CliOptions {
   if (repair && !reason) {
     throw new Error('--repair requires --reason');
   }
+  if (source !== 'pararius' && (repair || (scope && !['all', 'full-mirror'].includes(scope.trim().toLowerCase())))) {
+    throw new Error('Funda source initialization replays all retained evidence; scoped mirror repair is supported only with --source pararius.');
+  }
 
   return {
     dryRun,
@@ -243,6 +251,9 @@ function parseOptions(): CliOptions {
     maxSkipRatio: parseRatio(getArgValue(args, '--max-skip-ratio'), 0.1),
     maxAffectedCanonical: parseNonNegativeInteger(getArgValue(args, '--max-affected-canonical'), 250_000),
     maxStaleRows: parseNonNegativeInteger(getArgValue(args, '--max-stale-rows'), 250_000),
+    appApiUrl: getArgValue(args, '--app-api-url') || process.env.HUISHYPE_SEED_APP_API_URL || `http://localhost:${process.env.PORT || '3100'}`,
+    replayRequestId: getArgValue(args, '--request-id') || randomUUID(),
+    waitMs: Number(getArgValue(args, '--wait-ms') ?? '0'),
   };
 }
 
@@ -582,18 +593,20 @@ async function estimateDuplicateCanonicalCandidateCount(
   const rows = await mainDb<[{ count: string }]>`
     SELECT COUNT(*)::text AS count
     FROM (
-      SELECT canonical_url
+      SELECT primary_source_listing_id,
+        CASE WHEN primary_source_listing_id IS NULL THEN canonical_url END AS fallback_url
       FROM canonical_listings
       WHERE source_name = ${source}
-        AND canonical_url IS NOT NULL
+        AND (primary_source_listing_id IS NOT NULL OR canonical_url IS NOT NULL)
         AND (
           ${scopeValue}::text IS NULL
           OR ${scopeValue}::text IN ('all', 'full-mirror')
           OR price_type = ${scopeValue}::text
         )
-      GROUP BY canonical_url
+      GROUP BY primary_source_listing_id,
+        CASE WHEN primary_source_listing_id IS NULL THEN canonical_url END
       HAVING COUNT(*) > 1
-    ) duplicate_urls
+    ) duplicate_identities
   `;
 
   return Number(rows[0]?.count ?? 0);
@@ -688,7 +701,7 @@ async function estimateCanonicalIdentityMatches(
       )
       AND (
         primary_source_listing_id = ANY(${sourceListingIds}::text[])
-        OR canonical_url = ANY(${canonicalUrls}::text[])
+        OR (primary_source_listing_id IS NULL AND canonical_url = ANY(${canonicalUrls}::text[]))
       )
   `;
 
@@ -716,7 +729,7 @@ async function estimateAbsentActiveCanonicalCount(
       )
       AND NOT (
         COALESCE(primary_source_listing_id, '') = ANY(${sourceListingIds}::text[])
-        OR COALESCE(canonical_url, '') = ANY(${canonicalUrls}::text[])
+        OR (primary_source_listing_id IS NULL AND COALESCE(canonical_url, '') = ANY(${canonicalUrls}::text[]))
       )
   `;
 
@@ -915,6 +928,9 @@ async function executeSource(
   options: CliOptions,
   summary: SourceSummary,
 ): Promise<SourceSummary> {
+  if (source === 'funda') {
+    throw new Error('Funda initialization must use the source planner and durable exporter; legacy mirror replay is fenced.');
+  }
   const mirrorState = await getMirrorSnapshot(mirrorDb, source, options.scope);
   if (
     mirrorState.count !== summary.mirrorListingCount
@@ -1053,18 +1069,26 @@ async function executeSource(
 
 async function main(): Promise<void> {
   const options = parseOptions();
-  const mirrorDbs: Record<SourceName, postgres.Sql> = {
-    funda: postgres(FUNDA_DB_URL, { max: 3, onnotice: () => {} }),
-    pararius: postgres(PARARIUS_DB_URL, { max: 3, onnotice: () => {} }),
-  };
+  const parariusDb = postgres(PARARIUS_DB_URL, { max: 3, onnotice: () => {} });
   const mainDb = postgres(MAIN_DB_URL, { max: 1, onnotice: () => {} });
   const summaries: SourceSummary[] = [];
+  const fundaClient = options.source !== 'pararius' ? createFundaReplayClient({
+    sourceServiceUrl: process.env.FUNDA_SOURCE_SERVICE_URL || 'http://localhost:8100',
+    sourceServiceApiKey: process.env.FUNDA_SOURCE_SERVICE_API_KEY || '',
+    expectedAppApiUrl: options.appApiUrl,
+    requestId: options.replayRequestId,
+    waitMs: options.waitMs,
+  }) : null;
+  let fundaReplay: (FundaReplayJob & { statusUrl: string }) | null = null;
 
   try {
-    await mainDb`SELECT 1`;
-    const sources = selectedSources(options.source);
+    if (fundaClient) {
+      fundaReplay = { ...await fundaClient.plan(), statusUrl: fundaClient.statusUrl };
+    }
+    const sources = selectedSources(options.source).filter(source => source === 'pararius');
+    if (sources.length) await mainDb`SELECT 1`;
     for (const source of sources) {
-      summaries.push(await planSource(source, mirrorDbs[source], mainDb, options));
+      summaries.push(await planSource(source, parariusDb, mainDb, options));
     }
 
     const violations = collectListingReplayThresholdViolations(summaries);
@@ -1081,20 +1105,28 @@ async function main(): Promise<void> {
         scope: options.scope,
         repair: options.repair,
         summaries,
+        fundaReplay,
       }, null, 2));
       throw new Error(`Replay safety violation: ${abortReasons.join(', ')}`);
     }
 
     if (!options.dryRun) {
+      if (fundaClient && fundaReplay) {
+        // Emit the durable correlation key before submission so a lost response
+        // can be recovered with --request-id rather than creating another job.
+        console.log(JSON.stringify({ event: 'funda_replay_submit', requestId: fundaReplay.requestId,
+          appApiUrl: fundaReplay.appApiUrl, statusUrl: fundaClient.statusUrl }));
+        fundaReplay = { ...await fundaClient.execute(fundaReplay), statusUrl: fundaClient.statusUrl };
+      }
       for (let index = 0; index < sources.length; index += 1) {
         const source = sources[index];
         const summary = summaries[index];
         if (!source || !summary) continue;
-        summaries[index] = await executeSource(source, mirrorDbs[source], options, summary);
+        summaries[index] = await executeSource(source, parariusDb, options, summary);
       }
     }
   } finally {
-    await Promise.all([mainDb.end(), mirrorDbs.funda.end(), mirrorDbs.pararius.end(), closeConnection()]);
+    await Promise.all([mainDb.end(), parariusDb.end(), closeConnection()]);
   }
 
   console.log(JSON.stringify({
@@ -1103,6 +1135,7 @@ async function main(): Promise<void> {
     scope: options.scope,
     repair: options.repair,
     summaries,
+    fundaReplay,
   }, null, 2));
 }
 
@@ -1120,4 +1153,7 @@ if (import.meta.url === directRunUrl) {
 export const __seedListingsTest = {
   assertCompletedReplayBatchResult,
   executeSource,
+  estimateDuplicateCanonicalCandidateCount,
+  estimateCanonicalIdentityMatches,
+  estimateAbsentActiveCanonicalCount,
 };

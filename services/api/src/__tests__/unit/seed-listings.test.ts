@@ -44,7 +44,7 @@ const seedListingsScriptModulePath = ['..', '..', '..', 'scripts', 'seed-listing
 interface SeedListingsTestModule {
   __seedListingsTest: {
     executeSource(
-      source: 'funda',
+      source: 'funda' | 'pararius',
       mirrorDb: unknown,
       options: ReturnType<typeof createOptions>,
       summary: ReturnType<typeof createSummary>,
@@ -70,8 +70,8 @@ function createMirrorDb(): jest.Mock {
       {
         id: 1,
         funda_id: '12345678',
-        pararius_id: null,
-        listing_url: '',
+        pararius_id: '/huurwoningen/eindhoven/fixture-1',
+        listing_url: 'https://www.pararius.nl/huurwoningen/eindhoven/fixture-1',
         price_type: 'sale',
         asking_price_cents: '45000000',
         living_area_m2: 80,
@@ -93,8 +93,8 @@ function createMirrorDb(): jest.Mock {
       {
         id: 2,
         funda_id: '22345678',
-        pararius_id: null,
-        listing_url: '',
+        pararius_id: '/huurwoningen/eindhoven/fixture-2',
+        listing_url: 'https://www.pararius.nl/huurwoningen/eindhoven/fixture-2',
         price_type: 'sale',
         asking_price_cents: '55000000',
         living_area_m2: 90,
@@ -120,7 +120,7 @@ function createMirrorDb(): jest.Mock {
 function createOptions() {
   return {
     dryRun: false,
-    source: 'funda',
+    source: 'pararius',
     scope: null,
     reason: null,
     repair: false,
@@ -135,14 +135,14 @@ function createOptions() {
 
 function createSummary() {
   return {
-    sourceName: 'funda',
+    sourceName: 'pararius',
     scopeKey: 'full-mirror',
     scopeMode: 'whole_mirror',
     dryRun: false,
     repairMode: false,
     replayReason: null,
-    mirrorSnapshotId: `funda:full-mirror:2:${sourceHighWatermark.toISOString()}`,
-    sourceRunId: `seed-listings:funda:full-mirror:${sourceHighWatermark.toISOString()}:2:replay`,
+    mirrorSnapshotId: `pararius:full-mirror:2:${sourceHighWatermark.toISOString()}`,
+    sourceRunId: `seed-listings:pararius:full-mirror:${sourceHighWatermark.toISOString()}:2:replay`,
     sourceHighWatermark: sourceHighWatermark.toISOString(),
     oldestSourceTimestamp: sourceHighWatermark.toISOString(),
     newestSourceTimestamp: sourceHighWatermark.toISOString(),
@@ -218,6 +218,15 @@ describe('seed listings execute replay', () => {
     mirrorDbMock = createMirrorDb();
   });
 
+  it('fences direct Funda mirror replay before accepting a batch or reading the mirror', async () => {
+    const { __seedListingsTest } = await import(seedListingsScriptModulePath) as SeedListingsTestModule;
+    await expect(
+      __seedListingsTest.executeSource('funda', mirrorDbMock, createOptions(), createSummary()),
+    ).rejects.toThrow('Funda initialization must use the source planner and durable exporter');
+    expect(acceptIngestBatchMock).not.toHaveBeenCalled();
+    expect(mirrorDbMock).not.toHaveBeenCalled();
+  });
+
   it('fails hard on a noop processor result before accepting later replay batches', async () => {
     processIngestBatchMock.mockResolvedValueOnce({
       status: 'noop',
@@ -228,7 +237,7 @@ describe('seed listings execute replay', () => {
     const { __seedListingsTest } = await import(seedListingsScriptModulePath) as SeedListingsTestModule;
 
     await expect(
-      __seedListingsTest.executeSource('funda', mirrorDbMock, createOptions(), createSummary()),
+      __seedListingsTest.executeSource('pararius', mirrorDbMock, createOptions(), createSummary()),
     ).rejects.toThrow(
       'The accepted batch was likely not claimable; refusing to advance the local replay cursor or accept later batches.',
     );

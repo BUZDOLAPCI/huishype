@@ -66,3 +66,20 @@ export completions are marked as unverified remote coverage and never generate
 absence or withdrawal. The known residential v1 exporter reports whole-listing
 sale amounts or monthly rent; only that explicit exporter contract supplies its
 price-unit normalization.
+
+Funda initialization also uses the source's ordered export authority. Configure
+`FUNDA_SOURCE_SERVICE_URL`, `FUNDA_SOURCE_SERVICE_API_KEY`, and the intended app API
+with `HUISHYPE_SEED_APP_API_URL` or `--app-api-url`, then run:
+
+```
+pnpm --filter @huishype/api db:seed-listings -- --source funda --app-api-url http://localhost:3100 --dry-run
+pnpm --filter @huishype/api db:seed-listings -- --source funda --app-api-url http://localhost:3100
+```
+
+The CLI verifies the source exporter targets that exact app environment before
+submitting a durable replay of all retained source evidence. It prints the request
+ID and status URL; `--request-id UUID` resumes idempotently, and `--wait-ms 60000`
+waits for acknowledged delivery. Original observation and field evidence times
+remain intact. Funda initialization never allocates local source sequences or
+uses the retired v1 mirror path. Pararius keeps the existing v1 mirror replay and
+scoped repair options under `--source pararius`.
