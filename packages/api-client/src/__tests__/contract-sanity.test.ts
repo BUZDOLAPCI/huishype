@@ -154,6 +154,7 @@ type CanonicalSubmitListingResponse = {
   canonicalUrl: string | null;
   sourceListingId: string | null;
   status: CanonicalListingStatus;
+  activeEligible: boolean;
   verificationState: CanonicalListingVerificationState;
   candidateHandoffState: CanonicalListingCandidateHandoffState;
   candidateId: string;
@@ -174,6 +175,9 @@ type CanonicalPropertyListingReadItem = {
   sourceListingId: string | null;
   askingPrice: number | null;
   priceType: string | null;
+  pricePeriod: 'month' | 'week' | 'day' | 'year' | 'total' | 'unknown' | null;
+  priceUnit: 'listing' | 'm2' | 'unknown' | null;
+  priceCondition: 'asking' | 'on_request' | 'auction' | 'unknown' | null;
   currency: string | null;
   thumbnailUrl: string | null;
   ogTitle: string | null;
@@ -182,6 +186,7 @@ type CanonicalPropertyListingReadItem = {
   numRooms: number | null;
   energyLabel: string | null;
   status: CanonicalListingStatus;
+  activeEligible: boolean;
   verificationState: CanonicalListingVerificationState;
   candidateHandoffState: CanonicalListingCandidateHandoffState | null;
   reasonCode: string | null;

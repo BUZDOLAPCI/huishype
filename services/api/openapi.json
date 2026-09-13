@@ -11193,6 +11193,55 @@
                               }
                             ]
                           },
+                          "pricePeriod": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "month",
+                                  "week",
+                                  "day",
+                                  "year",
+                                  "total",
+                                  "unknown"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "priceUnit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "listing",
+                                  "m2",
+                                  "unknown"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "priceCondition": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "asking",
+                                  "on_request",
+                                  "auction",
+                                  "unknown"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "currency": {
                             "anyOf": [
                               {
@@ -11271,6 +11320,9 @@
                               "rented",
                               "withdrawn"
                             ]
+                          },
+                          "activeEligible": {
+                            "type": "boolean"
                           },
                           "verificationState": {
                             "type": "string",
@@ -11410,6 +11462,9 @@
                           "sourceListingId",
                           "askingPrice",
                           "priceType",
+                          "pricePeriod",
+                          "priceUnit",
+                          "priceCondition",
                           "currency",
                           "thumbnailUrl",
                           "ogTitle",
@@ -11418,6 +11473,7 @@
                           "numRooms",
                           "energyLabel",
                           "status",
+                          "activeEligible",
                           "verificationState",
                           "candidateHandoffState",
                           "reasonCode",
@@ -11506,6 +11562,14 @@
                       "eventType": {
                         "type": "string"
                       },
+                      "priceKind": {
+                        "type": "string",
+                        "enum": [
+                          "asking",
+                          "achieved",
+                          "unknown"
+                        ]
+                      },
                       "source": {
                         "type": "string"
                       }
@@ -11514,6 +11578,7 @@
                       "price",
                       "priceDate",
                       "eventType",
+                      "priceKind",
                       "source"
                     ],
                     "additionalProperties": false
@@ -11947,6 +12012,9 @@
                         "withdrawn"
                       ]
                     },
+                    "activeEligible": {
+                      "type": "boolean"
+                    },
                     "verificationState": {
                       "type": "string",
                       "enum": [
@@ -11990,6 +12058,7 @@
                     "canonicalUrl",
                     "sourceListingId",
                     "status",
+                    "activeEligible",
                     "verificationState",
                     "candidateHandoffState",
                     "candidateId",
@@ -12124,6 +12193,9 @@
                             "withdrawn"
                           ]
                         },
+                        "activeEligible": {
+                          "type": "boolean"
+                        },
                         "verificationState": {
                           "type": "string",
                           "enum": [
@@ -12167,6 +12239,7 @@
                         "canonicalUrl",
                         "sourceListingId",
                         "status",
+                        "activeEligible",
                         "verificationState",
                         "candidateHandoffState",
                         "candidateId",
@@ -12213,6 +12286,873 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "ingestVersion": {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  "writerGeneration": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "records": {
+                    "minItems": 1,
+                    "maxItems": 1000,
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "eventId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255
+                            },
+                            "sourceCandidateId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "previewResultId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "sequence": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "observedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "collector": {
+                              "type": "string",
+                              "enum": [
+                                "direct",
+                                "realtyapi"
+                              ]
+                            },
+                            "evidenceStrength": {
+                              "type": "string",
+                              "enum": [
+                                "inventory",
+                                "detail"
+                              ]
+                            },
+                            "identity": {
+                              "type": "object",
+                              "properties": {
+                                "sourceListingId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "sourceListingIdKind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "tiny_id",
+                                    "global_id",
+                                    "detail_id",
+                                    "stable_id",
+                                    "canonical_url",
+                                    "canonical_path",
+                                    "relative_path",
+                                    "url_path",
+                                    "unknown"
+                                  ]
+                                },
+                                "aliases": {
+                                  "default": [],
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                          "tiny_id",
+                                          "global_id",
+                                          "detail_id",
+                                          "stable_id",
+                                          "canonical_url",
+                                          "canonical_path",
+                                          "relative_path",
+                                          "url_path",
+                                          "unknown"
+                                        ]
+                                      },
+                                      "value": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 2048
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "value"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": [
+                                "sourceListingId",
+                                "sourceListingIdKind"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "inventoryManifestId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255
+                            },
+                            "inventoryManifest": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "scopeKey": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "completedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                "coverageStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "complete"
+                                  ]
+                                },
+                                "verified": {
+                                  "type": "boolean",
+                                  "enum": [
+                                    true
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "scopeKey",
+                                "completedAt",
+                                "coverageStatus",
+                                "verified"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "facts"
+                              ]
+                            },
+                            "facts": {
+                              "type": "object",
+                              "properties": {
+                                "sourceUrl": {
+                                  "type": "string",
+                                  "format": "uri"
+                                },
+                                "canonicalUrl": {
+                                  "type": "string",
+                                  "format": "uri"
+                                },
+                                "address": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "countryCode": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 2,
+                                              "maxLength": 2
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "street": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "postalCode": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "houseNumber": {
+                                          "anyOf": [
+                                            {
+                                              "anyOf": [
+                                                {
+                                                  "type": "string"
+                                                },
+                                                {
+                                                  "type": "integer",
+                                                  "minimum": -9007199254740991,
+                                                  "maximum": 9007199254740991
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "houseNumberAddition": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "city": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "latitude": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": -90,
+                                              "maximum": 90
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "longitude": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": -180,
+                                              "maximum": 180
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "askingPrice": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "priceType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "sale",
+                                        "rent",
+                                        "unknown"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "pricePeriod": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "month",
+                                        "week",
+                                        "day",
+                                        "year",
+                                        "total",
+                                        "unknown"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "priceUnit": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "listing",
+                                        "m2",
+                                        "unknown"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "priceCondition": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "asking",
+                                        "on_request",
+                                        "auction",
+                                        "unknown"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "currency": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 3,
+                                      "maxLength": 3
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "livingAreaM2": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "numRooms": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "energyLabel": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "thumbnailUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "uri"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ogTitle": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "propertyType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "listedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "soldAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "rentedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "withdrawnAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "lifecycleStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "available",
+                                    "conditional",
+                                    "sold",
+                                    "rented",
+                                    "withdrawn",
+                                    "unavailable"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "eventId",
+                            "sequence",
+                            "observedAt",
+                            "collector",
+                            "evidenceStrength",
+                            "identity",
+                            "kind",
+                            "facts"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "eventId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255
+                            },
+                            "sourceCandidateId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "previewResultId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "sequence": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "observedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "collector": {
+                              "type": "string",
+                              "enum": [
+                                "direct",
+                                "realtyapi"
+                              ]
+                            },
+                            "evidenceStrength": {
+                              "type": "string",
+                              "enum": [
+                                "inventory",
+                                "detail"
+                              ]
+                            },
+                            "identity": {
+                              "type": "object",
+                              "properties": {
+                                "sourceListingId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "sourceListingIdKind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "tiny_id",
+                                    "global_id",
+                                    "detail_id",
+                                    "stable_id",
+                                    "canonical_url",
+                                    "canonical_path",
+                                    "relative_path",
+                                    "url_path",
+                                    "unknown"
+                                  ]
+                                },
+                                "aliases": {
+                                  "default": [],
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                          "tiny_id",
+                                          "global_id",
+                                          "detail_id",
+                                          "stable_id",
+                                          "canonical_url",
+                                          "canonical_path",
+                                          "relative_path",
+                                          "url_path",
+                                          "unknown"
+                                        ]
+                                      },
+                                      "value": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 2048
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "value"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": [
+                                "sourceListingId",
+                                "sourceListingIdKind"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "inventoryManifestId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255
+                            },
+                            "inventoryManifest": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "scopeKey": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "completedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                "coverageStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "complete"
+                                  ]
+                                },
+                                "verified": {
+                                  "type": "boolean",
+                                  "enum": [
+                                    true
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "scopeKey",
+                                "completedAt",
+                                "coverageStatus",
+                                "verified"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "sighting"
+                              ]
+                            },
+                            "availability": {
+                              "default": "available",
+                              "type": "string",
+                              "enum": [
+                                "available",
+                                "conditional"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "eventId",
+                            "sequence",
+                            "observedAt",
+                            "collector",
+                            "evidenceStrength",
+                            "identity",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "eventId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255
+                            },
+                            "sourceCandidateId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "previewResultId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "sequence": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "observedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "collector": {
+                              "type": "string",
+                              "enum": [
+                                "direct",
+                                "realtyapi"
+                              ]
+                            },
+                            "evidenceStrength": {
+                              "type": "string",
+                              "enum": [
+                                "inventory",
+                                "detail"
+                              ]
+                            },
+                            "identity": {
+                              "type": "object",
+                              "properties": {
+                                "sourceListingId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "sourceListingIdKind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "tiny_id",
+                                    "global_id",
+                                    "detail_id",
+                                    "stable_id",
+                                    "canonical_url",
+                                    "canonical_path",
+                                    "relative_path",
+                                    "url_path",
+                                    "unknown"
+                                  ]
+                                },
+                                "aliases": {
+                                  "default": [],
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                          "tiny_id",
+                                          "global_id",
+                                          "detail_id",
+                                          "stable_id",
+                                          "canonical_url",
+                                          "canonical_path",
+                                          "relative_path",
+                                          "url_path",
+                                          "unknown"
+                                        ]
+                                      },
+                                      "value": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 2048
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "value"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": [
+                                "sourceListingId",
+                                "sourceListingIdKind"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "inventoryManifestId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255
+                            },
+                            "inventoryManifest": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "scopeKey": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 255
+                                },
+                                "completedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                "coverageStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "complete"
+                                  ]
+                                },
+                                "verified": {
+                                  "type": "boolean",
+                                  "enum": [
+                                    true
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "scopeKey",
+                                "completedAt",
+                                "coverageStatus",
+                                "verified"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "absence"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "eventId",
+                            "sequence",
+                            "observedAt",
+                            "collector",
+                            "evidenceStrength",
+                            "identity",
+                            "inventoryManifest",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
                   "sourceName": {
                     "type": "string"
                   },
@@ -12879,6 +13819,157 @@
         }
       }
     },
+    "/api/ingest/batches/{id}": {
+      "get": {
+        "tags": [
+          "ingest"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "batchId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "sourceName": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "accepted",
+                        "queued",
+                        "processing",
+                        "completed",
+                        "retryable",
+                        "superseded",
+                        "failed"
+                      ]
+                    },
+                    "completedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ingestedCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "updatedCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "skippedCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "batchId",
+                    "sourceName",
+                    "status",
+                    "completedAt",
+                    "ingestedCount",
+                    "updatedCount",
+                    "skippedCount",
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ingest/watermark": {
       "get": {
         "summary": "Get mirror sync watermark",
@@ -12950,6 +14041,16 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "writerGeneration": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "lastSequence": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
                     }
                   },
                   "required": [
@@ -12957,7 +14058,9 @@
                     "cursor",
                     "lastCommittedChangedAt",
                     "lastCommittedListingKey",
-                    "lastBatchId"
+                    "lastBatchId",
+                    "writerGeneration",
+                    "lastSequence"
                   ],
                   "additionalProperties": false
                 }

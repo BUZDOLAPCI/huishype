@@ -3724,6 +3724,9 @@ export interface paths {
                                 sourceListingId: string | null;
                                 askingPrice: number | null;
                                 priceType: string | null;
+                                pricePeriod: ("month" | "week" | "day" | "year" | "total" | "unknown") | null;
+                                priceUnit: ("listing" | "m2" | "unknown") | null;
+                                priceCondition: ("asking" | "on_request" | "auction" | "unknown") | null;
                                 currency: string | null;
                                 thumbnailUrl: string | null;
                                 ogTitle: string | null;
@@ -3733,6 +3736,7 @@ export interface paths {
                                 energyLabel: string | null;
                                 /** @enum {string} */
                                 status: "active" | "sold" | "rented" | "withdrawn";
+                                activeEligible: boolean;
                                 /** @enum {string} */
                                 verificationState: "provisional" | "validated" | "invalid" | "validation_pending" | "validation_blocked" | "validation_failed";
                                 candidateHandoffState: ("pending" | "queued" | "delivered" | "retryable_error" | "dead_letter") | null;
@@ -3804,6 +3808,8 @@ export interface paths {
                             price: number;
                             priceDate: string;
                             eventType: string;
+                            /** @enum {string} */
+                            priceKind: "asking" | "achieved" | "unknown";
                             source: string;
                         }[];
                     };
@@ -3995,6 +4001,7 @@ export interface paths {
                             sourceListingId: string | null;
                             /** @enum {string} */
                             status: "active" | "sold" | "rented" | "withdrawn";
+                            activeEligible: boolean;
                             /** @enum {string} */
                             verificationState: "provisional" | "validated" | "invalid" | "validation_pending" | "validation_blocked" | "validation_failed";
                             /** @enum {string} */
@@ -4060,6 +4067,7 @@ export interface paths {
                             sourceListingId: string | null;
                             /** @enum {string} */
                             status: "active" | "sold" | "rented" | "withdrawn";
+                            activeEligible: boolean;
                             /** @enum {string} */
                             verificationState: "provisional" | "validated" | "invalid" | "validation_pending" | "validation_blocked" | "validation_failed";
                             /** @enum {string} */
@@ -4106,6 +4114,160 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
+                        /** @enum {number} */
+                        ingestVersion?: 2;
+                        writerGeneration?: number;
+                        records?: ({
+                            eventId: string;
+                            /** Format: uuid */
+                            sourceCandidateId?: string;
+                            /** Format: uuid */
+                            previewResultId?: string;
+                            sequence: number;
+                            /** Format: date-time */
+                            observedAt: string;
+                            /** @enum {string} */
+                            collector: "direct" | "realtyapi";
+                            /** @enum {string} */
+                            evidenceStrength: "inventory" | "detail";
+                            identity: {
+                                sourceListingId: string;
+                                /** @enum {string} */
+                                sourceListingIdKind: "tiny_id" | "global_id" | "detail_id" | "stable_id" | "canonical_url" | "canonical_path" | "relative_path" | "url_path" | "unknown";
+                                /** @default [] */
+                                aliases?: {
+                                    /** @enum {string} */
+                                    kind: "tiny_id" | "global_id" | "detail_id" | "stable_id" | "canonical_url" | "canonical_path" | "relative_path" | "url_path" | "unknown";
+                                    value: string;
+                                }[];
+                            };
+                            inventoryManifestId?: string;
+                            inventoryManifest?: {
+                                id: string;
+                                scopeKey: string;
+                                /** Format: date-time */
+                                completedAt: string;
+                                /** @enum {string} */
+                                coverageStatus: "complete";
+                                /** @enum {boolean} */
+                                verified: true;
+                            };
+                            /** @enum {string} */
+                            kind: "facts";
+                            facts: {
+                                /** Format: uri */
+                                sourceUrl?: string;
+                                /** Format: uri */
+                                canonicalUrl?: string;
+                                address?: {
+                                    countryCode?: string | null;
+                                    street?: string | null;
+                                    postalCode?: string | null;
+                                    houseNumber?: (string | number) | null;
+                                    houseNumberAddition?: string | null;
+                                    city?: string | null;
+                                    latitude?: number | null;
+                                    longitude?: number | null;
+                                } | null;
+                                askingPrice?: number | null;
+                                priceType?: ("sale" | "rent" | "unknown") | null;
+                                pricePeriod?: ("month" | "week" | "day" | "year" | "total" | "unknown") | null;
+                                priceUnit?: ("listing" | "m2" | "unknown") | null;
+                                priceCondition?: ("asking" | "on_request" | "auction" | "unknown") | null;
+                                currency?: string | null;
+                                livingAreaM2?: number | null;
+                                numRooms?: number | null;
+                                energyLabel?: string | null;
+                                thumbnailUrl?: string | null;
+                                ogTitle?: string | null;
+                                propertyType?: string | null;
+                                listedAt?: string | null;
+                                soldAt?: string | null;
+                                rentedAt?: string | null;
+                                withdrawnAt?: string | null;
+                                /** @enum {string} */
+                                lifecycleStatus?: "available" | "conditional" | "sold" | "rented" | "withdrawn" | "unavailable";
+                            };
+                        } | {
+                            eventId: string;
+                            /** Format: uuid */
+                            sourceCandidateId?: string;
+                            /** Format: uuid */
+                            previewResultId?: string;
+                            sequence: number;
+                            /** Format: date-time */
+                            observedAt: string;
+                            /** @enum {string} */
+                            collector: "direct" | "realtyapi";
+                            /** @enum {string} */
+                            evidenceStrength: "inventory" | "detail";
+                            identity: {
+                                sourceListingId: string;
+                                /** @enum {string} */
+                                sourceListingIdKind: "tiny_id" | "global_id" | "detail_id" | "stable_id" | "canonical_url" | "canonical_path" | "relative_path" | "url_path" | "unknown";
+                                /** @default [] */
+                                aliases?: {
+                                    /** @enum {string} */
+                                    kind: "tiny_id" | "global_id" | "detail_id" | "stable_id" | "canonical_url" | "canonical_path" | "relative_path" | "url_path" | "unknown";
+                                    value: string;
+                                }[];
+                            };
+                            inventoryManifestId?: string;
+                            inventoryManifest?: {
+                                id: string;
+                                scopeKey: string;
+                                /** Format: date-time */
+                                completedAt: string;
+                                /** @enum {string} */
+                                coverageStatus: "complete";
+                                /** @enum {boolean} */
+                                verified: true;
+                            };
+                            /** @enum {string} */
+                            kind: "sighting";
+                            /**
+                             * @default available
+                             * @enum {string}
+                             */
+                            availability?: "available" | "conditional";
+                        } | {
+                            eventId: string;
+                            /** Format: uuid */
+                            sourceCandidateId?: string;
+                            /** Format: uuid */
+                            previewResultId?: string;
+                            sequence: number;
+                            /** Format: date-time */
+                            observedAt: string;
+                            /** @enum {string} */
+                            collector: "direct" | "realtyapi";
+                            /** @enum {string} */
+                            evidenceStrength: "inventory" | "detail";
+                            identity: {
+                                sourceListingId: string;
+                                /** @enum {string} */
+                                sourceListingIdKind: "tiny_id" | "global_id" | "detail_id" | "stable_id" | "canonical_url" | "canonical_path" | "relative_path" | "url_path" | "unknown";
+                                /** @default [] */
+                                aliases?: {
+                                    /** @enum {string} */
+                                    kind: "tiny_id" | "global_id" | "detail_id" | "stable_id" | "canonical_url" | "canonical_path" | "relative_path" | "url_path" | "unknown";
+                                    value: string;
+                                }[];
+                            };
+                            inventoryManifestId?: string;
+                            inventoryManifest: {
+                                id: string;
+                                scopeKey: string;
+                                /** Format: date-time */
+                                completedAt: string;
+                                /** @enum {string} */
+                                coverageStatus: "complete";
+                                /** @enum {boolean} */
+                                verified: true;
+                            };
+                            /** @enum {string} */
+                            kind: "absence";
+                        })[];
                         sourceName: string;
                         idempotencyKey: string;
                         batchSequence: number;
@@ -4279,6 +4441,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ingest/batches/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            batchId: string;
+                            sourceName: string;
+                            /** @enum {string} */
+                            status: "accepted" | "queued" | "processing" | "completed" | "retryable" | "superseded" | "failed";
+                            completedAt: string | null;
+                            ingestedCount: number;
+                            updatedCount: number;
+                            skippedCount: number;
+                            error: {
+                                [key: string]: unknown;
+                            } | null;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+                /** @description Default Response */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ingest/watermark": {
         parameters: {
             query?: never;
@@ -4313,6 +4549,8 @@ export interface paths {
                             lastCommittedChangedAt: string | null;
                             lastCommittedListingKey: string | null;
                             lastBatchId: string | null;
+                            writerGeneration: number;
+                            lastSequence: number;
                         };
                     };
                 };
