@@ -421,7 +421,18 @@ export function SearchBar({
     setIsFocused(true);
   }, []);
 
-  const handleBlur = useCallback(() => {
+  const handleBlur = useCallback((event?: { currentTarget?: unknown; relatedTarget?: unknown }) => {
+    // Web focus moves from the input to a result on pointerdown, before its
+    // click. Keep the search open while focus remains inside the whole control.
+    if (
+      Platform.OS === 'web' &&
+      typeof Node !== 'undefined' &&
+      event?.currentTarget instanceof Node &&
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    ) {
+      return;
+    }
     setIsFocused(false);
   }, []);
 
@@ -668,7 +679,7 @@ export function SearchBar({
         onChangeText={handleInputChangeText}
         onKeyPress={handleSearchKeyPress}
         onFocus={handleFocus}
-        onBlur={handleBlur}
+        onBlur={Platform.OS === 'web' ? undefined : handleBlur}
         autoFocus={Platform.OS !== 'web' && isFocused}
         autoCorrect={false}
         autoCapitalize="none"
@@ -756,6 +767,7 @@ export function SearchBar({
       )}
 
       <View
+        {...(Platform.OS === 'web' ? { onBlur: handleBlur } : {})}
         style={[
           isInline ? styles.inlineContainer : styles.container,
           isInline ? null : { top: topOffset },

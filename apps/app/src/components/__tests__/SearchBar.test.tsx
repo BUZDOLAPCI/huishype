@@ -1196,6 +1196,48 @@ describe('SearchBar', () => {
     expect(onCurrentLocationSelected).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the current-location action mounted when web focus moves from the input to the action', () => {
+    setPlatform('web');
+    const onCurrentLocationSelected = jest.fn();
+    render(
+      <SearchBar
+        onPropertyResolved={onPropertyResolved}
+        onLocationResolved={onLocationResolved}
+        onCurrentLocationSelected={onCurrentLocationSelected}
+      />
+    );
+    const input = screen.getByTestId('search-bar-input');
+    fireEvent(input, 'focus');
+    const container = document.createElement('div');
+    const action = document.createElement('button');
+    container.append(action);
+
+    // Browser focus transfer happens on pointerdown, before the action click.
+    fireEvent(input, 'blur', { currentTarget: container, relatedTarget: action });
+
+    expect(screen.getByTestId('search-current-location')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('search-current-location'));
+    expect(onCurrentLocationSelected).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('search-current-location')).toBeNull();
+  });
+
+  it('dismisses web search when keyboard focus leaves a search action', () => {
+    setPlatform('web');
+    render(<SearchBar onPropertyResolved={onPropertyResolved} onLocationResolved={onLocationResolved} />);
+    const input = screen.getByTestId('search-bar-input');
+    fireEvent(input, 'focus');
+    const container = document.createElement('div');
+    const action = document.createElement('button');
+    container.append(action);
+    fireEvent(input, 'blur', { currentTarget: container, relatedTarget: action });
+    fireEvent(screen.getByTestId('search-current-location'), 'blur', {
+      currentTarget: container,
+      relatedTarget: document.createElement('button'),
+    });
+    expect(screen.queryByTestId('search-current-location')).toBeNull();
+    expect(screen.queryByTestId('search-overlay-backdrop')).toBeNull();
+  });
+
   it('shows clear-all for a single selected area', () => {
     const onClearAreas = jest.fn();
 
