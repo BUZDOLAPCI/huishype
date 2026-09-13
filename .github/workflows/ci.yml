@@ -61,12 +61,23 @@ jobs:
             -e POSTGRES_DB=huishype_test \
             -p 5432:5432 \
             postgis/postgis:16-3.4
-          for i in $(seq 1 30); do
-            if docker exec postgres pg_isready -U huishype >/dev/null 2>&1; then
+          # The image's temporary init server accepts Unix-socket connections
+          # before PostGIS initialization finishes. Require the final TCP server
+          # and an executable PostGIS function in the actual migration database.
+          readiness_deadline=$((SECONDS + 60))
+          while (( SECONDS < readiness_deadline )); do
+            if docker exec -e PGPASSWORD=huishype_test -e PGCONNECT_TIMEOUT=2 postgres \
+              psql -X -h 127.0.0.1 -U huishype -d huishype_test \
+              -v ON_ERROR_STOP=1 -Atqc 'SELECT PostGIS_Full_Version()' \
+              > /tmp/postgres-readiness.log 2>&1; then
+              cat /tmp/postgres-readiness.log
               exit 0
             fi
-            sleep 2
+            if [ "$(docker inspect --format '{{.State.Running}}' postgres)" != true ]; then
+              break
+            fi
           done
+          cat /tmp/postgres-readiness.log
           docker logs postgres
           exit 1
 
