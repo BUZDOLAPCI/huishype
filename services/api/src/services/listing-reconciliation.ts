@@ -162,6 +162,7 @@ export type ListingWriteResult = {
   canonicalListing: CanonicalListing | null;
   observationId: string;
   propertyId: string | null;
+  changedPropertyIds: string[];
   inserted: boolean;
   changed: boolean;
 };
@@ -1353,7 +1354,8 @@ async function completeCandidateHandoffForObservation(
   observation: ListingObservation,
   canonical: CanonicalListing,
   executor: ReconciliationDb,
-): Promise<string | null> {
+): Promise<{ handoffId: string | null; changedPropertyIds: string[] }> {
+  const changedPropertyIds: string[] = [];
   const predicates = [];
   if (observation.candidateHandoffId) {
     predicates.push(eq(listingCandidateHandoffs.id, observation.candidateHandoffId));
@@ -1370,9 +1372,9 @@ async function completeCandidateHandoffForObservation(
     ));
   }
 
-  if (predicates.length === 0) return null;
+  if (predicates.length === 0) return { handoffId: null, changedPropertyIds };
 
-  if (!observation.sourceStatus || observation.sourceStatus === 'not_found') return null;
+  if (!observation.sourceStatus || observation.sourceStatus === 'not_found') return { handoffId: null, changedPropertyIds };
   const candidates = await executor.select().from(listingCandidateHandoffs)
     .where(and(eq(listingCandidateHandoffs.sourceName, observation.sourceName), or(...predicates)));
   const observedUrls = [observation.sourceUrlCanonical, observation.sourceUrlRaw,
@@ -1397,23 +1399,24 @@ async function completeCandidateHandoffForObservation(
     if (provisional?.originSummary === 'user' && provisional.verificationState === 'provisional') {
       await executor.update(canonicalListings).set({ verificationState: 'invalid', activeEligible: false })
         .where(eq(canonicalListings.id, provisional.id));
+      changedPropertyIds.push(provisional.propertyId);
     }
   }
-  if (!validIds.length) return null;
+  if (!validIds.length) return { handoffId: null, changedPropertyIds };
   const [handoff] = await executor.update(listingCandidateHandoffs).set({
     canonicalListingId: canonical.id, observationId: observation.id,
     sourceListingId: observation.sourceListingId ?? canonical.primarySourceListingId ?? undefined,
     state: 'delivered', lastAttemptAt: new Date(), nextAttemptAt: null, lastError: null, updatedAt: new Date(),
   }).where(inArray(listingCandidateHandoffs.id, validIds)).returning({ id: listingCandidateHandoffs.id });
 
-  if (!handoff) return null;
+  if (!handoff) return { handoffId: null, changedPropertyIds };
 
   await executor
     .update(listingObservations)
     .set({ candidateHandoffId: handoff.id })
     .where(eq(listingObservations.id, observation.id));
 
-  return handoff.id;
+  return { handoffId: handoff.id, changedPropertyIds };
 }
 
 async function markCandidateHandoffForDiagnosticObservation(
@@ -1884,13 +1887,15 @@ export async function persistMirrorObservationForIngest(
     .where(eq(listingObservations.id, observation.id))
     .limit(1);
   const reconciledObservation = effectiveObservation ?? observation;
+  let candidateChangedPropertyIds: string[] = [];
   if (!reconciledObservation.staleForProjection) {
     if (reconciledObservation.diagnosticStatus) {
       // Delivery diagnostics correlate the durable request even without identity
       // proof, but never change the requested property or source URL.
       await markCandidateHandoffForDiagnosticObservation(reconciledObservation, executor);
     } else if (canonicalListing) {
-      await completeCandidateHandoffForObservation(reconciledObservation, canonicalListing, executor);
+      const completion = await completeCandidateHandoffForObservation(reconciledObservation, canonicalListing, executor);
+      candidateChangedPropertyIds = completion.changedPropertyIds;
     }
   }
   const diagnosticRetiredProvisional = Boolean(
@@ -1908,14 +1913,17 @@ export async function persistMirrorObservationForIngest(
     && !reconciledObservation.diagnosticStatus
     && !reconciledObservation.staleForProjection,
   );
+  const canonicalChanged = (!reusedExisting || madeFreshForProjection)
+    && (projectedCanonicalFacts || diagnosticRetiredProvisional)
+    && !reconciledObservation.staleForProjection;
+  const propertyId = canonicalListing?.propertyId ?? input.propertyId;
   return {
     canonicalListing,
     observationId: reconciledObservation.id,
-    propertyId: canonicalListing?.propertyId ?? input.propertyId,
+    propertyId,
+    changedPropertyIds: [...new Set([...(canonicalChanged && propertyId ? [propertyId] : []), ...candidateChangedPropertyIds])],
     inserted: !reusedExisting && projectedCanonicalFacts,
-    changed: (!reusedExisting || madeFreshForProjection)
-      && (projectedCanonicalFacts || diagnosticRetiredProvisional)
-      && !reconciledObservation.staleForProjection,
+    changed: canonicalChanged || candidateChangedPropertyIds.length > 0,
   };
 }
 

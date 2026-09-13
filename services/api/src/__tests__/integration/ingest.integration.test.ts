@@ -31,6 +31,7 @@ import {
   requeueBlockedSourceBatchesAtWatermark,
   SKIPPED_BATCH_RECOVERY_COOLDOWN_MS,
 } from '../../services/ingest/index.js';
+import { ensurePropertyChangeState } from '../../services/property-read-state.js';
 import { persistMirrorObservationForIngest, upsertListingSourceAliases } from '../../services/listing-reconciliation.js';
 
 describe('Durable ingest API contract', () => {
@@ -3745,6 +3746,54 @@ describe('Durable ingest API contract', () => {
         ),
       );
     expect(canonicals).toHaveLength(1);
+  });
+
+  it('invalidates the rejected provisional property and requests maintenance when unchanged evidence gains a candidate correlation', async () => {
+    const sourceName = 'fotocasa';
+    const stamp = Date.now();
+    const street = `Candidate Replay Source ${stamp}`;
+    const propertyId = await seedProperty({ street, houseNumber: 51 });
+    const provisionalPropertyId = await seedProperty({ street: `Candidate Replay Wrong ${stamp}`, houseNumber: 52 });
+    const sourceUrl = `https://www.fotocasa.es/es/comprar/vivienda/candidate-replay-${stamp}`;
+    const mirrorListingId = `candidate-replay-${stamp}`;
+    const observedAt = new Date(Date.now() - 3600000).toISOString();
+    const listing = { sourceUrl, mirrorListingId, askingPrice: 415000, priceType: 'sale' as const,
+      status: 'active' as const, sourceStatus: 'available' as const, mirrorLastChangedAt: observedAt, mirrorLastSeenAt: observedAt,
+      address: { countryCode: 'NL' as const, street, postalCode: '1234AB', houseNumber: 51, city: 'Eindhoven' } };
+    let cursor: string | null = null;
+    const send = async (sequence: number, sourceCandidateId?: string) => {
+      const cursorEnd = encodeOpaqueIngestCursor({ changedAt: observedAt, listingKey: `${mirrorListingId}-${sequence}` });
+      const accepted = await acceptIngestBatch({ sourceName, idempotencyKey: `${mirrorListingId}-${sequence}`, batchSequence: sequence, upstreamRunKey: `${mirrorListingId}-run`,
+        cursorStart: cursor, cursorEnd, listings: [{ ...listing, ...(sourceCandidateId ? { sourceCandidateId } : {}) }] });
+      cursor = cursorEnd;
+      const result = await processIngestBatch({ batchId: accepted.batchId, enqueueMaintenanceRefresh: async () => {} });
+      return { accepted, result };
+    };
+    await send(0);
+    const [proven] = await db.select().from(canonicalListings).where(eq(canonicalListings.primarySourceListingId, mirrorListingId));
+    const [provisional] = await db.insert(canonicalListings).values({ sourceName, propertyId: provisionalPropertyId,
+      canonicalUrl: sourceUrl, displayUrl: sourceUrl, originSummary: 'user', verificationState: 'provisional', activeEligible: false }).returning();
+    const [candidate] = await db.insert(listingCandidateHandoffs).values({ sourceName, propertyId: provisionalPropertyId,
+      canonicalListingId: provisional.id, sourceUrlRaw: sourceUrl, sourceUrlCanonical: sourceUrl, state: 'queued' }).returning();
+    const beforeProvisional = await ensurePropertyChangeState(provisionalPropertyId);
+    const beforeProven = await ensurePropertyChangeState(propertyId);
+    const beforeWatermarks = await readPropertyTilePyramidInvalidationState();
+    const beforePrices = await db.select().from(listingPriceObservations).where(eq(listingPriceObservations.canonicalListingId, proven.id));
+    const replay = await send(1, candidate.id);
+    expect(replay.result).toEqual({ status: 'completed', ingested: 0, updated: 1, skipped: 0 });
+    expect((await ensurePropertyChangeState(provisionalPropertyId)).changeVersion).toBe(beforeProvisional.changeVersion + 1);
+    expect((await ensurePropertyChangeState(propertyId)).changeVersion).toBe(beforeProven.changeVersion);
+    expect((await db.select().from(canonicalListings).where(eq(canonicalListings.id, provisional.id)))[0])
+      .toMatchObject({ propertyId: provisionalPropertyId, verificationState: 'invalid', activeEligible: false });
+    expect((await db.select().from(canonicalListings).where(eq(canonicalListings.id, proven.id)))[0])
+      .toMatchObject({ propertyId, verificationState: 'validated', lastPositiveAvailabilityAt: new Date(observedAt) });
+    expect((await db.select().from(ingestBatches).where(eq(ingestBatches.id, replay.accepted.batchId)))[0].maintenanceRequestedAt).not.toBeNull();
+    const afterWatermarks = await readPropertyTilePyramidInvalidationState();
+    expect(afterWatermarks.listingFactsWatermark).toBeGreaterThan(beforeWatermarks.listingFactsWatermark);
+    expect(await db.select().from(listingPriceObservations).where(eq(listingPriceObservations.canonicalListingId, proven.id))).toHaveLength(beforePrices.length);
+    const repeated = await send(2, candidate.id);
+    expect((await ensurePropertyChangeState(provisionalPropertyId)).changeVersion).toBe(beforeProvisional.changeVersion + 1);
+    expect((await db.select().from(ingestBatches).where(eq(ingestBatches.id, repeated.accepted.batchId)))[0].maintenanceRequestedAt).toBeNull();
   });
 
   it('refreshes legacy-compatible source observation metadata during idempotent replay', async () => {

@@ -1663,10 +1663,7 @@ async function recoverSkippedCompletedBatch(
       },
     );
 
-    const changedPropertyIds = listingWrites
-      .filter((row) => row.inserted || row.changed)
-      .map((row) => row.propertyId)
-      .filter((propertyId): propertyId is string => propertyId !== null);
+    const changedPropertyIds = listingWrites.flatMap(row => row.changedPropertyIds);
     await advancePropertyChangeVersion(changedPropertyIds, tx);
     if (changedPropertyIds.length > 0) {
       await advancePropertyTilePyramidSourceWatermark(['ingest_source', 'listing_facts', 'property_status'], tx);
@@ -2029,10 +2026,7 @@ export async function processIngestBatch(
       );
       const allListingWrites = [...listingWrites, ...diagnosticWrites];
       await advancePropertyChangeVersion(
-        allListingWrites
-          .filter((row) => row.inserted || row.changed)
-          .map((row) => row.propertyId)
-          .filter((propertyId): propertyId is string => propertyId !== null),
+        allListingWrites.flatMap(row => row.changedPropertyIds),
         tx,
       );
       if (allListingWrites.some((row) => row.inserted || row.changed)) {
