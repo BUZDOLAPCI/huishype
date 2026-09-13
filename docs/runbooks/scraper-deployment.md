@@ -5,6 +5,15 @@ Pararius scraper/source-service stacks. The scrapers run on a separate Hetzner
 CX23 VM so scraper traffic and upstream rate behavior do not share the public
 IP of the HuisHype app/prod VM.
 
+## Funda hybrid release
+
+Use [Funda hybrid release and acceptance](funda-hybrid-release.md) for the
+coordinated hybrid cutover, migration gates, independent paid ledger, immutable
+release manifest and full daily acceptance cycle. The legacy Funda scheduler,
+worker, candidate and probe commands below describe the previous runtime; after
+cutover, all acquisition runs through the final planner. Pararius operations
+remain independent.
+
 ## Secrets
 
 Operator secrets are recorded in the gitignored root file:

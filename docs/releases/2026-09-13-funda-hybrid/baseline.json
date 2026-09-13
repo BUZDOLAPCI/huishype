@@ -1,0 +1,85 @@
+{
+  "record_type": "pre_release_read_only_baseline",
+  "observed_at": "2026-09-13T19:41:44Z",
+  "production_mutations": false,
+  "app": {
+    "host": "94.130.105.129",
+    "coolify_application_uuid": "cop1e1822hijj6g3zmxhrs0k",
+    "auto_deploy_enabled": true,
+    "running_commit": "8136d2059d7dfc4f271fc37a7984bc411a39c4e1",
+    "health_status": "ok",
+    "database_size": "79 GB",
+    "disk_free": "155 GB",
+    "memory_available": "11 GiB",
+    "images": {
+      "api": "sha256:35386f81da8d8fee05e86c8d2139c081ff4a5927df2f299b9ac16e14013e8cbe",
+      "worker": "sha256:06cdb7ed48168f84c0a393de8334f6fc8bb4a872d4cc1999dedee5de1af3fe41",
+      "web": "sha256:7121e5280966b575e2fc77b39f24db6f97061ac5e6993a40506777292b8004f6"
+    },
+    "migration_head": {
+      "id": 60,
+      "hash": "59accf35a6ebc2cb9176592771e73bd3c05246199007dc66acded79a5732ec2d",
+      "created_at": 1781049600000
+    }
+  },
+  "scraper_host": {
+    "host": "46.225.56.31",
+    "private_ip": "10.42.0.2",
+    "disk_free": "9.4 GB",
+    "memory_available": "2.0 GiB",
+    "container_count": 16,
+    "healthy_container_count": 16
+  },
+  "funda": {
+    "image": "sha256:fb41c5204529adb46624624528323edc7ba618beb40ac40e0a4835e3c6f1d012",
+    "migration_head": "e8c2a1f6b930",
+    "database_size": "1668 MB",
+    "health_status": "healthy",
+    "status": "degraded",
+    "operational_status": "stale",
+    "total_listings": 303460,
+    "active_listings": 98879,
+    "stale_count_legacy_policy": 53145,
+    "pending_jobs": 8624,
+    "processing_jobs": 1,
+    "failed_jobs": 660,
+    "search_capability": "healthy",
+    "detail_capability": "healthy",
+    "latest_successful_ingest": "2026-09-13T19:37:29.415170Z"
+  },
+  "pararius": {
+    "migration_head": "20260612_000001",
+    "database_size": "141 MB",
+    "health_status": "healthy",
+    "status": "degraded",
+    "operational_status": "blocked",
+    "total_listings": 14279,
+    "stale_count": 13135,
+    "upstream_status": 403,
+    "consecutive_blocks": 23,
+    "next_probe_at": "2026-09-14T06:25:19.838451Z",
+    "latest_successful_ingest": "2026-06-12T12:06:42.911770Z"
+  },
+  "realtyapi": {
+    "observed_at": "2026-09-13T19:49:00Z",
+    "evidence_source": "authenticated provider dashboard Current Plan; screenshot captured in deployment-agent tool transcript",
+    "url": "https://www.realtyapi.io/dashboard?tab=settings&section=plan",
+    "plan": "ULTRA",
+    "monthly_price_usd": 60,
+    "included_credits": 85000,
+    "displayed_used": 23,
+    "displayed_remaining": 84977,
+    "displayed_reset": "Resets in 30 days",
+    "exact_reset_timestamp_observed": false,
+    "forecast_horizon_days": 31,
+    "forecast_horizon_basis": "Conservative full monthly horizon; not an asserted billing reset timestamp",
+    "invoice_paid_date": "2026-09-13",
+    "active_key_names": [
+      "Primary Key",
+      "hh-prod-key"
+    ],
+    "existing_local_key_name": "hh-prod-key",
+    "existing_local_key_sha256": "0dbc5380365fec08bd651d4fe5f4276b0209cbe68845f739d37faddcb6301269",
+    "live_requests_spent_by_baseline_audit": 0
+  }
+}

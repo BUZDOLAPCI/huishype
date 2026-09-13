@@ -18,11 +18,30 @@
 ##
 
 services:
-  # ---------- Fastify API ----------
-  api:
-    build:
+  # Schema migrations must finish before either writer starts. Coolify excludes
+  # restart: "no" services from aggregate health while
+  # Docker Compose preserves service_completed_successfully as a startup gate.
+  migrate:
+    build: &api-build
       context: .
       dockerfile: services/api/Dockerfile
+    restart: "no"
+    command: ["true"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER:-huishype}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-huishype}
+      RUN_MIGRATIONS: "true"
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # ---------- Fastify API ----------
+  api:
+    build: *api-build
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -30,7 +49,7 @@ services:
       REDIS_URL: redis://redis:6379
       PORT: "3100"
       HOST: "0.0.0.0"
-      RUN_MIGRATIONS: "true"
+      RUN_MIGRATIONS: "false"
       RUN_LOCATION_SEARCH_AREA_REBUILD: "true"
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
@@ -82,6 +101,8 @@ services:
       retries: 3
       start_period: 15s
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -141,6 +162,8 @@ services:
       WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-15000}
       WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY: ${WORKER_PROPERTY_TILE_PYRAMID_RETENTION_UTC_MINUTE_OF_DAY:-200}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -170,7 +193,8 @@ services:
       retries: 3
       start_period: 10s
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     networks:
       - internal
 
