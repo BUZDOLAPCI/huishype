@@ -30,6 +30,9 @@ const baseListing: ListingData = {
   sourceListingId: '123',
   askingPrice: 425000,
   priceType: 'sale',
+  pricePeriod: 'total',
+  priceUnit: 'listing',
+  priceCondition: 'asking',
   currency: 'EUR',
   thumbnailUrl: null,
   ogTitle: null,
@@ -52,6 +55,24 @@ const baseListing: ListingData = {
 };
 
 describe('ListingLinks', () => {
+  it('preserves rental periods, per-area prices and auction/request conditions', () => {
+    render(<ListingLinks listings={[
+      { ...baseListing, id: 'weekly', askingPrice: 500, priceType: 'rent', pricePeriod: 'week' },
+      { ...baseListing, id: 'monthly-area', askingPrice: 20, priceType: 'rent', pricePeriod: 'month', priceUnit: 'm2' },
+      { ...baseListing, id: 'yearly', askingPrice: 18000, priceType: 'rent', pricePeriod: 'year' },
+      { ...baseListing, id: 'request', askingPrice: null, priceCondition: 'on_request' },
+      { ...baseListing, id: 'auction', askingPrice: 250000, priceCondition: 'auction' },
+      { ...baseListing, id: 'unknown-rent', askingPrice: 700, priceType: 'rent', pricePeriod: null, priceCondition: 'unknown' },
+    ]} />);
+    expect(screen.getByText(/500.*\/wk$/)).toBeTruthy();
+    expect(screen.getByText(/20.*\/m²\/mo$/)).toBeTruthy();
+    expect(screen.getByText(/18.*\/yr$/)).toBeTruthy();
+    expect(screen.getByText('Price on request')).toBeTruthy();
+    expect(screen.getByText(/^Auction .*250/)).toBeTruthy();
+    expect(screen.getByText(/^Listed price .*700$/)).toBeTruthy();
+    expect(screen.queryByText(/700.*\/mo$/)).toBeNull();
+  });
+
   it('renders market-state pills from each source listing instead of validation state', () => {
     render(
       <ListingLinks

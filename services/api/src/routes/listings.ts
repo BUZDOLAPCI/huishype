@@ -72,6 +72,9 @@ const listingResponseSchema = z.object({
   sourceListingId: z.string().nullable(),
   askingPrice: z.number().nullable(),
   priceType: z.string().nullable(),
+  pricePeriod: z.enum(['month', 'week', 'day', 'year', 'total', 'unknown']).nullable(),
+  priceUnit: z.enum(['listing', 'm2', 'unknown']).nullable(),
+  priceCondition: z.enum(['asking', 'on_request', 'auction', 'unknown']).nullable(),
   currency: z.string().nullable(),
   thumbnailUrl: z.string().nullable(),
   ogTitle: z.string().nullable(),
@@ -114,6 +117,7 @@ const priceHistoryResponseSchema = z.object({
   price: z.number(),
   priceDate: z.string(),
   eventType: z.string(),
+  priceKind: z.enum(['asking', 'achieved', 'unknown']),
   source: z.string(),
 });
 
@@ -440,6 +444,9 @@ export async function listingRoutes(app: FastifyInstance) {
             sourceListingId: l.primarySourceListingId,
             askingPrice: l.askingPrice,
             priceType: l.priceType,
+            pricePeriod: l.pricePeriod as 'month' | 'week' | 'day' | 'year' | 'total' | 'unknown' | null,
+            priceUnit: l.priceUnit as 'listing' | 'm2' | 'unknown' | null,
+            priceCondition: l.priceCondition as 'asking' | 'on_request' | 'auction' | 'unknown' | null,
             currency: l.priceCurrency,
             thumbnailUrl: l.thumbnailUrl,
             ogTitle: l.title,
@@ -516,6 +523,7 @@ export async function listingRoutes(app: FastifyInstance) {
           price: Number(ph.price),
           priceDate: ph.priceDate,
           eventType: ph.eventType,
+          priceKind: ph.priceKind,
           source: ph.source,
         })),
       );

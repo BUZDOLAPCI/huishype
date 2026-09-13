@@ -44,6 +44,9 @@ interface CreateListingOptions {
   askingPrice?: number | null;
   thumbnailUrl?: string | null;
   priceType?: string | null;
+  pricePeriod?: 'month' | 'week' | 'day' | 'year' | 'total' | 'unknown' | null;
+  priceUnit?: 'listing' | 'm2' | 'unknown' | null;
+  priceCondition?: 'asking' | 'on_request' | 'auction' | 'unknown' | null;
   createdAt?: Date;
   updatedAt?: Date;
   lastPositiveAvailabilityAt?: Date | null;
@@ -319,6 +322,9 @@ export async function createIntegrationCanonicalListing(options: CreateCanonical
     thumbnailUrl: options.thumbnailUrl ?? null,
     priceCurrency: 'EUR',
     priceType: options.priceType ?? 'sale',
+    pricePeriod: options.pricePeriod === undefined ? options.priceType === 'rent' ? 'month' : 'total' : options.pricePeriod,
+    priceUnit: options.priceUnit === undefined ? 'listing' : options.priceUnit,
+    priceCondition: options.priceCondition === undefined ? 'asking' : options.priceCondition,
     firstSeenAt: createdAt,
     lastSeenAt: updatedAt,
     lastMirrorSeenAt: options.originSummary === 'user' ? null : updatedAt,
@@ -343,6 +349,9 @@ export async function createIntegrationCanonicalListing(options: CreateCanonical
         askingPrice: listing.askingPrice,
         thumbnailUrl: listing.thumbnailUrl,
         priceType: listing.priceType,
+        pricePeriod: listing.pricePeriod,
+        priceUnit: listing.priceUnit,
+        priceCondition: listing.priceCondition,
         lastSeenAt: listing.lastSeenAt,
         lastMirrorSeenAt: listing.lastMirrorSeenAt,
         lastUserSeenAt: listing.lastUserSeenAt,

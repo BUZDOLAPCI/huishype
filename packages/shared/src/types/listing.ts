@@ -48,6 +48,9 @@ export type ListingReasonCode =
   | 'validation_pending';
 
 export type ListingPriceType = 'sale' | 'rent' | 'unknown';
+export type ListingPricePeriod = 'month' | 'week' | 'day' | 'year' | 'total' | 'unknown';
+export type ListingPriceUnit = 'listing' | 'm2' | 'unknown';
+export type ListingPriceCondition = 'asking' | 'on_request' | 'auction' | 'unknown';
 
 /**
  * Full listing information
@@ -233,6 +236,10 @@ export interface ListingReadItem {
   sourceListingId: string | null;
   askingPrice: number | null;
   priceType: ListingPriceType | string | null;
+  /** Source amount semantics; missing metadata must not imply a monthly or total amount. */
+  pricePeriod?: ListingPricePeriod | null;
+  priceUnit?: ListingPriceUnit | null;
+  priceCondition?: ListingPriceCondition | null;
   currency: string | null;
   thumbnailUrl: string | null;
   ogTitle: string | null;

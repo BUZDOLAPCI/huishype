@@ -530,6 +530,9 @@ describe('Listing routes', () => {
           askingPrice: 612000,
           priceCurrency: 'EUR',
           priceType: 'sale',
+          pricePeriod: 'total',
+          priceUnit: 'listing',
+          priceCondition: 'asking',
           livingAreaM2: 88,
           listedAt: new Date('2026-03-30T07:00:00.000Z'),
           firstSeenAt: new Date('2026-04-02T08:00:00.000Z'),
@@ -553,6 +556,9 @@ describe('Listing routes', () => {
           askingPrice: 2450,
           priceCurrency: 'EUR',
           priceType: 'rent',
+          pricePeriod: 'month',
+          priceUnit: 'listing',
+          priceCondition: 'asking',
           listedAt: new Date('2026-03-29T08:00:00.000Z'),
           rentedAt: new Date('2026-04-08T12:00:00.000Z'),
           firstSeenAt: new Date('2026-04-01T08:00:00.000Z'),
@@ -601,6 +607,9 @@ describe('Listing routes', () => {
       const listing = body.data.find((item: { id: string }) => item.id === canonical!.id);
       expect(listing).toMatchObject({
         priceType: 'sale',
+        pricePeriod: 'total',
+        priceUnit: 'listing',
+        priceCondition: 'asking',
         livingAreaM2: 88,
         numRooms: 4,
         energyLabel: 'A',
@@ -616,6 +625,9 @@ describe('Listing routes', () => {
       const terminalListing = body.data.find((item: { id: string }) => item.id === terminalCanonical!.id);
       expect(terminalListing).toMatchObject({
         status: 'rented',
+        pricePeriod: 'month',
+        priceUnit: 'listing',
+        priceCondition: 'asking',
         listedAt: '2026-03-29T08:00:00.000Z',
         soldAt: null,
         rentedAt: '2026-04-08T12:00:00.000Z',
@@ -663,6 +675,7 @@ describe('Listing routes', () => {
         expect(entry).toHaveProperty('price');
         expect(entry).toHaveProperty('priceDate');
         expect(entry).toHaveProperty('eventType');
+        expect(entry).toHaveProperty('priceKind', 'asking');
         expect(entry).toHaveProperty('source');
         expect(typeof entry.price).toBe('number');
       }

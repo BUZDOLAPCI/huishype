@@ -1,6 +1,6 @@
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { formatPropertyPrice } from '@huishype/shared';
+import { formatPrice as formatAmount } from '@huishype/shared';
 import type { ListingData } from '../../hooks/useListings';
 import { ListingPill, type ListingMarketState } from '../PropertyStatusPills';
 import { SectionCard } from './SectionCard';
@@ -41,10 +41,15 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
     }
   };
 
-  const formatPrice = (price: number | null, priceType: string | null) => {
-    if (price == null) return null;
-    const suffix = priceType === 'rent' ? '/mo' : '';
-    return `${formatPropertyPrice(price)}${suffix}`;
+  const formatPrice = (listing: ListingData) => {
+    if (listing.priceCondition === 'on_request') return 'Price on request';
+    if (listing.askingPrice == null) return listing.priceCondition === 'auction' ? 'Auction' : null;
+    const period = { month: '/mo', week: '/wk', day: '/day', year: '/yr', total: '', unknown: '' };
+    const suffix = `${listing.priceUnit === 'm2' ? '/m²' : ''}${listing.pricePeriod ? period[listing.pricePeriod] : ''}`;
+    const amount = `${formatAmount(listing.askingPrice, { currency: listing.currency ?? undefined })}${suffix}`;
+    if (listing.priceCondition === 'auction') return `Auction ${amount}`;
+    if (listing.priceCondition !== 'asking') return `Listed price ${amount}`;
+    return isCurrentListing(listing) ? amount : `Asking price ${amount}`;
   };
 
   const getLifecycleLabel = (status: string) => {
@@ -101,7 +106,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
 
   const renderListing = (listing: ListingData) => {
     const sourceInfo = getSourceInfo(listing.sourceName);
-    const price = formatPrice(listing.askingPrice, listing.priceType);
+    const price = formatPrice(listing);
     const listingMarketState = getListingMarketState(listing);
     const sourceUrl = listing.displayUrl ?? listing.canonicalUrl ?? listing.sourceUrl;
     const lifecycleDate = formatLifecycleDate(getLifecycleDate(listing));
@@ -130,7 +135,7 @@ export function ListingLinks({ listings, onLinkPress, onAddListing }: ListingLin
           {lifecycleText ? <Text style={styles.rowMeta}>{lifecycleText}</Text> : null}
           {price ? (
             <Text style={styles.rowPrice}>
-              {isCurrentListing(listing) ? price : `Asking price ${price}`}
+              {price}
             </Text>
           ) : null}
         </View>
