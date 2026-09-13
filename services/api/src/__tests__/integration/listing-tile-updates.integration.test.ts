@@ -25,6 +25,7 @@ describe('durable listing tile publication', () => {
   const coverageId = `listing-update-test-${suffix}`;
   const propertyBackup = sql.raw(`listing_property_backup_${suffix}`);
   const tileBackup = sql.raw(`listing_tile_backup_${suffix}`);
+  const metricsBackup = sql.raw(`listing_metrics_backup_${suffix}`);
   const oldCoverage = process.env.PROPERTY_TILE_PYRAMID_COVERAGE_ID;
   const oldZoom = process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM;
   const propertyIds: string[] = [];
@@ -90,16 +91,29 @@ describe('durable listing tile publication', () => {
     `))[0];
   }
 
+  async function publicationMetrics() {
+    return Array.from(await db.execute<{
+      count: string; total: string; max: string; last: string | null;
+    }>(sql`
+      SELECT COALESCE(sum(publication_count),0)::text AS count,
+        COALESCE(sum(total_latency_ms),0)::text AS total,COALESCE(max(max_latency_ms),0)::text AS max,
+        (SELECT last_latency_ms::text FROM listing_tile_publication_metrics ORDER BY bucket_start DESC LIMIT 1) AS last
+      FROM listing_tile_publication_metrics
+    `))[0];
+  }
+
   beforeAll(async () => {
     process.env.PROPERTY_TILE_PYRAMID_COVERAGE_ID = coverageId;
     process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM = '0';
     await db.execute(sql`CREATE TABLE ${propertyBackup} AS TABLE listing_tile_property_updates`);
     await db.execute(sql`CREATE TABLE ${tileBackup} AS TABLE listing_tile_updates`);
+    await db.execute(sql`CREATE TABLE ${metricsBackup} AS TABLE listing_tile_publication_metrics`);
     app = await buildApp({ logger: false });
   });
   beforeEach(async () => {
     await db.execute(sql`DELETE FROM listing_tile_property_updates`);
     await db.execute(sql`DELETE FROM listing_tile_updates`);
+    await db.execute(sql`DELETE FROM listing_tile_publication_metrics`);
     versionId = await createVersion();
     resetPropertyTileCacheForTests();
   });
@@ -116,8 +130,11 @@ describe('durable listing tile publication', () => {
   afterAll(async () => {
     await db.execute(sql`INSERT INTO listing_tile_property_updates SELECT * FROM ${propertyBackup}`);
     await db.execute(sql`INSERT INTO listing_tile_updates SELECT * FROM ${tileBackup}`);
+    await db.execute(sql`DELETE FROM listing_tile_publication_metrics`);
+    await db.execute(sql`INSERT INTO listing_tile_publication_metrics SELECT * FROM ${metricsBackup}`);
     await db.execute(sql`DROP TABLE ${propertyBackup}`);
     await db.execute(sql`DROP TABLE ${tileBackup}`);
+    await db.execute(sql`DROP TABLE ${metricsBackup}`);
     if (oldCoverage === undefined) delete process.env.PROPERTY_TILE_PYRAMID_COVERAGE_ID;
     else process.env.PROPERTY_TILE_PYRAMID_COVERAGE_ID = oldCoverage;
     if (oldZoom === undefined) delete process.env.PROPERTY_TILE_PRECOMPUTE_MAX_ZOOM;
@@ -136,6 +153,57 @@ describe('durable listing tile publication', () => {
     expect(await expandListingTilePropertyUpdates()).toBe(1);
     await db.execute(sql`UPDATE canonical_listings SET active_eligible=false WHERE property_id=${id}`);
     expect(await expandListingTilePropertyUpdates()).toBe(1);
+  });
+
+  it('preserves the oldest coalesced property timestamp and exact tile minimum independently of revision order', async () => {
+    const [firstId,secondId] = await fixture(2);
+    const oldest = '2026-01-01T00:00:00.123456Z';
+    await db.execute(sql`UPDATE listing_tile_property_updates SET requested_at=${oldest}::timestamptz WHERE property_id=${firstId}`);
+    await db.execute(sql`UPDATE listing_tile_property_updates SET requested_at=${oldest}::timestamptz+interval '1 microsecond' WHERE property_id=${secondId}`);
+    // The oldest change now has the highest revision and appears last in the
+    // expander's source order; microseconds must survive the JS comparison.
+    await db.execute(sql`UPDATE canonical_listings SET asking_price=420000 WHERE property_id=${firstId}`);
+    expect(Array.from(await db.execute<{ preserved: boolean }>(sql`
+      SELECT requested_at=${oldest}::timestamptz AS preserved FROM listing_tile_property_updates WHERE property_id=${firstId}
+    `))[0].preserved).toBe(true);
+    expect(await expandListingTilePropertyUpdates()).toBe(2);
+    expect(Array.from(await db.execute<{ inherited: boolean }>(sql`
+      SELECT requested_at=${oldest}::timestamptz AS inherited FROM listing_tile_updates WHERE z=0 AND x=0 AND y=0
+    `))[0].inherited).toBe(true);
+  });
+
+  it('retains slow completed latency after faster updates and excludes promotion, fenced, and failed publications', async () => {
+    const [id] = await fixture();
+    await db.execute(sql`UPDATE listing_tile_property_updates SET requested_at=clock_timestamp()-interval '5 minutes' WHERE property_id=${id}`);
+    expect((await runListingTileUpdates(1)).publishedTiles).toBe(1);
+    const slow = await publicationMetrics();
+    expect(slow.count).toBe('1');
+    expect(BigInt(slow.max)).toBeGreaterThanOrEqual(300000n);
+    expect(slow.total).toBe(slow.max);
+    await db.execute(sql`UPDATE canonical_listings SET asking_price=420000 WHERE property_id=${id}`);
+    expect((await runListingTileUpdates(1)).publishedTiles).toBe(1);
+    const fast = await publicationMetrics();
+    expect(fast.count).toBe('2');
+    expect(fast.max).toBe(slow.max);
+    expect(BigInt(fast.last!)).toBeLessThan(BigInt(slow.max));
+    expect(BigInt(fast.total)).toBe(BigInt(slow.total)+BigInt(fast.last!));
+    expect(Array.from(await db.execute<{ exact: boolean }>(sql`
+      SELECT bucket_start=date_trunc('minute',last_published_at)
+        AND last_latency_ms=floor(extract(epoch FROM (last_published_at-last_requested_at))*1000)::bigint AS exact
+      FROM listing_tile_publication_metrics
+    `)).every(row => row.exact)).toBe(true);
+    versionId = await createVersion();
+    expect((await runListingTileUpdates(1)).publishedTiles).toBe(1);
+    expect(await publicationMetrics()).toEqual(fast);
+    await db.execute(sql`UPDATE canonical_listings SET asking_price=430000 WHERE property_id=${id}`);
+    await expandListingTilePropertyUpdates();
+    const claim = (await claimListingTileUpdate())!;
+    const currentGroups = await groups();
+    await expect(publishClaimedListingTileUpdate(claim,[{ ...currentGroups[0],propertyIds: [] }])).rejects.toThrow('complete cluster membership');
+    expect(await publicationMetrics()).toEqual(fast);
+    await db.execute(sql`UPDATE canonical_listings SET asking_price=440000 WHERE property_id=${id}`);
+    expect(await publishClaimedListingTileUpdate(claim,currentGroups)).toBe(false);
+    expect(await publicationMetrics()).toEqual(fast);
   });
 
   it('fences unexpanded evidence arriving during a build and recovers a crashed worker lease', async () => {

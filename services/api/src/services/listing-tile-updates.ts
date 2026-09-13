@@ -152,10 +152,10 @@ export async function expandListingTilePropertyUpdates(limit = PROPERTY_BATCH_LI
     const current = await readCurrentVersion(tx);
     if (!current) return 0;
     const rows = Array.from(await tx.execute<{
-      property_id: string; lon: number; lat: number; revision: string; requested_at: string;
+      property_id: string; lon: number; lat: number; requested_at: string; requested_at_us: string;
     }>(sql`
       SELECT property_id::text,ST_X(geometry) AS lon,ST_Y(geometry) AS lat,
-        revision::text,requested_at::text
+        requested_at::text,(extract(epoch FROM requested_at)*1000000)::bigint::text AS requested_at_us
       FROM listing_tile_property_updates ORDER BY revision LIMIT ${limit} FOR UPDATE SKIP LOCKED
     `));
     if (rows.length === 0) return 0;
@@ -165,13 +165,14 @@ export async function expandListingTilePropertyUpdates(limit = PROPERTY_BATCH_LI
     const generation = Array.from(await tx.execute<{ revision: string }>(sql`
       SELECT nextval('listing_tile_update_revision_seq')::text AS revision
     `))[0].revision;
-    const tiles = new Map<string, ListingUpdateTile & { revision: string; requestedAt: string }>();
+    const tiles = new Map<string, ListingUpdateTile & { requestedAt: string; requestedAtUs: bigint }>();
     for (const row of rows) {
       for (const tile of computeListingAffectedTiles(Number(row.lon), Number(row.lat), current.max_zoom)) {
         const key = `${tile.z}/${tile.x}/${tile.y}`;
         const previous = tiles.get(key);
-        if (!previous || BigInt(previous.revision) < BigInt(row.revision)) {
-          tiles.set(key, { ...tile, revision: row.revision, requestedAt: previous?.requestedAt ?? row.requested_at });
+        const requestedAtUs = BigInt(row.requested_at_us);
+        if (!previous || requestedAtUs < previous.requestedAtUs) {
+          tiles.set(key, { ...tile, requestedAt: row.requested_at, requestedAtUs });
         }
       }
     }
@@ -252,6 +253,31 @@ export async function publishClaimedListingTileUpdate(
       groups,
       revision: claim.revision,
     });
+    // Sample only a completed dirty generation. Moving an unchanged overlay to
+    // a newly promoted base version is not another listing publication. Keep
+    // this in the same transaction as nodes, MVT, and the durable queue fence.
+    await tx.execute(sql`
+      WITH completed AS MATERIALIZED (
+        SELECT requested_at,clock_timestamp() AS published_at
+        FROM listing_tile_updates
+        WHERE z=${claim.z} AND x=${claim.x} AND y=${claim.y}
+          AND requested_revision>published_revision
+      ), sample AS (
+        SELECT requested_at,published_at,
+          GREATEST(0,floor(extract(epoch FROM (published_at-requested_at))*1000))::bigint AS latency_ms
+        FROM completed
+      )
+      INSERT INTO listing_tile_publication_metrics
+        (bucket_start,publication_count,total_latency_ms,max_latency_ms,last_latency_ms,last_published_at,last_requested_at)
+      SELECT date_trunc('minute',published_at),1,latency_ms,latency_ms,latency_ms,published_at,requested_at FROM sample
+      ON CONFLICT(bucket_start) DO UPDATE SET
+        publication_count=listing_tile_publication_metrics.publication_count+EXCLUDED.publication_count,
+        total_latency_ms=listing_tile_publication_metrics.total_latency_ms+EXCLUDED.total_latency_ms,
+        max_latency_ms=GREATEST(listing_tile_publication_metrics.max_latency_ms,EXCLUDED.max_latency_ms),
+        last_latency_ms=EXCLUDED.last_latency_ms,
+        last_published_at=EXCLUDED.last_published_at,
+        last_requested_at=EXCLUDED.last_requested_at
+    `);
     await tx.execute(sql`
       UPDATE listing_tile_updates SET
         published_revision=${claim.revision}::bigint,published_version_id=${claim.versionId}::uuid,

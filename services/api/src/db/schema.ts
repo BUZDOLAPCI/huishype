@@ -3224,3 +3224,17 @@ export const listingTileUpdates = pgTable('listing_tile_updates', {
   check('listing_tile_updates_coordinates_check', sql`${table.z} BETWEEN 0 AND 22 AND ${table.x} >= 0 AND ${table.y} >= 0 AND ${table.x} < power(2,${table.z}) AND ${table.y} < power(2,${table.z})`),
   check('listing_tile_updates_revisions_check', sql`${table.requestedRevision} >= ${table.publishedRevision} AND ${table.publishedRevision} >= 0`),
 ]);
+
+// Minute buckets retain every completed sample, including slow publications
+// that would otherwise be hidden when the same queue row publishes again.
+export const listingTilePublicationMetrics = pgTable('listing_tile_publication_metrics', {
+  bucketStart: timestamp('bucket_start', { withTimezone: true }).primaryKey(),
+  publicationCount: bigint('publication_count', { mode: 'bigint' }).notNull(),
+  totalLatencyMs: bigint('total_latency_ms', { mode: 'bigint' }).notNull(),
+  maxLatencyMs: bigint('max_latency_ms', { mode: 'bigint' }).notNull(),
+  lastLatencyMs: bigint('last_latency_ms', { mode: 'bigint' }).notNull(),
+  lastPublishedAt: timestamp('last_published_at', { withTimezone: true }).notNull(),
+  lastRequestedAt: timestamp('last_requested_at', { withTimezone: true }).notNull(),
+}, (table) => [
+  check('listing_tile_publication_metrics_values_check', sql`${table.publicationCount} > 0 AND ${table.totalLatencyMs} >= 0 AND ${table.maxLatencyMs} >= 0 AND ${table.lastLatencyMs} >= 0`),
+]);
