@@ -21,6 +21,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed-listings": "tsx scripts/seed-listings.ts",
     "db:seed-test-fixture": "tsx scripts/seed-test-fixture.ts",
+    "db:seed-ci-fixture": "tsx scripts/seed-ci-fixture.ts",
     "db:reset": "tsx scripts/db-reset.ts",
     "db:rebuild-location-search-areas": "tsx src/scripts/rebuild-location-search-areas.ts",
     "db:seed-landcover": "tsx src/scripts/import-landcover.ts",

@@ -75,6 +75,15 @@ jobs:
         env:
           DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
 
+      - name: Bootstrap deterministic test data
+        run: |
+          pnpm --filter @huishype/shared build
+          pnpm --filter @huishype/api db:seed-ci-fixture --database-name huishype_test
+        env:
+          DATABASE_URL: postgresql://huishype:huishype_test@localhost:5432/huishype_test
+          NODE_ENV: test
+          PLAYWRIGHT_ALLOW_CI_DATABASE_FIXTURE: '1'
+
       - name: Run canonical gate (lint, typecheck, unit, API integration, Playwright harness self-tests, Playwright integration)
         run: pnpm test
         env:
@@ -85,6 +94,14 @@ jobs:
           APPLE_CLIENT_ID: test-apple-client-id
           COOKIE_SECRET: test-cookie-secret
           NODE_ENV: test
+          PLAYWRIGHT_PHOTON_FIXTURE: '1'
+
+      - name: Remove job-owned test database
+        if: always()
+        run: |
+          if docker inspect postgres >/dev/null 2>&1; then
+            docker rm -f postgres
+          fi
 
       - name: Upload test artifacts
         if: always()

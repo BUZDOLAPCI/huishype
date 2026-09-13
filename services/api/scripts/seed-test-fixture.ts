@@ -16,6 +16,7 @@
 
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { PLAYWRIGHT_TEST_PROPERTIES } from '../../../scripts/playwright/property-tile-fixture.mjs';
 
 dotenv.config();
 
@@ -23,9 +24,10 @@ dotenv.config();
 // Constants
 // ---------------------------------------------------------------------------
 
-const FIXTURE_POSTAL_CODE = '5651HA';
-const FIXTURE_HOUSE_NUMBER = 41;
-const FIXTURE_ADDRESS_LABEL = 'Beeldbuisring 41, 5651HA, Eindhoven';
+const primaryFixture = PLAYWRIGHT_TEST_PROPERTIES[0]!;
+const FIXTURE_POSTAL_CODE = primaryFixture.postalCode;
+const FIXTURE_HOUSE_NUMBER = primaryFixture.houseNumber;
+const FIXTURE_ADDRESS_LABEL = `${primaryFixture.street} ${primaryFixture.houseNumber}, ${primaryFixture.postalCode}, ${primaryFixture.city}`;
 
 // Fixed UUIDs for test users (must be valid RFC 4122 v4 UUIDs for Zod 4 validation)
 const USER_ANNA_ID = 'a0000000-0000-4000-a000-000000000a01';

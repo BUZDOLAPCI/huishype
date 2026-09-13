@@ -16,6 +16,7 @@ import {
   resolveLatestWebDistDir,
 } from './runtime-config.mjs';
 import { startStaticWebServer } from './static-web-server.mjs';
+import { startPlaywrightPhotonFixture } from './photon-fixture.mjs';
 
 const READY_TIMEOUT_MS = 120_000;
 const EXPO_WEB_NODE_HEAP_MB = 8192;
@@ -253,6 +254,51 @@ async function main() {
   let apiChild = null;
   let webServerRuntime = null;
   let apiExit = Promise.resolve();
+  let photonFixturePromise = Promise.resolve(null);
+
+  let stopPromise;
+  const stop = (signal) => {
+    if (stopPromise) return stopPromise;
+    stopping.current = true;
+    stopPromise = (async () => {
+      stopService(apiChild, signal);
+      if (webServerRuntime) {
+        await webServerRuntime.stop().catch(() => {});
+      }
+
+      await Promise.race([
+        Promise.allSettled([apiExit]),
+        new Promise((resolve) => {
+          const timer = setTimeout(resolve, 5_000);
+          timer.unref();
+        }),
+      ]);
+      try {
+        await (await photonFixturePromise.catch(() => null))?.close();
+      } finally {
+        clearInterval(supervisorKeepAlive);
+      }
+    })();
+    return stopPromise;
+  };
+
+  cleanupOnFatal = async () => {
+    await stop('SIGTERM');
+  };
+
+  const onSignal = (signal) => {
+    void stop(signal).finally(() => {
+      process.exit(0);
+    });
+  };
+
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+
+  photonFixturePromise = startPlaywrightPhotonFixture(childEnv);
+  const photonFixture = await photonFixturePromise;
+  if (photonFixture) childEnv.PHOTON_URL = photonFixture.url;
+  if (stopping.current) return;
 
   console.log(
     `Ensuring Playwright property tile pyramid fixture in ${fixtureTarget.databaseName} on ${fixtureTarget.host}:${fixtureTarget.port} ...`
@@ -272,6 +318,7 @@ async function main() {
       stdio: 'inherit',
     }
   );
+  if (stopping.current) return;
 
   console.log(`Waiting for API at ${apiUrl} ...`);
   const apiRuntime = await startServiceWithRetry({
@@ -289,37 +336,6 @@ async function main() {
   });
   apiChild = apiRuntime.child;
   apiExit = apiRuntime.exitPromise;
-
-  const stop = async (signal) => {
-    if (stopping.current) {
-      return;
-    }
-
-    stopping.current = true;
-    stopService(apiChild, signal);
-    if (webServerRuntime) {
-      await webServerRuntime.stop().catch(() => {});
-    }
-
-    await Promise.race([
-      Promise.allSettled([apiExit]),
-      new Promise((resolve) => setTimeout(resolve, 5_000)),
-    ]);
-    clearInterval(supervisorKeepAlive);
-  };
-
-  cleanupOnFatal = async () => {
-    await stop('SIGTERM');
-  };
-
-  const onSignal = (signal) => {
-    void stop(signal).finally(() => {
-      process.exit(0);
-    });
-  };
-
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
 
   if (stopping.current) {
     return;

@@ -16,3 +16,8 @@ export declare const PLAYWRIGHT_PROPERTY_TILE_FIXTURE_CLUSTER: Readonly<{
 }>;
 
 export declare const PLAYWRIGHT_PROPERTY_TILE_FIXTURE_CENTER: readonly [number, number];
+
+export declare const PLAYWRIGHT_TEST_PROPERTIES: readonly Readonly<{
+  id: string; street: string; houseNumber: number; postalCode: string; city: string;
+  lon: number; lat: number; officialValuation: number; askingPrice: number;
+}>[];

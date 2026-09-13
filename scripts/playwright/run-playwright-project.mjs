@@ -18,6 +18,7 @@ import {
   resolveLatestWebDistDir,
 } from './runtime-config.mjs';
 import { startStaticWebServer } from './static-web-server.mjs';
+import { startPlaywrightPhotonFixture } from './photon-fixture.mjs';
 
 const READY_TIMEOUT_MS = 120_000;
 const EXPO_WEB_NODE_HEAP_MB = 8192;
@@ -504,6 +505,8 @@ async function main() {
   syncRuntimeEnvironment(process.env);
 
   let apiRestartUrl = null;
+  let photonFixturePromise = Promise.resolve(null);
+  let photonFixtureUrl = null;
   const createChildEnv = () => ({
     ...process.env,
     EXPO_NO_INTERACTIVE: '1',
@@ -517,6 +520,7 @@ async function main() {
     PLAYWRIGHT_REPO_ROOT: repoRoot,
     PLAYWRIGHT_DISABLE_OFFICIAL_VALUATION_HYDRATION_QUEUE: '1',
     ...(apiRestartUrl ? { BENCHMARK_API_RESTART_URL: apiRestartUrl } : {}),
+    ...(photonFixtureUrl ? { PHOTON_URL: photonFixtureUrl } : {}),
   });
 
   let childEnv = createChildEnv();
@@ -537,30 +541,32 @@ async function main() {
   const apiDeathMonitor = createApiDeathMonitor({ stopping, apiRestarting });
   apiDeathMonitor.promise.catch(() => {});
 
-  const stop = async (signal) => {
-    if (stopping.current) {
-      return;
-    }
-
+  let stopPromise;
+  const stop = (signal) => {
+    if (stopPromise) return stopPromise;
     stopping.current = true;
-    stopService(playwrightChild, signal);
-    stopService(apiChild, signal);
-    await Promise.all([
-      waitForChildExit(playwrightChild, 'Playwright process').catch(() => {}),
-      waitForChildExit(apiChild, 'API server').catch(() => {}),
-      Promise.resolve()
-        .then(() => webRuntime?.stop?.())
-        .catch(() => {}),
-      Promise.resolve()
-        .then(() => apiRestartControl?.close?.())
-        .catch(() => {}),
-      Promise.resolve().then(() => {
-        if (staticWebRoot) {
-          fs.rmSync(staticWebRoot, { recursive: true, force: true });
-          staticWebRoot = null;
-        }
-      }),
-    ]);
+    stopPromise = (async () => {
+      stopService(playwrightChild, signal);
+      stopService(apiChild, signal);
+      await Promise.all([
+        photonFixturePromise.catch(() => null).then((fixture) => fixture?.close()),
+        waitForChildExit(playwrightChild, 'Playwright process').catch(() => {}),
+        waitForChildExit(apiChild, 'API server').catch(() => {}),
+        Promise.resolve()
+          .then(() => webRuntime?.stop?.())
+          .catch(() => {}),
+        Promise.resolve()
+          .then(() => apiRestartControl?.close?.())
+          .catch(() => {}),
+        Promise.resolve().then(() => {
+          if (staticWebRoot) {
+            fs.rmSync(staticWebRoot, { recursive: true, force: true });
+            staticWebRoot = null;
+          }
+        }),
+      ]);
+    })();
+    return stopPromise;
   };
 
   const onSignal = (signal) => {
@@ -575,6 +581,12 @@ async function main() {
 
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
+
+  photonFixturePromise = startPlaywrightPhotonFixture(childEnv);
+  const photonFixture = await photonFixturePromise;
+  photonFixtureUrl = photonFixture?.url ?? null;
+  childEnv = createChildEnv();
+  if (stopping.current) return;
 
   console.log(
     `Ensuring Playwright property tile pyramid fixture in ${fixtureTarget.databaseName} on ${fixtureTarget.host}:${fixtureTarget.port} ...`
@@ -594,6 +606,7 @@ async function main() {
       stdio: 'inherit',
     }
   );
+  if (stopping.current) return;
 
   const startApiServer = async () => {
     console.log(`Starting API server on ${apiUrl} ...`);
