@@ -39,7 +39,223 @@ def queue_values():
     return {name: {"count": 2, "oldest_age_seconds": 12.5} for name in evidence.APP_QUEUE_METRICS}
 
 
+def source_values():
+    return {
+        "delivery": {
+            "oldestPendingAcquisitionObservedAt": None, "oldestPendingAcquisitionAgeSeconds": None,
+            "oldestPendingEventRecordedAt": START.isoformat(), "oldestPendingEventAgeSeconds": 5.5,
+            "oldestPendingBatchCreatedAt": None, "oldestPendingBatchAgeSeconds": None,
+            "maximumAcquisitionReceiptLatencySeconds24h": 20.5, "completedAcquisitionRecordCount24h": 4,
+            "writerGeneration": 1, "deliveredSequence": 30,
+        },
+        "mandatoryRequests": {"pendingCount": 0, "oldestCreatedAt": None, "oldestAgeSeconds": None,
+                              "earliestDeadline": None, "maximumOverdueSeconds": None},
+        "nationalInventory": {
+            "catalogVersion": "catalog-v1", "catalogCoverageVerified": False, "activePartitionCount": 4,
+            "verifiedCompletePartitions24h": 0, "latestComponentCompletedAt": None, "oldestComponentCompletedAt": None,
+            "latestCertificateId": None, "latestCertificateCompletedAt": None, "certificatePartitionCount": 0,
+        },
+        "core": {"canonicalListingCount": 100, "eligibleListingCount": 90, "confirmedWithin24HoursCount": 60,
+                 "expiredHistoricalCount": 10, "eligibleConditionalCount": 20},
+    }
+
+
+def publication_values(empty=False):
+    return {"scope": "publication_minute_buckets", "interval_start": START.isoformat(),
+            "interval_end": (START + dt.timedelta(days=1)).isoformat(),
+            "publication_count": 0 if empty else 2, "total_latency_ms": 0 if empty else 600000,
+            "max_latency_ms": None if empty else 500000, "bucket_count": 0 if empty else 2,
+            "bucket_start_min": None if empty else START.isoformat(),
+            "bucket_start_max": None if empty else (START + dt.timedelta(hours=23, minutes=59)).isoformat()}
+
+
+def completion_values(empty=False):
+    return {"scope": "source_acquisition_receipts", "interval_start": START.isoformat(),
+            "interval_end": (START + dt.timedelta(days=1)).isoformat(), "completion_count": 0 if empty else 10,
+            "minimum_latency_seconds": None if empty else 1, "maximum_latency_seconds": None if empty else 400,
+            "writer_generations": [] if empty else [1]}
+
+
+def audit_samples():
+    bodies = [snapshot(minute, light=minute not in (0, 1440)) for minute in range(0, 1441, 2)]
+    for body in bodies:
+        body["hosts"]["scraper"]["endpoints"]["funda.status"]["recovery"] = {"evidence": source_values()}
+        body["hosts"]["app"]["metrics"] = {"app_queues": {"status": "available", "values": queue_values()}}
+    return bodies
+
+
 class EvidenceTests(unittest.TestCase):
+    def test_publication_aggregate_validates_shape_and_is_optional_for_legacy(self):
+        for empty in [False, True]:
+            values = publication_values(empty)
+            with patch.object(evidence, "run", return_value=json.dumps(values)) as command:
+                result = evidence.app_publication_telemetry({"Id": "app-db"})
+            self.assertEqual(result["status"], "available")
+            command.assert_called_once()
+            sql = command.call_args.args[0][-1]
+            self.assertIn("bucket_start >= lower_bound AND bucket_start < upper_bound", sql)
+            self.assertIn("date_trunc('minute', now()) - interval '24 hours'", sql)
+            self.assertIn("sum(total_latency_ms)", sql)
+            self.assertIn("max(max_latency_ms)", sql)
+        with patch.object(evidence, "run", side_effect=RuntimeError("secret-schema-detail")):
+            self.assertEqual(evidence.app_publication_telemetry({"Id": "app-db"}),
+                             {"status": "unavailable", "reason": "RuntimeError"})
+        values = publication_values()
+        values["max_latency_ms"] = None
+        self.assertFalse(evidence.valid_publications(values))
+
+    def test_required_publication_metrics_fail_missing_or_malformed(self):
+        body, manifest = snapshot(), self.manifest()
+        manifest["required_metrics"] = ["app.publications"]
+        self.assertIn("app.publications:required_metric_unavailable", evidence.verify_release(manifest, body)["errors"])
+        body["hosts"]["app"]["metrics"] = {"app_publications": {"status": "available", "values": publication_values()}}
+        self.assertTrue(evidence.verify_release(manifest, body)["passed"])
+        body["hosts"]["app"]["metrics"]["app_publications"]["values"]["publication_count"] = True
+        self.assertFalse(evidence.verify_release(manifest, body)["passed"])
+
+    def test_audit_interval_rejects_future_unaligned_short_or_non_utc_bounds(self):
+        end = START + dt.timedelta(days=1)
+        self.assertEqual(evidence.audit_interval(START.isoformat(), end.isoformat(), now=end),
+                         ("2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"))
+        for start, finish in [
+            (START.isoformat(), (end - dt.timedelta(minutes=1)).isoformat()),
+            ((START + dt.timedelta(seconds=1)).isoformat(), end.isoformat()),
+            (START.isoformat(), (end + dt.timedelta(minutes=1)).isoformat()),
+            ("2026-01-01T01:00:00+01:00", end.isoformat()),
+            ("2026-01-01T00:00:00", end.isoformat()),
+            ("2026-01-01T00:00:00Z'; DROP TABLE source_evidence_events;--", end.isoformat()),
+        ]:
+            with self.assertRaises(ValueError):
+                evidence.audit_interval(start, finish, now=end)
+
+    def test_source_audit_query_uses_retained_acquisition_receipts_only(self):
+        query = evidence.source_completion_sql(START.isoformat(), (START + dt.timedelta(days=1)).isoformat())
+        for fragment in ["e.purpose='acquisition'", "b.state='delivered'", "b.writer_generation=e.writer_generation",
+                         "e.sequence>b.cursor_start", "e.sequence<=b.cursor_end", "b.delivered_at>=TIMESTAMPTZ",
+                         "b.delivered_at<TIMESTAMPTZ", "min(extract(epoch FROM b.delivered_at-e.observed_at))"]:
+            self.assertIn(fragment, query)
+        self.assertNotIn("greatest", query.lower())
+
+    def test_freshness_audit_gates_completed_and_pending_bounds(self):
+        start, end = START.isoformat(), (START + dt.timedelta(days=1)).isoformat()
+        window = evidence.audit_sample_window(audit_samples(), start, end)
+        source, app = {"status": "available", "values": completion_values()}, {"status": "available", "values": publication_values()}
+        result = evidence.freshness_result(source, app, window, start, end)
+        self.assertTrue(result["passed"], result["errors"])
+        self.assertEqual(result["measured_completed_upper_bound_seconds"], 900)
+        self.assertFalse(result["inventory_certified"])
+        self.assertFalse(result["budget_certified"])
+        app["values"]["max_latency_ms"] += 1
+        self.assertIn("completed_latency_upper_bound_exceeded", evidence.freshness_result(source, app, window, start, end)["errors"])
+        app["values"]["max_latency_ms"] -= 1
+        for key, age, expected in [
+            ("maximum_pending_acquisition_age_seconds", 901, "pending_acquisition:latency_upper_bound_exceeded"),
+            ("maximum_pending_property_age_seconds", 501, "maximum_pending_property_age_seconds:latency_upper_bound_exceeded"),
+            ("maximum_pending_tile_age_seconds", 501, "maximum_pending_tile_age_seconds:latency_upper_bound_exceeded"),
+        ]:
+            mutated = {**window, key: age}
+            self.assertIn(expected, evidence.freshness_result(source, app, mutated, start, end)["errors"])
+
+    def test_freshness_audit_rejects_empty_history_negative_provenance_and_generation_changes(self):
+        start, end = START.isoformat(), (START + dt.timedelta(days=1)).isoformat()
+        window = evidence.audit_sample_window(audit_samples(), start, end)
+        source, app = {"status": "available", "values": completion_values()}, {"status": "available", "values": publication_values()}
+        empty_source = {"status": "available", "values": completion_values(True)}
+        self.assertIn("source:no_actual_completions", evidence.freshness_result(empty_source, app, window, start, end)["errors"])
+        empty_app = {"status": "available", "values": publication_values(True)}
+        self.assertIn("app:no_actual_completions", evidence.freshness_result(source, empty_app, window, start, end)["errors"])
+        source["values"]["minimum_latency_seconds"] = -1
+        self.assertIn("source:negative_latency_invalid_provenance", evidence.freshness_result(source, app, window, start, end)["errors"])
+        source["values"]["minimum_latency_seconds"] = 1
+        source["values"]["writer_generations"] = [1, 2]
+        self.assertIn("source:completion_writer_generation_mismatch", evidence.freshness_result(source, app, window, start, end)["errors"])
+
+    def test_freshness_audit_rejects_other_intervals_and_exclusive_end_buckets(self):
+        start, end = START.isoformat(), (START + dt.timedelta(days=1)).isoformat()
+        window = evidence.audit_sample_window(audit_samples(), start, end)
+        source, app = {"status": "available", "values": completion_values()}, {"status": "available", "values": publication_values()}
+        source["values"]["interval_start"] = (START - dt.timedelta(minutes=1)).isoformat()
+        self.assertIn("source:completion_interval_mismatch", evidence.freshness_result(source, app, window, start, end)["errors"])
+        app["values"]["bucket_start_max"] = end
+        self.assertFalse(evidence.valid_publications(app["values"]))
+
+    def test_audit_pending_samples_require_brackets_coverage_and_every_metric(self):
+        start, end = START.isoformat(), (START + dt.timedelta(days=1)).isoformat()
+        bodies = audit_samples()
+        del bodies[360]["hosts"]["app"]["metrics"]["app_queues"]["values"]["dirty_tile_updates"]
+        self.assertIn("360:app.queues:required_metric_unavailable", evidence.audit_sample_window(bodies, start, end)["errors"])
+        bodies = audit_samples()
+        del bodies[360]
+        self.assertIn("duplicate_or_excessive_snapshot_gap", evidence.audit_sample_window(bodies, start, end)["errors"])
+        bodies = audit_samples()
+        self.assertIn("full_snapshots_must_bracket_audit_interval", evidence.audit_sample_window(bodies[1:], start, end)["errors"])
+
+    def test_remote_audit_discovers_database_and_projects_numeric_fields(self):
+        container = {"Id": "funda-db", "Name": "/huishype-funda-scraper-postgres-1", "Config": {"Labels": {}}, "State": {"Running": True}}
+        values = completion_values()
+        values["payload"] = "private-address"
+        with patch.object(evidence, "run", side_effect=["funda-db", json.dumps([container]), json.dumps(values)]) as command:
+            result = evidence.remote_audit("scraper", START.isoformat(), (START + dt.timedelta(days=1)).isoformat())
+        self.assertEqual(result["status"], "available")
+        self.assertNotIn("private-address", json.dumps(result))
+        self.assertIn("PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000", command.call_args.args[0])
+
+    def test_failed_audit_persists_private_sanitized_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = Path(directory) / "env"
+            env.write_text("APP_VM_PUBLIC_IP=192.0.2.1\nSCRAPER_VM_PUBLIC_IP=192.0.2.2\nAPI_KEY=supersecret\n")
+            with patch.object(evidence, "run", side_effect=RuntimeError("supersecret")):
+                result, path = evidence.audit_freshness(env, START.isoformat(), (START + dt.timedelta(days=1)).isoformat(),
+                                                       directory, Path(directory) / "audits")
+            self.assertFalse(result["passed"])
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn("supersecret", path.read_text())
+            self.assertEqual(json.loads(path.read_text())["interval_start"], "2026-01-01T00:00:00Z")
+
+    def test_source_evidence_completeness_accepts_false_coverage_and_empty_queues(self):
+        self.assertTrue(evidence.valid_source_evidence(source_values()))
+        value = source_values()
+        value["nationalInventory"]["catalogVersion"] = None
+        value["delivery"]["maximumAcquisitionReceiptLatencySeconds24h"] = None
+        value["delivery"]["completedAcquisitionRecordCount24h"] = 0
+        value["mandatoryRequests"] = {"pendingCount": 1, "oldestCreatedAt": START.isoformat(), "oldestAgeSeconds": 0,
+                                     "earliestDeadline": START.isoformat(), "maximumOverdueSeconds": 0}
+        self.assertTrue(evidence.valid_source_evidence(value))
+
+    def test_source_evidence_requires_each_field_and_correct_types(self):
+        for section, fields in source_values().items():
+            for field in fields:
+                value = source_values()
+                del value[section][field]
+                self.assertFalse(evidence.valid_source_evidence(value), section + "." + field)
+        for section, field, bad in [
+            ("delivery", "writerGeneration", True), ("delivery", "deliveredSequence", -1),
+            ("delivery", "completedAcquisitionRecordCount24h", 0),
+            ("delivery", "maximumAcquisitionReceiptLatencySeconds24h", None),
+            ("delivery", "oldestPendingEventAgeSeconds", None), ("delivery", "oldestPendingEventAgeSeconds", float("inf")),
+            ("delivery", "oldestPendingEventRecordedAt", "not-a-time"),
+            ("delivery", "oldestPendingEventRecordedAt", "2026-01-01T00:00:00"),
+            ("nationalInventory", "catalogCoverageVerified", 0), ("nationalInventory", "activePartitionCount", 1.5),
+            ("nationalInventory", "latestCertificateId", 123), ("core", "eligibleListingCount", "12"),
+            ("mandatoryRequests", "pendingCount", 1),
+        ]:
+            value = source_values()
+            value[section][field] = bad
+            self.assertFalse(evidence.valid_source_evidence(value), (section, field, bad))
+
+    def test_window_requires_source_evidence_in_intermediate_light_samples(self):
+        bodies = [snapshot(minute, light=minute not in (0, 1440)) for minute in range(0, 1441, 2)]
+        for body in bodies:
+            body["hosts"]["scraper"]["endpoints"]["funda.status"]["recovery"] = {"evidence": source_values()}
+        manifest = self.manifest()
+        manifest["required_metrics"] = ["funda.evidence"]
+        result = evidence.verify_window(bodies, manifest=manifest)
+        self.assertTrue(result["passed"], result["errors"])
+        del bodies[360]["hosts"]["scraper"]["endpoints"]["funda.status"]["recovery"]["evidence"]["core"]["eligibleListingCount"]
+        result = evidence.verify_window(bodies, manifest=manifest)
+        self.assertFalse(result["passed"])
+        self.assertIn("360:funda.evidence:required_metric_unavailable", result["errors"])
+
     def test_app_queue_query_is_one_bounded_readonly_numeric_aggregate(self):
         values = queue_values()
         values["dirty_tile_errors"] = {"count": 0, "oldest_age_seconds": None, "last_error": "private-detail"}
@@ -77,6 +293,10 @@ class EvidenceTests(unittest.TestCase):
                 if args[:2] == ["docker", "inspect"]:
                     return json.dumps(containers)
                 requests.append(args)
+                if "listing_tile_publication_metrics" in args[-1]:
+                    if not available:
+                        raise RuntimeError("legacy missing publication table")
+                    return json.dumps(publication_values())
                 self.assertIn("price_evidence_repair_queue", args[-1])
                 self.assertNotIn("drizzle", args[-1])
                 if not available:
@@ -85,9 +305,10 @@ class EvidenceTests(unittest.TestCase):
             with patch.object(evidence, "run", side_effect=command), \
                  patch.object(evidence, "read_json_url", return_value={"status": "ok"}):
                 result = evidence.remote_capture("app", light=True)
-            self.assertEqual(len(requests), 1)
+            self.assertEqual(len(requests), 2)
             self.assertEqual(result["status"], "complete", result["errors"])
             self.assertEqual(result["metrics"]["app_queues"]["status"], "available" if available else "unavailable")
+            self.assertEqual(result["metrics"]["app_publications"]["status"], "available" if available else "unavailable")
             self.assertNotIn("legacy missing tables", json.dumps(result))
 
     def test_release_required_app_queue_metrics_fail_missing_evidence(self):

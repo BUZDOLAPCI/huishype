@@ -180,7 +180,7 @@ retains its existing search-area rebuild before reporting healthy.
 Collect the elapsed cycle and verify immutable runtime identity:
 
 ```bash
-python3 tools/ops/funda-hybrid-evidence.py watch --output-dir /private/release-evidence --interval 60 --duration-hours 24
+python3 tools/ops/funda-hybrid-evidence.py watch --output-dir /private/release-evidence --interval 60 --duration-hours 24.1
 python3 tools/ops/funda-hybrid-evidence.py verify-window --directory /private/release-evidence --hours 24 --max-gap-minutes 2 --manifest release.json
 python3 tools/ops/funda-hybrid-evidence.py verify-release --manifest release.json --snapshot snapshot.json
 ```
@@ -201,7 +201,8 @@ recognized service, including infrastructure, must appear in `services`; an
 undeclared legacy scheduler fails release verification. Full samples record named
 volumes and require stable running images, source commits and migration heads
 throughout the observation window, including intermediate hourly samples. Set
-`required_metrics: ["app.queues"]` in the final manifest. These aggregate metrics
+`required_metrics: ["app.queues", "app.publications", "funda.evidence"]` in the
+final manifest. These aggregate metrics
 are mandatory in every minute sample when `verify-window` receives that manifest;
 legacy baselines can omit the requirement. Full samples are also checked against
 the manifest throughout the window. Unavailable metrics must be investigated,
@@ -228,6 +229,12 @@ then publishes bounded listing tile updates. Confirm that cutover repair queues
 drain and ongoing updates remain within the freshness contract before beginning
 the final acceptance window.
 
+Start collection after cutover queues drain. Choose the acceptance start as the
+next UTC minute after the initial full sample completes, and its end exactly 24
+hours later. Collect for at least 24.1 hours so full samples bracket that measured
+interval. This aligns the retained tile-publication minute buckets with the
+acceptance interval while preserving the surrounding health evidence.
+
 A daily acceptance cycle requires at least 24 actual elapsed hours. Unit-test
 clocks and accelerated schedules cannot substitute for that observation period.
 A healthy `/health` response only establishes process and dependency liveness;
@@ -247,6 +254,30 @@ or sold/rented facts. Positive availability remains eligible for at most 30 days
 from actual source confirmation; explicit newer terminal evidence wins
 immediately. Expiry changes active presentation and map/filter projections, not
 factual transaction status. Recovery must preserve source observation ordering.
+
+For end-to-end map freshness, use a conservative bound over all completed work:
+the maximum actual acquisition-to-app-acknowledgment latency plus the maximum
+canonical-mutation-to-tile-publication latency, including property-queue expansion
+delay. Canonical mutation precedes acknowledgment, so the sum bounds both stages.
+Retain completed-publication maxima even when the same tile is published again,
+and include pending acquisition/property/tile ages so unfinished work cannot
+vanish from the assessment. Separate historical replay and correlation from actual
+new acquisition; neither old source timestamps nor migration times can stand in
+for a fresh acquisition. A bound above 15 minutes requires a throughput or
+correctness fix before acceptance. Validate the identity-to-property-to-tile link
+with a real acquisition sample and label that joined trace as sampled evidence;
+it is not an exact universal per-event latency measurement. Audit the explicit
+minute-aligned interval using retained source records and publication buckets:
+
+```bash
+python3 tools/ops/funda-hybrid-evidence.py audit-freshness --start "$ACCEPTANCE_START_UTC" --end "$ACCEPTANCE_END_UTC" --directory /private/release-evidence --output-dir /private/release-audit --max-latency-seconds 900 --manifest release.json
+```
+
+The audit checks completed work and pending acquisition/property/tile ages against
+the 15-minute bound, with full samples bracketing the interval and minute coverage
+inside it. Its successful result is a freshness proof only; complete geographic
+inventory, mandatory deadlines and credit/billing reconciliation remain separate
+required evidence.
 
 The final acceptance record names the observed cycle, mode, complete coverage,
 queue/ingest targets, paid forecast and actual credit reconciliation. Do not mark

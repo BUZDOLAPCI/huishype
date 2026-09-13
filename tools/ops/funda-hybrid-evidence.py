@@ -5,12 +5,13 @@ capture --output-dir /private/evidence
 watch --output-dir /private/evidence --interval 60 --duration-hours 24
 verify-release --manifest release.json --snapshot /private/evidence/snapshot-*.json
 verify-window --directory /private/evidence --manifest release.json --hours 24 --max-gap-minutes 2
+audit-freshness --start 2026-09-14T00:00:00Z --end 2026-09-15T00:00:00Z --directory /private/evidence --output-dir /private/audits
 
 Manifest format (all expected services and databases must be specified):
 {"services":{"app.api":"sha256:<64 hex>","funda.worker":"sha256:<64 hex>"},
  "completed_services":{"funda.migrate":"sha256:<64 hex>"},
  "code_revisions":{"app.api":"<40 hex commit>"},
- "required_metrics":["app.queues"],
+ "required_metrics":["app.queues","funda.evidence"],
  "migrations":{"app":["<latest drizzle hash>"],"funda":["<alembic head>"],
                "pararius":["<alembic head>"],"ledger":["20260913_credit_v1"]}}
 
@@ -18,6 +19,14 @@ The ledger migration head is optional for legacy snapshots and required when
 the manifest includes funda.dispatcher or funda.ledger-postgres.
 App queue telemetry is optional for legacy releases. required_metrics can require
 "app.queues" (all aggregate metrics) or "app.queues.<metric_name>" individually.
+"funda.evidence" requires complete typed source evidence; availability is distinct
+from readiness, so false inventory coverage and empty-queue nulls remain valid.
+"app.publications" requires retained publication aggregates for the last 24 full
+minute buckets. audit-freshness measures an explicit minute-aligned interval and
+its pending-work samples; inventory and budget acceptance remain separate gates.
+For a 24-hour audit, watch for 24.1 hours, set start to the next UTC minute after
+the initial full sample completes, and set end exactly 24 hours later. The audit
+requires a full sample completed at/before start and one captured at/after end.
 
 Release verification requires every recognized running service in the manifest,
 including infrastructure. Window verification checks observation coverage and records
@@ -54,6 +63,29 @@ SERVICES = {"api", "web", "worker", "scheduler", "sync", "candidates", "probe", 
 HEALTHY_STATUSES = {"ok", "healthy"}
 APP_QUEUE_METRICS = {"expired_active_eligible", "pending_price_repairs", "pending_property_tile_updates",
                      "dirty_tile_updates", "expired_dirty_tile_leases", "dirty_tile_errors"}
+FUNDA_EVIDENCE_FIELDS = {
+    "delivery": {
+        "oldestPendingAcquisitionObservedAt": "timestamp?", "oldestPendingAcquisitionAgeSeconds": "number?",
+        "oldestPendingEventRecordedAt": "timestamp?", "oldestPendingEventAgeSeconds": "number?",
+        "oldestPendingBatchCreatedAt": "timestamp?", "oldestPendingBatchAgeSeconds": "number?",
+        "maximumAcquisitionReceiptLatencySeconds24h": "number?", "completedAcquisitionRecordCount24h": "count",
+        "writerGeneration": "count", "deliveredSequence": "count",
+    },
+    "mandatoryRequests": {
+        "pendingCount": "count", "oldestCreatedAt": "timestamp?", "oldestAgeSeconds": "number?",
+        "earliestDeadline": "timestamp?", "maximumOverdueSeconds": "number?",
+    },
+    "nationalInventory": {
+        "catalogVersion": "string?", "catalogCoverageVerified": "bool", "activePartitionCount": "count",
+        "verifiedCompletePartitions24h": "count", "latestComponentCompletedAt": "timestamp?",
+        "oldestComponentCompletedAt": "timestamp?", "latestCertificateId": "string?",
+        "latestCertificateCompletedAt": "timestamp?", "certificatePartitionCount": "count",
+    },
+    "core": {
+        "canonicalListingCount": "count", "eligibleListingCount": "count", "confirmedWithin24HoursCount": "count",
+        "expiredHistoricalCount": "count", "eligibleConditionalCount": "count",
+    },
+}
 APP_QUEUE_SQL = """
 WITH expired AS (
   SELECT count(*) AS n, min(availability_expires_at) AS oldest
@@ -149,15 +181,19 @@ def valid_queue_metric(value):
             or (value["count"] > 0 and type(age) in (int, float) and math.isfinite(age) and age >= 0))
 
 
+def read_db_json(container, query):
+    shell = ('exec psql -X -A -t -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" '
+             '-d "$POSTGRES_DB" -c "$1"')
+    command = ["docker", "exec", "-e",
+               "PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000",
+               container["Id"], "sh", "-c", shell, "evidence", query]
+    return json.loads(run(command, timeout=8))
+
+
 def app_queue_telemetry(container):
     """One bounded aggregate request; unavailable legacy schema is not host failure."""
     try:
-        shell = ('exec psql -X -A -t -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" '
-                 '-d "$POSTGRES_DB" -c "$1"')
-        command = ["docker", "exec", "-e",
-                   "PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000",
-                   container["Id"], "sh", "-c", shell, "evidence", APP_QUEUE_SQL]
-        values = json.loads(run(command, timeout=8))
+        values = read_db_json(container, APP_QUEUE_SQL)
         if not isinstance(values, dict) or any(not valid_queue_metric(values.get(key)) for key in APP_QUEUE_METRICS):
             raise ValueError("invalid_aggregate_response")
         # Explicit numeric projection, even if a malformed endpoint/fixture adds fields.
@@ -168,12 +204,121 @@ def app_queue_telemetry(container):
         return {"status": "unavailable", "reason": type(exc).__name__}
 
 
+PUBLICATION_FIELDS = {"scope", "interval_start", "interval_end", "publication_count", "total_latency_ms",
+                      "max_latency_ms", "bucket_count", "bucket_start_min", "bucket_start_max"}
+
+
+def publication_sql(start=None, end=None):
+    if (start is None) != (end is None):
+        raise ValueError("both_interval_bounds_required")
+    if start is None:
+        lower, upper = "date_trunc('minute', now()) - interval '24 hours'", "date_trunc('minute', now())"
+    else:
+        start, end = audit_interval(start, end)
+        # Bounds were parsed and canonicalized; no user text enters the SQL.
+        lower, upper = "TIMESTAMPTZ '" + start + "'", "TIMESTAMPTZ '" + end + "'"
+    return ("WITH bounds AS (SELECT " + lower + " AS lower_bound, " + upper + " AS upper_bound), "
+            "totals AS (SELECT COALESCE(sum(publication_count),0) AS n, COALESCE(sum(total_latency_ms),0) AS total, "
+            "max(max_latency_ms) AS maximum, count(*) AS buckets, min(bucket_start) AS first_bucket, "
+            "max(bucket_start) AS last_bucket FROM listing_tile_publication_metrics CROSS JOIN bounds "
+            "WHERE bucket_start >= lower_bound AND bucket_start < upper_bound) "
+            "SELECT json_build_object('scope','publication_minute_buckets','interval_start',lower_bound, "
+            "'interval_end',upper_bound,'publication_count',n,'total_latency_ms',total,'max_latency_ms',maximum, "
+            "'bucket_count',buckets,'bucket_start_min',first_bucket,'bucket_start_max',last_bucket) FROM totals CROSS JOIN bounds;")
+
+
+def valid_publications(value):
+    if not isinstance(value, dict) or not PUBLICATION_FIELDS <= value.keys() or value["scope"] != "publication_minute_buckets":
+        return False
+    if any(type(value[k]) is not int or value[k] < 0 for k in ("publication_count", "total_latency_ms", "bucket_count")):
+        return False
+    try:
+        start, end = timestamp(value["interval_start"]), timestamp(value["interval_end"])
+        if end <= start or any(t.second or t.microsecond for t in (start, end)):
+            return False
+        if value["publication_count"] == 0:
+            return (value["total_latency_ms"] == value["bucket_count"] == 0
+                    and all(value[k] is None for k in ("max_latency_ms", "bucket_start_min", "bucket_start_max")))
+        maximum = value["max_latency_ms"]
+        first, last = timestamp(value["bucket_start_min"]), timestamp(value["bucket_start_max"])
+        return (type(maximum) is int and 0 <= maximum <= value["total_latency_ms"]
+                and 1 <= value["bucket_count"] <= value["publication_count"]
+                and value["bucket_count"] <= (end - start).total_seconds() / 60
+                and start <= first <= last < end and not any(t.second or t.microsecond for t in (first, last)))
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
+def app_publication_telemetry(container, start=None, end=None):
+    try:
+        values = read_db_json(container, publication_sql(start, end))
+        if not valid_publications(values):
+            raise ValueError("invalid_publication_aggregate")
+        return {"status": "available", "observed_at": utcnow(), "values": {k: values[k] for k in sorted(PUBLICATION_FIELDS)}}
+    except Exception as exc:
+        return {"status": "unavailable", "reason": type(exc).__name__}
+
+
+def valid_source_evidence(value):
+    if not isinstance(value, dict):
+        return False
+    for section, fields in FUNDA_EVIDENCE_FIELDS.items():
+        body = value.get(section)
+        if not isinstance(body, dict) or not fields.keys() <= body.keys():
+            return False
+        for field, kind in fields.items():
+            item = body[field]
+            if item is None and kind.endswith("?"):
+                continue
+            if kind == "count" and (type(item) is not int or item < 0):
+                return False
+            if kind == "bool" and type(item) is not bool:
+                return False
+            if kind == "number?" and (type(item) not in (int, float) or not math.isfinite(item) or item < 0):
+                return False
+            if kind == "string?" and (not isinstance(item, str) or not item.strip()):
+                return False
+            if kind == "timestamp?":
+                try:
+                    timestamp(item)
+                except (ValueError, TypeError, OverflowError):
+                    return False
+    for time_key, age_key in [
+        ("oldestPendingAcquisitionObservedAt", "oldestPendingAcquisitionAgeSeconds"),
+        ("oldestPendingEventRecordedAt", "oldestPendingEventAgeSeconds"),
+        ("oldestPendingBatchCreatedAt", "oldestPendingBatchAgeSeconds"),
+    ]:
+        if (value["delivery"][time_key] is None) != (value["delivery"][age_key] is None):
+            return False
+    delivery = value["delivery"]
+    if ((delivery["maximumAcquisitionReceiptLatencySeconds24h"] is None)
+            != (delivery["completedAcquisitionRecordCount24h"] == 0)):
+        return False
+    mandatory = value["mandatoryRequests"]
+    for field in ("oldestCreatedAt", "oldestAgeSeconds", "earliestDeadline", "maximumOverdueSeconds"):
+        if (mandatory[field] is None) != (mandatory["pendingCount"] == 0):
+            return False
+    return True
+
+
 def required_metric_errors(required, snapshot):
     if not isinstance(required, list) or any(not isinstance(key, str) for key in required):
         return ["manifest:invalid_required_metrics"]
     telemetry = snapshot.get("hosts", {}).get("app", {}).get("metrics", {}).get("app_queues", {})
     errors = []
     for key in required:
+        if key == "app.publications":
+            publication = snapshot.get("hosts", {}).get("app", {}).get("metrics", {}).get("app_publications", {})
+            if publication.get("status") != "available" or not valid_publications(publication.get("values")):
+                errors.append(key + ":required_metric_unavailable")
+            continue
+        if key == "funda.evidence":
+            source = snapshot
+            for path_key in ("hosts", "scraper", "endpoints", "funda.status", "recovery", "evidence"):
+                source = source.get(path_key) if isinstance(source, dict) else None
+            if not valid_source_evidence(source):
+                errors.append(key + ":required_metric_unavailable")
+            continue
         if key == "app.queues":
             metric_names = APP_QUEUE_METRICS
         elif key.startswith("app.queues.") and key[len("app.queues."):] in APP_QUEUE_METRICS:
@@ -381,6 +526,10 @@ def remote_capture(role, light=False):
         except Exception as exc:
             telemetry = {"status": "unavailable", "reason": type(exc).__name__}
         evidence["metrics"] = {"app_queues": telemetry}
+        try:
+            evidence["metrics"]["app_publications"] = app_publication_telemetry(one("app.postgres"))
+        except Exception as exc:
+            evidence["metrics"]["app_publications"] = {"status": "unavailable", "reason": type(exc).__name__}
     evidence["completed_at"] = utcnow()
     return sanitize(evidence, secrets)
 
@@ -540,6 +689,206 @@ def timestamp(value):
     return parsed.astimezone(dt.timezone.utc)
 
 
+def audit_interval(start, end, now=None):
+    parsed = []
+    for value in (start, end):
+        point = timestamp(value)
+        original = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if original.utcoffset() != dt.timedelta(0) or point.second or point.microsecond:
+            raise ValueError("audit_bounds_require_utc_minutes")
+        parsed.append(point)
+    if parsed[1] - parsed[0] < dt.timedelta(hours=24) or parsed[1] > (now or dt.datetime.now(dt.timezone.utc)):
+        raise ValueError("audit_requires_completed_24_hour_interval")
+    return tuple(point.isoformat().replace("+00:00", "Z") for point in parsed)
+
+
+SOURCE_COMPLETION_FIELDS = {"scope", "interval_start", "interval_end", "completion_count",
+                            "maximum_latency_seconds", "minimum_latency_seconds", "writer_generations"}
+
+
+def source_completion_sql(start, end):
+    start, end = audit_interval(start, end)
+    return ("SELECT json_build_object('scope','source_acquisition_receipts', 'interval_start','" + start
+            + "', 'interval_end','" + end + "', 'completion_count',count(*), "
+            "'maximum_latency_seconds',max(extract(epoch FROM b.delivered_at-e.observed_at)), "
+            "'minimum_latency_seconds',min(extract(epoch FROM b.delivered_at-e.observed_at)), "
+            "'writer_generations',COALESCE(json_agg(DISTINCT e.writer_generation),'[]'::json)) "
+            "FROM source_evidence_events e JOIN source_evidence_batches b "
+            "ON b.writer_generation=e.writer_generation AND e.sequence>b.cursor_start AND e.sequence<=b.cursor_end "
+            "WHERE e.purpose='acquisition' AND b.state='delivered' AND b.delivered_at>=TIMESTAMPTZ '" + start
+            + "' AND b.delivered_at<TIMESTAMPTZ '" + end + "';")
+
+
+def valid_source_completions(value):
+    if not isinstance(value, dict) or not SOURCE_COMPLETION_FIELDS <= value.keys() or value["scope"] != "source_acquisition_receipts":
+        return False
+    if type(value["completion_count"]) is not int or value["completion_count"] < 0:
+        return False
+    generations = value["writer_generations"]
+    if not isinstance(generations, list) or any(type(g) is not int or g < 0 for g in generations):
+        return False
+    try:
+        audit_interval(value["interval_start"], value["interval_end"])
+    except (ValueError, TypeError, OverflowError):
+        return False
+    minimum, maximum = value["minimum_latency_seconds"], value["maximum_latency_seconds"]
+    if value["completion_count"] == 0:
+        return minimum is None and maximum is None and not generations
+    return (len(generations) > 0 and all(type(n) in (int, float) and math.isfinite(n) for n in (minimum, maximum))
+            and minimum <= maximum)
+
+
+def remote_audit(role, start, end):
+    start, end = audit_interval(start, end)
+    expected = "app.postgres" if role == "app" else "funda.postgres"
+    name = "postgres-cop1e1822hijj6g3zmxhrs0k" if role == "app" else "huishype-funda-scraper-postgres-1"
+    try:
+        ids = run(["docker", "ps", "-aq", "--filter", "name=" + name]).split()
+        containers = json.loads(run(["docker", "inspect", *ids])) if ids else []
+        matches = [c for c in containers if c.get("State", {}).get("Running") is True
+                   and service_key(c["Name"].lstrip("/"), c.get("Config", {}).get("Labels") or {}, role) == expected]
+        if len(matches) != 1:
+            raise ValueError("expected_one_running_database")
+        if role == "app":
+            return app_publication_telemetry(matches[0], start, end)
+        values = read_db_json(matches[0], source_completion_sql(start, end))
+        if not valid_source_completions(values):
+            raise ValueError("invalid_source_completion_aggregate")
+        return {"status": "available", "observed_at": utcnow(), "values": {k: values[k] for k in sorted(SOURCE_COMPLETION_FIELDS)}}
+    except Exception as exc:
+        return {"status": "unavailable", "reason": type(exc).__name__}
+
+
+def audit_sample_window(snapshots, start, end, manifest=None):
+    start, end = timestamp(start), timestamp(end)
+    ordered = sorted(snapshots, key=lambda s: timestamp(s["captured_at"]))
+    before = [s for s in ordered if s.get("sample_kind", "full") == "full" and timestamp(s["completed_at"]) <= start]
+    after = [s for s in ordered if s.get("sample_kind", "full") == "full" and timestamp(s["captured_at"]) >= end]
+    errors = []
+    result = {"maximum_pending_acquisition_age_seconds": 0, "maximum_pending_property_age_seconds": 0,
+              "maximum_pending_tile_age_seconds": 0, "source_writer_generations": []}
+    if not before or not after:
+        errors.append("full_snapshots_must_bracket_audit_interval")
+        selected = [s for s in ordered if start <= timestamp(s["captured_at"]) <= end]
+    else:
+        lower, upper = timestamp(before[-1]["captured_at"]), timestamp(after[0]["captured_at"])
+        selected = [s for s in ordered if lower <= timestamp(s["captured_at"]) <= upper]
+    coverage = verify_window(selected, hours=(end-start).total_seconds()/3600, manifest=manifest)
+    errors.extend(coverage["errors"])
+    result["coverage"] = {key: coverage[key] for key in ("passed", "snapshots", "elapsed_hours", "largest_gap_minutes", "release_identity")}
+    generations, measured = set(), 0
+    for index, snapshot in enumerate(selected):
+        missing = required_metric_errors(["funda.evidence", "app.queues"], snapshot)
+        errors.extend(str(index) + ":" + error for error in missing)
+        if missing or not start <= timestamp(snapshot["captured_at"]) <= end:
+            continue
+        measured += 1
+        source = snapshot["hosts"]["scraper"]["endpoints"]["funda.status"]["recovery"]["evidence"]["delivery"]
+        generations.add(source["writerGeneration"])
+        queues = snapshot["hosts"]["app"]["metrics"]["app_queues"]["values"]
+        for name, age in [
+            ("maximum_pending_acquisition_age_seconds", source["oldestPendingAcquisitionAgeSeconds"]),
+            ("maximum_pending_property_age_seconds", queues["pending_property_tile_updates"]["oldest_age_seconds"]),
+            ("maximum_pending_tile_age_seconds", queues["dirty_tile_updates"]["oldest_age_seconds"]),
+        ]:
+            if age is not None:
+                result[name] = max(result[name], age)
+    if not measured:
+        errors.append("no_pending_work_samples_in_interval")
+    if len(generations) != 1:
+        errors.append("source_writer_generation_changed_or_missing")
+    result.update({"passed": not errors, "errors": list(dict.fromkeys(errors)), "measured_samples": measured,
+                   "source_writer_generations": sorted(generations)})
+    return result
+
+
+def freshness_result(source, app, window, start, end, limit=900):
+    start, end = audit_interval(start, end)
+    if type(limit) not in (int, float) or not math.isfinite(limit) or limit <= 0:
+        raise ValueError("positive_finite_latency_limit_required")
+    errors = list(window.get("errors", []))
+    if window.get("passed") is not True and not errors:
+        errors.append("observation_window_incomplete")
+    source_values = source.get("values") if isinstance(source, dict) else None
+    app_values = app.get("values") if isinstance(app, dict) else None
+    source_ok = isinstance(source, dict) and source.get("status") == "available" and valid_source_completions(source_values)
+    app_ok = isinstance(app, dict) and app.get("status") == "available" and valid_publications(app_values)
+    for name, valid, value in [("source", source_ok, source_values), ("app", app_ok, app_values)]:
+        if not valid:
+            errors.append(name + ":completion_evidence_unavailable")
+        elif timestamp(value["interval_start"]) != timestamp(start) or timestamp(value["interval_end"]) != timestamp(end):
+            errors.append(name + ":completion_interval_mismatch")
+    bound = None
+    source_count = source_values["completion_count"] if source_ok else None
+    app_count = app_values["publication_count"] if app_ok else None
+    if source_ok and source_count == 0:
+        errors.append("source:no_actual_completions")
+    if app_ok and app_count == 0:
+        errors.append("app:no_actual_completions")
+    if source_ok and source_count:
+        if source_values["minimum_latency_seconds"] < 0:
+            errors.append("source:negative_latency_invalid_provenance")
+        if sorted(set(source_values["writer_generations"])) != window.get("source_writer_generations"):
+            errors.append("source:completion_writer_generation_mismatch")
+        if app_ok and app_count:
+            bound = source_values["maximum_latency_seconds"] + app_values["max_latency_ms"] / 1000
+            if bound > limit:
+                errors.append("completed_latency_upper_bound_exceeded")
+        for name in ("maximum_pending_property_age_seconds", "maximum_pending_tile_age_seconds"):
+            age = window.get(name)
+            if type(age) not in (int, float) or not math.isfinite(age) or age < 0:
+                errors.append(name + ":missing_evidence")
+            elif source_values["maximum_latency_seconds"] + age > limit:
+                errors.append(name + ":latency_upper_bound_exceeded")
+    pending = window.get("maximum_pending_acquisition_age_seconds")
+    if type(pending) not in (int, float) or not math.isfinite(pending) or pending < 0:
+        errors.append("pending_acquisition:missing_evidence")
+    elif pending > limit:
+        errors.append("pending_acquisition:latency_upper_bound_exceeded")
+    return {"passed": not errors, "scope": "completed_and_sampled_pending_freshness_only",
+            "inventory_certified": False, "budget_certified": False, "interval_start": start, "interval_end": end,
+            "latency_limit_seconds": limit, "measured_completed_upper_bound_seconds": bound,
+            "source_acquisition_completions": source_count, "app_publications": app_count,
+            "source": source, "app": app, "window": window, "errors": list(dict.fromkeys(errors))}
+
+
+def audit_freshness(env_path, start, end, directory, output_dir, limit=900, manifest=None):
+    start, end = audit_interval(start, end)
+    if not math.isfinite(limit) or limit <= 0:
+        raise ValueError("positive_finite_latency_limit_required")
+    captured_at = utcnow()
+    try:
+        snapshots = [json.loads(p.read_text()) for p in sorted(Path(directory).glob("snapshot-*.json"))]
+        window = audit_sample_window(snapshots, start, end, manifest)
+    except Exception as exc:
+        window = {"passed": False, "errors": ["snapshot_evidence:" + type(exc).__name__]}
+    collected, secrets = {}, []
+    try:
+        env = parse_env(Path(env_path).read_text())
+        secrets = [v for k, v in env.items() if SENSITIVE.search(k) and v]
+        script = Path(__file__).read_text()
+        for role in ("app", "scraper"):
+            try:
+                command = ssh_command(env, role)
+                command[-1] = "python3 - --remote-audit " + role + " --audit-start " + start + " --audit-end " + end
+                collected[role] = json.loads(run(command, timeout=45, input_text=script))
+            except Exception as exc:
+                collected[role] = {"status": "unavailable", "reason": type(exc).__name__}
+    except Exception as exc:
+        collected = {role: {"status": "unavailable", "reason": type(exc).__name__} for role in ("app", "scraper")}
+    result = freshness_result(collected.get("scraper"), collected.get("app"), window, start, end, limit)
+    result.update({"schema_version": 1, "captured_at": captured_at, "completed_at": utcnow()})
+    result = sanitize(result, secrets)
+    output = Path(output_dir)
+    output.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = output / ("freshness-audit-" + captured_at.replace(":", "").replace("-", "") + ".json")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        json.dump(result, handle, indent=2, allow_nan=False)
+        handle.write("\n")
+    return result, path
+
+
 def reason_summary(value, path=""):
     reasons = []
     if isinstance(value, dict):
@@ -664,6 +1013,9 @@ def watch(env_path, output_dir, interval=60, duration_hours=None, full_every=60)
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--remote", choices=["app", "scraper"], help=argparse.SUPPRESS)
+    parser.add_argument("--remote-audit", choices=["app", "scraper"], help=argparse.SUPPRESS)
+    parser.add_argument("--audit-start", help=argparse.SUPPRESS)
+    parser.add_argument("--audit-end", help=argparse.SUPPRESS)
     parser.add_argument("--light", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command")
     cap = sub.add_parser("capture", help="append a sanitized, read-only production snapshot")
@@ -683,8 +1035,20 @@ def main(argv=None):
     window.add_argument("--manifest", help="require manifest metrics in every sample and declared release in every full sample")
     window.add_argument("--hours", "--hours24", type=float, default=24, nargs="?", const=24)
     window.add_argument("--max-gap-minutes", type=float, default=2)
+    audit = sub.add_parser("audit-freshness", help="audit retained completions and pending samples in an explicit interval",
+                           description="Run watch for 24.1 hours; choose start as the next UTC minute after the initial full sample completes, and end exactly 24 hours later. Full snapshots must bracket the interval. Inventory and budget acceptance require separate checks.")
+    audit.add_argument("--start", required=True, help="inclusive UTC minute, e.g. 2026-09-14T00:00:00Z")
+    audit.add_argument("--end", required=True, help="exclusive UTC minute, at least 24 hours after start and no later than now")
+    audit.add_argument("--directory", required=True, help="minute snapshots including full snapshots bracketing the interval")
+    audit.add_argument("--output-dir", required=True, help="private directory for a sanitized audit JSON artifact")
+    audit.add_argument("--env-file", default=DEFAULT_ENV)
+    audit.add_argument("--max-latency-seconds", type=float, default=900)
+    audit.add_argument("--manifest", help="also verify the declared release and required metrics across the observation window")
     args = parser.parse_args(argv)
     try:
+        if args.remote_audit:
+            print(json.dumps(remote_audit(args.remote_audit, args.audit_start, args.audit_end), allow_nan=False))
+            return 0
         if args.remote:
             print(json.dumps(remote_capture(args.remote, args.light), allow_nan=False))
             return 0  # Partial evidence is evaluated locally, not lost on SSH failure.
@@ -694,6 +1058,13 @@ def main(argv=None):
             result, path = capture(args.env_file, args.output_dir)
             print(json.dumps({"snapshot": str(path), "status": result["status"]}))
             return 0 if result["status"] == "complete" else 1
+        if args.command == "audit-freshness":
+            manifest = json.loads(Path(args.manifest).read_text()) if args.manifest else None
+            result, path = audit_freshness(args.env_file, args.start, args.end, args.directory,
+                                           args.output_dir, args.max_latency_seconds, manifest)
+            print(json.dumps({"audit": str(path), "passed": result["passed"],
+                              "measured_completed_upper_bound_seconds": result["measured_completed_upper_bound_seconds"]}))
+            return 0 if result["passed"] else 1
         if args.command == "verify-release":
             result = verify_release(json.loads(Path(args.manifest).read_text()), json.loads(Path(args.snapshot).read_text()))
         elif args.command == "verify-window":
