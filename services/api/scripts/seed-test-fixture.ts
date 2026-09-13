@@ -194,9 +194,15 @@ async function seedTestFixture() {
         asking_price,
         price_currency,
         price_type,
+        price_period,
+        price_unit,
+        price_condition,
         living_area_m2,
         first_seen_at,
         last_seen_at,
+        last_positive_availability_at,
+        availability_expires_at,
+        active_eligible,
         last_reconciled_at
       )
       VALUES (
@@ -214,13 +220,21 @@ async function seedTestFixture() {
         ${LISTING_ASKING_PRICE},
         'EUR',
         'sale',
+        'total',
+        'listing',
+        'asking',
         ${144},
         NOW(),
         NOW(),
+        NOW(),
+        NOW() + INTERVAL '720 hours',
+        true,
         NOW()
       )
-      ON CONFLICT (source_name, canonical_url) WHERE canonical_url IS NOT NULL DO UPDATE SET
+      ON CONFLICT (id) DO UPDATE SET
         property_id = EXCLUDED.property_id,
+        source_name = EXCLUDED.source_name,
+        canonical_url = EXCLUDED.canonical_url,
         display_url = EXCLUDED.display_url,
         status = EXCLUDED.status,
         status_source = EXCLUDED.status_source,
@@ -231,7 +245,17 @@ async function seedTestFixture() {
         asking_price = EXCLUDED.asking_price,
         price_currency = EXCLUDED.price_currency,
         price_type = EXCLUDED.price_type,
+        price_period = EXCLUDED.price_period,
+        price_unit = EXCLUDED.price_unit,
+        price_condition = EXCLUDED.price_condition,
         living_area_m2 = EXCLUDED.living_area_m2,
+        last_positive_availability_at = EXCLUDED.last_positive_availability_at,
+        availability_expires_at = EXCLUDED.availability_expires_at,
+        active_eligible = EXCLUDED.active_eligible,
+        availability_ended_at = NULL,
+        sold_at = NULL,
+        rented_at = NULL,
+        withdrawn_at = NULL,
         last_seen_at = NOW(),
         last_reconciled_at = NOW(),
         updated_at = NOW()
