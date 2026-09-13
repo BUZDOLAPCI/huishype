@@ -262,6 +262,10 @@ describe('Durable ingest API contract', () => {
         }),
         payloadJson: {
           sourceName: input.sourceName,
+          // Historical v1 records are fixture data, never admitted through the
+          // current writer fence or submitted as new Funda work.
+          ingestVersion: 1,
+          writerGeneration: 0,
           listings: [],
         },
         status: 'completed',
@@ -421,6 +425,8 @@ describe('Durable ingest API contract', () => {
       lastCommittedChangedAt: '2026-04-06T12:34:56.000Z',
       lastCommittedListingKey: 'idealista-acceptance-1',
       lastBatchId: body.batchId,
+      writerGeneration: 0,
+      lastSequence: 0,
     });
   });
 
@@ -1105,7 +1111,7 @@ describe('Durable ingest API contract', () => {
     expect(completions).toHaveLength(2);
   });
 
-  it('withdraws active listings absent from a completed scope-only batch and requests read-model refresh', async () => {
+  it('records completion without inventing terminal absence or requesting listing refresh', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
     const street = `Absence Scope Street ${stamp}`;
@@ -1189,7 +1195,7 @@ describe('Durable ingest API contract', () => {
       }),
     ).resolves.toEqual({
       status: 'completed',
-      ingested: 1,
+      ingested: 0,
       updated: 0,
       skipped: 0,
     });
@@ -1202,7 +1208,7 @@ describe('Durable ingest API contract', () => {
     expect(canonical).toMatchObject({
       sourceName,
       primarySourceListingId: mirrorListingId,
-      status: 'withdrawn',
+      status: 'active',
       statusSource: 'mirror',
     });
 
@@ -1211,14 +1217,11 @@ describe('Durable ingest API contract', () => {
       .from(listingObservations)
       .where(eq(listingObservations.ingestBatchId, completionAccepted.batchId))
       .limit(1);
-    expect(absenceObservation).toMatchObject({
-      sourceName,
-      sourceListingId: mirrorListingId,
-      sourceStatus: 'not_found',
-      propertyId,
-      staleForProjection: false,
-    });
-    expect(maintenanceCalls).toBe(1);
+    expect(absenceObservation).toBeUndefined();
+    expect(maintenanceCalls).toBe(0);
+    const completions = await db.select().from(listingScopeCompletions)
+      .where(eq(listingScopeCompletions.ingestBatchId, completionAccepted.batchId));
+    expect(completions).toHaveLength(1);
   });
 
   it('does not let an older completion withdraw a newer active observation', async () => {
@@ -2060,7 +2063,7 @@ describe('Durable ingest API contract', () => {
     expect(sourceState?.lastBatchId).toBe(newerAccepted.batchId);
   });
 
-  it('projects fresh replay facts by source high-watermark even when listing updated-at is old', async () => {
+  it('does not promote older listing facts merely because the replay source watermark advanced', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
     const street = `Fresh Highwater Street ${stamp}`;
@@ -2139,8 +2142,8 @@ describe('Durable ingest API contract', () => {
       processIngestBatch({ batchId: secondAccepted.batchId, enqueueMaintenanceRefresh: async () => {} }),
     ).resolves.toEqual({
       status: 'completed',
-      ingested: 1,
-      updated: 0,
+      ingested: 0,
+      updated: 1,
       skipped: 0,
     });
 
@@ -2150,12 +2153,12 @@ describe('Durable ingest API contract', () => {
       .where(eq(canonicalListings.propertyId, propertyId))
       .limit(1);
     expect(canonical).toMatchObject({
-      askingPrice: 525000,
+      askingPrice: 500000,
       status: 'active',
     });
   });
 
-  it('merges canonical listings by alias provenance when source id and URL change', async () => {
+  it('keeps distinct source IDs separate when only URL-path aliases connect them', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
     const street = `Alias Merge Street ${stamp}`;
@@ -2256,16 +2259,16 @@ describe('Durable ingest API contract', () => {
       .from(canonicalListings)
       .where(eq(canonicalListings.propertyId, propertyId));
 
-    expect(canonicalRows).toHaveLength(1);
-    expect(canonicalRows[0]).toMatchObject({
-      sourceName,
-      primarySourceListingId: oldListingId,
-      canonicalUrl: newUrl.replace(/\/$/, ''),
-      askingPrice: 510000,
+    expect(canonicalRows).toHaveLength(2);
+    expect(canonicalRows.find(row => row.primarySourceListingId === oldListingId)).toMatchObject({
+      sourceName, canonicalUrl: oldUrl.replace(/\/$/, ''), askingPrice: 500000,
+    });
+    expect(canonicalRows.find(row => row.primarySourceListingId === newListingId)).toMatchObject({
+      sourceName, canonicalUrl: newUrl.replace(/\/$/, ''), askingPrice: 510000,
     });
   });
 
-  it('prefers resolved primary source identity over newer alias matches when legacy duplicate canonicals exist', async () => {
+  it('keeps explicit primary identity and linked history separate from conflicting legacy alias mappings', async () => {
     const sourceName = 'idealista';
     const stamp = Date.now();
     const street = `Alias Duplicate Canonical Street ${stamp}`;
@@ -2442,7 +2445,7 @@ describe('Durable ingest API contract', () => {
     ).resolves.toMatchObject({
       canonicalListing: {
         id: expect.any(String),
-        primarySourceListingId: primaryListingId,
+        primarySourceListingId: legacyListingId,
       },
     });
 
@@ -2452,12 +2455,12 @@ describe('Durable ingest API contract', () => {
       .where(eq(canonicalListings.propertyId, propertyId))
       .orderBy(canonicalListings.primarySourceListingId);
 
-    expect(canonicalRows).toHaveLength(1);
-    expect(canonicalRows[0]).toMatchObject({
-      id: survivorBeforeMerge?.id,
-      primarySourceListingId: primaryListingId,
-      canonicalUrl: primaryUrl,
-      askingPrice: 510000,
+    expect(canonicalRows).toHaveLength(2);
+    expect(canonicalRows.find(row => row.id === survivorBeforeMerge?.id)).toMatchObject({
+      primarySourceListingId: primaryListingId, canonicalUrl: primaryUrl, askingPrice: 500000,
+    });
+    expect(canonicalRows.find(row => row.id === legacyCanonical?.id)).toMatchObject({
+      primarySourceListingId: legacyListingId, canonicalUrl: primaryUrl, askingPrice: 510000,
     });
 
     const [legacyLink] = await db
@@ -2465,21 +2468,21 @@ describe('Durable ingest API contract', () => {
       .from(listingObservationLinks)
       .where(eq(listingObservationLinks.listingObservationId, legacyObservation?.id as string))
       .limit(1);
-    expect(legacyLink?.canonicalListingId).toBe(survivorBeforeMerge?.id);
+    expect(legacyLink?.canonicalListingId).toBe(legacyCanonical?.id);
 
     const [legacyPrice] = await db
       .select()
       .from(listingPriceObservations)
       .where(eq(listingPriceObservations.listingObservationId, legacyObservation?.id as string))
       .limit(1);
-    expect(legacyPrice?.canonicalListingId).toBe(survivorBeforeMerge?.id);
+    expect(legacyPrice?.canonicalListingId).toBe(legacyCanonical?.id);
 
     const [handoff] = await db
       .select()
       .from(listingCandidateHandoffs)
       .where(eq(listingCandidateHandoffs.id, legacyHandoff?.id as string))
       .limit(1);
-    expect(handoff?.canonicalListingId).toBe(survivorBeforeMerge?.id);
+    expect(handoff?.canonicalListingId).toBe(legacyCanonical?.id);
     expect(handoff?.propertyId).toBe(propertyId);
   });
 
@@ -2663,7 +2666,7 @@ describe('Durable ingest API contract', () => {
     });
   });
 
-  it('uses addressless terminal source identity to retire an existing canonical listing', async () => {
+  it('retains addressless not-found evidence without inventing terminal lifecycle', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
     const street = `Terminal Identity Street ${stamp}`;
@@ -2738,8 +2741,8 @@ describe('Durable ingest API contract', () => {
       processIngestBatch({ batchId: terminalAccepted.batchId, enqueueMaintenanceRefresh: async () => {} }),
     ).resolves.toEqual({
       status: 'completed',
-      ingested: 1,
-      updated: 0,
+      ingested: 0,
+      updated: 1,
       skipped: 0,
     });
 
@@ -2751,7 +2754,7 @@ describe('Durable ingest API contract', () => {
     expect(canonical).toMatchObject({
       sourceName,
       propertyId,
-      status: 'withdrawn',
+      status: 'active',
       statusSource: 'mirror',
     });
 
@@ -2772,7 +2775,7 @@ describe('Durable ingest API contract', () => {
     });
   });
 
-  it('projects Pararius lifecycleStatus terminal evidence onto existing active listings', async () => {
+  it('projects explicit Pararius terminal status while preserving lifecycle on not-found', async () => {
     const sourceName = 'pararius';
     const createdMirrorListingIds: string[] = [];
     const createdBatchIds: string[] = [];
@@ -2860,8 +2863,8 @@ describe('Durable ingest API contract', () => {
           processIngestBatch({ batchId: terminalAccepted.batchId, enqueueMaintenanceRefresh: async () => {} }),
         ).resolves.toEqual({
           status: 'completed',
-          ingested: 1,
-          updated: 0,
+          ingested: terminalLifecycleStatus === 'not_found' ? 0 : 1,
+          updated: terminalLifecycleStatus === 'not_found' ? 1 : 0,
           skipped: 0,
         });
 
@@ -2877,7 +2880,7 @@ describe('Durable ingest API contract', () => {
           .limit(1);
         expect(canonical).toMatchObject({
           propertyId,
-          status: terminalLifecycleStatus === 'rented' ? 'rented' : 'withdrawn',
+          status: terminalLifecycleStatus === 'not_found' ? 'active' : terminalLifecycleStatus,
           statusSource: 'mirror',
         });
 
@@ -2918,7 +2921,7 @@ describe('Durable ingest API contract', () => {
     }
   });
 
-  it('retires legacy active mirror canonical rows from source-wide full-mirror completion absence', async () => {
+  it('preserves legacy mirror lifecycle when a full-mirror completion contains no observations', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
     const propertyId = await seedProperty({
@@ -2970,7 +2973,7 @@ describe('Durable ingest API contract', () => {
       processIngestBatch({ batchId: accepted.batchId, enqueueMaintenanceRefresh: async () => {} }),
     ).resolves.toEqual({
       status: 'completed',
-      ingested: 1,
+      ingested: 0,
       updated: 0,
       skipped: 0,
     });
@@ -2981,7 +2984,7 @@ describe('Durable ingest API contract', () => {
       .where(eq(canonicalListings.primarySourceListingId, mirrorListingId))
       .limit(1);
     expect(canonical).toMatchObject({
-      status: 'withdrawn',
+      status: 'active',
       statusSource: 'mirror',
     });
   });
@@ -5867,7 +5870,7 @@ describe('Durable ingest API contract', () => {
     expect((await collectRecoveryDispatchWork(new Date())).maintenancePending).toBe(false);
   });
 
-  it('withdraws an existing canonical listing when a later mirror ingest reports withdrawn or not_found', async () => {
+  it('withdraws on explicit mirror evidence while keeping not-found distinct from terminal status', async () => {
     const sourceName = 'fotocasa';
 
     for (const terminalSourceStatus of ['withdrawn', 'not_found'] as const) {
@@ -5980,8 +5983,8 @@ describe('Durable ingest API contract', () => {
         }),
       ).resolves.toEqual({
         status: 'completed',
-        ingested: 1,
-        updated: 0,
+        ingested: terminalSourceStatus === 'not_found' ? 0 : 1,
+        updated: terminalSourceStatus === 'not_found' ? 1 : 0,
         skipped: 0,
       });
 
@@ -5997,7 +6000,7 @@ describe('Durable ingest API contract', () => {
 
       expect(canonicals).toHaveLength(1);
       expect(canonicals[0]?.id).toBe(activeCanonical?.id);
-      expect(canonicals[0]?.status).toBe('withdrawn');
+      expect(canonicals[0]?.status).toBe(terminalSourceStatus === 'withdrawn' ? 'withdrawn' : 'active');
       expect(canonicals[0]?.statusSource).toBe('mirror');
 
       const observations = await db
@@ -6747,7 +6750,7 @@ describe('Durable ingest API contract', () => {
     expect(canonicalRows).toHaveLength(0);
   });
 
-  it('spatially matches candidate-scoped listings with an empty source house number when coordinates are present', async () => {
+  it('rejects coordinate-only candidate matching when the source house number is empty', async () => {
     const sourceName = 'fotocasa';
     const stamp = Date.now();
     const street = `Fotocasa Candidate Coordinateweg ${stamp}`;
@@ -6812,9 +6815,9 @@ describe('Durable ingest API contract', () => {
       }),
     ).resolves.toEqual({
       status: 'completed',
-      ingested: 1,
+      ingested: 0,
       updated: 0,
-      skipped: 0,
+      skipped: 1,
     });
 
     const canonicalRows = await db
@@ -6822,9 +6825,10 @@ describe('Durable ingest API contract', () => {
       .from(canonicalListings)
       .where(eq(canonicalListings.sourceName, sourceName));
 
-    expect(canonicalRows).toHaveLength(1);
-    expect(canonicalRows[0]?.propertyId).toBe(propertyId);
-    expect(canonicalRows[0]?.primarySourceListingId).toBe(`fotocasa-empty-house-number-candidate-spatial-${stamp}`);
+    expect(canonicalRows).toHaveLength(0);
+    const observations = await db.select().from(listingObservations)
+      .where(eq(listingObservations.ingestBatchId, accepted.batchId));
+    expect(observations.every(observation => observation.propertyId === null)).toBe(true);
   });
 
   it('keeps malformed unit-shaped source house numbers skipped until the source sends corrected fields', async () => {
@@ -7567,7 +7571,7 @@ describe('Durable ingest API contract', () => {
     expect(sourceState?.lastBatchId).toBe(semanticBatch?.id);
   });
 
-  it('merges duplicate mirror URL observations without writing legacy listings', async () => {
+  it('preserves distinct mirror IDs sharing a URL without writing legacy listings', async () => {
     const stamp = Date.now();
     const runKey = `fotocasa-failure-run-${stamp}`;
     const street = `Gammaweg ${stamp}`;
@@ -7664,7 +7668,11 @@ describe('Durable ingest API contract', () => {
           eq(canonicalListings.canonicalUrl, sourceUrl),
         ),
       );
-    expect(canonicalRows).toHaveLength(1);
+    expect(canonicalRows).toHaveLength(2);
+    expect(canonicalRows.find(row => row.primarySourceListingId === `fotocasa-failure-listing-${stamp}`))
+      .toMatchObject({ askingPrice: 510000, title: 'Failure path listing' });
+    expect(canonicalRows.find(row => row.primarySourceListingId === `fotocasa-failure-listing-dup-${stamp}`))
+      .toMatchObject({ askingPrice: 515000, title: 'Failure path duplicate listing' });
 
     const [legacyListing] = await db
       .select()

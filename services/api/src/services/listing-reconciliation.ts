@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { normalizeSourceUrl } from '../utils/address.js';
 import { projectListingAvailability, type ListingAvailabilityEvidence } from './listing-lifecycle.js';
 import { and, desc, eq, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import { IngestIdempotencyConflictError } from './ingest/errors.js';
@@ -1371,22 +1372,39 @@ async function completeCandidateHandoffForObservation(
 
   if (predicates.length === 0) return null;
 
-  const [handoff] = await executor
-    .update(listingCandidateHandoffs)
-    .set({
-      canonicalListingId: canonical.id,
-      observationId: observation.id,
-      propertyId: canonical.propertyId,
-      sourceUrlCanonical: observation.sourceUrlCanonical ?? canonical.canonicalUrl ?? undefined,
-      sourceListingId: observation.sourceListingId ?? canonical.primarySourceListingId ?? undefined,
-      state: 'delivered',
-      lastAttemptAt: new Date(),
-      nextAttemptAt: null,
-      lastError: null,
-      updatedAt: new Date(),
-    })
-    .where(predicates.length === 1 ? predicates[0] : or(...predicates))
-    .returning({ id: listingCandidateHandoffs.id });
+  if (!observation.sourceStatus || observation.sourceStatus === 'not_found') return null;
+  const candidates = await executor.select().from(listingCandidateHandoffs)
+    .where(and(eq(listingCandidateHandoffs.sourceName, observation.sourceName), or(...predicates)));
+  const observedUrls = [observation.sourceUrlCanonical, observation.sourceUrlRaw,
+    ...normalizeSourceAliases(observation.sourceListingAliases).filter(alias => alias.kind === 'canonical_url').map(alias => alias.value),
+  ].filter((value): value is string => Boolean(value)).map(normalizeSourceUrl);
+  const validIds: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.propertyId === canonical.propertyId && observedUrls.includes(normalizeSourceUrl(candidate.sourceUrlCanonical))) {
+      validIds.push(candidate.id);
+      continue;
+    }
+    const [provisional] = candidate.canonicalListingId ? await executor.select().from(canonicalListings)
+      .where(eq(canonicalListings.id, candidate.canonicalListingId)) : [];
+    await executor.insert(sourceIdentityQuarantines).values({ sourceName: observation.sourceName,
+      reason: 'candidate_association_conflict', identityIds: [], listingIds: provisional ? [provisional.id] : [],
+      aliasesJson: observation.sourceListingAliases, detailsJson: { candidateBefore: candidate, canonicalBefore: provisional,
+        observedPropertyId: canonical.propertyId, observedUrls, observationId: observation.id },
+    });
+    await executor.update(listingCandidateHandoffs).set({ state: 'dead_letter', nextAttemptAt: null,
+      lastError: 'Source evidence does not match the requested property or URL', updatedAt: new Date() })
+      .where(eq(listingCandidateHandoffs.id, candidate.id));
+    if (provisional?.originSummary === 'user' && provisional.verificationState === 'provisional') {
+      await executor.update(canonicalListings).set({ verificationState: 'invalid', activeEligible: false })
+        .where(eq(canonicalListings.id, provisional.id));
+    }
+  }
+  if (!validIds.length) return null;
+  const [handoff] = await executor.update(listingCandidateHandoffs).set({
+    canonicalListingId: canonical.id, observationId: observation.id,
+    sourceListingId: observation.sourceListingId ?? canonical.primarySourceListingId ?? undefined,
+    state: 'delivered', lastAttemptAt: new Date(), nextAttemptAt: null, lastError: null, updatedAt: new Date(),
+  }).where(inArray(listingCandidateHandoffs.id, validIds)).returning({ id: listingCandidateHandoffs.id });
 
   if (!handoff) return null;
 
@@ -1400,7 +1418,6 @@ async function completeCandidateHandoffForObservation(
 
 async function markCandidateHandoffForDiagnosticObservation(
   observation: ListingObservation,
-  canonical: CanonicalListing,
   executor: ReconciliationDb,
 ): Promise<string | null> {
   if (!observation.diagnosticStatus) return null;
@@ -1427,18 +1444,14 @@ async function markCandidateHandoffForDiagnosticObservation(
   const [handoff] = await executor
     .update(listingCandidateHandoffs)
     .set({
-      canonicalListingId: canonical.id,
       observationId: observation.id,
-      propertyId: canonical.propertyId,
-      sourceUrlCanonical: observation.sourceUrlCanonical ?? canonical.canonicalUrl ?? undefined,
-      sourceListingId: observation.sourceListingId ?? canonical.primarySourceListingId ?? undefined,
       state,
       lastAttemptAt: new Date(),
       nextAttemptAt: null,
       lastError: `Source service diagnostic: ${observation.diagnosticStatus}`,
       updatedAt: new Date(),
     })
-    .where(predicates.length === 1 ? predicates[0] : or(...predicates))
+    .where(and(eq(listingCandidateHandoffs.sourceName, observation.sourceName), or(...predicates)))
     .returning({ id: listingCandidateHandoffs.id });
 
   if (!handoff) return null;
@@ -1871,12 +1884,12 @@ export async function persistMirrorObservationForIngest(
     .where(eq(listingObservations.id, observation.id))
     .limit(1);
   const reconciledObservation = effectiveObservation ?? observation;
-  if (canonicalListing) {
-    if (reconciledObservation.staleForProjection) {
-      // Stale compatible replays refresh lineage but do not project candidate state.
-    } else if (reconciledObservation.diagnosticStatus) {
-      await markCandidateHandoffForDiagnosticObservation(reconciledObservation, canonicalListing, executor);
-    } else {
+  if (!reconciledObservation.staleForProjection) {
+    if (reconciledObservation.diagnosticStatus) {
+      // Delivery diagnostics correlate the durable request even without identity
+      // proof, but never change the requested property or source URL.
+      await markCandidateHandoffForDiagnosticObservation(reconciledObservation, executor);
+    } else if (canonicalListing) {
       await completeCandidateHandoffForObservation(reconciledObservation, canonicalListing, executor);
     }
   }

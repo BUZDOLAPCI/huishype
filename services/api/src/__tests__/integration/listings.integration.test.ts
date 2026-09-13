@@ -5,6 +5,7 @@ import { config } from '../../config.js';
 import {
   db,
   ingestBatches,
+  ingestWriterGenerations,
   listings,
   propertyTilePyramidSourceWatermarks,
   propertyTilePyramidVersions,
@@ -65,6 +66,7 @@ describe('Listing routes', () => {
   const fixtureIngestBatchIds: string[] = [];
   const fixtureIngestRunIds: string[] = [];
   let fixtureCursorSequence = 0;
+  let originalFundaGeneration = 1;
   const originalFetch = global.fetch;
   const originalIngestApiKey = process.env.INGEST_API_KEY;
   const sourceServicesConfig = config.sourceServices as MutableSourceServices;
@@ -362,6 +364,11 @@ describe('Listing routes', () => {
   }
 
   beforeAll(async () => {
+    // This suite exercises the historical v1 candidate adapter. Post-cutover
+    // fencing and v2 source evidence are covered by ingest-v2.integration.test.ts.
+    const [writer] = await db.select().from(ingestWriterGenerations).where(eq(ingestWriterGenerations.sourceName, 'funda'));
+    originalFundaGeneration = writer?.generation ?? 1;
+    await db.update(ingestWriterGenerations).set({ generation: 0 }).where(eq(ingestWriterGenerations.sourceName, 'funda'));
     process.env.INGEST_API_KEY = 'test-ingest-api-key';
     sourceServicesConfig.fundaApiKey = 'test-funda-source-service-key';
     sourceServicesConfig.parariusApiKey = 'test-pararius-source-service-key';
@@ -474,6 +481,7 @@ describe('Listing routes', () => {
       // Ignore cleanup errors
     }
 
+    await db.update(ingestWriterGenerations).set({ generation: originalFundaGeneration }).where(eq(ingestWriterGenerations.sourceName, 'funda'));
     global.fetch = originalFetch;
     setCandidateHandoffEnqueueOverrideForTests(null);
     setLatestListingsRefreshOverrideForTests(null);
@@ -2405,7 +2413,7 @@ describe('Listing routes', () => {
       expect(userPreviewPriceRows).toHaveLength(0);
     });
 
-    it('reconciles mirror observations by source candidate id without preview id', async () => {
+    it('rejects a candidate URL mismatch while preserving the independently observed listing', async () => {
       const fixture = await createMatchedSubmissionFixture('source-candidate-observation');
       const changedSourceListingId = `${fixture.sourceListingId}-mirror`;
       const changedCanonicalUrl = `https://www.funda.nl/detail/${changedSourceListingId}`;
@@ -2473,15 +2481,13 @@ describe('Listing routes', () => {
         .where(eq(canonicalListings.id, fixture.canonicalListingId))
         .limit(1);
       expect(canonical).toMatchObject({
-        canonicalUrl: changedCanonicalUrl,
-        displayUrl: changedCanonicalUrl,
+        canonicalUrl: fixture.canonicalUrl,
+        propertyId: testPropertyId,
         status: 'active',
-        statusSource: 'mirror',
-        verificationState: 'validated',
-        originSummary: 'user_and_mirror',
-        askingPrice: 530000,
-        thumbnailUrl: 'https://cdn.example.com/source-candidate-updated.jpg',
-        title: 'Source candidate updated title',
+        statusSource: 'user',
+        verificationState: 'invalid',
+        activeEligible: false,
+        askingPrice: fixture.askingPrice,
       });
 
       const [handoff] = await db
@@ -2490,24 +2496,16 @@ describe('Listing routes', () => {
         .where(eq(listingCandidateHandoffs.id, fixture.candidateId))
         .limit(1);
       expect(handoff).toMatchObject({
-        state: 'delivered',
+        state: 'dead_letter',
         canonicalListingId: fixture.canonicalListingId,
       });
-      expect(handoff?.observationId).toBeTruthy();
+      const [proven] = await db.select().from(canonicalListings).where(eq(canonicalListings.primarySourceListingId, changedSourceListingId));
+      expect(proven).toMatchObject({ propertyId: testPropertyId, verificationState: 'validated', askingPrice: 530000 });
+      expect(proven.id).not.toBe(fixture.canonicalListingId);
 
-      const [observation] = await db
-        .select()
-        .from(listingObservations)
-        .where(eq(listingObservations.id, handoff?.observationId ?? '00000000-0000-0000-0000-000000000000'))
-        .limit(1);
-      expect(observation).toMatchObject({
-        candidateHandoffId: fixture.candidateId,
-        previewResultId: null,
-        sourceListingId: changedSourceListingId,
-      });
     });
 
-    it('moves a provisional listing when source candidate evidence corrects the property match', async () => {
+    it('preserves provisional property history when independent source evidence contradicts the candidate property', async () => {
       const fixture = await createMatchedSubmissionFixture('source-candidate-property-correction', 531111);
       const staleRentPrice = 531112;
       const oldPropertyPriceRowsBefore = await db
@@ -2599,14 +2597,19 @@ describe('Listing routes', () => {
         .where(eq(canonicalListings.id, fixture.canonicalListingId))
         .limit(1);
       expect(canonical).toMatchObject({
-        canonicalUrl: changedCanonicalUrl.replace(/\/$/, ''),
+        canonicalUrl: fixture.canonicalUrl,
+        propertyId: testPropertyId,
         status: 'active',
-        statusSource: 'mirror',
-        verificationState: 'validated',
-        askingPrice: 535000,
-        title: 'Corrected property listing',
+        statusSource: 'user',
+        verificationState: 'invalid',
+        activeEligible: false,
+        askingPrice: fixture.askingPrice,
       });
-      expect(canonical?.propertyId).not.toBe(testPropertyId);
+      const [proven] = await db.select().from(canonicalListings).where(eq(canonicalListings.primarySourceListingId, changedSourceListingId));
+      expect(proven).toMatchObject({ propertyId: otherPropertyId, verificationState: 'validated', askingPrice: 535000 });
+      expect(proven.id).not.toBe(fixture.canonicalListingId);
+      const [handoff] = await db.select().from(listingCandidateHandoffs).where(eq(listingCandidateHandoffs.id, fixture.candidateId));
+      expect(handoff).toMatchObject({ propertyId: testPropertyId, canonicalListingId: fixture.canonicalListingId, state: 'dead_letter' });
 
       const oldPropertyPriceRowsAfter = await db
         .select()
@@ -2616,7 +2619,7 @@ describe('Listing routes', () => {
           eq(priceHistory.price, fixture.askingPrice),
           eq(priceHistory.source, 'funda'),
         ));
-      expect(oldPropertyPriceRowsAfter).toHaveLength(0);
+      expect(oldPropertyPriceRowsAfter).toHaveLength(oldPropertyPriceRowsBefore.length);
 
       const oldPropertyRentRowsAfter = await db
         .select()
@@ -2627,20 +2630,20 @@ describe('Listing routes', () => {
           eq(priceHistory.eventType, 'rented'),
           eq(priceHistory.source, 'funda'),
         ));
-      expect(oldPropertyRentRowsAfter).toHaveLength(0);
+      expect(oldPropertyRentRowsAfter).toHaveLength(1);
 
       const newPropertyPriceRows = await db
         .select()
         .from(priceHistory)
         .where(and(
-          eq(priceHistory.propertyId, canonical?.propertyId ?? otherPropertyId),
+          eq(priceHistory.propertyId, otherPropertyId),
           eq(priceHistory.price, 535000),
           eq(priceHistory.source, 'funda'),
         ));
       expect(newPropertyPriceRows).toHaveLength(1);
     });
 
-    it('withdraws an addressless source-candidate lifecycle outcome and cleans invalid provisional prices', async () => {
+    it('preserves status for not-found outcomes and invalidates diagnostic-only provisional evidence', async () => {
       const withdrawnFixture = await createMatchedSubmissionFixture('addressless-withdrawal', 532222);
       const invalidFixture = await createMatchedSubmissionFixture('addressless-invalid-cleanup', 533333);
       const staleRentPrice = 533334;
@@ -2714,8 +2717,8 @@ describe('Listing routes', () => {
         }),
       ).resolves.toEqual({
         status: 'completed',
-        ingested: 1,
-        updated: 1,
+        ingested: 0,
+        updated: 2,
         skipped: 0,
       });
 
@@ -2725,9 +2728,10 @@ describe('Listing routes', () => {
         .where(eq(canonicalListings.id, withdrawnFixture.canonicalListingId))
         .limit(1);
       expect(withdrawnCanonical).toMatchObject({
-        status: 'withdrawn',
-        statusSource: 'mirror',
-        verificationState: 'validated',
+        status: 'active',
+        statusSource: 'user',
+        verificationState: 'provisional',
+        activeEligible: false,
       });
 
       const [invalidCanonical] = await db
@@ -2736,9 +2740,10 @@ describe('Listing routes', () => {
         .where(eq(canonicalListings.id, invalidFixture.canonicalListingId))
         .limit(1);
       expect(invalidCanonical).toMatchObject({
-        status: 'withdrawn',
+        status: 'active',
         statusSource: 'mirror',
         verificationState: 'invalid',
+        activeEligible: false,
       });
 
       const invalidLegacyPrices = await db
