@@ -3,10 +3,70 @@
   "backup_kind": "consistent_preflight_snapshot_not_final_maintenance_backup",
   "bytes": 577527355,
   "completed_at": "2026-09-13T21:05:50.345358+00:00",
+  "final_migration_review": {
+    "aggregate": {
+      "acquisition_aliases": 0,
+      "acquisition_heads": 0,
+      "acquisition_payloads": 0,
+      "empty_canonical_urls": 0,
+      "empty_source_urls": 0,
+      "legacy_listings": 303465,
+      "positive_source_listings": 122372,
+      "replay_members": 0,
+      "source_batches": 0,
+      "source_events": 0,
+      "source_listings": 299977
+    },
+    "historical_replay_wire_validation": {
+      "appCommit": "5f913f25c40f8ef1534709edbe6b96a09470e83d",
+      "appEndCommit": "5f913f25c40f8ef1534709edbe6b96a09470e83d",
+      "counts": {
+        "batches": 300,
+        "invalidListings": 0,
+        "invalidRecords": 0,
+        "listings": 299977,
+        "records": 299977
+      },
+      "database": "hybrid_funda_preflight_snapshot",
+      "durationSeconds": 174.369,
+      "invalidReasons": {},
+      "migrationHead": "f1a2b3c4d505",
+      "readOnly": true,
+      "scope": "Same historical replay builder; complete facts records in valid ordered v2 envelopes; no jobs/outbox/app mutation",
+      "sourceCommit": "c139d8a63c3d67290460533a49a227204f437041",
+      "sourceEndCommit": "c139d8a63c3d67290460533a49a227204f437041"
+    },
+    "migration_head": "f1a2b3c4d506",
+    "private_artifact_sha256": {
+      "aggregates-final-506.log": "5ef0b1044ea6d44b298a355eab250e463d9042b5e5928f532b44d9dd9ac45898",
+      "migration-final-506.log": "7ce9046c52f519bbdcd81d0342c6b593f3ea9a1b79b7e41c8c52edf44433477c",
+      "replay-population-after-url-fix.json": "3842df0a0647f484819b33c8bed8a222d9f5654f6e40d09a3c3a8de67431abf3"
+    },
+    "scope": "Explicit migrations and read-only aggregates on restored immutable production mirror snapshot; no runtime, fixtures, dispatcher or replay jobs",
+    "source_commit": "0559986629c26079fbd088ace8fca4667f61e1d6",
+    "wire_validation_relationship": "Full population wire validation ran at corrected schema505;506 changes acquisition storage and left this source listing population/builder unchanged."
+  },
   "format": "pg_dump custom --no-owner --no-acl",
   "private_archive_directory": "/home/caslan/dev/backups/huishype/2026-09-13-funda-hybrid-preflight/20260913T210214Z",
   "production_writers": "continued; pg_dump consistent MVCC snapshot",
   "purpose": "private real mirror migration preflight; final maintenance backups still required",
+  "repeat_restores": [
+    {
+      "aggregate": {
+        "addresses": 281641,
+        "database_bytes": 1699680739,
+        "listings": 303465,
+        "schema_heads": [
+          "e8c2a1f6b930"
+        ]
+      },
+      "completed_at": "2026-09-13T21:20:45.896045+00:00",
+      "database": "hybrid_funda_preflight_snapshot",
+      "full_restore_verified": true,
+      "purpose": "fresh immutable-archive restore before corrected final migration chain; prior audit preserved",
+      "started_at": "2026-09-13T21:19:48.675954+00:00"
+    }
+  ],
   "restore": {
     "aggregate": {
       "addresses": 281641,
