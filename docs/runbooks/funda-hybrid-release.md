@@ -230,6 +230,18 @@ containers read their explicit mounts while host directory traversal remains
 root-only. Keep ledger credentials in a distinct root-readable operator env file;
 never mount paid API keys into planner, worker, sync or API containers.
 
+Use absolute secret paths in the operator env file: relative Compose file paths
+resolve from the immutable release directory. Initialization evidence mounted into
+the administrator container also needs UID1000 read permission. Start the ledger
+database and successful migration first, initialize through a one-shot dispatcher
+container, then start the dispatcher service. Initialization commits account,
+period, fingerprints and its audit event atomically but is not idempotent. After
+an interrupted command, inspect durable state before retrying; never reinitialize
+an existing account or reset its counters. Dispatcher startup verifies both schema
+and provider-key fingerprints; an `admin status` response alone verifies neither
+the secret-file contents nor successful dispatcher startup. Keep acquisition
+consumers absent during authority-only provisioning.
+
 Existing provider keys are migrated into the private dispatcher authority. The
 unused Primary Key is revoked; the maintained production key is stored only in
 the dispatcher secret file. Remove known raw-key copies from manual tool inputs
