@@ -527,9 +527,12 @@ def remote_capture(role, light=False):
     evidence["resources"] = attempt("resources", resources)
     docker_list = ["docker", "ps", "-aq"]
     if light:
-        docker_list += ["--filter", "name=api-cop1e1822hijj6g3zmxhrs0k",
-                        "--filter", "name=postgres-cop1e1822hijj6g3zmxhrs0k"]
-    ids = attempt("docker_list", lambda: run(docker_list).split()) if not light or role == "app" else []
+        if role == "app":
+            docker_list += ["--filter", "name=api-cop1e1822hijj6g3zmxhrs0k",
+                            "--filter", "name=postgres-cop1e1822hijj6g3zmxhrs0k"]
+        else:
+            docker_list += ["--filter", "name=huishype-funda-scraper-api-1"]
+    ids = attempt("docker_list", lambda: run(docker_list).split())
     inspected = attempt("docker_inspect", lambda: json.loads(run(["docker", "inspect", *ids]))) if ids else []
     selected = {}
     for container in inspected or []:
@@ -626,11 +629,19 @@ def remote_capture(role, light=False):
         record_health(source, body)
 
         def status_request():
-            env_file = ".env.production" if source == "funda" else ".env"
-            env = parse_env(Path("/opt/huishype-scrapers/huishype-" + source + "-scraper/" + env_file).read_text())
+            if source == "funda":
+                # The selected running release owns authentication. Never consult
+                # the preserved legacy rollback env, including when this key is absent.
+                entries = one("funda.api").get("Config", {}).get("Env") or []
+                pairs = [entry.partition("=") for entry in entries]
+                env = {name: value for name, separator, value in pairs if separator}
+                if sum(name == "API_KEY" for name, separator, value in pairs if separator) != 1:
+                    raise ValueError("missing_or_ambiguous_api_key")
+            else:
+                env = parse_env(Path("/opt/huishype-scrapers/huishype-pararius-scraper/.env").read_text())
             secrets.extend(v for k, v in env.items() if SENSITIVE.search(k) and v)
             key = env.get("API_KEY")
-            if not key:
+            if not key or not key.strip():
                 raise ValueError("missing_api_key")
             body = read_json_url(base_url + "/api/v1/status", key)
             return {k: v for k, v in body.items() if k in STATUS_FIELDS}

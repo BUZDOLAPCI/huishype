@@ -536,6 +536,7 @@ class EvidenceTests(unittest.TestCase):
     def test_http_200_unhealthy_or_missing_status_is_partial(self):
         for status in ["degraded", None, "failed"]:
             with patch.object(evidence, "read_json_url", return_value={"status": status}), \
+                 patch.object(evidence, "run", return_value=""), \
                  patch.object(Path, "read_text", return_value="API_KEY=secret\n"):
                 result = evidence.remote_capture("scraper", light=True)
             self.assertEqual(result["status"], "partial")
@@ -559,20 +560,57 @@ class EvidenceTests(unittest.TestCase):
         body["hosts"]["app"]["endpoints"]["app.health"] = {"ok": True, "status": "degraded"}
         self.assertFalse(evidence.verify_release(self.manifest(), body)["passed"])
 
-    def test_light_scraper_has_no_docker_or_database_calls(self):
+    def test_light_scraper_inspects_only_api_for_current_auth_without_database_calls(self):
         status = {"status": "ok", "API_KEY": "hidden", "hybrid": {"planner": {"status": "ready"}},
                   "recovery": {"catalog": {"remaining": 123}, "planner": {"status": "ready"}, "outbox": {"pending": 4}},
                   "upstream": {"creditDispatcher": {"availableCredits": 150, "API_KEY": "hidden"}}}
-        with patch.object(evidence, "run", side_effect=AssertionError("must not run")) as command, \
+        container = {"Id": "current", "Name": "/huishype-funda-scraper-api-1", "Image": IMAGE,
+                     "Config": {"Env": ["API_KEY=current-secret"]}, "State": {"Running": True}}
+        with patch.object(evidence, "run", side_effect=["current", json.dumps([container])]) as command, \
              patch.object(evidence, "read_json_url", return_value=status), \
              patch.object(Path, "read_text", return_value="API_KEY=secret\n"):
             result = evidence.remote_capture("scraper", light=True)
-        command.assert_not_called()
+        self.assertEqual(command.call_args_list[0].args[0],
+                         ["docker", "ps", "-aq", "--filter", "name=huishype-funda-scraper-api-1"])
+        self.assertEqual(command.call_args_list[1].args[0], ["docker", "inspect", "current"])
+        self.assertEqual(command.call_count, 2)
         self.assertEqual(result["status"], "complete")
         self.assertIn("hybrid", result["endpoints"]["funda.status"])
         self.assertEqual(result["endpoints"]["funda.status"]["recovery"], status["recovery"])
         self.assertEqual(result["endpoints"]["funda.status"]["upstream"]["creditDispatcher"], {"availableCredits": 150})
         self.assertNotIn("hidden", json.dumps(result))
+
+    def test_funda_auth_uses_running_container_and_never_legacy_env_or_fallback(self):
+        for entries, succeeds in [(["API_KEY=current-key=with-equals"], True),
+                                  ([], False), (["API_KEY="], False),
+                                  (["API_KEY=one", "API_KEY=two"], False)]:
+            current = {"Id": "current", "Name": "/huishype-funda-scraper-api-1", "Image": IMAGE,
+                       "Config": {"Env": entries}, "State": {"Running": True}}
+            old = {**current, "Id": "old", "Config": {"Env": ["API_KEY=rollback-secret"]},
+                   "State": {"Running": False}}
+            reads = []
+            def read_file(path, *args, **kwargs):
+                reads.append(str(path))
+                if str(path) == "/proc/meminfo":
+                    return "MemAvailable: 12345 kB\n"
+                self.assertEqual(str(path), "/opt/huishype-scrapers/huishype-pararius-scraper/.env")
+                return "API_KEY=pararius-secret\n"
+            def request(url, key=None):
+                if url.endswith(":8100/api/v1/status"):
+                    self.assertTrue(succeeds)
+                    self.assertEqual(key, "current-key=with-equals")
+                    return {"status": "ok", "services": {"echo": key}}
+                return {"status": "healthy"}
+            with patch.object(evidence, "run", side_effect=["current old", json.dumps([old, current])]), \
+                 patch.object(Path, "read_text", autospec=True, side_effect=read_file), \
+                 patch.object(evidence, "read_json_url", side_effect=request) as requests:
+                result = evidence.remote_capture("scraper", light=True)
+            self.assertEqual("funda.status" in result["endpoints"], succeeds)
+            self.assertEqual(result["status"], "complete" if succeeds else "partial")
+            self.assertEqual(sum(call.args[0].endswith(":8100/api/v1/status") for call in requests.call_args_list), int(succeeds))
+            self.assertFalse(any("funda-scraper/" in path for path in reads))
+            self.assertNotIn("current-key=with-equals", json.dumps(result))
+            self.assertNotIn("rollback-secret", json.dumps(result))
 
     def manifest(self):
         return {"services": {source + ".api": IMAGE for source in ["app", "funda", "pararius"]},
@@ -649,13 +687,14 @@ class EvidenceTests(unittest.TestCase):
 
     def test_full_capture_ledger_is_optional_and_reads_independent_schema(self):
         for has_ledger in [False, True]:
-            names = ["huishype-funda-scraper-postgres-1", "huishype-pararius-scraper-postgres-1"]
+            names = ["huishype-funda-scraper-postgres-1", "huishype-pararius-scraper-postgres-1",
+                     "huishype-funda-scraper-api-1"]
             if has_ledger:
                 names.append("huishype-funda-scraper-ledger-postgres-1")
             containers = [{"Id": name, "Name": "/" + name, "Image": IMAGE,
                            "Mounts": [{"Type": "volume", "Name": "huishype-funda-scraper_postgres_data"},
                                       {"Type": "bind", "Source": "/private/path"}],
-                           "Config": {"Labels": {}, "Image": "repo:" + "a" * 40}, "State": {"Running": True}} for name in names]
+                           "Config": {"Labels": {}, "Image": "repo:" + "a" * 40, "Env": ["API_KEY=secret"]}, "State": {"Running": True}} for name in names]
             queries = []
             def command(args, **kwargs):
                 if args[:3] == ["docker", "ps", "-aq"]:
