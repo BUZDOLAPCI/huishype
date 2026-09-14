@@ -94,6 +94,7 @@ export interface VisualMapClickEventLike {
 }
 
 export interface VisualMapInstance {
+  loaded: () => boolean;
   areTilesLoaded: () => boolean;
   isStyleLoaded: () => boolean;
   getStyle: () => VisualMapStyleLike;

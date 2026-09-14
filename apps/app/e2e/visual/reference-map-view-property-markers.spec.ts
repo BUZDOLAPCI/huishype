@@ -9,7 +9,7 @@
  * Screenshot saved to: test-results/reference-expectations/map-view-property-markers/
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { PROPERTY_ADDRESS_INTERACTION_MIN_ZOOM } from '@huishype/shared';
@@ -30,6 +30,17 @@ const CENTER_COORDINATES: [number, number] = [5.4697, 51.4416];
 
 // Known acceptable console errors - MINIMAL list
 const KNOWN_ACCEPTABLE_ERRORS = NETWORK_ALLOWED_CONSOLE_PATTERNS;
+
+async function waitForVisibleMap(page: Page): Promise<void> {
+  // Style layers can exist before the map load event hides the UI overlay.
+  // Capture only after the actual visible map and its current tiles are ready.
+  await expect(page.getByTestId('map-loading-indicator')).toBeHidden({ timeout: 15000 });
+  await page.waitForFunction(
+    () => window.__mapInstance?.loaded() === true,
+    undefined,
+    { timeout: 15000 }
+  );
+}
 
 // Disable tracing to avoid artifact issues
 test.use({ trace: 'off' });
@@ -192,8 +203,7 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
       console.log('Warning: Timed out waiting for property features to render');
     });
 
-    // Additional settle time
-    await page.waitForTimeout(2000);
+    await waitForVisibleMap(page);
 
     // Take screenshot
     await page.screenshot({
@@ -332,5 +342,12 @@ test.describe(`Reference Expectation: ${EXPECTATION_NAME}`, () => {
 
     console.log('Layer info:', layerInfo);
     expect(layerInfo?.totalLayers).toBeGreaterThan(0);
+
+    // This is the successful rendered-state artifact; capture it before teardown.
+    await waitForVisibleMap(page);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/${EXPECTATION_NAME}-loaded.png`,
+      fullPage: false,
+    });
   });
 });
