@@ -12,6 +12,7 @@ import { bindSourceIdentityToListing, quarantineSourceIdentity, resolveSourceLis
 import type { IngestBatchRequest } from './contracts.js';
 import type { IngestEvidenceV2, IngestFactsV2 } from './v2-contracts.js';
 import { mergeListingFacts } from './field-merge.js';
+import { recordIdentityBusinessHistory } from './identity-business-history.js';
 import { IngestIdempotencyConflictError } from './errors.js';
 import { assertIngestWriter, IngestSequenceGapError } from './v2-writer.js';
 
@@ -244,6 +245,8 @@ export async function processV2Evidence(tx: DbTransaction, batchId: string, payl
       observedAt: new Date(record.observedAt), collector: record.collector,
       manifestRef: record.inventoryManifest ?? (record.inventoryManifestId ? { id: record.inventoryManifestId } : null), payloadJson: record as unknown as Record<string, unknown>, payloadHash: hash,
     });
+    await recordIdentityBusinessHistory(tx, { sourceName: payload.sourceName, identityId: identity.id,
+      generation: payload.writerGeneration, record, association: resolved.quarantined ? 'quarantined' : 'resolved' });
     lastSequence = record.sequence;
     if (resolved.quarantined) {
       result.changedPropertyIds.push(...resolved.affectedPropertyIds ?? []);
