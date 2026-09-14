@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from '@jest/globals';
 
 const requestId = '5280f080-29b0-4b61-a220-3d651260bbaf';
+const operationInstanceId = '4ebbb310-955b-4891-9de2-8dfe5c625d06';
 const script = fileURLToPath(new URL('../../../scripts/seed-listings.ts', import.meta.url));
 
-async function runCli(dryRun: boolean, appApiUrl = 'http://localhost:3100') {
+async function runCli(dryRun: boolean, appApiUrl = 'http://localhost:3100', replaceInstanceOnRead = false) {
   const calls: Array<{ path: string; method: string; body: Record<string, unknown> }> = [];
   const server = createServer(async (req, res) => {
     let body = '';
@@ -21,6 +22,9 @@ async function runCli(dryRun: boolean, appApiUrl = 'http://localhost:3100') {
     const target = { sourceName: 'funda', ingestVersion: 2, writerGeneration: 5, appApiUrl };
     const payload = req.url === '/source/export-target' ? target : {
       ...target, requestId, status: parsed.dryRun ? 'planned' : req.method === 'POST' ? 'queued' : 'completed',
+      operationInstanceId: parsed.dryRun || (replaceInstanceOnRead && req.method === 'GET')
+        ? 'e5f050b3-ebc5-40a8-9582-6169d0a614c0' : operationInstanceId,
+      createdAt: '2026-09-14T00:00:00Z',
       eligibleListings: 2, processedListings: 2, queuedRecords: 3, deliveredRecords: 3,
       cursor: 'source-owned-cursor', finalSequence: 20,
     };
@@ -53,6 +57,7 @@ describe('Funda initialization CLI', () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('"status": "completed"');
     expect(result.stdout).toContain('"finalSequence": 20');
+    expect(result.stdout).toContain(`"operationInstanceId": "${operationInstanceId}"`);
     expect(result.calls.map(call => [call.method, call.path])).toEqual([
       ['GET', '/source/export-target'], ['POST', '/source/replays'], ['POST', '/source/replays'],
       ['GET', `/source/replays/${requestId}`],
@@ -74,5 +79,13 @@ describe('Funda initialization CLI', () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('does not match requested app API');
     expect(result.calls).toHaveLength(1);
+  }, 20_000);
+
+  it('fails when polling returns a different operation for the same caller request ID', async () => {
+    const result = await runCli(false, 'http://localhost:3100', true);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('operation instance changed after submission');
+    expect(result.stdout).not.toContain('"status": "completed"');
+    expect(result.calls).toHaveLength(4);
   }, 20_000);
 });
