@@ -3,7 +3,7 @@ CREATE TABLE ingest_retired_sequences (
   generation bigint NOT NULL,
   retired_sequence bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (source_name, generation),
+  CONSTRAINT ingest_retired_sequences_source_name_generation_pk PRIMARY KEY (source_name, generation),
   CONSTRAINT ingest_retired_sequences_nonnegative CHECK (generation >= 0 AND retired_sequence >= 0)
 );
 --> statement-breakpoint

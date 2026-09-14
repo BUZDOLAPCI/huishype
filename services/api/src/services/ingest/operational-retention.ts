@@ -111,7 +111,8 @@ export async function retireIngestOperationalEvidence(
     if (!batch.history_ready) await backfillIdentityBusinessHistoryForBatch(tx, { batchId: batch.id });
     const compacted = await tx.execute<{ id: string }>(sql`
       UPDATE ingest_batches
-      SET payload_json = jsonb_build_object('ingestVersion', 2, 'writerGeneration', ${generation}::bigint),
+      SET payload_json = jsonb_build_object('ingestVersion', 2, 'writerGeneration', ${generation}::bigint)
+          || jsonb_strip_nulls(jsonb_build_object('batchKind', payload_json->'batchKind', 'scopeKey', payload_json->'scopeKey')),
         payload_compacted_at = ${now.toISOString()}::timestamptz
       WHERE id = ${batch.id}::uuid AND payload_compacted_at IS NULL
         AND business_history_completed_at IS NOT NULL

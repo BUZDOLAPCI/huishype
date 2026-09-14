@@ -130,6 +130,23 @@ describe('exact batch delivery receipts after raw retirement', () => {
     expect(row?.payloadCompactedAt).toBeNull();
   }));
 
+  it('extracts older raw business samples before completing a new overlapping receipt', async () => fixture(async ({ request, complete, generation }) => {
+    const original = await complete();
+    await db.execute(sql`DELETE FROM source_identity_business_history WHERE identity_id IN
+      (SELECT identity_id FROM ingest_evidence WHERE source_name='funda' AND generation=${generation})`);
+    await db.update(ingestBatches).set({ businessHistoryCompletedAt: null }).where(eq(ingestBatches.id, original));
+    const replay = ingestBatchRequestSchema.parse({ ...request, idempotencyKey: randomUUID() });
+    const receipt = await acceptIngestBatch(replay);
+    await db.transaction(async tx => {
+      expect(await processV2Evidence(tx, receipt.batchId, replay)).toMatchObject({ ingestedCount: 0, updatedCount: 0, projectionChanged: false });
+      const history = await tx.execute<{ field_path: string; value_json: unknown }>(sql`
+        SELECT field_path,value_json FROM source_identity_business_history WHERE identity_id IN
+          (SELECT identity_id FROM ingest_evidence WHERE source_name='funda' AND generation=${generation})
+        ORDER BY field_path`);
+      expect(Array.from(history)).toEqual([{ field_path: 'askingPrice', value_json: 500000 }, { field_path: 'lifecycleStatus', value_json: 'available' }]);
+    });
+  }));
+
   it('does not commit a retirement frontier or a compact body when the transaction rolls back', async () => fixture(async ({ request, complete, generation }) => {
     const batchId = await complete();
     const rollback = new Error('receipt retention fixture rollback');

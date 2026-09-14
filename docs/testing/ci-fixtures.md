@@ -40,7 +40,7 @@ export REDIS_URL=redis://127.0.0.1:56393/0
 export NODE_ENV=test
 export PLAYWRIGHT_ALLOW_CI_DATABASE_FIXTURE=1
 export PLAYWRIGHT_PHOTON_FIXTURE=1
-docker exec huishype-ci-postgres pg_isready -U huishype
+docker exec -e PGPASSWORD=fixture_only huishype-ci-postgres psql -X -h 127.0.0.1 -U huishype -d huishype_test -v ON_ERROR_STOP=1 -Atqc 'SELECT PostGIS_Full_Version()'
 docker exec huishype-ci-redis redis-cli ping
 pnpm --filter @huishype/api db:migrate
 pnpm --filter @huishype/shared build
@@ -48,7 +48,9 @@ pnpm --filter @huishype/api db:seed-ci-fixture --database-name huishype_test
 pnpm test
 ```
 
-Wait until the readiness commands succeed before migrating. After success or
+Wait until both readiness commands succeed before migrating. The PostgreSQL
+check uses the final TCP server and actual PostGIS function, because the image's
+temporary initialization server can accept Unix-socket probes too early. After success or
 failure, remove only these disposable services:
 
 ```bash

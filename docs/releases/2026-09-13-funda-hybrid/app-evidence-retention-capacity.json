@@ -1,0 +1,664 @@
+{
+  "measuredOn": "2026-09-14",
+  "rawEvidence": {
+    "sampleIdentities": 5000,
+    "sampleAliases": 15001,
+    "sampleEvents": 10000,
+    "sampleBatches": 50,
+    "population": {
+      "all_identities": 299977,
+      "positives": 122211
+    },
+    "sizes": {
+      "source_listing_identities": {
+        "rows": 5000,
+        "heap_bytes": 6029312,
+        "index_bytes": 712704,
+        "total_bytes": 6782976
+      },
+      "source_listing_aliases": {
+        "rows": 15001,
+        "heap_bytes": 1392640,
+        "index_bytes": 1499136,
+        "total_bytes": 2932736
+      },
+      "ingest_evidence": {
+        "rows": 10000,
+        "heap_bytes": 11567104,
+        "index_bytes": 2113536,
+        "total_bytes": 13721600
+      },
+      "ingest_evidence_receipt_only": {
+        "rows": 10000,
+        "heap_bytes": 2416640,
+        "index_bytes": 2113536,
+        "total_bytes": 4571136
+      },
+      "ingest_batches": {
+        "rows": 50,
+        "heap_bytes": 24576,
+        "index_bytes": 114688,
+        "total_bytes": 1785856
+      },
+      "ingest_batches_receipt_only": {
+        "rows": 50,
+        "heap_bytes": 24576,
+        "index_bytes": 114688,
+        "total_bytes": 180224
+      }
+    },
+    "contents": {
+      "batches": 50,
+      "minimum_records": 200,
+      "maximum_records": 200,
+      "average_stored_batch_payload_bytes": 29693.42
+    },
+    "notes": [
+      "Source snapshot read-only; schema-cloned app table storage includes heap, TOAST, indexes after VACUUM ANALYZE.",
+      "Receipt-only copies are size comparisons, NOT an implemented or safe standalone retention policy.",
+      "Historical source values and actual alias lengths; fresh UUIDs/clocks generated solely as benchmark event metadata.",
+      "No canonical listing or business change rows measured; no WAL/dead-tuple/headroom reserve included."
+    ],
+    "projection": {
+      "bytes_per_observed_identity": 3101.4912,
+      "permanent_receipt_bytes_per_observation": 950.272,
+      "all_current_identity_heads_and_aliases_gib": 0.5428660919189453,
+      "scenarios": {
+        "baseline_20h": {
+          "observations_per_day": 146653.2,
+          "events_per_day": 293306.4,
+          "batches_per_day": 1466.5320000000002,
+          "rich_7d_gib": 2.9652428485107425,
+          "rich_30d_gib": 12.70818363647461,
+          "rich_90d_gib": 38.12455090942383,
+          "rich_365d_gib": 154.61623424377444,
+          "receipt_only_365d_gib": 47.37317266845704,
+          "days_to_consume_148_gib_excluding_other_growth": 349.3811646895358
+        },
+        "routine_25pct_boundary": {
+          "observations_per_day": 183416.4,
+          "events_per_day": 366832.8,
+          "batches_per_day": 1834.164,
+          "rich_7d_gib": 3.708573480834961,
+          "rich_30d_gib": 15.893886346435547,
+          "rich_90d_gib": 47.68165903930664,
+          "rich_365d_gib": 193.3756172149658,
+          "receipt_only_365d_gib": 59.24873638916016,
+          "days_to_consume_148_gib_excluding_other_growth": 279.3526959500211
+        },
+        "stress_15pct_recovery": {
+          "observations_per_day": 213206.4,
+          "events_per_day": 426412.8,
+          "batches_per_day": 2132.064,
+          "rich_7d_gib": 4.310910043945313,
+          "rich_30d_gib": 18.475328759765624,
+          "rich_90d_gib": 55.42598627929687,
+          "rich_365d_gib": 224.78316657714842,
+          "receipt_only_365d_gib": 68.87175732421875,
+          "days_to_consume_148_gib_excluding_other_growth": 240.3204867276378
+        }
+      }
+    }
+  },
+  "compactBatchReceipts": {
+    "rows": 10000,
+    "sizes": {
+      "heap_bytes": 5464064,
+      "index_bytes": 4833280,
+      "total_bytes": 10338304
+    },
+    "physical_bytes_per_compact_receipt": 1033.8304,
+    "routine_batches_per_day": 1834.164,
+    "routine_annual_receipts_gib": 0.6445853907165527,
+    "routine_annual_receipts_mib": 660.05544009375,
+    "recovery_stress_annual_receipts_gib": 0.7492772219238282,
+    "notes": [
+      "Actual0066 ingest_batches schema including all indexes, nullable FK columns, original cursors, SHA256hash, actual-outcome field layout.",
+      "10000 synthetic batch receipt headers; no live source IDs or requests.",
+      "No full payload or per-event tombstones; genuine histories measured separately.",
+      "Table/schema dropped after report; source/production untouched."
+    ]
+  },
+  "businessHistoryEndpoints": {
+    "measurement": "synthetic_committed_identity_business_history_capacity",
+    "identities": 5000,
+    "fieldsPerIdentity": 19,
+    "endpointSamplesPerField": 2,
+    "sourceSchema": "public.source_identity_business_history INCLUDING ALL",
+    "notes": [
+      "The copy has all defaults/checks/primary/unique/secondary indexes; LIKE does not copy foreign keys.",
+      "Values include numeric price/area/rooms, strings, timestamp string, address components and explicit JSON null.",
+      "Each endpoint uses actual synthetic observedAt and minimal event/generation/sequence/source-primary provenance; no intervals.",
+      "VACUUM ANALYZE is ordinary vacuum, not VACUUM FULL or REINDEX.",
+      "300k projection assumes 19 fields with two unchanged-run endpoint samples per identity; actual value changes add permanent history.",
+      "Raw seven-day evidence/receipts, existing canonical histories, identity/alias storage and other indexes are separate.",
+      "WAL, transient new-tail writes/dead tuples, and vacuum headroom are not included in live endpoint capacity.",
+      "This is synthetic fixture capacity, not a production dataset measurement or a hard storage cap."
+    ],
+    "stages": [
+      {
+        "stage": "committed_initial_two_endpoints_after_vacuum",
+        "durationMs": 4124,
+        "rows": 190000,
+        "identities": 5000,
+        "live_tuple_bytes": 84830000,
+        "heap_bytes": 91029504,
+        "table_with_toast_fsm_vm_bytes": 91086848,
+        "index_bytes": 91308032,
+        "total_relation_bytes": 182394880,
+        "bytesPerIdentity": 36478.976,
+        "projected300kIdentityBytes": 10943692800,
+        "projected300kIdentityGiB": 10.192108154296875,
+        "indexes": [
+          {
+            "definition": "CREATE UNIQUE INDEX business_history_pkey ON synthetic_schema.business_history USING btree (id)",
+            "bytes": 7929856
+          },
+          {
+            "definition": "CREATE UNIQUE INDEX business_history_identity_id_field_path_sample_key_idx ON synthetic_schema.business_history USING btree (identity_id, field_path, sample_key)",
+            "bytes": 36003840
+          },
+          {
+            "definition": "CREATE INDEX business_history_identity_id_field_path_observed_at_sample__idx ON synthetic_schema.business_history USING btree (identity_id, field_path, observed_at, sample_key)",
+            "bytes": 35586048
+          },
+          {
+            "definition": "CREATE INDEX business_history_source_name_recorded_at_id_idx ON synthetic_schema.business_history USING btree (source_name, recorded_at, id)",
+            "bytes": 11788288
+          }
+        ]
+      },
+      {
+        "stage": "tail_replacement_cycle_1_after_vacuum",
+        "durationMs": 2801,
+        "rows": 190000,
+        "identities": 5000,
+        "live_tuple_bytes": 84830000,
+        "heap_bytes": 136536064,
+        "table_with_toast_fsm_vm_bytes": 136609792,
+        "index_bytes": 124575744,
+        "total_relation_bytes": 261185536,
+        "bytesPerIdentity": 52237.1072,
+        "projected300kIdentityBytes": 15671132160,
+        "projected300kIdentityGiB": 14.594879150390625,
+        "indexes": [
+          {
+            "definition": "CREATE UNIQUE INDEX business_history_pkey ON synthetic_schema.business_history USING btree (id)",
+            "bytes": 11427840
+          },
+          {
+            "definition": "CREATE UNIQUE INDEX business_history_identity_id_field_path_sample_key_idx ON synthetic_schema.business_history USING btree (identity_id, field_path, sample_key)",
+            "bytes": 44507136
+          },
+          {
+            "definition": "CREATE INDEX business_history_identity_id_field_path_observed_at_sample__idx ON synthetic_schema.business_history USING btree (identity_id, field_path, observed_at, sample_key)",
+            "bytes": 50806784
+          },
+          {
+            "definition": "CREATE INDEX business_history_source_name_recorded_at_id_idx ON synthetic_schema.business_history USING btree (source_name, recorded_at, id)",
+            "bytes": 17833984
+          }
+        ]
+      },
+      {
+        "stage": "tail_replacement_cycle_2_after_vacuum",
+        "durationMs": 2679,
+        "rows": 190000,
+        "identities": 5000,
+        "live_tuple_bytes": 84830000,
+        "heap_bytes": 91029504,
+        "table_with_toast_fsm_vm_bytes": 91086848,
+        "index_bytes": 130875392,
+        "total_relation_bytes": 221962240,
+        "bytesPerIdentity": 44392.448,
+        "projected300kIdentityBytes": 13317734400,
+        "projected300kIdentityGiB": 12.403106689453125,
+        "indexes": [
+          {
+            "definition": "CREATE UNIQUE INDEX business_history_pkey ON synthetic_schema.business_history USING btree (id)",
+            "bytes": 11583488
+          },
+          {
+            "definition": "CREATE UNIQUE INDEX business_history_identity_id_field_path_sample_key_idx ON synthetic_schema.business_history USING btree (identity_id, field_path, sample_key)",
+            "bytes": 44507136
+          },
+          {
+            "definition": "CREATE INDEX business_history_identity_id_field_path_observed_at_sample__idx ON synthetic_schema.business_history USING btree (identity_id, field_path, observed_at, sample_key)",
+            "bytes": 50806784
+          },
+          {
+            "definition": "CREATE INDEX business_history_source_name_recorded_at_id_idx ON synthetic_schema.business_history USING btree (source_name, recorded_at, id)",
+            "bytes": 23953408
+          }
+        ]
+      }
+    ],
+    "cleanedUp": true
+  },
+  "processorThroughput": {
+    "measurement": "whole_processV2Evidence_1000_identity_fixture",
+    "identities": 1000,
+    "exactLinked": 500,
+    "unresolved": 500,
+    "batchRecords": 200,
+    "fieldsPerCompleteFacts": 19,
+    "eventsPerIdentity": 5,
+    "phases": [
+      {
+        "phase": "historical_replay_metadata",
+        "records": 1000,
+        "durationMs": 14689,
+        "statements": 20530,
+        "p50BatchMs": 3186,
+        "maxBatchMs": 3644,
+        "recordsPerSecond": 68.07815372047111,
+        "projection300kIdentityDurationMs": 4406700,
+        "equivalent366kRecordsPerDayProcessingHours": 1.4933816666666666,
+        "maxBatchFractionOf15MinuteReceiptHead": 0.004048888888888889,
+        "ingested": 500,
+        "updated": 0,
+        "skipped": 500,
+        "projectionChangedBatches": 3,
+        "changedPropertyReferences": 500,
+        "business_samples": 17000,
+        "business_tuple_bytes": 7919640,
+        "identities": 1000,
+        "bound_identities": 500,
+        "raw_events": 1000,
+        "compatibility_observations": 500,
+        "batches": [
+          {
+            "batch": 1,
+            "records": 200,
+            "durationMs": 3562,
+            "statements": 5206,
+            "ingested": 200,
+            "updated": 0,
+            "skipped": 0,
+            "projectionChanged": true,
+            "changedPropertyReferences": 200
+          },
+          {
+            "batch": 2,
+            "records": 200,
+            "durationMs": 3644,
+            "statements": 5206,
+            "ingested": 200,
+            "updated": 0,
+            "skipped": 0,
+            "projectionChanged": true,
+            "changedPropertyReferences": 200
+          },
+          {
+            "batch": 3,
+            "records": 200,
+            "durationMs": 3186,
+            "statements": 4106,
+            "ingested": 100,
+            "updated": 0,
+            "skipped": 100,
+            "projectionChanged": true,
+            "changedPropertyReferences": 100
+          },
+          {
+            "batch": 4,
+            "records": 200,
+            "durationMs": 2234,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 5,
+            "records": 200,
+            "durationMs": 2026,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          }
+        ]
+      },
+      {
+        "phase": "historical_replay_price_group",
+        "records": 1000,
+        "durationMs": 11478,
+        "statements": 19030,
+        "p50BatchMs": 2243,
+        "maxBatchMs": 2917,
+        "recordsPerSecond": 87.12319219376198,
+        "projection300kIdentityDurationMs": 3443400,
+        "equivalent366kRecordsPerDayProcessingHours": 1.16693,
+        "maxBatchFractionOf15MinuteReceiptHead": 0.0032411111111111113,
+        "ingested": 0,
+        "updated": 500,
+        "skipped": 500,
+        "projectionChangedBatches": 3,
+        "changedPropertyReferences": 500,
+        "business_samples": 19000,
+        "business_tuple_bytes": 8825480,
+        "identities": 1000,
+        "bound_identities": 500,
+        "raw_events": 2000,
+        "compatibility_observations": 1000,
+        "batches": [
+          {
+            "batch": 1,
+            "records": 200,
+            "durationMs": 2917,
+            "statements": 4606,
+            "ingested": 0,
+            "updated": 200,
+            "skipped": 0,
+            "projectionChanged": true,
+            "changedPropertyReferences": 200
+          },
+          {
+            "batch": 2,
+            "records": 200,
+            "durationMs": 2827,
+            "statements": 4606,
+            "ingested": 0,
+            "updated": 200,
+            "skipped": 0,
+            "projectionChanged": true,
+            "changedPropertyReferences": 200
+          },
+          {
+            "batch": 3,
+            "records": 200,
+            "durationMs": 2243,
+            "statements": 3806,
+            "ingested": 0,
+            "updated": 100,
+            "skipped": 100,
+            "projectionChanged": true,
+            "changedPropertyReferences": 100
+          },
+          {
+            "batch": 4,
+            "records": 200,
+            "durationMs": 1695,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 5,
+            "records": 200,
+            "durationMs": 1785,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          }
+        ]
+      },
+      {
+        "phase": "routine_complete_facts",
+        "records": 1000,
+        "durationMs": 14222,
+        "statements": 18030,
+        "p50BatchMs": 2785,
+        "maxBatchMs": 3445,
+        "recordsPerSecond": 70.3135986499789,
+        "projection300kIdentityDurationMs": 4266600,
+        "equivalent366kRecordsPerDayProcessingHours": 1.4459033333333333,
+        "maxBatchFractionOf15MinuteReceiptHead": 0.0038277777777777776,
+        "ingested": 0,
+        "updated": 500,
+        "skipped": 500,
+        "projectionChangedBatches": 3,
+        "changedPropertyReferences": 500,
+        "business_samples": 38000,
+        "business_tuple_bytes": 17650960,
+        "identities": 1000,
+        "bound_identities": 500,
+        "raw_events": 3000,
+        "compatibility_observations": 1500,
+        "batches": [
+          {
+            "batch": 1,
+            "records": 200,
+            "durationMs": 3445,
+            "statements": 4206,
+            "ingested": 0,
+            "updated": 200,
+            "skipped": 0,
+            "projectionChanged": true,
+            "changedPropertyReferences": 200
+          },
+          {
+            "batch": 2,
+            "records": 200,
+            "durationMs": 3355,
+            "statements": 4206,
+            "ingested": 0,
+            "updated": 200,
+            "skipped": 0,
+            "projectionChanged": true,
+            "changedPropertyReferences": 200
+          },
+          {
+            "batch": 3,
+            "records": 200,
+            "durationMs": 2785,
+            "statements": 3606,
+            "ingested": 0,
+            "updated": 100,
+            "skipped": 100,
+            "projectionChanged": true,
+            "changedPropertyReferences": 100
+          },
+          {
+            "batch": 4,
+            "records": 200,
+            "durationMs": 2262,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 5,
+            "records": 200,
+            "durationMs": 2357,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          }
+        ]
+      },
+      {
+        "phase": "routine_unchanged_complete_facts",
+        "records": 1000,
+        "durationMs": 15031,
+        "statements": 17030,
+        "p50BatchMs": 3055,
+        "maxBatchMs": 3367,
+        "recordsPerSecond": 66.52917304237909,
+        "projection300kIdentityDurationMs": 4509300,
+        "equivalent366kRecordsPerDayProcessingHours": 1.5281516666666666,
+        "maxBatchFractionOf15MinuteReceiptHead": 0.0037411111111111113,
+        "ingested": 0,
+        "updated": 500,
+        "skipped": 500,
+        "projectionChangedBatches": 0,
+        "changedPropertyReferences": 0,
+        "business_samples": 38000,
+        "business_tuple_bytes": 17650960,
+        "identities": 1000,
+        "bound_identities": 500,
+        "raw_events": 4000,
+        "compatibility_observations": 1500,
+        "batches": [
+          {
+            "batch": 1,
+            "records": 200,
+            "durationMs": 3367,
+            "statements": 3806,
+            "ingested": 0,
+            "updated": 200,
+            "skipped": 0,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 2,
+            "records": 200,
+            "durationMs": 3342,
+            "statements": 3806,
+            "ingested": 0,
+            "updated": 200,
+            "skipped": 0,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 3,
+            "records": 200,
+            "durationMs": 3055,
+            "statements": 3406,
+            "ingested": 0,
+            "updated": 100,
+            "skipped": 100,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 4,
+            "records": 200,
+            "durationMs": 2613,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 5,
+            "records": 200,
+            "durationMs": 2638,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          }
+        ]
+      },
+      {
+        "phase": "routine_available_sightings",
+        "records": 1000,
+        "durationMs": 10118,
+        "statements": 17030,
+        "p50BatchMs": 2030,
+        "maxBatchMs": 2323,
+        "recordsPerSecond": 98.833761612967,
+        "projection300kIdentityDurationMs": 3035400,
+        "equivalent366kRecordsPerDayProcessingHours": 1.0286633333333333,
+        "maxBatchFractionOf15MinuteReceiptHead": 0.0025811111111111113,
+        "ingested": 0,
+        "updated": 500,
+        "skipped": 500,
+        "projectionChangedBatches": 0,
+        "changedPropertyReferences": 0,
+        "business_samples": 38000,
+        "business_tuple_bytes": 17658960,
+        "identities": 1000,
+        "bound_identities": 500,
+        "raw_events": 5000,
+        "compatibility_observations": 1500,
+        "batches": [
+          {
+            "batch": 1,
+            "records": 200,
+            "durationMs": 2323,
+            "statements": 3806,
+            "ingested": 0,
+            "updated": 200,
+            "skipped": 0,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 2,
+            "records": 200,
+            "durationMs": 2262,
+            "statements": 3806,
+            "ingested": 0,
+            "updated": 200,
+            "skipped": 0,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 3,
+            "records": 200,
+            "durationMs": 2030,
+            "statements": 3406,
+            "ingested": 0,
+            "updated": 100,
+            "skipped": 100,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 4,
+            "records": 200,
+            "durationMs": 1736,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          },
+          {
+            "batch": 5,
+            "records": 200,
+            "durationMs": 1760,
+            "statements": 3006,
+            "ingested": 0,
+            "updated": 0,
+            "skipped": 200,
+            "projectionChanged": false,
+            "changedPropertyReferences": 0
+          }
+        ]
+      }
+    ],
+    "timingScope": "actual processor and per-batch savepoint transaction; outer transaction rolls all fixtures back, so durable COMMIT/fsync is excluded",
+    "notes": [
+      "No source calls, paid requests, API runtime, worker runtime, or mocked database behavior.",
+      "Each identity has distinct global/tiny/URL aliases; half have exact properties and half remain unresolved.",
+      "Replay has two actual-clock field groups per listing:17 metadata/address/lifecycle fields then2 price/currency fields.",
+      "First routine full facts renew old availability; repeated same-state full facts and available sightings keep facts unchanged.",
+      "Statement counts are postgres driver debug invocations; no SQL text, parameters, aliases, or property IDs are logged.",
+      "Synthetic local PostgreSQL timing;300k and366k/day values are extrapolations, not production throughput guarantees.",
+      "Raw bodies, permanent real value changes, WAL/fsync, background load and maintenance headroom remain separate."
+    ],
+    "totalRecords": 5000,
+    "totalMeasuredPhaseMs": 65538,
+    "totalProcessorStatements": 91650,
+    "projected300kIdentitiesFiveEventsMs": 19661400,
+    "fixturesRolledBack": true
+  }
+}

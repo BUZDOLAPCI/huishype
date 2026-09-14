@@ -231,6 +231,11 @@ export async function processV2Evidence(tx: DbTransaction, batchId: string, payl
       if (previous.payloadHash !== hash || previous.generation !== payload.writerGeneration || previous.sequence !== record.sequence) {
         throw new IngestIdempotencyConflictError(`Evidence event ${record.eventId} is already bound to different content or ordering`);
       }
+      // An overlapping receipt can reference evidence accepted before identity
+      // history existed. Its completion proof must include extraction of those
+      // real samples, even when the original receipt has not been backfilled.
+      await recordIdentityBusinessHistory(tx, { sourceName: payload.sourceName, identityId: previous.identityId,
+        generation: payload.writerGeneration, record, association: 'historical_unknown' });
       continue;
     }
     if (record.sequence !== lastSequence + 1) throw new IngestSequenceGapError(`Expected evidence sequence ${lastSequence + 1}; received ${record.sequence}`);

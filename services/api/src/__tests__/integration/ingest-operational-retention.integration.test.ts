@@ -74,6 +74,17 @@ async function state(f: Fixture) {
 }
 
 describe('raw ingest operational retirement', () => {
+  it('preserves small run-classification headers used by existing lifecycle finalization', async () => fixture(async f => {
+    await evidence(f, 1, 1);
+    const receipt = await batch(f, 1, 1);
+    await f.tx.execute(sql`UPDATE ingest_batches SET payload_json=payload_json ||
+      '{"batchKind":"observations","scopeKey":"candidate"}'::jsonb WHERE id=${receipt}::uuid`);
+    expect(await retireIngestOperationalEvidence(f.tx, f.source, 1, { now }))
+      .toMatchObject({ retiredBatches: 1, deletedEvidence: 1, retiredSequence: 1 });
+    const [row] = await f.tx.execute<{ payload_json: unknown }>(sql`SELECT payload_json FROM ingest_batches WHERE id=${receipt}::uuid`);
+    expect(row?.payload_json).toEqual({ ingestVersion: 2, writerGeneration: 1, batchKind: 'observations', scopeKey: 'candidate' });
+  }));
+
   it('preserves the permanent receipt, exact outcomes and v1 audits while deleting old v2 raw evidence', async () => fixture(async f => {
     await evidence(f, 1, 3);
     const receipt = await batch(f, 1, 3);
