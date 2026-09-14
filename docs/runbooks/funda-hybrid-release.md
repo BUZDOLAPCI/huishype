@@ -358,7 +358,7 @@ retains its existing search-area rebuild before reporting healthy.
 Collect the elapsed cycle and verify immutable runtime identity:
 
 ```bash
-python3 tools/ops/funda-hybrid-evidence.py watch --output-dir /private/release-evidence --interval 60
+python3 tools/ops/funda-hybrid-evidence.py watch --output-dir /private/release-evidence --interval 60 --duration-hours 168 --max-output-bytes 2147483648
 python3 tools/ops/funda-hybrid-evidence.py verify-window --directory /private/release-evidence --start "$ACCEPTANCE_START_UTC" --end "$ACCEPTANCE_END_UTC" --max-gap-minutes 2 --manifest release.json
 python3 tools/ops/funda-hybrid-evidence.py verify-release --manifest release.json --snapshot snapshot.json
 ```
@@ -386,6 +386,18 @@ are mandatory in every minute sample when `verify-window` receives that manifest
 legacy baselines can omit the requirement. Full samples are also checked against
 the manifest throughout the window. Unavailable metrics must be investigated,
 including read-only SQL timeouts; they are never zero-length queues.
+
+Reserve 2 GiB for the dedicated local evidence directory in addition to the
+20 GiB free-space floor and any unfinished capacity experiment. The default
+output budget counts all existing run artifacts, each pending serialized
+snapshot and the managed `watch-*.jsonl` journal before writing. Journals are
+limited to 4 MiB per run; console output contains only bounded start/end/error
+records. Inspect the journal for individual sample progress. Budget exhaustion,
+unsafe symlinks or the seven-day maximum stop collection explicitly without
+deleting or truncating earlier evidence. Such a stop does not certify an
+acceptance interval. Choose and assess the actual interval before raw proof
+expires; preserve the sealed aggregate reports and matching private artifacts.
+The watcher tooling revision is recorded separately from deployed runtime SHAs.
 
 `app.retention` records database/relation bytes and the latest indexed Funda raw
 retirement frontier. It does not scan permanent business history or count all
