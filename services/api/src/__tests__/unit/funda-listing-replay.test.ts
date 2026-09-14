@@ -7,7 +7,8 @@ const options = {
 };
 const target = { sourceName: 'funda', ingestVersion: 2, writerGeneration: 5, appApiUrl: 'http://localhost:3100' };
 function job(status = 'planned', overrides = {}) {
-  return { ...target, requestId: options.requestId, status, eligibleListings: 2,
+  return { ...target, requestId: options.requestId,
+    operationInstanceId: '9f0b9cdd-e43d-4c70-8815-1f764ecf7357', createdAt: '2026-09-14T00:00:00Z', status, eligibleListings: 2,
     processedListings: 0, queuedRecords: 0, deliveredRecords: 0, cursor: null, finalSequence: null, ...overrides };
 }
 function transport(responses: Array<unknown | Response>) {
@@ -81,6 +82,32 @@ describe('Funda source-owned listing initialization', () => {
     const blocked = transport([target, job(), job('blocked')]);
     const blockedClient = createFundaReplayClient(options, blocked.request);
     await expect(blockedClient.execute(await blockedClient.plan())).rejects.toThrow(`Funda replay ${options.requestId} is blocked`);
+  });
+
+  it('pins the actual submitted instance when an expired caller UUID creates a new operation', async () => {
+    const operationInstanceId = '879c6e74-8d90-41e7-b680-d860720d2e27';
+    const { request } = transport([target, job(), job('queued', { operationInstanceId }), job('completed', { operationInstanceId })]);
+    const client = createFundaReplayClient(options, request);
+    const plan = await client.plan();
+    expect(plan.operationInstanceId).not.toBe(operationInstanceId);
+    expect(await client.execute(plan)).toMatchObject({ operationInstanceId, status: 'completed' });
+  });
+
+  it('rejects a different durable operation returned by the first read or a later poll', async () => {
+    const replacement = job('completed', { operationInstanceId: '879c6e74-8d90-41e7-b680-d860720d2e27' });
+    for (const responses of [[target, job(), job('queued'), replacement], [target, job(), job('queued'), job('running'), replacement]]) {
+      const { request } = transport(responses);
+      const client = createFundaReplayClient({ ...options, waitMs: 25 }, request);
+      await expect(client.execute(await client.plan())).rejects.toThrow('operation instance changed');
+    }
+  });
+
+  it('requires server-provided operation identity and creation time', async () => {
+    for (const overrides of [{ operationInstanceId: undefined }, { operationInstanceId: 'not-a-uuid' }, { createdAt: undefined }]) {
+      const { request } = transport([target, job(), job('queued', overrides)]);
+      const client = createFundaReplayClient(options, request);
+      await expect(client.execute(await client.plan())).rejects.toThrow();
+    }
   });
 
   it('requires explicit credentials and rejects URL credentials, query strings, and redirects', async () => {

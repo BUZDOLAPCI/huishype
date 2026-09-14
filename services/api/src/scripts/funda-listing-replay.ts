@@ -8,6 +8,8 @@ const exportTargetSchema = z.object({
 });
 const replayJobSchema = exportTargetSchema.extend({
   requestId: z.string().uuid(),
+  operationInstanceId: z.string().uuid(),
+  createdAt: z.string().datetime({ offset: true }),
   status: z.enum(['planned', 'queued', 'running', 'completed', 'blocked']),
   eligibleListings: z.number().int().nonnegative(),
   processedListings: z.number().int().nonnegative(),
@@ -75,9 +77,12 @@ export function createFundaReplayClient(options: FundaReplayOptions, request: ty
     return job;
   }
 
-  function parseDurableJob(payload: unknown, generation: number): FundaReplayJob {
+  function parseDurableJob(payload: unknown, generation: number, operationInstanceId?: string): FundaReplayJob {
     const job = parseJob(payload, generation);
     if (job.status === 'planned') throw new Error('Funda source did not persist the requested replay job.');
+    if (operationInstanceId !== undefined && job.operationInstanceId !== operationInstanceId) {
+      throw new Error('Funda replay operation instance changed after submission; the returned job is a different operation.');
+    }
     return job;
   }
 
@@ -99,12 +104,15 @@ export function createFundaReplayClient(options: FundaReplayOptions, request: ty
     let job = parseDurableJob(await json('/source/replays', {
       requestId: options.requestId, expectedAppApiUrl, dryRun: false,
     }), planResult.writerGeneration);
+    // A dry run can have an ephemeral instance, and an expired caller UUID can
+    // create a new operation. Only the actual durable POST identifies this run.
+    const operationInstanceId = job.operationInstanceId;
     // Read back the durable job even when the caller only requests a handoff.
-    job = parseDurableJob(await json(`/source/replays/${options.requestId}`), planResult.writerGeneration);
+    job = parseDurableJob(await json(`/source/replays/${options.requestId}`), planResult.writerGeneration, operationInstanceId);
     const deadline = Date.now() + options.waitMs;
     while (job.status !== 'completed' && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, Math.min(1_000, deadline - Date.now())));
-      job = parseDurableJob(await json(`/source/replays/${options.requestId}`), planResult.writerGeneration);
+      job = parseDurableJob(await json(`/source/replays/${options.requestId}`), planResult.writerGeneration, operationInstanceId);
     }
     if (options.waitMs > 0 && job.status !== 'completed') {
       throw new Error(`Funda replay ${job.requestId} remains ${job.status} after --wait-ms; the durable job continues at ${sourceUrl}/source/replays/${job.requestId}.`);
