@@ -785,13 +785,14 @@ class EvidenceTests(unittest.TestCase):
     def test_watch_uses_light_samples_then_final_full_and_real_time(self):
         clock = [0.0]
         kinds = []
-        def fake_capture(env, output, light=False):
+        def fake_capture(env, output, light=False, **_kwargs):
             kinds.append(light)
             return {"status": "complete", "sample_kind": "light" if light else "full"}, Path("sample.json")
-        with patch.object(evidence.time, "monotonic", side_effect=lambda: clock[0]), \
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(evidence.time, "monotonic", side_effect=lambda: clock[0]), \
              patch.object(evidence.time, "sleep", side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)), \
              patch.object(evidence, "capture", side_effect=fake_capture), contextlib.redirect_stdout(io.StringIO()):
-            code = evidence.watch("env", "output", interval=60, duration_hours=0.05)
+            code = evidence.watch("env", directory, interval=60, duration_hours=0.05)
         self.assertEqual(code, 0)
         self.assertEqual(kinds, [False, True, True, False])
         self.assertEqual(clock[0], 180)

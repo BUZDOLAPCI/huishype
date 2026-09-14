@@ -27,11 +27,16 @@ its pending-work samples; inventory and budget acceptance remain separate gates.
 "app.retention" requires fast relation sizes and the latest indexed Funda raw
 retirement frontier, not lifetime event counts or delivery proof. "funda.storage"
 requires fresh numeric capacity, admitted intake and successful maintenance.
-Watch indefinitely and use the same explicit UTC-minute start/end for window
+Watch for a finite duration (default/max 168 hours, output budget 2 GiB) and use
+the same explicit UTC-minute start/end for window
 verification, freshness audit, source certificate, and ledger report. The interval
 must be at least 24 hours and may be extended until the useful paid span reaches
 24 hours. Stop watch after end to record a final full sample; a full sample must
 complete at/before start and another must be captured at/after end.
+All existing files in the dedicated output directory count toward its byte budget.
+Snapshots and the bounded watch journal are checked together before writing;
+exhaustion fails without deleting or truncating prior evidence. Symlinks are rejected.
+Console output is bounded; retain watch-*.jsonl for per-sample progress and errors.
 
 Release verification requires every recognized running service in the manifest,
 including infrastructure. Window verification checks observation coverage and records
@@ -44,6 +49,7 @@ SSH uses existing trusted host keys and never forwards an agent.
 import argparse
 import collections
 import datetime as dt
+import fcntl
 import hashlib
 import ipaddress
 import json
@@ -52,10 +58,17 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import time
 import urllib.request
+
+DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 ** 3
+MAX_WATCH_HOURS = 168
+MAX_WATCH_LOG_BYTES = 4 * 1024 ** 2
+WATCH_OUTPUT_RESERVE = 4096
+FINAL_CAPTURE_RESERVE_SECONDS = 90
 
 DEFAULT_ENV = "/home/caslan/dev/git_repos/hh/huishype/.env.scraper-deploy"
 STATUS_FIELDS = {"status", "operationalStatus", "services", "freshness", "queue",
@@ -661,7 +674,124 @@ def ssh_command(env, role, light=False):
     return command
 
 
-def capture(env_path, output_dir, light=False):
+class OutputBudgetExceeded(ValueError):
+    """The pending write would exceed the dedicated evidence directory budget."""
+
+
+class WatchLogLimitExceeded(ValueError):
+    """The finite per-run journal has reached its byte limit."""
+
+
+class WatchDurationExceeded(ValueError):
+    """Collection exceeded its absolute seven-day deadline."""
+
+
+class OutputBudget:
+    """Directory-descriptor writes; never follow symlinks while counting or writing.
+
+    The output directory is dedicated to this run. An advisory directory lock
+    serializes this tool's writers; unrelated processes must not modify artifacts.
+    """
+
+    def __init__(self, directory, limit=DEFAULT_MAX_OUTPUT_BYTES):
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("invalid_max_output_bytes")
+        self.directory, self.limit, self.fd = Path(directory).absolute(), limit, None
+
+    def __enter__(self):
+        if ".." in self.directory.parts:
+            raise ValueError("output_path_traversal")
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        fd = os.open(self.directory.anchor, flags)
+        try:
+            for part in self.directory.parts[1:]:
+                try:
+                    next_fd = os.open(part, flags, dir_fd=fd)
+                except FileNotFoundError:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                    next_fd = os.open(part, flags, dir_fd=fd)
+                os.close(fd)
+                fd = next_fd
+            self.fd = fd
+            return self
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def __exit__(self, *_):
+        os.close(self.fd)
+        self.fd = None
+
+    def _used_bytes(self, fd):
+        total = 0
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                info = entry.stat(follow_symlinks=False)
+                if stat.S_ISDIR(info.st_mode):
+                    child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    try:
+                        total += self._used_bytes(child)
+                    finally:
+                        os.close(child)
+                elif stat.S_ISREG(info.st_mode):
+                    total += info.st_size
+                else:
+                    raise ValueError("unsafe_output_artifact")
+        return total
+
+    def emit(self, value, stream):
+        """Bound even redirected console/error records against remaining storage."""
+        payload = json_bytes(value, compact=True)
+        fcntl.flock(self.fd, fcntl.LOCK_EX)
+        try:
+            if self._used_bytes(self.fd) + len(payload) > self.limit:
+                return False  # No room even for an error; retain the nonzero exit.
+            stream.write(payload.decode("utf-8"))
+            stream.flush()
+            return True
+        finally:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+
+    def write(self, name, payload, *, journal=None, record=b"", reserve=0, append=False):
+        """Reserve the entire snapshot+journal write before creating either file."""
+        if Path(name).name != name or name in {"", ".", ".."}:
+            raise ValueError("invalid_artifact_name")
+        if journal is not None and (Path(journal).name != journal or journal in {"", ".", ".."}):
+            raise ValueError("invalid_journal_name")
+        fcntl.flock(self.fd, fcntl.LOCK_EX)
+        try:
+            used = self._used_bytes(self.fd)
+            if used + len(payload) + len(record) + reserve > self.limit:
+                raise OutputBudgetExceeded("output_byte_budget_exceeded")
+            # The journal is an existing, exclusively-created file owned by watch.
+            if journal is not None:
+                size = os.stat(journal, dir_fd=self.fd, follow_symlinks=False).st_size
+                if size + len(record) > MAX_WATCH_LOG_BYTES:
+                    raise WatchLogLimitExceeded("watch_log_byte_budget_exceeded")
+            if append and os.stat(name, dir_fd=self.fd, follow_symlinks=False).st_size + len(payload) > MAX_WATCH_LOG_BYTES:
+                raise WatchLogLimitExceeded("watch_log_byte_budget_exceeded")
+            flags = os.O_WRONLY | os.O_NOFOLLOW | (os.O_APPEND if append else os.O_CREAT | os.O_EXCL)
+            fd = os.open(name, flags, 0o600, dir_fd=self.fd)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if journal is not None:
+                fd = os.open(journal, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, dir_fd=self.fd)
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(record)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+        finally:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+        return self.directory / name
+
+
+def json_bytes(value, *, compact=False):
+    return (json.dumps(value, indent=None if compact else 2, allow_nan=False) + "\n").encode("utf-8")
+
+
+def capture(env_path, output_dir, light=False, max_output_bytes=DEFAULT_MAX_OUTPUT_BYTES, *, _persist=None):
     evidence = {"schema_version": 1, "sample_kind": "light" if light else "full", "captured_at": utcnow(), "status": "complete", "hosts": {}, "errors": []}
     try:
         env = parse_env(Path(env_path).read_text())
@@ -683,14 +813,14 @@ def capture(env_path, output_dir, light=False):
         evidence["status"] = "partial"
         evidence["errors"].append({"check": "configuration", "kind": type(exc).__name__})
     evidence["completed_at"] = utcnow()
-    directory = Path(output_dir)
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     stamp = evidence["captured_at"].replace(":", "").replace("-", "")
-    path = directory / ("snapshot-" + stamp + ".json")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w") as handle:
-        json.dump(evidence, handle, indent=2, allow_nan=False)
-        handle.write("\n")
+    name = "snapshot-" + stamp + ".json"
+    payload = json_bytes(evidence)
+    if _persist is not None:
+        path = _persist(name, payload, evidence)
+    else:
+        with OutputBudget(output_dir, max_output_bytes) as budget:
+            path = budget.write(name, payload)
     return evidence, path
 
 
@@ -1106,39 +1236,75 @@ def verify_window(snapshots, hours=24, max_gap_minutes=2, now=None, manifest=Non
             "status_reason_counts": dict(sorted(reasons.items()))}
 
 
-def watch(env_path, output_dir, interval=60, duration_hours=None, full_every=60):
-    """Persist each sample immediately. Scheduling uses a monotonic clock."""
-    if not math.isfinite(interval) or interval <= 0 or full_every < 1:
+def watch(env_path, output_dir, interval=60, duration_hours=MAX_WATCH_HOURS, full_every=60,
+          max_output_bytes=DEFAULT_MAX_OUTPUT_BYTES):
+    """Finite, monotonic scheduling; evidence exhaustion is an explicit failure."""
+    if not math.isfinite(interval) or interval <= 0 or type(full_every) is not int or full_every < 1:
         raise ValueError("invalid_watch_interval")
-    if duration_hours is not None and (not math.isfinite(duration_hours) or duration_hours <= 0):
+    if (duration_hours is None or not math.isfinite(duration_hours)
+            or not 0 < duration_hours <= MAX_WATCH_HOURS):
         raise ValueError("invalid_watch_duration")
     started = time.monotonic()
-    deadline = started + duration_hours * 3600 if duration_hours is not None else None
+    hard_deadline = started + MAX_WATCH_HOURS * 3600
+    deadline = None
     sequence, failed = 0, False
-    try:
-        while True:
-            ending = deadline is not None and time.monotonic() >= deadline
-            snapshot, path = capture(env_path, output_dir, light=not ending and sequence % full_every != 0)
-            failed |= snapshot["status"] != "complete"
-            print(json.dumps({"snapshot": str(path), "status": snapshot["status"], "sample_kind": snapshot["sample_kind"]}), flush=True)
-            if sequence == 0 and duration_hours is not None:
-                # Observe a full duration after the initial evidence is complete.
-                deadline = time.monotonic() + duration_hours * 3600
-            if ending:
-                return 1 if failed else 0
-            sequence += 1
-            # Skip missed schedule slots rather than inventing backdated samples.
-            target = started + sequence * interval
-            if target < time.monotonic():
-                sequence = int((time.monotonic() - started) // interval) + 1
+    journal = "watch-" + utcnow().replace(":", "").replace("-", "") + ".jsonl"
+    with OutputBudget(output_dir, max_output_bytes) as budget:
+        budget.write(journal, json_bytes({"watch": "started", "at": utcnow(), "interval_seconds": interval,
+                     "duration_hours": duration_hours, "max_output_bytes": max_output_bytes}, compact=True),
+                     reserve=WATCH_OUTPUT_RESERVE)
+        # Only two bounded console records per run; full progress stays in-budget.
+        budget.emit({"watch": "started"}, sys.stdout)
+
+        def persist(name, payload, snapshot):
+            record = json_bytes({"snapshot": name, "status": snapshot["status"],
+                                 "sample_kind": snapshot["sample_kind"]}, compact=True)
+            return budget.write(name, payload, journal=journal, record=record, reserve=WATCH_OUTPUT_RESERVE)
+
+        def sample(light=False):
+            return capture(env_path, output_dir, light=light, max_output_bytes=max_output_bytes, _persist=persist)
+
+        def finish(status, code, error=None):
+            record = {"watch": status, "at": utcnow(), "exit_code": code}
+            if error is not None:
+                record["error"] = type(error).__name__  # Never persist exception values or remote bodies.
+            try:
+                budget.write(journal, json_bytes(record, compact=True), append=True)
+            except (OSError, ValueError):
+                # Even the error record may not fit: prior evidence is preserved.
+                pass
+            budget.emit({k: v for k, v in record.items() if k != "at"}, sys.stdout)
+            return code
+
+        try:
+            while True:
+                ending = deadline is not None and time.monotonic() >= deadline
+                snapshot, _ = sample(light=not ending and sequence % full_every != 0)
+                failed |= snapshot["status"] != "complete"
+                if time.monotonic() > hard_deadline:
+                    raise WatchDurationExceeded("watch_duration_exceeded")
+                if sequence == 0:
+                    # Keep a real requested span after initial evidence. At the
+                    # seven-day ceiling, leave room for the two bounded SSH reads.
+                    deadline = min(time.monotonic() + duration_hours * 3600,
+                                   hard_deadline - FINAL_CAPTURE_RESERVE_SECONDS)
+                if ending:
+                    return finish("complete" if not failed else "partial", 1 if failed else 0)
+                sequence += 1
                 target = started + sequence * interval
-            if deadline is not None:
+                if target < time.monotonic():
+                    sequence = int((time.monotonic() - started) // interval) + 1
+                    target = started + sequence * interval
                 target = min(target, deadline)
-            time.sleep(max(0, target - time.monotonic()))
-    except KeyboardInterrupt:
-        snapshot, path = capture(env_path, output_dir)
-        print(json.dumps({"snapshot": str(path), "status": snapshot["status"], "watch": "interrupted"}), flush=True)
-        return 130
+                time.sleep(max(0, target - time.monotonic()))
+        except KeyboardInterrupt:
+            try:
+                sample()  # A real final full sample; never invent a boundary time.
+            except Exception as exc:
+                return finish("failed", 1, exc)
+            return finish("interrupted", 130)
+        except Exception as exc:
+            return finish("failed", 1, exc)
 
 
 def main(argv=None):
@@ -1152,11 +1318,13 @@ def main(argv=None):
     cap = sub.add_parser("capture", help="append a sanitized, read-only production snapshot")
     cap.add_argument("--env-file", default=DEFAULT_ENV)
     cap.add_argument("--output-dir", required=True)
+    cap.add_argument("--max-output-bytes", type=int, default=DEFAULT_MAX_OUTPUT_BYTES, help="total existing and pending run artifacts; default 2 GiB")
     observer = sub.add_parser("watch", help="persist periodic snapshots; Ctrl-C records a final full sample")
     observer.add_argument("--env-file", default=DEFAULT_ENV)
     observer.add_argument("--output-dir", required=True)
     observer.add_argument("--interval", "--interval60", type=float, default=60, nargs="?", const=60)
-    observer.add_argument("--duration-hours", type=float)
+    observer.add_argument("--duration-hours", type=float, default=MAX_WATCH_HOURS, help="finite observation hours after initial full sample, up to 168; final reads reserved at seven-day ceiling")
+    observer.add_argument("--max-output-bytes", type=int, default=DEFAULT_MAX_OUTPUT_BYTES, help="total run artifacts, including bounded journal; default 2 GiB")
     observer.add_argument("--full-every", type=int, default=60, help="full image/migration sample every N observations")
     release = sub.add_parser("verify-release")
     release.add_argument("--manifest", required=True)
@@ -1171,7 +1339,7 @@ def main(argv=None):
     window.add_argument("--end", help="exclusive UTC minute, at least 24 hours after start and no later than now")
     window.add_argument("--max-gap-minutes", type=float, default=2)
     audit = sub.add_parser("audit-freshness", help="audit retained completions and pending samples in an explicit interval",
-                           description="Run watch indefinitely. Use exactly the same UTC-minute start/end as verify-window, the source certificate, and ledger report. The interval must be at least 24 hours and may be extended until the useful paid span reaches 24 hours. Stop watch after end to record a final full snapshot. Full snapshots must bracket the interval; inventory and budget acceptance remain separate checks.")
+                           description="Run watch for a finite duration of at most seven days. Use exactly the same UTC-minute start/end as verify-window, the source certificate, and ledger report. The interval must be at least 24 hours and may be extended until the useful paid span reaches 24 hours. Stop watch after end to record a final full snapshot. Full snapshots must bracket the interval; inventory and budget acceptance remain separate checks.")
     audit.add_argument("--start", required=True, help="inclusive UTC minute, e.g. 2026-09-14T00:00:00Z")
     audit.add_argument("--end", required=True, help="exclusive UTC minute, at least 24 hours after start and no later than now")
     audit.add_argument("--directory", required=True, help="minute snapshots including full snapshots bracketing the interval")
@@ -1188,10 +1356,11 @@ def main(argv=None):
             print(json.dumps(remote_capture(args.remote, args.light), allow_nan=False))
             return 0  # Partial evidence is evaluated locally, not lost on SSH failure.
         if args.command == "watch":
-            return watch(args.env_file, args.output_dir, args.interval, args.duration_hours, args.full_every)
+            return watch(args.env_file, args.output_dir, args.interval, args.duration_hours, args.full_every, args.max_output_bytes)
         if args.command == "capture":
-            result, path = capture(args.env_file, args.output_dir)
-            print(json.dumps({"snapshot": str(path), "status": result["status"]}))
+            result, path = capture(args.env_file, args.output_dir, max_output_bytes=args.max_output_bytes)
+            with OutputBudget(args.output_dir, args.max_output_bytes) as budget:
+                budget.emit({"snapshot": path.name, "status": result["status"]}, sys.stdout)
             return 0 if result["status"] == "complete" else 1
         if args.command == "audit-freshness":
             manifest = json.loads(Path(args.manifest).read_text()) if args.manifest else None
@@ -1214,7 +1383,15 @@ def main(argv=None):
         print(json.dumps(sanitize(result), indent=2, allow_nan=False))
         return 0 if result["passed"] else 1
     except Exception as exc:
-        print(json.dumps({"passed": False, "error": type(exc).__name__}), file=sys.stderr)
+        error = {"passed": False, "error": type(exc).__name__}
+        if args.command in {"watch", "capture"}:
+            try:
+                with OutputBudget(args.output_dir, args.max_output_bytes) as budget:
+                    budget.emit(error, sys.stderr)
+            except (OSError, ValueError):
+                pass  # Unsafe/full output: nonzero exit without further writes.
+        else:
+            print(json.dumps(error), file=sys.stderr)
         return 1
 
 
