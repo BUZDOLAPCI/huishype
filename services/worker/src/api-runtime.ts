@@ -281,3 +281,11 @@ export interface ListingTileUpdatesModule {
 export function loadListingTileUpdatesModule(): Promise<ListingTileUpdatesModule> {
   return importApiModule<ListingTileUpdatesModule>('services/listing-tile-updates.js');
 }
+
+export interface IngestOperationalRetentionModule {
+  runIngestOperationalRetention(): Promise<Record<string, unknown>>;
+}
+
+export function loadIngestOperationalRetentionModule(): Promise<IngestOperationalRetentionModule> {
+  return importApiModule<IngestOperationalRetentionModule>('services/ingest/operational-retention.js');
+}

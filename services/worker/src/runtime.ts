@@ -11,6 +11,7 @@ import {
   loadIngestProcessorModule,
   loadIngestQueueModule,
   loadIngestStoreModule,
+  loadIngestOperationalRetentionModule,
   loadListingsViewModule,
   loadListingLifecycleModule,
   loadListingTileUpdatesModule,
@@ -60,6 +61,7 @@ export type WorkerRuntimeModuleLoaders = {
   loadIngestProcessorModule: typeof loadIngestProcessorModule;
   loadIngestQueueModule: typeof loadIngestQueueModule;
   loadIngestStoreModule: typeof loadIngestStoreModule;
+  loadIngestOperationalRetentionModule: typeof loadIngestOperationalRetentionModule;
   loadListingsViewModule: typeof loadListingsViewModule;
   loadListingLifecycleModule: typeof loadListingLifecycleModule;
   loadListingTileUpdatesModule: typeof loadListingTileUpdatesModule;
@@ -82,6 +84,7 @@ const DEFAULT_MODULE_LOADERS: WorkerRuntimeModuleLoaders = {
   loadIngestProcessorModule,
   loadIngestQueueModule,
   loadIngestStoreModule,
+  loadIngestOperationalRetentionModule,
   loadListingsViewModule,
   loadListingLifecycleModule,
   loadListingTileUpdatesModule,
@@ -546,6 +549,8 @@ export class WorkerRuntime {
         .runPriceEvidenceRepair()],
       ['listing-tiles', async () => (await this.moduleLoaders.loadListingTileUpdatesModule())
         .runListingTileUpdates()],
+      ['ingest-operational-retention', async () => (await this.moduleLoaders.loadIngestOperationalRetentionModule())
+        .runIngestOperationalRetention()],
     ] as const) {
       try {
         const result = await run();

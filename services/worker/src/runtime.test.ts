@@ -101,6 +101,9 @@ function createModuleLoaders(
       }),
       markBatchQueued: async () => undefined,
     }),
+    loadIngestOperationalRetentionModule: async () => ({
+      runIngestOperationalRetention: async () => ({ retiredBatches: 0, deletedEvidence: 0 }),
+    }),
     loadListingTileUpdatesModule: async () => ({
       runListingTileUpdates: async () => ({ publishedCount: 0 }),
     }),
@@ -484,4 +487,29 @@ test('failed lifecycle maintenance is retried by the next sweep and does not pre
   await (runtime as unknown as RuntimeInternals).performRecoverySweep('second');
   assert.equal(attempts, 2);
   assert.equal(repairs, 2);
+});
+
+test('raw ingest retention runs without incoming work and retries a rolled-back pass on the next sweep', async () => {
+  let attempts = 0;
+  let recoveryCalls = 0;
+  const runtime = createRuntime(createModuleLoaders({
+    loadIngestOperationalRetentionModule: async () => ({
+      runIngestOperationalRetention: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('retention transaction interrupted');
+        return { retiredBatches: 2, deletedEvidence: 10 };
+      },
+    }),
+    loadIngestStoreModule: async () => ({
+      collectRecoveryDispatchWork: async () => {
+        recoveryCalls += 1;
+        return { staleProcessingBatchIds: [], recoverableBatchIds: [], maintenancePending: false };
+      },
+      markBatchQueued: async () => undefined,
+    }),
+  }));
+  await (runtime as unknown as RuntimeInternals).performRecoverySweep('first');
+  await (runtime as unknown as RuntimeInternals).performRecoverySweep('second');
+  assert.equal(attempts, 2);
+  assert.equal(recoveryCalls, 2);
 });
