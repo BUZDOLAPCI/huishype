@@ -21,6 +21,17 @@ base64url JSON `{changedAt,listingKey}`; the source uses a stable generation epo
 and a 20-digit zero-padded sequence key. Migration 0060 retires legacy generation
 zero and resets its cursor before activating generation one.
 
+Migration 0066 retains full v2 batch bodies and raw event payloads for at least
+seven days, then keeps permanent compact batch receipts. A known idempotency key
+with the same normalized payload hash returns its original receipt, completion
+time and outcomes, including after writer-generation rotation; a different hash
+still conflicts. A new, unknown batch starting at or below the retired sequence
+frontier receives HTTP 409 `EVIDENCE_RETIRED`, including a range mixing retired
+and new sequences. Raw event UUID/content checks cover the retained window;
+arbitrary old event UUID reuse at a new sequence is not detectable forever.
+See [App evidence retention and delivery proof](../releases/2026-09-13-funda-hybrid/app-evidence-retention.md)
+for retirement guards and business-history reduction.
+
 `facts` contains only present fields. Omission retains previous knowledge; JSON
 null explicitly clears an optional fact. Address components merge independently.
 A newer observation wins over an older observation; equal-time detail evidence
@@ -46,7 +57,10 @@ an observed source URL matching the handoff. A contradictory user hint is audite
 and rejected without quarantining a separately proven listing. User preview or
 submission time never supplies positive availability evidence.
 
-Source identities and all evidence survive incomplete or unmatched addresses.
+Source identities, current per-field clocks and actual business history survive
+incomplete or unmatched addresses. Repeated equal-value confirmations retain
+actual first and last samples; raw transport evidence follows the seven-day
+retention policy above.
 Projection requires exactly one complete address match; coordinates alone never
 link a property. Contradictory address/alias/property evidence is quarantined with
 an audit record, preserving factual status and history. Reused URLs do not merge

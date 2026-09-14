@@ -2,8 +2,10 @@
 
 Migration 0066 separates real listing history from repeated transport evidence.
 The app retains full v2 batch bodies and exact event payloads for at least seven
-days. It permanently retains compact batch receipts, source identity heads,
-typed aliases, actual business samples, and the existing canonical, price,
+days. Batch-body eligibility uses the actual completion time; raw event deletion
+also requires seven days since the event's receipt (`created_at`), not its source
+observation time. It permanently retains compact batch receipts, source identity
+heads, typed aliases, actual business samples, and the existing canonical, price,
 observation, candidate and reconciliation audit records. V1 records are unchanged.
 
 ## Delivery contract
@@ -98,10 +100,12 @@ all indexes, followed by `VACUUM ANALYZE`. Source-shaped raw payload sizing read
 Only sanitized aggregates are retained in `app-evidence-retention-capacity.json`.
 No production or provider requests are part of these measurements.
 
-The snapshot has 299,977 identities and 122,211 positives. A 20-hour refresh plus
-observed boundary-query overhead yields a sizing rate of 183,416.4 positive
-observations/day. Each positive facts result currently emits facts plus a
-sighting, so the model includes 366,832.8 events/day and 1,834.164 batches/day at
+The snapshot has 299,977 identities and 122,211 positives. The routine sizing
+model combines a 20-hour refresh with modeled boundary-query overhead using a
+500-result-leaf scenario, yielding 183,416.4 positive observations/day. This
+overhead is not a measurement of national partition geometry. Each positive facts
+result currently emits facts plus a sighting, so the model includes 366,832.8
+events/day and 1,834.164 batches/day at
 200 records/batch. A recovery stress case uses 213,206.4 observations/day; this
 is a capacity stress scenario, not permission to exceed the provider budget.
 
