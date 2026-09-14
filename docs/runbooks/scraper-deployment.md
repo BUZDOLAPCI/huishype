@@ -152,7 +152,7 @@ Check authenticated source-service status:
 ssh -J root@94.130.105.129 "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" \
   docker exec -i huishype-funda-scraper-api-1 python - <<'PYTHON'
 import json, os, urllib.request
-request = urllib.request.Request("http://127.0.0.1:8100/api/v1/status",
+request = urllib.request.Request("http://127.0.0.1:8000/api/v1/status",
     headers={"Authorization": "Bearer " + os.environ["API_KEY"]})
 with urllib.request.urlopen(request, timeout=15) as response:
     print(json.dumps(json.load(response)))
