@@ -32,6 +32,8 @@ services:
       start_period: 5s
 
   worker:
+    # Allow active maintenance to finish and acknowledge its BullMQ job.
+    stop_grace_period: 2m
     profiles: ["worker"]
     build:
       context: .

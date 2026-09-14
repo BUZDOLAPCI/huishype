@@ -143,6 +143,9 @@ export class WorkerRuntime {
   private lastPropertyTilePyramidRetentionUtcDay: string | null = null;
 
   private shuttingDown = false;
+  private shutdownPromise: Promise<void> | null = null;
+  private startupPromise: Promise<void> | null = null;
+  private healthInFlight: Promise<void> | null = null;
   private sweepInFlight: Promise<RecoverySweepSummary> | null = null;
 
   private ingestWorker: Worker<{ batchId: string }> | null = null;
@@ -179,7 +182,12 @@ export class WorkerRuntime {
     this.logger = logger;
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    this.startupPromise ??= this.startRuntime();
+    return this.startupPromise;
+  }
+
+  private async startRuntime(): Promise<void> {
     const [jobs, candidateHandoffJobs, officialValuationJobs, apiRedis] = await Promise.all([
       this.moduleLoaders.loadIngestJobsModule(),
       this.moduleLoaders.loadCandidateHandoffJobsModule(),
@@ -308,8 +316,11 @@ export class WorkerRuntime {
         this.config.propertyTilePyramidRetentionUtcMinuteOfDay,
     });
 
+    if (this.shuttingDown) return;
     await this.runRecoverySweep('startup');
+    if (this.shuttingDown) return;
     await this.logHealthSnapshot('startup');
+    if (this.shuttingDown) return;
 
     this.recoveryInterval = setInterval(() => {
       void this.runRecoverySweep('interval');
@@ -320,11 +331,12 @@ export class WorkerRuntime {
     }, this.config.healthLogIntervalMs);
   }
 
-  async shutdown(reason: string): Promise<void> {
-    if (this.shuttingDown) {
-      return;
-    }
+  shutdown(reason: string): Promise<void> {
+    this.shutdownPromise ??= this.performShutdown(reason);
+    return this.shutdownPromise;
+  }
 
+  private async performShutdown(reason: string): Promise<void> {
     this.shuttingDown = true;
     this.logger.info('Worker shutdown started', { reason });
 
@@ -338,11 +350,24 @@ export class WorkerRuntime {
       this.healthInterval = null;
     }
 
-    await Promise.allSettled([
+    // Startup may still be acquiring connections when the signal arrives.
+    await this.startupPromise?.catch(() => undefined);
+
+    // Processors and recovery can still use PostgreSQL and enqueue follow-up jobs.
+    // Keep their dependencies alive until all active work has drained.
+    const drains = await Promise.allSettled([
       this.sweepInFlight,
-      this.closeBullMqResources(),
-      this.closeApiResources(),
+      this.healthInFlight,
+      this.closeBullMqWorkers(),
     ]);
+    for (const result of drains) {
+      if (result.status === 'rejected') {
+        this.logger.error('Worker drain failed', { error: serializeError(result.reason) });
+        process.exitCode = 1;
+      }
+    }
+    await this.closeBullMqResources();
+    await this.closeApiResources();
 
     this.logger.info('Worker shutdown completed', {
       reason,
@@ -506,7 +531,8 @@ export class WorkerRuntime {
     });
   }
 
-  private async runRecoverySweep(trigger: string): Promise<RecoverySweepSummary> {
+  private async runRecoverySweep(trigger: string): Promise<RecoverySweepSummary | null> {
+    if (this.shuttingDown) return null;
     if (this.sweepInFlight) {
       return this.sweepInFlight;
     }
@@ -753,6 +779,17 @@ export class WorkerRuntime {
   }
 
   private async logHealthSnapshot(trigger: string): Promise<void> {
+    if (this.shuttingDown) return;
+    if (this.healthInFlight) return this.healthInFlight;
+    this.healthInFlight = this.performHealthSnapshot(trigger);
+    try {
+      await this.healthInFlight;
+    } finally {
+      this.healthInFlight = null;
+    }
+  }
+
+  private async performHealthSnapshot(trigger: string): Promise<void> {
     if (
       !this.ingestQueue ||
       !this.maintenanceQueue ||
@@ -810,78 +847,37 @@ export class WorkerRuntime {
     }
   }
 
+  private async closeBullMqWorkers(): Promise<void> {
+    await Promise.all(([
+      ['ingestWorker', 'ingest'],
+      ['maintenanceWorker', 'maintenance'],
+      ['candidateHandoffWorker', 'candidate handoff'],
+      ['officialValuationWorker', 'official valuation hydration'],
+      ['propertyTilePyramidWorker', 'property tile pyramid'],
+    ] as const).map(async ([workerKey, label]) => {
+      const worker = this[workerKey];
+      if (!worker) return;
+
+      const closing = worker.close();
+      const warning = setTimeout(() => {
+        this.logger.warn('Worker drain is still waiting for active jobs', {
+          queue: label,
+          elapsedMs: this.config.shutdownTimeoutMs,
+        });
+      }, this.config.shutdownTimeoutMs);
+      try {
+        // A timeout must not disconnect Redis underneath BullMQ's completion
+        // acknowledgement: that leaves its close promise retrying indefinitely.
+        await closing;
+        this[workerKey] = null;
+      } finally {
+        clearTimeout(warning);
+      }
+    }));
+  }
+
   private async closeBullMqResources(): Promise<void> {
     const closers: Array<Promise<void>> = [];
-
-    if (this.ingestWorker) {
-      const worker = this.ingestWorker;
-      this.ingestWorker = null;
-      closers.push(
-        withTimeout(
-          'ingest worker close',
-          worker.close().catch(async () => {
-            await worker.close(true);
-          }),
-          this.config.shutdownTimeoutMs,
-        ),
-      );
-    }
-
-    if (this.maintenanceWorker) {
-      const worker = this.maintenanceWorker;
-      this.maintenanceWorker = null;
-      closers.push(
-        withTimeout(
-          'maintenance worker close',
-          worker.close().catch(async () => {
-            await worker.close(true);
-          }),
-          this.config.shutdownTimeoutMs,
-        ),
-      );
-    }
-
-    if (this.candidateHandoffWorker) {
-      const worker = this.candidateHandoffWorker;
-      this.candidateHandoffWorker = null;
-      closers.push(
-        withTimeout(
-          'candidate handoff worker close',
-          worker.close().catch(async () => {
-            await worker.close(true);
-          }),
-          this.config.shutdownTimeoutMs,
-        ),
-      );
-    }
-
-    if (this.officialValuationWorker) {
-      const worker = this.officialValuationWorker;
-      this.officialValuationWorker = null;
-      closers.push(
-        withTimeout(
-          'official valuation hydration worker close',
-          worker.close().catch(async () => {
-            await worker.close(true);
-          }),
-          this.config.shutdownTimeoutMs,
-        ),
-      );
-    }
-
-    if (this.propertyTilePyramidWorker) {
-      const worker = this.propertyTilePyramidWorker;
-      this.propertyTilePyramidWorker = null;
-      closers.push(
-        withTimeout(
-          'property tile pyramid worker close',
-          worker.close().catch(async () => {
-            await worker.close(true);
-          }),
-          this.config.shutdownTimeoutMs,
-        ),
-      );
-    }
 
     if (this.ingestQueue) {
       const queue = this.ingestQueue;
@@ -927,7 +923,7 @@ export class WorkerRuntime {
       );
     }
 
-    await Promise.allSettled(closers);
+    await Promise.all(closers);
 
     await Promise.allSettled([
       this.quitRedisConnection('ingestWorkerConnection'),
@@ -952,13 +948,12 @@ export class WorkerRuntime {
       this.moduleLoaders.loadOfficialValuationQueueModule(),
     ]);
 
-    await Promise.allSettled([
+    await Promise.all([
       ingestQueue.closeIngestQueues(),
       candidateHandoffQueue.closeCandidateHandoffQueues(),
       officialValuationQueue.closeOfficialValuationQueues(),
-      apiRedis.closeRedisConnection(),
-      apiDb.closeConnection(),
     ]);
+    await Promise.all([apiRedis.closeRedisConnection(), apiDb.closeConnection()]);
   }
 
   private async quitRedisConnection(
@@ -987,9 +982,10 @@ export class WorkerRuntime {
   }
 }
 
-export async function runWorker(): Promise<void> {
+export async function runWorker(
+  runtime: Pick<WorkerRuntime, 'start' | 'shutdown'> = new WorkerRuntime(),
+): Promise<void> {
   const logger = createWorkerLogger();
-  const runtime = new WorkerRuntime(loadWorkerConfig(), logger);
   const shutdownController = new AbortController();
   const shutdownSignal = shutdownController.signal;
   let shutdownPromise: Promise<void> | null = null;

@@ -113,6 +113,8 @@ services:
 
   # ---------- Background worker ----------
   worker:
+    # Allow active maintenance to finish and acknowledge its BullMQ job.
+    stop_grace_period: 2m
     build:
       context: .
       dockerfile: services/worker/Dockerfile

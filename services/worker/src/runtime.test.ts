@@ -513,3 +513,106 @@ test('raw ingest retention runs without incoming work and retries a rolled-back 
   assert.equal(attempts, 2);
   assert.equal(recoveryCalls, 2);
 });
+
+test('shutdown drains active workers, recovery and health before closing their dependencies', async () => {
+  const events: string[] = [];
+  let finishWorker!: () => void;
+  let finishSweep!: () => void;
+  let finishHealth!: () => void;
+  const runtime = createRuntime(createModuleLoaders({
+    loadApiDbModule: async () => ({ closeConnection: async () => { events.push('db'); } }),
+    loadApiRedisModule: async () => ({
+      createRedisConnection: async () => { throw new Error('unexpected connection'); },
+      closeRedisConnection: async () => { events.push('shared-redis'); },
+    }),
+  }), { WORKER_SHUTDOWN_TIMEOUT_MS: '5' });
+  const internals = runtime as unknown as {
+    maintenanceWorker: { close(): Promise<void> };
+    maintenanceWorkerConnection: { quit(): Promise<void>; disconnect(): void };
+    sweepInFlight: Promise<void>;
+    healthInFlight: Promise<void>;
+    runRecoverySweep(trigger: string): Promise<unknown>;
+  };
+  internals.maintenanceWorker = {
+    close: () => new Promise<void>((resolve) => {
+      finishWorker = () => { events.push('acknowledged'); resolve(); };
+    }),
+  };
+  internals.maintenanceWorkerConnection = {
+    quit: async () => { events.push('worker-redis'); },
+    disconnect: () => { throw new Error('unexpected forced disconnect'); },
+  };
+  internals.sweepInFlight = new Promise<void>((resolve) => { finishSweep = resolve; });
+  internals.healthInFlight = new Promise<void>((resolve) => { finishHealth = resolve; });
+  const shutdown = runtime.shutdown('test');
+  assert.equal(runtime.shutdown('second-signal'), shutdown);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(events, [], 'drain warning deadline must not close active-job dependencies');
+  assert.equal(await internals.runRecoverySweep('late-interval'), null);
+  finishWorker();
+  finishSweep();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['acknowledged'], 'in-flight health must also finish');
+  finishHealth();
+  await shutdown;
+  assert.deepEqual(events, ['acknowledged', 'worker-redis', 'shared-redis', 'db']);
+});
+
+test('SIGTERM during an active job exits naturally after acknowledgement and resource cleanup', async () => {
+  const { spawn } = await import('node:child_process');
+  const script = `
+    import { WorkerRuntime, runWorker } from ${JSON.stringify(new URL('./runtime.js', import.meta.url).href)};
+    import { loadWorkerConfig } from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
+    const noop = async () => {};
+    const runtime = new WorkerRuntime(loadWorkerConfig({WORKER_SHUTDOWN_TIMEOUT_MS:'5'}),
+      {info:noop, warn:noop, error:noop}, {
+        loadApiDbModule:async()=>({closeConnection:async()=>console.log('DB_CLOSED')}),
+        loadApiRedisModule:async()=>({closeRedisConnection:noop}),
+        loadIngestQueueModule:async()=>({closeIngestQueues:noop}),
+        loadCandidateHandoffQueueModule:async()=>({closeCandidateHandoffQueues:noop}),
+        loadOfficialValuationQueueModule:async()=>({closeOfficialValuationQueues:noop}),
+      });
+    runtime.start = async () => {
+      const heartbeat = setInterval(noop, 1000);
+      const activeJob = new Promise(resolve => setTimeout(() => {
+        console.log('ACKNOWLEDGED'); resolve();
+      }, 80));
+      runtime.maintenanceWorker = {close:async()=>{await activeJob; clearInterval(heartbeat);}};
+      runtime.maintenanceWorkerConnection = {
+        quit:async()=>console.log('REDIS_CLOSED'), disconnect:()=>{throw Error('forced disconnect');}
+      };
+      console.log('READY');
+    };
+    await runWorker(runtime);
+    console.log('STOPPED');
+  `;
+  const child = spawn(process.execPath, [...process.execArgv, '--input-type=module', '-e', script], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  let signalled = false;
+  child.stdout.on('data', (data: Buffer) => {
+    stdout += data.toString();
+    if (!signalled && stdout.includes('READY')) {
+      signalled = true;
+      child.kill('SIGTERM');
+    }
+  });
+  child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+  const watchdog = setTimeout(() => child.kill('SIGKILL'), 5_000);
+  try {
+    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code, signal) => resolve({ code, signal }));
+    });
+    assert.deepEqual(result, { code: 0, signal: null }, `${stdout}\n${stderr}`);
+    assert.equal(stderr, '');
+    assert.deepEqual(stdout.trim().split('\n'), [
+      'READY', 'ACKNOWLEDGED', 'REDIS_CLOSED', 'DB_CLOSED', 'STOPPED',
+    ]);
+  } finally {
+    clearTimeout(watchdog);
+    if (child.exitCode === null) child.kill('SIGKILL');
+  }
+});
