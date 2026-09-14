@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 import { eq, sql } from 'drizzle-orm';
 import { db, canonicalListings, ingestBatches, ingestEvidence, ingestWriterGenerations, listingCandidateHandoffs, listingPriceObservations,
-  sourceListingIdentities, sourceListingAliases, sourceIdentityQuarantines, type DbTransaction } from '../../db/index.js';
+  sourceListingIdentities, sourceListingAliases, sourceIdentityQuarantines, sourceIdentityBusinessHistory, type DbTransaction } from '../../db/index.js';
 import { ingestBatchRequestSchema, type IngestBatchRequest } from '../../services/ingest/contracts.js';
 import { encodeOpaqueIngestCursor } from '../../services/ingest/cursor.js';
 import { processV2Evidence } from '../../services/ingest/v2-processor.js';
@@ -87,6 +87,44 @@ describe('Funda v2 PostgreSQL evidence ingestion', () => {
     expect(await canonical()).toMatchObject({ status: 'sold', activeEligible: false });
     await send({ kind: 'sighting', observedAt: new Date().toISOString() });
     expect(await canonical()).toMatchObject({ status: 'active', activeEligible: true });
+  }));
+  it.each([undefined, null, '', '   ', '\t\n', '\u00a0'])('preserves a proven binding and sparse house number %p evidence', async houseNumber => fixture(async ({ tx, id, propertyId, street, send, canonical }) => {
+    const initial = facts(street);
+    await send({ kind: 'facts', facts: initial });
+    const before = (await canonical())!;
+    const address = { countryCode: 'NL', street, postalCode: '1234AB', ...(houseNumber === undefined ? {} : { houseNumber }) };
+    const observedAt = new Date().toISOString();
+    const received = await send({ kind: 'facts', observedAt, facts: { address, askingPrice: 505000 } });
+    expect(await canonical()).toMatchObject({ id: before.id, propertyId, status: 'active', activeEligible: true,
+      verificationState: 'validated', askingPrice: 505000, lastPositiveAvailabilityAt: before.lastPositiveAvailabilityAt });
+    const [identity] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.primaryId, id));
+    expect(identity).toMatchObject({ canonicalListingId: before.id, quarantinedAt: null });
+    expect(identity.factsJson).toMatchObject({ address: { houseNumber: houseNumber === undefined ? 1 : houseNumber } });
+    const [raw] = await tx.select().from(ingestEvidence).where(eq(ingestEvidence.eventId, received.payload.records![0].eventId));
+    expect(raw.payloadJson).toMatchObject({ facts: { address } });
+    const samples = await tx.select().from(sourceIdentityBusinessHistory).where(eq(sourceIdentityBusinessHistory.identityId, identity.id));
+    expect(samples).toEqual(expect.arrayContaining([expect.objectContaining({ fieldPath: 'address.houseNumber', valueJson: 1 })]));
+    if (houseNumber !== undefined) {
+      expect(samples).toEqual(expect.arrayContaining([expect.objectContaining({ fieldPath: 'address.houseNumber', valueJson: houseNumber, observedAt: new Date(observedAt) })]));
+    }
+    expect(await processV2Evidence(tx, received.batchId, received.payload)).toMatchObject({ projectionChanged: false, ingestedCount: 0, updatedCount: 0 });
+    expect(await tx.select().from(sourceIdentityQuarantines).where(sql`${sourceIdentityQuarantines.identityIds} @> ${JSON.stringify([identity.id])}::jsonb`)).toHaveLength(0);
+  }));
+  it.each([
+    { houseNumber: 'unknown' }, { houseNumber: 999 },
+    { houseNumber: '', postalCode: '5678CD' }, { houseNumber: ' ', street: 'Different street' },
+  ])('quarantines a real sparse house number/address contradiction %p', async address => fixture(async ({ tx, id, street, send, canonical }) => {
+    await send({ kind: 'facts', facts: facts(street) });
+    const before = (await canonical())!;
+    const received = await send({ kind: 'facts', observedAt: new Date().toISOString(), facts: { address, askingPrice: 999999 } });
+    expect(await canonical()).toMatchObject({ id: before.id, propertyId: before.propertyId, askingPrice: before.askingPrice,
+      status: before.status, activeEligible: false, verificationState: 'invalid', lastPositiveAvailabilityAt: before.lastPositiveAvailabilityAt });
+    const [identity] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.primaryId, id));
+    expect(identity.quarantineReason).toBe('property_link_conflict');
+    const [raw] = await tx.select().from(ingestEvidence).where(eq(ingestEvidence.eventId, received.payload.records![0].eventId));
+    expect(raw.payloadJson).toMatchObject({ facts: { address, askingPrice: 999999 } });
+    expect(await tx.select().from(sourceIdentityBusinessHistory).where(eq(sourceIdentityBusinessHistory.identityId, identity.id)))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ fieldPath: 'askingPrice', valueJson: 999999 })]));
   }));
   it('quarantines contradictory address facts and rejects changed replay content and retired writers', async () => fixture(async ({ tx, street, send, canonical }) => {
     const first = await send({ kind: 'facts', facts: facts(street) });

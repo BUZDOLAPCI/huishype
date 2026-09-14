@@ -61,11 +61,19 @@ async function contradictsLinkedAddress(tx: DbTransaction, propertyId: string, f
   if (!address) return false;
   const [property] = await tx.select().from(properties).where(eq(properties.id, propertyId));
   if (!property) return true;
+  return contradictsPropertyAddress(address, property);
+}
+
+export function contradictsPropertyAddress(address: IngestFactsV2['address'], property: Pick<typeof properties.$inferSelect,
+  'countryCode' | 'street' | 'postalCode' | 'houseNumber' | 'houseNumberAddition'>): boolean {
+  if (!address) return false;
   const normalized = (value: unknown) => String(value ?? '').trim().replace(/\s+/g, '').toUpperCase();
   if (address.countryCode && address.countryCode !== property.countryCode) return true;
   if (address.street && normalized(address.street) !== normalized(property.street)) return true;
   if (address.postalCode && normalized(address.postalCode) !== normalized(property.postalCode)) return true;
-  if (address.houseNumber != null) {
+  // A blank source number is incomplete knowledge, not a different address.
+  // Keep the original fact/history; only skip comparison of this unknown field.
+  if (address.houseNumber != null && String(address.houseNumber).trim() !== '') {
     const parsed = canonicalizeAddressWithDiagnostics({
       countryCode: property.countryCode as CountryCode, houseNumber: address.houseNumber,
       postalCode: property.postalCode ?? '', houseNumberAddition: address.houseNumberAddition,
@@ -73,6 +81,9 @@ async function contradictsLinkedAddress(tx: DbTransaction, propertyId: string, f
     if (!parsed || parsed.houseNumber !== property.houseNumber) return true;
     if ((Object.hasOwn(address, 'houseNumberAddition') || parsed.houseNumberAddition)
       && normalized(parsed.houseNumberAddition) !== normalized(property.houseNumberAddition)) return true;
+  } else if (Object.hasOwn(address, 'houseNumberAddition')
+    && normalized(address.houseNumberAddition) !== normalized(property.houseNumberAddition)) {
+    return true;
   }
   return false;
 }
