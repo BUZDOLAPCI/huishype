@@ -69,8 +69,8 @@ export function contradictsPropertyAddress(address: IngestFactsV2['address'], pr
   if (!address) return false;
   const normalized = (value: unknown) => String(value ?? '').trim().replace(/\s+/g, '').toUpperCase();
   if (address.countryCode && address.countryCode !== property.countryCode) return true;
-  if (address.street && normalized(address.street) !== normalized(property.street)) return true;
-  if (address.postalCode && normalized(address.postalCode) !== normalized(property.postalCode)) return true;
+  if (normalized(address.street) && normalized(address.street) !== normalized(property.street)) return true;
+  if (normalized(address.postalCode) && normalized(address.postalCode) !== normalized(property.postalCode)) return true;
   // A blank source number is incomplete knowledge, not a different address.
   // Keep the original fact/history; only skip comparison of this unknown field.
   if (address.houseNumber != null && String(address.houseNumber).trim() !== '') {

@@ -29,4 +29,21 @@ describe('v2 sparse address contradictions', () => {
     expect(contradictsPropertyAddress({ ...address, houseNumber: 41 }, property)).toBe(false);
     expect(contradictsPropertyAddress({ ...address, houseNumber: '', houseNumberAddition: 'A' }, property)).toBe(false);
   });
+
+  it.each([
+    { ...address, street: ' \t\n', houseNumber: 41 },
+    { ...address, postalCode: '\u00a0 ', houseNumber: 41 },
+    { ...address, street: ' ', postalCode: '\t', houseNumber: '' },
+  ])('treats blank street/postcode as unknown: %p', incoming => {
+    expect(contradictsPropertyAddress(incoming, property)).toBe(false);
+  });
+
+  it.each([
+    { ...address, street: ' ', postalCode: '\t', houseNumber: 42 },
+    { ...address, street: '\t', postalCode: '5678CD', houseNumber: '' },
+    { ...address, street: 'Different street', postalCode: '\n', houseNumber: null },
+    { ...address, street: ' ', postalCode: ' ', houseNumber: '', houseNumberAddition: null },
+  ])('keeps known contradictions when other address fields are blank: %p', incoming => {
+    expect(contradictsPropertyAddress(incoming, property)).toBe(true);
+  });
 });

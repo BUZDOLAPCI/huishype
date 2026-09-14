@@ -126,6 +126,24 @@ describe('Funda v2 PostgreSQL evidence ingestion', () => {
     expect(await tx.select().from(sourceIdentityBusinessHistory).where(eq(sourceIdentityBusinessHistory.identityId, identity.id)))
       .toEqual(expect.arrayContaining([expect.objectContaining({ fieldPath: 'askingPrice', valueJson: 999999 })]));
   }));
+  it.each([
+    { street: ' \t\n' }, { postalCode: '\u00a0 ' }, { street: ' ', postalCode: '\t', houseNumber: '' },
+  ])('preserves blank sparse address fields and their evidence %p', async address => fixture(async ({ tx, id, street, send, canonical }) => {
+    await send({ kind: 'facts', facts: facts(street) });
+    const before = (await canonical())!;
+    const observedAt = new Date().toISOString();
+    const received = await send({ kind: 'facts', observedAt, facts: { address, askingPrice: 505000 } });
+    expect(await canonical()).toMatchObject({ id: before.id, propertyId: before.propertyId, activeEligible: true,
+      verificationState: 'validated', askingPrice: 505000, lastPositiveAvailabilityAt: before.lastPositiveAvailabilityAt });
+    const [identity] = await tx.select().from(sourceListingIdentities).where(eq(sourceListingIdentities.primaryId, id));
+    expect(identity).toMatchObject({ canonicalListingId: before.id, quarantinedAt: null, factsJson: { address } });
+    const [raw] = await tx.select().from(ingestEvidence).where(eq(ingestEvidence.eventId, received.payload.records![0].eventId));
+    expect(raw.payloadJson).toMatchObject({ facts: { address } });
+    const samples = await tx.select().from(sourceIdentityBusinessHistory).where(eq(sourceIdentityBusinessHistory.identityId, identity.id));
+    for (const [field, value] of Object.entries(address)) {
+      expect(samples).toEqual(expect.arrayContaining([expect.objectContaining({ fieldPath: `address.${field}`, valueJson: value, observedAt: new Date(observedAt) })]));
+    }
+  }));
   it('quarantines contradictory address facts and rejects changed replay content and retired writers', async () => fixture(async ({ tx, street, send, canonical }) => {
     const first = await send({ kind: 'facts', facts: facts(street) });
     const modified = ingestBatchRequestSchema.parse({ ...first.payload, records: first.payload.records!.map(record => ({ ...record, kind: 'facts', facts: { askingPrice: 1 } })) });
