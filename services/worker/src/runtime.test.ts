@@ -616,3 +616,84 @@ test('SIGTERM during an active job exits naturally after acknowledgement and res
     if (child.exitCode === null) child.kill('SIGKILL');
   }
 });
+
+test('a rejected worker close waits for other workers before cleanup and reports shutdown failure', async () => {
+  const events: string[] = [];
+  const logger = createLogger();
+  let finishWorker!: () => void;
+  const failure = new Error('maintenance close failed');
+  const runtime = new WorkerRuntime(loadWorkerConfig(), logger, createModuleLoaders({
+    loadApiDbModule: async () => ({ closeConnection: async () => { events.push('db'); } }),
+  }));
+  const internals = runtime as unknown as {
+    maintenanceWorker: { close(): Promise<void> };
+    ingestWorker: { close(): Promise<void> };
+    ingestWorkerConnection: { quit(): Promise<void>; disconnect(): void };
+  };
+  internals.maintenanceWorker = { close: async () => { throw failure; } };
+  internals.ingestWorker = {
+    close: () => new Promise<void>((resolve) => {
+      finishWorker = () => { events.push('acknowledged'); resolve(); };
+    }),
+  };
+  internals.ingestWorkerConnection = {
+    quit: async () => { events.push('redis'); },
+    disconnect: () => undefined,
+  };
+  const shutdown = runtime.shutdown('test');
+  const rejected = assert.rejects(shutdown, (error: unknown) => {
+    assert.ok(error instanceof AggregateError);
+    assert.deepEqual(error.errors, [failure]);
+    return true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, []);
+  finishWorker();
+  await rejected;
+  assert.deepEqual(events, ['acknowledged', 'redis', 'db']);
+  assert.equal(logger.info.mock.calls.some((call) => call.arguments[0] === 'Worker shutdown completed'), false);
+  assert.equal(logger.error.mock.callCount(), 1);
+});
+
+test('queue cleanup failures still close every remaining Redis and API resource', async () => {
+  const events: string[] = [];
+  const queueFailure = new Error('worker queue close failed');
+  const apiQueueFailure = new Error('API queue close failed');
+  const redisFailure = new Error('Redis quit failed');
+  const runtime = createRuntime(createModuleLoaders({
+    loadIngestQueueModule: async () => ({
+      closeIngestQueues: async () => { events.push('api-queue-failed'); throw apiQueueFailure; },
+      enqueueIngestBatch: async () => undefined,
+      requestLatestListingsRefresh: async () => undefined,
+    }),
+    loadCandidateHandoffQueueModule: async () => ({
+      closeCandidateHandoffQueues: async () => { events.push('candidate-queue'); },
+      enqueueCandidateHandoff: async () => undefined,
+    }),
+    loadApiRedisModule: async () => ({
+      createRedisConnection: async () => { throw new Error('unexpected connection'); },
+      closeRedisConnection: async () => { events.push('shared-redis'); },
+    }),
+    loadApiDbModule: async () => ({ closeConnection: async () => { events.push('db'); } }),
+  }));
+  const internals = runtime as unknown as {
+    ingestQueue: { close(): Promise<void> };
+    maintenanceQueue: { close(): Promise<void> };
+    ingestQueueConnection: { quit(): Promise<void>; disconnect(): void };
+  };
+  internals.ingestQueue = { close: async () => { events.push('queue-failed'); throw queueFailure; } };
+  internals.maintenanceQueue = { close: async () => { events.push('other-queue'); } };
+  internals.ingestQueueConnection = {
+    quit: async () => { events.push('queue-redis'); throw redisFailure; },
+    disconnect: () => { events.push('redis-disconnected'); },
+  };
+  await assert.rejects(runtime.shutdown('test'), (error: unknown) => {
+    assert.ok(error instanceof AggregateError);
+    assert.deepEqual(error.errors, [queueFailure, redisFailure, apiQueueFailure]);
+    return true;
+  });
+  assert.deepEqual(events, [
+    'queue-failed', 'other-queue', 'queue-redis', 'redis-disconnected', 'api-queue-failed',
+    'candidate-queue', 'shared-redis', 'db',
+  ]);
+});

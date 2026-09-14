@@ -136,6 +136,20 @@ async function withTimeout<T>(
   }
 }
 
+async function collectShutdownFailures(
+  closers: Array<() => Promise<unknown> | null>,
+): Promise<unknown[]> {
+  const results = await Promise.allSettled(closers.map((close) => Promise.resolve().then(close)));
+  return results.flatMap((result) => {
+    if (result.status !== 'rejected') return [];
+    return result.reason instanceof AggregateError ? result.reason.errors : [result.reason];
+  });
+}
+
+function throwShutdownFailures(message: string, errors: unknown[]): void {
+  if (errors.length > 0) throw new AggregateError(errors, message);
+}
+
 export class WorkerRuntime {
   private readonly config: WorkerConfig;
   private readonly logger: WorkerLogger;
@@ -355,19 +369,17 @@ export class WorkerRuntime {
 
     // Processors and recovery can still use PostgreSQL and enqueue follow-up jobs.
     // Keep their dependencies alive until all active work has drained.
-    const drains = await Promise.allSettled([
-      this.sweepInFlight,
-      this.healthInFlight,
-      this.closeBullMqWorkers(),
+    const failures = await collectShutdownFailures([
+      () => this.sweepInFlight,
+      () => this.healthInFlight,
+      () => this.closeBullMqWorkers(),
     ]);
-    for (const result of drains) {
-      if (result.status === 'rejected') {
-        this.logger.error('Worker drain failed', { error: serializeError(result.reason) });
-        process.exitCode = 1;
-      }
+    failures.push(...await collectShutdownFailures([() => this.closeBullMqResources()]));
+    failures.push(...await collectShutdownFailures([() => this.closeApiResources()]));
+    for (const error of failures) {
+      this.logger.error('Worker shutdown cleanup failed', { error: serializeError(error) });
     }
-    await this.closeBullMqResources();
-    await this.closeApiResources();
+    throwShutdownFailures('Worker shutdown failed', failures);
 
     this.logger.info('Worker shutdown completed', {
       reason,
@@ -848,13 +860,13 @@ export class WorkerRuntime {
   }
 
   private async closeBullMqWorkers(): Promise<void> {
-    await Promise.all(([
+    const failures = await collectShutdownFailures(([
       ['ingestWorker', 'ingest'],
       ['maintenanceWorker', 'maintenance'],
       ['candidateHandoffWorker', 'candidate handoff'],
       ['officialValuationWorker', 'official valuation hydration'],
       ['propertyTilePyramidWorker', 'property tile pyramid'],
-    ] as const).map(async ([workerKey, label]) => {
+    ] as const).map(([workerKey, label]) => async () => {
       const worker = this[workerKey];
       if (!worker) return;
 
@@ -874,86 +886,49 @@ export class WorkerRuntime {
         clearTimeout(warning);
       }
     }));
+    throwShutdownFailures('BullMQ worker drain failed', failures);
   }
 
   private async closeBullMqResources(): Promise<void> {
-    const closers: Array<Promise<void>> = [];
-
-    if (this.ingestQueue) {
-      const queue = this.ingestQueue;
-      this.ingestQueue = null;
-      closers.push(withTimeout('ingest queue close', queue.close(), this.config.shutdownTimeoutMs));
-    }
-
-    if (this.maintenanceQueue) {
-      const queue = this.maintenanceQueue;
-      this.maintenanceQueue = null;
-      closers.push(withTimeout('maintenance queue close', queue.close(), this.config.shutdownTimeoutMs));
-    }
-
-    if (this.candidateHandoffQueue) {
-      const queue = this.candidateHandoffQueue;
-      this.candidateHandoffQueue = null;
-      closers.push(
-        withTimeout('candidate handoff queue close', queue.close(), this.config.shutdownTimeoutMs),
-      );
-    }
-
-    if (this.officialValuationQueue) {
-      const queue = this.officialValuationQueue;
-      this.officialValuationQueue = null;
-      closers.push(
-        withTimeout(
-          'official valuation hydration queue close',
-          queue.close(),
-          this.config.shutdownTimeoutMs,
-        ),
-      );
-    }
-
-    if (this.propertyTilePyramidQueue) {
-      const queue = this.propertyTilePyramidQueue;
-      this.propertyTilePyramidQueue = null;
-      closers.push(
-        withTimeout(
-          'property tile pyramid queue close',
-          queue.close(),
-          this.config.shutdownTimeoutMs,
-        ),
-      );
-    }
-
-    await Promise.all(closers);
-
-    await Promise.allSettled([
-      this.quitRedisConnection('ingestWorkerConnection'),
-      this.quitRedisConnection('maintenanceWorkerConnection'),
-      this.quitRedisConnection('candidateHandoffWorkerConnection'),
-      this.quitRedisConnection('officialValuationWorkerConnection'),
-      this.quitRedisConnection('propertyTilePyramidWorkerConnection'),
-      this.quitRedisConnection('ingestQueueConnection'),
-      this.quitRedisConnection('maintenanceQueueConnection'),
-      this.quitRedisConnection('candidateHandoffQueueConnection'),
-      this.quitRedisConnection('officialValuationQueueConnection'),
-      this.quitRedisConnection('propertyTilePyramidQueueConnection'),
-    ]);
+    const failures = await collectShutdownFailures(([
+      ['ingestQueue', 'ingest'],
+      ['maintenanceQueue', 'maintenance'],
+      ['candidateHandoffQueue', 'candidate handoff'],
+      ['officialValuationQueue', 'official valuation hydration'],
+      ['propertyTilePyramidQueue', 'property tile pyramid'],
+    ] as const).map(([key, label]) => async () => {
+      const queue = this[key];
+      this[key] = null;
+      if (queue) {
+        await withTimeout(`${label} queue close`, queue.close(), this.config.shutdownTimeoutMs);
+      }
+    }));
+    failures.push(...await collectShutdownFailures(([
+      'ingestWorkerConnection',
+      'maintenanceWorkerConnection',
+      'candidateHandoffWorkerConnection',
+      'officialValuationWorkerConnection',
+      'propertyTilePyramidWorkerConnection',
+      'ingestQueueConnection',
+      'maintenanceQueueConnection',
+      'candidateHandoffQueueConnection',
+      'officialValuationQueueConnection',
+      'propertyTilePyramidQueueConnection',
+    ] as const).map((key) => () => this.quitRedisConnection(key))));
+    throwShutdownFailures('BullMQ resource cleanup failed', failures);
   }
 
   private async closeApiResources(): Promise<void> {
-    const [apiDb, apiRedis, ingestQueue, candidateHandoffQueue, officialValuationQueue] = await Promise.all([
-      this.moduleLoaders.loadApiDbModule(),
-      this.moduleLoaders.loadApiRedisModule(),
-      this.moduleLoaders.loadIngestQueueModule(),
-      this.moduleLoaders.loadCandidateHandoffQueueModule(),
-      this.moduleLoaders.loadOfficialValuationQueueModule(),
+    const failures = await collectShutdownFailures([
+      async () => (await this.moduleLoaders.loadIngestQueueModule()).closeIngestQueues(),
+      async () => (await this.moduleLoaders.loadCandidateHandoffQueueModule()).closeCandidateHandoffQueues(),
+      async () => (await this.moduleLoaders.loadOfficialValuationQueueModule()).closeOfficialValuationQueues(),
     ]);
-
-    await Promise.all([
-      ingestQueue.closeIngestQueues(),
-      candidateHandoffQueue.closeCandidateHandoffQueues(),
-      officialValuationQueue.closeOfficialValuationQueues(),
-    ]);
-    await Promise.all([apiRedis.closeRedisConnection(), apiDb.closeConnection()]);
+    failures.push(...await collectShutdownFailures([
+      async () => (await this.moduleLoaders.loadApiRedisModule()).closeRedisConnection(),
+      async () => (await this.moduleLoaders.loadApiDbModule()).closeConnection(),
+    ]));
+    throwShutdownFailures('API resource cleanup failed', failures);
   }
 
   private async quitRedisConnection(
@@ -976,9 +951,12 @@ export class WorkerRuntime {
       return;
     }
 
-    await connection.quit().catch(() => {
+    try {
+      await connection.quit();
+    } catch (error) {
       connection.disconnect();
-    });
+      throw error;
+    }
   }
 }
 
@@ -998,6 +976,9 @@ export async function runWorker(
       shutdownPromise = (async () => {
         try {
           await runtime.shutdown(reason);
+        } catch (error) {
+          process.exitCode = 1;
+          logger.error('Worker shutdown failed', { reason, error: serializeError(error) });
         } finally {
           shutdownController.abort();
         }
