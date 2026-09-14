@@ -1,0 +1,146 @@
+{
+  "stage": "permanent_accounting_authority_bootstrap",
+  "stage_completed_at": "2026-09-13T23:11:49.161854+00:00",
+  "not_final_source_cutover": true,
+  "source_sha": "c6511243f79a2be9c81217384847638f65892a54",
+  "source_image_id": "sha256:02fb07f0c6bba292ce50837b905087455c6b6fa3f0a4fd70299377dc51f2f4e1",
+  "schema": {
+    "id": 1,
+    "head": "20260914_credit_v4",
+    "fingerprint": "0d54d7621404d932ca6d657e0f17ae772d260ecedaa4a50022661cb809cb8688",
+    "applied_at": "2026-09-13T23:02:51.786164+00:00"
+  },
+  "account": {
+    "account_id": "huishype",
+    "period_id": "873154dc-a3f7-4231-9123-e58beb862703",
+    "schema_head": "20260914_credit_v4",
+    "spent_credits": 23,
+    "ordinary_remaining": 69977,
+    "essential_remaining": 79877,
+    "reconciliation_remaining": 100,
+    "provider_remaining": 84977,
+    "cycle_end": "2026-10-14T22:57:06+00:00",
+    "renewal_not_before": "2026-10-10T22:57:06+00:00",
+    "halt_reason": null,
+    "in_flight": null,
+    "essential_reserved": null,
+    "forecast_fresh": false,
+    "forecast_fits": false,
+    "forecast_ready": false,
+    "bootstrap_remaining": 1000,
+    "bootstrap_limit": 1000,
+    "bootstrap_used": 0,
+    "bootstrap_scope": "geography_sizing",
+    "work_enabled": false,
+    "measurement_grant": null,
+    "last_measurement_grant_generation": null,
+    "paid_validation": null
+  },
+  "periods": [
+    {
+      "id": "873154dc-a3f7-4231-9123-e58beb862703",
+      "account_id": "huishype",
+      "started_at": "2026-09-13T22:57:06+00:00",
+      "horizon_end": "2026-10-14T22:57:06+00:00",
+      "renewal_not_before": "2026-10-10T22:57:06+00:00",
+      "spent": 23,
+      "reconciliation_spent": 0,
+      "evidence": {
+        "reference": "/opt/huishype-scrapers/evidence/funda-hybrid-20260913/provider-observation-20260913T225706Z.json",
+        "limit": 85000,
+        "bootstrap_authorization": "Explicit root authorization 2026-09-13: permanent ledger-only stage; maximum1000 useful geography_sizing credits; acquisition remains separately gated",
+        "bootstrap_scope": "geography_sizing",
+        "reset_evidence": "Dashboard says resets in30days; exact reset timestamp unavailable; conservative31day horizon and27day earliest renewal window; no calendar reset"
+      }
+    }
+  ],
+  "registered_keys": [
+    {
+      "fingerprint": "0dbc5380365fec08bd651d4fe5f4276b0209cbe68845f739d37faddcb6301269",
+      "account_id": "huishype"
+    }
+  ],
+  "request_and_measurement_counts": {
+    "attempts": 0,
+    "closures": 0,
+    "forecasts": 0,
+    "measurement_grants": 0,
+    "measurement_slots": 0,
+    "measurement_reservations": 0,
+    "response_cache": 0
+  },
+  "health": {
+    "status": "ok"
+  },
+  "authority_isolation": {
+    "captured_at": "2026-09-13T23:13:25.720003+00:00",
+    "legacy_running_containers_inspected": 16,
+    "legacy_provider_key_environment_matches": 0,
+    "dispatch_and_control_tokens_distinct": true,
+    "dispatch_token_at_least_32_characters": true,
+    "control_token_at_least_32_characters": true,
+    "paid_network_name": "huishype-funda-scraper_paid-network",
+    "paid_network_internal": true,
+    "paid_network_containers": [
+      "huishype-funda-scraper-dispatcher-1",
+      "huishype-funda-scraper-ledger-postgres-1"
+    ],
+    "provider_key_fingerprints": [
+      "0dbc5380365fec08bd651d4fe5f4276b0209cbe68845f739d37faddcb6301269"
+    ],
+    "scan_scope": "All environment values of the 16 existing running legacy containers; no key material output"
+  },
+  "provider_key_cutover": {
+    "unused_primary_key": "revoked",
+    "maintained_hh_prod_key": "dispatcher_only_runtime_mount",
+    "known_local_raw_key_file": "removed_after_fingerprint_verification",
+    "offline_private_configuration_backup": "protected_operator_archive_not_a_runtime_consumer",
+    "unknown_external_copies": "not_asserted"
+  },
+  "resources": {
+    "scraper_available_disk_bytes": 18303614976,
+    "scraper_memory": {
+      "MemTotal": 4005449728,
+      "MemAvailable": 2446467072
+    },
+    "sustained_capacity_gate_cleared": false
+  },
+  "legacy_services": "16 existing running containers preserved; legacy direct services still running",
+  "new_acquisition_consumers_started": false,
+  "provider_requests_performed_by_release": 0,
+  "rollback_image_archive": {
+    "sha256": "0f7c86a51066797da666c80bc750a7ec9cbff1860295d449702bad62f5726d06",
+    "bytes": 476541126,
+    "image_count": 2,
+    "tar_members": 43,
+    "image_configs": [
+      "blobs/sha256/f1afd5bf5767ccf22df100265063c504e6c2cc64d7cfed9845f0744d06df105e",
+      "blobs/sha256/126090c27c5abc953cdcc6939ad445b39b44957f6ce5c7d6c2dafe167b78eff8"
+    ],
+    "archive_path": "/var/backups/huishype/funda-hybrid-source-images-20260913T231608Z/funda-images.tar.gz",
+    "verified_at": "2026-09-13T23:16:30.103913+00:00",
+    "source_sha": "c6511243f79a2be9c81217384847638f65892a54",
+    "purpose": "Pre-retention source candidate and unchanged legacy rollback image preserved off scraper host; no image/volume cleanup",
+    "immutable_image_manifest_digests_verified": [
+      "sha256:02fb07f0c6bba292ce50837b905087455c6b6fa3f0a4fd70299377dc51f2f4e1",
+      "sha256:fb41c5204529adb46624624528323edc7ba618beb40ac40e0a4835e3c6f1d012"
+    ]
+  },
+  "evidence_sha256": {
+    "ledger-authority-ready.json": "62141f52351987a295a314ff5781f4d45186ff9a9b2b34dd8587fbe7050ce0f3",
+    "authority-isolation-proof.json": "c0e7d3ad6da12bc3297792edf161c3e19979b0351003b25843bb734385f62551",
+    "authority-fence.json": "a291d64767fee0674cfcf78bad199ba1794e6f69ca68c137c0b3b26f90bbb2c2",
+    "ledger-migration-proof.json": "cee14e3f13bfd8c91a2b3a12f2e22aa6bcfa45912deae09cf15b2f67ada75de5",
+    "credit-initialization.json": "ac08b388cb37ece91feaeac8b6c4fdd1cc11c2d03ffe3f519ff1d1667ca46e4a"
+  },
+  "credit_policy": {
+    "provider_monthly_allowance": 85000,
+    "ordinary_cumulative_limit": 70000,
+    "essential_cumulative_limit": 79900,
+    "reconciliation_allowance": 100,
+    "hard_spend_limit": 80000,
+    "provider_remaining_floor": 5000
+  },
+  "source_code_status": "pre_retention_candidate_not_final_deployment",
+  "hosting_constraint": "Existing CX23 with40GB localdisk; no additional recurring hosting cost authorized"
+}

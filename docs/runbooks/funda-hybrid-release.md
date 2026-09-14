@@ -35,6 +35,12 @@ acceptance start/end timestamps and conclusions linked to sanitized evidence.
 
 ## Capacity and backup placement
 
+The existing CX23 scraper VM has a fixed 40 GB disk budget. This release must
+fit that capacity without a VM resize, an added volume or increased hosting
+cost. Account for both scrapers, the independent ledger, retained operational
+data, PostgreSQL WAL, images, logs, the operating system and in-flight work;
+measure shared filesystem bytes once and preserve operating headroom.
+
 At the baseline, the app VM had 155 GB free and a 79 GB PostgreSQL database;
 the scraper VM had 9.4 GB free, with a 1.7 GB Funda mirror and 141 MB Pararius
 mirror. The operator workstation had 83 GB free. Check current capacity before
@@ -68,6 +74,48 @@ volume. Its accounting state is backed up and audited independently. Mirror or
 app rollback must never restore an older accounting snapshot: uncertain paid
 requests remain charged. A disaster recovery of accounting requires provider
 allowance reconciliation before dispatch resumes.
+
+Include the authority in every later scraper-host maintenance inventory,
+even when it was provisioned before the source cutover. Record the independent
+`huishype-funda-scraper_realtyapi-ledger-data` volume, current schema fingerprint,
+account and period IDs, cumulative spend, registered key fingerprints, immutable
+dispatcher image, and the private mounted configuration. Back up the ledger with
+its own custom-format dump and protect configuration archives as credentials
+(mode-0700 parent directory, mode-0600 files). Verify the dump TOC and checksums
+off-host. Once any paid work has occurred, quiesce admission and settle or
+conservatively reconcile every in-flight request before taking a fresh authority
+backup. The initial zero-attempt backup is historical evidence, not a rollback
+point for later accounting.
+
+This milestone already provisioned and initialized the permanent authority at
+private schema V4, with ordinary work disabled and no new attempts. At final
+cutover, inspect its actual account, period, key registry and cumulative counters,
+then apply the verified V4-to-V5 migration to that same volume. Confirm those
+identities and counters are preserved before starting the final dispatcher.
+Never rerun account initialization or substitute a fresh ledger because the
+source image changed. The fresh-account initialization procedure applies only
+when an independently checked authority database has no account.
+
+The full app rehearsal uses a dedicated PostgreSQL container and volume on the
+app VM, without public ports or application workers. Cap the new compressed dump
+at 24 GiB; verify its off-host copy before removing only that newly generated
+remote archive to make restore space. Preserve historical backups. During the
+isolated full restore, migrations and identity reconciliation, abort only the
+rehearsal writers if available disk reaches 48 GiB or available memory falls below
+4 GiB. Bound the rehearsal volume to a 96 GiB budget and restore with one job.
+Record snapshot invariants, migration results, the first completed reconciliation
+checkpoint and its repeat no-op. A live-writer rehearsal backup does not replace
+the fresh stopped-writer backups at cutover.
+
+If the isolated rehearsal is still using app-host space at cutover, stream the
+new stopped-writer dumps directly to protected off-host storage. Recheck actual
+archive sizes, local capacity experiments and peak restore usage first; reserve
+at least 20 GiB on the workstation after all bounded backups, in addition to the
+app-host guards above. Do not overlap a new backup with an unmeasured capacity
+experiment. Verify checksums and restore proof before target migrations. After
+all required rehearsal migrations and reconciliation proofs complete, remove
+only the owned rehearsal clone if needed to retain a second verified backup
+copy on the app host. Keep the rehearsal and final-backup identities distinct.
 
 ## Bootstrap evidence cohort
 
@@ -107,9 +155,17 @@ normalization used for that historical measurement.
    branch. The baseline setting was enabled; pushing main without this fence can
    deploy an app image before its coordinated migration window.
 3. Stop the old Funda API, scheduler, worker, candidates, probe and sync containers.
-   Stop the app API and worker during the maintenance window. Preserve databases,
+   Allow already accepted Funda app-ingest batches to finish while the old app API
+   and worker remain running. Record the durable `accepted`, `queued`,
+   `processing` and `retryable` counts and require that active set to drain before
+   stopping the app API and worker. Historical terminal `failed` records are a
+   separate audit population: preserve their rows and payloads, classify their
+   errors and later evidence, and record a reviewed disposition. Do not delete or
+   relabel them merely to produce a zero failure count. Preserve databases,
    Redis, Photon and Pararius infrastructure. Pause Pararius export during the
-   app outage if necessary, preserving its durable unsent observations.
+   app outage, preserving its durable unsent observations. Record the retired
+   source Redis jobs and v1 outbox state; no old payload may execute under the new
+   writer generation.
 4. Take the fresh verified backups with writers stopped. Capture the last old
    writer generation and outbox state. Never timestamp retained listing evidence
    with migration time.
@@ -138,6 +194,29 @@ normalization used for that historical measurement.
    complete. Record the final setting in the manifest. Keep automatic deployment
    disabled during the full elapsed-time acceptance collection so documentation
    commits cannot inadvertently restart the measured runtime.
+
+### Retained historical failures and independent URL verification
+
+Preserve the three legacy terminal failed Funda batches as their original audit
+records. Indexed per-record checks found exact-clock status/asking-price evidence
+and matching global aliases for the 44- and 45-record batches; those checks do
+not prove full payload equality or successful original delivery. The 1,000-record
+historical import has nine submitted URLs with no proved current app or indexed
+source identity coverage. Do not replay their failed v1 payloads as v2 evidence.
+
+The protected `historical-nine-url-verification-inputs-private.json` contains the
+nine exact original URLs, expected tiny IDs, fixed batch UUID and input hashes.
+At coordinated cutover, freeze its `observed_after` to that actual timestamp.
+After the final authority and planner have capacity to meet mandatory URL
+verification deadlines, enqueue all nine through the supported final source
+resolver and durable `url_validation` work, preserving the same batch UUID and
+cutoff on retries. The final planner and dispatcher own acquisition. Do not enqueue
+them during the initial geography-only grant, which cannot admit paid details,
+and do not copy legacy facts, property hints or timestamps into fresh evidence.
+Record the nine real outcomes and any resulting identity/quarantine decisions
+before the milestone closes. Keep URLs and raw outcomes private; publish only
+aggregate completion/disposition evidence. Their old terminal failure records
+remain intact regardless of the new verification result.
 
 ### Legacy identity reconciliation and source replay
 
@@ -301,12 +380,22 @@ recognized service, including infrastructure, must appear in `services`; an
 undeclared legacy scheduler fails release verification. Full samples record named
 volumes and require stable running images, source commits and migration heads
 throughout the observation window, including intermediate hourly samples. Set
-`required_metrics: ["app.queues", "app.publications", "funda.evidence"]` in the
+`required_metrics: ["app.queues", "app.publications", "app.retention", "funda.evidence", "funda.storage"]` in the
 final manifest. These aggregate metrics
 are mandatory in every minute sample when `verify-window` receives that manifest;
 legacy baselines can omit the requirement. Full samples are also checked against
 the manifest throughout the window. Unavailable metrics must be investigated,
 including read-only SQL timeouts; they are never zero-length queues.
+
+`app.retention` records database/relation bytes and the latest indexed Funda raw
+retirement frontier. It does not scan permanent business history or count all
+receipts on each sample. The frontier is raw-data replay fencing, not a delivery
+receipt or a positive observation. `funda.storage` requires numeric filesystem
+and accepted-completion reserves, admitted intake, capacity checked within two
+minutes and successful maintenance within three minutes. Blocked intake,
+maintenance errors, a source-prefix pin blocking already-due retirement or stale
+capacity fail the required storage gate; ordinary current evidence pins do not. Existing acquisition, queue and publication latency checks remain
+independent and mandatory.
 
 ## Acceptance evidence
 
@@ -384,6 +473,16 @@ the 15-minute bound, with full samples bracketing the interval and minute covera
 inside it. Its successful result is a freshness proof only; complete geographic
 inventory, mandatory deadlines and credit/billing reconciliation remain separate
 required evidence.
+
+Assess the exact interval while its start is no more than seven days old. Both
+source validation and the ops freshness command reject a newly assessed older
+interval whose raw proof may have retired. Preserve the successful source
+certificate, ops artifacts, compact ledger report and matching ledger receipt
+before operational retirement. The source checkpoint must seal that exact
+interval/catalog/source certificate hash with the independent ledger receipt;
+a later rolling report cannot replace it. Keep the report plus operator string
+within the ledger's 16 KiB limit, referencing full private evidence by hash rather
+than embedding raw manifests or request arrays.
 
 The final acceptance record names the observed cycle, mode, complete coverage,
 queue/ingest targets, paid forecast and actual credit reconciliation. Do not mark

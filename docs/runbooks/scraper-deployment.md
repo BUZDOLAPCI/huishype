@@ -42,7 +42,7 @@ The app/prod Coolify env must use the scraper API keys from
 | Hetzner server ID     | `127989278`                                               |
 | Plan                  | `CX23`                                                    |
 | Datacenter            | `nbg1-dc3`                                                |
-| Public IPv4           | `178.104.119.167`                                         |
+| Public IPv4           | `46.225.56.31`                                           |
 | Private IPv4          | `10.42.0.2`                                               |
 | SSH user              | `root`                                                    |
 | Runtime root          | `/opt/huishype-scrapers`                                  |
@@ -63,8 +63,25 @@ source-service ports. When operator SSH access changes, keep the Hetzner
 firewall and the VM-local UFW `22/tcp` allow list in sync.
 
 No third-party outbound proxy is configured in the checked env files. Scraper
-upstream egress currently leaves through `178.104.119.167`, not through the
+upstream egress currently leaves through `46.225.56.31`, not through the
 HuisHype app/prod public IP.
+
+The scraper host remains the existing CX23 with a 40 GB disk. No hosting cost
+increase is authorized for this milestone. Assess capacity for the entire shared
+host: Funda, Pararius, their databases and Redis volumes, the independent paid
+ledger, WAL, Docker images/build cache, container logs and maintenance headroom.
+Use unprivileged filesystem available bytes (`statvfs().f_bavail`), which agree
+between the runtime overlay and the mounted database volumes on this host.
+Do not add overlay or volume filesystem totals together or count shared image
+layers twice. Store verified release image archives and database backups off the
+scraper host. The app VM's separate capacity does not establish a sustainable
+scraper-host budget.
+
+Release capacity proof must include the complete retention window at measured
+workload, protected pending work, WAL and index/maintenance peaks, image staging,
+bounded logs and the runtime's disk reserve. Retention and admission backpressure
+must preserve current product facts, ordering, delivery and paid accounting;
+unverified deletion or a larger host is not an accepted capacity strategy.
 
 ## Services
 
@@ -163,6 +180,22 @@ JSON response, fix/deploy the Pararius scraper repo and then re-run this check;
 do not add a HuisHype app API compatibility route for scraper diagnostics.
 
 ## Logs
+
+The production Compose files require Docker `json-file` logging with
+`max-size: "10m"` and `max-file: "3"` on every service, including PostgreSQL,
+Redis and migration jobs. Pararius has nine declared services, so its configured
+log-file bound is 270 MiB plus rotation metadata. Verify the actual running
+containers' `HostConfig.LogConfig`; changing YAML does not retrofit an existing
+container. Log retention is independent of database evidence retention.
+
+Apply a logging-only change during coordinated maintenance using each existing
+service's recorded immutable image ID, the same environment, commands, networks
+and named volumes, with `--no-build --pull never`. Stop its producers and exporter
+before recreating infrastructure, restore database/Redis health, then recreate
+the runtime roles without gratuitously rerunning an already completed migration.
+Preserve durable queues and the app/source identity; this procedure does not
+change Pararius acquisition behavior or repair an upstream block. Confirm the
+image IDs, volume identities, log options and service health afterward.
 
 ```bash
 ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '

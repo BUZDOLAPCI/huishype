@@ -11,9 +11,9 @@ Manifest format (all expected services and databases must be specified):
 {"services":{"app.api":"sha256:<64 hex>","funda.worker":"sha256:<64 hex>"},
  "completed_services":{"funda.migrate":"sha256:<64 hex>"},
  "code_revisions":{"app.api":"<40 hex commit>"},
- "required_metrics":["app.queues","funda.evidence"],
+ "required_metrics":["app.queues","app.publications","app.retention","funda.evidence","funda.storage"],
  "migrations":{"app":["<latest drizzle hash>"],"funda":["<alembic head>"],
-               "pararius":["<alembic head>"],"ledger":["20260913_credit_v1"]}}
+               "pararius":["<alembic head>"],"ledger":["20260914_credit_v5"]}}
 
 The ledger migration head is optional for legacy snapshots and required when
 the manifest includes funda.dispatcher or funda.ledger-postgres.
@@ -24,6 +24,9 @@ from readiness, so false inventory coverage and empty-queue nulls remain valid.
 "app.publications" requires retained publication aggregates for the last 24 full
 minute buckets. audit-freshness measures an explicit minute-aligned interval and
 its pending-work samples; inventory and budget acceptance remain separate gates.
+"app.retention" requires fast relation sizes and the latest indexed Funda raw
+retirement frontier, not lifetime event counts or delivery proof. "funda.storage"
+requires fresh numeric capacity, admitted intake and successful maintenance.
 Watch indefinitely and use the same explicit UTC-minute start/end for window
 verification, freshness audit, source certificate, and ledger report. The interval
 must be at least 24 hours and may be extended until the useful paid span reaches
@@ -65,6 +68,21 @@ SERVICES = {"api", "web", "worker", "scheduler", "sync", "candidates", "probe", 
 HEALTHY_STATUSES = {"ok", "healthy"}
 APP_QUEUE_METRICS = {"expired_active_eligible", "pending_price_repairs", "pending_property_tile_updates",
                      "dirty_tile_updates", "expired_dirty_tile_leases", "dirty_tile_errors"}
+APP_RETENTION_BYTES = {"database_bytes", "ingest_evidence_bytes", "ingest_batches_bytes",
+                       "business_history_bytes", "retirement_frontiers_bytes"}
+SOURCE_STORAGE_COUNTS = {
+    "filesystemFreeBytes", "filesystemTotalBytes", "reservedBytes", "perLeaseReserveBytes",
+    "intakeReserveBytes", "pendingEvents", "currentGenerationPendingEvents", "activeLeases",
+    "freeFloorBytes", "freeResumeBytes", "pendingHighWater", "pendingLowWater",
+    "maxOutstandingReplayCohortRows", "maxOutstandingReplayCohortBytes", "acceptedCompletionEventBoundPerLease",
+}
+SOURCE_MEASUREMENT_COUNTS = {
+    "databaseBytes", "writerGeneration", "olderGenerationPendingEvents", "bootstrapCohortBound",
+    "previousPartitionMemberBound", "bootstrapPayloadBytes", "previousPartitionPayloadBytes",
+    "maxIdentityWireBytes", "sourceListingCount",
+}
+SOURCE_MAINTENANCE_OPERATIONS = {"replays", "candidates", "acknowledgedPayloads", "acquisitionPayloads",
+                                 "quarantine", "operationalHistory", "sourcePrefix", "capacity"}
 FUNDA_EVIDENCE_FIELDS = {
     "delivery": {
         "oldestPendingAcquisitionObservedAt": "timestamp?", "oldestPendingAcquisitionAgeSeconds": "number?",
@@ -119,6 +137,21 @@ SELECT json_build_object(
   'dirty_tile_errors', json_build_object('count', tiles.errors_n,
     'oldest_age_seconds', CASE WHEN tiles.errors_n > 0 THEN greatest(0, extract(epoch FROM now()-tiles.errors_oldest)) END)
 ) FROM expired CROSS JOIN repairs CROSS JOIN properties CROSS JOIN tiles;
+"""
+APP_RETENTION_SQL = """
+WITH latest AS (
+ SELECT generation,retired_sequence,updated_at FROM ingest_retired_sequences
+ WHERE source_name='funda' ORDER BY generation DESC LIMIT 1
+)
+SELECT json_build_object(
+ 'database_bytes',pg_database_size(current_database()),
+ 'ingest_evidence_bytes',pg_total_relation_size('ingest_evidence'),
+ 'ingest_batches_bytes',pg_total_relation_size('ingest_batches'),
+ 'business_history_bytes',pg_total_relation_size('source_identity_business_history'),
+ 'retirement_frontiers_bytes',pg_total_relation_size('ingest_retired_sequences'),
+ 'funda_generation',(SELECT generation FROM latest),
+ 'funda_retired_sequence',(SELECT retired_sequence FROM latest),
+ 'funda_retired_at',(SELECT updated_at FROM latest));
 """
 
 
@@ -204,6 +237,69 @@ def app_queue_telemetry(container):
         return {"status": "available", "observed_at": utcnow(), "values": safe}
     except Exception as exc:
         return {"status": "unavailable", "reason": type(exc).__name__}
+
+
+def valid_app_retention(value):
+    if not isinstance(value, dict) or any(type(value.get(k)) is not int or value[k] < 0 for k in APP_RETENTION_BYTES):
+        return False
+    frontier = [value.get(k) for k in ("funda_generation", "funda_retired_sequence", "funda_retired_at")]
+    if all(item is None for item in frontier):
+        return all(k in value for k in ("funda_generation", "funda_retired_sequence", "funda_retired_at"))
+    try:
+        timestamp(frontier[2])
+        return all(type(item) is int and item >= 0 for item in frontier[:2])
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
+def app_retention_telemetry(container):
+    try:
+        values = read_db_json(container, APP_RETENTION_SQL)
+        if not valid_app_retention(values):
+            raise ValueError("invalid_retention_aggregate")
+        fields = APP_RETENTION_BYTES | {"funda_generation", "funda_retired_sequence", "funda_retired_at"}
+        return {"status": "available", "observed_at": utcnow(), "values": {k: values[k] for k in sorted(fields)}}
+    except Exception as exc:
+        return {"status": "unavailable", "reason": type(exc).__name__}
+
+
+def source_storage_errors(recovery, observed_at):
+    """Require fresh successful maintenance and capacity; a frontier is not delivery proof."""
+    errors = []
+    try:
+        storage, maintenance = recovery["storage"], recovery["storageMaintenance"]
+        measured = storage["measurement"]
+        if any(type(storage.get(k)) is not int or storage[k] < 0 for k in SOURCE_STORAGE_COUNTS):
+            raise ValueError("invalid_capacity_counts")
+        if any(type(measured.get(k)) is not int or measured[k] < 0 for k in SOURCE_MEASUREMENT_COUNTS):
+            raise ValueError("invalid_measurement_counts")
+        timestamp(measured["measuredAt"])
+        if (storage.get("state") not in {"ready", "backpressure"}
+                or type(storage.get("admissionAllowed")) is not bool
+                or not isinstance(storage.get("reasons"), list)
+                or any(not isinstance(reason, str) or not reason for reason in storage["reasons"])
+                or type(maintenance.get("healthy")) is not bool
+                or not SOURCE_MAINTENANCE_OPERATIONS <= maintenance.get("results", {}).keys()):
+            raise ValueError("invalid_storage_state")
+        for stamp, seconds, label in [(storage["checkedAt"], 120, "capacity"),
+                                      (maintenance["completedAt"], 180, "maintenance")]:
+            age = (timestamp(observed_at) - timestamp(stamp)).total_seconds()
+            if not 0 <= age <= seconds:
+                errors.append("funda.storage:" + label + "_stale")
+        if storage["state"] != "ready" or not storage["admissionAllowed"] or storage["reasons"]:
+            errors.append("funda.storage:admission_blocked")
+        if (not maintenance["healthy"] or any(not isinstance(result, dict) or "error" in result
+                for result in maintenance["results"].values())
+                or maintenance["results"]["sourcePrefix"].get("pinned", False)):
+            errors.append("funda.storage:maintenance_unhealthy")
+        if (storage["filesystemFreeBytes"] > storage["filesystemTotalBytes"]
+                or storage["filesystemFreeBytes"] - storage["reservedBytes"] < storage["freeFloorBytes"]
+                or storage["freeResumeBytes"] < storage["freeFloorBytes"]
+                or storage["pendingLowWater"] > storage["pendingHighWater"]):
+            errors.append("funda.storage:invalid_capacity_bound")
+    except (KeyError, TypeError, ValueError, OverflowError, AttributeError):
+        errors.append("funda.storage:required_metric_unavailable")
+    return errors
 
 
 PUBLICATION_FIELDS = {"scope", "interval_start", "interval_end", "publication_count", "total_latency_ms",
@@ -309,6 +405,16 @@ def required_metric_errors(required, snapshot):
     telemetry = snapshot.get("hosts", {}).get("app", {}).get("metrics", {}).get("app_queues", {})
     errors = []
     for key in required:
+        if key == "app.retention":
+            retention = snapshot.get("hosts", {}).get("app", {}).get("metrics", {}).get("app_retention", {})
+            if retention.get("status") != "available" or not valid_app_retention(retention.get("values")):
+                errors.append(key + ":required_metric_unavailable")
+            continue
+        if key == "funda.storage":
+            host = snapshot.get("hosts", {}).get("scraper", {})
+            recovery = host.get("endpoints", {}).get("funda.status", {}).get("recovery", {})
+            errors.extend(source_storage_errors(recovery, host.get("completed_at", snapshot.get("completed_at"))))
+            continue
         if key == "app.publications":
             publication = snapshot.get("hosts", {}).get("app", {}).get("metrics", {}).get("app_publications", {})
             if publication.get("status") != "available" or not valid_publications(publication.get("values")):
@@ -532,6 +638,10 @@ def remote_capture(role, light=False):
             evidence["metrics"]["app_publications"] = app_publication_telemetry(one("app.postgres"))
         except Exception as exc:
             evidence["metrics"]["app_publications"] = {"status": "unavailable", "reason": type(exc).__name__}
+        try:
+            evidence["metrics"]["app_retention"] = app_retention_telemetry(one("app.postgres"))
+        except Exception as exc:
+            evidence["metrics"]["app_retention"] = {"status": "unavailable", "reason": type(exc).__name__}
     evidence["completed_at"] = utcnow()
     return sanitize(evidence, secrets)
 
@@ -861,8 +971,10 @@ def freshness_result(source, app, window, start, end, limit=900):
             "source": source, "app": app, "window": window, "errors": list(dict.fromkeys(errors))}
 
 
-def audit_freshness(env_path, start, end, directory, output_dir, limit=900, manifest=None):
+def audit_freshness(env_path, start, end, directory, output_dir, limit=900, manifest=None, now=None):
     start, end = audit_interval(start, end)
+    if (now or dt.datetime.now(dt.timezone.utc)) - timestamp(start) > dt.timedelta(days=7):
+        raise ValueError("exact_acceptance_evidence_expired_after_seven_days")
     if not math.isfinite(limit) or limit <= 0:
         raise ValueError("positive_finite_latency_limit_required")
     captured_at = utcnow()

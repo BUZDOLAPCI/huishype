@@ -39,6 +39,19 @@ def queue_values():
     return {name: {"count": 2, "oldest_age_seconds": 12.5} for name in evidence.APP_QUEUE_METRICS}
 
 
+def storage_values():
+    storage = {key: 0 for key in evidence.SOURCE_STORAGE_COUNTS}
+    storage.update(state="ready", admissionAllowed=True, reasons=[], checkedAt=START.isoformat(),
+                   filesystemFreeBytes=6 * 1024**3, filesystemTotalBytes=40 * 1024**3,
+                   freeFloorBytes=4 * 1024**3, freeResumeBytes=5 * 1024**3,
+                   pendingHighWater=10000, pendingLowWater=5000)
+    storage["measurement"] = {key: 0 for key in evidence.SOURCE_MEASUREMENT_COUNTS}
+    storage["measurement"]["measuredAt"] = START.isoformat()
+    return {"storage": storage, "storageMaintenance": {
+        "completedAt": START.isoformat(), "healthy": True,
+        "results": {key: {} for key in evidence.SOURCE_MAINTENANCE_OPERATIONS}}}
+
+
 def source_values():
     return {
         "delivery": {
@@ -85,6 +98,69 @@ def audit_samples():
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_storage_metric_requires_live_admission_and_successful_fresh_maintenance(self):
+        body = storage_values()
+        self.assertEqual(evidence.source_storage_errors(body, START.isoformat()), [])
+        body["storage"]["state"] = "backpressure"
+        body["storage"]["admissionAllowed"] = False
+        body["storage"]["reasons"] = ["filesystem_reserve"]
+        self.assertIn("funda.storage:admission_blocked", evidence.source_storage_errors(body, START.isoformat()))
+        body = storage_values()
+        body["storageMaintenance"]["results"]["sourcePrefix"] = {"pinned": True}
+        self.assertIn("funda.storage:maintenance_unhealthy", evidence.source_storage_errors(body, START.isoformat()))
+        body = storage_values()
+        body["storageMaintenance"]["results"]["quarantine"] = {"error": "maintenance_failed"}
+        self.assertIn("funda.storage:maintenance_unhealthy", evidence.source_storage_errors(body, START.isoformat()))
+        errors = evidence.source_storage_errors(storage_values(), (START + dt.timedelta(seconds=181)).isoformat())
+        self.assertIn("funda.storage:capacity_stale", errors)
+        self.assertIn("funda.storage:maintenance_stale", errors)
+
+    def test_storage_metric_rejects_missing_negative_boolean_and_impossible_capacity(self):
+        for value in [None, -1, True]:
+            body = storage_values()
+            body["storage"]["reservedBytes"] = value
+            self.assertIn("funda.storage:required_metric_unavailable", evidence.source_storage_errors(body, START.isoformat()))
+        body = storage_values()
+        body["storage"]["reservedBytes"] = 3 * 1024**3
+        self.assertIn("funda.storage:invalid_capacity_bound", evidence.source_storage_errors(body, START.isoformat()))
+        self.assertIn("funda.storage:capacity_stale", evidence.source_storage_errors(
+            storage_values(), (START - dt.timedelta(seconds=1)).isoformat()))
+
+    def test_retention_telemetry_uses_sizes_and_latest_indexed_frontier_without_history_scan(self):
+        values = {key: 1024 for key in evidence.APP_RETENTION_BYTES}
+        values.update(funda_generation=None, funda_retired_sequence=None, funda_retired_at=None)
+        with patch.object(evidence, "read_db_json", return_value={**values, "raw_business_facts": "private"}) as read:
+            result = evidence.app_retention_telemetry({"Id": "app-db"})
+        self.assertEqual(result["status"], "available")
+        self.assertNotIn("raw_business_facts", result["values"])
+        sql = read.call_args.args[1]
+        self.assertIn("pg_total_relation_size('source_identity_business_history')", sql)
+        self.assertNotIn("FROM source_identity_business_history", sql)
+        self.assertNotIn("FROM ingest_batches", sql)
+        self.assertIn("ORDER BY generation DESC LIMIT 1", sql)
+        values.update(funda_generation=1, funda_retired_sequence=500, funda_retired_at=START.isoformat())
+        self.assertTrue(evidence.valid_app_retention(values))
+        values["funda_retired_at"] = None
+        self.assertFalse(evidence.valid_app_retention(values))
+
+    def test_storage_and_retention_are_explicit_required_metrics(self):
+        body = snapshot()
+        self.assertEqual(evidence.required_metric_errors([], body), [])
+        self.assertEqual(len(evidence.required_metric_errors(["funda.storage", "app.retention"], body)), 2)
+        body["hosts"]["scraper"]["endpoints"]["funda.status"]["recovery"] = storage_values()
+        values = {key: 1024 for key in evidence.APP_RETENTION_BYTES}
+        values.update(funda_generation=None, funda_retired_sequence=None, funda_retired_at=None)
+        body["hosts"]["app"]["metrics"] = {"app_retention": {"status": "available", "values": values}}
+        self.assertEqual(evidence.required_metric_errors(["funda.storage", "app.retention"], body), [])
+
+    def test_expired_raw_acceptance_interval_is_rejected_before_remote_reads(self):
+        with patch.object(evidence, "run") as command:
+            with self.assertRaisesRegex(ValueError, "evidence_expired"):
+                evidence.audit_freshness("unused-env", START.isoformat(),
+                    (START + dt.timedelta(days=1)).isoformat(), "unused", "unused",
+                    now=START + dt.timedelta(days=7, seconds=1))
+        command.assert_not_called()
+
     def test_publication_aggregate_validates_shape_and_is_optional_for_legacy(self):
         for empty in [False, True]:
             values = publication_values(empty)
@@ -253,7 +329,7 @@ class EvidenceTests(unittest.TestCase):
             env.write_text("APP_VM_PUBLIC_IP=192.0.2.1\nSCRAPER_VM_PUBLIC_IP=192.0.2.2\nAPI_KEY=supersecret\n")
             with patch.object(evidence, "run", side_effect=RuntimeError("supersecret")):
                 result, path = evidence.audit_freshness(env, START.isoformat(), (START + dt.timedelta(days=1)).isoformat(),
-                                                       directory, Path(directory) / "audits")
+                                                       directory, Path(directory) / "audits", now=START + dt.timedelta(days=2))
             self.assertFalse(result["passed"])
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertNotIn("supersecret", path.read_text())
@@ -340,6 +416,12 @@ class EvidenceTests(unittest.TestCase):
                 if args[:2] == ["docker", "inspect"]:
                     return json.dumps(containers)
                 requests.append(args)
+                if "ingest_retired_sequences" in args[-1]:
+                    if not available:
+                        raise RuntimeError("legacy missing retention table")
+                    values = {key: 1024 for key in evidence.APP_RETENTION_BYTES}
+                    values.update(funda_generation=None, funda_retired_sequence=None, funda_retired_at=None)
+                    return json.dumps(values)
                 if "listing_tile_publication_metrics" in args[-1]:
                     if not available:
                         raise RuntimeError("legacy missing publication table")
@@ -352,10 +434,11 @@ class EvidenceTests(unittest.TestCase):
             with patch.object(evidence, "run", side_effect=command), \
                  patch.object(evidence, "read_json_url", return_value={"status": "ok"}):
                 result = evidence.remote_capture("app", light=True)
-            self.assertEqual(len(requests), 2)
+            self.assertEqual(len(requests), 3)
             self.assertEqual(result["status"], "complete", result["errors"])
             self.assertEqual(result["metrics"]["app_queues"]["status"], "available" if available else "unavailable")
             self.assertEqual(result["metrics"]["app_publications"]["status"], "available" if available else "unavailable")
+            self.assertEqual(result["metrics"]["app_retention"]["status"], "available" if available else "unavailable")
             self.assertNotIn("legacy missing tables", json.dumps(result))
 
     def test_release_required_app_queue_metrics_fail_missing_evidence(self):
