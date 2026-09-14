@@ -1,0 +1,249 @@
+{
+  "status": "passed",
+  "scope": "Full production-snapshot restore into an isolated app database; migrations, reconciliation and rollback-only ingest. No production target mutations or source requests. This is not the final stopped-writer backup or live acceptance window.",
+  "image": {
+    "source_sha": "3b718173bedc3e1fabe0eb7737d726195ad15e0b",
+    "image_id": "sha256:a83f548fb9a3ac9059d09f0a825d1f69f95fffc027f7db78dec02c1ad4afb9c0",
+    "image_archive_sha256": "e158027002d81deb199c61dac5c14d950190bdac1f7cc672488be3c3e2d6027f",
+    "scope": "Initial restore/migration/reconciliation image; final corrected processor image recorded separately."
+  },
+  "backup": {
+    "bytes": 17839255681,
+    "sha256": "2f252e49267bc660f5ad86bd080e55da4a562ba7bcf0ed0e7b03a8b44a0a8925",
+    "restore_exit_code": 0,
+    "restore_elapsed_seconds": 3301.114,
+    "restore_stderr_bytes": 0,
+    "restore_stdout_bytes": 0,
+    "snapshot_writers_running": true
+  },
+  "schema": {
+    "before": {
+      "id": 60,
+      "hash": "59accf35a6ebc2cb9176592771e73bd3c05246199007dc66acded79a5732ec2d",
+      "created_at": 1781049600000
+    },
+    "after": {
+      "id": 67,
+      "hash": "76f7fa8cb15176e2b697f3ef94247e66a71c81963a182207ece136f6b969001f",
+      "created_at": 1789345873732
+    }
+  },
+  "phase_seconds": {
+    "before-migrations": 45.47,
+    "migrate": 228.304,
+    "after-migrations": 72.101,
+    "dry-run": 53.241,
+    "after-dry-run": 70.061,
+    "execute-once": 105.649,
+    "after-execute": 83.055,
+    "repeat-startup": 1.492,
+    "after-repeat": 82.204
+  },
+  "reconciliation": {
+    "sourceName": "funda",
+    "reconciliationVersion": "source-identities-v1",
+    "status": "completed",
+    "completedAt": "2026-09-14T01:00:57.690Z",
+    "report": {
+      "rowsBefore": 413946,
+      "canonicalRowsBefore": 269946,
+      "legacyRowsBefore": 144000,
+      "identityGroups": 269922,
+      "duplicateGroups": 144024,
+      "quarantinedGroups": 108,
+      "canonicalDuplicatesSuppressed": 132,
+      "legacyDuplicatesRecorded": 144000,
+      "rowsAfter": 413946,
+      "canonicalRowsAfter": 269946,
+      "legacyRowsAfter": 144000,
+      "profile": {
+        "graphParentBytes": 1655784,
+        "graphEdgeBatchLimit": 5000,
+        "edgesRead": 166331,
+        "maximumComponentRows": 2,
+        "graphPreparationMs": 45319,
+        "fastPathGroups": 269790,
+        "fastPathLegacyRows": 143892,
+        "reconciliationMs": 104462
+      }
+    }
+  },
+  "preservation": {
+    "original_fingerprint_populations_unchanged": 11,
+    "violations": {
+      "identity_primary_alias_missing": 0,
+      "new_alias_owner_missing_or_other_source": 0,
+      "duplicate_typed_alias_ownership": 0,
+      "duplicate_canonical_identity_binding": 0,
+      "quarantined_bound_canonical_not_suppressed": 0,
+      "audited_canonical_not_suppressed_or_missing": 0,
+      "legacy_rows_without_reconciliation_audit": 0,
+      "proved_survivor_missing_or_cross_property": 0,
+      "audit_snapshot_envelope_invalid": 0,
+      "canonical_audit_facts_changed_or_missing": 0,
+      "legacy_audit_facts_changed_or_missing": 0,
+      "quarantine_snapshot_envelope_invalid": 0
+    },
+    "audited_link_bodies_preserved": 2352,
+    "audited_price_bodies_preserved": 1568,
+    "dry_run_changed_data": false,
+    "repeat_changed_data": false,
+    "repeat_preserved_original_checkpoint": true,
+    "after_rollback_full_invariant_output_equals_after_repeat": true,
+    "full_invariant_sha256": "1fa9c240fd5221b54ffc86f81a98a548654885c8a8784074926b5f6b0103e968",
+    "fingerprint_scope": "Counts plus two signed64-bit MD5-half sums are regression evidence, supplemented with full server-side audit body/reference comparisons; not a cryptographic row-set proof."
+  },
+  "actual_history_ingest": {
+    "records": 1000,
+    "batches": 5,
+    "facts": 674,
+    "sightings": 326,
+    "original_clocks_preserved": true,
+    "input_sha256": "a800965d2614213874596d1988eba92b16537d771c0489f87b83abdc3b6c4293",
+    "scope": "actual compiled processor plus receipt insert and per-batch savepoint; outer rollback excludes durable COMMIT/fsync, API, queue and source network costs",
+    "rollback_completed": true,
+    "sample_counts_and_writer_unchanged": true,
+    "quarantine_interpretation": "The initial image exposed9 false quarantines caused by blank house numbers. Final corrected image treats blank house number/street/postcode as unknown in contradiction checks. Exact private input review supports57 address conflicts and2 additional alias-owner conflicts; final replay retains all9 prior bindings, actual raw events and business-history samples. All data changes roll back.",
+    "before_fix_measured_batch_wall_ms": 31058,
+    "before_fix_measured_batch_statements": 19403,
+    "before_fix_maximum_batch_ms": 7337,
+    "before_fix_processor_sha256": "cde70f02349bd91643908de5b7205623cd47c198c741d16c3539894e9ba1d5d5",
+    "final_processor_sha256": "418656bfbf0aedee848352f5036db27d035ba4e3ba65bc24bc07ba1fbeb2d517",
+    "final_measured_batch_wall_ms": 22680,
+    "final_measured_batch_statements": 19360,
+    "final_maximum_batch_ms": 5069,
+    "final_quarantine_diagnostics": {
+      "newAuditReasons": [
+        {
+          "audits": 2,
+          "reason": "aliases_resolve_to_multiple_identities",
+          "listing_references": 4,
+          "identity_references": 4,
+          "canonical_before_samples": 4,
+          "multiple_identity_audits": 2,
+          "canonical_status_mismatches": 0,
+          "no_exact_address_match_audits": 0,
+          "ambiguous_exact_address_audits": 0,
+          "audit_snapshot_count_mismatches": 0,
+          "multiple_existing_property_audits": 2,
+          "previously_active_canonical_samples": 0,
+          "exact_match_different_bound_property_samples": 0
+        },
+        {
+          "audits": 57,
+          "reason": "property_link_conflict",
+          "listing_references": 57,
+          "identity_references": 57,
+          "canonical_before_samples": 57,
+          "multiple_identity_audits": 0,
+          "canonical_status_mismatches": 0,
+          "no_exact_address_match_audits": 47,
+          "ambiguous_exact_address_audits": 0,
+          "audit_snapshot_count_mismatches": 0,
+          "multiple_existing_property_audits": 0,
+          "previously_active_canonical_samples": 6,
+          "exact_match_different_bound_property_samples": 10
+        }
+      ],
+      "newlyQuarantined": [
+        {
+          "reason": "aliases_resolve_to_multiple_identities",
+          "identities": 2,
+          "canonically_bound": 2,
+          "bound_not_suppressed": 0
+        },
+        {
+          "reason": "property_link_conflict",
+          "identities": 57,
+          "canonically_bound": 57,
+          "bound_not_suppressed": 0
+        }
+      ],
+      "distinctAffectedCanonicals": 59,
+      "affectedCanonicalsNotSuppressed": 0,
+      "newlyQuarantinedWithoutNewAudit": 0,
+      "receivedFactsButNoBusinessSamples": 0,
+      "newlyQuarantinedWithBusinessSamples": 58,
+      "newlyQuarantinedWithReceivedEvidence": 58,
+      "baselineQuarantinedIdentities": 108,
+      "baselineAuditRows": 108,
+      "sourceToBoundAddressPairs": {
+        "property_link_conflict:complete_nl_different": 52,
+        "property_link_conflict:incomplete_or_non_nl_or_uncanonicalizable": 5
+      },
+      "distinctPropertyOwnerAddressPairs": {
+        "aliases_resolve_to_multiple_identities:complete_nl_different": 2
+      },
+      "addressComparisonScope": "actual compiled canonicalizer; NL complete country/street/postcode/number; suffix defaults to empty only for full-address equivalence; city excluded like processor exact matching; aggregate counts are audit pairs, not distinct identities"
+    },
+    "final_preserved_blank_bindings": {
+      "selectedRecords": 9,
+      "sameIdentityCanonicalAndPropertyBindings": 9,
+      "notQuarantined": 9,
+      "canonicalsNotInvalid": 9,
+      "originalRawEventsPreserved": 9,
+      "actualBlankBusinessSamplesRetained": 9,
+      "activeEligibleBefore": 1,
+      "activeEligibleAfter": 0,
+      "availabilityTransitions": [
+        {
+          "statusBefore": "withdrawn",
+          "statusAfter": "withdrawn",
+          "activeBefore": false,
+          "activeAfter": false,
+          "identities": 4
+        },
+        {
+          "statusBefore": "sold",
+          "statusAfter": "withdrawn",
+          "activeBefore": false,
+          "activeAfter": false,
+          "identities": 1
+        },
+        {
+          "statusBefore": "active",
+          "statusAfter": "withdrawn",
+          "activeBefore": false,
+          "activeAfter": false,
+          "identities": 3
+        },
+        {
+          "statusBefore": "active",
+          "statusAfter": "withdrawn",
+          "activeBefore": true,
+          "activeAfter": false,
+          "identities": 1
+        }
+      ],
+      "availabilityScope": "Counts include legitimate historical lifecycle projection; absence of invalid/quarantine suppression asserted separately",
+      "rollbackRestoredTargetedState": true
+    },
+    "final_rollback_completed": true,
+    "before_fix_new_quarantines": 68,
+    "before_fix_false_blank_number_quarantines": 9,
+    "final_new_quarantines": 59,
+    "final_false_blank_number_quarantines": 0
+  },
+  "resource_guards": {
+    "disk_floor_bytes": 51539607552,
+    "memory_floor_bytes": 4294967296,
+    "isolated_volume_ceiling_bytes": 103079215104,
+    "new_hosting_cost": false
+  },
+  "private_proof_sha256": {
+    "restore-proof.json": "c8eff27a9129d67f697e35abed2bdc4fc0491ddfa49012d7c4e43de399ec4859",
+    "reconciliation-complete.json": "150502ca6d6ae519d5483ccaf67075203a2c4507ec2deb5f0435a1be795eeea7",
+    "performance-final-3b718173-attempt2/sanitized-proof.json": "bc4df67369a196451db73e1f52554d0e1a5aa2b5c56373a2bf00ed97902201c5",
+    "after-performance-invariants/preservation-proof.json": "24e6b4388c8a472e4fff0bea36bea00be1f4a1ce9e0d1b4cccc8e16e07959258",
+    "quarantine-sparse-diagnostics-3b718173/sanitized-proof.json": "8aa06ae4cfaa4c40d961664b963e408062d82e07ab36155b2a33c5d3c99919e5",
+    "quarantine-private-capture-3b718173/sanitized-proof.json": "5cbb13b5ab11f50a877ba0e663cd23ef32ea8d4eefdd4d752847015f29c627ef",
+    "private-address-diagnostics/address-comparisons.json": "0696e580688ee4fe4d3b791cc720f6db3e621e154920d4c0b1e12cb1e8b9b64c",
+    "final-binding-proof-22cd4ad/sanitized-proof.json": "e7f802361636b911761555194cf014381521336d17b960076e6a7f7d83daf98c"
+  },
+  "final_processor_image": {
+    "source_sha": "22cd4ad4ec4a59503839d3662a6cd9ce1003114f",
+    "image_id": "sha256:21fd8f5bf1acc392fcabefa5595ea5864b4d7517c8d331039b56f308d4ce58d4",
+    "image_archive_sha256": "019e06592c0d2fb3722c63487159ff49f395e58bc3b694b926bd7cd6a324f811",
+    "schema_unchanged": "0066"
+  }
+}
