@@ -7,6 +7,29 @@ permanent v1 ingest compatibility. Its existing upstream block is outside this
 release, but its containers, database, API and exporter compatibility are release
 gates.
 
+## Current deployed release and operator path
+
+The app runtime is `38f91ba36deaaf5e18521fa967cc838d157086c6`; later ops/docs
+commits do not relabel its images. The source runtime is the baked full revision
+`f33996a386300673bfa16bb419dd080a0a1e38a3`, source schema 509, and the existing
+permanent credit account is upgraded to V5. Do not initialize that account again.
+Its initial 23 spent credits, bootstrap usage 0 and disabled ordinary work survive
+the upgrade. Subsequent paid work must preserve and advance that same authority.
+
+`/opt/huishype-scrapers/current-funda` resolves to the immutable f339 release.
+Use its `runtime.env` and `docker-compose.prod.yml` with the explicit Compose
+project `huishype-funda-scraper`. The gitignored `FUNDA_REMOTE_ENV` and
+`FUNDA_REMOTE_RELEASE` operator facts point there. The old
+`huishype-funda-scraper/.env.production` is rollback-only; its `:prod` image was
+retired after verified offhost archival and must never be an active input.
+
+Only source API/dispatcher and their data services run in the disabled stage.
+Planner, worker, sync, replay, URL verification and acquisition remain separate
+phase gates. Source operational status honestly remains degraded/down while
+those roles are held. The bounded ops collector authenticates against the
+selected running API container's environment, with no legacy env-file fallback.
+Record its exact ops revision separately from both runtime revisions.
+
 ## Operator inputs and evidence
 
 Use the gitignored `/home/caslan/dev/git_repos/hh/huishype/.env.scraper-deploy`
@@ -286,7 +309,8 @@ untracked files and refuses to overwrite existing artifacts. Record the image ID
 and OCI source revision after the build. Never copy operator env files or secrets
 into the Docker build context.
 
-The independent authority can be provisioned before the maintenance window using
+For a genuinely empty future deployment only, the independent authority can be
+provisioned before the maintenance window using
 only `ledger-postgres`, `ledger-migrate` and `dispatcher` from the final Compose
 project and immutable image. Geography calibration waits for the final migrated
 source planner during maintenance; it does not use a parallel calibration

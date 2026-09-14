@@ -9,9 +9,9 @@ IP of the HuisHype app/prod VM.
 
 Use [Funda hybrid release and acceptance](funda-hybrid-release.md) for the
 coordinated hybrid cutover, migration gates, independent paid ledger, immutable
-release manifest and full daily acceptance cycle. The legacy Funda scheduler,
-worker, candidate and probe commands below describe the previous runtime; after
-cutover, all acquisition runs through the final planner. Pararius operations
+release manifest and full daily acceptance cycle. Funda now uses an immutable
+release directory and the final planner. The previous scheduler, candidate and
+probe containers and their obsolete images have been retired. Pararius operations
 remain independent.
 
 ## Secrets
@@ -26,7 +26,9 @@ That file mirrors the deployment/API keys needed to operate the scraper VM and
 records where the live runtime env files live on the VM. Do not commit it and do
 not copy its values into tracked docs. The live stack secrets remain on the VM:
 
-- Funda: `/opt/huishype-scrapers/huishype-funda-scraper/.env.production`
+- Funda: `/opt/huishype-scrapers/current-funda/runtime.env`
+- Funda current release pointer: `/opt/huishype-scrapers/current-funda`
+- Funda legacy env, **rollback only**: `/opt/huishype-scrapers/huishype-funda-scraper/.env.production`
 - Pararius: `/opt/huishype-scrapers/huishype-pararius-scraper/.env`
 
 The app/prod Coolify env must use the scraper API keys from
@@ -87,14 +89,16 @@ unverified deletion or a larger host is not an accepted capacity strategy.
 
 | Source   | Local repo                                                | VM path                                            | Compose file              | Private API             |
 | -------- | --------------------------------------------------------- | -------------------------------------------------- | ------------------------- | ----------------------- |
-| Funda    | `/home/caslan/dev/git_repos/hh/huishype-funda-scraper`    | `/opt/huishype-scrapers/huishype-funda-scraper`    | `docker-compose.prod.yml` | `http://10.42.0.2:8100` |
+| Funda    | `/home/caslan/dev/git_repos/hh/huishype-funda-scraper`    | `/opt/huishype-scrapers/current-funda`    | `docker-compose.prod.yml` | `http://10.42.0.2:8100` |
 | Pararius | `/home/caslan/dev/git_repos/hh/huishype-pararius-scraper` | `/opt/huishype-scrapers/huishype-pararius-scraper` | `docker-compose.yml`      | `http://10.42.0.2:8101` |
 
-Expected containers:
+Declared steady-state containers (start only the roles authorized for the current phase):
 
 - `huishype-funda-scraper-api-1`
 - `huishype-funda-scraper-sync-1`
-- `huishype-funda-scraper-scheduler-1`
+- `huishype-funda-scraper-planner-1`
+- `huishype-funda-scraper-dispatcher-1`
+- `huishype-funda-scraper-ledger-postgres-1`
 - `huishype-funda-scraper-worker-1`
 - `huishype-funda-scraper-postgres-1`
 - `huishype-funda-scraper-redis-1`
@@ -105,15 +109,27 @@ Expected containers:
 - `huishype-pararius-scraper-postgres-1`
 - `huishype-pararius-scraper-redis-1`
 
+The pointer currently resolves to
+`/opt/huishype-scrapers/releases/f33996a386300673bfa16bb419dd080a0a1e38a3`.
+Its image carries that exact baked revision, source schema 509 and ledger V5.
+The current disabled stage runs only Funda API, dispatcher, PostgreSQL, ledger
+PostgreSQL and Redis. Planner, worker and sync remain stopped until the relevant
+capacity and acquisition phase is authorized. API liveness can pass while its
+operational status correctly remains degraded/down in this phase.
+
+Always pass `--project-name huishype-funda-scraper`, `--env-file runtime.env`
+and the current release's `docker-compose.prod.yml`. The project name preserves
+the existing named volumes. Never use the rollback-only env or the retired
+`:prod` tag for ordinary commands.
+
 ## Status Checks
 
-Load the operator env locally:
+Read the gitignored operator facts as dotenv data; do not execute that file as
+a shell program. The examples below use the current nonsecret SSH facts:
 
 ```bash
-cd /home/caslan/dev/git_repos/hh/huishype
-set -a
-source .env.scraper-deploy
-set +a
+SCRAPER_VM_SSH_USER=root
+SCRAPER_VM_PUBLIC_IP=46.225.56.31
 ```
 
 Check VM and containers:
@@ -133,12 +149,14 @@ ssh root@94.130.105.129 'curl -fsS http://10.42.0.2:8101/api/v1/health'
 Check authenticated source-service status:
 
 ```bash
-ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
-  set -a
-  source /opt/huishype-scrapers/huishype-funda-scraper/.env.production
-  set +a
-  curl -fsS -H "Authorization: Bearer ${API_KEY}" "http://${SCRAPER_API_BIND_IP}:8100/api/v1/status"
-'
+ssh -J root@94.130.105.129 "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" \
+  docker exec -i huishype-funda-scraper-api-1 python - <<'PYTHON'
+import json, os, urllib.request
+request = urllib.request.Request("http://127.0.0.1:8100/api/v1/status",
+    headers={"Authorization": "Bearer " + os.environ["API_KEY"]})
+with urllib.request.urlopen(request, timeout=15) as response:
+    print(json.dumps(json.load(response)))
+PYTHON
 
 ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
   set -a
@@ -199,8 +217,8 @@ image IDs, volume identities, log options and service health afterward.
 
 ```bash
 ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
-  cd /opt/huishype-scrapers/huishype-funda-scraper
-  docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=200 scheduler worker sync api
+  cd /opt/huishype-scrapers/current-funda
+  docker compose --project-name huishype-funda-scraper --env-file runtime.env -f docker-compose.prod.yml logs --tail=200 api dispatcher planner worker sync
 '
 
 ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
@@ -211,19 +229,18 @@ ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
 
 ## Queue And Data Checks
 
-Funda:
+Funda uses durable PostgreSQL acquisition and export state. Read the source's
+`recovery.evidence`, `recovery.storage` and `recovery.storageMaintenance` status
+fields for current work, delivery and capacity; old Redis `jobs:*` lists are
+retained legacy state and must not drive the new runtime.
 
 ```bash
-ssh "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
-  cd /opt/huishype-scrapers/huishype-funda-scraper
-  docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres \
-    psql -U scraper -d funda_mirror -c "SELECT COUNT(*) FROM listings;"
-  docker compose --env-file .env.production -f docker-compose.prod.yml exec -T redis \
-    redis-cli LLEN jobs:high
-  docker compose --env-file .env.production -f docker-compose.prod.yml exec -T redis \
-    redis-cli LLEN jobs:normal
-  docker compose --env-file .env.production -f docker-compose.prod.yml exec -T redis \
-    redis-cli LLEN jobs:low
+ssh -J root@94.130.105.129 "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
+  cd /opt/huishype-scrapers/current-funda
+  docker compose --project-name huishype-funda-scraper --env-file runtime.env -f docker-compose.prod.yml exec -T postgres \
+    psql -U scraper -d funda_mirror -c "SELECT version_num FROM alembic_version; SELECT row_to_json(w) FROM source_writer_state w;"
+  docker compose --project-name huishype-funda-scraper --env-file runtime.env -f docker-compose.prod.yml exec -T dispatcher \
+    python -m scraper.realtyapi.admin status
 '
 ```
 
@@ -537,22 +554,33 @@ The live VM runtime directories are not Git working trees. Source changes are
 made in the local repos, committed and pushed there, then synced to the VM while
 preserving each VM-local env file.
 
-Funda:
+Funda deployment uses the immutable workflow in
+[Funda hybrid release and acceptance](funda-hybrid-release.md). Build the exact
+committed source/submodule context on the existing app VM under its resource
+limits, verify/export the image off Docker, and load it only after the measured
+source-host staging allowance fits. Prepare a new `releases/<full SHA>/` directory
+and private `runtime.env`; never rsync over the current release or build on the
+40 GB source host. Keep acquisition disabled through migrations, preservation
+checks and liveness. Change `current-funda` atomically only after the replacement
+passes those checks. Phase-specific admission is a separate step; `up -d` for all
+roles is not an ordinary deployment shortcut.
+
+Read-only current-release checks:
 
 ```bash
-rsync -az --delete \
-  --exclude .git --exclude .venv --exclude .pytest_cache --exclude .ruff_cache \
-  --exclude .env --exclude .env.production \
-  /home/caslan/dev/git_repos/hh/huishype-funda-scraper/ \
-  root@178.104.119.167:/opt/huishype-scrapers/huishype-funda-scraper/
-
-ssh root@178.104.119.167 '
-  cd /opt/huishype-scrapers/huishype-funda-scraper
-  docker compose --env-file .env.production -f docker-compose.prod.yml build
-  docker compose --env-file .env.production -f docker-compose.prod.yml up -d
-  docker compose --env-file .env.production -f docker-compose.prod.yml ps
+ssh -J root@94.130.105.129 "${SCRAPER_VM_SSH_USER}@${SCRAPER_VM_PUBLIC_IP}" '
+  readlink -f /opt/huishype-scrapers/current-funda
+  cd /opt/huishype-scrapers/current-funda
+  docker compose --project-name huishype-funda-scraper --env-file runtime.env -f docker-compose.prod.yml config --images
+  docker compose --project-name huishype-funda-scraper --env-file runtime.env -f docker-compose.prod.yml ps
 '
 ```
+
+Retain verified image/configuration/database recovery archives offhost. Retire
+only the specifically reviewed obsolete containers, images and build records
+using supported exact-ID commands. Measure actual filesystem recovery; potential
+shared-layer savings are not available disk. Preserve all active source/data and
+Pararius references. Coordinated source rollback never rewinds credit accounting.
 
 Pararius:
 
@@ -561,9 +589,9 @@ rsync -az --delete \
   --exclude .git --exclude .venv --exclude .pytest_cache --exclude .ruff_cache \
   --exclude .env \
   /home/caslan/dev/git_repos/hh/huishype-pararius-scraper/ \
-  root@178.104.119.167:/opt/huishype-scrapers/huishype-pararius-scraper/
+  root@46.225.56.31:/opt/huishype-scrapers/huishype-pararius-scraper/
 
-ssh root@178.104.119.167 '
+ssh root@46.225.56.31 '
   cd /opt/huishype-scrapers/huishype-pararius-scraper
   docker compose build
   docker compose up -d
