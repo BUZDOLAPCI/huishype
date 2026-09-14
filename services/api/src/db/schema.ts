@@ -910,6 +910,43 @@ export const ingestEvidence = pgTable('ingest_evidence', {
   check('ingest_evidence_sequence_check', sql`${table.generation} >= 0 AND ${table.sequence} > 0`),
 ]);
 
+// Retired per-event hashes cannot be treated as verified duplicate evidence.
+export const ingestRetiredSequences = pgTable('ingest_retired_sequences', {
+  sourceName: varchar('source_name', { length: 50 }).notNull(),
+  generation: bigint('generation', { mode: 'number' }).notNull(),
+  retiredSequence: bigint('retired_sequence', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.sourceName, table.generation] }),
+  check('ingest_retired_sequences_nonnegative', sql`${table.generation} >= 0 AND ${table.retiredSequence} >= 0`),
+]);
+
+// Actual field confirmations survive independently of property matching.
+// Equal confirmations retain actual boundary samples, never validity intervals.
+export const sourceIdentityBusinessHistory = pgTable('source_identity_business_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourceName: varchar('source_name', { length: 50 }).notNull(),
+  identityId: uuid('identity_id').notNull(),
+  fieldPath: varchar('field_path', { length: 100 }).notNull(),
+  valueJson: jsonb('value_json').$type<unknown>().notNull(),
+  observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+  sampleKey: varchar('sample_key', { length: 64 }).notNull(),
+  collector: varchar('collector', { length: 50 }).notNull(),
+  evidenceStrength: varchar('evidence_strength', { length: 20 }).notNull(),
+  evidenceKind: varchar('evidence_kind', { length: 20 }).notNull(),
+  provenanceJson: jsonb('provenance_json').$type<Record<string, unknown>>().notNull(),
+  recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  confirmationsCompacted: boolean('confirmations_compacted').notNull().default(false),
+}, (table) => [
+  foreignKey({ columns: [table.identityId, table.sourceName], foreignColumns: [sourceListingIdentities.id, sourceListingIdentities.sourceName], name: 'source_identity_business_history_identity_fk' }).onDelete('restrict'),
+  uniqueIndex('source_identity_business_history_sample_idx').on(table.identityId, table.fieldPath, table.sampleKey),
+  index('source_identity_business_history_observed_idx').on(table.identityId, table.fieldPath, table.observedAt, table.sampleKey),
+  index('source_identity_business_history_recorded_idx').on(table.sourceName, table.recordedAt, table.id),
+  check('source_identity_business_history_strength_check', sql`${table.evidenceStrength} IN ('inventory', 'detail')`),
+  check('source_identity_business_history_collector_check', sql`${table.collector} IN ('direct', 'realtyapi')`),
+  check('source_identity_business_history_kind_check', sql`${table.evidenceKind} IN ('facts', 'sighting')`),
+]);
+
 export const sourceIdentityQuarantines = pgTable('source_identity_quarantines', {
   id: uuid('id').primaryKey().defaultRandom(),
   sourceName: varchar('source_name', { length: 50 }).notNull(),
@@ -984,6 +1021,12 @@ export const ingestBatches = pgTable(
     cursorEnd: text('cursor_end').notNull(),
     payloadJson: jsonb('payload_json').$type<Record<string, unknown>>().notNull(),
     status: ingestBatchStatusEnum('status').notNull().default('accepted'),
+    writerGeneration: bigint('writer_generation', { mode: 'number' }),
+    firstSequence: bigint('first_sequence', { mode: 'number' }),
+    lastSequence: bigint('last_sequence', { mode: 'number' }),
+    payloadHash: varchar('payload_hash', { length: 64 }),
+    businessHistoryCompletedAt: timestamp('business_history_completed_at', { withTimezone: true }),
+    payloadCompactedAt: timestamp('payload_compacted_at', { withTimezone: true }),
     attemptCount: integer('attempt_count').notNull().default(0),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
@@ -1008,6 +1051,12 @@ export const ingestBatches = pgTable(
         AND NOT (payload_json ? 'requestedBy')
         AND COALESCE(payload_json->>'scopeKey', '') <> 'candidate'`),
     index('ingest_batches_completed_idx').on(table.completedAt),
+    index('ingest_batches_retention_idx').on(table.sourceName, table.writerGeneration, table.firstSequence, table.lastSequence)
+      .where(sql`writer_generation IS NOT NULL AND payload_compacted_at IS NULL`),
+    index('ingest_batches_compacted_range_idx').on(table.sourceName, table.writerGeneration, table.lastSequence, table.firstSequence)
+      .where(sql`payload_compacted_at IS NOT NULL`),
+    index('ingest_batches_legacy_v2_metadata_idx').on(table.sourceName)
+      .where(sql`writer_generation IS NULL AND payload_compacted_at IS NULL AND payload_json->>'ingestVersion' = '2'`),
     index('ingest_batches_maintenance_pending_idx')
       .on(table.maintenanceRequestedAt, table.maintenanceCompletedAt)
       .where(sql`maintenance_requested_at IS NOT NULL AND maintenance_completed_at IS NULL`),

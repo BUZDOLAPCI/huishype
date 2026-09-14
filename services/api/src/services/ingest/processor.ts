@@ -1536,6 +1536,7 @@ async function lockSkippedBatchRecoveryCandidate(
     FROM ingest_batches
     WHERE id = ${batchId}
       AND status = 'completed'
+      AND payload_compacted_at IS NULL
       AND jsonb_typeof(payload_json->'listings') = 'array'
       AND jsonb_array_length(payload_json->'listings') > 0
       AND (
@@ -1963,7 +1964,7 @@ export async function processIngestBatch(
           await advancePropertyTilePyramidSourceWatermark(['ingest_source', 'listing_facts', 'property_status'], tx);
         }
         await tx.update(ingestBatches).set({
-          status: 'completed', completedAt: new Date(), ingestedCount: projected.ingestedCount,
+          status: 'completed', completedAt: new Date(), businessHistoryCompletedAt: new Date(), ingestedCount: projected.ingestedCount,
           updatedCount: projected.updatedCount, skippedCount: projected.skippedCount,
           errorJson: null, maintenanceRequestedAt: projected.projectionChanged ? new Date() : null,
         }).where(eq(ingestBatches.id, claimed.id));

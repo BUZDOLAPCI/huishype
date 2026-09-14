@@ -8,6 +8,7 @@ import {
 } from './cursor.js';
 import { IngestIdempotencyConflictError } from './errors.js';
 import { assertIngestWriter } from './v2-writer.js';
+import { assertV2BatchRangeNotRetired, ingestBatchPayloadHash, v2BatchReceiptMetadata } from './batch-receipts.js';
 
 type BatchRow = typeof ingestBatches.$inferSelect;
 type BatchStatus = BatchRow['status'];
@@ -584,7 +585,9 @@ export async function acceptIngestBatch(
   request: IngestBatchRequest,
 ): Promise<AcceptedIngestBatchRecord> {
   return db.transaction(async (tx) => {
-    await assertIngestWriter(tx, request);
+    // Exact known receipts remain queryable after raw retirement or a writer
+    // generation change. Returning an old completed outcome performs no write.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${request.sourceName}))`);
     const existingRows = await tx
       .select()
       .from(ingestBatches)
@@ -600,7 +603,9 @@ export async function acceptIngestBatch(
     if (existing) {
       const existingNormalized = ingestBatchRequestSchema.safeParse(existing.payloadJson);
       const payloadMatches =
-        stableJson(existingNormalized.success ? existingNormalized.data : existing.payloadJson) === stableJson(request) &&
+        (existing.payloadHash !== null
+          ? existing.payloadHash === ingestBatchPayloadHash(request)
+          : stableJson(existingNormalized.success ? existingNormalized.data : existing.payloadJson) === stableJson(request)) &&
         existing.cursorStart === request.cursorStart &&
         existing.cursorEnd === request.cursorEnd &&
         existing.batchSequence === request.batchSequence;
@@ -622,6 +627,9 @@ export async function acceptIngestBatch(
       };
     }
 
+    await assertIngestWriter(tx, request);
+    await assertV2BatchRangeNotRetired(tx, request);
+
     const run = await ensureRun(tx, request);
     await touchSourceRunState(tx, request, run);
 
@@ -635,6 +643,7 @@ export async function acceptIngestBatch(
         cursorStart: request.cursorStart,
         cursorEnd: request.cursorEnd,
         payloadJson: request as unknown as Record<string, unknown>,
+        ...v2BatchReceiptMetadata(request),
         status: 'accepted',
       })
       .returning();
@@ -812,6 +821,7 @@ export async function listSkippedBatchRecoveryCandidates(
     FROM ingest_batches
     WHERE status = 'completed'
       ${sourceNameSqlFilter(sql`source_name`, sourceNames)}
+      AND payload_compacted_at IS NULL
       AND jsonb_typeof(payload_json->'listings') = 'array'
       AND jsonb_array_length(payload_json->'listings') > 0
       AND (
@@ -881,6 +891,7 @@ export async function listForceSkippedBatchRecoveryCandidates(
     FROM ingest_batches
     WHERE status = 'completed'
       AND source_name = ${sourceName}
+      AND payload_compacted_at IS NULL
       AND jsonb_typeof(payload_json->'listings') = 'array'
       AND jsonb_array_length(payload_json->'listings') > 0
       AND (
@@ -1135,7 +1146,11 @@ export async function collectRecoveryDispatchWork(
 }
 
 export async function getIngestBatchStatus(batchId: string) {
-  const [batch] = await db.select().from(ingestBatches).where(eq(ingestBatches.id, batchId));
+  const [batch] = await db.select({ id: ingestBatches.id, sourceName: ingestBatches.sourceName,
+    status: ingestBatches.status, completedAt: ingestBatches.completedAt,
+    ingestedCount: ingestBatches.ingestedCount, updatedCount: ingestBatches.updatedCount,
+    skippedCount: ingestBatches.skippedCount, errorJson: ingestBatches.errorJson,
+  }).from(ingestBatches).where(eq(ingestBatches.id, batchId));
   return batch ? {
     batchId: batch.id, sourceName: batch.sourceName, status: batch.status,
     completedAt: toIsoString(batch.completedAt), ingestedCount: batch.ingestedCount,

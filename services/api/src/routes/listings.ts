@@ -830,7 +830,8 @@ export async function listingRoutes(app: FastifyInstance) {
       } catch (err) {
         if (err instanceof IngestIdempotencyConflictError) {
           return reply.status(409).send({
-            error: err.name === 'IngestWriterFencedError' ? 'WRITER_FENCED' : 'IDEMPOTENCY_CONFLICT',
+            error: err.name === 'IngestWriterFencedError' ? 'WRITER_FENCED'
+              : err.name === 'IngestEvidenceRetiredError' ? 'EVIDENCE_RETIRED' : 'IDEMPOTENCY_CONFLICT',
             message: err.message,
           });
         }
