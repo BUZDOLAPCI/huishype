@@ -463,6 +463,13 @@
       "when": 1789300800005,
       "tag": "0065_source_identity_reconciliation_checkpoints",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1789345873732,
+      "tag": "0066_bounded_ingest_evidence_history",
+      "breakpoints": true
     }
   ]
 }
