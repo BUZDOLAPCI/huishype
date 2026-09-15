@@ -84,7 +84,7 @@ def capture_text(command, *, role, timeout=30):
     """Nested collector command; retain its existing timeout and output behavior."""
     result, started = _run(command, None, role, timeout, None, "remote_command")
     try:
-        return result.stdout.decode("utf-8")
+        return result.stdout.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
     except UnicodeDecodeError:
         raise _failure("invalid_utf8", role, started, timeout, result.stdout, result.stderr,
                        returncode=result.returncode, stage="remote_command") from None

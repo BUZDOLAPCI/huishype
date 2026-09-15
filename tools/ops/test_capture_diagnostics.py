@@ -72,6 +72,11 @@ class CaptureDiagnosticsTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(d["stderr_tail_base64"]), b"psql: statement timeout")
         self.assertNotIn("private-args", capture.diagnostic_bytes(d).decode())
 
+    def test_nested_success_matches_text_true_newlines(self):
+        result = subprocess.CompletedProcess([], 0, b"a\r\nb\rc\n\xe2\x82\xac", b"")
+        with patch.object(capture.subprocess, "run", return_value=result):
+            self.assertEqual(capture.capture_text(["docker"], role="scraper"), "a\nb\nc\n\u20ac")
+
     def test_nested_envelope_fits_final_artifact_with_arbitrary_stderr_bytes(self):
         stderr = bytes(range(256)) * 400
         nested = capture._failure("remote_exit", "scraper", capture.time.monotonic(), 12,
