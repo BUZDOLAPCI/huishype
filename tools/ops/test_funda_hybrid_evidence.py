@@ -327,7 +327,7 @@ class EvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             env = Path(directory) / "env"
             env.write_text("APP_VM_PUBLIC_IP=192.0.2.1\nSCRAPER_VM_PUBLIC_IP=192.0.2.2\nAPI_KEY=supersecret\n")
-            with patch.object(evidence, "run", side_effect=RuntimeError("supersecret")):
+            with patch.object(evidence._capture_diagnostics, "capture_json", side_effect=RuntimeError("supersecret")):
                 result, path = evidence.audit_freshness(env, START.isoformat(), (START + dt.timedelta(days=1)).isoformat(),
                                                        directory, Path(directory) / "audits", now=START + dt.timedelta(days=2))
             self.assertFalse(result["passed"])
@@ -504,13 +504,13 @@ class EvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             env = Path(directory) / "env"
             env.write_text("APP_VM_PUBLIC_IP=192.0.2.1\nSCRAPER_VM_PUBLIC_IP=192.0.2.2\nAPI_KEY=supersecret\n")
-            with patch.object(evidence, "run", side_effect=[RuntimeError("supersecret"), snapshot()["hosts"]["scraper"]]):
+            with patch.object(evidence._capture_diagnostics, "capture_json", side_effect=[RuntimeError("supersecret"), snapshot()["hosts"]["scraper"]]):
                 # Both malformed remote data and SSH failures must remain partial.
                 result, path = evidence.capture(env, Path(directory) / "evidence")
             self.assertEqual(result["status"], "partial")
             self.assertNotIn("supersecret", path.read_text())
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-            with patch.object(evidence, "run", side_effect=RuntimeError("secret")):
+            with patch.object(evidence._capture_diagnostics, "capture_json", side_effect=RuntimeError("secret")):
                 _, second_path = evidence.capture(env, path.parent)
             self.assertNotEqual(path, second_path)
             self.assertTrue(path.exists())

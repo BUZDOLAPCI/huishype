@@ -175,7 +175,7 @@ class BoundedWatchTests(unittest.TestCase):
 
     def test_exhaustion_preserves_snapshots_and_bounds_error_log(self):
         with tempfile.TemporaryDirectory() as directory:
-            code, _, samples, output = self.run_watch(directory, limit=6000, oversized_sample=1)
+            code, _, samples, output = self.run_watch(directory, limit=47000, oversized_sample=1)
             self.assertEqual(code, 1)
             self.assertEqual(len(samples), 1)
             self.assertFalse((Path(directory) / 'snapshot-1.json').exists())
@@ -183,7 +183,7 @@ class BoundedWatchTests(unittest.TestCase):
             journal = next(Path(directory).glob('watch-*.jsonl'))
             records = [json.loads(line) for line in journal.read_text().splitlines()]
             self.assertEqual(records[-1]['error'], 'OutputBudgetExceeded')
-            self.assertLessEqual(sum(f.stat().st_size for f in Path(directory).iterdir()) + len(output.encode()), 6000)
+            self.assertLessEqual(sum(f.stat().st_size for f in Path(directory).iterdir()) + len(output.encode()), 47000)
             self.assertNotIn('secret sentinel', output)
             self.assertEqual(len(output.splitlines()), 2)
 

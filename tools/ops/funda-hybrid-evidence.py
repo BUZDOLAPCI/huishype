@@ -41,8 +41,9 @@ Console output is bounded; retain watch-*.jsonl for per-sample progress and erro
 Release verification requires every recognized running service in the manifest,
 including infrastructure. Window verification checks observation coverage and records
 operational reasons; it NEVER certifies inventory completeness or release
-acceptance. Capture issues produce a partial file and exit 1. No logs, Docker
-environment, response error bodies, or raw exception messages are persisted.
+acceptance. Capture issues produce a partial file and exit 1. Public snapshots
+exclude raw diagnostics. A separate bounded private transport diagnostic may retain
+a stderr tail; it must be handled as sensitive evidence.
 SSH uses existing trusted host keys and never forwards an agent.
 """
 
@@ -52,6 +53,7 @@ import datetime as dt
 import fcntl
 import hashlib
 import ipaddress
+import importlib.util
 import json
 import math
 import os
@@ -64,10 +66,53 @@ import sys
 import time
 import urllib.request
 
+# The SSH payload injects this same utility before executing the collector.
+if "_capture_diagnostics" not in globals():
+    _diagnostic_spec = importlib.util.spec_from_file_location(
+        "capture_diagnostics", Path(__file__).with_name("capture_diagnostics.py"))
+    _capture_diagnostics = importlib.util.module_from_spec(_diagnostic_spec)
+    _diagnostic_spec.loader.exec_module(_capture_diagnostics)
+CaptureFailure = _capture_diagnostics.CaptureFailure
+PRIVATE_DIAGNOSTIC_KEY = "_private_capture_diagnostic"
+_CAPTURE_ROLE = "app"
+_CAPTURE_DIAGNOSTIC = None
+
+
+def remote_script():
+    utility = Path(__file__).with_name("capture_diagnostics.py").read_text()
+    return ("import types\n_capture_diagnostics=types.ModuleType('capture_diagnostics')\n"
+            + "exec(" + repr(utility) + ", _capture_diagnostics.__dict__)\n"
+            + Path(__file__).read_text())
+
+
+def remember_diagnostic(diagnostic):
+    """Retain only the first failure; never put its contents in public evidence."""
+    global _CAPTURE_DIAGNOSTIC
+    _capture_diagnostics.diagnostic_bytes(diagnostic)
+    if _CAPTURE_DIAGNOSTIC is None:
+        _CAPTURE_DIAGNOSTIC = diagnostic
+
+
+def private_remote_result(result):
+    if _CAPTURE_DIAGNOSTIC is not None:
+        result[PRIVATE_DIAGNOSTIC_KEY] = _CAPTURE_DIAGNOSTIC
+    return result
+
+
+def split_remote_diagnostic(body):
+    if not isinstance(body, dict):
+        return None
+    diagnostic = body.pop(PRIVATE_DIAGNOSTIC_KEY, None)
+    if diagnostic is not None:
+        _capture_diagnostics.diagnostic_bytes(diagnostic)
+    return diagnostic
+
+
 DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 ** 3
 MAX_WATCH_HOURS = 168
 MAX_WATCH_LOG_BYTES = 4 * 1024 ** 2
 WATCH_OUTPUT_RESERVE = 4096
+CAPTURE_OUTPUT_RESERVE = _capture_diagnostics.DIAGNOSTIC_BYTES + WATCH_OUTPUT_RESERVE
 FINAL_CAPTURE_RESERVE_SECONDS = 90
 
 DEFAULT_ENV = "/home/caslan/dev/git_repos/hh/huishype/.env.scraper-deploy"
@@ -212,12 +257,12 @@ def sanitize(value, secrets=(), depth=0):
     return "[unsupported]"
 
 
-def run(command, timeout=30, input_text=None):
-    completed = subprocess.run(command, input=input_text, text=True, capture_output=True,
-                               timeout=timeout, check=False)
-    if completed.returncode:
-        raise RuntimeError("command_failed")
-    return completed.stdout
+def run(command, timeout=30):
+    try:
+        return _capture_diagnostics.capture_text(command, role=_CAPTURE_ROLE, timeout=timeout)
+    except CaptureFailure as exc:
+        remember_diagnostic(exc.diagnostic)
+        raise
 
 
 def valid_queue_metric(value):
@@ -502,6 +547,8 @@ def read_json_url(url, key=None):
 
 
 def remote_capture(role, light=False):
+    global _CAPTURE_ROLE, _CAPTURE_DIAGNOSTIC
+    _CAPTURE_ROLE, _CAPTURE_DIAGNOSTIC = role, None
     evidence = {"captured_at": utcnow(), "status": "complete", "errors": [],
                 "containers": [], "databases": {}, "endpoints": {}}
     secrets = []
@@ -667,7 +714,7 @@ def remote_capture(role, light=False):
         except Exception as exc:
             evidence["metrics"]["app_retention"] = {"status": "unavailable", "reason": type(exc).__name__}
     evidence["completed_at"] = utcnow()
-    return sanitize(evidence, secrets)
+    return private_remote_result(sanitize(evidence, secrets))
 
 
 def ssh_command(env, role, light=False):
@@ -803,19 +850,25 @@ def json_bytes(value, *, compact=False):
 
 
 def capture(env_path, output_dir, light=False, max_output_bytes=DEFAULT_MAX_OUTPUT_BYTES, *, _persist=None):
+    diagnostic = None
     evidence = {"schema_version": 1, "sample_kind": "light" if light else "full", "captured_at": utcnow(), "status": "complete", "hosts": {}, "errors": []}
     try:
         env = parse_env(Path(env_path).read_text())
-        script = Path(__file__).read_text()
+        script = remote_script()
         for role in ("app", "scraper"):
             try:
-                body = json.loads(run(ssh_command(env, role, light), timeout=45, input_text=script))
+                body = _capture_diagnostics.capture_json(ssh_command(env, role, light), script,
+                                                         role=role, timeout=45, max_output_bytes=None)
+                remote_diagnostic = split_remote_diagnostic(body)
+                diagnostic = diagnostic or remote_diagnostic
                 if not isinstance(body, dict) or body.get("status") not in {"complete", "partial"}:
                     raise ValueError("invalid_remote_evidence")
                 evidence["hosts"][role] = body
                 if body["status"] != "complete":
                     evidence["status"] = "partial"
             except Exception as exc:
+                if isinstance(exc, CaptureFailure):
+                    diagnostic = diagnostic or exc.diagnostic
                 evidence["status"] = "partial"
                 evidence["errors"].append({"check": role, "kind": type(exc).__name__})
         secrets = [v for k, v in env.items() if SENSITIVE.search(k) and v]
@@ -828,9 +881,12 @@ def capture(env_path, output_dir, light=False, max_output_bytes=DEFAULT_MAX_OUTP
     name = "snapshot-" + stamp + ".json"
     payload = json_bytes(evidence)
     if _persist is not None:
-        path = _persist(name, payload, evidence)
+        path = _persist(name, payload, evidence, diagnostic) if diagnostic else _persist(name, payload, evidence)
     else:
         with OutputBudget(output_dir, max_output_bytes) as budget:
+            if diagnostic:
+                budget.write("capture-failure-" + stamp + ".private.json",
+                             _capture_diagnostics.diagnostic_bytes(diagnostic))
             path = budget.write(name, payload)
     return evidence, path
 
@@ -992,6 +1048,8 @@ def valid_source_completions(value):
 
 
 def remote_audit(role, start, end):
+    global _CAPTURE_ROLE, _CAPTURE_DIAGNOSTIC
+    _CAPTURE_ROLE, _CAPTURE_DIAGNOSTIC = role, None
     start, end = audit_interval(start, end)
     expected = "app.postgres" if role == "app" else "funda.postgres"
     name = "postgres-cop1e1822hijj6g3zmxhrs0k" if role == "app" else "huishype-funda-scraper-postgres-1"
@@ -1003,13 +1061,13 @@ def remote_audit(role, start, end):
         if len(matches) != 1:
             raise ValueError("expected_one_running_database")
         if role == "app":
-            return app_publication_telemetry(matches[0], start, end)
+            return private_remote_result(app_publication_telemetry(matches[0], start, end))
         values = read_db_json(matches[0], source_completion_sql(start, end))
         if not valid_source_completions(values):
             raise ValueError("invalid_source_completion_aggregate")
-        return {"status": "available", "observed_at": utcnow(), "values": {k: values[k] for k in sorted(SOURCE_COMPLETION_FIELDS)}}
+        return private_remote_result({"status": "available", "observed_at": utcnow(), "values": {k: values[k] for k in sorted(SOURCE_COMPLETION_FIELDS)}})
     except Exception as exc:
-        return {"status": "unavailable", "reason": type(exc).__name__}
+        return private_remote_result({"status": "unavailable", "reason": type(exc).__name__})
 
 
 def audit_sample_window(snapshots, start, end, manifest=None, max_gap_minutes=2, now=None):
@@ -1112,7 +1170,8 @@ def freshness_result(source, app, window, start, end, limit=900):
             "source": source, "app": app, "window": window, "errors": list(dict.fromkeys(errors))}
 
 
-def audit_freshness(env_path, start, end, directory, output_dir, limit=900, manifest=None, now=None):
+def audit_freshness(env_path, start, end, directory, output_dir, limit=900, manifest=None, now=None,
+                    max_output_bytes=DEFAULT_MAX_OUTPUT_BYTES):
     start, end = audit_interval(start, end)
     if (now or dt.datetime.now(dt.timezone.utc)) - timestamp(start) > dt.timedelta(days=7):
         raise ValueError("exact_acceptance_evidence_expired_after_seven_days")
@@ -1124,30 +1183,34 @@ def audit_freshness(env_path, start, end, directory, output_dir, limit=900, mani
         window = audit_sample_window(snapshots, start, end, manifest)
     except Exception as exc:
         window = {"passed": False, "errors": ["snapshot_evidence:" + type(exc).__name__]}
-    collected, secrets = {}, []
+    collected, secrets, diagnostic = {}, [], None
     try:
         env = parse_env(Path(env_path).read_text())
         secrets = [v for k, v in env.items() if SENSITIVE.search(k) and v]
-        script = Path(__file__).read_text()
+        script = remote_script()
         for role in ("app", "scraper"):
             try:
                 command = ssh_command(env, role)
                 command[-1] = "python3 - --remote-audit " + role + " --audit-start " + start + " --audit-end " + end
-                collected[role] = json.loads(run(command, timeout=45, input_text=script))
+                collected[role] = _capture_diagnostics.capture_json(command, script, role=role,
+                                                                   timeout=45, max_output_bytes=None)
+                remote_diagnostic = split_remote_diagnostic(collected[role])
+                diagnostic = diagnostic or remote_diagnostic
             except Exception as exc:
+                if isinstance(exc, CaptureFailure):
+                    diagnostic = diagnostic or exc.diagnostic
                 collected[role] = {"status": "unavailable", "reason": type(exc).__name__}
     except Exception as exc:
         collected = {role: {"status": "unavailable", "reason": type(exc).__name__} for role in ("app", "scraper")}
     result = freshness_result(collected.get("scraper"), collected.get("app"), window, start, end, limit)
     result.update({"schema_version": 1, "captured_at": captured_at, "completed_at": utcnow()})
     result = sanitize(result, secrets)
-    output = Path(output_dir)
-    output.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path = output / ("freshness-audit-" + captured_at.replace(":", "").replace("-", "") + ".json")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w") as handle:
-        json.dump(result, handle, indent=2, allow_nan=False)
-        handle.write("\n")
+    stamp = captured_at.replace(":", "").replace("-", "")
+    with OutputBudget(output_dir, max_output_bytes) as budget:
+        if diagnostic:
+            budget.write("audit-failure-" + stamp + ".private.json",
+                         _capture_diagnostics.diagnostic_bytes(diagnostic))
+        path = budget.write("freshness-audit-" + stamp + ".json", json_bytes(result))
     return result, path
 
 
@@ -1263,14 +1326,17 @@ def watch(env_path, output_dir, interval=60, duration_hours=MAX_WATCH_HOURS, ful
     with OutputBudget(output_dir, max_output_bytes) as budget:
         budget.write(journal, json_bytes({"watch": "started", "at": utcnow(), "interval_seconds": interval,
                      "duration_hours": duration_hours, "max_output_bytes": max_output_bytes}, compact=True),
-                     reserve=WATCH_OUTPUT_RESERVE)
+                     reserve=CAPTURE_OUTPUT_RESERVE)
         # Only two bounded console records per run; full progress stays in-budget.
         budget.emit({"watch": "started"}, sys.stdout)
 
-        def persist(name, payload, snapshot):
+        def persist(name, payload, snapshot, diagnostic=None):
+            if diagnostic:
+                budget.write("capture-failure-" + name.removeprefix("snapshot-").removesuffix(".json") + ".private.json",
+                             _capture_diagnostics.diagnostic_bytes(diagnostic), reserve=WATCH_OUTPUT_RESERVE)
             record = json_bytes({"snapshot": name, "status": snapshot["status"],
                                  "sample_kind": snapshot["sample_kind"]}, compact=True)
-            return budget.write(name, payload, journal=journal, record=record, reserve=WATCH_OUTPUT_RESERVE)
+            return budget.write(name, payload, journal=journal, record=record, reserve=CAPTURE_OUTPUT_RESERVE)
 
         def sample(light=False):
             return capture(env_path, output_dir, light=light, max_output_bytes=max_output_bytes, _persist=persist)
@@ -1278,7 +1344,7 @@ def watch(env_path, output_dir, interval=60, duration_hours=MAX_WATCH_HOURS, ful
         def finish(status, code, error=None):
             record = {"watch": status, "at": utcnow(), "exit_code": code}
             if error is not None:
-                record["error"] = type(error).__name__  # Never persist exception values or remote bodies.
+                record["error"] = type(error).__name__  # Diagnostic contents stay in a separate private artifact.
             try:
                 budget.write(journal, json_bytes(record, compact=True), append=True)
             except (OSError, ValueError):
@@ -1356,6 +1422,7 @@ def main(argv=None):
     audit.add_argument("--directory", required=True, help="minute snapshots including full snapshots bracketing the interval")
     audit.add_argument("--output-dir", required=True, help="private directory for a sanitized audit JSON artifact")
     audit.add_argument("--env-file", default=DEFAULT_ENV)
+    audit.add_argument("--max-output-bytes", type=int, default=DEFAULT_MAX_OUTPUT_BYTES)
     audit.add_argument("--max-latency-seconds", type=float, default=900)
     audit.add_argument("--manifest", help="also verify the declared release and required metrics across the observation window")
     args = parser.parse_args(argv)
@@ -1376,7 +1443,8 @@ def main(argv=None):
         if args.command == "audit-freshness":
             manifest = json.loads(Path(args.manifest).read_text()) if args.manifest else None
             result, path = audit_freshness(args.env_file, args.start, args.end, args.directory,
-                                           args.output_dir, args.max_latency_seconds, manifest)
+                                           args.output_dir, args.max_latency_seconds, manifest,
+                                           max_output_bytes=args.max_output_bytes)
             print(json.dumps({"audit": str(path), "passed": result["passed"],
                               "measured_completed_upper_bound_seconds": result["measured_completed_upper_bound_seconds"]}))
             return 0 if result["passed"] else 1
