@@ -117,6 +117,20 @@ recovery sweep can then consume the pending demand using its recorded
 If guardrails still block the due demand, the pending record is refreshed and
 left in place.
 
+Public map serving (restored September 15): city tiles above the configured
+precompute maximum and filtered tiles use the ready current candidate snapshot
+and its spatial indexes. Their server cache and ETags include the snapshot ID;
+a snapshot promotion selects new cache entries. Fresh public tiles advertise
+`public, max-age=300, stale-while-revalidate=300` so revisiting a viewport can use
+the browser cache. Listing overlays and their revision fencing remain enabled
+for precomputed low-zoom tiles only. City/filtered listing changes become visible
+after the next guarded snapshot rebuild/promotion, plus browser cache freshness.
+Keep the worker recovery sweep and pending full-build demand enabled; do not
+reintroduce a full rebuild per listing or the global live candidate query into
+city requests. Before deploying this serving path, verify that the current
+candidate snapshot is `ready` with non-null social and grouping fact counts. A
+healthy compatible current snapshot requires no rebuild merely to deploy code.
+
 Safety thresholds before starting or retrying a full rebuild:
 - Root disk below 75% used and at least 40GB free.
 - `/ops/property-tile-pyramid.guardrails.verdict` is `ok` and

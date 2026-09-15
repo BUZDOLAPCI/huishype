@@ -52,8 +52,7 @@ import { generateTreeCandidates } from '../services/tree-scatter.js';
 import huishypeBaseStyle from '../styles/huishype-base-style.json' with { type: 'json' };
 import {
   buildFollowingMvtForTile,
-  buildCanonicalGroupsForTileUncached,
-  buildMvtForGroups,
+  buildMvtForTile,
   buildReadMvtForTile,
   tileToBBox,
 } from '../services/property-grouping.js';
@@ -378,7 +377,7 @@ function sendPublicTileEntry(
   options: { honorConditional?: boolean } = {}
 ) {
   const cacheControl =
-    source === 'stale' ? PROPERTY_TILE_STALE_CACHE_CONTROL : 'public, max-age=0, must-revalidate';
+    source === 'stale' ? PROPERTY_TILE_STALE_CACHE_CONTROL : PROPERTY_TILE_CACHE_CONTROL;
   const honorConditional = options.honorConditional ?? true;
   const baseReply = reply
     .header('Cache-Control', cacheControl)
@@ -466,6 +465,33 @@ function sendPyramidUnavailableTile(
     .header('X-Tile-Budget-Ms', String(input.runtime.budgetMs))
     .status(204)
     .send();
+}
+
+function sendCandidateSnapshotUnavailableTile(
+  reply: FastifyReply,
+  input: {
+    runtime: Pick<
+      PropertyTileRuntimeResult<PropertyTilePayloadBuildResult>,
+      'coalesced' | 'queueTimeMs' | 'generationTimeMs' | 'budgetMs'
+    >;
+    reason: string;
+  }
+) {
+  return reply
+    .header('Cache-Control', 'no-store')
+    .header('X-HuisHype-Tile-Status', 'candidate-snapshot-unavailable')
+    .header('X-HuisHype-Candidate-Snapshot-Status', input.reason)
+    .header('X-Tile-Generation-Time', tileHeaderValue(input.runtime.generationTimeMs))
+    .header('X-Tile-Cache', 'candidate-snapshot-unavailable')
+    .header('X-Tile-Coalesced', String(input.runtime.coalesced))
+    .header('X-Tile-Queue-Time', tileHeaderValue(input.runtime.queueTimeMs))
+    .header('X-Tile-Budget-Ms', String(input.runtime.budgetMs))
+    .status(503)
+    .send({
+      error: 'CANDIDATE_SNAPSHOT_UNAVAILABLE',
+      message: 'Public property tiles require a ready current candidate snapshot.',
+      reason: input.reason,
+    });
 }
 
 function sendPyramidUncoveredTile(
@@ -755,6 +781,91 @@ function assertTileRouteBuildCanContinue(
         `Property tile runtime budget exceeded during ${stage}`
       );
     }
+  }
+}
+
+type PublicCandidateSnapshotForDynamicTiles = {
+  id: string;
+  sourceWatermarkHash: string | null;
+  closedSocialActivityCutoffAt: string | null;
+};
+
+function getSourceWatermarkSources(
+  sourceWatermarksJson: Record<string, unknown> | null | undefined
+): Array<Record<string, unknown>> {
+  const sources = sourceWatermarksJson?.sources;
+  return Array.isArray(sources)
+    ? sources.filter(
+        (source): source is Record<string, unknown> =>
+          Boolean(source) && typeof source === 'object' && !Array.isArray(source)
+      )
+    : [];
+}
+
+function readRollingSocialWindowCutoffAt(
+  sourceWatermarksJson: Record<string, unknown> | null | undefined
+): string | null {
+  const rollingSource = getSourceWatermarkSources(sourceWatermarksJson).find(
+    (source) => source.source === 'rolling_social_window'
+  );
+  const cutoffAt = rollingSource?.cutoffAt;
+  return typeof cutoffAt === 'string' && cutoffAt.length > 0 ? cutoffAt : null;
+}
+
+async function lookupCurrentPublicCandidateSnapshotForDynamicTiles(
+  options?: PropertyTileBuildOptions
+): Promise<PublicCandidateSnapshotForDynamicTiles | null> {
+  assertTileRouteBuildCanContinue(options, 'candidate snapshot lookup preparation');
+  const timeoutMs = validateStatementTimeoutMs(options?.statementTimeoutMs);
+  const slot = getDefaultPropertyTilePyramidSlot();
+  const query = sql`
+    SELECT
+      s.id::text,
+      s.source_watermark_hash,
+      s.source_watermarks_json,
+      COALESCE(s.build_finished_at, s.updated_at, s.created_at)::text AS snapshot_cutoff_at
+    FROM property_tile_candidate_source_current c
+    INNER JOIN property_tile_candidate_source_snapshots s
+      ON s.id = c.snapshot_id
+    WHERE c.coverage_id = ${slot.coverageId}
+      AND c.filter_signature = ${slot.filterSignature}
+      AND c.pyramid_kind = ${slot.pyramidKind}::property_tile_pyramid_kind
+      AND s.status = 'ready'
+      AND s.social_fact_row_count IS NOT NULL
+      AND s.grouping_fact_row_count IS NOT NULL
+    LIMIT 1
+  `;
+
+  options?.markUncancellableStage?.(true);
+  try {
+    const rows = timeoutMs
+      ? await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('statement_timeout', ${`${timeoutMs}ms`}, true)`);
+          return tx.execute<{
+            id: string;
+            source_watermark_hash: string | null;
+            source_watermarks_json: Record<string, unknown> | null;
+            snapshot_cutoff_at: string | null;
+          }>(query);
+        })
+      : await db.execute<{
+          id: string;
+          source_watermark_hash: string | null;
+          source_watermarks_json: Record<string, unknown> | null;
+          snapshot_cutoff_at: string | null;
+        }>(query);
+    const row = Array.from(rows)[0];
+    if (!row) {
+      return null;
+    }
+    return {
+      id: row.id,
+      sourceWatermarkHash: row.source_watermark_hash,
+      closedSocialActivityCutoffAt:
+        readRollingSocialWindowCutoffAt(row.source_watermarks_json) ?? row.snapshot_cutoff_at,
+    };
+  } finally {
+    options?.markUncancellableStage?.(false);
   }
 }
 
@@ -2588,12 +2699,77 @@ export async function tileRoutes(app: FastifyInstance) {
         });
       }
 
-      const listingState = await propertyTilePyramidRouteService.lookupListingState({ z, x, y }, pyramidRouteMaxZoom);
-      const cacheKey = `${baseCacheKey}:listing:${listingTileCacheRevision(listingState)}`;
+      // City and filtered tiles use the spatially indexed, published snapshot.
+      // Live listing overlays remain confined to the precomputed low-zoom path.
+      const snapshotLookupStartedAt = Date.now();
+      const snapshotLookupRuntime = {
+        coalesced: false,
+        queueTimeMs: 0,
+        generationTimeMs: 0,
+        budgetMs: runtimeConfig.publicBudgetMs,
+      };
+      let candidateSnapshot: PublicCandidateSnapshotForDynamicTiles | null;
+      try {
+        candidateSnapshot = await lookupCurrentPublicCandidateSnapshotForDynamicTiles({
+          statementTimeoutMs: runtimeConfig.publicBudgetMs,
+        });
+      } catch (error) {
+        if (!isPropertyTileRecoverableError(error)) {
+          throw error;
+        }
+        snapshotLookupRuntime.generationTimeMs = Date.now() - snapshotLookupStartedAt;
+        logTileOutcome({
+          request,
+          routeKind: 'public',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'candidate-snapshot-unavailable',
+          result: 'candidate-snapshot-unavailable',
+          runtime: snapshotLookupRuntime,
+          errorClassification: 'transient_db',
+        });
+        return sendCandidateSnapshotUnavailableTile(reply, {
+          runtime: snapshotLookupRuntime,
+          reason: 'lookup-error',
+        });
+      }
+
+      snapshotLookupRuntime.generationTimeMs = Date.now() - snapshotLookupStartedAt;
+      if (!candidateSnapshot) {
+        request.log.warn(
+          {
+            routeKind: 'public',
+            z,
+            x,
+            y,
+            filterSignature,
+          },
+          'Public dynamic property tile requested without a ready current candidate snapshot'
+        );
+        logTileOutcome({
+          request,
+          routeKind: 'public',
+          z,
+          x,
+          y,
+          filterSignature,
+          cacheState: 'candidate-snapshot-unavailable',
+          result: 'candidate-snapshot-unavailable',
+          runtime: snapshotLookupRuntime,
+        });
+        return sendCandidateSnapshotUnavailableTile(reply, {
+          runtime: snapshotLookupRuntime,
+          reason: 'missing-ready-current',
+        });
+      }
+
+      const cacheKey = `${baseCacheKey}:candidate:${candidateSnapshot.id}`;
       const cachedTile = publicPropertyTileCache.get(cacheKey);
 
       if (cachedTile.state === 'fresh') {
-        reply.header('X-HuisHype-Listing-Revision', listingState.requestedRevision);
+        reply.header('X-HuisHype-Candidate-Snapshot', candidateSnapshot.id);
         logTileOutcome({
           request,
           routeKind: 'public',
@@ -2627,18 +2803,18 @@ export async function tileRoutes(app: FastifyInstance) {
         budgetMs: runtimeConfig.publicBudgetMs,
         statementTimeoutMs: runtimeConfig.publicBudgetMs,
         signal,
-        builder: async (options) => {
-          const liveOptions = {
-            ...options,
-            liveListingUpdates: true,
-            onStageTiming: (timing: PropertyTileStageTiming) => {
-              stageTimings.push(timing);
-              options.onStageTiming?.(timing);
-            },
-          };
-          const groups = await buildCanonicalGroupsForTileUncached({ z, x, y }, filters, liveOptions);
-          return buildPayloadResult(await buildMvtForGroups({ z, x, y }, groups, liveOptions));
-        },
+        builder: async (options) =>
+          buildPayloadResult(
+            await buildMvtForTile({ z, x, y }, filters, {
+              ...options,
+              candidateSnapshotId: candidateSnapshot.id,
+              closedSocialActivityCutoffAt: candidateSnapshot.closedSocialActivityCutoffAt,
+              onStageTiming: (timing) => {
+                stageTimings.push(timing);
+                options.onStageTiming?.(timing);
+              },
+            })
+          ),
       });
 
       if (runtimeResult.state !== 'completed') {
@@ -2648,7 +2824,7 @@ export async function tileRoutes(app: FastifyInstance) {
         ) {
           const staleEntry = publicPropertyTileCache.getStale(cacheKey);
           if (staleEntry) {
-            reply.header('X-HuisHype-Listing-Revision', listingState.requestedRevision);
+            reply.header('X-HuisHype-Candidate-Snapshot', candidateSnapshot.id);
             logTileOutcome({
               request,
               routeKind: 'public',
@@ -2705,7 +2881,10 @@ export async function tileRoutes(app: FastifyInstance) {
         ...runtimeResult.result,
         etag: buildPropertyTileEtag(cacheKey, runtimeResult.result.payload),
       });
-      reply.header('X-HuisHype-Listing-Revision', listingState.requestedRevision);
+      reply.header('X-HuisHype-Candidate-Snapshot', candidateSnapshot.id);
+      if (candidateSnapshot.sourceWatermarkHash) {
+        reply.header('X-HuisHype-Candidate-Source-Watermark', candidateSnapshot.sourceWatermarkHash);
+      }
       const queryTime = runtimeResult.generationTimeMs;
 
       // Log slow queries for monitoring
