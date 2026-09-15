@@ -4,6 +4,14 @@
 This operator wrapper does not implement acquisition policy. The manifest pins
 the existing watcher, capture, installer and max-one controller. Each child
 retains its own finite duration, output budget and fail-closed predicates.
+
+Run with an explicitly reviewed private manifest and its SHA256, and a new
+0700 output directory: --manifest FILE --manifest-sha256 HASH --output-dir DIR.
+Create DIR/STOP (or send SIGTERM) to stop admission after the owned current step
+settles. Read hourly-summary.json/current.json on hourly operator check-ins;
+terminal-alert.json means admission stopped and requires operator attention.
+No model turn is needed between check-ins. A complete sizing result is held;
+this tool never issues inventory authority or retries a failed handoff.
 """
 import argparse
 import datetime as dt
@@ -16,6 +24,7 @@ from pathlib import Path
 import signal
 import subprocess
 import time
+import traceback
 
 
 def utc():
@@ -95,6 +104,18 @@ class Supervisor:
         for name, entry in self.manifest['files'].items():
             if Path(name).name != name or digest(entry['path']) != entry['sha256']:
                 raise RuntimeError('reviewed_dependency_changed')
+        if digest(self.manifest['source_authority']['path']) != self.manifest['source_authority']['sha256']:
+            raise RuntimeError('source_authority_changed')
+
+    def preserve_exception(self, exc, stage):
+        # No locals, stdout, environment or command arguments are captured.
+        raw = ''.join(traceback.TracebackException.from_exception(exc, capture_locals=False).format(chain=True)).encode('utf-8', errors='replace')
+        tail = raw[-40 * 1024:]
+        try:
+            (self.output / ('exception-' + stage + '.private.log')).write_bytes(tail)
+            atomic(self.output / ('exception-' + stage + '.private.json'), {'at': utc(), 'category': type(exc).__name__, 'original_bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest(), 'retained_bytes': len(tail), 'truncated': len(tail) < len(raw)})
+        except OSError:
+            pass  # Preserve the original exception and fail closed.
 
     def stop_process(self, process, seconds):
         for child in self.children:
@@ -291,6 +312,7 @@ class Supervisor:
                 self.stop_controller()
                 self.refresh_checkpoint(force=True)
         except Exception as exc:
+            self.preserve_exception(exc, 'controller-cleanup')
             cleanup.append(type(exc).__name__ + ':' + str(exc))
         # Do not remove observation coverage while a paid controller may exist.
         try:
@@ -299,6 +321,7 @@ class Supervisor:
                 if getattr(self, 'pending_watch', None):
                     self.stop_process(self.pending_watch, 90)
         except Exception as exc:
+            self.preserve_exception(exc, 'watch-cleanup')
             cleanup.append(type(exc).__name__ + ':' + str(exc))
         alert = {'at': utc(), 'reason': reason, 'cleanup_errors': cleanup, 'controller': self.controller, 'watch': self.watch, 'saved_guard': self.guard_path, 'provider_retry_issued': False, 'inventory_authority_issued': False}
         atomic(self.output / 'terminal-alert.json', alert)
@@ -311,8 +334,6 @@ class Supervisor:
         reason = 'unknown'
         try:
             self.verify_files()
-            if digest(self.manifest['source_authority']['path']) != self.manifest['source_authority']['sha256']:
-                raise RuntimeError('source_authority_changed')
             settled_handoff(self)
             while time.monotonic() < self.end:
                 for child in self.children:
@@ -334,6 +355,7 @@ class Supervisor:
             else:
                 reason = 'overall_finite_duration'
         except Exception as exc:
+            self.preserve_exception(exc, 'run')
             reason = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
         finally:
             self.terminal(reason)
